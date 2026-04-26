@@ -10,7 +10,12 @@ import json
 import matplotlib.pyplot as plt
 
 
-BASE_DATA_PATH = "/pscratch/sd/x/xiuliu/room_rir/preprocess_treble_dense/"
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+BASE_DATA_PATH = (
+    os.environ["XRIR_DATA_PATH"]
+    if "XRIR_DATA_PATH" in os.environ
+    else os.path.join(_REPO_ROOT, "data")
+)
 
 
 
