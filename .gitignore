@@ -4,3 +4,8 @@ checkpoints.zip
 checkpoints/
 data/
 AcoustiX
+.cache/
+.drjit/
+.keras/
+CLAUDE.md
+ckpt/
