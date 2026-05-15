@@ -3,3 +3,8 @@ AcousticRooms/
 checkpoints.zip
 checkpoints/
 data/
+.cache/
+.drjit/
+.keras/
+AcoustiX/
+CLAUDE.md
