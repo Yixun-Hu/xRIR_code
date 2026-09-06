@@ -1251,6 +1251,10 @@ def _gate_setup(tmp_path, monkeypatch):
                              manifest_hash=SEED1_HASH, **cyl_kwargs)
     noise_cyl2 = _scaled_run(str(tmp_path / "gate_noise_cyl_seed2"), scale=0.997,
                              manifest_hash=SEED2_HASH, **cyl_kwargs)
+    shape_control = _scaled_run(str(tmp_path / "gate_shape_b1"), scale=1.0005,
+                                batch_size=1)
+    shape_cyl = _scaled_run(str(tmp_path / "gate_shape_cyl_b1"), scale=0.999,
+                            batch_size=1, **cyl_kwargs)
     loaded = {name: json.load(open(os.path.join(d, "per_sample_yaw.json")))
               for name, d in (("control", control), ("cyl", cyl), ("released", released))}
     exp01 = {name: _exp01_file(str(tmp_path / "exp01" / "{}.json".format(name)),
@@ -1263,10 +1267,12 @@ def _gate_setup(tmp_path, monkeypatch):
             "--noise-runs", noise1, noise2,
             "--noise-runs-cyl", noise_cyl1, noise_cyl2,
             "--nuisance-runs", phase, tf32,
+            "--shape-runs", shape_control, shape_cyl,
             "--released-baseline", baseline, "--n-boot", "200"]
     return argv, {"control": control, "cyl": cyl, "released": released,
                   "noise1": noise1, "noise2": noise2, "phase": phase, "tf32": tf32,
-                  "noise_cyl1": noise_cyl1, "noise_cyl2": noise_cyl2}
+                  "noise_cyl1": noise_cyl1, "noise_cyl2": noise_cyl2,
+                  "shape_control": shape_control, "shape_cyl": shape_cyl}
 
 
 def _run_gate(argv, tmp_path, name):
@@ -1613,7 +1619,8 @@ def test_the_v1_band_is_only_available_when_it_is_asked_for(tmp_path, monkeypatc
                for reason in out["gate_reasons"])
 
     # v1 without them reproduces the superseded, narrower band.
-    without = _drop_flag(_drop_flag(argv, "--nuisance-runs"), "--noise-runs-cyl")
+    without = _drop_flag(_drop_flag(_drop_flag(argv, "--nuisance-runs"),
+                                    "--noise-runs-cyl"), "--shape-runs")
     out, code = _run_gate(without + ["--band-rule", "v1"], tmp_path, "v1_only")
     assert code == 0 and out["gate_pass"] is True
     assert out["band_rule"] == "v1 (reference draw only)"
@@ -1625,8 +1632,8 @@ def test_the_v1_band_is_only_available_when_it_is_asked_for(tmp_path, monkeypatc
 
 def test_the_gate_reports_the_band_terms_it_used(tmp_path, monkeypatch):
     argv, _ = _gate_setup(tmp_path, monkeypatch)
-    argv = _drop_flag(argv, "--noise-runs-cyl") + ["--band-rule", "v2"]
-    out, code = _run_gate(argv, tmp_path, "terms")
+    argv = _drop_flag(_drop_flag(argv, "--noise-runs-cyl"), "--shape-runs")
+    out, code = _run_gate(argv + ["--band-rule", "v2"], tmp_path, "terms")
 
     assert code == 0
     assert out["band_rule"] == "v2 (2026-09-06 amendment)"
@@ -1634,8 +1641,10 @@ def test_the_gate_reports_the_band_terms_it_used(tmp_path, monkeypatch):
     for label, per_metric in out["band_terms"].items():
         assert sorted(per_metric) == sorted(GATE_METRICS), label
         for metric, terms in per_metric.items():
-            assert sorted(terms) == ["s_phase", "s_ref", "s_shape", "s_tf32"], metric
+            assert sorted(terms) == ["s_phase", "s_ref", "s_shape", "s_shape_measured",
+                                     "s_tf32"], metric
             assert terms["s_shape"] is None, "v2 has no shape term"
+            assert terms["s_shape_measured"] is False
             assert all(terms[key] > 0 for key in ("s_ref", "s_phase", "s_tf32")), metric
     text = open(str(tmp_path / "terms.txt")).read()
     assert "S_ref" in text and "S_phase" in text and "S_tf32" in text
@@ -1720,8 +1729,8 @@ def test_the_older_band_rules_stay_available_only_when_asked_for(tmp_path, monke
     assert any("--noise-runs-cyl" in reason and "v2" in reason
                for reason in out["gate_reasons"])
 
-    v2_argv = _drop_flag(argv, "--noise-runs-cyl") + ["--band-rule", "v2"]
-    out, code = _run_gate(v2_argv, tmp_path, "v2_only")
+    v2_argv = _drop_flag(_drop_flag(argv, "--noise-runs-cyl"), "--shape-runs")
+    out, code = _run_gate(v2_argv + ["--band-rule", "v2"], tmp_path, "v2_only")
     assert code == 0 and out["gate_pass"] is True
     assert out["band_rule"] == "v2 (2026-09-06 amendment)"
     for row in out["gate_rows"]:
@@ -1729,3 +1738,73 @@ def test_the_older_band_rules_stay_available_only_when_asked_for(tmp_path, monke
         assert row["band"] == pytest.approx(2.0 * (row["band_terms"]["s_ref"]
                                                    + row["band_terms"]["s_phase"]
                                                    + row["band_terms"]["s_tf32"]) + 1e-6)
+
+
+def test_the_shape_term_is_measured_per_model_and_may_be_absent(tmp_path, monkeypatch):
+    """exp_01 ran at batch 1; the gate runs at 16, and the shapes do not agree bit for bit."""
+    argv, _ = _gate_setup(tmp_path, monkeypatch)
+    out, code = _run_gate(argv, tmp_path, "shape")
+    assert code == 0 and out["gate_pass"] is True
+
+    rows = dict(((row["label"], row["metric"]), row) for row in out["gate_rows"])
+    for metric in GATE_METRICS:
+        control, cyl = rows[("control", metric)], rows[("cyl", metric)]
+        mean = control["mean_k0"]
+        assert control["band_terms"]["s_shape"] == pytest.approx(0.0005 * mean, rel=1e-6)
+        assert cyl["band_terms"]["s_shape"] == pytest.approx(0.001 * mean, rel=1e-6)
+        assert control["band_terms"]["s_shape_measured"] is True
+        assert cyl["band_terms"]["s_shape_measured"] is True
+        for row in (control, cyl, rows[("released", metric)]):
+            terms = row["band_terms"]
+            assert row["band"] == pytest.approx(
+                2.0 * (terms["s_ref"] + terms["s_phase"] + terms["s_tf32"]
+                       + terms["s_shape"]) + 1e-6, rel=1e-12)
+        # The released checkpoint has no shape run; it carries the control's term.
+        assert rows[("released", metric)]["band_terms"]["s_shape"] == \
+            control["band_terms"]["s_shape"]
+
+    # Without any shape run the term is zero and the table says so.
+    out, code = _run_gate(_drop_flag(argv, "--shape-runs"), tmp_path, "no_shape")
+    assert code == 0 and out["gate_pass"] is True
+    for row in out["gate_rows"]:
+        assert row["band_terms"]["s_shape"] == 0.0
+        assert row["band_terms"]["s_shape_measured"] is False
+    assert "not measured" in open(str(tmp_path / "no_shape.txt")).read()
+
+
+def test_the_gate_fails_closed_on_a_bad_shape_run(tmp_path, monkeypatch):
+    argv, paths = _gate_setup(tmp_path, monkeypatch)
+
+    def fails(name, needle, changed=None):
+        out, code = _run_gate(changed or argv, tmp_path, name)
+        assert code != 0, name
+        assert out["gate_pass"] is False, name
+        assert any(needle in reason for reason in out["gate_reasons"]), \
+            (name, needle, out["gate_reasons"])
+
+    fails("three_shape", "at most 2 --shape-runs",
+          argv + [paths["shape_control"]] if False else
+          argv[:argv.index("--shape-runs") + 3] + [paths["shape_control"]]
+          + argv[argv.index("--released-baseline"):])
+
+    _edit_run(paths["shape_cyl"], lambda run: run["meta"].update(batch_size=16))
+    fails("shape_batch", "meta.batch_size")
+    _edit_run(paths["shape_cyl"], lambda run: run["meta"].update(batch_size=1,
+                                                                 manifest_hash=SEED1_HASH))
+    fails("shape_manifest", "manifest_hash")
+    _edit_run(paths["shape_cyl"], lambda run: run["meta"].update(
+        manifest_hash=MANIFEST_HASH, checkpoint="checkpoints/xRIR_unseen.pth",
+        backbone="simple"))
+    fails("shape_unknown", "is neither the control's nor the cylindrical")
+    # Two shape runs of the same model leave the other one unmeasured without saying so.
+    _edit_run(paths["shape_cyl"], lambda run: run["meta"].update(
+        checkpoint="ckpt/xRIR_simple_8_shot/epoch_12.pth"))
+    fails("shape_duplicate", "two --shape-runs of the same checkpoint")
+
+
+def test_the_older_band_rules_reject_the_shape_runs(tmp_path, monkeypatch):
+    argv, _ = _gate_setup(tmp_path, monkeypatch)
+    without_cyl = _drop_flag(argv, "--noise-runs-cyl")
+    out, code = _run_gate(without_cyl + ["--band-rule", "v2"], tmp_path, "v2_shape")
+    assert code != 0
+    assert any("--shape-runs" in reason for reason in out["gate_reasons"])

@@ -605,7 +605,7 @@ def _finite_mean(values):
 
 
 def k0_gate_rows(by_label, roles, exp01_by_label, noise_runs, released_baseline,
-                 nuisance_runs=(), band_rule="v3", noise_runs_cyl=(),
+                 nuisance_runs=(), band_rule="v3", noise_runs_cyl=(), shape_runs=(),
                  metrics=K0_GATE_METRICS):
     """The k=0 parity gate: do the pinned-manifest runs reproduce exp_01's numbers?
 
@@ -636,6 +636,8 @@ def k0_gate_rows(by_label, roles, exp01_by_label, noise_runs, released_baseline,
         nuisance_runs: the phase and TF32 runs of the control checkpoint (v2 and v3).
         band_rule: ``"v3"`` (default, per-model), ``"v2"`` or ``"v1"``.
         noise_runs_cyl: the cylindrical checkpoint on manifest seeds 1 and 2 (v3).
+        shape_runs: optional batch-1 runs; a model without one gets ``s_shape = 0`` and
+            is reported as "not measured" rather than silently credited with a term.
         metrics: the metrics to gate on.
 
     Returns:
@@ -647,6 +649,8 @@ def k0_gate_rows(by_label, roles, exp01_by_label, noise_runs, released_baseline,
     reasons = []
     by_profile = dict((nuisance_profile(run), run) for run in nuisance_runs
                       if nuisance_profile(run) is not None)
+    by_shape = dict((shape_run_role(run), run) for run in shape_runs
+                    if shape_run_role(run) is not None)
     means = {}
     for role in ("primary", "cyl", "released"):
         label = roles.get(role)
@@ -674,18 +678,22 @@ def k0_gate_rows(by_label, roles, exp01_by_label, noise_runs, released_baseline,
             deltas = [value for value in
                       (shift_for(run, anchor, metric) for run in noise_for_role)
                       if value is not None]
-            terms = {"s_ref": max(deltas) if deltas else None,
-                     "s_phase": None, "s_tf32": None, "s_shape": None}
+            terms = {"s_ref": max(deltas) if deltas else None, "s_phase": None,
+                     "s_tf32": None, "s_shape": None, "s_shape_measured": False}
             if band_rule in ("v2", "v3"):
                 control_anchor = means["primary"][metric]
                 terms["s_phase"] = shift_for(by_profile.get("phase"), control_anchor,
                                              metric)
                 terms["s_tf32"] = shift_for(by_profile.get("tf32"), control_anchor, metric)
+            if band_rule == "v3":
+                measured = shift_for(by_shape.get(anchor_role), anchor, metric)
+                terms["s_shape"] = 0.0 if measured is None else measured
+                terms["s_shape_measured"] = measured is not None
             required = {"v1": ("s_ref",),
                         "v2": ("s_ref", "s_phase", "s_tf32"),
                         "v3": ("s_ref", "s_phase", "s_tf32")}[band_rule]
             total = (None if any(terms[key] is None for key in required)
-                     else sum(terms[key] for key in required))
+                     else sum(terms[key] for key in required) + (terms["s_shape"] or 0.0))
             terms_by_role[role][metric] = (terms, total)
     if not noise_runs:
         reasons.append("no --noise-runs given: the reference-draw spread is unmeasured")
@@ -1031,8 +1039,54 @@ def _check_noise_runs(noise_runs, reference, role, flag):
     return reasons
 
 
+def shape_run_role(run):
+    """Which gated model a shape run belongs to (``"primary"``/``"cyl"``), or ``None``.
+
+    The shape term is about *this* model's compute shape, so it is read off a run of the
+    same checkpoint; the released checkpoint has none and borrows the control's.
+    """
+    checkpoint = run["meta"].get("checkpoint", "")
+    for role in ("primary", "cyl"):
+        if _checkpoint_matches(checkpoint, EXPECTED_ROLES[role]["checkpoint"]):
+            return role
+    return None
+
+
+def _check_shape_runs(shape_runs, reference):
+    """Zero to two batch-1 runs, at most one per gated model, on the seed-0 manifest."""
+    reasons = []
+    if len(shape_runs) > 2:
+        reasons.append("expected at most 2 --shape-runs (one per gated model), got {}"
+                       .format(len(shape_runs)))
+    seen = []
+    for run in shape_runs:
+        name = "--shape-runs {}".format(
+            os.path.basename(os.path.normpath(run.get("dir", "?"))))
+        role = shape_run_role(run)
+        if role is None:
+            reasons.append("{}: checkpoint {!r} is neither the control's nor the "
+                           "cylindrical model's".format(
+                               name, run["meta"].get("checkpoint")))
+        else:
+            seen.append(role)
+            if run["meta"].get("backbone") != EXPECTED_ROLES[role]["backbone"]:
+                reasons.append("{}: backbone {!r}, expected {!r}".format(
+                    name, run["meta"].get("backbone"),
+                    EXPECTED_ROLES[role]["backbone"]))
+        # exp_01's compute shape: batch 1, everything else as the confirmatory runs.
+        reasons.extend(_check_run_meta(name, run, MANIFEST_HASH_SEED0, {"batch_size": 1}))
+        reasons.extend(_check_k0_only(name, run))
+        reasons.extend(_check_spectral_arrays(name, run, [0]))
+        if reference is not None and run["query"] != reference["query"]:
+            reasons.append("{}: queries differ from the gate runs".format(name))
+    if len(seen) != len(set(seen)):
+        reasons.append("two --shape-runs of the same checkpoint: the other model's shape "
+                       "term would silently stay unmeasured")
+    return reasons
+
+
 def validate_gate(by_label, roles, noise_runs, exp01_by_label, expected_hash=None,
-                  nuisance_runs=(), band_rule="v3", noise_runs_cyl=()):
+                  nuisance_runs=(), band_rule="v3", noise_runs_cyl=(), shape_runs=()):
     """Everything the k=0 parity gate needs before it is allowed to pass.
 
     The gate decides whether the sweep may start, so it fails closed: a missing noise
@@ -1044,6 +1098,8 @@ def validate_gate(by_label, roles, noise_runs, exp01_by_label, expected_hash=Non
         roles: ``{"primary", "cyl", "released"} -> label or None``.
         noise_runs: the control checkpoint re-evaluated on manifest seeds 1 and 2.
         noise_runs_cyl: the same for the cylindrical checkpoint; required by v3.
+        shape_runs: optional batch-1 runs (exp_01's compute shape), at most one per
+            gated model.
         nuisance_runs: the control checkpoint re-evaluated with a different Griffin-Lim
             phase seed and with TF32; required by the amended (v2) band.
         band_rule: ``"v2"`` (the amendment) or ``"v1"`` (reference draw only).
@@ -1106,9 +1162,14 @@ def validate_gate(by_label, roles, noise_runs, exp01_by_label, expected_hash=Non
                            "model's own reference draw)")
         reasons.extend(_check_noise_runs(noise_runs_cyl, reference, "cyl",
                                          "--noise-runs-cyl"))
-    elif noise_runs_cyl:
-        reasons.append("--band-rule {} has no per-model term; it must not be given "
-                       "--noise-runs-cyl".format(band_rule))
+        reasons.extend(_check_shape_runs(shape_runs, reference))
+    else:
+        if noise_runs_cyl:
+            reasons.append("--band-rule {} has no per-model term; it must not be given "
+                           "--noise-runs-cyl".format(band_rule))
+        if shape_runs:
+            reasons.append("--band-rule {} has no shape term; it must not be given "
+                           "--shape-runs".format(band_rule))
     return reasons
 
 
@@ -1281,6 +1342,10 @@ def main(argv=None):
                         help="k0-gate: k=0 runs of the control checkpoint with --gl-seed 1 "
                              "and with --tf32; they measure the Griffin-Lim phase and "
                              "arithmetic noise that exp_01's published means also carry")
+    parser.add_argument("--shape-runs", nargs="*", default=[], metavar="DIR",
+                        help="k0-gate: optional batch-1 runs (exp_01's compute shape), at "
+                             "most one per gated model; a model without one is reported "
+                             "as not measured rather than credited with a term")
     parser.add_argument("--band-rule", choices=BAND_RULES, default="v3",
                         help="k0-gate: v3 (default) measures the reference draw per model "
                              "and needs --noise-runs-cyl; v2 shares the control's terms; "
@@ -1346,6 +1411,7 @@ def main(argv=None):
     noise_runs = [load_run(directory) for directory in args.noise_runs]
     nuisance_runs = [load_run(directory) for directory in args.nuisance_runs]
     noise_runs_cyl = [load_run(directory) for directory in args.noise_runs_cyl]
+    shape_runs = [load_run(directory) for directory in args.shape_runs]
     released_baseline = None
     if args.released_baseline:
         parts = [value.strip() for value in args.released_baseline.split(",")]
@@ -1480,10 +1546,10 @@ def main(argv=None):
         if gate_mode:
             extra = validate_gate(by_label, roles, noise_runs, exp01_by_label,
                                   args.manifest_hash, nuisance_runs, args.band_rule,
-                                  noise_runs_cyl)
+                                  noise_runs_cyl, shape_runs)
             gate_rows, gate_pass, gate_reasons = k0_gate_rows(
                 by_label, roles, exp01_by_label, noise_runs, released_baseline,
-                nuisance_runs, args.band_rule, noise_runs_cyl)
+                nuisance_runs, args.band_rule, noise_runs_cyl, shape_runs)
             gate_reasons = extra + gate_reasons
             gate_pass = bool(gate_pass and not extra)
             out.update({"gate_rows": gate_rows, "gate_pass": gate_pass,
@@ -1491,33 +1557,47 @@ def main(argv=None):
                         "noise_runs": list(args.noise_runs),
                         "noise_runs_cyl": list(args.noise_runs_cyl),
                         "nuisance_runs": list(args.nuisance_runs),
+                        "shape_runs": list(args.shape_runs),
                         "band_rule": BAND_RULE_LABELS[args.band_rule],
                         "band_terms": _band_terms_by_label(gate_rows),
                         "released_baseline": released_baseline})
             print("\n3b. k=0 parity gate against exp_01, band rule {}.".format(
                 BAND_RULE_LABELS[args.band_rule]))
-            print("    exp_01's means differ from these by more than the reference draw: "
-                  "its Griffin-Lim\n    phases were unseeded and its forwards used TF32, "
-                  "so the band is\n    2 x (S_ref + S_phase + S_tf32) + 1e-6, each term a "
-                  "mean shift of the control run." if args.band_rule == "v2" else
-                  "    Superseded: the band is 2 x S_ref + 1e-6, the reference draw alone.")
-            print("    S_ref from {}; S_phase / S_tf32 from {}.".format(
+            if args.band_rule == "v1":
+                print("    Superseded: the band is 2 x S_ref + 1e-6, the reference draw "
+                      "alone.")
+            else:
+                print("    exp_01's means differ from these by more than the reference "
+                      "draw: its Griffin-Lim\n    phases were unseeded and its forwards "
+                      "ran at batch 1 with TF32, so the band is\n    2 x (S_ref + S_phase "
+                      "+ S_tf32{}) + 1e-6, each term a mean shift of the model itself."
+                      .format(" + S_shape" if args.band_rule == "v3" else ""))
+            print("    S_ref from {}{}; S_phase / S_tf32 from {}; S_shape from {}.".format(
                 ", ".join(args.noise_runs) or "(none given)",
-                ", ".join(args.nuisance_runs) or "(none given)"))
-            print("   {:>10} {:>8} {:>12} {:>12} {:>11} {:>11} {:>11} {:>12} {:>12} "
-                  "{:>6}  {}".format("run", "metric", "mean k=0", "reference", "S_ref",
-                                     "S_phase", "S_tf32", "|diff|", "band", "pass",
-                                     "source"))
+                " and " + ", ".join(args.noise_runs_cyl) if args.noise_runs_cyl else "",
+                ", ".join(args.nuisance_runs) or "(none given)",
+                ", ".join(args.shape_runs) or "(none given)"))
+            print("   {:>10} {:>8} {:>12} {:>12} {:>11} {:>11} {:>11} {:>11} {:>12} "
+                  "{:>12} {:>6}  {}".format(
+                      "run", "metric", "mean k=0", "reference", "S_ref", "S_phase",
+                      "S_tf32", "S_shape", "|diff|", "band", "pass", "source"))
+            unmeasured = set()
             for row in gate_rows:
                 terms = row["band_terms"]
-                print("   {:>10} {:>8} {:>12} {:>12} {:>11} {:>11} {:>11} {:>12} {:>12} "
-                      "{:>6}  {}".format(
+                if args.band_rule == "v3" and not terms["s_shape_measured"]:
+                    unmeasured.add(row["label"])
+                print("   {:>10} {:>8} {:>12} {:>12} {:>11} {:>11} {:>11} {:>11} {:>12} "
+                      "{:>12} {:>6}  {}".format(
                           row["label"], row["metric"], _fmt(row["mean_k0"], 5),
                           _fmt(row["reference"], 5), _fmt(terms["s_ref"], 6),
                           _fmt(terms["s_phase"], 6), _fmt(terms["s_tf32"], 6),
+                          _fmt(terms["s_shape"], 6) if terms["s_shape_measured"] else "-",
                           _fmt(row["abs_diff"], 6), _fmt(row["band"], 6),
                           "-" if row["pass"] is None else ("yes" if row["pass"] else "NO"),
                           row["source"]))
+            if unmeasured:
+                print("   S_shape not measured for {} (no --shape-runs entry); counted "
+                      "as 0.".format(", ".join(sorted(unmeasured))))
             print("   gate_pass: {}".format(gate_pass))
             for reason in gate_reasons:
                 print("      - {}".format(reason))
