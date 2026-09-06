@@ -17,6 +17,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import io
+import numbers
 
 import numpy as np
 import torch
@@ -108,11 +109,13 @@ def griffin_lim_seeded(mag_spec, seed):
     return griffin_lim(mag)
 
 
-def acoustic_metrics(pred_ir, gt_ir, evaluator, want_t60=True):
+def acoustic_metrics(pred_ir, gt_ir, evaluator, want_t60=True, window=8000):
     """EDT / C50 / T60 errors of one prediction, with exp_01's validity rules.
 
-    Applies ``eval_xRIR_backbone.py``'s rules unchanged, on the arrays exactly as passed
-    (the caller does the ``[:8000]`` slicing):
+    Applies ``eval_xRIR_backbone.py``'s rules unchanged, on the first ``window``
+    samples of each IR.  The window is enforced *here* rather than left to the caller,
+    so no call site can widen it and quietly compare a rotated angle on more of the tail
+    than ``k = 0`` was measured on:
 
     * ``edt``  -- ``|EDT(gt) - EDT(pred)|`` in seconds; NaN if either measurement raises
       ``ValueError``/``IndexError`` (a silent or all-zero IR has no Schroeder decay);
@@ -121,6 +124,9 @@ def acoustic_metrics(pred_ir, gt_ir, evaluator, want_t60=True):
     * ``t60``  -- ``|T60(gt) - T60(pred)| / T60(gt) * 100`` as a percentage; NaN on
       ``ValueError``/``IndexError``/``ZeroDivisionError``, and NaN when ``want_t60`` is
       False.
+
+    Any non-finite result is normalised to NaN, so a vanishing ``T60(gt)`` reports an
+    invalid sample rather than an infinite "error" that would swamp a mean.
 
     A NaN here means "this sample is invalid at this angle"; the paired analysis drops
     the pair and reports the invalid fraction separately, so nothing is ever silently
@@ -132,10 +138,21 @@ def acoustic_metrics(pred_ir, gt_ir, evaluator, want_t60=True):
         gt_ir: ground-truth impulse response, same length.
         evaluator: an ``eval_unseen.Evaluator``.
         want_t60: compute T60 (it is the noisiest metric and descriptive only).
+            When False, ``measure_rt60`` is not called at all.
+        window: number of leading samples measured; exp_01's 8000.
 
     Returns:
         ``{"edt": float, "c50": float, "t60": float}``, NaN where invalid.
+
+    Raises:
+        ValueError: if ``window`` is not a positive integer.
     """
+    if isinstance(window, bool) or not isinstance(window, numbers.Integral) or int(window) < 1:
+        raise ValueError("window must be a positive integer number of samples, got {!r}"
+                         .format(window))
+    pred_ir = np.asarray(pred_ir)[:int(window)]
+    gt_ir = np.asarray(gt_ir)[:int(window)]
+
     nan = float("nan")
     edt = c50 = t60 = nan
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -151,4 +168,5 @@ def acoustic_metrics(pred_ir, gt_ir, evaluator, want_t60=True):
                 t60 = abs(gt_t60 - evaluator.measure_rt60(pred_ir)) / gt_t60 * 100.0
             except (ValueError, IndexError, ZeroDivisionError):
                 t60 = nan
-    return {"edt": float(edt), "c50": float(c50), "t60": float(t60)}
+    return {key: (float(value) if np.isfinite(value) else nan)
+            for key, value in (("edt", edt), ("c50", c50), ("t60", t60))}

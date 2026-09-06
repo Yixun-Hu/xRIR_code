@@ -52,9 +52,9 @@ def test_per_sample_losses_match_the_one_sample_calls():
 
     for i in range(4):
         want_loss, want_stft, want_decay = _direct(out_spec, tgt_spec, i)
-        assert float(stft[i]) == pytest.approx(want_stft, abs=1e-7)
-        assert float(decay[i]) == pytest.approx(want_decay, abs=1e-7)
-        assert float(loss[i]) == pytest.approx(want_loss, abs=1e-7)
+        assert float(stft[i]) == pytest.approx(want_stft, abs=1e-7, rel=0)
+        assert float(decay[i]) == pytest.approx(want_decay, abs=1e-7, rel=0)
+        assert float(loss[i]) == pytest.approx(want_loss, abs=1e-7, rel=0)
     assert torch.allclose(loss, stft + decay, atol=1e-7)
 
 
@@ -68,8 +68,8 @@ def test_per_sample_stft_terms_average_to_the_batch_loss():
     with contextlib.redirect_stdout(io.StringIO()):
         batch_decay = float(compute_spect_energy_decay_losses(
             gts=gt, preds=torch.exp(out_spec) - 1e-8))
-    assert float(stft.mean()) == pytest.approx(batch_stft, abs=1e-6)
-    assert float(decay.mean()) == pytest.approx(batch_decay, abs=1e-6)
+    assert float(stft.mean()) == pytest.approx(batch_stft, abs=1e-6, rel=0)
+    assert float(decay.mean()) == pytest.approx(batch_decay, abs=1e-6, rel=0)
 
 
 def test_per_sample_losses_are_silent_and_grad_free():
@@ -208,6 +208,67 @@ def test_acoustic_metrics_return_nan_for_a_degenerate_prediction(evaluator):
     assert np.isnan(got["edt"]) and np.isnan(got["c50"]) and np.isnan(got["t60"])
     # A degenerate ground truth is just as survivable.
     assert all(np.isnan(v) for v in acoustic_metrics(gt, zeros, evaluator).values())
+
+
+def test_acoustic_metrics_apply_the_8000_sample_window_themselves(evaluator):
+    """A caller must not be able to widen the metric window by passing a longer IR."""
+    import numpy as np
+
+    gt, pred = _decaying_ir(seed=0), _decaying_ir(seed=1, tau=600.0)
+    poison = np.full(4000, 50.0)                   # a loud tail beyond the window
+    windowed = acoustic_metrics(pred, gt, evaluator)
+    poisoned = acoustic_metrics(np.concatenate([pred, poison]),
+                                np.concatenate([gt, poison]), evaluator)
+    assert poisoned == windowed, "samples past 8000 must not reach the measurements"
+    # The window is the documented default, and a narrower one really does change things.
+    assert acoustic_metrics(pred, gt, evaluator, window=8000) == windowed
+    assert acoustic_metrics(pred, gt, evaluator, window=4000) != windowed
+    for bad in (0, -1, 8000.0, True):
+        with pytest.raises(ValueError):
+            acoustic_metrics(pred, gt, evaluator, window=bad)
+
+
+class _StubEvaluator:
+    """Returns fixed measurements, so the degenerate branches can be reached exactly."""
+
+    def __init__(self, gt_t60, pred_t60):
+        self._t60 = {0: gt_t60, 1: pred_t60}
+        self.rt60_calls = 0
+
+    def measure_edt(self, h):
+        return 0.5
+
+    def measure_clarity(self, h):
+        return 3.0
+
+    def measure_rt60(self, h):
+        self.rt60_calls += 1
+        return self._t60[int(h[0])]
+
+
+def test_acoustic_metrics_normalise_a_non_finite_t60_to_nan():
+    import numpy as np
+
+    gt, pred = np.array([0.0, 1.0]), np.array([1.0, 1.0])
+    # A zero ground-truth T60 makes the relative error infinite, not merely large.
+    stub = _StubEvaluator(gt_t60=np.float64(0.0), pred_t60=np.float64(0.5))
+    got = acoustic_metrics(pred, gt, stub)
+    assert np.isnan(got["t60"]), "an infinite relative T60 error is invalid, not a value"
+    assert got["edt"] == 0.0 and got["c50"] == 0.0
+
+    finite = _StubEvaluator(gt_t60=np.float64(0.4), pred_t60=np.float64(0.5))
+    assert acoustic_metrics(pred, gt, finite)["t60"] == pytest.approx(25.0)
+
+
+def test_acoustic_metrics_never_measure_t60_when_it_is_not_wanted():
+    import numpy as np
+
+    gt, pred = np.array([0.0, 1.0]), np.array([1.0, 1.0])
+    stub = _StubEvaluator(gt_t60=np.float64(0.4), pred_t60=np.float64(0.5))
+    assert np.isnan(acoustic_metrics(pred, gt, stub, want_t60=False)["t60"])
+    assert stub.rt60_calls == 0, "want_t60=False must not even call measure_rt60"
+    acoustic_metrics(pred, gt, stub, want_t60=True)
+    assert stub.rt60_calls == 2
 
 
 def test_acoustic_metrics_can_skip_t60(evaluator):
