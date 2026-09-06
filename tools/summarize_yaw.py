@@ -669,6 +669,62 @@ NOISE_MANIFEST_HASHES = ("6ca8164e5727d5f4db84569d5effa840b2cb6e6f77819a69bbb37b
                          "757e5a966ee2d069a07accecbc43e46bd564ea7c788a28c219773df64e986234")
 
 
+_FILE_DIGESTS = {}
+
+
+def _file_sha256(path):
+    """sha256 of a file, memoised on ``(path, size, mtime)`` -- checkpoints are ~128 MB."""
+    import hashlib
+
+    stat = os.stat(path)
+    key = (os.path.abspath(path), stat.st_size, stat.st_mtime_ns)
+    if key not in _FILE_DIGESTS:
+        digest = hashlib.sha256()
+        with open(path, "rb") as fin:
+            for block in iter(lambda: fin.read(1 << 20), b""):
+                digest.update(block)
+        _FILE_DIGESTS[key] = digest.hexdigest()
+    return _FILE_DIGESTS[key]
+
+
+def _check_provenance(label, run):
+    """The run's ``provenance.json`` sidecar must exist and describe *this* run.
+
+    The sidecar is what ties a summary to a commit and to the exact weights it was
+    produced from; without it the numbers cannot be reproduced, so in full mode its
+    absence is a failure rather than a warning.  ``eval_yaw_rotation.py`` does not write
+    it -- the launcher does, next to the run's JSON, with ``git_sha``,
+    ``checkpoint_sha256`` and ``manifest_hash``.
+    """
+    directory = run.get("dir")
+    path = os.path.join(directory, "provenance.json") if directory else None
+    if path is None or not os.path.exists(path):
+        return ["{}: provenance sidecar missing ({})".format(
+            label, path or "the run has no directory")]
+    try:
+        with open(path, "r") as fin:
+            sidecar = json.load(fin)
+    except ValueError as error:
+        return ["{}: provenance.json is not readable JSON ({})".format(label, error)]
+
+    reasons = []
+    for key in ("git_sha", "checkpoint_sha256", "manifest_hash"):
+        if not sidecar.get(key):
+            reasons.append("{}: provenance.json has no {}".format(label, key))
+    recorded = sidecar.get("manifest_hash")
+    if recorded and recorded != run["meta"].get("manifest_hash"):
+        reasons.append("{}: provenance manifest_hash {} does not match the run's {}"
+                       .format(label, recorded, run["meta"].get("manifest_hash")))
+    checkpoint = run["meta"].get("checkpoint")
+    digest = sidecar.get("checkpoint_sha256")
+    if digest and checkpoint and os.path.exists(checkpoint):
+        actual = _file_sha256(checkpoint)
+        if actual != digest:
+            reasons.append("{}: {} hashes to {} but provenance records {}".format(
+                label, checkpoint, actual, digest))
+    return reasons
+
+
 def _check_roles(by_label, roles):
     """The three runs must be the three pinned checkpoints, on the right backbone."""
     reasons = []
@@ -871,6 +927,7 @@ def validate_full(by_label, roles, expected_hash, settings):
         run = by_label[label]
         meta = run["meta"]
         reasons.extend(_check_run_meta(label, run, MANIFEST_HASH_SEED0))
+        reasons.extend(_check_provenance(label, run))
         if meta.get("manifest_seed") != expectations["manifest_seed"]:
             reasons.append("{}: meta.manifest_seed is {!r}, expected {!r}".format(
                 label, meta.get("manifest_seed"), expectations["manifest_seed"]))

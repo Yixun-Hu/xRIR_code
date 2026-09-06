@@ -92,7 +92,34 @@ def write_run(directory, shifts, n=300, seed=0, backbone="simple",
     with open(os.path.join(directory, "per_sample_yaw.json"), "w") as fout:
         # Strict JSON, exactly as eval_yaw_rotation.py writes it: invalid samples are null.
         json.dump(_nulled(run), fout, allow_nan=False)
+    write_provenance(directory, checkpoint, manifest_hash)
     return directory
+
+
+def write_provenance(directory, checkpoint, manifest_hash, git_sha="0" * 40):
+    """The sidecar the launcher is expected to drop next to every confirmatory run."""
+    with open(os.path.join(directory, "provenance.json"), "w") as fout:
+        json.dump({"git_sha": git_sha, "manifest_hash": manifest_hash,
+                   "checkpoint_sha256": sha256_of(checkpoint)}, fout)
+    return directory
+
+
+def sha256_of(path):
+    """sha256 of a file, computed independently of the implementation under test."""
+    import hashlib
+
+    if not os.path.exists(path):
+        return "0" * 64
+    if path not in _DIGESTS:
+        digest = hashlib.sha256()
+        with open(path, "rb") as fin:
+            for block in iter(lambda: fin.read(1 << 20), b""):
+                digest.update(block)
+        _DIGESTS[path] = digest.hexdigest()
+    return _DIGESTS[path]
+
+
+_DIGESTS = {}
 
 
 def _nulled(run):
@@ -1346,3 +1373,57 @@ def test_full_mode_requires_one_delay_audit_across_the_three_runs(tmp_path, monk
     with pytest.raises(SystemExit):
         main(argv)
     assert "delay_flips[0]" in capsys.readouterr().out
+
+
+def test_full_mode_requires_a_provenance_sidecar(tmp_path, monkeypatch, capsys):
+    from tools.summarize_yaw import main
+
+    relax_full_expectations(monkeypatch)
+    runs = _full_trio(tmp_path / "prov")
+    os.remove(os.path.join(runs[1], "provenance.json"))
+    argv = ["--mode", "full", "--runs"] + runs + [
+        "--manifest-hash", MANIFEST_HASH, "--n-boot", "500",
+        "--json", str(tmp_path / "p.json"), "--summary", str(tmp_path / "p.txt")]
+    with pytest.raises(SystemExit):
+        main(argv)
+    assert "provenance sidecar missing" in capsys.readouterr().out
+    assert not os.path.exists(str(tmp_path / "p.json"))
+
+
+def test_full_mode_checks_what_the_sidecar_records(tmp_path, monkeypatch, capsys):
+    from tools.summarize_yaw import main, validate_full, load_run
+
+    relax_full_expectations(monkeypatch)
+
+    def reasons_for(mutate):
+        runs = _full_trio(tmp_path / "sc{}".format(len(capsys.readouterr().out)))
+        path = os.path.join(runs[0], "provenance.json")
+        sidecar = json.load(open(path))
+        mutate(sidecar)
+        with open(path, "w") as fout:
+            json.dump(sidecar, fout)
+        by_label = {label: load_run(directory) for label, directory in
+                    zip(("control", "cyl", "released"), runs)}
+        return validate_full(by_label, _roles("control", "cyl", "released"),
+                             MANIFEST_HASH, PRE_REGISTERED_SETTINGS)
+
+    assert reasons_for(lambda side: None) == []
+    assert any("manifest_hash" in reason for reason in
+               reasons_for(lambda side: side.update(manifest_hash="0" * 64)))
+    assert any("epoch_12.pth" in reason and "provenance" in reason for reason in
+               reasons_for(lambda side: side.update(checkpoint_sha256="1" * 64)))
+    assert any("git_sha" in reason for reason in
+               reasons_for(lambda side: side.update(git_sha="")))
+    assert any("no checkpoint_sha256" in reason for reason in
+               reasons_for(lambda side: side.pop("checkpoint_sha256")))
+
+
+def test_the_sidecar_digest_is_the_real_file_digest(tmp_path):
+    from tools.summarize_yaw import _file_sha256
+
+    path = str(tmp_path / "blob.bin")
+    with open(path, "wb") as fout:
+        fout.write(b"xRIR" * 100000)
+    assert _file_sha256(path) == sha256_of(path)
+    assert _file_sha256("ckpt/xRIR_simple_8_shot/epoch_12.pth") == \
+        sha256_of("ckpt/xRIR_simple_8_shot/epoch_12.pth")
