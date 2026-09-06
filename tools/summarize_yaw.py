@@ -10,7 +10,20 @@ differences (H2) with equivalence at the patch-aligned angles, the properly pair
 Every number that is printed is also written to ``--json``, together with the seeds, the
 family size and the sha256 of the printed text, so a results page can bind the two.
 
-    python tools/summarize_yaw.py --runs ckpt/yaw_rotation/{control,cyl,released} \\
+``--mode`` says what the summary is allowed to claim:
+
+* ``full`` -- the confirmatory sweep.  The runs are validated against the pre-registered
+  design (three roles, one manifest, 6337 queries in 17 rooms, the exact angle grids,
+  canonical batches) and the artefacts are written only if that passes *and* the
+  bootstrap is converged; otherwise nothing is written and the exit status is non-zero.
+* ``k0-gate`` -- the ``k = 0`` parity gate that must pass before the sweep runs: the
+  paired cylindrical-vs-control table plus the distributional comparison with exp_01.
+* ``exploratory`` -- anything else (a smoke run, a partial grid).  The verdicts and the
+  canonical ``summary_sha256`` are suppressed so the output cannot be mistaken for a
+  confirmatory one.
+
+    python tools/summarize_yaw.py --mode full \\
+        --runs ckpt/yaw_rotation/{control,cyl,released} \\
         --manifest-hash <sha256> --json ckpt/yaw_rotation/summary.json \\
         --summary ckpt/yaw_rotation/summary.txt
 """
