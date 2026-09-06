@@ -179,8 +179,8 @@ def test_verdict_substantial_needs_a_strict_lower_bound():
 
 
 def test_equivalence_tost_accepts_a_negligible_change():
-    e0, ek = _paired(n=500)
-    res = equivalence_tost(e0, ek.copy() * 0 + e0, margin=0.02, n_boot=500, seed=0)
+    e0 = _paired(n=500)[0]
+    res = equivalence_tost(e0, e0.copy(), margin=0.02, n_boot=500, seed=0)
     assert {"equivalent", "lo", "hi", "r"} <= set(res)
     assert res["r"] == 0.0
     assert res["equivalent"] is True
