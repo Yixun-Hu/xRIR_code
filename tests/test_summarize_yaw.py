@@ -348,3 +348,72 @@ def test_convergence_check_reports_a_zero_width_interval_honestly():
         lambda seed: {"lo": 1.0 + seed, "hi": 1.0 + seed}, 0, 1))
     assert convergence_check(lambda seed: {"lo": 0.0, "hi": 1.0 + 0.05 * seed}, 0, 1) \
         == pytest.approx(0.05)
+
+
+# --------------------------------------------------------------------------------------
+# main -- the printed summary and the canonical JSON that binds to it
+# --------------------------------------------------------------------------------------
+def test_main_writes_a_summary_and_a_json_that_matches_it(two_runs, tmp_path, capsys):
+    import hashlib
+
+    from tools.summarize_yaw import main
+
+    control, cyl = two_runs
+    json_path = str(tmp_path / "summary.json")
+    summary_path = str(tmp_path / "summary.txt")
+    out = main(["--runs", control, cyl, "--labels", "control", "cyl",
+                "--primary-simple", "control", "--cyl", "cyl",
+                "--manifest-hash", MANIFEST_HASH, "--n-boot", "4000",
+                "--json", json_path, "--summary", summary_path])
+
+    assert os.path.exists(json_path) and os.path.exists(summary_path)
+    written = json.load(open(json_path))
+    text = open(summary_path).read()
+    assert written["summary_sha256"] == hashlib.sha256(text.encode()).hexdigest()
+    assert written == out
+
+    assert written["manifest_hash"] == MANIFEST_HASH
+    assert written["n_queries"] == 300 and written["n_rooms"] == 5
+    config = written["config"]
+    assert config["n_boot"] == 4000 and config["alpha"] == 0.05
+    assert config["threshold"] == 0.10 and config["equiv_margin"] == 0.02
+    # 2 metrics x the non-zero acoustic angles of the run (k = 32, 64).
+    assert config["family_size"] == 4
+    assert config["alpha_adj"] == pytest.approx(0.05 / 4)
+    assert config["labels"] == ["control", "cyl"]
+    assert config["roles"] == {"primary": "control", "cyl": "cyl", "released": None}
+
+    # H1: the control's planted degradation clears +10 %; there is no released run.
+    assert written["h1"]["control"] == {"role": "primary", "passes": True,
+                                        "cells": written["h1"]["control"]["cells"]}
+    assert "cyl" not in written["h1"], "H1 is only asked of the primary and the released model"
+    assert written["h1"]["verdict"] == "supported for the same-budget model only"
+    assert {(c["metric"], c["k"]) for c in written["h1"]["control"]["cells"]} == {
+        ("edt", 32), ("edt", 64), ("c50", 32), ("c50", 64)}
+
+    # H2: the cylindrical model degrades less at both angles.
+    for row in written["h2"]["edt"]:
+        if row["k"]:
+            assert row["d"] < 0 and row["hi"] < 0
+    assert written["k0"][0]["diff"] == pytest.approx(0.0, abs=1e-9)
+    assert written["delay_flips"]["control"]["32"] == 7 * 32
+    assert written["decomposition"]["cyl"]["tokens_rel_change"] == pytest.approx(3.2e-07)
+    assert 0.0 <= written["convergence"]["max_ratio"] < 0.10
+    # The angles are printed in signed-degree order, so k = 0 sits in the middle of a
+    # full grid and first in this one ({0, 32, 64} -> {0, 22.5, 45} degrees).
+    assert [row["k"] for row in written["spectral"]["control"]["P"]["loss"]] == [0, 32, 64]
+
+    # Everything printed is in the summary file.
+    for needle in ("1. Spectral", "2. Acoustic", "3. Paired cylindrical", "4. H1",
+                   "5. H2", "6. Delay-flip", "7. Decomposition", "8. Bootstrap"):
+        assert needle in text, needle
+
+
+def test_main_rejects_runs_with_different_manifests(two_runs, tmp_path):
+    from tools.summarize_yaw import main
+
+    other = write_run(str(tmp_path / "other"), {}, manifest_hash="0" * 64)
+    with pytest.raises(ValueError):
+        main(["--runs", two_runs[0], other, "--n-boot", "200"])
+    with pytest.raises(ValueError):
+        main(["--runs", two_runs[0], "--manifest-hash", "0" * 64, "--n-boot", "200"])
