@@ -100,3 +100,51 @@ def test_relative_degradation_rejects_degenerate_input():
         relative_degradation_bootstrap(e0, ek, n_boot=10, alpha=0.0)
     with pytest.raises(ValueError):
         relative_degradation_bootstrap(e0, ek, n_boot=0)
+
+
+# --------------------------------------------------------------------------------------
+# T10 -- cluster (room-level) bootstrap
+# --------------------------------------------------------------------------------------
+def _width(res):
+    return res["hi"] - res["lo"]
+
+
+def test_cluster_bootstrap_with_singleton_clusters_matches_the_pair_bootstrap():
+    """One cluster per pair is the pair bootstrap, so the widths must agree closely."""
+    e0, ek = _paired(n=1000, ratio=1.15, noise=0.4, seed=3)
+    plain = relative_degradation_bootstrap(e0, ek, n_boot=2000, seed=0)
+    per_pair = relative_degradation_bootstrap(e0, ek, n_boot=2000, seed=0,
+                                              clusters=np.arange(e0.size))
+    assert per_pair["unit"] == "cluster"
+    assert per_pair["r"] == plain["r"], "the point estimate never depends on the resampling unit"
+    assert per_pair["n"] == plain["n"] == 1000
+    assert abs(_width(per_pair) - _width(plain)) / _width(plain) < 0.25
+
+
+def test_cluster_bootstrap_is_wider_when_clusters_disagree():
+    """Five rooms with very different degradations: room-level inference must be wider."""
+    rng = np.random.default_rng(11)
+    n_per, ratios = 400, np.array([0.9, 1.0, 1.1, 1.3, 1.6])
+    clusters = np.repeat(np.arange(5), n_per)
+    e0 = rng.lognormal(mean=0.0, sigma=0.5, size=5 * n_per)
+    ek = e0 * ratios[clusters] * np.exp(rng.normal(0.0, 0.1, size=e0.size))
+
+    plain = relative_degradation_bootstrap(e0, ek, n_boot=2000, seed=0)
+    clustered = relative_degradation_bootstrap(e0, ek, n_boot=2000, seed=0, clusters=clusters)
+    assert clustered["r"] == plain["r"]
+    assert _width(clustered) > _width(plain)
+    assert _width(clustered) > 3.0 * _width(plain), "cluster width {} vs pair width {}".format(
+        _width(clustered), _width(plain))
+
+
+def test_cluster_bootstrap_is_seed_deterministic_and_validates_its_ids():
+    e0, ek = _paired(n=200, ratio=1.2, noise=0.3, seed=4)
+    clusters = np.repeat(np.arange(4), 50)
+    a = relative_degradation_bootstrap(e0, ek, n_boot=500, seed=1, clusters=clusters)
+    b = relative_degradation_bootstrap(e0, ek, n_boot=500, seed=1, clusters=clusters)
+    assert a == b
+    # Cluster ids may be arbitrary labels; only the grouping matters.
+    labels = np.array(["room_{}".format(c) for c in clusters])
+    assert relative_degradation_bootstrap(e0, ek, n_boot=500, seed=1, clusters=labels) == a
+    with pytest.raises(ValueError):
+        relative_degradation_bootstrap(e0, ek, n_boot=500, clusters=clusters[:-1])

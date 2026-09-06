@@ -82,14 +82,19 @@ def _check_pair(e0, ek, name0="e0", namek="ek"):
     return a, b
 
 
-def _check_boot_args(n_boot, alpha):
+def _check_boot_args(n_boot, alpha, clusters=None, n=None):
     if int(n_boot) < 1:
         raise ValueError("n_boot must be >= 1, got {}".format(n_boot))
     if not (0.0 < float(alpha) < 1.0):
         raise ValueError("alpha must lie in (0, 1), got {}".format(alpha))
+    if clusters is not None:
+        ids = np.asarray(clusters)
+        if ids.ndim != 1 or ids.size != n:
+            raise ValueError("clusters must give one id per pair ({} expected, got {})".format(
+                n, ids.size))
 
 
-def _bootstrap_ratios(pairs, n_boot, seed):
+def _bootstrap_ratios(pairs, n_boot, seed, clusters=None):
     """Bootstrap ``r`` for several paired series over the *same* resamples.
 
     Sharing the draws is what makes a difference-in-differences of two models paired:
@@ -99,6 +104,8 @@ def _bootstrap_ratios(pairs, n_boot, seed):
         pairs: list of ``(e0, ek)`` float64 arrays, all of the same length.
         n_boot: number of resamples.
         seed: ``np.random.default_rng`` seed.
+        clusters: ``None`` to resample pairs, or one cluster id per pair to resample
+            whole clusters with replacement (multiplicity weights).
 
     Returns:
         A list of ``[n_boot]`` arrays of ratios, one per input pair.
@@ -108,16 +115,39 @@ def _bootstrap_ratios(pairs, n_boot, seed):
     out = [np.empty(n_boot, dtype=np.float64) for _ in pairs]
 
     with np.errstate(divide="ignore", invalid="ignore"):
-        chunk = max(1, min(n_boot, _CHUNK_CELLS // max(n, 1)))
-        done = 0
-        while done < n_boot:
-            size = min(chunk, n_boot - done)
-            idx = rng.integers(0, n, size=(size, n))
-            for j, (e0, ek) in enumerate(pairs):
-                mean0 = e0[idx].mean(axis=1)
-                meank = ek[idx].mean(axis=1)
-                out[j][done:done + size] = (meank - mean0) / mean0
-            done += size
+        if clusters is None:
+            chunk = max(1, min(n_boot, _CHUNK_CELLS // max(n, 1)))
+            done = 0
+            while done < n_boot:
+                size = min(chunk, n_boot - done)
+                idx = rng.integers(0, n, size=(size, n))
+                for j, (e0, ek) in enumerate(pairs):
+                    mean0 = e0[idx].mean(axis=1)
+                    meank = ek[idx].mean(axis=1)
+                    out[j][done:done + size] = (meank - mean0) / mean0
+                done += size
+        else:
+            # Cluster resampling: a cluster drawn m times enters with weight m, so the
+            # resampled mean is (sum_c w_c * sum(e over c)) / (sum_c w_c * n_c) -- one
+            # matrix product per chunk instead of materialising the resampled pairs.
+            _, inverse = np.unique(np.asarray(clusters), return_inverse=True)
+            n_cl = int(inverse.max()) + 1
+            counts = np.bincount(inverse, minlength=n_cl).astype(np.float64)
+            sums = [(np.bincount(inverse, weights=e0, minlength=n_cl),
+                     np.bincount(inverse, weights=ek, minlength=n_cl)) for e0, ek in pairs]
+            chunk = max(1, min(n_boot, _CHUNK_CELLS // max(n_cl, 1)))
+            done = 0
+            while done < n_boot:
+                size = min(chunk, n_boot - done)
+                draws = rng.integers(0, n_cl, size=(size, n_cl))
+                weights = np.zeros((size, n_cl), dtype=np.float64)
+                np.add.at(weights, (np.repeat(np.arange(size), n_cl), draws.ravel()), 1.0)
+                denom = weights @ counts               # >= n_cl > 0, never degenerate
+                for j, (sum0, sumk) in enumerate(sums):
+                    mean0 = (weights @ sum0) / denom
+                    meank = (weights @ sumk) / denom
+                    out[j][done:done + size] = (meank - mean0) / mean0
+                done += size
     return out
 
 
@@ -127,7 +157,7 @@ def _percentile_interval(boots, alpha):
     return float(lo), float(hi)
 
 
-def relative_degradation_bootstrap(e0, ek, n_boot=10000, alpha=0.05, seed=0):
+def relative_degradation_bootstrap(e0, ek, n_boot=10000, alpha=0.05, seed=0, clusters=None):
     """Relative degradation ``r`` with a paired percentile bootstrap interval.
 
     Args:
@@ -136,17 +166,22 @@ def relative_degradation_bootstrap(e0, ek, n_boot=10000, alpha=0.05, seed=0):
         n_boot: bootstrap resamples.
         alpha: two-sided level; the interval is a ``1 - alpha`` percentile interval.
         seed: bootstrap seed.
+        clusters: optional cluster id per pair (e.g. the room). When given, whole
+            clusters are resampled with replacement -- the secondary,
+            population-of-rooms robustness check, expected to be much wider.
 
     Returns:
-        ``{"r", "lo", "hi", "n", "n_boot", "alpha", "unit"}``; ``unit`` is ``"pair"``.
+        ``{"r", "lo", "hi", "n", "n_boot", "alpha", "unit"}`` with ``unit`` either
+        ``"pair"`` or ``"cluster"``.  ``n`` always counts pairs.
 
     Raises:
         ValueError: on non-finite, empty or mismatched inputs, ``mean(e0) == 0``, or
-            invalid ``n_boot`` / ``alpha``.
+            invalid ``n_boot`` / ``alpha`` / ``clusters``.
     """
     a, b = _check_pair(e0, ek)
-    _check_boot_args(n_boot, alpha)
-    boots = _bootstrap_ratios([(a, b)], int(n_boot), seed)[0]
+    _check_boot_args(n_boot, alpha, clusters, a.size)
+    boots = _bootstrap_ratios([(a, b)], int(n_boot), seed, clusters)[0]
     lo, hi = _percentile_interval(boots, float(alpha))
     return {"r": float((b.mean() - a.mean()) / a.mean()), "lo": lo, "hi": hi,
-            "n": int(a.size), "n_boot": int(n_boot), "alpha": float(alpha), "unit": "pair"}
+            "n": int(a.size), "n_boot": int(n_boot), "alpha": float(alpha),
+            "unit": "pair" if clusters is None else "cluster"}
