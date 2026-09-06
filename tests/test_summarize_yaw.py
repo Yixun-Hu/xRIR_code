@@ -1427,3 +1427,26 @@ def test_the_sidecar_digest_is_the_real_file_digest(tmp_path):
     assert _file_sha256(path) == sha256_of(path)
     assert _file_sha256("ckpt/xRIR_simple_8_shot/epoch_12.pth") == \
         sha256_of("ckpt/xRIR_simple_8_shot/epoch_12.pth")
+
+
+def test_the_summary_json_is_strict_json(tmp_path):
+    import tools.summarize_yaw as summarize_yaw
+
+    path = str(tmp_path / "out.json")
+    summarize_yaw._write_json({"a": float("inf"), "b": [1.0, float("nan")],
+                               "c": {"d": -float("inf")}, "e": "text"}, path)
+    raw = open(path).read()
+    assert "NaN" not in raw and "Infinity" not in raw
+    assert json.loads(raw) == {"a": None, "b": [1.0, None], "c": {"d": None}, "e": "text"}
+
+
+def test_main_writes_only_strict_json(two_runs, tmp_path):
+    from tools.summarize_yaw import main
+
+    json_path = str(tmp_path / "s.json")
+    main(["--mode", "exploratory", "--runs", two_runs[0], two_runs[1],
+          "--labels", "control", "cyl", "--n-boot", "500",
+          "--json", json_path, "--summary", str(tmp_path / "s.txt")])
+    raw = open(json_path).read()
+    assert "NaN" not in raw and "Infinity" not in raw
+    json.loads(raw)

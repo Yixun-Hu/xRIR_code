@@ -30,6 +30,7 @@ family size and the sha256 of the printed text, so a results page can bind the t
 from __future__ import annotations
 
 import json
+import math
 import os
 
 import numpy as np
@@ -61,15 +62,31 @@ def _write_text(text, path):
             os.remove(tmp)
 
 
+def _json_safe(value):
+    """Replace every non-finite float with ``None`` so the payload is strict JSON.
+
+    ``NaN`` and ``Infinity`` are not JSON, and a results page has to be able to parse the
+    summary; the only value that can be infinite here is a convergence ratio whose
+    interval had zero width, and its decision is carried by ``pass`` regardless.
+    """
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return dict((key, _json_safe(item)) for key, item in value.items())
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 def _write_json(payload, path):
-    """Write ``payload`` as JSON atomically; a reader never sees a half-written summary."""
+    """Write ``payload`` as strict JSON atomically; a reader never sees a half file."""
     tmp = path + ".tmp"
     parent = os.path.dirname(os.path.abspath(path))
     if parent:
         os.makedirs(parent, exist_ok=True)
     try:
         with open(tmp, "w") as fout:
-            json.dump(payload, fout, indent=1)
+            json.dump(_json_safe(payload), fout, indent=1, allow_nan=False)
         os.replace(tmp, path)
     finally:
         if os.path.exists(tmp):
