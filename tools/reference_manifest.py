@@ -17,6 +17,7 @@ made deterministic.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 
 import numpy as np
@@ -86,3 +87,61 @@ def candidate_references(ir_path, listdir_cache=None):
         if os.path.exists(candidate):
             paths.append(candidate)
     return sorted(paths)
+
+
+def build_manifest(dataset, seed, num_shot=8):
+    """Build the reference manifest for every query of ``dataset``.
+
+    Reads directory listings only (no audio, no metadata, no depth maps), caching one
+    ``os.listdir`` per room directory, so the full 6337-query test split takes a couple
+    of seconds.
+
+    Args:
+        dataset: an ``xRIR_Dataset`` (only ``file_list`` and ``ir_path`` are used).
+        seed: manifest seed; part of every per-query rng seed.
+        num_shot: references per query.
+
+    Returns:
+        ``{"seed", "num_shot", "ir_root", "entries"}`` where ``entries`` is one dict per
+        query -- ``{"index", "query", "refs"}`` -- in ``dataset.file_list`` order, with
+        ``query`` / ``refs`` relative to ``ir_root``.  ``query`` is also the key the
+        reference draw is seeded with.
+    """
+    ir_root = dataset.ir_path
+    listdir_cache = {}
+    entries = []
+    for index, ir_path in enumerate(dataset.file_list):
+        query = os.path.relpath(ir_path, ir_root)
+        refs = select_references(
+            candidate_references(ir_path, listdir_cache=listdir_cache), num_shot, seed, query)
+        entries.append({"index": index, "query": query,
+                        "refs": [os.path.relpath(ref, ir_root) for ref in refs]})
+    return {"seed": seed, "num_shot": num_shot, "ir_root": ir_root, "entries": entries}
+
+
+def manifest_hash(manifest):
+    """Hex sha256 of the manifest's *content* -- seed, num_shot and entries.
+
+    ``ir_root`` is deliberately excluded so the same selection hashes identically no
+    matter where the dataset is mounted.
+    """
+    payload = {"seed": manifest["seed"], "num_shot": manifest["num_shot"],
+               "entries": manifest["entries"]}
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def save_manifest(manifest, path):
+    """Write ``manifest`` to ``path`` as JSON, creating the parent directory."""
+    parent = os.path.dirname(os.path.abspath(path))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(path, "w") as fout:
+        json.dump(manifest, fout)
+    return path
+
+
+def load_manifest(path):
+    """Read a manifest written by :func:`save_manifest`."""
+    with open(path, "r") as fin:
+        return json.load(fin)

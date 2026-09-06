@@ -10,7 +10,14 @@ import os
 
 import pytest
 
-from tools.reference_manifest import candidate_references, select_references
+from tools.reference_manifest import (
+    build_manifest,
+    candidate_references,
+    load_manifest,
+    manifest_hash,
+    save_manifest,
+    select_references,
+)
 
 
 # --------------------------------------------------------------------------------------
@@ -204,3 +211,89 @@ def test_candidate_references_agrees_with_the_dataset_on_every_query(synthetic_d
                         for n in all_src_node.difference({src_node}))
             if os.path.exists(p))
         assert candidate_references(query) == expected, query
+
+
+# --------------------------------------------------------------------------------------
+# T9b (part 2) -- build_manifest / manifest_hash / save_manifest / load_manifest
+# --------------------------------------------------------------------------------------
+def test_build_manifest_follows_file_list_and_respects_the_dataset_rules(synthetic_dataset):
+    manifest = build_manifest(synthetic_dataset, seed=0, num_shot=8)
+
+    assert set(manifest) == {"seed", "num_shot", "ir_root", "entries"}
+    assert manifest["seed"] == 0 and manifest["num_shot"] == 8
+    assert manifest["ir_root"] == synthetic_dataset.ir_path
+    entries = manifest["entries"]
+    assert len(entries) == len(synthetic_dataset.file_list)
+    for i, (entry, path) in enumerate(zip(entries, synthetic_dataset.file_list)):
+        assert entry["index"] == i
+        assert entry["query"] == os.path.relpath(path, synthetic_dataset.ir_path)
+        assert not os.path.isabs(entry["query"])
+        assert len(entry["refs"]) == 8
+        q_src, q_rec = os.path.basename(entry["query"]).split("_")[:2]
+        for ref in entry["refs"]:
+            assert not os.path.isabs(ref)
+            assert os.path.dirname(ref) == os.path.dirname(entry["query"]), "left the room"
+            r_src, r_rec = os.path.basename(ref).split("_")[:2]
+            assert r_src != q_src, "the query's own source is not a valid reference"
+            assert r_rec == q_rec, "references must share the query's receiver"
+            assert os.path.exists(os.path.join(manifest["ir_root"], ref))
+
+
+def test_build_manifest_repeats_references_only_where_candidates_are_short(synthetic_dataset):
+    manifest = build_manifest(synthetic_dataset, seed=0, num_shot=8)
+    for entry in manifest["entries"]:
+        n_candidates = len(candidate_references(
+            os.path.join(manifest["ir_root"], entry["query"])))
+        distinct = len(set(entry["refs"]))
+        if n_candidates >= 8:
+            assert distinct == 8, entry["query"]          # without replacement
+        else:
+            # With replacement: 8 draws from fewer candidates, so repeats are certain
+            # but hitting every candidate is not.
+            assert distinct < 8 and distinct <= n_candidates, entry["query"]
+    # Bedrooms_idx_701 (6 candidates) and Cafe_idx_900 (3 / 2) exercise the short path,
+    # Office_idx_777 (9 candidates) the without-replacement one.
+    short = [e for e in manifest["entries"] if len(set(e["refs"])) < 8]
+    assert len(short) == 7 + 7
+    assert len(manifest["entries"]) - len(short) == 20
+
+
+def test_build_manifest_reads_no_audio(synthetic_dataset, monkeypatch):
+    import torchaudio
+
+    def _fail(*a, **kw):
+        raise AssertionError("build_manifest must not read audio")
+
+    monkeypatch.setattr(torchaudio, "load", _fail)
+    assert len(build_manifest(synthetic_dataset, seed=0)["entries"]) == len(synthetic_dataset)
+
+
+def test_manifest_hash_is_stable_and_sensitive(synthetic_dataset):
+    import copy
+
+    m1 = build_manifest(synthetic_dataset, seed=0, num_shot=8)
+    m2 = build_manifest(synthetic_dataset, seed=0, num_shot=8)
+    h = manifest_hash(m1)
+    assert len(h) == 64 and all(c in "0123456789abcdef" for c in h)
+    assert manifest_hash(m2) == h
+
+    # A different manifest seed selects different references, hence a different hash.
+    assert manifest_hash(build_manifest(synthetic_dataset, seed=1, num_shot=8)) != h
+
+    altered = copy.deepcopy(m1)
+    altered["entries"][3]["refs"][2] = altered["entries"][3]["refs"][2].replace("S00", "S99")
+    assert manifest_hash(altered) != h
+
+    # The hash covers the selection only, not where the data happens to be mounted.
+    moved = copy.deepcopy(m1)
+    moved["ir_root"] = "/somewhere/else/single_channel_ir"
+    assert manifest_hash(moved) == h
+
+
+def test_save_and_load_manifest_round_trip(synthetic_dataset, tmp_path):
+    manifest = build_manifest(synthetic_dataset, seed=0, num_shot=8)
+    path = str(tmp_path / "sub" / "reference_manifest.json")
+    save_manifest(manifest, path)
+    loaded = load_manifest(path)
+    assert loaded == manifest
+    assert manifest_hash(loaded) == manifest_hash(manifest)
