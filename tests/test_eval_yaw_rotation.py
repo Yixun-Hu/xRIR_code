@@ -500,3 +500,78 @@ def test_summarize_averages_over_the_finite_values_only():
     assert _summarize([float("nan")]) == {"mean": None, "n_valid": 0, "n_nan": 1}
     # An infinite metric is invalid, not a usable extreme.
     assert _summarize([float("inf"), 2.0]) == {"mean": 2.0, "n_valid": 1, "n_nan": 1}
+
+
+# --------------------------------------------------------------------------------------
+# T16 -- REAL DATA: `run` end to end on a 4-query slice of the pinned manifest
+# --------------------------------------------------------------------------------------
+def _checkpoint(relpath):
+    path = os.path.join(REPO_ROOT, relpath)
+    if not os.path.exists(path):
+        pytest.skip("checkpoint not found: {}".format(path))
+    return path
+
+
+def _smoke_argv(backbone, checkpoint, out_dir, max_samples):
+    return ["--backbone", backbone, "--checkpoint", checkpoint,
+            "--manifest", PINNED_MANIFEST, "--manifest-hash", PINNED_HASH,
+            "--out-dir", out_dir, "--max-samples", str(max_samples), "--batch-size", "2",
+            "--yaw-cols", "0", "32", "--acoustic-cols", "0", "32",
+            "--e-acoustic-cols", "32", "--num-workers", "2", "--log-interval", "1"]
+
+
+@_NEEDS_CUDA
+def test_run_writes_both_json_files_for_the_released_checkpoint(tmp_path, capsys):
+    import json
+    import time
+
+    import numpy as np
+
+    from eval_yaw_rotation import main
+
+    manifest = _pinned_manifest()
+    checkpoint = _checkpoint("checkpoints/xRIR_unseen.pth")
+    out_dir = str(tmp_path / "released")
+
+    start = time.time()
+    main(_smoke_argv("simple", checkpoint, out_dir, 4))
+    elapsed = time.time() - start
+
+    per_sample_path = os.path.join(out_dir, "per_sample_yaw.json")
+    metrics_path = os.path.join(out_dir, "metrics_yaw.json")
+    assert os.path.exists(per_sample_path) and os.path.exists(metrics_path)
+    per_sample = json.load(open(per_sample_path))
+    metrics = json.load(open(metrics_path))
+
+    assert per_sample["query"] == [e["query"] for e in manifest["entries"][:4]]
+    assert per_sample["index"] == [0, 1, 2, 3]
+    meta = per_sample["meta"]
+    assert meta["manifest_hash"] == PINNED_HASH == metrics["meta"]["manifest_hash"]
+    assert meta["manifest_seed"] == manifest["seed"]
+    assert meta["backbone"] == "simple" and meta["checkpoint"] == checkpoint
+    assert meta["n_samples"] == 4 and meta["max_samples"] == 4 and meta["tf32"] is False
+    assert meta["yaw_cols"] == [0, 32] and meta["acoustic_cols"] == [0, 32]
+    assert meta["e_acoustic_cols"] == [32] and meta["elapsed_min"] > 0.0
+
+    spectral = ["consistency", "decay", "log_mse", "loss", "stft"]
+    for condition in ("P", "E"):
+        assert sorted(per_sample[condition]) == ["0", "32"]
+        for angle, cell in per_sample[condition].items():
+            expected = spectral + (["c50", "edt", "t60"] if angle in ("0", "32") else [])
+            assert sorted(cell) == sorted(expected), (condition, angle)
+            for metric, values in cell.items():
+                assert len(values) == 4, (condition, angle, metric)
+                assert metrics[condition][angle][metric]["n_valid"] \
+                    + metrics[condition][angle][metric]["n_nan"] == 4
+
+    # k = 0: the two conditions are the same forward, and consistency is exactly zero.
+    assert per_sample["P"]["0"] == per_sample["E"]["0"]
+    assert per_sample["P"]["0"]["consistency"] == [0.0, 0.0, 0.0, 0.0]
+    assert np.all(np.asarray(per_sample["P"]["32"]["consistency"]) > 0.0)
+    assert per_sample["delay_flips"]["0"] == 0
+    assert per_sample["decomposition"] is None, "the simple backbone has no decomposition"
+
+    with capsys.disabled():
+        print("\n[T16] released checkpoint, 4 queries x 2 angles x 2 conditions in "
+              "{:.1f}s ({:.2f} samples/s, meta.elapsed_min={:.3f})".format(
+                  elapsed, 4.0 / elapsed, meta["elapsed_min"]))

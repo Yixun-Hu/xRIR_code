@@ -25,8 +25,18 @@ comparison of a query against itself.  Per-sample metrics land in
 """
 from __future__ import annotations
 
+import argparse
+import json
+import os
+import time
+
 import numpy as np
 import torch
+from torch.utils.data import DataLoader
+
+from eval_unseen import Evaluator
+from eval_xRIR_backbone import load_model_state
+from model.xRIR_cyl import BACKBONES, build_xrir
 
 from tools.reference_manifest import ManifestDataset, load_manifest, manifest_hash
 from tools.per_sample_metrics import (
@@ -427,3 +437,146 @@ def _summarize(values):
     finite = np.isfinite(array)
     return {"mean": float(array[finite].mean()) if finite.any() else None,
             "n_valid": int(finite.sum()), "n_nan": int((~finite).sum())}
+
+
+def run(args):
+    """Evaluate one checkpoint over the pinned manifest at every angle of the grid.
+
+    Writes ``<out-dir>/per_sample_yaw.json`` (every per-sample value, keyed by condition
+    and angle, plus the query order and the run's meta block) and
+    ``<out-dir>/metrics_yaw.json`` (their means and validity counts).  NaN marks an
+    invalid sample and is written as the JSON ``NaN`` literal, which Python's ``json``
+    reads back as ``float("nan")`` -- ``tools/summarize_yaw.py`` relies on that.
+
+    Args:
+        args: the parsed CLI namespace (see :func:`main`).
+
+    Returns:
+        The per-sample dict that was written.
+
+    Raises:
+        RuntimeError: if no GPU is visible (``model.xRIR.apply_delay`` hard-codes ``.cuda()``).
+        ValueError: if the manifest hash does not match, the angle grids are inconsistent,
+            or the loader does not return the manifest's queries in canonical order.
+    """
+    if not torch.cuda.is_available():
+        raise RuntimeError("eval_yaw_rotation needs a GPU: xRIR.apply_delay is .cuda()-only")
+    started = time.time()
+    torch.set_num_threads(args.threads)
+    set_precision(args.tf32)
+
+    # The hash gate comes first: a run on the wrong references is worse than no run.
+    manifest = load_checked_manifest(args.manifest, args.manifest_hash)
+    cols, acoustic_cols, e_acoustic_cols = _check_cols(
+        args.yaw_cols, args.acoustic_cols, args.e_acoustic_cols)
+
+    dataset = build_manifest_dataset(manifest, max_samples=args.max_samples)
+    loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False,
+                        num_workers=args.num_workers, pin_memory=True)
+    model = build_xrir(args.backbone, manifest["num_shot"])
+    model.load_state_dict(load_model_state(args.checkpoint), strict=True)
+    model.cuda().eval()
+    evaluator = Evaluator()
+    n_samples = len(dataset)
+    print("backbone: {}  checkpoint: {}  samples: {}  angles: {}  batch: {}".format(
+        args.backbone, args.checkpoint, n_samples, cols, args.batch_size), flush=True)
+
+    queries, parts, flips = [], {}, {}
+    for i, batch in enumerate(loader):
+        keys, results, batch_flips = evaluate_batch(
+            model, batch, evaluator, cols, acoustic_cols, e_acoustic_cols, args.gl_seed)
+        queries.extend(keys)
+        for cell, metrics in results.items():
+            for metric, value in metrics.items():
+                parts.setdefault(cell, {}).setdefault(metric, []).append(value)
+        for k, count in batch_flips.items():
+            flips[k] = flips.get(k, 0) + count
+        if (i + 1) % args.log_interval == 0 or len(queries) == n_samples:
+            elapsed = time.time() - started
+            rate = len(queries) / elapsed
+            print("[{}/{}] {:.2f} samples/s, eta {:.1f} min".format(
+                len(queries), n_samples, rate, (n_samples - len(queries)) / rate / 60.0),
+                flush=True)
+
+    entries = dataset.entries
+    if queries != [entry["query"] for entry in entries]:
+        raise ValueError("the loader did not return the manifest's canonical order")
+    merged = {cell: {metric: np.concatenate(chunks) for metric, chunks in metrics.items()}
+              for cell, metrics in parts.items()}
+    decomposition = None
+
+    meta = {"backbone": args.backbone, "checkpoint": args.checkpoint,
+            "manifest_path": args.manifest, "manifest_hash": args.manifest_hash,
+            "manifest_seed": manifest["seed"], "gl_seed": args.gl_seed, "yaw_cols": cols,
+            "acoustic_cols": acoustic_cols, "e_acoustic_cols": e_acoustic_cols,
+            "batch_size": args.batch_size, "n_samples": n_samples,
+            "max_samples": int(args.max_samples), "tf32": bool(args.tf32),
+            "torch_version": torch.__version__,
+            "elapsed_min": (time.time() - started) / 60.0}
+    per_sample = {"meta": meta, "query": queries,
+                  "index": [entry["index"] for entry in entries],
+                  "delay_flips": {str(k): int(v) for k, v in sorted(flips.items())},
+                  "decomposition": decomposition}
+    metrics_out = {"meta": meta, "delay_flips": per_sample["delay_flips"],
+                   "decomposition": decomposition}
+    for condition in ("P", "E"):
+        per_sample[condition] = {
+            str(k): {metric: [float(v) for v in values]
+                     for metric, values in merged[(condition, k)].items()}
+            for k in cols}
+        metrics_out[condition] = {
+            str(k): {metric: _summarize(values)
+                     for metric, values in merged[(condition, k)].items()}
+            for k in cols}
+
+    os.makedirs(args.out_dir, exist_ok=True)
+    for name, payload in (("per_sample_yaw.json", per_sample),
+                          ("metrics_yaw.json", metrics_out)):
+        with open(os.path.join(args.out_dir, name), "w") as fout:
+            json.dump(payload, fout)          # allow_nan: NaN marks an invalid sample
+        print("wrote {}".format(os.path.join(args.out_dir, name)), flush=True)
+    print("done: {} samples x {} angles x 2 conditions in {:.2f} min".format(
+        n_samples, len(cols), meta["elapsed_min"]), flush=True)
+    return per_sample
+
+
+SPECTRAL_COLS = [0, 4, 8, 16, 32, 64, 96, 128, 192, 256, 320, 384, 416, 448, 480, 496,
+                 504, 508]
+ACOUSTIC_COLS = [0, 8, 32, 64, 128, 256, 384, 448, 480, 504]
+E_ACOUSTIC_COLS = [32, 128, 384, 480]
+
+
+def main(argv=None):
+    """Parse the CLI and run the sweep (see the module docstring for an example)."""
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--backbone", choices=sorted(BACKBONES), required=True)
+    parser.add_argument("--checkpoint", required=True)
+    parser.add_argument("--manifest", required=True)
+    parser.add_argument("--manifest-hash", required=True,
+                        help="sha256 of the manifest's content; the run refuses to start "
+                             "unless it matches, so every model sees the same references")
+    parser.add_argument("--out-dir", required=True)
+    parser.add_argument("--yaw-cols", type=int, nargs="*", default=SPECTRAL_COLS,
+                        help="column rolls for the spectral metrics (W=512); must contain 0")
+    parser.add_argument("--acoustic-cols", type=int, nargs="*", default=ACOUSTIC_COLS,
+                        help="subset of --yaw-cols that also gets EDT/C50/T60 under P")
+    parser.add_argument("--e-acoustic-cols", type=int, nargs="*", default=E_ACOUSTIC_COLS,
+                        help="the same for the end-to-end condition E")
+    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--num-workers", type=int, default=6)
+    parser.add_argument("--max-samples", type=int, default=0,
+                        help="smoke runs only: keep the first N manifest queries")
+    parser.add_argument("--gl-seed", type=int, default=0,
+                        help="run-level Griffin-Lim seed (combined with each query path)")
+    parser.add_argument("--threads", type=int, default=4,
+                        help="torch CPU threads (Griffin-Lim runs on CPU)")
+    parser.add_argument("--tf32", action="store_true",
+                        help="allow TF32; off by default because cuDNN's TF32 makes the "
+                             "reference encoder batch-size dependent at ~1e-4")
+    parser.add_argument("--log-interval", type=int, default=50)
+    return run(parser.parse_args(argv))
+
+
+if __name__ == "__main__":
+    main()
