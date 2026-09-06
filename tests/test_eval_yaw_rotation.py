@@ -209,3 +209,96 @@ def test_acoustic_metrics_batch_is_seeded_per_query():
     for name in ("edt", "c50", "t60"):
         assert np.array_equal(a[name], b[name]), name
     assert not np.array_equal(a["edt"], c["edt"]), "a different Griffin-Lim seed changed nothing"
+
+
+# --------------------------------------------------------------------------------------
+# delay_flip_counts -- the audit of shift_and_align's numerical (non-)invariance
+# --------------------------------------------------------------------------------------
+def _tie_coordinates(n_max=2000):
+    """Source radii whose direct-path delay sits on (or beside) a rounding tie.
+
+    ``round()`` at an exact ``.5`` goes half-to-even, so a rotation that perturbs the
+    float32 norm by an ulp flips the integer delay of about half of these pairs -- the
+    effect the audit counts.  Deterministic: no RNG is involved.
+    """
+    steps = torch.arange(1, n_max + 1, dtype=torch.float32)
+    radius = (steps + 0.5) * (343.0 / 22050.0)
+    src = torch.stack([radius, torch.zeros_like(radius), torch.zeros_like(radius)], dim=1)
+    return src, torch.zeros(radius.shape[0], 1, 3)
+
+
+def test_delay_flip_counts_match_a_manual_recomputation():
+    from eval_yaw_rotation import delay_flip_counts
+    from tools.yaw_rotation import integer_delays, rotate_vectors_z, yaw_angle_rad
+
+    src, ref_locs = _tie_coordinates()
+    cols = [0, 4, 32, 128]
+    got = delay_flip_counts(src, ref_locs, cols)
+
+    assert sorted(got) == sorted(cols)
+    assert all(isinstance(v, int) for v in got.values())
+    assert got[0] == 0, "the unrotated coordinates cannot flip against themselves"
+
+    d0 = integer_delays(src, ref_locs)
+    n_pairs = src.shape[0] * ref_locs.shape[1]
+    for k in cols:
+        angle = yaw_angle_rad(k)
+        dk = integer_delays(rotate_vectors_z(src, angle), rotate_vectors_z(ref_locs, angle))
+        assert got[k] == int((dk != d0).sum()), "k={}".format(k)
+        assert 0 <= got[k] <= n_pairs
+    # The audit must be able to see flips at all: these radii are built to produce them.
+    assert got[4] > 0 and got[32] > 0, got
+
+
+def test_delay_flip_counts_are_zero_when_the_geometry_is_untouched():
+    from eval_yaw_rotation import delay_flip_counts
+
+    torch.manual_seed(17)
+    src, ref_locs = torch.randn(32, 3) * 3.0, torch.randn(32, 4, 3) * 3.0
+    assert delay_flip_counts(src, ref_locs, [0])[0] == 0
+
+
+# --------------------------------------------------------------------------------------
+# decomposition_at -- where the cylindrical model's rotation sensitivity enters
+# --------------------------------------------------------------------------------------
+@pytest.fixture(scope="module")
+def cuda_cyl_model():
+    from model.xRIR_cyl import build_xrir
+
+    torch.manual_seed(99)
+    return build_xrir("cylindrical", K).cuda().eval()
+
+
+@_NEEDS_CUDA
+def test_decomposition_at_isolates_the_pooling_and_coordinate_branches(cuda_cyl_model):
+    from eval_yaw_rotation import decomposition_at
+
+    depth, refs, src, ref_locs, tgt = _synthetic_scene(seed=21, device="cuda")
+    with torch.no_grad():
+        aligned0 = cuda_cyl_model.shift_and_align(refs, src, ref_locs)
+
+    got = decomposition_at(cuda_cyl_model, depth, refs, src, ref_locs, tgt, aligned0, k=32)
+    assert got["k"] == 32
+    names = ("tokens_rel_change", "pooled_rel_change", "coord_rel_change", "logspec_rel_change")
+    assert sorted(got) == sorted(("k",) + names)
+    for name in names:
+        assert isinstance(got[name], float) and got[name] == got[name], name
+        assert got[name] >= 0.0, name
+
+    # A patch-aligned roll permutes the cylindrical tokens: rolling them back recovers
+    # them. The learned pooling and the raw-xyz embedding are not shift-invariant, so
+    # the change survives into the output.
+    assert got["tokens_rel_change"] < 1e-3, got
+    assert got["coord_rel_change"] > 0.0, got
+    assert got["logspec_rel_change"] > 0.0, got
+
+
+@_NEEDS_CUDA
+def test_decomposition_at_rejects_a_non_cylindrical_backbone(cuda_model):
+    from eval_yaw_rotation import decomposition_at
+
+    depth, refs, src, ref_locs, tgt = _synthetic_scene(seed=22, device="cuda")
+    with torch.no_grad():
+        aligned0 = cuda_model.shift_and_align(refs, src, ref_locs)
+    with pytest.raises(TypeError):
+        decomposition_at(cuda_model, depth, refs, src, ref_locs, tgt, aligned0, k=32)

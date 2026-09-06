@@ -34,7 +34,13 @@ from tools.per_sample_metrics import (
     per_sample_losses,
     sample_seed,
 )
-from tools.yaw_rotation import fixed_alignment, rotate_scene_yaw
+from tools.yaw_rotation import (
+    fixed_alignment,
+    integer_delays,
+    rotate_scene_yaw,
+    rotate_vectors_z,
+    yaw_angle_rad,
+)
 
 
 def rotated_views(depth_coord, src_loc, ref_locs, k):
@@ -151,3 +157,101 @@ def acoustic_metrics_batch(out_k, tgt_wav, query_keys, evaluator, gl_seed):
         for name in values:
             values[name].append(sample[name])
     return {name: np.asarray(vals, dtype=np.float64) for name, vals in values.items()}
+
+
+def delay_flip_counts(src_loc, ref_locs, cols):
+    """Count the integer direct-path delays a rotation moves, per angle.
+
+    ``xRIR.shift_and_align`` is algebraically yaw-invariant, but its float32 norms and
+    ``torch.round`` are not: a delay sitting on a rounding tie can move by one sample
+    under an exactly norm-preserving rotation.  This audit quantifies that noise floor
+    over the real geometry -- it is what condition P exists to exclude.
+
+    Args:
+        src_loc: query-source positions ``[B, 3]``.
+        ref_locs: reference-source positions ``[B, K, 3]``.
+        cols: iterable of integer column rolls.
+
+    Returns:
+        ``{k: count}`` -- the number of ``(sample, reference)`` pairs (out of ``B * K``)
+        whose integer delay differs between the rotated and the unrotated coordinates.
+        ``k = 0`` is always ``0``.
+    """
+    baseline = integer_delays(src_loc, ref_locs)
+    counts = {}
+    for k in cols:
+        angle = yaw_angle_rad(k)
+        rotated = integer_delays(rotate_vectors_z(src_loc, angle),
+                                 rotate_vectors_z(ref_locs, angle))
+        counts[int(k)] = int((rotated != baseline).sum())
+    return counts
+
+
+def _rel_change(rotated, base):
+    """``mean|rotated - base| / mean|base|`` as a Python float."""
+    denom = base.abs().mean()
+    return float((rotated - base).abs().mean() / denom)
+
+
+def decomposition_at(model, depth_coord, ref_irs, src_loc, ref_locs, tgt_wav, aligned0, k=32):
+    """Where a patch-aligned yaw enters an ``xRIR_Cyl`` forward pass (diagnostic).
+
+    CylindricalViT's tokens are equivariant to patch-aligned azimuth rolls, but ``xRIR``
+    pools them with ``lin_proj_0`` -- a learned linear map over the 256 token *positions*
+    -- and separately embeds the raw source xyz.  Neither is shift-invariant, so this
+    reports the relative change of each stage for the receiver view, all under the
+    pinned ``k = 0`` alignment (condition P):
+
+    * ``tokens_rel_change`` -- ViT tokens after rolling the rotated ones back by
+      ``k / patch_width`` azimuth patches (``~0`` iff the encoder is equivariant);
+    * ``pooled_rel_change`` -- the pooled receiver feature ``lin_proj_0(src_proj(tokens))``,
+      exactly as ``xRIR.forward`` computes ``receiver_out``;
+    * ``coord_rel_change`` -- the sinusoidal source-coordinate embedding;
+    * ``logspec_rel_change`` -- the final log-magnitude spectrogram.
+
+    Args (beyond :func:`forward_conditions`'s):
+        k: the patch-aligned angle to decompose (the plan's diagnostic angle is 32).
+
+    Returns:
+        ``{"k", "tokens_rel_change", "pooled_rel_change", "coord_rel_change",
+        "logspec_rel_change"}`` -- one int and four floats.
+
+    Raises:
+        TypeError: if ``model.source_network`` is not tokenised on an explicit
+            elevation x azimuth grid (i.e. is not a ``CylindricalViT``), so "roll the
+            tokens back" would be undefined.
+    """
+    network = model.source_network
+    if not (hasattr(network, "h_tok") and hasattr(network, "w_tok")):
+        raise TypeError("decomposition_at needs a CylindricalViT source_network (an "
+                        "explicit elevation x azimuth token grid), got {}".format(
+                            type(network).__name__))
+    h_tok, w_tok = int(network.h_tok), int(network.w_tok)
+    width = depth_coord.shape[-1]
+    shift = (int(k) % width) // (width // w_tok)
+
+    depth_k, src_k, _ = rotated_views(depth_coord, src_loc, ref_locs, k)
+    batch = depth_coord.shape[0]
+    with torch.no_grad():
+        tokens_0 = network((-depth_coord) / 5.)
+        tokens_k = network((-depth_k) / 5.)
+        grid_0 = tokens_0.view(batch, h_tok, w_tok, -1)
+        grid_k = torch.roll(tokens_k.view(batch, h_tok, w_tok, -1), shifts=-shift, dims=2)
+
+        pooled_0 = model.lin_proj_0(model.src_proj(tokens_0).permute(0, 2, 1))
+        pooled_k = model.lin_proj_0(model.src_proj(tokens_k).permute(0, 2, 1))
+
+        coord_0 = model.src_coord_proj(
+            model.dist_embedder(src_loc.unsqueeze(1) / 5.).view(batch, -1))
+        coord_k = model.src_coord_proj(
+            model.dist_embedder(src_k.unsqueeze(1) / 5.).view(batch, -1))
+
+    out_0 = forward_conditions(
+        model, depth_coord, ref_irs, src_loc, ref_locs, tgt_wav, 0, aligned0)[0]
+    out_k = forward_conditions(
+        model, depth_coord, ref_irs, src_loc, ref_locs, tgt_wav, k, aligned0)[0]
+    return {"k": int(k),
+            "tokens_rel_change": _rel_change(grid_k, grid_0),
+            "pooled_rel_change": _rel_change(pooled_k, pooled_0),
+            "coord_rel_change": _rel_change(coord_k, coord_0),
+            "logspec_rel_change": _rel_change(out_k, out_0)}
