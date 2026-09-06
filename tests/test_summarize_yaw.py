@@ -417,3 +417,22 @@ def test_main_rejects_runs_with_different_manifests(two_runs, tmp_path):
         main(["--runs", two_runs[0], other, "--n-boot", "200"])
     with pytest.raises(ValueError):
         main(["--runs", two_runs[0], "--manifest-hash", "0" * 64, "--n-boot", "200"])
+
+
+def test_main_skips_a_metric_the_run_did_not_evaluate_at_every_angle(two_runs, tmp_path):
+    """The E condition is only measured acoustically at a few angles by design."""
+    from tools.summarize_yaw import main
+
+    partial = str(tmp_path / "partial")
+    os.makedirs(partial, exist_ok=True)
+    run = json.load(open(os.path.join(two_runs[0], "per_sample_yaw.json")))
+    for angle in ("32", "64"):
+        del run["E"][angle]["edt"]
+    run["meta"]["e_acoustic_cols"] = [32, 64]
+    with open(os.path.join(partial, "per_sample_yaw.json"), "w") as fout:
+        json.dump(run, fout)
+
+    out = main(["--runs", partial, "--labels", "partial", "--n-boot", "500"])
+    assert "edt" not in out["acoustic"]["partial"]["E"]
+    assert "c50" in out["acoustic"]["partial"]["E"]
+    assert "edt" in out["acoustic"]["partial"]["P"]

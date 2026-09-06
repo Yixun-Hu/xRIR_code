@@ -546,6 +546,10 @@ def main(argv=None):
                 out["acoustic"][label][condition] = {}
                 angles = sorted(set([0] + list(angles)), key=signed_degrees)
                 for metric in ACOUSTIC_METRICS:
+                    if any(metric not in run[condition][str(int(k))] for k in angles):
+                        print("\n   {} | condition {} | {}: not evaluated at every angle "
+                              "of this grid".format(label, condition, metric))
+                        continue
                     rows = degradation_rows(run, condition, metric, angles, args.n_boot,
                                             alpha_adj, args.seed, rooms=rooms)
                     out["acoustic"][label][condition][metric] = rows
