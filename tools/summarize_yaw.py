@@ -519,6 +519,8 @@ FAMILY_SIZE = len(CONFIRMATORY_METRICS) * len(
 # these; a run that does not meet them is exploratory by definition.
 FULL_EXPECTATIONS = {"n_queries": 6337, "n_rooms": 17, "gl_seed": 0, "tf32": False,
                      "batch_canonical": True, "batch_size": 16, "manifest_seed": 0,
+                     "alpha": 0.05, "threshold": 0.10, "equiv_margin": 0.02, "seed": 0,
+                     "min_n_boot": 20000,
                      "spectral_cols": PREREGISTERED_SPECTRAL_COLS,
                      "acoustic_cols": PREREGISTERED_ACOUSTIC_COLS,
                      "e_acoustic_cols": PREREGISTERED_E_ACOUSTIC_COLS}
@@ -829,53 +831,54 @@ def validate_gate(by_label, roles, noise_runs, exp01_by_label, expected_hash=Non
     return reasons
 
 
-def validate_full(by_label, roles, expected_hash):
+def validate_full(by_label, roles, expected_hash, settings):
     """Every condition the confirmatory analysis assumes, checked before it runs.
 
     A pre-registered decision rule is only worth anything if the evidence it reads is the
-    evidence it was written for, so this refuses to *silently* summarise a partial sweep:
-    it returns the reasons rather than raising, and the caller reports them and stops.
+    evidence it was written for, so this refuses to *silently* summarise a partial sweep
+    -- or a differently parameterised one: the analysis constants are pinned here too, and
+    varying any of them is what ``--mode exploratory`` is for.  It returns the reasons
+    rather than raising, and the caller reports them and stops.
 
     Args:
         by_label: ``{label: run}``.
         roles: ``{"primary", "cyl", "released"} -> label or None``.
-        expected_hash: the manifest hash the runs must carry (required in full mode).
+        expected_hash: the manifest hash the caller asked for; it must be the seed-0 one.
+        settings: the CLI analysis settings ``{"alpha", "threshold", "equiv_margin",
+            "seed", "n_boot"}``.
 
     Returns:
         A list of human-readable reasons; empty means the set is confirmatory-grade.
     """
     expectations = FULL_EXPECTATIONS
-    reasons = []
+    reasons = list(_check_roles(by_label, roles))
     if not expected_hash:
         reasons.append("--manifest-hash is required in full mode")
-    for role in ("primary", "cyl", "released"):
-        label = roles.get(role)
-        needle = EXPECTED_ROLE_CHECKPOINTS[role]
-        if label is None:
-            reasons.append("no {} run".format(role))
-        elif needle not in by_label[label]["meta"]["checkpoint"]:
-            reasons.append("{} run {!r} has checkpoint {!r}, expected one containing {!r}"
-                           .format(role, label, by_label[label]["meta"]["checkpoint"],
-                                   needle))
+    elif expected_hash != MANIFEST_HASH_SEED0:
+        reasons.append("--manifest-hash {} is not the pinned seed-0 manifest {}".format(
+            expected_hash, MANIFEST_HASH_SEED0))
+    for key in ("alpha", "threshold", "equiv_margin", "seed"):
+        if settings.get(key) != expectations[key]:
+            reasons.append("--{} is {!r}, expected the pre-registered {!r} (vary it only "
+                           "in --mode exploratory)".format(
+                               key.replace("_", "-"), settings.get(key), expectations[key]))
+    if settings.get("n_boot", 0) < expectations["min_n_boot"]:
+        reasons.append("--n-boot is {!r}, the pre-registered analysis needs at least {}"
+                       .format(settings.get("n_boot"), expectations["min_n_boot"]))
+    audits = {}
     reference = None
     for label in sorted(by_label):
         run = by_label[label]
         meta = run["meta"]
-        queries = run["query"]
-        if len(queries) != expectations["n_queries"]:
-            reasons.append("{}: {} queries, expected {}".format(
-                label, len(queries), expectations["n_queries"]))
-        if len(set(queries)) != len(queries):
-            reasons.append("{}: the queries are not unique ({} of {})".format(
-                label, len(set(queries)), len(queries)))
-        n_rooms = int(len(np.unique(rooms_from_paths(queries))))
-        if n_rooms != expectations["n_rooms"]:
-            reasons.append("{}: {} rooms, expected {}".format(
-                label, n_rooms, expectations["n_rooms"]))
-        for key in ("gl_seed", "tf32", "batch_canonical"):
-            if meta.get(key) != expectations[key]:
-                reasons.append("{}: meta.{} is {!r}, expected {!r}".format(
-                    label, key, meta.get(key), expectations[key]))
+        reasons.extend(_check_run_meta(label, run, MANIFEST_HASH_SEED0))
+        if meta.get("manifest_seed") != expectations["manifest_seed"]:
+            reasons.append("{}: meta.manifest_seed is {!r}, expected {!r}".format(
+                label, meta.get("manifest_seed"), expectations["manifest_seed"]))
+        audits[label] = run.get("delay_flips", {})
+        if audits[label].get("0") != 0:
+            reasons.append("{}: delay_flips[0] is {!r}, expected 0 (a rotation by zero "
+                           "columns cannot move a delay)".format(
+                               label, audits[label].get("0")))
         for key, expected in (("yaw_cols", expectations["spectral_cols"]),
                               ("acoustic_cols", expectations["acoustic_cols"]),
                               ("e_acoustic_cols", expectations["e_acoustic_cols"])):
@@ -885,22 +888,7 @@ def validate_full(by_label, roles, expected_hash):
         for k in expectations["spectral_cols"]:
             if str(int(k)) not in run.get("delay_flips", {}):
                 reasons.append("{}: delay_flips has no angle {}".format(label, k))
-            for condition in ("P", "E"):
-                cell = run[condition].get(str(int(k)))
-                if cell is None:
-                    reasons.append("{}: condition {} has no angle {}".format(
-                        label, condition, k))
-                    continue
-                for metric in SPECTRAL_METRICS:
-                    values = cell.get(metric)
-                    if values is None or len(values) != expectations["n_queries"]:
-                        reasons.append("{}: {} k={} {} has {} values, expected {}".format(
-                            label, condition, k, metric,
-                            "no" if values is None else len(values),
-                            expectations["n_queries"]))
-                    elif not np.isfinite(_as_array(values)).all():
-                        reasons.append("{}: {} k={} {} has non-finite values".format(
-                            label, condition, k, metric))
+        reasons.extend(_check_spectral_arrays(label, run, expectations["spectral_cols"]))
         for condition, angles in (("P", expectations["acoustic_cols"]),
                                   ("E", (0,) + tuple(expectations["e_acoustic_cols"]))):
             for k in angles:
@@ -919,6 +907,10 @@ def validate_full(by_label, roles, expected_hash):
                 reasons.append("{} is not query-aligned with {}".format(label, reference[0]))
             if run.get("index") != reference[1].get("index"):
                 reasons.append("{}: index differs from {}".format(label, reference[0]))
+            if audits[label] != audits[reference[0]]:
+                reasons.append("{}: delay_flips differ from {}; the audit is geometry "
+                               "only and cannot depend on the model".format(
+                                   label, reference[0]))
     return reasons
 
 
@@ -1060,7 +1052,10 @@ def main(argv=None):
         released_baseline = dict(zip(RELEASED_BASELINE_METRICS,
                                      [float(value) for value in parts]))
     if args.mode == "full":
-        reasons = validate_full(by_label, roles, args.manifest_hash)
+        reasons = validate_full(by_label, roles, args.manifest_hash,
+                                {"alpha": args.alpha, "threshold": args.threshold,
+                                 "equiv_margin": args.equiv_margin, "seed": args.seed,
+                                 "n_boot": args.n_boot})
         print("mode: full -- valid_for_confirmatory: {}".format(not reasons))
         if reasons:
             print("this set of runs is not confirmatory-grade; no artefacts were written:")

@@ -114,7 +114,8 @@ def released_run(tmp_path_factory):
                      nan_rows=(3, 17, 88), baseline_nan_rows=(5,), noise_seed=3)
 
 
-def relax_full_expectations(monkeypatch, n_queries=300, n_rooms=5, cols=(0, 32, 64)):
+def relax_full_expectations(monkeypatch, n_queries=300, n_rooms=5, cols=(0, 32, 64),
+                            min_n_boot=500):
     """Point full mode's size and grid expectations at the synthetic fixtures.
 
     Only the *expectations* move; every rule they feed stays exactly as production runs
@@ -126,7 +127,8 @@ def relax_full_expectations(monkeypatch, n_queries=300, n_rooms=5, cols=(0, 32, 
                         dict(summarize_yaw.FULL_EXPECTATIONS, n_queries=n_queries,
                              n_rooms=n_rooms, spectral_cols=tuple(cols),
                              acoustic_cols=tuple(cols),
-                             e_acoustic_cols=tuple(k for k in cols if k)))
+                             e_acoustic_cols=tuple(k for k in cols if k),
+                             min_n_boot=min_n_boot))
 
 
 @pytest.fixture(scope="module")
@@ -666,12 +668,17 @@ def _by_label(two_runs, released_run):
             "released": load_run(released_run)}
 
 
+PRE_REGISTERED_SETTINGS = {"alpha": 0.05, "threshold": 0.10, "equiv_margin": 0.02,
+                           "seed": 0, "n_boot": 20000}
+
+
 def test_validate_full_accepts_a_complete_set_of_runs(two_runs, released_run, monkeypatch):
     from tools.summarize_yaw import validate_full
 
     relax_full_expectations(monkeypatch)
     reasons = validate_full(_by_label(two_runs, released_run),
-                            _roles("control", "cyl", "released"), MANIFEST_HASH)
+                            _roles("control", "cyl", "released"), MANIFEST_HASH,
+                            PRE_REGISTERED_SETTINGS)
     assert reasons == []
 
 
@@ -687,7 +694,8 @@ def test_validate_full_names_every_violation(two_runs, released_run, monkeypatch
         runs = copy.deepcopy(_by_label(two_runs, released_run))
         if mutate is not None:
             mutate(runs)
-        return validate_full(runs, roles_override or roles, digest)
+        return validate_full(runs, roles_override or roles, digest,
+                             PRE_REGISTERED_SETTINGS)
 
     assert any("manifest-hash" in r for r in reasons_for(digest=None))
     assert any("no released run" in r for r in
@@ -886,12 +894,17 @@ def _by_label(two_runs, released_run):
             "released": load_run(released_run)}
 
 
+PRE_REGISTERED_SETTINGS = {"alpha": 0.05, "threshold": 0.10, "equiv_margin": 0.02,
+                           "seed": 0, "n_boot": 20000}
+
+
 def test_validate_full_accepts_a_complete_set_of_runs(two_runs, released_run, monkeypatch):
     from tools.summarize_yaw import validate_full
 
     relax_full_expectations(monkeypatch)
     reasons = validate_full(_by_label(two_runs, released_run),
-                            _roles("control", "cyl", "released"), MANIFEST_HASH)
+                            _roles("control", "cyl", "released"), MANIFEST_HASH,
+                            PRE_REGISTERED_SETTINGS)
     assert reasons == []
 
 
@@ -907,7 +920,8 @@ def test_validate_full_names_every_violation(two_runs, released_run, monkeypatch
         runs = copy.deepcopy(_by_label(two_runs, released_run))
         if mutate is not None:
             mutate(runs)
-        return validate_full(runs, roles_override or roles, digest)
+        return validate_full(runs, roles_override or roles, digest,
+                             PRE_REGISTERED_SETTINGS)
 
     assert any("manifest-hash" in r for r in reasons_for(digest=None))
     assert any("no released run" in r for r in
@@ -1081,7 +1095,7 @@ def test_main_in_full_mode_writes_nothing_when_the_bootstrap_has_not_converged(
     """A pre-registered threshold read off an unconverged bound is not a decision rule."""
     from tools.summarize_yaw import main
 
-    relax_full_expectations(monkeypatch)
+    relax_full_expectations(monkeypatch, min_n_boot=30)
     json_path = str(tmp_path / "summary.json")
     summary_path = str(tmp_path / "summary.txt")
     argv = ["--mode", "full", "--runs", two_runs[0], two_runs[1], released_run,
@@ -1257,3 +1271,78 @@ def test_the_gate_fails_closed_on_every_missing_or_wrong_input(tmp_path, monkeyp
     _edit_run(paths["cyl"], lambda run: run["E"]["0"].__setitem__(
         "edt", [v if v is None else v + 1.0 for v in run["E"]["0"]["edt"]]))
     fails(lambda a: a, "p_ne_e", "P and E differ at k=0")
+
+
+# --------------------------------------------------------------------------------------
+# full mode pins the pre-registration itself, not just the shape of the runs
+# --------------------------------------------------------------------------------------
+def _full_trio(tmp_path, prefix=""):
+    """Three complete, mutually consistent runs for the confirmatory summary."""
+    shifts = {("P", 32): 0.15, ("P", 64): 0.30, ("E", 32): 0.18, ("E", 64): 0.34}
+    control = write_run(str(tmp_path / (prefix + "control")), shifts, noise_seed=1)
+    cyl = write_run(str(tmp_path / (prefix + "cyl")), {("P", 32): 0.0, ("P", 64): 0.05},
+                    backbone="cylindrical",
+                    checkpoint="ckpt/xRIR_cyl_8_shot/epoch_12.pth", noise_seed=2)
+    released = write_run(str(tmp_path / (prefix + "released")), shifts,
+                         checkpoint="checkpoints/xRIR_unseen.pth", noise_seed=3)
+    return [control, cyl, released]
+
+
+def test_full_mode_lists_every_pre_registration_violation(tmp_path, monkeypatch, capsys):
+    from tools.summarize_yaw import main
+
+    relax_full_expectations(monkeypatch, min_n_boot=20000)
+
+    def check(name, needle, mutate=None, argv_extra=(), digest=MANIFEST_HASH):
+        runs = _full_trio(tmp_path / name)
+        if mutate is not None:
+            for directory in runs:
+                _edit_run(directory, mutate)
+        argv = ["--mode", "full", "--runs"] + runs + [
+            "--manifest-hash", digest, "--n-boot", "20000",
+            "--json", str(tmp_path / (name + ".json")),
+            "--summary", str(tmp_path / (name + ".txt"))] + list(argv_extra)
+        with pytest.raises(SystemExit) as excinfo:
+            main(argv)
+        assert excinfo.value.code != 0, name
+        printed = capsys.readouterr().out
+        assert needle in printed, (name, needle, printed[-2000:])
+        assert not os.path.exists(str(tmp_path / (name + ".json"))), name
+
+    check("hash", "not the pinned seed-0 manifest", digest="0" * 64,
+          mutate=lambda run: run["meta"].update(manifest_hash="0" * 64))
+    check("seed", "meta.manifest_seed", mutate=lambda run: run["meta"].update(manifest_seed=9))
+    check("batch", "meta.batch_size", mutate=lambda run: run["meta"].update(batch_size=8))
+    check("epoch11", "epoch_12.pth",
+          mutate=lambda run: run["meta"].update(
+              checkpoint=run["meta"]["checkpoint"].replace("epoch_12", "epoch_11")))
+    check("alpha", "--alpha", argv_extra=["--alpha", "0.1"])
+    check("nboot", "--n-boot", argv_extra=["--n-boot", "5000"])
+    check("threshold", "--threshold", argv_extra=["--threshold", "0.2"])
+    check("margin", "--equiv-margin", argv_extra=["--equiv-margin", "0.05"])
+    check("bootseed", "--seed", argv_extra=["--seed", "3"])
+
+
+def test_full_mode_requires_one_delay_audit_across_the_three_runs(tmp_path, monkeypatch,
+                                                                 capsys):
+    from tools.summarize_yaw import main
+
+    relax_full_expectations(monkeypatch)
+    runs = _full_trio(tmp_path / "audit")
+    _edit_run(runs[1], lambda run: run["delay_flips"].update({"32": 999}))
+    argv = ["--mode", "full", "--runs"] + runs + [
+        "--manifest-hash", MANIFEST_HASH, "--n-boot", "500",
+        "--json", str(tmp_path / "a.json"), "--summary", str(tmp_path / "a.txt")]
+    with pytest.raises(SystemExit):
+        main(argv)
+    printed = capsys.readouterr().out
+    assert "delay_flips differ" in printed
+
+    # The audit is geometry only, so a non-zero count at k=0 is impossible.
+    runs = _full_trio(tmp_path / "audit0")
+    for directory in runs:
+        _edit_run(directory, lambda run: run["delay_flips"].update({"0": 3}))
+    argv[argv.index("--runs") + 1:argv.index("--runs") + 4] = runs
+    with pytest.raises(SystemExit):
+        main(argv)
+    assert "delay_flips[0]" in capsys.readouterr().out
