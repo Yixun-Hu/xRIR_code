@@ -856,6 +856,226 @@ def test_k0_gate_rows_report_missing_inputs_as_reasons(tmp_path):
     assert any("no exp_01 per-sample file" in reason for reason in reasons)
 
 
+def test_main_in_k0_gate_mode_prints_the_gate_and_skips_the_hypotheses(tmp_path,
+                                                                       monkeypatch):
+    argv, _ = _gate_setup(tmp_path, monkeypatch)
+    out, code = _run_gate(argv, tmp_path, "printed")
+
+    assert code == 0 and out["mode"] == "k0-gate"
+    assert out["gate_pass"] is True and out["gate_reasons"] == []
+    assert len(out["gate_rows"]) == 3 * len(GATE_METRICS)
+    assert out["h1"]["verdict"] == "not evaluated (k0-gate mode)"
+    assert out["h2"]["verdict"]["aggregate"] == "not evaluated (k0-gate mode)"
+    assert out["k0"] and out["k0"][0]["metric"] == "edt"
+    text = open(str(tmp_path / "printed.txt")).read()
+    assert "k=0 parity gate" in text and "3. Paired cylindrical" in text
+    assert "gate_pass: True" in text
+
+
+# --------------------------------------------------------------------------------------
+# validate_full -- what the confirmatory analysis is allowed to run on
+# --------------------------------------------------------------------------------------
+def _roles(control, cyl, released):
+    return {"primary": control, "cyl": cyl, "released": released}
+
+
+def _by_label(two_runs, released_run):
+    from tools.summarize_yaw import load_run
+
+    return {"control": load_run(two_runs[0]), "cyl": load_run(two_runs[1]),
+            "released": load_run(released_run)}
+
+
+def test_validate_full_accepts_a_complete_set_of_runs(two_runs, released_run, monkeypatch):
+    from tools.summarize_yaw import validate_full
+
+    relax_full_expectations(monkeypatch)
+    reasons = validate_full(_by_label(two_runs, released_run),
+                            _roles("control", "cyl", "released"), MANIFEST_HASH)
+    assert reasons == []
+
+
+def test_validate_full_names_every_violation(two_runs, released_run, monkeypatch):
+    import copy
+
+    from tools.summarize_yaw import validate_full
+
+    relax_full_expectations(monkeypatch)
+    roles = _roles("control", "cyl", "released")
+
+    def reasons_for(mutate=None, roles_override=None, digest=MANIFEST_HASH):
+        runs = copy.deepcopy(_by_label(two_runs, released_run))
+        if mutate is not None:
+            mutate(runs)
+        return validate_full(runs, roles_override or roles, digest)
+
+    assert any("manifest-hash" in r for r in reasons_for(digest=None))
+    assert any("no released run" in r for r in
+               reasons_for(roles_override=_roles("control", "cyl", None)))
+    assert any("checkpoint" in r for r in reasons_for(
+        lambda runs: runs["control"]["meta"].update(checkpoint="ckpt/other/epoch_12.pth")))
+    assert any("queries" in r for r in reasons_for(
+        lambda runs: runs["cyl"].update(query=runs["cyl"]["query"][:-1])))
+    assert any("unique" in r for r in reasons_for(
+        lambda runs: runs["cyl"]["query"].__setitem__(1, runs["cyl"]["query"][0])))
+    assert any("rooms" in r for r in reasons_for(
+        lambda runs: runs["cyl"].update(
+            query=["Cafe/Cafe_idx_1/S{:03d}_R000_hybrid_IR.wav".format(i)
+                   for i in range(300)])))
+    assert any("gl_seed" in r for r in reasons_for(
+        lambda runs: runs["control"]["meta"].update(gl_seed=7)))
+    assert any("tf32" in r for r in reasons_for(
+        lambda runs: runs["control"]["meta"].update(tf32=True)))
+    assert any("batch_canonical" in r for r in reasons_for(
+        lambda runs: runs["control"]["meta"].update(batch_canonical=False)))
+    assert any("yaw_cols" in r for r in reasons_for(
+        lambda runs: runs["control"]["meta"].update(yaw_cols=[0, 32])))
+    assert any("acoustic_cols" in r for r in reasons_for(
+        lambda runs: runs["control"]["meta"].update(acoustic_cols=[0, 32])))
+    assert any("angle 64" in r for r in reasons_for(
+        lambda runs: runs["control"]["P"].pop("64")))
+    assert any("loss" in r for r in reasons_for(
+        lambda runs: runs["control"]["P"]["32"].__setitem__("loss", [0.0] * 299)))
+    assert any("non-finite" in r for r in reasons_for(
+        lambda runs: runs["control"]["P"]["32"]["loss"].__setitem__(0, None)))
+    assert any("edt" in r for r in reasons_for(
+        lambda runs: runs["control"]["P"]["32"].pop("edt")))
+    assert any("delay_flips" in r for r in reasons_for(
+        lambda runs: runs["control"]["delay_flips"].pop("64")))
+    assert any("index" in r for r in reasons_for(
+        lambda runs: runs["cyl"].update(index=list(range(1, 301)))))
+
+
+def test_main_in_full_mode_refuses_incomplete_runs_and_writes_nothing(two_runs, tmp_path):
+    from tools.summarize_yaw import main
+
+    json_path = str(tmp_path / "summary.json")
+    summary_path = str(tmp_path / "summary.txt")
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--mode", "full", "--runs", two_runs[0], two_runs[1],
+              "--labels", "control", "cyl", "--manifest-hash", MANIFEST_HASH,
+              "--n-boot", "200", "--json", json_path, "--summary", summary_path])
+    assert excinfo.value.code != 0
+    assert not os.path.exists(json_path) and not os.path.exists(summary_path)
+
+
+def test_main_in_exploratory_mode_suppresses_the_verdicts(two_runs, tmp_path):
+    from tools.summarize_yaw import main
+
+    json_path = str(tmp_path / "summary.json")
+    summary_path = str(tmp_path / "summary.txt")
+    out = main(["--mode", "exploratory", "--runs", two_runs[0], two_runs[1],
+                "--labels", "control", "cyl", "--n-boot", "500",
+                "--json", json_path, "--summary", summary_path])
+    assert out["exploratory"] is True and out["mode"] == "exploratory"
+    assert "summary_sha256" not in out
+    assert out["h1"]["verdict"] == "not evaluated (exploratory mode)"
+    assert out["h2"]["verdict"]["aggregate"] == "not evaluated (exploratory mode)"
+    written = json.load(open(json_path))
+    assert written["exploratory"] is True and "summary_sha256" not in written
+    assert "exploratory" in open(summary_path).read()
+
+
+# --------------------------------------------------------------------------------------
+# k0-gate: the parity check against exp_01 before any rotated angle is read
+# --------------------------------------------------------------------------------------
+GATE_METRICS = ("edt", "c50", "t60", "loss")
+
+
+def _k0_run(directory, seed=0, scale=1.0, **kwargs):
+    """A k = 0 only run, optionally with every value scaled by a known factor."""
+    from tools.summarize_yaw import load_run
+
+    run = load_run(write_run(directory, {}, cols=(0,), seed=seed, **kwargs))
+    if scale != 1.0:
+        for metric in METRICS:
+            run["P"]["0"][metric] = [None if v is None else v * scale
+                                     for v in run["P"]["0"][metric]]
+            run["E"]["0"][metric] = list(run["P"]["0"][metric])
+    return run
+
+
+def _exp01_file(path, run, scale=1.0):
+    """An exp_01 per-sample JSON (eval_xRIR_backbone.py's --save-per-sample layout)."""
+    payload = {"meta": {"split": "unseen", "num_shot": 8}, "index": run["index"],
+               "ir_path": run["query"], "stft_mse": run["P"]["0"]["log_mse"]}
+    for metric in GATE_METRICS:
+        payload[metric] = [None if v is None else v * scale for v in run["P"]["0"][metric]]
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as fout:
+        json.dump(payload, fout, allow_nan=False)
+    return path
+
+
+def test_k0_gate_rows_pass_inside_the_reference_draw_noise(tmp_path):
+    from tools.summarize_yaw import k0_gate_rows
+
+    control = _k0_run(str(tmp_path / "control"))
+    cyl = _k0_run(str(tmp_path / "cyl"), backbone="cylindrical",
+                  checkpoint="ckpt/xRIR_cyl_8_shot/epoch_12.pth")
+    released = _k0_run(str(tmp_path / "released"),
+                       checkpoint="checkpoints/xRIR_unseen.pth")
+    by_label = {"control": control, "cyl": cyl, "released": released}
+    roles = {"primary": "control", "cyl": "cyl", "released": "released"}
+    exp01 = {"control": json.load(open(_exp01_file(str(tmp_path / "e/c.json"), control, 1.001))),
+             "cyl": json.load(open(_exp01_file(str(tmp_path / "e/y.json"), cyl, 0.999)))}
+    noise = [_k0_run(str(tmp_path / "n1"), scale=1.002),
+             _k0_run(str(tmp_path / "n2"), scale=0.998)]
+    baseline = {metric: _mean(released["P"]["0"][metric]) for metric in ("edt", "c50", "t60")}
+
+    rows, gate_pass, reasons = k0_gate_rows(by_label, roles, exp01, noise, baseline)
+    assert gate_pass is True and reasons == []
+    by_cell = {(row["label"], row["metric"]): row for row in rows}
+    assert set(row["label"] for row in rows) == {"control", "cyl", "released"}
+    for metric in GATE_METRICS:
+        row = by_cell[("control", metric)]
+        assert row["spread"] == pytest.approx(0.002 * row["mean_k0"], rel=1e-6)
+        assert row["band"] == pytest.approx(2 * row["spread"] + 1e-6)
+        assert row["abs_diff"] == pytest.approx(0.001 * row["mean_k0"], rel=1e-6)
+        assert row["pass"] is True and row["source"] == "exp_01 per-sample"
+    # The released checkpoint is compared against exp_01's reported baseline instead,
+    # and its loss has no published counterpart.
+    assert by_cell[("released", "edt")]["source"] == "exp_01 baseline reproduction"
+    assert by_cell[("released", "loss")]["reference"] is None
+    assert by_cell[("released", "loss")]["pass"] is None
+
+
+def _mean(values):
+    return float(np.mean([v for v in values if v is not None]))
+
+
+def test_k0_gate_rows_fail_a_model_outside_the_band(tmp_path):
+    from tools.summarize_yaw import k0_gate_rows
+
+    control = _k0_run(str(tmp_path / "control"))
+    cyl = _k0_run(str(tmp_path / "cyl"), backbone="cylindrical",
+                  checkpoint="ckpt/xRIR_cyl_8_shot/epoch_12.pth")
+    exp01 = {"control": json.load(open(_exp01_file(str(tmp_path / "e/c.json"), control, 1.01))),
+             "cyl": json.load(open(_exp01_file(str(tmp_path / "e/y.json"), cyl, 1.0)))}
+    noise = [_k0_run(str(tmp_path / "n1"), scale=1.002)]
+    rows, gate_pass, reasons = k0_gate_rows(
+        {"control": control, "cyl": cyl},
+        {"primary": "control", "cyl": "cyl", "released": None}, exp01, noise, None)
+
+    assert gate_pass is False
+    assert len(reasons) == len(GATE_METRICS)
+    assert all("control" in reason for reason in reasons)
+    failing = [row for row in rows if row["pass"] is False]
+    assert {row["metric"] for row in failing} == set(GATE_METRICS)
+
+
+def test_k0_gate_rows_report_missing_inputs_as_reasons(tmp_path):
+    from tools.summarize_yaw import k0_gate_rows
+
+    control = _k0_run(str(tmp_path / "control"))
+    rows, gate_pass, reasons = k0_gate_rows(
+        {"control": control}, {"primary": "control", "cyl": None, "released": None},
+        {}, [], None)
+    assert gate_pass is False
+    assert any("no --noise-runs" in reason for reason in reasons)
+    assert any("no exp_01 per-sample file" in reason for reason in reasons)
+
+
 def test_main_in_k0_gate_mode_prints_the_gate_and_skips_the_hypotheses(tmp_path):
     from tools.summarize_yaw import main
 
@@ -945,3 +1165,125 @@ def test_labels_are_derived_from_the_checkpoints(tmp_path):
     # Two runs of the same checkpoint cannot be told apart: say so rather than guess.
     with pytest.raises(ValueError):
         derive_labels([runs[0], runs[0]], directories[:2])
+
+
+# --------------------------------------------------------------------------------------
+# validate_gate -- the k=0 gate fails closed
+# --------------------------------------------------------------------------------------
+SEED1_HASH = "6ca8164e5727d5f4db84569d5effa840b2cb6e6f77819a69bbb37bb30c6ab11e"
+SEED2_HASH = "757e5a966ee2d069a07accecbc43e46bd564ea7c788a28c219773df64e986234"
+
+
+def _scaled_run(directory, scale=1.0, **kwargs):
+    """A k=0-only run whose values are the shared baseline times ``scale``."""
+    write_run(directory, {}, cols=(0,), **kwargs)
+    if scale != 1.0:
+        _edit_run(directory, lambda run: [
+            cell.__setitem__(metric, [None if v is None else v * scale for v in values])
+            for condition in ("P", "E") for cell in [run[condition]["0"]]
+            for metric, values in list(cell.items())])
+    return directory
+
+
+def _edit_run(directory, mutate):
+    """Load, mutate and rewrite one run's per_sample_yaw.json in place."""
+    path = os.path.join(directory, "per_sample_yaw.json")
+    run = json.load(open(path))
+    mutate(run)
+    with open(path, "w") as fout:
+        json.dump(run, fout, allow_nan=False)
+    return directory
+
+
+def _gate_setup(tmp_path, monkeypatch):
+    """The three gate runs, two noise runs and the two exp_01 files, all consistent."""
+    relax_full_expectations(monkeypatch)
+    control = _scaled_run(str(tmp_path / "gate_control"))
+    cyl = _scaled_run(str(tmp_path / "gate_cyl"), backbone="cylindrical",
+                      checkpoint="ckpt/xRIR_cyl_8_shot/epoch_12.pth")
+    released = _scaled_run(str(tmp_path / "gate_released"),
+                           checkpoint="checkpoints/xRIR_unseen.pth")
+    noise1 = _scaled_run(str(tmp_path / "noise_seed1"), scale=1.002,
+                         manifest_hash=SEED1_HASH)
+    noise2 = _scaled_run(str(tmp_path / "noise_seed2"), scale=0.998,
+                         manifest_hash=SEED2_HASH)
+    loaded = {name: json.load(open(os.path.join(d, "per_sample_yaw.json")))
+              for name, d in (("control", control), ("cyl", cyl), ("released", released))}
+    exp01 = {name: _exp01_file(str(tmp_path / "exp01" / "{}.json".format(name)),
+                               loaded[name], 1.001) for name in ("control", "cyl")}
+    baseline = ",".join("{:.10g}".format(_mean(loaded["released"]["P"]["0"][metric]))
+                        for metric in ("edt", "c50", "t60"))
+    argv = ["--mode", "k0-gate", "--runs", control, cyl, released,
+            "--manifest-hash", MANIFEST_HASH,
+            "--exp01-per-sample", "control=" + exp01["control"], "cyl=" + exp01["cyl"],
+            "--noise-runs", noise1, noise2, "--released-baseline", baseline,
+            "--n-boot", "200"]
+    return argv, {"control": control, "cyl": cyl, "released": released,
+                  "noise1": noise1, "noise2": noise2}
+
+
+def _run_gate(argv, tmp_path, name):
+    """Run the documented gate command line; return (out or None, exit code)."""
+    from tools.summarize_yaw import main
+
+    full = argv + ["--json", str(tmp_path / (name + ".json")),
+                   "--summary", str(tmp_path / (name + ".txt"))]
+    try:
+        return main(full), 0
+    except SystemExit as exit_signal:
+        return json.load(open(str(tmp_path / (name + ".json")))), exit_signal.code
+
+
+def test_the_documented_gate_command_passes_when_everything_is_present(tmp_path,
+                                                                       monkeypatch):
+    argv, _ = _gate_setup(tmp_path, monkeypatch)
+    out, code = _run_gate(argv, tmp_path, "ok")
+    assert code == 0
+    assert out["gate_pass"] is True and out["gate_reasons"] == []
+    # The labels came from the checkpoints, not from the directory names.
+    assert out["config"]["labels"] == ["control", "cyl", "released"]
+    assert out["config"]["roles"] == {"primary": "control", "cyl": "cyl",
+                                      "released": "released"}
+    assert len(out["gate_rows"]) == 3 * len(GATE_METRICS)
+
+
+def test_the_gate_fails_closed_on_every_missing_or_wrong_input(tmp_path, monkeypatch):
+    argv, paths = _gate_setup(tmp_path, monkeypatch)
+
+    def fails(mutate_argv, name, needle):
+        changed = mutate_argv(list(argv))
+        out, code = _run_gate(changed, tmp_path, name)
+        assert code != 0, name
+        assert out["gate_pass"] is False, name
+        assert any(needle in reason for reason in out["gate_reasons"]), \
+            (name, needle, out["gate_reasons"])
+
+    def drop_a_noise_run(a):
+        return a[:a.index("--noise-runs") + 2] + a[a.index("--released-baseline"):]
+
+    def drop_the_released_run(a):
+        del a[a.index("--runs") + 3]
+        return a
+
+    def drop_an_exp01_file(a):
+        del a[a.index("--exp01-per-sample") + 2]
+        return a
+
+    fails(drop_a_noise_run, "one_noise", "exactly 2")
+    fails(drop_the_released_run, "no_released", "no released run")
+    fails(drop_an_exp01_file, "no_exp01", "exp_01 per-sample")
+
+    # A noise run of the wrong checkpoint, and one on the wrong manifest seed.
+    _edit_run(paths["noise1"],
+              lambda run: run["meta"].update(checkpoint="ckpt/xRIR_cyl_8_shot/epoch_12.pth"))
+    fails(lambda a: a, "wrong_ckpt", "checkpoint")
+    _edit_run(paths["noise1"],
+              lambda run: run["meta"].update(checkpoint="ckpt/xRIR_simple_8_shot/epoch_12.pth",
+                                             manifest_hash="0" * 64))
+    fails(lambda a: a, "wrong_hash", "manifest")
+    _edit_run(paths["noise1"], lambda run: run["meta"].update(manifest_hash=SEED1_HASH))
+
+    # P and E must be the same forward at k = 0.
+    _edit_run(paths["cyl"], lambda run: run["E"]["0"].__setitem__(
+        "edt", [v if v is None else v + 1.0 for v in run["E"]["0"]["edt"]]))
+    fails(lambda a: a, "p_ne_e", "P and E differ at k=0")

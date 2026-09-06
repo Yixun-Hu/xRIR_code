@@ -518,7 +518,7 @@ FAMILY_SIZE = len(CONFIRMATORY_METRICS) * len(
 # What a confirmatory ("full") summary is allowed to run on. Production never overrides
 # these; a run that does not meet them is exploratory by definition.
 FULL_EXPECTATIONS = {"n_queries": 6337, "n_rooms": 17, "gl_seed": 0, "tf32": False,
-                     "batch_canonical": True,
+                     "batch_canonical": True, "batch_size": 16, "manifest_seed": 0,
                      "spectral_cols": PREREGISTERED_SPECTRAL_COLS,
                      "acoustic_cols": PREREGISTERED_ACOUSTIC_COLS,
                      "e_acoustic_cols": PREREGISTERED_E_ACOUSTIC_COLS}
@@ -660,6 +660,173 @@ def k0_gate_rows(by_label, roles, exp01_by_label, noise_runs, released_baseline,
     decided = [row["pass"] for row in rows if row["pass"] is not None]
     gate_pass = bool(decided) and all(decided) and not reasons
     return rows, gate_pass, reasons
+
+
+MANIFEST_HASH_SEED0 = "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d"
+NOISE_MANIFEST_HASHES = ("6ca8164e5727d5f4db84569d5effa840b2cb6e6f77819a69bbb37bb30c6ab11e",
+                         "757e5a966ee2d069a07accecbc43e46bd564ea7c788a28c219773df64e986234")
+
+
+def _check_roles(by_label, roles):
+    """The three runs must be the three pinned checkpoints, on the right backbone."""
+    reasons = []
+    for role, spec in EXPECTED_ROLES.items():
+        label = roles.get(role)
+        if label is None or label not in by_label:
+            reasons.append("no {} run".format(role))
+            continue
+        meta = by_label[label]["meta"]
+        if not _checkpoint_matches(meta.get("checkpoint", ""), spec["checkpoint"]):
+            reasons.append("{} run {!r} has checkpoint {!r}, expected {!r}".format(
+                role, label, meta.get("checkpoint"), spec["checkpoint"]))
+        if meta.get("backbone") != spec["backbone"]:
+            reasons.append("{} run {!r} has backbone {!r}, expected {!r}".format(
+                role, label, meta.get("backbone"), spec["backbone"]))
+    return reasons
+
+
+def _check_run_meta(name, run, expected_hash):
+    """The invariants every confirmatory-grade run shares, whatever its angle grid."""
+    expectations = FULL_EXPECTATIONS
+    meta = run["meta"]
+    reasons = []
+    if expected_hash is not None and meta.get("manifest_hash") != expected_hash:
+        reasons.append("{}: manifest_hash {}, expected {}".format(
+            name, meta.get("manifest_hash"), expected_hash))
+    for key in ("gl_seed", "tf32", "batch_canonical", "batch_size"):
+        if meta.get(key) != expectations[key]:
+            reasons.append("{}: meta.{} is {!r}, expected {!r}".format(
+                name, key, meta.get(key), expectations[key]))
+    queries = run["query"]
+    if len(queries) != expectations["n_queries"]:
+        reasons.append("{}: {} queries, expected {}".format(
+            name, len(queries), expectations["n_queries"]))
+    if len(set(queries)) != len(queries):
+        reasons.append("{}: the queries are not unique ({} of {})".format(
+            name, len(set(queries)), len(queries)))
+    n_rooms = int(len(np.unique(rooms_from_paths(queries))))
+    if n_rooms != expectations["n_rooms"]:
+        reasons.append("{}: {} rooms, expected {}".format(
+            name, n_rooms, expectations["n_rooms"]))
+    return reasons
+
+
+def _check_spectral_arrays(name, run, cols):
+    """Full-length, finite spectral arrays at every angle of ``cols``, in both conditions."""
+    expectations = FULL_EXPECTATIONS
+    reasons = []
+    for k in cols:
+        for condition in ("P", "E"):
+            cell = run.get(condition, {}).get(str(int(k)))
+            if cell is None:
+                reasons.append("{}: condition {} has no angle {}".format(
+                    name, condition, k))
+                continue
+            for metric in SPECTRAL_METRICS:
+                values = cell.get(metric)
+                if values is None or len(values) != expectations["n_queries"]:
+                    reasons.append("{}: {} k={} {} has {} values, expected {}".format(
+                        name, condition, k, metric,
+                        "no" if values is None else len(values),
+                        expectations["n_queries"]))
+                elif not np.isfinite(_as_array(values)).all():
+                    reasons.append("{}: {} k={} {} has non-finite values".format(
+                        name, condition, k, metric))
+    return reasons
+
+
+def _check_k0_only(name, run):
+    """A gate run must have been evaluated at k = 0 and nowhere else."""
+    meta = run["meta"]
+    reasons = []
+    for key in ("yaw_cols", "acoustic_cols"):
+        if [int(k) for k in meta.get(key, [])] != [0]:
+            reasons.append("{}: meta.{} is {}, expected [0] (a k=0-only run)".format(
+                name, key, meta.get(key)))
+    if sorted(run.get("P", {})) != ["0"]:
+        reasons.append("{}: condition P holds angles {}, expected only k=0".format(
+            name, sorted(run.get("P", {}))))
+    return reasons
+
+
+def validate_gate(by_label, roles, noise_runs, exp01_by_label, expected_hash=None):
+    """Everything the k=0 parity gate needs before it is allowed to pass.
+
+    The gate decides whether the sweep may start, so it fails closed: a missing noise
+    run, an unrecognised checkpoint or a manifest that is not one of the three
+    pre-registered draws is a failure, never a silently narrower comparison.
+
+    Args:
+        by_label: ``{label: run}`` for the three seed-0 runs.
+        roles: ``{"primary", "cyl", "released"} -> label or None``.
+        noise_runs: the control checkpoint re-evaluated on manifest seeds 1 and 2.
+        exp01_by_label: exp_01's per-sample records, needed for the control and the
+            cylindrical model (the released checkpoint has none).
+        expected_hash: the hash the *caller* asked for; it must be the seed-0 manifest.
+
+    Returns:
+        A list of reasons; empty means the gate may be decided on the numbers.
+    """
+    reasons = list(_check_roles(by_label, roles))
+    if expected_hash is not None and expected_hash != MANIFEST_HASH_SEED0:
+        reasons.append("--manifest-hash {} is not the pinned seed-0 manifest {}".format(
+            expected_hash, MANIFEST_HASH_SEED0))
+    reference = by_label.get(roles.get("primary"))
+    for role in ("primary", "cyl", "released"):
+        label = roles.get(role)
+        if label is None or label not in by_label:
+            continue
+        run = by_label[label]
+        reasons.extend(_check_run_meta(label, run, MANIFEST_HASH_SEED0))
+        reasons.extend(_check_k0_only(label, run))
+        reasons.extend(_check_spectral_arrays(label, run, [0]))
+        if reference is not None and run is not reference:
+            if run["query"] != reference["query"]:
+                reasons.append("{}: queries differ from {}".format(
+                    label, roles.get("primary")))
+            if run.get("index") != reference.get("index"):
+                reasons.append("{}: index differs from {}".format(
+                    label, roles.get("primary")))
+        if run.get("delay_flips", {}).get("0") != 0:
+            reasons.append("{}: delay_flips[0] is {!r}, expected 0".format(
+                label, run.get("delay_flips", {}).get("0")))
+        for metric in sorted(run.get("P", {}).get("0", {})):
+            if run["P"]["0"][metric] != run.get("E", {}).get("0", {}).get(metric):
+                reasons.append("{}: P and E differ at k=0 ({})".format(label, metric))
+    for role in ("primary", "cyl"):
+        label = roles.get(role)
+        if label is not None and label not in exp01_by_label:
+            reasons.append("{}: no exp_01 per-sample file (--exp01-per-sample {}=...)"
+                           .format(label, label))
+    if len(noise_runs) != 2:
+        reasons.append("expected exactly 2 --noise-runs (manifest seeds 1 and 2), got {}"
+                       .format(len(noise_runs)))
+    seen = []
+    for run in noise_runs:
+        name = "noise run {}".format(os.path.basename(os.path.normpath(run.get("dir", "?"))))
+        meta = run["meta"]
+        spec = EXPECTED_ROLES["primary"]
+        if not _checkpoint_matches(meta.get("checkpoint", ""), spec["checkpoint"]):
+            reasons.append("{}: checkpoint {!r}, expected the control's {!r}".format(
+                name, meta.get("checkpoint"), spec["checkpoint"]))
+        if meta.get("backbone") != spec["backbone"]:
+            reasons.append("{}: backbone {!r}, expected {!r}".format(
+                name, meta.get("backbone"), spec["backbone"]))
+        digest = meta.get("manifest_hash")
+        if digest not in NOISE_MANIFEST_HASHES:
+            reasons.append("{}: manifest_hash {} is not one of the seed 1/2 manifests"
+                           .format(name, digest))
+        else:
+            seen.append(digest)
+        reasons.extend(_check_run_meta(name, run, None))
+        reasons.extend(_check_k0_only(name, run))
+        reasons.extend(_check_spectral_arrays(name, run, [0]))
+        if reference is not None and run["query"] != reference["query"]:
+            reasons.append("{}: queries differ from the gate runs".format(name))
+    if len(noise_runs) == 2 and sorted(seen) != sorted(NOISE_MANIFEST_HASHES):
+        reasons.append("the two noise runs must be manifest seeds 1 and 2, one each; "
+                       "got {}".format(sorted(seen)))
+    return reasons
 
 
 def validate_full(by_label, roles, expected_hash):
@@ -1011,9 +1178,8 @@ def main(argv=None):
             print("   skipped: needs both a cylindrical and a primary SimpleViT run")
 
         if gate_mode:
-            extra = ["{}: contains angles beyond k=0 ({})".format(label, sorted(run["P"]))
-                     for label, run in sorted(by_label.items())
-                     if sorted(run["P"]) != ["0"]]
+            extra = validate_gate(by_label, roles, noise_runs, exp01_by_label,
+                                  args.manifest_hash)
             gate_rows, gate_pass, gate_reasons = k0_gate_rows(
                 by_label, roles, exp01_by_label, noise_runs, released_baseline)
             gate_reasons = extra + gate_reasons
