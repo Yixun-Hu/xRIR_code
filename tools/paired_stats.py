@@ -185,3 +185,72 @@ def relative_degradation_bootstrap(e0, ek, n_boot=10000, alpha=0.05, seed=0, clu
     return {"r": float((b.mean() - a.mean()) / a.mean()), "lo": lo, "hi": hi,
             "n": int(a.size), "n_boot": int(n_boot), "alpha": float(alpha),
             "unit": "pair" if clusters is None else "cluster"}
+
+
+def bonferroni_alpha(alpha, m):
+    """Bonferroni-adjusted level for a family of ``m`` tests: ``alpha / m``.
+
+    exp_03's confirmatory family is 2 metrics x 9 non-zero acoustic angles = 18 tests,
+    so every reported confirmatory interval is a ``1 - 0.05/18`` interval.
+
+    Raises:
+        ValueError: if ``alpha`` is outside ``(0, 1)`` or ``m < 1``.
+    """
+    if not (0.0 < float(alpha) < 1.0):
+        raise ValueError("alpha must lie in (0, 1), got {}".format(alpha))
+    if int(m) < 1:
+        raise ValueError("the family size m must be >= 1, got {}".format(m))
+    return float(alpha) / int(m)
+
+
+def verdict_substantial(res, threshold):
+    """Whether a degradation result clears a practical margin.
+
+    The pre-registered rule is one-sided and strict: the *lower* bound of the interval
+    must exceed ``threshold`` (a lower bound sitting exactly on the margin is not a
+    pass), so the claim survives the Bonferroni adjustment it was computed with.
+
+    Args:
+        res: a :func:`relative_degradation_bootstrap` result (only ``"lo"`` is read).
+        threshold: the practical margin, e.g. ``0.10`` for +10 %.
+
+    Returns:
+        ``True`` if ``res["lo"] > threshold``.
+    """
+    return bool(res["lo"] > threshold)
+
+
+def equivalence_tost(e0, ek, margin, n_boot=10000, alpha=0.05, seed=0):
+    """Two one-sided tests for *equivalence* of ``ek`` and ``e0`` within ``+-margin``.
+
+    The bootstrap form of TOST: the two one-sided tests at level ``alpha`` are jointly
+    equivalent to asking whether the ``1 - 2*alpha`` percentile interval of ``r`` lies
+    strictly inside ``[-margin, +margin]``.  Used at the patch-aligned angles, where the
+    claim is "nearly unchanged" rather than "not significantly changed".
+
+    Args:
+        e0: per-sample errors at ``k = 0``.
+        ek: per-sample errors at the compared angle.
+        margin: positive equivalence margin on ``r`` (e.g. ``0.02`` for +-2 %).
+        n_boot: bootstrap resamples.
+        alpha: level of *each* one-sided test.
+        seed: bootstrap seed.
+
+    Returns:
+        ``{"equivalent", "r", "lo", "hi", "margin", "n", "n_boot", "alpha"}`` where
+        ``lo``/``hi`` bound the ``1 - 2*alpha`` interval.
+
+    Raises:
+        ValueError: on degenerate input (see :func:`relative_degradation_bootstrap`) or
+            a non-positive ``margin``.
+    """
+    a, b = _check_pair(e0, ek)
+    _check_boot_args(n_boot, alpha)
+    if not float(margin) > 0.0:
+        raise ValueError("margin must be positive, got {}".format(margin))
+    boots = _bootstrap_ratios([(a, b)], int(n_boot), seed)[0]
+    lo, hi = np.nanpercentile(boots, [100.0 * alpha, 100.0 * (1.0 - alpha)])
+    return {"equivalent": bool(-float(margin) < lo and hi < float(margin)),
+            "r": float((b.mean() - a.mean()) / a.mean()), "lo": float(lo), "hi": float(hi),
+            "margin": float(margin), "n": int(a.size), "n_boot": int(n_boot),
+            "alpha": float(alpha)}

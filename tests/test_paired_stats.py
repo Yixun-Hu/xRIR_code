@@ -8,7 +8,14 @@ only when the (Bonferroni-adjusted) lower bound clears a practical margin.
 import numpy as np
 import pytest
 
-from tools.paired_stats import invalid_fraction, relative_degradation_bootstrap, valid_mask
+from tools.paired_stats import (
+    bonferroni_alpha,
+    equivalence_tost,
+    invalid_fraction,
+    relative_degradation_bootstrap,
+    valid_mask,
+    verdict_substantial,
+)
 
 
 def _paired(n=2000, ratio=1.2, noise=0.0, seed=0):
@@ -148,3 +155,59 @@ def test_cluster_bootstrap_is_seed_deterministic_and_validates_its_ids():
     assert relative_degradation_bootstrap(e0, ek, n_boot=500, seed=1, clusters=labels) == a
     with pytest.raises(ValueError):
         relative_degradation_bootstrap(e0, ek, n_boot=500, clusters=clusters[:-1])
+
+
+# --------------------------------------------------------------------------------------
+# T10 -- Bonferroni adjustment, the substantial-degradation verdict, and TOST
+# --------------------------------------------------------------------------------------
+def test_bonferroni_alpha_divides_by_the_family_size():
+    assert bonferroni_alpha(0.05, 18) == 0.05 / 18       # 2 metrics x 9 non-zero angles
+    assert bonferroni_alpha(0.05, 1) == 0.05
+    for bad in (0, -3):
+        with pytest.raises(ValueError):
+            bonferroni_alpha(0.05, bad)
+    with pytest.raises(ValueError):
+        bonferroni_alpha(1.0, 18)
+
+
+def test_verdict_substantial_needs_a_strict_lower_bound():
+    assert verdict_substantial({"lo": 0.1001}, 0.10) is True
+    assert verdict_substantial({"lo": 0.10}, 0.10) is False, "the boundary is not a pass"
+    assert verdict_substantial({"lo": 0.05}, 0.10) is False
+    assert verdict_substantial({"lo": -0.2}, 0.10) is False
+
+
+def test_equivalence_tost_accepts_a_negligible_change():
+    e0, ek = _paired(n=500)
+    res = equivalence_tost(e0, ek.copy() * 0 + e0, margin=0.02, n_boot=500, seed=0)
+    assert {"equivalent", "lo", "hi", "r"} <= set(res)
+    assert res["r"] == 0.0
+    assert res["equivalent"] is True
+
+    # A small but genuinely noisy change still fits inside +-2%.
+    rng = np.random.default_rng(5)
+    base = rng.lognormal(mean=0.0, sigma=0.5, size=5000)
+    jittered = base * np.exp(rng.normal(0.0, 0.05, size=base.size))
+    noisy = equivalence_tost(base, jittered, margin=0.02, n_boot=2000, seed=0)
+    assert noisy["equivalent"] is True
+    assert noisy["lo"] < noisy["r"] < noisy["hi"]
+    assert -0.02 < noisy["lo"] and noisy["hi"] < 0.02
+
+
+def test_equivalence_tost_rejects_a_five_percent_change():
+    e0, ek = _paired(n=2000, ratio=1.05)
+    res = equivalence_tost(e0, ek, margin=0.02, n_boot=2000, seed=0)
+    assert res["r"] == pytest.approx(0.05, abs=1e-9)
+    assert res["equivalent"] is False
+    # The same data is equivalent under a margin that actually covers the effect.
+    assert equivalence_tost(e0, ek, margin=0.10, n_boot=2000, seed=0)["equivalent"] is True
+    with pytest.raises(ValueError):
+        equivalence_tost(e0, ek, margin=0.0, n_boot=2000, seed=0)
+
+
+def test_equivalence_tost_uses_the_one_minus_two_alpha_interval():
+    e0, ek = _paired(n=2000, ratio=1.2, noise=0.3, seed=6)
+    tost = equivalence_tost(e0, ek, margin=1.0, n_boot=2000, alpha=0.05, seed=0)
+    two_sided = relative_degradation_bootstrap(e0, ek, n_boot=2000, alpha=0.05, seed=0)
+    assert two_sided["lo"] < tost["lo"] and tost["hi"] < two_sided["hi"]
+    assert tost["r"] == two_sided["r"]
