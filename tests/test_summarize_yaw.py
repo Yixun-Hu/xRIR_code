@@ -456,7 +456,15 @@ def test_main_writes_a_summary_and_a_json_that_matches_it(two_runs, released_run
     assert written["k0"][0]["diff"] == pytest.approx(0.0, abs=1e-9)
     assert written["delay_flips"]["control"]["32"] == 7 * 32
     assert written["decomposition"]["cyl"]["tokens_rel_change"] == pytest.approx(3.2e-07)
-    assert 0.0 <= written["convergence"]["max_ratio"] < 0.10
+    convergence = written["convergence"]
+    assert convergence["pass"] is True and 0.0 <= convergence["max_rel_change"] < 0.10
+    assert convergence["seeds"] == [0, 1] and convergence["limit"] == 0.10
+    # Every decision-driving bound: both H1 models, the difference in differences and
+    # the equivalence bounds, each with both seeds' endpoints.
+    names = set(convergence["cells"])
+    assert {"h1/control/edt/32", "h1/released/c50/64", "h2/edt/32", "tost/c50/64"} <= names
+    for cell in convergence["cells"].values():
+        assert set(cell["seed_a"]) == {"lo", "hi"} and set(cell["seed_b"]) == {"lo", "hi"}
     # The angles are printed in signed-degree order, so k = 0 sits in the middle of a
     # full grid and first in this one ({0, 32, 64} -> {0, 22.5, 45} degrees).
     assert [row["k"] for row in written["spectral"]["control"]["P"]["loss"]] == [0, 32, 64]
@@ -464,7 +472,7 @@ def test_main_writes_a_summary_and_a_json_that_matches_it(two_runs, released_run
     # Everything printed is in the summary file.
     for needle in ("1. Spectral", "2. Acoustic", "3. Paired cylindrical", "4. H1",
                    "5. H2", "H2 verdict: supported", "6. Delay-flip", "7. Decomposition",
-                   "8. Bootstrap"):
+                   "8. Bootstrap convergence", "bounds recomputed with seed 0 -> 1"):
         assert needle in text, needle
 
 
@@ -867,3 +875,22 @@ def test_main_in_k0_gate_mode_prints_the_gate_and_skips_the_hypotheses(tmp_path)
     text = open(summary_path).read()
     assert "k=0 parity gate" in text and "3. Paired cylindrical" in text
     assert "gate_pass: True" in text
+
+
+def test_main_in_full_mode_writes_nothing_when_the_bootstrap_has_not_converged(
+        two_runs, released_run, tmp_path, monkeypatch):
+    """A pre-registered threshold read off an unconverged bound is not a decision rule."""
+    from tools.summarize_yaw import main
+
+    relax_full_expectations(monkeypatch)
+    json_path = str(tmp_path / "summary.json")
+    summary_path = str(tmp_path / "summary.txt")
+    argv = ["--mode", "full", "--runs", two_runs[0], two_runs[1], released_run,
+            "--labels", "control", "cyl", "released",
+            "--manifest-hash", MANIFEST_HASH, "--n-boot", "30",
+            "--json", json_path, "--summary", summary_path]
+    with pytest.raises(SystemExit) as excinfo:
+        main(argv)
+    assert excinfo.value.code != 0
+    assert not os.path.exists(json_path) and not os.path.exists(summary_path)
+    assert not os.path.exists(json_path + ".tmp")

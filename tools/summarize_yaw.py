@@ -30,6 +30,37 @@ from tools.paired_stats import (
 )
 
 WIDTH = 512
+CONVERGENCE_LIMIT = 0.10
+
+
+def _write_text(text, path):
+    """Write ``text`` atomically (temporary file + rename), leaving no partial file."""
+    tmp = path + ".tmp"
+    parent = os.path.dirname(os.path.abspath(path))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    try:
+        with open(tmp, "w") as fout:
+            fout.write(text)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def _write_json(payload, path):
+    """Write ``payload`` as JSON atomically; a reader never sees a half-written summary."""
+    tmp = path + ".tmp"
+    parent = os.path.dirname(os.path.abspath(path))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    try:
+        with open(tmp, "w") as fout:
+            json.dump(payload, fout, indent=1)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
 
 
 def load_run(directory):
@@ -362,6 +393,35 @@ def k0_comparison(run_cyl, run_ctrl, metrics, n_boot, alpha, seed, rooms=None):
     return rows
 
 
+def convergence_cell(fn, seed_a, seed_b):
+    """Both seeds' endpoints of one decision-driving bound, and how far it moved.
+
+    Args:
+        fn: ``seed -> {"lo": ..., "hi": ...}`` (or ``None`` when the bound does not exist).
+        seed_a, seed_b: the two bootstrap seeds.
+
+    Returns:
+        ``{"seed_a", "seed_b", "width", "max_change", "rel_change"}``; ``rel_change`` is
+        ``0.0`` for a degenerate interval that did not move and ``inf`` for one that did.
+        A missing bound yields all-``None`` endpoints and ``rel_change`` ``0.0``: there is
+        no bound to be unconverged about.
+    """
+    first, second = fn(seed_a), fn(seed_b)
+    if first is None or second is None:
+        return {"seed_a": {"lo": None, "hi": None}, "seed_b": {"lo": None, "hi": None},
+                "width": None, "max_change": None, "rel_change": 0.0}
+    width = float(first["hi"]) - float(first["lo"])
+    change = max(abs(float(first["lo"]) - float(second["lo"])),
+                 abs(float(first["hi"]) - float(second["hi"])))
+    if width <= 0.0:
+        rel = 0.0 if change == 0.0 else float("inf")
+    else:
+        rel = change / width
+    return {"seed_a": {"lo": float(first["lo"]), "hi": float(first["hi"])},
+            "seed_b": {"lo": float(second["lo"]), "hi": float(second["hi"])},
+            "width": width, "max_change": change, "rel_change": rel}
+
+
 def convergence_check(fn, seed_a, seed_b):
     """How far a confirmatory interval moves when only the bootstrap seed changes.
 
@@ -378,13 +438,7 @@ def convergence_check(fn, seed_a, seed_b):
         ``max(|dlo|, |dhi|) / width``; ``0.0`` if the interval is degenerate and did not
         move (perfectly proportional data), ``inf`` if it is degenerate and did move.
     """
-    first, second = fn(seed_a), fn(seed_b)
-    width = float(first["hi"]) - float(first["lo"])
-    change = max(abs(float(first["lo"]) - float(second["lo"])),
-                 abs(float(first["hi"]) - float(second["hi"])))
-    if width <= 0.0:
-        return 0.0 if change == 0.0 else float("inf")
-    return change / width
+    return convergence_cell(fn, seed_a, seed_b)["rel_change"]
 
 
 def h2_verdict(h1_cells, h2_by_metric):
@@ -1024,50 +1078,84 @@ def main(argv=None):
         else:
             print("   none written (no cylindrical run)")
 
-        print("\n8. Bootstrap convergence of the H1 family: how far each confirmatory "
-              "bound moves\n   when only the bootstrap seed changes, as a fraction of "
-              "the interval width.")
-        ratios = {}
-        for label in [l for l in (primary, released) if l is not None]:
-            for metric in CONFIRMATORY_METRICS:
-                for k in [k for k in acoustic_cols if int(k) != 0]:
-                    def interval(seed, label=label, metric=metric, k=k):
-                        return degradation_rows(by_label[label], "P", metric, [k],
-                                                args.n_boot, alpha_adj, seed)[0]
-                    ratios["{}/{}/{}".format(label, metric, k)] = convergence_check(
-                        interval, args.seed, args.seed + 1)
-        worst = max(ratios.values()) if ratios else 0.0
-        out["convergence"] = {"per_cell": ratios, "max_ratio": worst,
-                              "seeds": [args.seed, args.seed + 1], "limit": 0.10}
-        print("   max over {} cells: {:.4f} (limit 0.10)".format(len(ratios), worst))
-        if ratios:
-            worst_cell = max(ratios, key=lambda key: ratios[key])
-            print("   worst cell: {} at {:.4f}".format(worst_cell, ratios[worst_cell]))
+        print("\n8. Bootstrap convergence: every decision-driving bound recomputed with "
+              "a second seed,\n   as a fraction of its own interval width (limit "
+              "{:.2f}).".format(CONVERGENCE_LIMIT))
+        h2_cache = {}
+
+        def h2_row_for(metric, k, seed):
+            key = (metric, int(k), int(seed))
+            if key not in h2_cache:
+                h2_cache[key] = h2_rows(by_label[cyl], by_label[primary], "P", metric,
+                                        [k], args.n_boot, alpha_adj, seed,
+                                        equiv_margin=args.equiv_margin)[0]
+            return h2_cache[key]
+
+        cells = {}
+        confirmatory_angles = [k for k in acoustic_cols if int(k) != 0]
+        if not (exploratory or gate_mode):
+            for label in [l for l in (primary, released) if l is not None]:
+                for metric in CONFIRMATORY_METRICS:
+                    for k in confirmatory_angles:
+                        def h1_bound(seed, label=label, metric=metric, k=k):
+                            return degradation_rows(by_label[label], "P", metric, [k],
+                                                    args.n_boot, alpha_adj, seed)[0]
+                        cells["h1/{}/{}/{}".format(label, metric, k)] = convergence_cell(
+                            h1_bound, args.seed, args.seed + 1)
+            if cyl and primary:
+                for metric in CONFIRMATORY_METRICS:
+                    for k in confirmatory_angles:
+                        def did_bound(seed, metric=metric, k=k):
+                            return h2_row_for(metric, k, seed)
+                        cells["h2/{}/{}".format(metric, k)] = convergence_cell(
+                            did_bound, args.seed, args.seed + 1)
+
+                        def tost_bound(seed, metric=metric, k=k):
+                            equivalence = h2_row_for(metric, k, seed)["equivalence"]
+                            return None if equivalence is None else equivalence["query"]
+                        cells["tost/{}/{}".format(metric, k)] = convergence_cell(
+                            tost_bound, args.seed, args.seed + 1)
+        finite = [cell["rel_change"] for cell in cells.values()]
+        worst = max(finite) if finite else 0.0
+        out["convergence"] = {"cells": cells, "max_rel_change": worst,
+                              "pass": bool(worst <= CONVERGENCE_LIMIT),
+                              "seeds": [args.seed, args.seed + 1],
+                              "limit": CONVERGENCE_LIMIT}
+        print("   {} bounds recomputed with seed {} -> {}; max movement {:.4f} "
+              "(pass: {})".format(len(cells), args.seed, args.seed + 1, worst,
+                                  out["convergence"]["pass"]))
+        if cells:
+            worst_cell = max(cells, key=lambda key: cells[key]["rel_change"])
+            print("   worst bound: {} [{}, {}] -> [{}, {}]".format(
+                worst_cell, _fmt(cells[worst_cell]["seed_a"]["lo"], 4),
+                _fmt(cells[worst_cell]["seed_a"]["hi"], 4),
+                _fmt(cells[worst_cell]["seed_b"]["lo"], 4),
+                _fmt(cells[worst_cell]["seed_b"]["hi"], 4)))
+        else:
+            print("   no confirmatory bound in this mode")
     finally:
         sys.stdout = original_stdout
 
     text = buffer.getvalue()
+    converged = out["convergence"]["pass"]
+    if args.mode == "full" and not converged:
+        print("bootstrap not converged (max movement {:.4f} > {:.2f}): raise --n-boot; "
+              "no artefacts were written".format(out["convergence"]["max_rel_change"],
+                                                 CONVERGENCE_LIMIT), file=sys.stderr)
+        raise SystemExit(1)
     if args.summary:
-        parent = os.path.dirname(os.path.abspath(args.summary))
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        with open(args.summary, "w") as fout:
-            fout.write(text)
+        _write_text(text, args.summary)
         out["summary_path"] = args.summary
     if not exploratory:
         # An exploratory summary must not look bindable: no canonical digest.
         out["summary_sha256"] = hashlib.sha256(text.encode()).hexdigest()
     if args.json:
-        parent = os.path.dirname(os.path.abspath(args.json))
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        with open(args.json, "w") as fout:
-            json.dump(out, fout, indent=1)
+        _write_json(out, args.json)
         print("wrote {}".format(args.json))
     if gate_mode and not out["gate_pass"]:
         print("k=0 parity gate FAILED; the sweep must not start", file=sys.stderr)
         raise SystemExit(1)
-    if out["convergence"]["max_ratio"] > out["convergence"]["limit"]:
+    if not converged:
         print("bootstrap not converged: raise --n-boot", file=sys.stderr)
         raise SystemExit(1)
     return out
