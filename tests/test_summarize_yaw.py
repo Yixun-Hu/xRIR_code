@@ -29,7 +29,7 @@ def _queries(n):
 def write_run(directory, shifts, n=300, seed=0, backbone="simple",
               checkpoint="ckpt/xRIR_simple_8_shot/epoch_12.pth", cols=COLS,
               nan_rows=(), baseline_nan_rows=(), manifest_hash=MANIFEST_HASH,
-              noise=0.02, noise_seed=None, base_offset=0.0):
+              noise=0.02, noise_seed=None, base_offset=0.0, no_shift_rows=()):
     """Write one synthetic ``per_sample_yaw.json`` with planted relative degradations.
 
     Args:
@@ -37,6 +37,9 @@ def write_run(directory, shifts, n=300, seed=0, backbone="simple",
             ``e_k = e_0 * (1 + shift + eps)``, so the true ``r_k`` is ``shift`` up to the
             per-sample noise ``eps`` (which is what gives the bootstrap a real width).
         nan_rows: sample indices that the rotation invalidates (NaN at every ``k != 0``).
+        no_shift_rows: sample indices that keep their baseline value at every ``k`` (used
+            to make a run's own degradation differ from the one seen through another
+            run's validity mask).
         baseline_nan_rows: sample indices invalid at every angle, ``k = 0`` included.
         seed: seeds the ``k = 0`` baseline, so two runs sharing it are paired exactly
             there; ``noise_seed`` (default ``seed + 1``) seeds the per-angle noise.
@@ -73,7 +76,9 @@ def write_run(directory, shifts, n=300, seed=0, backbone="simple",
                     shift = shifts.get((condition, k, metric),
                                        shifts.get((condition, k), 0.0)) if k else 0.0
                     eps = noise_rng.normal(0.0, noise, size=n) if k else np.zeros(n)
-                    values = base[metric] * (1.0 + shift + eps)
+                    per_sample_shift = np.full(n, shift, dtype=np.float64)
+                    per_sample_shift[list(no_shift_rows)] = 0.0
+                    values = base[metric] * (1.0 + per_sample_shift + eps)
                     if k:
                         values[list(nan_rows)] = np.nan
                     values[list(baseline_nan_rows)] = np.nan
@@ -468,3 +473,32 @@ def test_the_summarizer_reads_null_and_nan_encodings_identically(two_runs, tmp_p
     rows_legacy = degradation_rows(load_run(legacy_dir), "P", "edt", [0, 32], 500, 0.05, 0)
     assert rows_strict == rows_legacy
     assert rows_strict[1]["validity"]["newly_invalid"] == 3
+
+
+def test_h2_equivalence_uses_the_cylindrical_runs_own_valid_mask(tmp_path):
+    """The equivalence claim is about the cylindrical model, not about the pair.
+
+    Here the control is unscorable on all but 12 samples -- exactly the 12 where the
+    cylindrical model happens not to degrade. Read through the four-way difference mask,
+    the cylindrical model would look unchanged (r = 0, "equivalent"); its own mask shows
+    the +5 % it actually has.
+    """
+    from tools.summarize_yaw import h2_rows, load_run, rooms_from_paths
+
+    keep = tuple(range(0, 300, 25))
+    invalid = tuple(i for i in range(300) if i not in keep)
+    cyl = load_run(write_run(str(tmp_path / "cyl"), {("P", 32): 0.05}, no_shift_rows=keep,
+                             backbone="cylindrical",
+                             checkpoint="ckpt/xRIR_cyl_8_shot/epoch_12.pth", noise_seed=2))
+    ctrl = load_run(write_run(str(tmp_path / "ctrl"), {("P", 32): 0.05}, nan_rows=invalid,
+                              noise_seed=1))
+    rooms = rooms_from_paths(cyl["query"])
+
+    row = h2_rows(cyl, ctrl, "P", "edt", [32], 2000, 0.05, 0, rooms=rooms)[0]
+    assert row["n_valid"] == len(keep), "the difference in differences keeps the pair mask"
+    equivalence = row["equivalence"]["query"]
+    assert equivalence["n"] == 300, "the TOST must use the cylindrical run's own mask"
+    assert equivalence["r"] == pytest.approx(0.048, abs=0.005)
+    assert equivalence["equivalent"] is False
+    assert row["equivalence"]["cluster"]["n"] == 300
+    assert row["equivalence"]["n"] == 300
