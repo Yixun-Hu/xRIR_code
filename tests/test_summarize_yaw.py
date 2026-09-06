@@ -859,7 +859,8 @@ def test_k0_gate_rows_pass_inside_the_reference_draw_noise(tmp_path):
              _k0_run(str(tmp_path / "n2"), scale=0.998)]
     baseline = {metric: _mean(released["P"]["0"][metric]) for metric in ("edt", "c50", "t60")}
 
-    rows, gate_pass, reasons = k0_gate_rows(by_label, roles, exp01, noise, baseline)
+    rows, gate_pass, reasons = k0_gate_rows(by_label, roles, exp01, noise, baseline,
+                                            band_rule="v1")
     assert gate_pass is True and reasons == []
     by_cell = {(row["label"], row["metric"]): row for row in rows}
     assert set(row["label"] for row in rows) == {"control", "cyl", "released"}
@@ -891,7 +892,8 @@ def test_k0_gate_rows_fail_a_model_outside_the_band(tmp_path):
     noise = [_k0_run(str(tmp_path / "n1"), scale=1.002)]
     rows, gate_pass, reasons = k0_gate_rows(
         {"control": control, "cyl": cyl},
-        {"primary": "control", "cyl": "cyl", "released": None}, exp01, noise, None)
+        {"primary": "control", "cyl": "cyl", "released": None}, exp01, noise, None,
+        band_rule="v1")
 
     assert gate_pass is False
     assert len(reasons) == len(GATE_METRICS)
@@ -906,7 +908,7 @@ def test_k0_gate_rows_report_missing_inputs_as_reasons(tmp_path):
     control = _k0_run(str(tmp_path / "control"))
     rows, gate_pass, reasons = k0_gate_rows(
         {"control": control}, {"primary": "control", "cyl": None, "released": None},
-        {}, [], None)
+        {}, [], None, band_rule="v1")
     assert gate_pass is False
     assert any("no --noise-runs" in reason for reason in reasons)
     assert any("no exp_01 per-sample file" in reason for reason in reasons)
@@ -1085,7 +1087,8 @@ def test_k0_gate_rows_pass_inside_the_reference_draw_noise(tmp_path):
              _k0_run(str(tmp_path / "n2"), scale=0.998)]
     baseline = {metric: _mean(released["P"]["0"][metric]) for metric in ("edt", "c50", "t60")}
 
-    rows, gate_pass, reasons = k0_gate_rows(by_label, roles, exp01, noise, baseline)
+    rows, gate_pass, reasons = k0_gate_rows(by_label, roles, exp01, noise, baseline,
+                                            band_rule="v1")
     assert gate_pass is True and reasons == []
     by_cell = {(row["label"], row["metric"]): row for row in rows}
     assert set(row["label"] for row in rows) == {"control", "cyl", "released"}
@@ -1117,7 +1120,8 @@ def test_k0_gate_rows_fail_a_model_outside_the_band(tmp_path):
     noise = [_k0_run(str(tmp_path / "n1"), scale=1.002)]
     rows, gate_pass, reasons = k0_gate_rows(
         {"control": control, "cyl": cyl},
-        {"primary": "control", "cyl": "cyl", "released": None}, exp01, noise, None)
+        {"primary": "control", "cyl": "cyl", "released": None}, exp01, noise, None,
+        band_rule="v1")
 
     assert gate_pass is False
     assert len(reasons) == len(GATE_METRICS)
@@ -1132,7 +1136,7 @@ def test_k0_gate_rows_report_missing_inputs_as_reasons(tmp_path):
     control = _k0_run(str(tmp_path / "control"))
     rows, gate_pass, reasons = k0_gate_rows(
         {"control": control}, {"primary": "control", "cyl": None, "released": None},
-        {}, [], None)
+        {}, [], None, band_rule="v1")
     assert gate_pass is False
     assert any("no --noise-runs" in reason for reason in reasons)
     assert any("no exp_01 per-sample file" in reason for reason in reasons)
@@ -1555,3 +1559,72 @@ def test_the_gate_fails_closed_on_a_bad_nuisance_run(tmp_path, monkeypatch):
     _edit_run(paths["phase"], lambda run: run["meta"].update(manifest_hash=MANIFEST_HASH,
                                                              checkpoint="ckpt/xRIR_cyl_8_shot/epoch_12.pth"))
     fails("nuisance_ckpt", "checkpoint")
+
+
+def test_the_v2_band_is_twice_the_sum_of_the_three_spread_terms(tmp_path):
+    from tools.summarize_yaw import k0_gate_rows, load_run
+
+    control = _k0_run(str(tmp_path / "control"))
+    cyl = _k0_run(str(tmp_path / "cyl"), backbone="cylindrical",
+                  checkpoint="ckpt/xRIR_cyl_8_shot/epoch_12.pth")
+    exp01 = {"control": json.load(open(_exp01_file(str(tmp_path / "e/c.json"), control, 1.001))),
+             "cyl": json.load(open(_exp01_file(str(tmp_path / "e/y.json"), cyl, 0.999)))}
+    noise = [_k0_run(str(tmp_path / "n1"), scale=1.002),
+             _k0_run(str(tmp_path / "n2"), scale=0.998)]
+    nuisance = [load_run(_scaled_run(str(tmp_path / "phase"), scale=1.001, gl_seed=1)),
+                load_run(_scaled_run(str(tmp_path / "tf32"), scale=0.9995, tf32=True))]
+
+    rows, gate_pass, reasons = k0_gate_rows(
+        {"control": control, "cyl": cyl},
+        {"primary": "control", "cyl": "cyl", "released": None}, exp01, noise, None,
+        nuisance_runs=nuisance)
+    assert gate_pass is True and reasons == []
+
+    for row in rows:
+        mean = row["mean_k0"]
+        terms = row["band_terms"]
+        assert terms["s_ref"] == pytest.approx(0.002 * mean, rel=1e-6)
+        assert terms["s_phase"] == pytest.approx(0.001 * mean, rel=1e-6)
+        assert terms["s_tf32"] == pytest.approx(0.0005 * mean, rel=1e-6)
+        expected = 2.0 * (terms["s_ref"] + terms["s_phase"] + terms["s_tf32"]) + 1e-6
+        assert row["band"] == pytest.approx(expected, rel=1e-12)
+        assert row["spread"] == pytest.approx(terms["s_ref"] + terms["s_phase"]
+                                              + terms["s_tf32"], rel=1e-12)
+        # The amended band is wide enough for the two cells the v1 band failed.
+        assert row["abs_diff"] == pytest.approx(0.001 * mean, rel=1e-6)
+        assert row["pass"] is True
+
+
+def test_the_v1_band_is_only_available_when_it_is_asked_for(tmp_path, monkeypatch):
+    argv, paths = _gate_setup(tmp_path, monkeypatch)
+
+    # v1 with the nuisance runs still on the command line is a contradiction.
+    out, code = _run_gate(argv + ["--band-rule", "v1"], tmp_path, "v1_with")
+    assert code != 0 and out["gate_pass"] is False
+    assert any("must not be given --nuisance-runs" in reason
+               for reason in out["gate_reasons"])
+
+    # v1 without them reproduces the superseded, narrower band.
+    without = argv[:argv.index("--nuisance-runs")] + argv[argv.index("--released-baseline"):]
+    out, code = _run_gate(without + ["--band-rule", "v1"], tmp_path, "v1_only")
+    assert code == 0 and out["gate_pass"] is True
+    assert out["band_rule"] == "v1 (reference draw only)"
+    for row in out["gate_rows"]:
+        assert row["band_terms"]["s_phase"] is None
+        assert row["band_terms"]["s_tf32"] is None
+        assert row["band"] == pytest.approx(2.0 * row["band_terms"]["s_ref"] + 1e-6)
+
+
+def test_the_gate_reports_the_band_terms_it_used(tmp_path, monkeypatch):
+    argv, _ = _gate_setup(tmp_path, monkeypatch)
+    out, code = _run_gate(argv, tmp_path, "terms")
+
+    assert code == 0
+    assert out["band_rule"] == "v2 (2026-09-06 amendment)"
+    assert sorted(out["band_terms"]) == sorted(GATE_METRICS)
+    for metric, terms in out["band_terms"].items():
+        assert sorted(terms) == ["s_phase", "s_ref", "s_tf32"], metric
+        assert all(value > 0 for value in terms.values()), metric
+    text = open(str(tmp_path / "terms.txt")).read()
+    assert "S_ref" in text and "S_phase" in text and "S_tf32" in text
+    assert "v2 (2026-09-06 amendment)" in text

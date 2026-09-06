@@ -605,14 +605,21 @@ def _finite_mean(values):
 
 
 def k0_gate_rows(by_label, roles, exp01_by_label, noise_runs, released_baseline,
-                 metrics=K0_GATE_METRICS):
+                 nuisance_runs=(), band_rule="v2", metrics=K0_GATE_METRICS):
     """The k=0 parity gate: do the pinned-manifest runs reproduce exp_01's numbers?
 
     The manifest pins a *different* reference draw than exp_01's (which was never
     recorded), so the two cannot agree per sample -- only distributionally.  The width of
-    "distributionally" is measured, not assumed: re-evaluating the control checkpoint on
-    two further manifest seeds gives the reference-draw spread, and a model passes when
-    its shift from exp_01 stays inside twice that spread.  The released checkpoint has no
+    "distributionally" is measured, not assumed, and the amended (v2) rule measures all
+    three things that separate the two evaluations, each as a mean shift of the control
+    checkpoint from its own k=0 mean:
+
+    * ``s_ref``   -- the reference draw: the largest shift over manifest seeds 1 and 2;
+    * ``s_phase`` -- the Griffin-Lim phase, which exp_01 left unseeded (``--gl-seed 1``);
+    * ``s_tf32``  -- TF32 arithmetic, which exp_01's batch-1 forwards used (``--tf32``).
+
+    ``band = 2 * (s_ref + s_phase + s_tf32) + 1e-6``.  The superseded ``v1`` rule used
+    ``s_ref`` alone, which is why two cells failed it.  The released checkpoint has no
     per-sample record, so it is compared with exp_01's reported baseline instead.
 
     Args:
@@ -622,27 +629,45 @@ def k0_gate_rows(by_label, roles, exp01_by_label, noise_runs, released_baseline,
         noise_runs: further k=0 runs of the *control* checkpoint on other manifest seeds.
         released_baseline: ``{"edt", "c50", "t60"}`` from exp_01's baseline reproduction,
             or ``None``.
+        nuisance_runs: the phase and TF32 runs of the control checkpoint (v2 only).
+        band_rule: ``"v2"`` (default, the amendment) or ``"v1"``.
         metrics: the metrics to gate on.
 
     Returns:
         ``(rows, gate_pass, reasons)``.  Each row is ``{label, role, metric, mean_k0,
-        reference, source, spread, abs_diff, band, pass}``; ``pass`` is ``None`` where no
-        reference exists (the released checkpoint's loss), and such rows do not decide
-        the gate.
+        reference, source, spread, band_terms, abs_diff, band, pass}``; ``spread`` is the
+        sum of the applicable ``band_terms``, ``pass`` is ``None`` where no reference or
+        no band exists, and such rows do not decide the gate.
     """
     reasons = []
     control_label = roles.get("primary")
-    spreads = {}
+    by_profile = dict((nuisance_profile(run), run) for run in nuisance_runs
+                      if nuisance_profile(run) is not None)
+    spreads, band_terms = {}, {}
     for metric in metrics:
         control_mean = (None if control_label is None else
                         _finite_mean(by_label[control_label]["P"]["0"][metric]))
-        deltas = [abs(_finite_mean(run["P"]["0"][metric]) - control_mean)
-                  for run in noise_runs
-                  if control_mean is not None
-                  and _finite_mean(run["P"]["0"][metric]) is not None]
-        spreads[metric] = max(deltas) if deltas else None
+
+        def shift(run, control_mean=control_mean, metric=metric):
+            other = _finite_mean(run["P"]["0"][metric]) if run is not None else None
+            return None if control_mean is None or other is None else abs(other - control_mean)
+
+        deltas = [value for value in (shift(run) for run in noise_runs)
+                  if value is not None]
+        terms = {"s_ref": max(deltas) if deltas else None,
+                 "s_phase": None, "s_tf32": None}
+        if band_rule == "v2":
+            terms["s_phase"] = shift(by_profile.get("phase"))
+            terms["s_tf32"] = shift(by_profile.get("tf32"))
+        required = ("s_ref",) if band_rule != "v2" else ("s_ref", "s_phase", "s_tf32")
+        band_terms[metric] = terms
+        spreads[metric] = (None if any(terms[key] is None for key in required)
+                           else sum(terms[key] for key in required))
     if not noise_runs:
         reasons.append("no --noise-runs given: the reference-draw spread is unmeasured")
+    if band_rule == "v2" and sorted(by_profile) != ["phase", "tf32"]:
+        reasons.append("no --nuisance-runs given: the phase and TF32 spreads are "
+                       "unmeasured")
 
     rows = []
     for role in ("primary", "cyl", "released"):
@@ -672,6 +697,7 @@ def k0_gate_rows(by_label, roles, exp01_by_label, noise_runs, released_baseline,
             rows.append({"label": label, "role": role, "metric": metric,
                          "mean_k0": mean_k0, "reference": reference,
                          "source": reference_source, "spread": spread,
+                         "band_terms": dict(band_terms[metric]),
                          "abs_diff": difference, "band": band, "pass": passes})
             if passes is False:
                 reasons.append("{} {}: |{:.6g} - {:.6g}| = {:.6g} > band {:.6g}".format(
@@ -1389,28 +1415,42 @@ def main(argv=None):
             extra = validate_gate(by_label, roles, noise_runs, exp01_by_label,
                                   args.manifest_hash, nuisance_runs, args.band_rule)
             gate_rows, gate_pass, gate_reasons = k0_gate_rows(
-                by_label, roles, exp01_by_label, noise_runs, released_baseline)
+                by_label, roles, exp01_by_label, noise_runs, released_baseline,
+                nuisance_runs, args.band_rule)
             gate_reasons = extra + gate_reasons
             gate_pass = bool(gate_pass and not extra)
             out.update({"gate_rows": gate_rows, "gate_pass": gate_pass,
                         "gate_reasons": gate_reasons,
                         "noise_runs": list(args.noise_runs),
+                        "nuisance_runs": list(args.nuisance_runs),
+                        "band_rule": BAND_RULE_LABELS[args.band_rule],
+                        "band_terms": dict(
+                            (row["metric"], row["band_terms"]) for row in gate_rows),
                         "released_baseline": released_baseline})
-            print("\n3b. k=0 parity gate against exp_01 (band = 2 x the reference-draw "
-                  "spread + 1e-6).\n    The manifest pins a different reference draw than "
-                  "exp_01's, which was never recorded, so\n    the comparison is "
-                  "distributional and the spread is measured on manifest seeds "
-                  "{}.".format(", ".join(args.noise_runs) or "(none given)"))
-            print("   {:>10} {:>8} {:>12} {:>12} {:>12} {:>12} {:>6}  {}".format(
-                "run", "metric", "mean k=0", "reference", "|diff|", "band", "pass",
-                "source"))
+            print("\n3b. k=0 parity gate against exp_01, band rule {}.".format(
+                BAND_RULE_LABELS[args.band_rule]))
+            print("    exp_01's means differ from these by more than the reference draw: "
+                  "its Griffin-Lim\n    phases were unseeded and its forwards used TF32, "
+                  "so the band is\n    2 x (S_ref + S_phase + S_tf32) + 1e-6, each term a "
+                  "mean shift of the control run." if args.band_rule == "v2" else
+                  "    Superseded: the band is 2 x S_ref + 1e-6, the reference draw alone.")
+            print("    S_ref from {}; S_phase / S_tf32 from {}.".format(
+                ", ".join(args.noise_runs) or "(none given)",
+                ", ".join(args.nuisance_runs) or "(none given)"))
+            print("   {:>10} {:>8} {:>12} {:>12} {:>11} {:>11} {:>11} {:>12} {:>12} "
+                  "{:>6}  {}".format("run", "metric", "mean k=0", "reference", "S_ref",
+                                     "S_phase", "S_tf32", "|diff|", "band", "pass",
+                                     "source"))
             for row in gate_rows:
-                print("   {:>10} {:>8} {:>12} {:>12} {:>12} {:>12} {:>6}  {}".format(
-                    row["label"], row["metric"], _fmt(row["mean_k0"], 5),
-                    _fmt(row["reference"], 5), _fmt(row["abs_diff"], 6),
-                    _fmt(row["band"], 6),
-                    "-" if row["pass"] is None else ("yes" if row["pass"] else "NO"),
-                    row["source"]))
+                terms = row["band_terms"]
+                print("   {:>10} {:>8} {:>12} {:>12} {:>11} {:>11} {:>11} {:>12} {:>12} "
+                      "{:>6}  {}".format(
+                          row["label"], row["metric"], _fmt(row["mean_k0"], 5),
+                          _fmt(row["reference"], 5), _fmt(terms["s_ref"], 6),
+                          _fmt(terms["s_phase"], 6), _fmt(terms["s_tf32"], 6),
+                          _fmt(row["abs_diff"], 6), _fmt(row["band"], 6),
+                          "-" if row["pass"] is None else ("yes" if row["pass"] else "NO"),
+                          row["source"]))
             print("   gate_pass: {}".format(gate_pass))
             for reason in gate_reasons:
                 print("      - {}".format(reason))
