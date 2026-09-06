@@ -29,6 +29,7 @@ from __future__ import annotations
 import contextlib
 import math
 import numbers
+import types
 from typing import Tuple
 
 import torch
@@ -185,7 +186,13 @@ def fixed_alignment(model, aligned_refs: torch.Tensor):
         with fixed_alignment(model, aligned):
             out, tgt = model(depth_k, refs, src_k, ref_locs_k, tgt)
 
-    The original bound method is restored on exit, including when the block raises.
+    The replacement is installed as a *bound method* of ``model`` (so ``model``'s own
+    ``forward`` sees the usual ``self.shift_and_align(x, src, ref)`` call signature), and
+    the original bound method is restored on exit, including when the block raises.
+
+    This mutates ``model`` for the duration of the block: it is for **serial, eager**
+    evaluation only and is **not thread-safe** -- do not share ``model`` across threads,
+    and do not let a lazily evaluated forward escape the block.
 
     Args:
         model: an ``xRIR`` (or subclass) instance.
@@ -197,10 +204,8 @@ def fixed_alignment(model, aligned_refs: torch.Tensor):
     had_own = "shift_and_align" in vars(model)
     original = vars(model).get("shift_and_align", None)
 
-    def _fixed(*args, **kwargs):
-        return aligned_refs
-
-    model.shift_and_align = _fixed
+    model.shift_and_align = types.MethodType(
+        lambda self, x, src_loc, ref_ir_locs: aligned_refs, model)
     try:
         yield model
     finally:

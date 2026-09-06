@@ -5,6 +5,7 @@ receiver's vertical (z) axis, right-handed (+x -> +y looking down the -z axis),
 with Delta = 2*pi*k/W for an integer roll of ``k`` panorama columns.
 """
 import math
+import types
 
 import numpy as np
 import pytest
@@ -227,6 +228,9 @@ def test_fixed_alignment_swaps_and_restores(simple_model):
     assert "shift_and_align" not in vars(simple_model)
 
     with fixed_alignment(simple_model, cached):
+        # Inside the context the replacement is still a bound method of the model.
+        assert isinstance(simple_model.shift_and_align, types.MethodType)
+        assert simple_model.shift_and_align.__self__ is simple_model
         out = simple_model.shift_and_align(torch.zeros(2, 3, 5), torch.zeros(2, 3), torch.zeros(2, 3, 3))
         assert out is cached
     assert simple_model.shift_and_align.__func__ is xRIR.shift_and_align
