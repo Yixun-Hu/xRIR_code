@@ -402,3 +402,28 @@ def load_checked_manifest(path, expected_hash):
         raise ValueError("manifest {} hashes to {}, expected {}".format(
             path, digest, expected_hash))
     return manifest
+
+
+def _check_cols(yaw_cols, acoustic_cols, e_acoustic_cols):
+    """Reduce the three angle grids and reject a grid the paired design cannot use."""
+    cols = [int(k) for k in yaw_cols]
+    if 0 not in cols:
+        raise ValueError("k = 0 is the paired reference of every metric; --yaw-cols must "
+                         "contain it, got {}".format(cols))
+    if len(set(cols)) != len(cols):
+        raise ValueError("--yaw-cols contains a repeated angle: {}".format(cols))
+    acoustic = [int(k) for k in acoustic_cols]
+    e_acoustic = [int(k) for k in e_acoustic_cols]
+    for name, subset in (("--acoustic-cols", acoustic), ("--e-acoustic-cols", e_acoustic)):
+        extra = sorted(set(subset) - set(cols))
+        if extra:
+            raise ValueError("{} {} are not in --yaw-cols".format(name, extra))
+    return cols, acoustic, e_acoustic
+
+
+def _summarize(values):
+    """``{"mean", "n_valid", "n_nan"}`` of one per-sample array (mean over finite values)."""
+    array = np.asarray(values, dtype=np.float64)
+    finite = np.isfinite(array)
+    return {"mean": float(array[finite].mean()) if finite.any() else None,
+            "n_valid": int(finite.sum()), "n_nan": int((~finite).sum())}

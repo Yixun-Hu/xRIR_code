@@ -472,3 +472,31 @@ def test_angle_order_invariance(real_batch_of_4, cuda_simple8):
         assert np.array_equal(value, res_a[("E", 0)][metric]), metric
     assert np.array_equal(res_a[("P", 0)]["consistency"], np.zeros(4))
     assert (res_a[("P", 32)]["consistency"] > 0).all()
+
+
+# --------------------------------------------------------------------------------------
+# Angle-grid validation and the per-angle summary
+# --------------------------------------------------------------------------------------
+def test_check_cols_rejects_a_grid_the_paired_design_cannot_use():
+    from eval_yaw_rotation import _check_cols
+
+    assert _check_cols([0, 32, 480], [0, 32], [32]) == ([0, 32, 480], [0, 32], [32])
+    assert _check_cols(["0", "32"], ["32"], []) == ([0, 32], [32], [])
+
+    with pytest.raises(ValueError):
+        _check_cols([32, 64], [32], [])                 # no k = 0: nothing to pair against
+    with pytest.raises(ValueError):
+        _check_cols([0, 32, 32], [0], [])               # a repeated angle
+    with pytest.raises(ValueError):
+        _check_cols([0, 32], [0, 64], [])               # acoustic angle outside the grid
+    with pytest.raises(ValueError):
+        _check_cols([0, 32], [0], [64])                 # end-to-end angle outside the grid
+
+
+def test_summarize_averages_over_the_finite_values_only():
+    from eval_yaw_rotation import _summarize
+
+    assert _summarize([1.0, 3.0, float("nan")]) == {"mean": 2.0, "n_valid": 2, "n_nan": 1}
+    assert _summarize([float("nan")]) == {"mean": None, "n_valid": 0, "n_nan": 1}
+    # An infinite metric is invalid, not a usable extreme.
+    assert _summarize([float("inf"), 2.0]) == {"mean": 2.0, "n_valid": 1, "n_nan": 1}
