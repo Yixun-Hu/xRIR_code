@@ -781,6 +781,12 @@ def main(argv=None):
                         help="write the printed text here; its sha256 goes into --json")
     args = parser.parse_args(argv)
 
+    if bool(args.json) != bool(args.summary):
+        raise ValueError("--json and --summary go together: the JSON stores the sha256 of "
+                         "the summary text, so one without the other cannot be bound")
+    if args.json and os.path.abspath(args.json) == os.path.abspath(args.summary):
+        raise ValueError("--json and --summary must be different files")
+
     runs = [load_run(directory) for directory in args.runs]
     labels = args.labels if args.labels else [
         os.path.basename(os.path.normpath(d)) for d in args.runs]
@@ -1012,6 +1018,19 @@ def main(argv=None):
                                             "  (no {} run in this summary; it counts as "
                                             "not passing)".format(" or ".join(missing))))
         out["h1"]["roles_evaluated"] = sorted(verdicts)
+        out["h1"]["absolute_margins"] = {}
+        for role, label in (("primary", primary), ("released", released)):
+            if label is None or label not in out["acoustic"]:
+                continue
+            margins = {}
+            for metric, unit in (("edt", "s"), ("c50", "dB")):
+                rows = out["acoustic"][label]["P"][metric]
+                k0 = next((row["mean0"] for row in rows if row["k"] == 0), None)
+                margins[metric] = None if k0 is None else args.threshold * k0
+            out["h1"]["absolute_margins"][label] = margins
+            print("   {} ({}): {:+.0%} of the k=0 error is {} s EDT and {} dB C50".format(
+                role, label, args.threshold, _fmt(margins["edt"], 4),
+                _fmt(margins["c50"], 3)))
 
         print("\n5. H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, "
               "paired on the\n   same resamples; equivalence (+-{:.0%} TOST on r_cyl) at "
@@ -1024,15 +1043,19 @@ def main(argv=None):
                                rooms=rooms, equiv_margin=args.equiv_margin)
                 h2_by_metric[metric] = rows
                 print("\n   metric {}".format(metric))
-                print("   {:>6} {:>7} {:>9} {:>9} {:>9} {:>21} {:>21} {:>12}".format(
+                print("   {:>6} {:>7} {:>9} {:>9} {:>9} {:>21} {:>21} {:>24}".format(
                     "k", "deg", "r_cyl", "r_ctrl", "D_k", "query CI", "room CI",
-                    "equivalent"))
+                    "equivalent (query / room)"))
                 for row in rows:
                     equivalence = row["equivalence"]
-                    verdict = "-" if equivalence is None or equivalence["query"] is None \
-                        else ("yes" if equivalence["query"]["equivalent"] else "no")
+
+                    def _tost(name, equivalence=equivalence):
+                        if equivalence is None or equivalence.get(name) is None:
+                            return "-"
+                        return "yes" if equivalence[name]["equivalent"] else "no"
+                    verdict = "{} / {}".format(_tost("query"), _tost("cluster"))
                     print("   {:>6} {:>7.1f} {:>9} {:>9} {:>9} [{:>9}, {:>9}] "
-                          "[{:>9}, {:>9}] {:>12}".format(
+                          "[{:>9}, {:>9}] {:>24}".format(
                               row["k"], row["deg"], _fmt(row["r_cyl"], 4, "+"),
                               _fmt(row["r_ctrl"], 4, "+"), _fmt(row["d"], 4, "+"),
                               _fmt(row["lo"], 4, "+"), _fmt(row["hi"], 4, "+"),
@@ -1065,7 +1088,9 @@ def main(argv=None):
                 "{:>7}".format(run["delay_flips"].get(str(int(k)), "-")) for k in cols))
 
         print("\n7. Decomposition of a patch-aligned yaw (cylindrical only): relative "
-              "change of each stage.")
+              "change of each stage.\n   Scope: receiver-view tokens and pooling plus the "
+              "query-source coordinate embedding;\n   reference-coordinate features not "
+              "decomposed.")
         if out["decomposition"]:
             for label, decomposition in out["decomposition"].items():
                 print("   {} at k={} over {} batch(es): tokens {:.3e}  pooled {:.3e}  "

@@ -441,6 +441,11 @@ def test_main_writes_a_summary_and_a_json_that_matches_it(two_runs, released_run
     assert "cyl" not in written["h1"], "H1 is only asked of the primary and the released model"
     assert written["h1"]["released"]["passes"] is True
     assert written["h1"]["verdict"] == "supported and replicated"
+    # The margin is relative; its absolute size at k=0 is what a reader can judge.
+    margins = written["h1"]["absolute_margins"]
+    k0_edt = written["acoustic"]["control"]["P"]["edt"][0]["mean0"]
+    assert margins["control"]["edt"] == pytest.approx(0.10 * k0_edt)
+    assert set(margins) == {"control", "released"}
     assert {(c["metric"], c["k"]) for c in written["h1"]["control"]["cells"]} == {
         ("edt", 32), ("edt", 64), ("c50", 32), ("c50", 64)}
 
@@ -472,7 +477,9 @@ def test_main_writes_a_summary_and_a_json_that_matches_it(two_runs, released_run
     # Everything printed is in the summary file.
     for needle in ("1. Spectral", "2. Acoustic", "3. Paired cylindrical", "4. H1",
                    "5. H2", "H2 verdict: supported", "6. Delay-flip", "7. Decomposition",
-                   "8. Bootstrap convergence", "bounds recomputed with seed 0 -> 1"):
+                   "8. Bootstrap convergence", "bounds recomputed with seed 0 -> 1",
+                   "+10% of the k=0 error is", "equivalent (query / room)",
+                   "reference-coordinate features not decomposed"):
         assert needle in text, needle
 
 
@@ -894,3 +901,16 @@ def test_main_in_full_mode_writes_nothing_when_the_bootstrap_has_not_converged(
     assert excinfo.value.code != 0
     assert not os.path.exists(json_path) and not os.path.exists(summary_path)
     assert not os.path.exists(json_path + ".tmp")
+
+
+def test_main_requires_the_json_and_the_summary_together(two_runs, tmp_path):
+    from tools.summarize_yaw import main
+
+    base = ["--mode", "exploratory", "--runs", two_runs[0], "--n-boot", "200"]
+    path = str(tmp_path / "only.json")
+    with pytest.raises(ValueError):
+        main(base + ["--json", path])
+    with pytest.raises(ValueError):
+        main(base + ["--summary", str(tmp_path / "only.txt")])
+    with pytest.raises(ValueError):
+        main(base + ["--json", path, "--summary", path])
