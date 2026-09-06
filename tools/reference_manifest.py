@@ -17,6 +17,7 @@ made deterministic.
 from __future__ import annotations
 
 import hashlib
+import os
 
 import numpy as np
 
@@ -47,3 +48,41 @@ def select_references(candidates, num_shot, seed, query_key):
     rng = np.random.default_rng(int.from_bytes(digest, "little"))
     idx = rng.choice(len(ordered), size=num_shot, replace=len(ordered) < num_shot)
     return [ordered[int(i)] for i in idx]
+
+
+def candidate_references(ir_path, listdir_cache=None):
+    """The candidate reference paths ``xRIR_Dataset`` would consider for one query.
+
+    Reproduces ``xRIR_Dataset.get_ir_and_location_for_other_sources``: every *other*
+    source node that appears in the query's room directory, kept when the file
+    ``S00<node>_<receiver token>_hybrid_IR.wav`` (the query's own receiver) exists on
+    disk.  The naming logic is re-implemented rather than borrowed so building a
+    manifest needs no dataset instance and reads no audio.
+
+    Args:
+        ir_path: path of the query RIR (``.../<Category>/<Room>/S00i_R00j_hybrid_IR.wav``).
+        listdir_cache: optional ``dict`` reused across calls to keep one ``os.listdir``
+            per room directory (``build_manifest`` passes one); it is filled in place.
+
+    Returns:
+        Sorted list of absolute candidate paths (possibly empty).
+    """
+    dir_name = os.path.abspath(os.path.dirname(ir_path))
+    ir_file_name = os.path.basename(ir_path)
+    src_node = int(ir_file_name.split("_")[0][1:])
+    rec_token = ir_file_name.split("_")[1]
+
+    if listdir_cache is None:
+        listing = os.listdir(dir_name)
+    else:
+        if dir_name not in listdir_cache:
+            listdir_cache[dir_name] = os.listdir(dir_name)
+        listing = listdir_cache[dir_name]
+
+    all_src_node = set(int(fn.split("_")[0][1:]) for fn in listing)
+    paths = []
+    for node in all_src_node.difference({src_node}):
+        candidate = os.path.join(dir_name, "S00{}_{}_hybrid_IR.wav".format(node, rec_token))
+        if os.path.exists(candidate):
+            paths.append(candidate)
+    return sorted(paths)
