@@ -178,3 +178,51 @@ def test_degradation_rows_report_an_undefined_ratio_instead_of_raising(two_runs)
         assert row["r"] is None and row["lo"] is None and row["hi"] is None
         assert row["mean0"] == 0.0
     assert rows[1]["meank"] == pytest.approx(0.1)
+
+
+# --------------------------------------------------------------------------------------
+# h1_verdict / h1_wording
+# --------------------------------------------------------------------------------------
+def _h1_rows(run_dir, threshold_metrics=("edt", "c50"), n_boot=2000, alpha=0.05):
+    from tools.summarize_yaw import degradation_rows, load_run
+
+    run = load_run(run_dir)
+    return {metric: degradation_rows(run, "P", metric, [0, 32, 64], n_boot, alpha, 0)
+            for metric in threshold_metrics}
+
+
+def test_h1_verdict_needs_the_adjusted_lower_bound_to_clear_the_margin(two_runs):
+    from tools.summarize_yaw import h1_verdict
+
+    rows = _h1_rows(two_runs[0])                      # planted r = 0.15 (k=32), 0.30 (k=64)
+    passes, cells = h1_verdict(rows, 0.10)
+    assert passes is True
+    assert {(cell["metric"], cell["k"]) for cell in cells} == {
+        ("edt", 32), ("edt", 64), ("c50", 32), ("c50", 64)}
+    assert all(cell["lo"] > 0.10 for cell in cells)
+    assert all(cell["r"] == pytest.approx(0.15 if cell["k"] == 32 else 0.30, abs=0.01)
+               for cell in cells)
+
+    # A margin above the largest degradation: nothing clears it.
+    assert h1_verdict(rows, 0.35) == (False, [])
+    # Between the two planted shifts: only k = 64 clears it.
+    passes, cells = h1_verdict(rows, 0.20)
+    assert passes is True and {cell["k"] for cell in cells} == {64}
+
+
+def test_h1_verdict_ignores_k0_and_undefined_rows(two_runs):
+    from tools.summarize_yaw import degradation_rows, h1_verdict, load_run
+
+    control = load_run(two_runs[0])
+    rows = {"consistency": degradation_rows(control, "P", "consistency", [0, 32], 200, 0.05, 0),
+            "edt": degradation_rows(control, "P", "edt", [0], 200, 0.05, 0)}
+    assert h1_verdict(rows, -1.0) == (False, []), "k=0 or an undefined ratio cannot pass"
+
+
+def test_h1_wording_covers_the_four_outcomes():
+    from tools.summarize_yaw import h1_wording
+
+    assert h1_wording(True, True) == "supported and replicated"
+    assert h1_wording(True, False) == "supported for the same-budget model only"
+    assert h1_wording(False, True) == "replication only"
+    assert h1_wording(False, False) == "not supported"

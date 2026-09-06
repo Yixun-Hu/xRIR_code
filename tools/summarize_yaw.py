@@ -125,3 +125,48 @@ def degradation_rows(run, condition, metric, cols, n_boot, alpha_adj, seed, room
             row["r_hi"] = None if cluster is None else cluster["hi"]
         rows.append(row)
     return rows
+
+
+def h1_verdict(rows_by_metric, threshold):
+    """The pre-registered H1 rule: does any acoustic angle degrade beyond the margin?
+
+    H1 is supported if, for at least one angle ``k != 0``, the Bonferroni-adjusted
+    *lower* bound of ``r_k`` exceeds ``threshold``.  The rule is one-sided and strict, so
+    a lower bound sitting exactly on the margin is not a pass, and rows whose ratio does
+    not exist are simply not eligible.
+
+    Args:
+        rows_by_metric: ``{metric: rows}`` from :func:`degradation_rows`; the confirmatory
+            family is EDT and C50 over the non-zero acoustic angles, and the caller passes
+            exactly those.
+        threshold: the practical margin on ``r`` (the plan's +10 % is ``0.10``).
+
+    Returns:
+        ``(passes, passing_cells)`` where each cell is
+        ``{metric, k, deg, r, lo, hi}`` -- the evidence behind the verdict.
+    """
+    passing = []
+    for metric in sorted(rows_by_metric):
+        for row in rows_by_metric[metric]:
+            if int(row["k"]) == 0 or row.get("lo") is None:
+                continue
+            if row["lo"] > float(threshold):
+                passing.append({"metric": metric, "k": int(row["k"]), "deg": row["deg"],
+                                "r": row["r"], "lo": row["lo"], "hi": row["hi"]})
+    return bool(passing), passing
+
+
+def h1_wording(primary_pass, released_pass):
+    """The verdict wording for the same-budget control and the released checkpoint.
+
+    The two models are reported separately and never pooled: the control is the
+    confirmatory model (training-matched to the cylindrical one) and the released
+    checkpoint is a replication, so a disagreement is stated as such.
+    """
+    if primary_pass and released_pass:
+        return "supported and replicated"
+    if primary_pass:
+        return "supported for the same-budget model only"
+    if released_pass:
+        return "replication only"
+    return "not supported"
