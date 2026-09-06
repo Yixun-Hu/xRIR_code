@@ -724,3 +724,39 @@ def test_json_values_replaces_every_non_finite_with_null():
     assert json.dumps(got, allow_nan=False) == "[1.5, null, null, null, 0.0]"
     assert all(isinstance(v, float) for v in got if v is not None)
     assert not any(v is not None and math.isnan(v) for v in got)
+
+
+def test_write_json_is_atomic_and_leaves_no_partial_file(tmp_path):
+    import json
+
+    import eval_yaw_rotation as eyr
+
+    path = str(tmp_path / "out.json")
+    eyr._write_json({"a": [1.0, None]}, path)
+    assert json.load(open(path)) == {"a": [1.0, None]}
+    assert not os.path.exists(path + ".tmp")
+
+    # A payload that cannot be encoded strictly must not leave anything behind.
+    missing = str(tmp_path / "never.json")
+    with pytest.raises(ValueError):
+        eyr._write_json({"a": float("nan")}, missing)
+    assert not os.path.exists(missing) and not os.path.exists(missing + ".tmp")
+
+    # A failing rename must not leave a half-written file under the real name either.
+    def boom(src, dst):
+        raise OSError("no rename today")
+
+    original = eyr.os.replace
+    eyr.os.replace = boom
+    try:
+        with pytest.raises(OSError):
+            eyr._write_json({"a": 1}, missing)
+    finally:
+        eyr.os.replace = original
+    assert not os.path.exists(missing) and not os.path.exists(missing + ".tmp")
+
+
+def test_the_log_interval_default_is_ten_batches():
+    from eval_yaw_rotation import LOG_INTERVAL_DEFAULT
+
+    assert LOG_INTERVAL_DEFAULT == 10

@@ -22,6 +22,8 @@ comparison of a query against itself.  Per-sample metrics land in
         --out-dir ckpt/yaw_rotation/simple_control
 
 ``model.xRIR.apply_delay`` hard-codes ``.cuda()``, so the whole evaluation runs on GPU.
+A run is **not resumable**: the outputs are written once, atomically, at the end, so an
+interrupted sweep has to be restarted from the beginning.
 """
 from __future__ import annotations
 
@@ -487,6 +489,26 @@ def _check_cols(yaw_cols, acoustic_cols, e_acoustic_cols):
     return cols, acoustic, e_acoustic
 
 
+def _write_json(payload, path):
+    """Write ``payload`` as strict JSON atomically: full file or no file.
+
+    A sweep is long and unattended, so a reader must never see a half-written result;
+    the temporary file is removed on any failure, so a crashed run leaves the previous
+    output (or nothing) rather than a truncated one.
+
+    Raises:
+        ValueError: if the payload contains a non-finite float (see :func:`_json_values`).
+    """
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "w") as fout:
+            json.dump(payload, fout, allow_nan=False)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
 def _json_values(values):
     """One per-sample array as strict JSON: every non-finite value becomes ``null``.
 
@@ -613,14 +635,14 @@ def run(args):
     os.makedirs(args.out_dir, exist_ok=True)
     for name, payload in (("per_sample_yaw.json", per_sample),
                           ("metrics_yaw.json", metrics_out)):
-        with open(os.path.join(args.out_dir, name), "w") as fout:
-            json.dump(payload, fout, allow_nan=False)      # invalid samples are null
+        _write_json(payload, os.path.join(args.out_dir, name))
         print("wrote {}".format(os.path.join(args.out_dir, name)), flush=True)
     print("done: {} samples x {} angles x 2 conditions in {:.2f} min".format(
         n_samples, len(cols), meta["elapsed_min"]), flush=True)
     return per_sample
 
 
+LOG_INTERVAL_DEFAULT = 10
 SPECTRAL_COLS = [0, 4, 8, 16, 32, 64, 96, 128, 192, 256, 320, 384, 416, 448, 480, 496,
                  504, 508]
 ACOUSTIC_COLS = [0, 8, 32, 64, 128, 256, 384, 448, 480, 504]
@@ -655,7 +677,7 @@ def main(argv=None):
     parser.add_argument("--tf32", action="store_true",
                         help="allow TF32; off by default because cuDNN's TF32 makes the "
                              "reference encoder batch-size dependent at ~1e-4")
-    parser.add_argument("--log-interval", type=int, default=50)
+    parser.add_argument("--log-interval", type=int, default=LOG_INTERVAL_DEFAULT)
     parser.add_argument("--decomposition-batches", type=int, default=1,
                         help="cylindrical backbone: batches used for the k=32 decomposition")
     return run(parser.parse_args(argv))
