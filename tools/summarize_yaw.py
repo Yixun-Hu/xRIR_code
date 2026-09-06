@@ -432,6 +432,16 @@ ACOUSTIC_METRICS = ("edt", "c50", "t60")
 CONFIRMATORY_METRICS = ("edt", "c50")
 K0_METRICS = ("edt", "c50", "t60", "log_mse", "loss")
 
+# The pre-registered angle grids (plan section 4). They are constants, not something a
+# run's own meta may redefine: the Bonferroni family is fixed at 2 metrics x 9 non-zero
+# acoustic angles, so a run on a partial grid can never buy itself a laxer correction.
+PREREGISTERED_SPECTRAL_COLS = (0, 4, 8, 16, 32, 64, 96, 128, 192, 256, 320, 384, 416,
+                               448, 480, 496, 504, 508)
+PREREGISTERED_ACOUSTIC_COLS = (0, 8, 32, 64, 128, 256, 384, 448, 480, 504)
+PREREGISTERED_E_ACOUSTIC_COLS = (32, 128, 384, 480)
+FAMILY_SIZE = len(CONFIRMATORY_METRICS) * len(
+    [k for k in PREREGISTERED_ACOUSTIC_COLS if k != 0])
+
 
 def _fmt(value, digits=4, sign=""):
     """Format a float for the tables; ``None`` (an undefined statistic) prints as ``-``."""
@@ -535,7 +545,7 @@ def main(argv=None):
     cols = sorted(runs[0]["meta"]["yaw_cols"], key=signed_degrees)
     acoustic_cols = sorted(runs[0]["meta"]["acoustic_cols"], key=signed_degrees)
     e_acoustic_cols = sorted(runs[0]["meta"]["e_acoustic_cols"], key=signed_degrees)
-    family = len(CONFIRMATORY_METRICS) * len([k for k in acoustic_cols if int(k) != 0])
+    family = FAMILY_SIZE
     alpha_adj = bonferroni_alpha(family, args.alpha)
 
     buffer = io.StringIO()
@@ -558,7 +568,11 @@ def main(argv=None):
                       "equiv_margin": args.equiv_margin, "seed": args.seed,
                       "yaw_cols": cols, "acoustic_cols": acoustic_cols,
                       "e_acoustic_cols": e_acoustic_cols,
-                      "confirmatory_metrics": list(CONFIRMATORY_METRICS)},
+                      "confirmatory_metrics": list(CONFIRMATORY_METRICS),
+                      "preregistered_acoustic_cols": list(PREREGISTERED_ACOUSTIC_COLS),
+                      "preregistered_spectral_cols": list(PREREGISTERED_SPECTRAL_COLS),
+                      "preregistered_e_acoustic_cols":
+                          list(PREREGISTERED_E_ACOUSTIC_COLS)},
            "meta": {label: run["meta"] for label, run in by_label.items()},
            "spectral": {}, "acoustic": {}, "k0": [], "h1": {}, "h2": {},
            "delay_flips": {label: run["delay_flips"] for label, run in by_label.items()},

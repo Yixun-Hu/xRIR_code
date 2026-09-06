@@ -392,9 +392,12 @@ def test_main_writes_a_summary_and_a_json_that_matches_it(two_runs, tmp_path, ca
     config = written["config"]
     assert config["n_boot"] == 4000 and config["alpha"] == 0.05
     assert config["threshold"] == 0.10 and config["equiv_margin"] == 0.02
-    # 2 metrics x the non-zero acoustic angles of the run (k = 32, 64).
-    assert config["family_size"] == 4
-    assert config["alpha_adj"] == pytest.approx(0.05 / 4)
+    # The family is pre-registered at 2 metrics x 9 non-zero acoustic angles and is
+    # NEVER derived from the grid a particular run happened to use.
+    assert config["family_size"] == 18
+    assert config["alpha_adj"] == pytest.approx(0.05 / 18)
+    assert config["preregistered_acoustic_cols"] == [0, 8, 32, 64, 128, 256, 384, 448,
+                                                     480, 504]
     assert config["labels"] == ["control", "cyl"]
     assert config["roles"] == {"primary": "control", "cyl": "cyl", "released": None}
 
@@ -575,3 +578,21 @@ def test_h2_verdict_fails_a_cell_whose_difference_is_missing():
     got = h2_verdict(h1, rows)
     assert got["aggregate"] == "partially supported"
     assert got["failing"] == ["edt@32"]
+
+
+def test_the_confirmatory_family_is_pre_registered_at_eighteen_tests():
+    from tools.summarize_yaw import (
+        CONFIRMATORY_METRICS,
+        FAMILY_SIZE,
+        PREREGISTERED_ACOUSTIC_COLS,
+        PREREGISTERED_E_ACOUSTIC_COLS,
+        PREREGISTERED_SPECTRAL_COLS,
+    )
+
+    assert tuple(CONFIRMATORY_METRICS) == ("edt", "c50")
+    assert PREREGISTERED_ACOUSTIC_COLS == (0, 8, 32, 64, 128, 256, 384, 448, 480, 504)
+    assert PREREGISTERED_E_ACOUSTIC_COLS == (32, 128, 384, 480)
+    assert PREREGISTERED_SPECTRAL_COLS == (0, 4, 8, 16, 32, 64, 96, 128, 192, 256, 320,
+                                           384, 416, 448, 480, 496, 504, 508)
+    assert len(PREREGISTERED_SPECTRAL_COLS) == 18
+    assert FAMILY_SIZE == 2 * 9 == 18
