@@ -188,6 +188,17 @@ def _apply_delay_reference(signal, delays):
     return out
 
 
+def _shift_and_align_reference(refs, src, ref_locs, delays):
+    """Independent re-implementation of ``xRIR.shift_and_align``: zero-padded integer
+    shift by ``delays`` followed by the direct-path gain ``dist_ref / (dist_src + 1e-7)``."""
+    dist_src = torch.linalg.norm(src, dim=1).unsqueeze(1)
+    dist_ref = torch.linalg.norm(ref_locs, dim=-1)
+    ratio = dist_ref / (dist_src + 1e-7)
+    return torch.cat(
+        [(_apply_delay_reference(refs[:, i, :], delays[:, i]).unsqueeze(1)
+          * ratio[:, i:(i + 1)].unsqueeze(2)) for i in range(refs.shape[1])], dim=1)
+
+
 @_NEEDS_CUDA
 def test_integer_delays_reproduces_shift_and_align(simple_model):
     from tools.yaw_rotation import integer_delays
@@ -203,17 +214,14 @@ def test_integer_delays_reproduces_shift_and_align(simple_model):
     assert int(delays.abs().max()) > 0, "degenerate draw: all delays are zero"
     assert int(delays.abs().max()) < T, "delay exceeds the signal length"
 
+    # The model's own expression, re-derived here: same value AND same dtype (int32).
     dist_src = torch.linalg.norm(src, dim=1).unsqueeze(1)
     dist_ref = torch.linalg.norm(ref_locs, dim=-1)
-    ratio = dist_ref / (dist_src + 1e-7)
-    # The model's own expression, re-derived here: same value AND same dtype (int32).
     delay_unit = torch.round((dist_src - dist_ref) / 343. * 22050).int()
     assert delays.dtype == torch.int32
     assert delays.dtype == delay_unit.dtype
     assert torch.equal(delays, delay_unit)
-    expected = torch.cat(
-        [(_apply_delay_reference(refs[:, i, :], delays[:, i]).unsqueeze(1)
-          * ratio[:, i:(i + 1)].unsqueeze(2)) for i in range(K)], dim=1)
+    expected = _shift_and_align_reference(refs, src, ref_locs, delays)
 
     got = simple_model.shift_and_align(refs, src, ref_locs)
     assert got.shape == expected.shape
@@ -244,8 +252,8 @@ def test_fixed_alignment_swaps_and_restores(simple_model):
     assert "shift_and_align" not in vars(simple_model)
 
 
-def test_integer_delays_on_real_acoustic_rooms_and_delay_flip_audit(capsys):
-    """Real-coordinate smoke test + the delay-flip audit primitive (count is printed, not asserted)."""
+def _load_real_query_coordinates(n):
+    """First ``n`` (src, refs) coordinate rows of the AcousticRooms test split, or skip."""
     import os
 
     from treble_multi_room_dataset.treble_xRIR_dataset import BASE_DATA_PATH
@@ -253,30 +261,51 @@ def test_integer_delays_on_real_acoustic_rooms_and_delay_flip_audit(capsys):
         pytest.skip("AcousticRooms not available at XRIR_DATA_PATH={}".format(BASE_DATA_PATH))
 
     from treble_multi_room_dataset.treble_xRIR_dataset import xRIR_Dataset
-    from tools.yaw_rotation import integer_delays
 
     np.random.seed(0)
     dataset = xRIR_Dataset(split="test", num_shot=8)
-    n = min(20, len(dataset))
+    n = min(n, len(dataset))
     assert n > 0
     src_rows, ref_rows = [], []
     for i in range(n):
         _, proj_source_pos, _, _, _, all_ref_src_pos = dataset[i]
         src_rows.append(proj_source_pos)
         ref_rows.append(all_ref_src_pos)
-    src = torch.stack(src_rows).float()                      # [n, 3]
-    refs = torch.stack(ref_rows).float()                     # [n, 8, 3]
+    return torch.stack(src_rows).float(), torch.stack(ref_rows).float()
 
-    delays = integer_delays(src, refs)
-    assert delays.shape == (n, 8)
-    assert not torch.is_floating_point(delays)
 
+@_NEEDS_CUDA
+def test_integer_delays_matches_shift_and_align_on_real_coordinates(simple_model, capsys):
+    """Parity against the model on REAL AcousticRooms geometry, plus the flip diagnostic."""
+    from tools.yaw_rotation import integer_delays
+
+    N, K, T = 8, 8, 2048
+    src_cpu, ref_locs_cpu = _load_real_query_coordinates(N)
+    N = src_cpu.shape[0]
+    src, ref_locs = src_cpu.cuda(), ref_locs_cpu.cuda()
+    torch.manual_seed(101)
+    refs = (torch.randn(N, K, T) * 0.1).cuda()
+
+    delays = integer_delays(src, ref_locs)
+    # Re-derived with the model's own ops: same values and same dtype.
+    dist_src = torch.linalg.norm(src, dim=1).unsqueeze(1)
+    dist_ref = torch.linalg.norm(ref_locs, dim=-1)
+    delay_unit = torch.round((dist_src - dist_ref) / 343. * 22050).int()
+    assert delays.dtype == torch.int32 == delay_unit.dtype
+    assert torch.equal(delays, delay_unit)
+    assert int(delays.abs().max()) < T, "real delays exceed the test signal length"
+
+    expected = _shift_and_align_reference(refs, src, ref_locs, delays)
+    got = simple_model.shift_and_align(refs, src, ref_locs)
+    assert got.shape == expected.shape == (N, K, T)
+    assert torch.allclose(got, expected, atol=1e-6)
+
+    # Exploratory diagnostic only (no assertion): how many integer delays move at k=4.
     angle = yaw_angle_rad(4)
-    delays_rot = integer_delays(rotate_vectors_z(src, angle), rotate_vectors_z(refs, angle))
-    n_flip = int((delays != delays_rot).sum())
+    delays_rot = integer_delays(rotate_vectors_z(src, angle), rotate_vectors_z(ref_locs, angle))
     with capsys.disabled():
-        print("\n[T6b] delay flips at k=4 over {} query x 8 reference pairs: {} / {}".format(
-            n, n_flip, n * 8))
+        print("\n[exploratory] delay flips at k=4 over {} query x {} reference pairs: {} / {}".format(
+            N, K, int((delays != delays_rot).sum()), N * K))
 
 
 # --------------------------------------------------------------------------------------
@@ -337,18 +366,25 @@ def test_full_model_period_and_sensitivity_under_fixed_alignment():
     tgt = (torch.randn(B, 1, T) * 0.1).cuda()
 
     with torch.no_grad():
+        # Isolation control: pinning the k=0 alignment must not perturb the k=0 forward.
+        out_plain, tgt_plain = model(depth, refs, src, ref_locs, tgt)
         aligned = model.shift_and_align(refs, src, ref_locs)
 
         outs = {}
         for k in (0, 512, 32):
             depth_k, src_k, ref_locs_k = rotate_scene_yaw(depth, src, ref_locs, k, W=W)
             with fixed_alignment(model, aligned):
-                out_k, _ = model(depth_k, refs, src_k, ref_locs_k, tgt)
+                out_k, tgt_k = model(depth_k, refs, src_k, ref_locs_k, tgt)
             outs[k] = out_k
+            if k == 0:
+                tgt_fixed = tgt_k
         assert model.shift_and_align.__func__ is xRIR.shift_and_align
 
-    assert torch.isfinite(outs[0]).all()
-    assert torch.allclose(outs[512], outs[0], atol=1e-5), "k=W max|d| = {}".format(
+    assert torch.isfinite(out_plain).all()
+    assert torch.equal(out_plain, outs[0]), "fixed_alignment perturbs the k=0 forward"
+    assert torch.equal(tgt_plain, tgt_fixed)
+    # Inputs are identical after the mod reduction, so k=W must reproduce k=0 exactly.
+    assert torch.equal(outs[512], outs[0]), "k=W max|d| = {}".format(
         (outs[512] - outs[0]).abs().max().item())
     assert (outs[32] - outs[0]).abs().max().item() > 1e-4, "k=32 output is indistinguishable from k=0"
 
