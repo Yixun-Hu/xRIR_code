@@ -350,3 +350,19 @@ def test_full_model_period_and_sensitivity_under_fixed_alignment():
             raise RuntimeError("boom")
     assert model.shift_and_align.__func__ is xRIR.shift_and_align
     assert "shift_and_align" not in vars(model)
+
+
+def test_fixed_alignment_nests(simple_model):
+    """Nested use restores the outer override, then the class method (the had_own branch)."""
+    from model.xRIR import xRIR
+    from tools.yaw_rotation import fixed_alignment
+
+    outer = torch.zeros(1, 1, 2)
+    inner = torch.ones(1, 1, 2)
+    with fixed_alignment(simple_model, outer):
+        assert simple_model.shift_and_align(None, None, None) is outer
+        with fixed_alignment(simple_model, inner):
+            assert simple_model.shift_and_align(None, None, None) is inner
+        assert simple_model.shift_and_align(None, None, None) is outer
+    assert simple_model.shift_and_align.__func__ is xRIR.shift_and_align
+    assert "shift_and_align" not in vars(simple_model)

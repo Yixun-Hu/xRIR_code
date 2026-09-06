@@ -166,5 +166,6 @@ def fixed_alignment(model, aligned_refs: torch.Tensor):
     finally:
         if had_own:
             model.shift_and_align = original
-        else:
+        elif "shift_and_align" in vars(model):
+            # Guarded so a raise inside the block is never masked by an AttributeError here.
             del model.shift_and_align
