@@ -6,6 +6,7 @@ with Delta = 2*pi*k/W for an integer roll of ``k`` panorama columns.
 """
 import math
 
+import numpy as np
 import pytest
 import torch
 
@@ -86,3 +87,74 @@ def test_rotate_scene_yaw_does_not_mutate_inputs():
     assert torch.equal(depth, depth_c)
     assert torch.equal(src, src_c)
     assert torch.equal(refs, refs_c)
+
+
+# --------------------------------------------------------------------------------------
+# T4 -- oracle: Rz(Delta) . roll(convert(D), k) == convert(roll(D, k))
+# --------------------------------------------------------------------------------------
+def _rz_roll(t: torch.Tensor, k: int, W: int = 512) -> torch.Tensor:
+    """Independent reference implementation of "roll by +k columns, then Rz(+2*pi*k/W)".
+
+    Written out with explicit cos/sin so it does not share code with
+    :func:`tools.yaw_rotation.rotate_scene_yaw`.  ``t`` is ``[B, 3, H, W]``.
+    """
+    k = int(k) % int(W)
+    a = 2.0 * math.pi * k / W
+    cos_a, sin_a = math.cos(a), math.sin(a)
+    r = torch.roll(t, shifts=k, dims=-1)
+    x, y, z = r[:, 0], r[:, 1], r[:, 2]
+    return torch.stack([x * cos_a - y * sin_a, x * sin_a + y * cos_a, z], dim=1)
+
+
+def test_rotate_scene_yaw_matches_reprojected_rolled_depth():
+    from treble_multi_room_dataset.treble_xRIR_dataset import convert_equirect_to_camera_coord
+
+    H, W = 256, 512
+    rng = np.random.RandomState(0)
+    depth_map = (rng.rand(H, W).astype(np.float32) * 4.0 + 1.0)          # positive depths, 1..5 m
+
+    def convert(dm):
+        return convert_equirect_to_camera_coord(
+            torch.from_numpy(dm), H, W).permute(2, 0, 1).float().unsqueeze(0)
+
+    depth_coord = convert(depth_map)                                      # [1, 3, H, W]
+    zeros_src = torch.zeros(1, 3)
+    zeros_ref = torch.zeros(1, 1, 3)
+
+    for k in (0, 1, 32, 100, 511):
+        got = rotate_scene_yaw(depth_coord, zeros_src, zeros_ref, k, W=W)[0]
+        want = convert(np.roll(depth_map, k, axis=1))
+        assert got.shape == want.shape
+        # All three channels, every column.
+        assert torch.allclose(got, want, atol=1e-4), "k={} max|d|={}".format(
+            k, (got - want).abs().max().item())
+        # Seam columns checked explicitly (wrap-around is where a convention error shows).
+        for col in (0, W - 1):
+            assert torch.allclose(got[..., col], want[..., col], atol=1e-4), \
+                "k={} col={}".format(k, col)
+
+
+# --------------------------------------------------------------------------------------
+# T5 -- covariance of the three ViT views used by xRIR.forward
+# --------------------------------------------------------------------------------------
+def test_rotate_scene_yaw_covaries_all_three_vit_views():
+    B, K, H, W, k = 2, 4, 256, 512, 64
+    torch.manual_seed(7)
+    depth = torch.randn(B, 3, H, W)
+    src = torch.randn(B, 3)
+    refs = torch.randn(B, K, 3)
+
+    depth_r, src_r, refs_r = rotate_scene_yaw(depth, src, refs, k, W=W)
+
+    src_view = src[:, :, None, None] - depth
+    src_view_r = src_r[:, :, None, None] - depth_r
+    assert torch.allclose(src_view_r, _rz_roll(src_view, k, W), atol=1e-5)
+
+    rec_view = -depth
+    rec_view_r = -depth_r
+    assert torch.allclose(rec_view_r, _rz_roll(rec_view, k, W), atol=1e-5)
+
+    for i in range(K):
+        ref_view = refs[:, i, :, None, None] - depth
+        ref_view_r = refs_r[:, i, :, None, None] - depth_r
+        assert torch.allclose(ref_view_r, _rz_roll(ref_view, k, W), atol=1e-5), "ref {}".format(i)
