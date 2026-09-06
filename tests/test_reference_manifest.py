@@ -11,6 +11,7 @@ import os
 import pytest
 
 from tools.reference_manifest import (
+    ManifestDataset,
     build_manifest,
     candidate_references,
     load_manifest,
@@ -337,3 +338,117 @@ def test_build_manifest_on_the_real_unseen_test_split(capsys):
         print("\n[T9c] 6337 queries, manifest built in {:.2f}s; queries with < 8 distinct "
               "candidates: {} ({:.4%}); manifest_hash = {}".format(
                   elapsed, short, short / len(manifest["entries"]), digest))
+
+
+# --------------------------------------------------------------------------------------
+# T9d -- ManifestDataset returns the exp_01 tuple plus the query key
+# --------------------------------------------------------------------------------------
+def _manifest_dataset(dataset, seed=0):
+    return ManifestDataset(dataset, build_manifest(dataset, seed=seed, num_shot=8))
+
+
+def test_manifest_dataset_shapes_and_parity_with_the_dataset(synthetic_dataset):
+    import numpy as np
+    import torch
+    import torchaudio
+    from treble_multi_room_dataset.treble_xRIR_dataset import (
+        convert_equirect_to_camera_coord,
+        get_3d_point_camera_coord,
+    )
+
+    manifest = build_manifest(synthetic_dataset, seed=0, num_shot=8)
+    md = ManifestDataset(synthetic_dataset, manifest)
+    assert len(md) == len(synthetic_dataset)
+    L, K = synthetic_dataset.max_len, synthetic_dataset.num_shot
+
+    for i in (0, 9, len(md) - 1):
+        item = md[i]
+        assert len(item) == 7
+        listener, src, depth, tgt_wav, ref_irs, ref_locs, key = item
+        assert tuple(listener.shape) == (3,)
+        assert tuple(src.shape) == (3,)
+        assert tuple(depth.shape) == (3, DEPTH_H, DEPTH_W)
+        assert tuple(tgt_wav.shape) == (1, L)
+        assert tuple(ref_irs.shape) == (K, L)
+        assert tuple(ref_locs.shape) == (K, 3)
+        assert isinstance(key, str) and key == manifest["entries"][i]["query"]
+        for t in (listener, src, depth, tgt_wav, ref_irs, ref_locs):
+            assert t.dtype == torch.float32
+
+        # Everything except the (randomly drawn) references is identical to the dataset's.
+        d_listener, d_src, d_depth, d_tgt, _, _ = synthetic_dataset[i]
+        assert torch.equal(listener, d_listener) and torch.equal(listener, torch.zeros(3))
+        assert torch.equal(src, d_src)
+        assert torch.equal(depth, d_depth)
+        assert torch.equal(tgt_wav, d_tgt)
+
+        query_path = os.path.join(manifest["ir_root"], key)
+        source_pos, listener_pos = synthetic_dataset.get_receiver_source_location(query_path)
+        assert torch.equal(src, torch.Tensor(
+            get_3d_point_camera_coord(0, listener_pos, source_pos)).float())
+        receiver_idx = int(os.path.basename(key).split("_")[1][1:])
+        pano = np.load(os.path.join(synthetic_dataset.pano_depth_path,
+                                    key.split("/")[0], key.split("/")[1],
+                                    "{}.npy".format(receiver_idx)))
+        assert torch.equal(depth, torch.Tensor(convert_equirect_to_camera_coord(
+            torch.from_numpy(pano), DEPTH_H, DEPTH_W)).permute(2, 0, 1).float())
+
+        # References come from the manifest, in manifest order, with the dataset's own
+        # zero-padding and per-reference coordinate rule.
+        for j, rel in enumerate(manifest["entries"][i]["refs"]):
+            ref_path = os.path.join(manifest["ir_root"], rel)
+            wav, rate = torchaudio.load(ref_path)
+            assert rate == 22050
+            padded = torch.cat([wav, torch.zeros(1, L - wav.shape[1])], dim=1)[0]
+            assert torch.equal(ref_irs[j], padded), "reference {} of {}".format(j, key)
+            r_src, r_rec = synthetic_dataset.get_receiver_source_location(ref_path)
+            assert torch.equal(ref_locs[j], torch.Tensor(
+                get_3d_point_camera_coord(0, r_rec, r_src)).float())
+
+
+def test_manifest_dataset_is_worker_count_invariant(synthetic_dataset):
+    import torch
+    from torch.utils.data import DataLoader, Subset
+
+    md = Subset(_manifest_dataset(synthetic_dataset), [0, 1, 2, 3])
+    runs = {}
+    for num_workers in (0, 2):
+        loader = DataLoader(md, batch_size=2, shuffle=False, num_workers=num_workers)
+        runs[num_workers] = [[t.clone() if torch.is_tensor(t) else list(t) for t in batch]
+                             for batch in loader]
+    assert len(runs[0]) == len(runs[2]) == 2
+    for b0, b2 in zip(runs[0], runs[2]):
+        assert len(b0) == len(b2) == 7
+        for x, y in zip(b0, b2):
+            if torch.is_tensor(x):
+                assert torch.equal(x, y)
+            else:
+                assert x == y and all(isinstance(s, str) for s in x)
+
+
+def test_manifest_dataset_rejects_a_mismatched_manifest(synthetic_dataset):
+    import copy
+
+    manifest = build_manifest(synthetic_dataset, seed=0, num_shot=8)
+    ManifestDataset(synthetic_dataset, manifest)          # the matching one is accepted
+
+    reordered = copy.deepcopy(manifest)
+    reordered["entries"][0], reordered["entries"][1] = (reordered["entries"][1],
+                                                        reordered["entries"][0])
+    with pytest.raises(AssertionError):
+        ManifestDataset(synthetic_dataset, reordered)
+
+    renamed = copy.deepcopy(manifest)
+    renamed["entries"][2]["query"] = "Office/Office_idx_777/S099_R000_hybrid_IR.wav"
+    with pytest.raises(AssertionError):
+        ManifestDataset(synthetic_dataset, renamed)
+
+    truncated = copy.deepcopy(manifest)
+    truncated["entries"] = truncated["entries"][:-1]
+    with pytest.raises(AssertionError):
+        ManifestDataset(synthetic_dataset, truncated)
+
+    wrong_shots = copy.deepcopy(manifest)
+    wrong_shots["num_shot"] = 4
+    with pytest.raises(AssertionError):
+        ManifestDataset(synthetic_dataset, wrong_shots)
