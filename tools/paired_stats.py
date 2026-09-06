@@ -129,11 +129,10 @@ def _check_pair(e0, ek, name0="e0", namek="ek"):
     return a, b
 
 
-def _check_boot_args(n_boot, alpha, clusters=None, n=None):
-    if int(n_boot) < 1:
-        raise ValueError("n_boot must be >= 1, got {}".format(n_boot))
-    if not (0.0 < float(alpha) < 1.0):
-        raise ValueError("alpha must lie in (0, 1), got {}".format(alpha))
+def _check_boot_args(n_boot, alpha, clusters=None, n=None, max_alpha=1.0):
+    _check_positive_int(n_boot, "n_boot")
+    if not (0.0 < float(alpha) < max_alpha):
+        raise ValueError("alpha must lie in (0, {}), got {}".format(max_alpha, alpha))
     if clusters is not None:
         ids = np.asarray(clusters)
         if ids.ndim != 1 or ids.size != n:
@@ -156,6 +155,10 @@ def _bootstrap_ratios(pairs, n_boot, seed, clusters=None):
 
     Returns:
         A list of ``[n_boot]`` arrays of ratios, one per input pair.
+
+    Raises:
+        ValueError: if any resample leaves ``r`` undefined (a resampled ``mean(e0)`` of
+            zero).  Dropping such draws would silently shift the percentiles.
     """
     n = pairs[0][0].size
     rng = np.random.default_rng(seed)
@@ -195,12 +198,18 @@ def _bootstrap_ratios(pairs, n_boot, seed, clusters=None):
                     meank = (weights @ sumk) / denom
                     out[j][done:done + size] = (meank - mean0) / mean0
                 done += size
+    for ratios in out:
+        if not np.isfinite(ratios).all():
+            raise ValueError(
+                "{} of {} resamples left the relative degradation undefined (a resampled "
+                "mean(e0) of zero); the errors must be strictly one-signed for a ratio to "
+                "be meaningful".format(int(np.count_nonzero(~np.isfinite(ratios))), n_boot))
     return out
 
 
 def _percentile_interval(boots, alpha):
     """Two-sided percentile interval at level ``1 - alpha``."""
-    lo, hi = np.nanpercentile(boots, [100.0 * alpha / 2.0, 100.0 * (1.0 - alpha / 2.0)])
+    lo, hi = np.percentile(boots, [100.0 * alpha / 2.0, 100.0 * (1.0 - alpha / 2.0)])
     return float(lo), float(hi)
 
 
@@ -272,7 +281,7 @@ def verdict_substantial(res, threshold):
     return bool(res["lo"] > threshold)
 
 
-def equivalence_tost(e0, ek, margin, n_boot=10000, alpha=0.05, seed=0):
+def equivalence_tost(e0, ek, margin, n_boot=10000, alpha=0.05, seed=0, clusters=None):
     """Two one-sided tests for *equivalence* of ``ek`` and ``e0`` within ``+-margin``.
 
     The bootstrap form of TOST: the two one-sided tests at level ``alpha`` are jointly
@@ -283,29 +292,32 @@ def equivalence_tost(e0, ek, margin, n_boot=10000, alpha=0.05, seed=0):
     Args:
         e0: per-sample errors at ``k = 0``.
         ek: per-sample errors at the compared angle.
-        margin: positive equivalence margin on ``r`` (e.g. ``0.02`` for +-2 %).
+        margin: finite positive equivalence margin on ``r`` (``0.02`` for +-2 %).
         n_boot: bootstrap resamples.
-        alpha: level of *each* one-sided test.
+        alpha: level of *each* one-sided test; must be below 0.5, or ``1 - 2*alpha``
+            is not an interval.
         seed: bootstrap seed.
+        clusters: optional cluster id per pair, resampled exactly as in
+            :func:`relative_degradation_bootstrap`.
 
     Returns:
-        ``{"equivalent", "r", "lo", "hi", "margin", "n", "n_boot", "alpha"}`` where
-        ``lo``/``hi`` bound the ``1 - 2*alpha`` interval.
+        ``{"equivalent", "r", "lo", "hi", "margin", "n", "n_boot", "alpha", "unit"}``
+        where ``lo``/``hi`` bound the ``1 - 2*alpha`` interval.
 
     Raises:
         ValueError: on degenerate input (see :func:`relative_degradation_bootstrap`) or
-            a non-positive ``margin``.
+            a non-positive, infinite or NaN ``margin``.
     """
     a, b = _check_pair(e0, ek)
-    _check_boot_args(n_boot, alpha)
-    if not float(margin) > 0.0:
-        raise ValueError("margin must be positive, got {}".format(margin))
-    boots = _bootstrap_ratios([(a, b)], int(n_boot), seed)[0]
-    lo, hi = np.nanpercentile(boots, [100.0 * alpha, 100.0 * (1.0 - alpha)])
+    _check_boot_args(n_boot, alpha, clusters, a.size, max_alpha=0.5)
+    if not (np.isfinite(margin) and float(margin) > 0.0):
+        raise ValueError("margin must be finite and positive, got {}".format(margin))
+    boots = _bootstrap_ratios([(a, b)], int(n_boot), seed, clusters)[0]
+    lo, hi = np.percentile(boots, [100.0 * alpha, 100.0 * (1.0 - alpha)])
     return {"equivalent": bool(-float(margin) < lo and hi < float(margin)),
             "r": float((b.mean() - a.mean()) / a.mean()), "lo": float(lo), "hi": float(hi),
             "margin": float(margin), "n": int(a.size), "n_boot": int(n_boot),
-            "alpha": float(alpha)}
+            "alpha": float(alpha), "unit": "pair" if clusters is None else "cluster"}
 
 
 def diff_in_diff_bootstrap(e0_a, ek_a, e0_b, ek_b, n_boot=10000, alpha=0.05, seed=0,

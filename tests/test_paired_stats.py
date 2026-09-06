@@ -254,6 +254,64 @@ def test_equivalence_tost_rejects_a_five_percent_change():
         equivalence_tost(e0, ek, margin=0.0, n_boot=2000, seed=0)
 
 
+def test_equivalence_tost_validates_its_level_and_margin():
+    e0, ek = _paired(n=200, ratio=1.01, noise=0.1, seed=14)
+    for bad_alpha in (0.5, 0.6, 0.0, 1.0):
+        with pytest.raises(ValueError):       # 1 - 2*alpha must be a real interval
+            equivalence_tost(e0, ek, margin=0.02, n_boot=100, alpha=bad_alpha)
+    for bad_margin in (0.0, -0.02, float("inf"), float("nan")):
+        with pytest.raises(ValueError):
+            equivalence_tost(e0, ek, margin=bad_margin, n_boot=100)
+    for bad_n_boot in (0, -1):
+        with pytest.raises(ValueError):
+            equivalence_tost(e0, ek, margin=0.02, n_boot=bad_n_boot)
+    for bad_n_boot in (100.0, True):
+        with pytest.raises(TypeError):
+            equivalence_tost(e0, ek, margin=0.02, n_boot=bad_n_boot)
+
+
+def test_equivalence_tost_supports_the_cluster_unit():
+    """Rooms that disagree widen the equivalence interval, so equivalence gets harder."""
+    rng = np.random.default_rng(15)
+    n_per, ratios = 200, np.array([0.98, 1.0, 1.02, 1.05])
+    clusters = np.repeat(np.arange(4), n_per)
+    e0 = rng.lognormal(mean=0.0, sigma=0.5, size=4 * n_per)
+    ek = e0 * ratios[clusters] * np.exp(rng.normal(0.0, 0.05, size=e0.size))
+
+    # r is about +1.7%; a 3% margin covers the query-level interval but not the
+    # room-level one, which is the whole point of reporting both.
+    plain = equivalence_tost(e0, ek, margin=0.03, n_boot=2000, seed=0)
+    clustered = equivalence_tost(e0, ek, margin=0.03, n_boot=2000, seed=0, clusters=clusters)
+    assert clustered["r"] == plain["r"]
+    assert clustered["unit"] == "cluster" and plain["unit"] == "pair"
+    assert clustered["hi"] - clustered["lo"] > plain["hi"] - plain["lo"]
+    assert plain["equivalent"] is True and clustered["equivalent"] is False
+    with pytest.raises(ValueError):
+        equivalence_tost(e0, ek, margin=0.03, n_boot=100, clusters=clusters[:-1])
+
+
+def test_bootstrap_rejects_a_non_finite_resample():
+    """A resample whose mean(e0) is 0 makes r undefined; that must not be quietly
+    dropped from the percentile."""
+    e0 = np.array([-1.0, 1.0, 2.0])          # mean 2/3, but (-1, -1, 2) resamples to 0
+    ek = np.array([1.0, 2.0, 3.0])
+    with pytest.raises(ValueError):
+        relative_degradation_bootstrap(e0, ek, n_boot=200, seed=0)
+    with pytest.raises(ValueError):
+        equivalence_tost(e0, ek, margin=0.5, n_boot=200, seed=0)
+    with pytest.raises(ValueError):
+        diff_in_diff_bootstrap(e0, ek, e0, ek * 2.0, n_boot=200, seed=0)
+
+
+def test_bootstrap_rejects_a_non_integer_n_boot():
+    e0, ek = _paired(n=50, ratio=1.1, seed=16)
+    for bad in (100.0, True, "100"):
+        with pytest.raises(TypeError):
+            relative_degradation_bootstrap(e0, ek, n_boot=bad)
+    with pytest.raises(ValueError):
+        relative_degradation_bootstrap(e0, ek, n_boot=-5)
+
+
 def test_equivalence_tost_uses_the_one_minus_two_alpha_interval():
     e0, ek = _paired(n=2000, ratio=1.2, noise=0.3, seed=6)
     tost = equivalence_tost(e0, ek, margin=1.0, n_boot=2000, alpha=0.05, seed=0)
