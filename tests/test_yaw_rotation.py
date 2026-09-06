@@ -158,3 +158,114 @@ def test_rotate_scene_yaw_covaries_all_three_vit_views():
         ref_view = refs[:, i, :, None, None] - depth
         ref_view_r = refs_r[:, i, :, None, None] - depth_r
         assert torch.allclose(ref_view_r, _rz_roll(ref_view, k, W), atol=1e-5), "ref {}".format(i)
+
+
+# --------------------------------------------------------------------------------------
+# T6 -- integer_delays reproduces xRIR.shift_and_align; fixed_alignment swaps it safely
+# --------------------------------------------------------------------------------------
+_NEEDS_CUDA = pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+
+
+@pytest.fixture(scope="module")
+def simple_model():
+    """A CPU-resident baseline xRIR; only its (parameter-free) methods are exercised."""
+    from model.xRIR_cyl import build_xrir
+    return build_xrir("simple", 4).eval()
+
+
+def _apply_delay_reference(signal, delays):
+    """Stand-alone copy of ``model.xRIR.apply_delay`` semantics (zero-padded integer shift)."""
+    out = torch.zeros_like(signal)
+    for i in range(signal.shape[0]):
+        d = int(delays[i].item())
+        if d > 0:
+            out[i, d:] = signal[i, :-d]
+        elif d < 0:
+            out[i, :d] = signal[i, -d:]
+        else:
+            out[i] = signal[i]
+    return out
+
+
+@_NEEDS_CUDA
+def test_integer_delays_reproduces_shift_and_align(simple_model):
+    from tools.yaw_rotation import integer_delays
+
+    B, K, T = 3, 4, 2048
+    torch.manual_seed(11)
+    refs = (torch.randn(B, K, T) * 0.1).cuda()
+    src = (torch.randn(B, 3) * 2.0).cuda()
+    ref_locs = (torch.randn(B, K, 3) * 2.0).cuda()
+
+    delays = integer_delays(src, ref_locs)
+    assert delays.shape == (B, K)
+    assert not torch.is_floating_point(delays)
+    assert int(delays.abs().max()) > 0, "degenerate draw: all delays are zero"
+    assert int(delays.abs().max()) < T, "delay exceeds the signal length"
+
+    dist_src = torch.linalg.norm(src, dim=1).unsqueeze(1)
+    dist_ref = torch.linalg.norm(ref_locs, dim=-1)
+    ratio = dist_ref / (dist_src + 1e-7)
+    expected = torch.cat(
+        [(_apply_delay_reference(refs[:, i, :], delays[:, i]).unsqueeze(1)
+          * ratio[:, i:(i + 1)].unsqueeze(2)) for i in range(K)], dim=1)
+
+    got = simple_model.shift_and_align(refs, src, ref_locs)
+    assert got.shape == expected.shape
+    assert torch.allclose(got, expected, atol=1e-6)
+
+
+def test_fixed_alignment_swaps_and_restores(simple_model):
+    from model.xRIR import xRIR
+    from tools.yaw_rotation import fixed_alignment
+
+    cached = torch.arange(2 * 3 * 5, dtype=torch.float32).reshape(2, 3, 5)
+    assert "shift_and_align" not in vars(simple_model)
+
+    with fixed_alignment(simple_model, cached):
+        out = simple_model.shift_and_align(torch.zeros(2, 3, 5), torch.zeros(2, 3), torch.zeros(2, 3, 3))
+        assert out is cached
+    assert simple_model.shift_and_align.__func__ is xRIR.shift_and_align
+    assert "shift_and_align" not in vars(simple_model)
+
+    with pytest.raises(RuntimeError):
+        with fixed_alignment(simple_model, cached):
+            assert simple_model.shift_and_align(None, None, None) is cached
+            raise RuntimeError("boom")
+    assert simple_model.shift_and_align.__func__ is xRIR.shift_and_align
+    assert "shift_and_align" not in vars(simple_model)
+
+
+def test_integer_delays_on_real_acoustic_rooms_and_delay_flip_audit(capsys):
+    """Real-coordinate smoke test + the delay-flip audit primitive (count is printed, not asserted)."""
+    import os
+
+    from treble_multi_room_dataset.treble_xRIR_dataset import BASE_DATA_PATH
+    if not os.path.isdir(os.path.join(BASE_DATA_PATH, "single_channel_ir")):
+        pytest.skip("AcousticRooms not available at XRIR_DATA_PATH={}".format(BASE_DATA_PATH))
+
+    from treble_multi_room_dataset.treble_xRIR_dataset import xRIR_Dataset
+    from tools.yaw_rotation import integer_delays
+
+    np.random.seed(0)
+    dataset = xRIR_Dataset(split="test", num_shot=8)
+    n = min(20, len(dataset))
+    assert n > 0
+    src_rows, ref_rows = [], []
+    for i in range(n):
+        _, proj_source_pos, _, _, _, all_ref_src_pos = dataset[i]
+        src_rows.append(proj_source_pos)
+        ref_rows.append(all_ref_src_pos)
+    src = torch.stack(src_rows).float()                      # [n, 3]
+    refs = torch.stack(ref_rows).float()                     # [n, 8, 3]
+
+    delays = integer_delays(src, refs)
+    assert delays.shape == (n, 8)
+    assert not torch.is_floating_point(delays)
+
+    angle = yaw_angle_rad(4)
+    delays_rot = integer_delays(rotate_vectors_z(src, angle), rotate_vectors_z(refs, angle))
+    n_flip = int((delays != delays_rot).sum())
+    with capsys.disabled():
+        print("\n[T6b] delay flips at k=4 over {} query x 8 reference pairs: {} / {}".format(
+            n, n_flip, n * 8))

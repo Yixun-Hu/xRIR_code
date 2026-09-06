@@ -102,3 +102,69 @@ def rotate_scene_yaw(
     rolled = torch.roll(depth_coord, shifts=k, dims=-1)          # [B, 3, H, W]
     depth_rot = rotate_vectors_z(rolled.permute(0, 2, 3, 1), angle).permute(0, 3, 1, 2)
     return depth_rot.contiguous(), rotate_vectors_z(src_loc, angle), rotate_vectors_z(ref_locs, angle)
+
+
+def integer_delays(
+    src_loc: torch.Tensor,
+    ref_locs: torch.Tensor,
+    sr: int = 22050,
+    c: float = 343.0,
+) -> torch.Tensor:
+    """Integer direct-path delays exactly as ``model.xRIR.xRIR.shift_and_align`` computes them.
+
+    The op sequence and dtypes mirror the model line for line
+    (``torch.linalg.norm`` -> ``torch.round(...).int()``) so the values agree bit for bit
+    with the model on the same inputs; only the final container is widened to ``int64``.
+
+    Args:
+        src_loc: receiver-frame query-source position ``[B, 3]``.
+        ref_locs: receiver-frame reference-source positions ``[B, K, 3]``.
+        sr: sample rate in Hz (the model hard-codes 22050).
+        c: speed of sound in m/s (the model hard-codes 343).
+
+    Returns:
+        ``[B, K]`` int64 tensor of sample delays (positive = reference arrives earlier
+        than the query source and is therefore shifted right).
+    """
+    dist_src = torch.linalg.norm(src_loc, dim=1).unsqueeze(1)          # [B, 1]
+    dist_ref = torch.linalg.norm(ref_locs, dim=-1)                     # [B, K]
+    delay_unit = torch.round((dist_src - dist_ref) / c * sr).int()     # as in shift_and_align
+    return delay_unit.long()
+
+
+@contextlib.contextmanager
+def fixed_alignment(model, aligned_refs: torch.Tensor):
+    """Temporarily pin ``model.shift_and_align`` to a pre-computed alignment.
+
+    ``xRIR.shift_and_align`` is algebraically yaw-invariant but not numerically: float32
+    norms plus ``round()`` can flip a delay by one sample under rotation.  The primary
+    experimental condition therefore holds the direct-path alignment at the ``k = 0``
+    coordinates so that only the geometry branches see the rotation::
+
+        aligned = model.shift_and_align(refs, src0, ref_locs0)
+        with fixed_alignment(model, aligned):
+            out, tgt = model(depth_k, refs, src_k, ref_locs_k, tgt)
+
+    The original bound method is restored on exit, including when the block raises.
+
+    Args:
+        model: an ``xRIR`` (or subclass) instance.
+        aligned_refs: the cached ``[B, K, T]`` aligned reference audio to return instead.
+
+    Yields:
+        ``model``, with its ``shift_and_align`` replaced.
+    """
+    had_own = "shift_and_align" in vars(model)
+    original = vars(model).get("shift_and_align", None)
+
+    def _fixed(*args, **kwargs):
+        return aligned_refs
+
+    model.shift_and_align = _fixed
+    try:
+        yield model
+    finally:
+        if had_own:
+            model.shift_and_align = original
+        else:
+            del model.shift_and_align
