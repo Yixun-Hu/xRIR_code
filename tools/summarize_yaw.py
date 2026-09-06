@@ -381,6 +381,52 @@ def convergence_check(fn, seed_a, seed_b):
     return change / width
 
 
+def h2_verdict(h1_cells, h2_by_metric):
+    """The pre-registered H2 rule, decided only where H1 actually found a degradation.
+
+    H2 claims the cylindrical backbone degrades *less*.  That claim is only meaningful
+    where there is a degradation to compare, so it is decided cell by cell at the
+    (metric, angle) pairs whose H1 lower bound cleared the margin: a cell passes when the
+    difference in differences is negative and its Bonferroni-adjusted **upper** bound is
+    below zero.
+
+    Args:
+        h1_cells: the passing cells from :func:`h1_verdict` (the *primary* model's).
+        h2_by_metric: ``{metric: rows}`` from :func:`h2_rows`.
+
+    Returns:
+        ``{"aggregate", "cells", "n_cells", "n_passing", "passing", "failing"}``.
+        ``aggregate`` is "supported" (every cell), "partially supported" (some),
+        "not supported" (none) or "not evaluable (H1 has no passing cell)".
+    """
+    rows = {(metric, int(row["k"])): row
+            for metric, metric_rows in h2_by_metric.items() for row in metric_rows}
+    cells = []
+    for cell in h1_cells:
+        row = rows.get((cell["metric"], int(cell["k"])))
+        decided = row is not None and row["d"] is not None and row["hi"] is not None
+        cells.append({"metric": cell["metric"], "k": int(cell["k"]), "deg": cell["deg"],
+                      "d": None if row is None else row["d"],
+                      "lo": None if row is None else row["lo"],
+                      "hi": None if row is None else row["hi"],
+                      "c_lo": None if row is None else row.get("c_lo"),
+                      "c_hi": None if row is None else row.get("c_hi"),
+                      "passes": bool(decided and row["d"] < 0.0 and row["hi"] < 0.0)})
+    label = lambda cell: "{}@{}".format(cell["metric"], cell["k"])
+    passing = [label(cell) for cell in cells if cell["passes"]]
+    failing = [label(cell) for cell in cells if not cell["passes"]]
+    if not cells:
+        aggregate = "not evaluable (H1 has no passing cell)"
+    elif not failing:
+        aggregate = "supported"
+    elif passing:
+        aggregate = "partially supported"
+    else:
+        aggregate = "not supported"
+    return {"aggregate": aggregate, "cells": cells, "n_cells": len(cells),
+            "n_passing": len(passing), "passing": passing, "failing": failing}
+
+
 SPECTRAL_METRICS = ("loss", "log_mse", "consistency")
 ACOUSTIC_METRICS = ("edt", "c50", "t60")
 CONFIRMATORY_METRICS = ("edt", "c50")
@@ -585,7 +631,7 @@ def main(argv=None):
         print("\n4. H1 (joint yaw rotation substantially degrades the model): supported "
               "if the adjusted\n   lower bound of r exceeds {:+.0%} for EDT or C50 at any "
               "angle k != 0, condition P.".format(args.threshold))
-        verdicts = {}
+        verdicts, primary_h1_cells = {}, []
         for role, label in (("primary", primary), ("released", released)):
             if label is None:
                 print("   {}: no run provided".format(role))
@@ -594,6 +640,8 @@ def main(argv=None):
                     for metric in CONFIRMATORY_METRICS}
             passes, cells = h1_verdict(rows, args.threshold)
             verdicts[role] = passes
+            if role == "primary":
+                primary_h1_cells = cells
             out["h1"][label] = {"role": role, "passes": passes, "cells": cells}
             print("   {} ({}): {}".format(role, label, "PASSES" if passes else "does not pass"))
             for cell in cells:
@@ -611,12 +659,13 @@ def main(argv=None):
         print("\n5. H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, "
               "paired on the\n   same resamples; equivalence (+-{:.0%} TOST on r_cyl) at "
               "the patch-aligned angles.".format(args.equiv_margin))
+        h2_by_metric = {}
         if cyl and primary:
             for metric in CONFIRMATORY_METRICS:
                 rows = h2_rows(by_label[cyl], by_label[primary], "P", metric,
                                acoustic_cols, args.n_boot, alpha_adj, args.seed,
                                rooms=rooms, equiv_margin=args.equiv_margin)
-                out["h2"][metric] = rows
+                h2_by_metric[metric] = rows
                 print("\n   metric {}".format(metric))
                 print("   {:>6} {:>7} {:>9} {:>9} {:>9} {:>21} {:>21} {:>12}".format(
                     "k", "deg", "r_cyl", "r_ctrl", "D_k", "query CI", "room CI",
@@ -632,8 +681,19 @@ def main(argv=None):
                               _fmt(row["lo"], 4, "+"), _fmt(row["hi"], 4, "+"),
                               _fmt(row["c_lo"], 4, "+"), _fmt(row["c_hi"], 4, "+"),
                               verdict))
+            out["h2"]["verdict"] = h2_verdict(primary_h1_cells, h2_by_metric)
+            verdict = out["h2"]["verdict"]
+            print("\n   H2 verdict: {} ({} of {} H1-passing cells)".format(
+                verdict["aggregate"], verdict["n_passing"], verdict["n_cells"]))
+            if verdict["cells"]:
+                print("      passing: {}".format(", ".join(verdict["passing"]) or "none"))
+                print("      failing: {}".format(", ".join(verdict["failing"]) or "none"))
         else:
+            out["h2"]["verdict"] = {"aggregate": "not evaluated (missing run)",
+                                    "cells": [], "n_cells": 0, "n_passing": 0,
+                                    "passing": [], "failing": []}
             print("   skipped: needs both a cylindrical and a primary SimpleViT run")
+        out["h2"]["rows"] = h2_by_metric
 
         print("\n6. Delay-flip audit: (query, reference) pairs whose integer direct-path "
               "delay moves\n   under the rotation -- the numerical noise condition P "

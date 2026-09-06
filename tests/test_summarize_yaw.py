@@ -406,10 +406,15 @@ def test_main_writes_a_summary_and_a_json_that_matches_it(two_runs, tmp_path, ca
     assert {(c["metric"], c["k"]) for c in written["h1"]["control"]["cells"]} == {
         ("edt", 32), ("edt", 64), ("c50", 32), ("c50", 64)}
 
-    # H2: the cylindrical model degrades less at both angles.
-    for row in written["h2"]["edt"]:
+    # H2: the cylindrical model degrades less at both angles, so every H1-passing cell
+    # passes and the aggregate verdict is "supported".
+    for row in written["h2"]["rows"]["edt"]:
         if row["k"]:
             assert row["d"] < 0 and row["hi"] < 0
+    assert written["h2"]["verdict"]["aggregate"] == "supported"
+    assert written["h2"]["verdict"]["n_cells"] == 4
+    assert sorted(written["h2"]["verdict"]["passing"]) == [
+        "c50@32", "c50@64", "edt@32", "edt@64"]
     assert written["k0"][0]["diff"] == pytest.approx(0.0, abs=1e-9)
     assert written["delay_flips"]["control"]["32"] == 7 * 32
     assert written["decomposition"]["cyl"]["tokens_rel_change"] == pytest.approx(3.2e-07)
@@ -420,7 +425,8 @@ def test_main_writes_a_summary_and_a_json_that_matches_it(two_runs, tmp_path, ca
 
     # Everything printed is in the summary file.
     for needle in ("1. Spectral", "2. Acoustic", "3. Paired cylindrical", "4. H1",
-                   "5. H2", "6. Delay-flip", "7. Decomposition", "8. Bootstrap"):
+                   "5. H2", "H2 verdict: supported", "6. Delay-flip", "7. Decomposition",
+                   "8. Bootstrap"):
         assert needle in text, needle
 
 
@@ -502,3 +508,70 @@ def test_h2_equivalence_uses_the_cylindrical_runs_own_valid_mask(tmp_path):
     assert equivalence["equivalent"] is False
     assert row["equivalence"]["cluster"]["n"] == 300
     assert row["equivalence"]["n"] == 300
+
+
+# --------------------------------------------------------------------------------------
+# h2_verdict -- the pre-registered cross-model rule
+# --------------------------------------------------------------------------------------
+def _h1_cell(metric, k):
+    return {"metric": metric, "k": k, "deg": 22.5, "r": 0.15, "lo": 0.12, "hi": 0.18}
+
+
+def _h2_row(k, d, hi, lo=None):
+    if lo is None and d is not None:
+        lo = d - 0.05
+    return {"k": k, "deg": 22.5, "d": d, "lo": lo,
+            "hi": hi, "c_lo": None, "c_hi": None, "r_cyl": 0.0, "r_ctrl": 0.15,
+            "n_valid": 296, "equivalence": None}
+
+
+def test_h2_verdict_is_supported_only_when_every_h1_cell_passes():
+    from tools.summarize_yaw import h2_verdict
+
+    h1 = [_h1_cell("edt", 32), _h1_cell("c50", 32)]
+    rows = {"edt": [_h2_row(32, -0.15, -0.10)], "c50": [_h2_row(32, -0.12, -0.08)]}
+    got = h2_verdict(h1, rows)
+    assert got["aggregate"] == "supported"
+    assert got["n_cells"] == 2 and got["n_passing"] == 2
+    assert got["failing"] == [] and sorted(got["passing"]) == ["c50@32", "edt@32"]
+    assert all(cell["passes"] for cell in got["cells"])
+
+
+def test_h2_verdict_is_partial_when_only_some_cells_pass():
+    from tools.summarize_yaw import h2_verdict
+
+    h1 = [_h1_cell("edt", 32), _h1_cell("c50", 32)]
+    rows = {"edt": [_h2_row(32, -0.15, -0.10)],
+            "c50": [_h2_row(32, -0.02, +0.03)]}      # interval straddles zero
+    got = h2_verdict(h1, rows)
+    assert got["aggregate"] == "partially supported"
+    assert got["passing"] == ["edt@32"] and got["failing"] == ["c50@32"]
+
+
+def test_h2_verdict_is_not_supported_when_no_cell_passes():
+    from tools.summarize_yaw import h2_verdict
+
+    h1 = [_h1_cell("edt", 32), _h1_cell("c50", 64)]
+    rows = {"edt": [_h2_row(32, +0.05, +0.09)],      # the wrong sign
+            "c50": [_h2_row(64, -0.02, +0.03)]}      # right sign, bound above zero
+    got = h2_verdict(h1, rows)
+    assert got["aggregate"] == "not supported"
+    assert got["n_passing"] == 0 and len(got["cells"]) == 2
+
+
+def test_h2_verdict_is_not_evaluable_without_a_passing_h1_cell():
+    from tools.summarize_yaw import h2_verdict
+
+    got = h2_verdict([], {"edt": [_h2_row(32, -0.15, -0.10)]})
+    assert got["aggregate"] == "not evaluable (H1 has no passing cell)"
+    assert got["cells"] == [] and got["n_cells"] == 0
+
+
+def test_h2_verdict_fails_a_cell_whose_difference_is_missing():
+    from tools.summarize_yaw import h2_verdict
+
+    h1 = [_h1_cell("edt", 32), _h1_cell("edt", 64)]
+    rows = {"edt": [_h2_row(32, None, None), _h2_row(64, -0.2, -0.1)]}
+    got = h2_verdict(h1, rows)
+    assert got["aggregate"] == "partially supported"
+    assert got["failing"] == ["edt@32"]
