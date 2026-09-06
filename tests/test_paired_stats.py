@@ -152,6 +152,35 @@ def test_relative_degradation_rejects_degenerate_input():
         relative_degradation_bootstrap(e0, ek, n_boot=0)
 
 
+def test_relative_degradation_is_a_ratio_of_means_not_a_mean_of_ratios():
+    """The two disagree sharply on skewed errors, and only one of them is r_k."""
+    e0 = np.array([1.0, 100.0])
+    ek = np.array([2.0, 100.0])
+    res = relative_degradation_bootstrap(e0, ek, n_boot=100, seed=0)
+
+    assert res["r"] == (102.0 / 2.0 - 101.0 / 2.0) / (101.0 / 2.0)
+    assert res["r"] == pytest.approx(1.0 / 101.0, rel=0, abs=1e-15)
+    mean_of_ratios = float(np.mean(ek / e0 - 1.0))
+    assert mean_of_ratios == pytest.approx(0.5)
+    assert abs(res["r"] - mean_of_ratios) > 0.4, "a mean of per-sample ratios is not r_k"
+
+
+def test_bootstrap_percentiles_match_an_explicit_resample_enumeration():
+    """Exact oracle: same draws, same statistic, numpy's own percentile, same level."""
+    e0 = np.array([1.0, 2.0, 4.0])
+    ek = np.array([1.5, 2.0, 5.0])
+    n_boot, seed, alpha = 1000, 5, 0.05
+
+    res = relative_degradation_bootstrap(e0, ek, n_boot=n_boot, alpha=alpha, seed=seed)
+
+    rng = np.random.default_rng(seed)                      # the documented draw
+    idx = rng.integers(0, e0.size, size=(n_boot, e0.size))
+    ratios = (ek[idx].mean(axis=1) - e0[idx].mean(axis=1)) / e0[idx].mean(axis=1)
+    lo, hi = np.percentile(ratios, [100 * alpha / 2, 100 * (1 - alpha / 2)])
+    assert (res["lo"], res["hi"]) == (lo, hi)
+    assert res["r"] == (ek.mean() - e0.mean()) / e0.mean()
+
+
 # --------------------------------------------------------------------------------------
 # T10 -- cluster (room-level) bootstrap
 # --------------------------------------------------------------------------------------
@@ -185,6 +214,64 @@ def test_cluster_bootstrap_is_wider_when_clusters_disagree():
     assert _width(clustered) > _width(plain)
     assert _width(clustered) > 3.0 * _width(plain), "cluster width {} vs pair width {}".format(
         _width(clustered), _width(plain))
+
+
+def _naive_cluster_interval(e0, ek, clusters, n_boot, seed, alpha=0.05, equal_room=False):
+    """Explicit cluster bootstrap: draw clusters, concatenate their rows, take means.
+
+    Written out the slow, obvious way -- no multiplicity weights, no per-cluster sums --
+    so it shares no algebra with the implementation under test.  ``equal_room=True``
+    switches to the *other* plausible convention (each drawn room contributes its own
+    mean, whatever its size), which the implementation must NOT match.
+    """
+    rng = np.random.default_rng(seed)
+    unique = np.unique(clusters)
+    rows = [np.flatnonzero(clusters == c) for c in unique]
+    room_mean0 = np.array([e0[r].mean() for r in rows])
+    room_meank = np.array([ek[r].mean() for r in rows])
+    ratios = np.empty(n_boot)
+    for t in range(n_boot):
+        draw = rng.integers(0, len(unique), len(unique))
+        if equal_room:
+            mean0, meank = room_mean0[draw].mean(), room_meank[draw].mean()
+        else:
+            idx = np.concatenate([rows[d] for d in draw])
+            mean0, meank = e0[idx].mean(), ek[idx].mean()
+        ratios[t] = (meank - mean0) / mean0
+    return np.percentile(ratios, [100 * alpha / 2, 100 * (1 - alpha / 2)])
+
+
+def test_cluster_bootstrap_weights_unequal_rooms_like_an_explicit_resampling():
+    """Rooms of 10 / 20 / 200 / 50 / 5 queries: the weighted implementation must agree
+    with the literal one, and must not silently average rooms instead of queries."""
+    rng = np.random.default_rng(21)
+    sizes = (10, 20, 200, 50, 5)
+    shifts = np.array([1.02, 1.35, 1.10, 0.95, 1.50])
+    clusters = np.concatenate([np.full(n, i) for i, n in enumerate(sizes)])
+    e0 = rng.lognormal(mean=0.0, sigma=0.5, size=sum(sizes))
+    ek = e0 * shifts[clusters] * np.exp(rng.normal(0.0, 0.1, size=e0.size))
+
+    res = relative_degradation_bootstrap(e0, ek, n_boot=20000, seed=0, clusters=clusters)
+    for naive_seed in (123, 999):
+        lo, hi = _naive_cluster_interval(e0, ek, clusters, n_boot=20000, seed=naive_seed)
+        # Five rooms make the resample distribution discrete enough that 20000 draws
+        # pin both percentiles to the same atom whatever the seed, so Monte-Carlo noise
+        # sits far below this tolerance (verified across four independent seeds).
+        assert res["lo"] == pytest.approx(lo, rel=0, abs=1e-9)
+        assert res["hi"] == pytest.approx(hi, rel=0, abs=1e-9)
+
+    # The other convention -- one vote per room regardless of size -- is measurably
+    # different, so this test really does pin the weighting.
+    eq_lo, eq_hi = _naive_cluster_interval(e0, ek, clusters, n_boot=20000, seed=123,
+                                           equal_room=True)
+    assert abs(res["lo"] - eq_lo) > 5e-3 and abs(res["hi"] - eq_hi) > 5e-3
+
+    pooled = (ek.mean() - e0.mean()) / e0.mean()
+    per_room = np.array([(ek[clusters == c].mean() - e0[clusters == c].mean())
+                         / e0[clusters == c].mean() for c in range(len(sizes))])
+    assert res["r"] == pooled, "queries keep their multiplicity; big rooms weigh more"
+    assert abs(res["r"] - per_room.mean()) > 0.02, "this is not an equal-room average"
+    assert per_room.min() <= res["lo"] and res["hi"] <= per_room.max()
 
 
 def test_cluster_bootstrap_is_seed_deterministic_and_validates_its_ids():
