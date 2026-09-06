@@ -412,7 +412,7 @@ def real_batch_of_4():
     return next(iter(DataLoader(dataset, batch_size=4, shuffle=False, num_workers=2)))
 
 
-def _evaluate(loader, model, evaluator, cols, gl_seed=0):
+def _evaluate(loader, model, evaluator, cols, gl_seed=0, batch_size=None):
     """``run``'s inner loop over a whole loader, one ``evaluate_batch`` call per batch."""
     import numpy as np
 
@@ -420,7 +420,8 @@ def _evaluate(loader, model, evaluator, cols, gl_seed=0):
 
     keys_seen, parts = [], {}
     for batch in loader:
-        keys, results, _ = evaluate_batch(model, batch, evaluator, cols, cols, cols, gl_seed)
+        keys, results, _ = evaluate_batch(model, batch, evaluator, cols, cols, cols,
+                                          gl_seed, batch_size)
         keys_seen.extend(keys)
         for cell, metrics in results.items():
             for metric, value in metrics.items():
@@ -429,59 +430,70 @@ def _evaluate(loader, model, evaluator, cols, gl_seed=0):
                        for cell, metrics in parts.items()}
 
 
+TRAINED_CHECKPOINTS = [("simple", "ckpt/xRIR_simple_8_shot/epoch_12.pth"),
+                       ("cylindrical", "ckpt/xRIR_cyl_8_shot/epoch_12.pth"),
+                       ("simple", "checkpoints/xRIR_unseen.pth")]
+
+
 @_NEEDS_CUDA
-def test_per_sample_metrics_are_batch_size_invariant(capsys):
+@pytest.mark.parametrize("backbone,relpath", TRAINED_CHECKPOINTS,
+                         ids=["control", "cyl", "released"])
+def test_per_sample_metrics_are_batch_size_invariant(backbone, relpath, capsys):
+    """T14 on the three trained checkpoints: the canonical shape removes the batch effect.
+
+    Both passes compute at 16 rows -- the second one feeds the model one query at a time,
+    padded back up to 16 -- so every recorded value must be identical, acoustic metrics
+    exactly (the Griffin-Lim phase is seeded per query) and spectral metrics to 1e-6.
+    Without the padding the same comparison differs by ~5e-5 in the log-spectrogram.
+    """
     import numpy as np
     from torch.utils.data import DataLoader
 
     from eval_unseen import Evaluator
+    from eval_xRIR_backbone import load_model_state
     from eval_yaw_rotation import build_manifest_dataset, set_precision
     from model.xRIR_cyl import build_xrir
 
     manifest = _pinned_manifest()
-    set_precision(False)                       # exactly as ``run`` does; see T14 note below
-    dataset = build_manifest_dataset(manifest, max_samples=8)
-    assert len(dataset) == 8
+    checkpoint = _checkpoint(relpath)
+    set_precision(False)                       # exactly as ``run`` does it
+    dataset = build_manifest_dataset(manifest, max_samples=16)
+    assert len(dataset) == 16
     assert [e["query"] for e in dataset.entries] == \
-        [e["query"] for e in manifest["entries"][:8]]
+        [e["query"] for e in manifest["entries"][:16]]
 
-    torch.manual_seed(1234)
-    model = build_xrir("simple", manifest["num_shot"]).cuda().eval()
+    model = build_xrir(backbone, manifest["num_shot"])
+    model.load_state_dict(load_model_state(checkpoint), strict=True)
+    model.cuda().eval()
     evaluator = Evaluator()
     cols = [0, 32]
 
     runs = {}
-    for batch_size in (8, 1):
-        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=2)
-        runs[batch_size] = _evaluate(loader, model, evaluator, cols)
+    for loader_batch in (16, 1):
+        loader = DataLoader(dataset, batch_size=loader_batch, shuffle=False, num_workers=2)
+        runs[loader_batch] = _evaluate(loader, model, evaluator, cols, 0, batch_size=16)
 
-    keys8, big = runs[8]
+    keys16, big = runs[16]
     keys1, small = runs[1]
-    assert keys8 == keys1 == [e["query"] for e in manifest["entries"][:8]]
+    assert keys16 == keys1 == [e["query"] for e in manifest["entries"][:16]]
 
-    worst, scale = {}, {}
+    worst = {}
     for cell in big:
         for metric, value in big[cell].items():
             other = small[cell][metric]
-            assert value.shape == other.shape == (8,), (cell, metric)
-            diff = float(np.abs(value - other).max())
-            worst[metric] = max(worst.get(metric, 0.0), diff)
-            scale[metric] = max(scale.get(metric, 0.0), float(np.abs(value).max()))
+            assert value.shape == other.shape == (16,), (cell, metric)
+            worst[metric] = max(worst.get(metric, 0.0),
+                                float(np.nanmax(np.abs(value - other))) if
+                                np.isfinite(value).any() else 0.0)
             if metric in ("edt", "c50", "t60"):
-                # Griffin-Lim phases are seeded per query, so these differ only through
-                # the (matmul-order) difference in the log-spectrogram itself.
-                assert np.allclose(value, other, rtol=1e-6, atol=1e-6), (cell, metric, diff)
+                assert np.array_equal(value, other, equal_nan=True), (cell, metric)
             else:
-                # atol 1e-6 plus one float32 ulp of relative slack: with an untrained
-                # model log_mse is ~50, where a single ulp is already 3.8e-6, so a pure
-                # absolute tolerance would test the value's magnitude, not the pipeline.
-                assert np.allclose(value, other, atol=1e-6, rtol=1e-7), (cell, metric, diff)
+                assert np.allclose(value, other, atol=1e-6, rtol=0), (cell, metric)
     with capsys.disabled():
-        print("\n[T14] batch 1 vs batch 8, max |difference| per metric over 8 real queries "
-              "x {P,E} x k in {0,32}:")
-        for metric in sorted(worst):
-            print("        {:12s} {:.3e}  (relative {:.2e})".format(
-                metric, worst[metric], worst[metric] / max(scale[metric], 1e-12)))
+        print("\n[T14] {} ({}): batch 1 vs batch 16 at the canonical shape, "
+              "max |difference| over 16 real queries x {{P,E}} x k in {{0,32}}:".format(
+                  os.path.basename(relpath), backbone))
+        print("        " + "  ".join("{} {:.3e}".format(m, worst[m]) for m in sorted(worst)))
 
 
 # --------------------------------------------------------------------------------------

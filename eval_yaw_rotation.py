@@ -360,7 +360,7 @@ def pad_batch(batch, batch_size):
 
 
 def evaluate_batch(model, batch, evaluator, cols, acoustic_cols=(), e_acoustic_cols=(),
-                   gl_seed=0):
+                   gl_seed=0, batch_size=None):
     """Every per-sample metric of one collated batch, at every angle in ``cols``.
 
     The whole batch is moved to the GPU once and the ``k = 0`` alignment and prediction
@@ -379,16 +379,21 @@ def evaluate_batch(model, batch, evaluator, cols, acoustic_cols=(), e_acoustic_c
             the two conditions are the same prediction, so the acoustic metrics are
             computed once and stored under both.
         gl_seed: run-level Griffin-Lim seed.
+        batch_size: the canonical compute shape (see :func:`pad_batch`).  A short batch
+            is padded to it for the forward passes and the padded rows are dropped before
+            any metric is computed, so the recorded values do not depend on how many
+            queries happened to share the batch.
 
     Returns:
         ``(query_keys, results, delay_flips)`` where ``results[(condition, k)]`` maps a
-        metric name to a float64 ``np.ndarray`` of shape ``[B]``, and ``delay_flips``
+        metric name to a float64 ``np.ndarray`` of shape ``[n_real]``, and ``delay_flips``
         maps each ``k`` to the number of flipped ``(sample, reference)`` delays.
     """
+    batch, n_real = pad_batch(batch, batch_size)
     _, src_loc, depth_coord, tgt_wav, ref_irs, ref_locs, keys = batch
     src_loc, depth_coord = src_loc.cuda(), depth_coord.cuda()
     tgt_wav, ref_irs, ref_locs = tgt_wav.cuda(), ref_irs.cuda(), ref_locs.cuda()
-    keys = list(keys)
+    keys = list(keys)[:n_real]
     acoustic_at = {"P": set(int(k) for k in acoustic_cols),
                    "E": set(int(k) for k in e_acoustic_cols)}
     zero_wanted = bool(acoustic_at["P"] | acoustic_at["E"]) and 0 in (
@@ -397,23 +402,28 @@ def evaluate_batch(model, batch, evaluator, cols, acoustic_cols=(), e_acoustic_c
     with torch.no_grad():
         aligned0 = model.shift_and_align(ref_irs, src_loc, ref_locs)
         out_0, _ = model(depth_coord, ref_irs, src_loc, ref_locs, tgt_wav)
+    # Everything below is per-sample, so dropping the padded rows here is exact and
+    # keeps the (CPU-bound) Griffin-Lim off rows that would be discarded anyway.
+    out_0, tgt_real = out_0[:n_real], tgt_wav[:n_real]
 
     results = {}
     acoustic_0 = None
     for k in cols:
         out_p, out_e, tgt_spec = forward_conditions(
             model, depth_coord, ref_irs, src_loc, ref_locs, tgt_wav, k, aligned0)
+        out_p, out_e, tgt_spec = out_p[:n_real], out_e[:n_real], tgt_spec[:n_real]
         for condition, pred in (("P", out_p), ("E", out_e)):
             cell = {name: value.double().numpy()
                     for name, value in spectral_metrics(pred, out_0, tgt_spec).items()}
             if int(k) == 0 and zero_wanted:
                 if acoustic_0 is None:
-                    acoustic_0 = acoustic_metrics_batch(pred, tgt_wav, keys, evaluator, gl_seed)
+                    acoustic_0 = acoustic_metrics_batch(pred, tgt_real, keys, evaluator,
+                                                        gl_seed)
                 cell.update({name: value.copy() for name, value in acoustic_0.items()})
             elif int(k) in acoustic_at[condition]:
-                cell.update(acoustic_metrics_batch(pred, tgt_wav, keys, evaluator, gl_seed))
+                cell.update(acoustic_metrics_batch(pred, tgt_real, keys, evaluator, gl_seed))
             results[(condition, int(k))] = cell
-    return keys, results, delay_flip_counts(src_loc, ref_locs, cols)
+    return keys, results, delay_flip_counts(src_loc[:n_real], ref_locs[:n_real], cols)
 
 
 def set_precision(tf32):
