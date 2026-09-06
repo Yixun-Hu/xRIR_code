@@ -55,7 +55,7 @@ def test_per_sample_losses_match_the_one_sample_calls():
         assert float(stft[i]) == pytest.approx(want_stft, abs=1e-7, rel=0)
         assert float(decay[i]) == pytest.approx(want_decay, abs=1e-7, rel=0)
         assert float(loss[i]) == pytest.approx(want_loss, abs=1e-7, rel=0)
-    assert torch.allclose(loss, stft + decay, atol=1e-7)
+    assert torch.allclose(loss, stft + decay, atol=1e-7, rtol=0)
 
 
 def test_per_sample_stft_terms_average_to_the_batch_loss():

@@ -231,8 +231,10 @@ def relative_degradation_bootstrap(e0, ek, n_boot=10000, alpha=0.05, seed=0, clu
         ``"pair"`` or ``"cluster"``.  ``n`` always counts pairs.
 
     Raises:
-        ValueError: on non-finite, empty or mismatched inputs, ``mean(e0) == 0``, or
-            invalid ``n_boot`` / ``alpha`` / ``clusters``.
+        TypeError: if ``n_boot`` is not an ``int``.
+        ValueError: on non-finite, empty or mismatched inputs, ``mean(e0) == 0``,
+            invalid ``n_boot`` / ``alpha`` / ``clusters``, or a resample that leaves
+            ``r`` undefined.
     """
     a, b = _check_pair(e0, ek)
     _check_boot_args(n_boot, alpha, clusters, a.size)
@@ -305,8 +307,10 @@ def equivalence_tost(e0, ek, margin, n_boot=10000, alpha=0.05, seed=0, clusters=
         where ``lo``/``hi`` bound the ``1 - 2*alpha`` interval.
 
     Raises:
-        ValueError: on degenerate input (see :func:`relative_degradation_bootstrap`) or
-            a non-positive, infinite or NaN ``margin``.
+        TypeError: if ``n_boot`` is not an ``int``.
+        ValueError: on degenerate input (see :func:`relative_degradation_bootstrap`),
+            an ``alpha`` outside ``(0, 0.5)``, or a non-positive, infinite or NaN
+            ``margin``.
     """
     a, b = _check_pair(e0, ek)
     _check_boot_args(n_boot, alpha, clusters, a.size, max_alpha=0.5)
@@ -344,7 +348,9 @@ def diff_in_diff_bootstrap(e0_a, ek_a, e0_b, ek_b, n_boot=10000, alpha=0.05, see
         ``{"d", "lo", "hi", "r_a", "r_b", "n", "n_boot", "alpha", "unit"}``.
 
     Raises:
-        ValueError: on degenerate input or series of different lengths.
+        TypeError: if ``n_boot`` is not an ``int``.
+        ValueError: on degenerate input, series of different lengths, or a resample
+            that leaves either ``r`` undefined.
     """
     a0, ak = _check_pair(e0_a, ek_a, "e0_a", "ek_a")
     b0, bk = _check_pair(e0_b, ek_b, "e0_b", "ek_b")
