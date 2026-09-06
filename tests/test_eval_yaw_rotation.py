@@ -607,6 +607,7 @@ def test_run_writes_both_json_files_for_the_released_checkpoint(tmp_path, capsys
     assert meta["manifest_seed"] == manifest["seed"]
     assert meta["backbone"] == "simple" and meta["checkpoint"] == checkpoint
     assert meta["n_samples"] == 4 and meta["max_samples"] == 4 and meta["tf32"] is False
+    assert meta["batch_canonical"] is True and meta["batch_size"] == 2
     assert meta["yaw_cols"] == [0, 32] and meta["acoustic_cols"] == [0, 32]
     assert meta["e_acoustic_cols"] == [32] and meta["elapsed_min"] > 0.0
 
@@ -673,3 +674,32 @@ def test_run_refuses_a_manifest_whose_hash_does_not_match(tmp_path):
     # The hash is checked before the (deliberately missing) checkpoint is opened.
     assert "expected" in str(excinfo.value)
     assert not os.path.exists(str(tmp_path / "bad"))
+
+
+@_NEEDS_CUDA
+def test_run_computes_the_last_short_batch_at_the_canonical_shape(tmp_path):
+    """The trailing batch of the real split holds one query (6337 = 396*16 + 1).
+
+    Query 2 sits in a *short* batch in the first run and in a full one in the second;
+    canonicalisation is what makes the two agree, so this is the end-to-end form of T14.
+    """
+    import json
+
+    from eval_yaw_rotation import main
+
+    _pinned_manifest()
+    checkpoint = _checkpoint("checkpoints/xRIR_unseen.pth")
+    results = {}
+    for n_samples in (3, 4):
+        out_dir = str(tmp_path / "n{}".format(n_samples))
+        argv = _smoke_argv("simple", checkpoint, out_dir, n_samples)
+        main(argv)
+        results[n_samples] = json.load(open(os.path.join(out_dir, "per_sample_yaw.json")))
+
+    short, full = results[3], results[4]
+    assert short["meta"]["n_samples"] == 3 and full["meta"]["n_samples"] == 4
+    assert short["query"][2] == full["query"][2]
+    for condition in ("P", "E"):
+        for angle, cell in short[condition].items():
+            for metric, values in cell.items():
+                assert values[2] == full[condition][angle][metric][2], (condition, angle, metric)

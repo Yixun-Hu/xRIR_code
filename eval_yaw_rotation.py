@@ -498,6 +498,10 @@ def _summarize(values):
 def run(args):
     """Evaluate one checkpoint over the pinned manifest at every angle of the grid.
 
+    Every batch -- the trailing short one included -- is computed at exactly
+    ``--batch-size`` rows (see :func:`pad_batch`), so a query's recorded values do not
+    depend on how many queries shared its batch; ``meta.batch_canonical`` records that.
+
     Writes ``<out-dir>/per_sample_yaw.json`` (every per-sample value, keyed by condition
     and angle, plus the query order and the run's meta block) and
     ``<out-dir>/metrics_yaw.json`` (their means and validity counts).  NaN marks an
@@ -540,7 +544,8 @@ def run(args):
     queries, parts, flips, decompositions = [], {}, {}, []
     for i, batch in enumerate(loader):
         keys, results, batch_flips = evaluate_batch(
-            model, batch, evaluator, cols, acoustic_cols, e_acoustic_cols, args.gl_seed)
+            model, batch, evaluator, cols, acoustic_cols, e_acoustic_cols, args.gl_seed,
+            batch_size=args.batch_size)
         queries.extend(keys)
         for cell, metrics in results.items():
             for metric, value in metrics.items():
@@ -573,7 +578,8 @@ def run(args):
             "manifest_path": args.manifest, "manifest_hash": args.manifest_hash,
             "manifest_seed": manifest["seed"], "gl_seed": args.gl_seed, "yaw_cols": cols,
             "acoustic_cols": acoustic_cols, "e_acoustic_cols": e_acoustic_cols,
-            "batch_size": args.batch_size, "n_samples": n_samples,
+            "batch_size": args.batch_size, "batch_canonical": True,
+            "n_samples": n_samples,
             "max_samples": int(args.max_samples), "tf32": bool(args.tf32),
             "torch_version": torch.__version__,
             "elapsed_min": (time.time() - started) / 60.0}
