@@ -13,6 +13,7 @@ from tools.paired_stats import (
     diff_in_diff_bootstrap,
     equivalence_tost,
     invalid_fraction,
+    paired_validity,
     relative_degradation_bootstrap,
     valid_mask,
     verdict_substantial,
@@ -50,6 +51,47 @@ def test_invalid_fraction_counts_non_finite_entries():
     assert invalid_fraction(np.array([1.0, 2.0, 3.0, 4.0])) == 0.0
     assert invalid_fraction(np.array([1.0, np.nan, np.inf, 4.0])) == 0.5
     assert invalid_fraction(np.array([np.nan])) == 1.0
+
+
+def test_paired_validity_counts_every_category():
+    """Baseline-invalid, newly invalid, recovered and paired-valid are four different
+    things, and only the second is a degradation indicator."""
+    #                 both ok   e0 bad     ek bad    both bad  both ok
+    e0 = np.array([1.0, np.nan, 2.0, np.inf, 3.0])
+    ek = np.array([1.0, 2.0, np.nan, np.inf, 4.0])
+    got = paired_validity(e0, ek)
+
+    assert got == {"n": 5, "baseline_invalid": 2, "newly_invalid": 1, "recovered": 1,
+                   "paired_valid": 2, "newly_invalid_frac": 1.0 / 3.0}
+    for key in ("n", "baseline_invalid", "newly_invalid", "recovered", "paired_valid"):
+        assert isinstance(got[key], int)
+    assert isinstance(got["newly_invalid_frac"], float)
+    # The finite-at-k=0 samples split exactly into "still valid" and "newly invalid".
+    assert got["paired_valid"] + got["newly_invalid"] == got["n"] - got["baseline_invalid"]
+    assert got["paired_valid"] == int(valid_mask(e0, ek).sum())
+
+
+def test_paired_validity_handles_empty_and_fully_invalid_baselines():
+    empty = paired_validity(np.array([]), np.array([]))
+    assert empty == {"n": 0, "baseline_invalid": 0, "newly_invalid": 0, "recovered": 0,
+                     "paired_valid": 0, "newly_invalid_frac": 0.0}
+
+    # No usable baseline at all: the fraction is 0/0, reported as 0.0 rather than NaN.
+    dead = paired_validity(np.array([np.nan, np.inf]), np.array([1.0, 2.0]))
+    assert dead["baseline_invalid"] == 2 and dead["recovered"] == 2
+    assert dead["newly_invalid"] == 0 and dead["newly_invalid_frac"] == 0.0
+
+    with pytest.raises(ValueError):
+        paired_validity(np.zeros(3), np.zeros(4))
+
+
+def test_invalid_fraction_and_paired_validity_answer_different_questions():
+    e0 = np.array([1.0, np.nan, 2.0, 3.0])
+    ek = np.array([1.0, 2.0, np.nan, 4.0])
+    # invalid_fraction looks at one series in isolation ...
+    assert invalid_fraction(ek) == 0.25
+    # ... paired_validity conditions on the baseline being usable.
+    assert paired_validity(e0, ek)["newly_invalid_frac"] == pytest.approx(1.0 / 3.0)
 
 
 # --------------------------------------------------------------------------------------

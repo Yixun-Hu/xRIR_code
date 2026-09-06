@@ -54,16 +54,52 @@ def valid_mask(e0, ek):
 
 
 def invalid_fraction(ek):
-    """Fraction of non-finite entries in ``ek`` (0.0 for an empty series).
+    """Fraction of *all* non-finite entries in one series (0.0 when empty).
 
-    Reported per angle as a degradation indicator in its own right: a rotation that
-    makes the metric undefined more often has degraded the prediction even when the
-    surviving samples look healthy.
+    This is a marginal count: it does not distinguish a sample that was already invalid
+    at ``k = 0`` from one the rotation broke.  For the paired split -- which is the
+    degradation indicator -- use :func:`paired_validity`.
     """
     a = _as_1d(ek, "ek")
     if a.size == 0:
         return 0.0
     return float(np.count_nonzero(~np.isfinite(a)) / a.size)
+
+
+def paired_validity(e0, ek):
+    """Split a paired series into the four validity categories.
+
+    A rotation can degrade a prediction so far that the metric stops being defined at
+    all; that has to be reported, not silently dropped.  Conditioning on a usable
+    baseline separates "the rotation broke this sample" from "this sample was never
+    measurable".
+
+    Args:
+        e0: per-sample errors at ``k = 0`` (non-finite entries allowed).
+        ek: per-sample errors at the compared angle.
+
+    Returns:
+        ``{"n", "baseline_invalid", "newly_invalid", "recovered", "paired_valid",
+        "newly_invalid_frac"}``; the first five are ``int`` counts, and
+        ``newly_invalid_frac = newly_invalid / (n - baseline_invalid)`` is ``0.0`` when
+        no sample had a usable baseline.
+
+    Raises:
+        ValueError: if the two series have different lengths or are not 1-D.
+    """
+    a, b = _as_1d(e0, "e0"), _as_1d(ek, "ek")
+    if a.shape != b.shape:
+        raise ValueError("e0 and ek must have the same length, got {} and {}".format(
+            a.size, b.size))
+    finite0, finitek = np.isfinite(a), np.isfinite(b)
+    baseline_invalid = int(np.count_nonzero(~finite0))
+    usable = int(a.size) - baseline_invalid
+    newly_invalid = int(np.count_nonzero(finite0 & ~finitek))
+    return {"n": int(a.size), "baseline_invalid": baseline_invalid,
+            "newly_invalid": newly_invalid,
+            "recovered": int(np.count_nonzero(~finite0 & finitek)),
+            "paired_valid": int(np.count_nonzero(finite0 & finitek)),
+            "newly_invalid_frac": (newly_invalid / usable) if usable else 0.0}
 
 
 def _check_pair(e0, ek, name0="e0", namek="ek"):
