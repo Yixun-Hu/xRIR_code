@@ -25,8 +25,15 @@ comparison of a query against itself.  Per-sample metrics land in
 """
 from __future__ import annotations
 
+import numpy as np
 import torch
 
+from tools.per_sample_metrics import (
+    acoustic_metrics,
+    griffin_lim_seeded,
+    per_sample_losses,
+    sample_seed,
+)
 from tools.yaw_rotation import fixed_alignment, rotate_scene_yaw
 
 
@@ -77,3 +84,70 @@ def forward_conditions(model, depth_coord, ref_irs, src_loc, ref_locs, tgt_wav, 
             out_p, tgt_spec = model(depth_k, ref_irs, src_k, ref_locs_k, tgt_wav)
         out_e, _ = model(depth_k, ref_irs, src_k, ref_locs_k, tgt_wav)
     return out_p, out_e, tgt_spec
+
+
+def spectral_metrics(out_k, out_0, tgt_spec):
+    """The five per-sample spectral metrics of one batch at one angle.
+
+    Args:
+        out_k: predicted log-magnitude spectrograms at the angle, ``[B, F, T, 1]``.
+        out_0: the same batch's ``k = 0`` prediction, ``[B, F, T, 1]`` -- the paired
+            reference for ``consistency``.
+        tgt_spec: target magnitude spectrograms ``[B, 1, F, T]``.
+
+    Returns:
+        ``{"loss", "stft", "decay", "log_mse", "consistency"}``, each a detached CPU
+        float32 tensor of shape ``[B]``:
+
+        * ``loss``/``stft``/``decay`` -- ``tools.per_sample_metrics.per_sample_losses``,
+          i.e. exp_01's test loss and its two halves, computed on 1-sample slices;
+        * ``log_mse`` -- the per-sample form of exp_01's
+          ``Evaluator.stft_loss(out_spec.squeeze(-1), log(tgt_spec + 1e-8).squeeze(1))``;
+        * ``consistency`` -- ``mean |out_k - out_0|`` over the log-spectrogram, exactly
+          ``0`` at ``k = 0``.
+    """
+    loss, stft, decay = per_sample_losses(out_k, tgt_spec)
+    with torch.no_grad():
+        log_tgt = torch.log(tgt_spec[:, 0] + 1e-8)
+        log_mse = ((out_k[..., 0] - log_tgt) ** 2).flatten(1).mean(dim=1)
+        consistency = (out_k - out_0).abs().flatten(1).mean(dim=1)
+    return {"loss": loss, "stft": stft, "decay": decay,
+            "log_mse": log_mse.detach().cpu().float(),
+            "consistency": consistency.detach().cpu().float()}
+
+
+def acoustic_metrics_batch(out_k, tgt_wav, query_keys, evaluator, gl_seed):
+    """EDT / C50 / T60 errors of one batch, sample by sample.
+
+    The magnitude spectrogram is rebuilt exactly as ``eval_xRIR_backbone.py`` does
+    (``(exp(out) - 1e-8)[..., 0]``) and inverted with a Griffin-Lim whose random phase
+    is seeded from ``(gl_seed, query key)``, so the same query inverts the same
+    magnitudes to the same waveform at every angle, in every model and in any angle
+    order.  The 8000-sample metric window is applied inside
+    ``tools.per_sample_metrics.acoustic_metrics``.
+
+    Args:
+        out_k: predicted log-magnitude spectrograms ``[B, F, T, 1]`` (CPU or CUDA).
+        tgt_wav: target RIRs ``[B, 1, L]``.
+        query_keys: the ``B`` query paths, in batch order.
+        evaluator: an ``eval_unseen.Evaluator``.
+        gl_seed: run-level Griffin-Lim seed.
+
+    Returns:
+        ``{"edt", "c50", "t60"}``, each a float64 ``np.ndarray`` of shape ``[B]`` with
+        NaN where the sample is invalid at this angle.
+
+    Raises:
+        ValueError: if ``query_keys`` does not have one key per row of ``out_k``.
+    """
+    if len(query_keys) != out_k.shape[0]:
+        raise ValueError("got {} query keys for a batch of {}".format(
+            len(query_keys), out_k.shape[0]))
+    values = {"edt": [], "c50": [], "t60": []}
+    for i in range(out_k.shape[0]):
+        mag = (torch.exp(out_k[i:i + 1]) - 1e-8)[..., 0].cpu()
+        wav = griffin_lim_seeded(mag, sample_seed(gl_seed, query_keys[i]))
+        sample = acoustic_metrics(wav[0].numpy(), tgt_wav[i, 0].cpu().numpy(), evaluator)
+        for name in values:
+            values[name].append(sample[name])
+    return {name: np.asarray(vals, dtype=np.float64) for name, vals in values.items()}

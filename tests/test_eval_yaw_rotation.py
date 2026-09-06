@@ -95,3 +95,117 @@ def test_forward_conditions_rotate_the_geometry_and_pin_only_P(cuda_model):
         cuda_model, depth, refs, src, ref_locs, tgt, 32, torch.zeros_like(aligned0))
     assert not torch.equal(out_P2, out_P), "P ignores the pinned alignment"
     assert torch.equal(out_E2, out_E), "E is affected by the pinned alignment"
+
+
+# --------------------------------------------------------------------------------------
+# spectral_metrics
+# --------------------------------------------------------------------------------------
+def _spec_pair(batch_size=3, freq=63, time=310, seed=0):
+    """A seeded (log-magnitude prediction, magnitude target) pair in the model's layout."""
+    gen = torch.Generator().manual_seed(seed)
+    tgt_spec = torch.rand(batch_size, 1, freq, time, generator=gen) * 2.0 + 1e-3
+    out_spec = torch.log(torch.rand(batch_size, freq, time, 1, generator=gen) * 2.0 + 1e-3)
+    return out_spec, tgt_spec
+
+
+def test_spectral_metrics_match_the_per_sample_and_exp01_definitions():
+    import numpy as np
+
+    from eval_unseen import Evaluator
+    from eval_yaw_rotation import spectral_metrics
+    from tools.per_sample_metrics import per_sample_losses
+
+    out_k, tgt_spec = _spec_pair(seed=5)
+    out_0, _ = _spec_pair(seed=6)
+    got = spectral_metrics(out_k, out_0, tgt_spec)
+
+    assert sorted(got) == ["consistency", "decay", "log_mse", "loss", "stft"]
+    for name, value in got.items():
+        assert value.shape == (3,), name
+        assert value.dtype == torch.float32 and value.device.type == "cpu", name
+
+    loss, stft, decay = per_sample_losses(out_k, tgt_spec)
+    assert torch.equal(got["loss"], loss)
+    assert torch.equal(got["stft"], stft)
+    assert torch.equal(got["decay"], decay)
+
+    # log_mse is the per-sample form of exp_01's Evaluator.stft_loss call.
+    evaluator = Evaluator()
+    for i in range(3):
+        want = evaluator.stft_loss(
+            out_k[i:i + 1].squeeze(-1).numpy(),
+            torch.log(tgt_spec[i:i + 1] + 1e-8).squeeze(1).numpy())
+        # float32 means over 63x310 cells: torch's and numpy's reduction orders differ at
+        # the last ulp, so the comparison is relative rather than bit-exact.
+        assert float(got["log_mse"][i]) == pytest.approx(float(want), rel=1e-6, abs=0)
+        want_consistency = float((out_k[i] - out_0[i]).abs().mean())
+        assert float(got["consistency"][i]) == pytest.approx(want_consistency, abs=1e-7, rel=0)
+    assert np.all(np.asarray(got["consistency"]) > 0.0)
+
+
+def test_spectral_consistency_is_exactly_zero_against_itself():
+    out_k, tgt_spec = _spec_pair(seed=7)
+    from eval_yaw_rotation import spectral_metrics
+
+    got = spectral_metrics(out_k, out_k, tgt_spec)
+    assert torch.equal(got["consistency"], torch.zeros(3))
+
+
+# --------------------------------------------------------------------------------------
+# acoustic_metrics_batch
+# --------------------------------------------------------------------------------------
+def _acoustic_batch(batch_size=3, seed=0):
+    """Log-magnitude predictions plus decaying-noise ground-truth IRs (valid metrics)."""
+    gen = torch.Generator().manual_seed(seed)
+    out_k = torch.log(torch.rand(batch_size, 63, 310, 1, generator=gen) * 2.0 + 1e-3)
+    decay = torch.exp(-torch.arange(9600, dtype=torch.float32) / 1500.0)
+    tgt_wav = (torch.randn(batch_size, 1, 9600, generator=gen) * decay) * 0.1
+    keys = ["Cafe/Cafe_idx_1/S00{}_R002_hybrid_IR.wav".format(i) for i in range(batch_size)]
+    return out_k, tgt_wav, keys
+
+
+def _same(a, b):
+    import numpy as np
+
+    return bool((np.isnan(a) and np.isnan(b)) or a == b)
+
+
+def test_acoustic_metrics_batch_matches_the_per_sample_helper():
+    import numpy as np
+
+    from eval_unseen import Evaluator
+    from eval_yaw_rotation import acoustic_metrics_batch
+    from tools.per_sample_metrics import acoustic_metrics, griffin_lim_seeded, sample_seed
+
+    out_k, tgt_wav, keys = _acoustic_batch(seed=9)
+    evaluator = Evaluator()
+    got = acoustic_metrics_batch(out_k, tgt_wav, keys, evaluator, 0)
+
+    assert sorted(got) == ["c50", "edt", "t60"]
+    for name, value in got.items():
+        assert isinstance(value, np.ndarray) and value.dtype == np.float64, name
+        assert value.shape == (3,), name
+        assert np.isfinite(value).all(), "{} has invalid samples: {}".format(name, value)
+
+    for i in range(3):
+        mag = (torch.exp(out_k[i:i + 1]) - 1e-8)[..., 0]
+        wav = griffin_lim_seeded(mag, sample_seed(0, keys[i]))
+        want = acoustic_metrics(wav[0].numpy(), tgt_wav[i, 0].numpy(), evaluator)
+        for name in ("edt", "c50", "t60"):
+            assert _same(got[name][i], want[name]), "{}[{}]".format(name, i)
+
+
+def test_acoustic_metrics_batch_is_seeded_per_query():
+    import numpy as np
+
+    from eval_unseen import Evaluator
+    from eval_yaw_rotation import acoustic_metrics_batch
+
+    out_k, tgt_wav, keys = _acoustic_batch(seed=10)
+    evaluator = Evaluator()
+    a = acoustic_metrics_batch(out_k, tgt_wav, keys, evaluator, 0)
+    b = acoustic_metrics_batch(out_k, tgt_wav, keys, evaluator, 0)
+    c = acoustic_metrics_batch(out_k, tgt_wav, keys, evaluator, 1)
+    for name in ("edt", "c50", "t60"):
+        assert np.array_equal(a[name], b[name]), name
+    assert not np.array_equal(a["edt"], c["edt"]), "a different Griffin-Lim seed changed nothing"
