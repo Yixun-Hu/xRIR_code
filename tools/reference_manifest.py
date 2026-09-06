@@ -110,18 +110,22 @@ def build_manifest(dataset, seed, num_shot=8):
 
     Returns:
         ``{"seed", "num_shot", "ir_root", "entries"}`` where ``entries`` is one dict per
-        query -- ``{"index", "query", "refs"}`` -- in ``dataset.file_list`` order, with
-        ``query`` / ``refs`` relative to ``ir_root``.  ``query`` is also the key the
-        reference draw is seeded with.
+        query -- ``{"index", "query", "refs"}`` -- sorted by ``query`` with ``index``
+        the position in that canonical order, and ``query`` / ``refs`` relative to
+        ``ir_root``.  ``query`` is also the key the reference draw is seeded with.
+
+        Canonical ordering matters: ``dataset.file_list`` comes from ``os.listdir``, so
+        a re-copied cache would otherwise reorder the entries and change
+        :func:`manifest_hash` for an identical selection.
     """
     ir_root = dataset.ir_path
     listdir_cache = {}
     entries = []
-    for index, ir_path in enumerate(dataset.file_list):
+    for ir_path in sorted(dataset.file_list, key=lambda p: os.path.relpath(p, ir_root)):
         query = os.path.relpath(ir_path, ir_root)
         refs = select_references(
             candidate_references(ir_path, listdir_cache=listdir_cache), num_shot, seed, query)
-        entries.append({"index": index, "query": query,
+        entries.append({"index": len(entries), "query": query,
                         "refs": [os.path.relpath(ref, ir_root) for ref in refs]})
     return {"seed": seed, "num_shot": num_shot, "ir_root": ir_root, "entries": entries}
 
@@ -157,6 +161,10 @@ def load_manifest(path):
 class ManifestDataset(torch.utils.data.Dataset):
     """``xRIR_Dataset`` with its reference draw replaced by a manifest.
 
+    Iteration follows the **manifest's** order (canonical, sorted by query path), not
+    ``dataset.file_list``'s, so the sample at index ``i`` is the same query whatever
+    order the cache happens to list its files in.
+
     Yields the exp_01 six-tuple -- ``(listener_pos[3], src_local[3],
     depth_coord[3, 256, 512], tgt_wav[1, L], ref_irs[K, L], ref_src_local[K, 3])`` --
     built exactly like ``xRIR_Dataset.__getitem__``, plus a seventh element: the query
@@ -168,24 +176,61 @@ class ManifestDataset(torch.utils.data.Dataset):
 
     Args:
         dataset: the ``xRIR_Dataset`` the manifest was built from.
-        manifest: the manifest dict; its query list and ``num_shot`` must match.
+        manifest: the manifest dict; validated structurally (see :meth:`_validate`).
 
     Raises:
-        AssertionError: if the manifest was not built from this dataset/split, or was
-            built for a different ``num_shot``.
+        ValueError: if the manifest does not describe this dataset/split, or breaks one
+            of the dataset's own reference rules.
     """
 
     def __init__(self, dataset, manifest):
-        entries = manifest["entries"]
-        assert [entry["query"] for entry in entries] == \
-            [os.path.relpath(path, dataset.ir_path) for path in dataset.file_list], \
-            "manifest queries do not match dataset.file_list (wrong split, order or root)"
-        assert manifest["num_shot"] == dataset.num_shot, \
-            "manifest num_shot {} != dataset num_shot {}".format(
-                manifest["num_shot"], dataset.num_shot)
+        self._validate(dataset, manifest)
         self.dataset = dataset
         self.manifest = manifest
-        self.entries = entries
+        self.entries = manifest["entries"]
+
+    @staticmethod
+    def _validate(dataset, manifest):
+        """Check the manifest against the dataset and against the dataset's own rules.
+
+        Order-independent by design (the queries are compared as a set), so a cache that
+        lists its files differently still validates; everything that would change *which
+        audio is served* is rejected.
+        """
+        entries = manifest["entries"]
+        if manifest["num_shot"] != dataset.num_shot:
+            raise ValueError("manifest num_shot {} != dataset num_shot {}".format(
+                manifest["num_shot"], dataset.num_shot))
+
+        queries = [entry["query"] for entry in entries]
+        expected = [os.path.relpath(path, dataset.ir_path) for path in dataset.file_list]
+        if sorted(queries) != sorted(expected):
+            missing = sorted(set(expected) - set(queries))[:3]
+            extra = sorted(set(queries) - set(expected))[:3]
+            raise ValueError(
+                "manifest queries do not match dataset.file_list ({} vs {} entries; "
+                "missing e.g. {}, unexpected e.g. {})".format(
+                    len(queries), len(expected), missing, extra))
+
+        for position, entry in enumerate(entries):
+            query = entry["query"]
+            if entry["index"] != position:
+                raise ValueError("entry {} carries index {} (the manifest is not in its "
+                                 "canonical order)".format(query, entry["index"]))
+            if len(entry["refs"]) != manifest["num_shot"]:
+                raise ValueError("{} has {} references, expected {}".format(
+                    query, len(entry["refs"]), manifest["num_shot"]))
+            room = os.path.dirname(query)
+            receiver = os.path.basename(query).split("_")[1]
+            for ref in entry["refs"]:
+                if ref == query:
+                    raise ValueError("{} is used as its own reference".format(query))
+                if os.path.dirname(ref) != room:
+                    raise ValueError("reference {} of {} is outside the room".format(
+                        ref, query))
+                if os.path.basename(ref).split("_")[1] != receiver:
+                    raise ValueError("reference {} of {} has receiver {}, expected {}".format(
+                        ref, query, os.path.basename(ref).split("_")[1], receiver))
 
     def __len__(self):
         return len(self.entries)

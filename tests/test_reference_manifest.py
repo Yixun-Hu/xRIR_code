@@ -217,20 +217,27 @@ def test_candidate_references_agrees_with_the_dataset_on_every_query(synthetic_d
 # --------------------------------------------------------------------------------------
 # T9b (part 2) -- build_manifest / manifest_hash / save_manifest / load_manifest
 # --------------------------------------------------------------------------------------
-def test_build_manifest_follows_file_list_and_respects_the_dataset_rules(synthetic_dataset):
+def test_build_manifest_is_canonically_ordered_and_respects_the_dataset_rules(
+        synthetic_dataset):
     manifest = build_manifest(synthetic_dataset, seed=0, num_shot=8)
 
     assert set(manifest) == {"seed", "num_shot", "ir_root", "entries"}
     assert manifest["seed"] == 0 and manifest["num_shot"] == 8
     assert manifest["ir_root"] == synthetic_dataset.ir_path
     entries = manifest["entries"]
+    # Canonical order: sorted by query path, index = position in that order, so nothing
+    # depends on the order os.listdir happened to return.
+    queries = [entry["query"] for entry in entries]
+    assert queries == sorted(queries)
+    assert set(queries) == {os.path.relpath(p, synthetic_dataset.ir_path)
+                            for p in synthetic_dataset.file_list}
     assert len(entries) == len(synthetic_dataset.file_list)
-    for i, (entry, path) in enumerate(zip(entries, synthetic_dataset.file_list)):
+    for i, entry in enumerate(entries):
         assert entry["index"] == i
-        assert entry["query"] == os.path.relpath(path, synthetic_dataset.ir_path)
         assert not os.path.isabs(entry["query"])
         assert len(entry["refs"]) == 8
         q_src, q_rec = os.path.basename(entry["query"]).split("_")[:2]
+        assert len(entry["refs"]) == 8
         for ref in entry["refs"]:
             assert not os.path.isabs(ref)
             assert os.path.dirname(ref) == os.path.dirname(entry["query"]), "left the room"
@@ -257,6 +264,34 @@ def test_build_manifest_repeats_references_only_where_candidates_are_short(synth
     short = [e for e in manifest["entries"] if len(set(e["refs"])) < 8]
     assert len(short) == 7 + 7
     assert len(manifest["entries"]) - len(short) == 20
+
+
+def test_build_manifest_is_independent_of_the_file_list_order(synthetic_dataset):
+    """A re-copied cache lists its files in another order; the manifest must not care."""
+    import copy
+    import random
+
+    import torch
+
+    reference = build_manifest(synthetic_dataset, seed=0, num_shot=8)
+
+    shuffled = copy.copy(synthetic_dataset)
+    shuffled.file_list = list(synthetic_dataset.file_list)
+    random.Random(0).shuffle(shuffled.file_list)
+    assert shuffled.file_list != synthetic_dataset.file_list
+
+    permuted = build_manifest(shuffled, seed=0, num_shot=8)
+    assert permuted == reference
+    assert manifest_hash(permuted) == manifest_hash(reference)
+
+    # And the items served are the same, query by query, from either dataset ordering.
+    served = ManifestDataset(shuffled, permuted)
+    baseline = ManifestDataset(synthetic_dataset, reference)
+    for i in (0, 5, len(served) - 1):
+        a, b = served[i], baseline[i]
+        assert a[6] == b[6]
+        for x, y in zip(a[:6], b[:6]):
+            assert torch.equal(x, y)
 
 
 def test_build_manifest_reads_no_audio(synthetic_dataset, monkeypatch):
@@ -325,6 +360,9 @@ def test_build_manifest_on_the_real_unseen_test_split(capsys):
     assert len(manifest["entries"]) == 6337, "the published unseen test split has 6337 queries"
     assert all(len(entry["refs"]) == 8 for entry in manifest["entries"])
     assert all(entry["query"] not in entry["refs"] for entry in manifest["entries"])
+    queries = [entry["query"] for entry in manifest["entries"]]
+    assert queries == sorted(queries), "the real manifest must be canonically ordered"
+    assert [entry["index"] for entry in manifest["entries"]] == list(range(len(queries)))
     digest = manifest_hash(manifest)
     assert len(digest) == 64 and all(c in "0123456789abcdef" for c in digest)
 
@@ -361,6 +399,8 @@ def test_manifest_dataset_shapes_and_parity_with_the_dataset(synthetic_dataset):
     assert len(md) == len(synthetic_dataset)
     L, K = synthetic_dataset.max_len, synthetic_dataset.num_shot
 
+    dataset_index = {os.path.relpath(path, synthetic_dataset.ir_path): i
+                     for i, path in enumerate(synthetic_dataset.file_list)}
     for i in (0, 9, len(md) - 1):
         item = md[i]
         assert len(item) == 7
@@ -375,8 +415,10 @@ def test_manifest_dataset_shapes_and_parity_with_the_dataset(synthetic_dataset):
         for t in (listener, src, depth, tgt_wav, ref_irs, ref_locs):
             assert t.dtype == torch.float32
 
-        # Everything except the (randomly drawn) references is identical to the dataset's.
-        d_listener, d_src, d_depth, d_tgt, _, _ = synthetic_dataset[i]
+        # Everything except the (randomly drawn) references is identical to the
+        # dataset's own item for that query -- which sits at a different index, since
+        # the manifest is sorted by query path.
+        d_listener, d_src, d_depth, d_tgt, _, _ = synthetic_dataset[dataset_index[key]]
         assert torch.equal(listener, d_listener) and torch.equal(listener, torch.zeros(3))
         assert torch.equal(src, d_src)
         assert torch.equal(depth, d_depth)
@@ -412,12 +454,12 @@ def test_manifest_dataset_is_worker_count_invariant(synthetic_dataset):
 
     md = Subset(_manifest_dataset(synthetic_dataset), [0, 1, 2, 3])
     runs = {}
-    for num_workers in (0, 2):
+    for num_workers in (0, 4):
         loader = DataLoader(md, batch_size=2, shuffle=False, num_workers=num_workers)
         runs[num_workers] = [[t.clone() if torch.is_tensor(t) else list(t) for t in batch]
                              for batch in loader]
-    assert len(runs[0]) == len(runs[2]) == 2
-    for b0, b2 in zip(runs[0], runs[2]):
+    assert len(runs[0]) == len(runs[4]) == 2
+    for b0, b2 in zip(runs[0], runs[4]):
         assert len(b0) == len(b2) == 7
         for x, y in zip(b0, b2):
             if torch.is_tensor(x):
@@ -432,23 +474,42 @@ def test_manifest_dataset_rejects_a_mismatched_manifest(synthetic_dataset):
     manifest = build_manifest(synthetic_dataset, seed=0, num_shot=8)
     ManifestDataset(synthetic_dataset, manifest)          # the matching one is accepted
 
-    reordered = copy.deepcopy(manifest)
-    reordered["entries"][0], reordered["entries"][1] = (reordered["entries"][1],
-                                                        reordered["entries"][0])
-    with pytest.raises(AssertionError):
-        ManifestDataset(synthetic_dataset, reordered)
+    def broken(mutate):
+        bad = copy.deepcopy(manifest)
+        mutate(bad)
+        return bad
 
-    renamed = copy.deepcopy(manifest)
-    renamed["entries"][2]["query"] = "Office/Office_idx_777/S099_R000_hybrid_IR.wav"
-    with pytest.raises(AssertionError):
-        ManifestDataset(synthetic_dataset, renamed)
+    def swap_first_two(bad):
+        bad["entries"][0], bad["entries"][1] = bad["entries"][1], bad["entries"][0]
 
-    truncated = copy.deepcopy(manifest)
-    truncated["entries"] = truncated["entries"][:-1]
-    with pytest.raises(AssertionError):
-        ManifestDataset(synthetic_dataset, truncated)
+    def rename_a_query(bad):
+        bad["entries"][2]["query"] = "Office/Office_idx_777/S099_R000_hybrid_IR.wav"
 
-    wrong_shots = copy.deepcopy(manifest)
-    wrong_shots["num_shot"] = 4
-    with pytest.raises(AssertionError):
-        ManifestDataset(synthetic_dataset, wrong_shots)
+    def drop_an_entry(bad):
+        bad["entries"] = bad["entries"][:-1]
+
+    def wrong_num_shot(bad):
+        bad["num_shot"] = 4
+
+    def too_few_refs(bad):
+        bad["entries"][1]["refs"] = bad["entries"][1]["refs"][:-1]
+
+    def foreign_receiver(bad):
+        entry = next(e for e in bad["entries"] if "Office_idx_777" in e["query"]
+                     and e["query"].endswith("R000_hybrid_IR.wav"))
+        entry["refs"][0] = entry["refs"][0].replace("R000", "R001")
+
+    def foreign_room(bad):
+        entry = next(e for e in bad["entries"] if not e["query"].startswith("Office/"))
+        entry["refs"][0] = "Office/Office_idx_777/S002_R000_hybrid_IR.wav"
+
+    def self_reference(bad):
+        bad["entries"][0]["refs"][0] = bad["entries"][0]["query"]
+
+    for mutate in (swap_first_two, rename_a_query, drop_an_entry, wrong_num_shot,
+                   too_few_refs, foreign_receiver, foreign_room, self_reference):
+        try:
+            ManifestDataset(synthetic_dataset, broken(mutate))
+        except ValueError:
+            continue
+        pytest.fail("a manifest broken by {} was accepted".format(mutate.__name__))
