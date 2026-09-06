@@ -459,6 +459,97 @@ EXPECTED_ROLE_CHECKPOINTS = {"primary": "xRIR_simple_8_shot", "cyl": "xRIR_cyl_8
                              "released": "checkpoints/xRIR_unseen.pth"}
 
 
+K0_GATE_METRICS = ("edt", "c50", "t60", "loss")
+RELEASED_BASELINE_METRICS = ("edt", "c50", "t60")
+
+
+def _finite_mean(values):
+    """Mean over the finite entries of one per-sample array (``None`` if there are none)."""
+    array = _as_array(values)
+    finite = np.isfinite(array)
+    return float(array[finite].mean()) if finite.any() else None
+
+
+def k0_gate_rows(by_label, roles, exp01_by_label, noise_runs, released_baseline,
+                 metrics=K0_GATE_METRICS):
+    """The k=0 parity gate: do the pinned-manifest runs reproduce exp_01's numbers?
+
+    The manifest pins a *different* reference draw than exp_01's (which was never
+    recorded), so the two cannot agree per sample -- only distributionally.  The width of
+    "distributionally" is measured, not assumed: re-evaluating the control checkpoint on
+    two further manifest seeds gives the reference-draw spread, and a model passes when
+    its shift from exp_01 stays inside twice that spread.  The released checkpoint has no
+    per-sample record, so it is compared with exp_01's reported baseline instead.
+
+    Args:
+        by_label: ``{label: run}`` -- k=0-only runs.
+        roles: ``{"primary", "cyl", "released"} -> label or None``.
+        exp01_by_label: ``{label: exp_01 per-sample dict}`` (eval_xRIR_backbone's layout).
+        noise_runs: further k=0 runs of the *control* checkpoint on other manifest seeds.
+        released_baseline: ``{"edt", "c50", "t60"}`` from exp_01's baseline reproduction,
+            or ``None``.
+        metrics: the metrics to gate on.
+
+    Returns:
+        ``(rows, gate_pass, reasons)``.  Each row is ``{label, role, metric, mean_k0,
+        reference, source, spread, abs_diff, band, pass}``; ``pass`` is ``None`` where no
+        reference exists (the released checkpoint's loss), and such rows do not decide
+        the gate.
+    """
+    reasons = []
+    control_label = roles.get("primary")
+    spreads = {}
+    for metric in metrics:
+        control_mean = (None if control_label is None else
+                        _finite_mean(by_label[control_label]["P"]["0"][metric]))
+        deltas = [abs(_finite_mean(run["P"]["0"][metric]) - control_mean)
+                  for run in noise_runs
+                  if control_mean is not None
+                  and _finite_mean(run["P"]["0"][metric]) is not None]
+        spreads[metric] = max(deltas) if deltas else None
+    if not noise_runs:
+        reasons.append("no --noise-runs given: the reference-draw spread is unmeasured")
+
+    rows = []
+    for role in ("primary", "cyl", "released"):
+        label = roles.get(role)
+        if label is None or label not in by_label:
+            continue
+        run = by_label[label]
+        reference_source = "exp_01 per-sample"
+        exp01 = exp01_by_label.get(label)
+        if role != "released" and exp01 is None:
+            reasons.append("{}: no exp_01 per-sample file given".format(label))
+        for metric in metrics:
+            mean_k0 = _finite_mean(run["P"]["0"][metric])
+            if role == "released":
+                reference_source = "exp_01 baseline reproduction"
+                reference = (None if released_baseline is None
+                             else released_baseline.get(metric))
+            else:
+                reference = (None if exp01 is None or metric not in exp01
+                             else _finite_mean(exp01[metric]))
+            spread = spreads.get(metric)
+            band = None if spread is None else 2.0 * spread + 1e-6
+            difference = (None if reference is None or mean_k0 is None
+                          else abs(mean_k0 - reference))
+            passes = (None if difference is None or band is None
+                      else bool(difference <= band))
+            rows.append({"label": label, "role": role, "metric": metric,
+                         "mean_k0": mean_k0, "reference": reference,
+                         "source": reference_source, "spread": spread,
+                         "abs_diff": difference, "band": band, "pass": passes})
+            if passes is False:
+                reasons.append("{} {}: |{:.6g} - {:.6g}| = {:.6g} > band {:.6g}".format(
+                    label, metric, mean_k0, reference, difference, band))
+            elif passes is None and reference is not None:
+                reasons.append("{} {}: no band (the spread is unmeasured)".format(
+                    label, metric))
+    decided = [row["pass"] for row in rows if row["pass"] is not None]
+    gate_pass = bool(decided) and all(decided) and not reasons
+    return rows, gate_pass, reasons
+
+
 def validate_full(by_label, roles, expected_hash):
     """Every condition the confirmatory analysis assumes, checked before it runs.
 
@@ -615,6 +706,14 @@ def main(argv=None):
                         help="label of the released checkpoint (default: checkpoints/xRIR_unseen.pth)")
     parser.add_argument("--manifest-hash", default=None,
                         help="assert every run used this manifest")
+    parser.add_argument("--exp01-per-sample", nargs="*", default=[], metavar="LABEL=PATH",
+                        help="k0-gate: exp_01's per-sample JSON for a run label")
+    parser.add_argument("--noise-runs", nargs="*", default=[], metavar="DIR",
+                        help="k0-gate: k=0 runs of the control checkpoint on other "
+                             "manifest seeds; they measure the reference-draw spread")
+    parser.add_argument("--released-baseline", default="0.0549,1.358,9.69",
+                        help="k0-gate: exp_01's reported EDT,C50,T60 for the released "
+                             "checkpoint (it has no per-sample record)")
     parser.add_argument("--n-boot", type=int, default=20000)
     parser.add_argument("--alpha", type=float, default=0.05, help="family-wise level")
     parser.add_argument("--threshold", type=float, default=0.10,
@@ -656,6 +755,27 @@ def main(argv=None):
                         by_label, "released")
 
     roles = {"primary": primary, "cyl": cyl, "released": released}
+    exp01_by_label = {}
+    for item in args.exp01_per_sample:
+        if "=" not in item:
+            raise ValueError("--exp01-per-sample takes LABEL=PATH, got {!r}".format(item))
+        label, path = item.split("=", 1)
+        if label not in by_label:
+            raise ValueError("--exp01-per-sample label {!r} is not one of {}".format(
+                label, list(by_label)))
+        with open(path, "r") as fin:
+            exp01_by_label[label] = json.load(fin)
+    noise_runs = [load_run(directory) for directory in args.noise_runs]
+    released_baseline = None
+    if args.released_baseline:
+        parts = [value.strip() for value in args.released_baseline.split(",")]
+        if len(parts) != len(RELEASED_BASELINE_METRICS):
+            raise ValueError("--released-baseline takes {} comma-separated numbers "
+                             "({}), got {!r}".format(len(RELEASED_BASELINE_METRICS),
+                                                     ",".join(RELEASED_BASELINE_METRICS),
+                                                     args.released_baseline))
+        released_baseline = dict(zip(RELEASED_BASELINE_METRICS,
+                                     [float(value) for value in parts]))
     if args.mode == "full":
         reasons = validate_full(by_label, roles, args.manifest_hash)
         print("mode: full -- valid_for_confirmatory: {}".format(not reasons))
@@ -685,6 +805,7 @@ def main(argv=None):
             original_stdout.flush()
 
     exploratory = args.mode == "exploratory"
+    gate_mode = args.mode == "k0-gate"
     out = {"mode": args.mode, "manifest_hash": manifest_hash, "n_queries": len(queries),
            "n_rooms": int(len(np.unique(rooms))),
            "config": {"runs": list(args.runs), "labels": labels,
@@ -773,11 +894,42 @@ def main(argv=None):
         else:
             print("   skipped: needs both a cylindrical and a primary SimpleViT run")
 
+        if gate_mode:
+            extra = ["{}: contains angles beyond k=0 ({})".format(label, sorted(run["P"]))
+                     for label, run in sorted(by_label.items())
+                     if sorted(run["P"]) != ["0"]]
+            gate_rows, gate_pass, gate_reasons = k0_gate_rows(
+                by_label, roles, exp01_by_label, noise_runs, released_baseline)
+            gate_reasons = extra + gate_reasons
+            gate_pass = bool(gate_pass and not extra)
+            out.update({"gate_rows": gate_rows, "gate_pass": gate_pass,
+                        "gate_reasons": gate_reasons,
+                        "noise_runs": list(args.noise_runs),
+                        "released_baseline": released_baseline})
+            print("\n3b. k=0 parity gate against exp_01 (band = 2 x the reference-draw "
+                  "spread + 1e-6).\n    The manifest pins a different reference draw than "
+                  "exp_01's, which was never recorded, so\n    the comparison is "
+                  "distributional and the spread is measured on manifest seeds "
+                  "{}.".format(", ".join(args.noise_runs) or "(none given)"))
+            print("   {:>10} {:>8} {:>12} {:>12} {:>12} {:>12} {:>6}  {}".format(
+                "run", "metric", "mean k=0", "reference", "|diff|", "band", "pass",
+                "source"))
+            for row in gate_rows:
+                print("   {:>10} {:>8} {:>12} {:>12} {:>12} {:>12} {:>6}  {}".format(
+                    row["label"], row["metric"], _fmt(row["mean_k0"], 5),
+                    _fmt(row["reference"], 5), _fmt(row["abs_diff"], 6),
+                    _fmt(row["band"], 6),
+                    "-" if row["pass"] is None else ("yes" if row["pass"] else "NO"),
+                    row["source"]))
+            print("   gate_pass: {}".format(gate_pass))
+            for reason in gate_reasons:
+                print("      - {}".format(reason))
+
         print("\n4. H1 (joint yaw rotation substantially degrades the model): supported "
               "if the adjusted\n   lower bound of r exceeds {:+.0%} for EDT or C50 at any "
               "angle k != 0, condition P.".format(args.threshold))
         verdicts, primary_h1_cells = {}, []
-        for role, label in (() if exploratory else
+        for role, label in (() if (exploratory or gate_mode) else
                             (("primary", primary), ("released", released))):
             if label is None:
                 print("   {}: no run provided".format(role))
@@ -794,8 +946,8 @@ def main(argv=None):
                 print("      {:>4} k={:>4} ({:>6.1f} deg)  r={:+.4f}  adjusted CI "
                       "[{:+.4f}, {:+.4f}]".format(cell["metric"], cell["k"], cell["deg"],
                                                   cell["r"], cell["lo"], cell["hi"]))
-        if exploratory:
-            out["h1"]["verdict"] = "not evaluated (exploratory mode)"
+        if exploratory or gate_mode:
+            out["h1"]["verdict"] = "not evaluated ({} mode)".format(args.mode)
             print("   not evaluated: a pre-registered verdict needs the full design "
                   "(--mode full)")
         else:
@@ -832,9 +984,10 @@ def main(argv=None):
                               _fmt(row["lo"], 4, "+"), _fmt(row["hi"], 4, "+"),
                               _fmt(row["c_lo"], 4, "+"), _fmt(row["c_hi"], 4, "+"),
                               verdict))
-            out["h2"]["verdict"] = ({"aggregate": "not evaluated (exploratory mode)",
+            out["h2"]["verdict"] = ({"aggregate": "not evaluated ({} mode)".format(args.mode),
                                      "cells": [], "n_cells": 0, "n_passing": 0,
-                                     "passing": [], "failing": []} if exploratory else
+                                     "passing": [], "failing": []}
+                                    if (exploratory or gate_mode) else
                                     h2_verdict(primary_h1_cells, h2_by_metric))
             verdict = out["h2"]["verdict"]
             print("\n   H2 verdict: {} ({} of {} H1-passing cells)".format(
@@ -911,6 +1064,9 @@ def main(argv=None):
         with open(args.json, "w") as fout:
             json.dump(out, fout, indent=1)
         print("wrote {}".format(args.json))
+    if gate_mode and not out["gate_pass"]:
+        print("k=0 parity gate FAILED; the sweep must not start", file=sys.stderr)
+        raise SystemExit(1)
     if out["convergence"]["max_ratio"] > out["convergence"]["limit"]:
         print("bootstrap not converged: raise --n-boot", file=sys.stderr)
         raise SystemExit(1)

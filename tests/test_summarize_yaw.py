@@ -737,3 +737,133 @@ def test_main_in_exploratory_mode_suppresses_the_verdicts(two_runs, tmp_path):
     written = json.load(open(json_path))
     assert written["exploratory"] is True and "summary_sha256" not in written
     assert "exploratory" in open(summary_path).read()
+
+
+# --------------------------------------------------------------------------------------
+# k0-gate: the parity check against exp_01 before any rotated angle is read
+# --------------------------------------------------------------------------------------
+GATE_METRICS = ("edt", "c50", "t60", "loss")
+
+
+def _k0_run(directory, seed=0, scale=1.0, **kwargs):
+    """A k = 0 only run, optionally with every value scaled by a known factor."""
+    from tools.summarize_yaw import load_run
+
+    run = load_run(write_run(directory, {}, cols=(0,), seed=seed, **kwargs))
+    if scale != 1.0:
+        for metric in METRICS:
+            run["P"]["0"][metric] = [None if v is None else v * scale
+                                     for v in run["P"]["0"][metric]]
+            run["E"]["0"][metric] = list(run["P"]["0"][metric])
+    return run
+
+
+def _exp01_file(path, run, scale=1.0):
+    """An exp_01 per-sample JSON (eval_xRIR_backbone.py's --save-per-sample layout)."""
+    payload = {"meta": {"split": "unseen", "num_shot": 8}, "index": run["index"],
+               "ir_path": run["query"], "stft_mse": run["P"]["0"]["log_mse"]}
+    for metric in GATE_METRICS:
+        payload[metric] = [None if v is None else v * scale for v in run["P"]["0"][metric]]
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as fout:
+        json.dump(payload, fout, allow_nan=False)
+    return path
+
+
+def test_k0_gate_rows_pass_inside_the_reference_draw_noise(tmp_path):
+    from tools.summarize_yaw import k0_gate_rows
+
+    control = _k0_run(str(tmp_path / "control"))
+    cyl = _k0_run(str(tmp_path / "cyl"), backbone="cylindrical",
+                  checkpoint="ckpt/xRIR_cyl_8_shot/epoch_12.pth")
+    released = _k0_run(str(tmp_path / "released"),
+                       checkpoint="checkpoints/xRIR_unseen.pth")
+    by_label = {"control": control, "cyl": cyl, "released": released}
+    roles = {"primary": "control", "cyl": "cyl", "released": "released"}
+    exp01 = {"control": json.load(open(_exp01_file(str(tmp_path / "e/c.json"), control, 1.001))),
+             "cyl": json.load(open(_exp01_file(str(tmp_path / "e/y.json"), cyl, 0.999)))}
+    noise = [_k0_run(str(tmp_path / "n1"), scale=1.002),
+             _k0_run(str(tmp_path / "n2"), scale=0.998)]
+    baseline = {metric: _mean(released["P"]["0"][metric]) for metric in ("edt", "c50", "t60")}
+
+    rows, gate_pass, reasons = k0_gate_rows(by_label, roles, exp01, noise, baseline)
+    assert gate_pass is True and reasons == []
+    by_cell = {(row["label"], row["metric"]): row for row in rows}
+    assert set(row["label"] for row in rows) == {"control", "cyl", "released"}
+    for metric in GATE_METRICS:
+        row = by_cell[("control", metric)]
+        assert row["spread"] == pytest.approx(0.002 * row["mean_k0"], rel=1e-6)
+        assert row["band"] == pytest.approx(2 * row["spread"] + 1e-6)
+        assert row["abs_diff"] == pytest.approx(0.001 * row["mean_k0"], rel=1e-6)
+        assert row["pass"] is True and row["source"] == "exp_01 per-sample"
+    # The released checkpoint is compared against exp_01's reported baseline instead,
+    # and its loss has no published counterpart.
+    assert by_cell[("released", "edt")]["source"] == "exp_01 baseline reproduction"
+    assert by_cell[("released", "loss")]["reference"] is None
+    assert by_cell[("released", "loss")]["pass"] is None
+
+
+def _mean(values):
+    return float(np.mean([v for v in values if v is not None]))
+
+
+def test_k0_gate_rows_fail_a_model_outside_the_band(tmp_path):
+    from tools.summarize_yaw import k0_gate_rows
+
+    control = _k0_run(str(tmp_path / "control"))
+    cyl = _k0_run(str(tmp_path / "cyl"), backbone="cylindrical",
+                  checkpoint="ckpt/xRIR_cyl_8_shot/epoch_12.pth")
+    exp01 = {"control": json.load(open(_exp01_file(str(tmp_path / "e/c.json"), control, 1.01))),
+             "cyl": json.load(open(_exp01_file(str(tmp_path / "e/y.json"), cyl, 1.0)))}
+    noise = [_k0_run(str(tmp_path / "n1"), scale=1.002)]
+    rows, gate_pass, reasons = k0_gate_rows(
+        {"control": control, "cyl": cyl},
+        {"primary": "control", "cyl": "cyl", "released": None}, exp01, noise, None)
+
+    assert gate_pass is False
+    assert len(reasons) == len(GATE_METRICS)
+    assert all("control" in reason for reason in reasons)
+    failing = [row for row in rows if row["pass"] is False]
+    assert {row["metric"] for row in failing} == set(GATE_METRICS)
+
+
+def test_k0_gate_rows_report_missing_inputs_as_reasons(tmp_path):
+    from tools.summarize_yaw import k0_gate_rows
+
+    control = _k0_run(str(tmp_path / "control"))
+    rows, gate_pass, reasons = k0_gate_rows(
+        {"control": control}, {"primary": "control", "cyl": None, "released": None},
+        {}, [], None)
+    assert gate_pass is False
+    assert any("no --noise-runs" in reason for reason in reasons)
+    assert any("no exp_01 per-sample file" in reason for reason in reasons)
+
+
+def test_main_in_k0_gate_mode_prints_the_gate_and_skips_the_hypotheses(tmp_path):
+    from tools.summarize_yaw import main
+
+    control = write_run(str(tmp_path / "control"), {}, cols=(0,))
+    cyl = write_run(str(tmp_path / "cyl"), {}, cols=(0,), backbone="cylindrical",
+                    checkpoint="ckpt/xRIR_cyl_8_shot/epoch_12.pth")
+    noise = write_run(str(tmp_path / "noise1"), {}, cols=(0,), seed=4)
+    exp01_control = _exp01_file(str(tmp_path / "e/c.json"),
+                                json.load(open(os.path.join(control, "per_sample_yaw.json"))))
+    exp01_cyl = _exp01_file(str(tmp_path / "e/y.json"),
+                            json.load(open(os.path.join(cyl, "per_sample_yaw.json"))))
+    json_path, summary_path = str(tmp_path / "g.json"), str(tmp_path / "g.txt")
+
+    out = main(["--mode", "k0-gate", "--runs", control, cyl,
+                "--labels", "control", "cyl", "--manifest-hash", MANIFEST_HASH,
+                "--exp01-per-sample", "control={}".format(exp01_control),
+                "cyl={}".format(exp01_cyl), "--noise-runs", noise,
+                "--n-boot", "500", "--json", json_path, "--summary", summary_path])
+
+    assert out["mode"] == "k0-gate"
+    assert out["gate_pass"] is True and out["gate_reasons"] == []
+    assert len(out["gate_rows"]) == 2 * len(GATE_METRICS)
+    assert out["h1"]["verdict"] == "not evaluated (k0-gate mode)"
+    assert out["h2"]["verdict"]["aggregate"] == "not evaluated (k0-gate mode)"
+    assert out["k0"] and out["k0"][0]["metric"] == "edt"
+    text = open(summary_path).read()
+    assert "k=0 parity gate" in text and "3. Paired cylindrical" in text
+    assert "gate_pass: True" in text
