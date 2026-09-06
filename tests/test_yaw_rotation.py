@@ -269,3 +269,42 @@ def test_integer_delays_on_real_acoustic_rooms_and_delay_flip_audit(capsys):
     with capsys.disabled():
         print("\n[T6b] delay flips at k=4 over {} query x 8 reference pairs: {} / {}".format(
             n, n_flip, n * 8))
+
+
+# --------------------------------------------------------------------------------------
+# T7 -- CylindricalViT tokens roll by one azimuth patch at k = 32; SimpleViT does not
+# --------------------------------------------------------------------------------------
+def _device():
+    return torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+
+def test_cylindrical_vit_tokens_roll_by_one_azimuth_patch():
+    from model.cylindrical_vit import CylindricalViT, RelPosAttention
+    from model.simple_vit import SimpleViT
+
+    device = _device()
+    H, W, k = 256, 512, 32                       # k = one patch width -> a 1-patch azimuth shift
+    torch.manual_seed(23)
+    x = torch.randn(1, 3, H, W, device=device)
+    x2 = rotate_scene_yaw(x, torch.zeros(1, 3, device=device),
+                          torch.zeros(1, 1, 3, device=device), k, W=W)[0]
+
+    cyl = CylindricalViT().to(device).eval()
+    # The relative-position bias initialises to zeros; randomise it so the circular bias
+    # table actually contributes to the attention logits under test.
+    for mod in cyl.modules():
+        if isinstance(mod, RelPosAttention):
+            torch.nn.init.normal_(mod.rel_bias, std=0.5)
+
+    with torch.no_grad():
+        t1 = cyl(x).view(1, 16, 16, 512)          # [B, elevation, azimuth, dim] (h-major)
+        t2 = cyl(x2).view(1, 16, 16, 512)
+    diff = (torch.roll(t1, 1, dims=2) - t2).abs().max().item()
+    assert diff < 1e-4, "CylindricalViT azimuth equivariance broken: max|d| = {}".format(diff)
+
+    simple = SimpleViT((H, W), (16, 32), 512, 12, 8, 512).to(device).eval()
+    with torch.no_grad():
+        s1 = simple(x).view(1, 16, 16, 512)
+        s2 = simple(x2).view(1, 16, 16, 512)
+    s_diff = (torch.roll(s1, 1, dims=2) - s2).abs().max().item()
+    assert s_diff > 0.1, "SimpleViT unexpectedly azimuth-equivariant: max|d| = {}".format(s_diff)
