@@ -62,7 +62,8 @@ def write_run(directory, shifts, n=300, seed=0, backbone="simple",
                     "yaw_cols": [int(k) for k in cols],
                     "acoustic_cols": [int(k) for k in cols],
                     "e_acoustic_cols": [int(k) for k in cols if int(k) != 0],
-                    "batch_size": 16, "n_samples": n, "max_samples": 0, "tf32": False,
+                    "batch_size": 16, "batch_canonical": True, "n_samples": n,
+                    "max_samples": 0, "tf32": False,
                     "torch_version": "2.0.1", "elapsed_min": 12.5}}
     for condition in ("P", "E"):
         run[condition] = {}
@@ -79,9 +80,12 @@ def write_run(directory, shifts, n=300, seed=0, backbone="simple",
                     per_sample_shift = np.full(n, shift, dtype=np.float64)
                     per_sample_shift[list(no_shift_rows)] = 0.0
                     values = base[metric] * (1.0 + per_sample_shift + eps)
-                    if k:
-                        values[list(nan_rows)] = np.nan
-                    values[list(baseline_nan_rows)] = np.nan
+                    if metric in ("edt", "c50", "t60"):
+                        # Only the acoustic metrics can be undefined; the spectral ones
+                        # are plain arithmetic and are always finite, as in a real run.
+                        if k:
+                            values[list(nan_rows)] = np.nan
+                        values[list(baseline_nan_rows)] = np.nan
                 cell[metric] = [float(v) for v in values]
             run[condition][str(k)] = cell
     os.makedirs(directory, exist_ok=True)
@@ -98,6 +102,31 @@ def _nulled(run):
             for metric, values in cell.items():
                 cell[metric] = [None if not np.isfinite(v) else float(v) for v in values]
     return run
+
+
+@pytest.fixture(scope="module")
+def released_run(tmp_path_factory):
+    """A third run standing in for the released checkpoint."""
+    root = tmp_path_factory.mktemp("released")
+    return write_run(str(root / "released"),
+                     {("P", 32): 0.12, ("P", 64): 0.26, ("E", 32): 0.14, ("E", 64): 0.29},
+                     checkpoint="checkpoints/xRIR_unseen.pth",
+                     nan_rows=(3, 17, 88), baseline_nan_rows=(5,), noise_seed=3)
+
+
+def relax_full_expectations(monkeypatch, n_queries=300, n_rooms=5, cols=(0, 32, 64)):
+    """Point full mode's size and grid expectations at the synthetic fixtures.
+
+    Only the *expectations* move; every rule they feed stays exactly as production runs
+    it, and production never passes anything but the pre-registered constants.
+    """
+    import tools.summarize_yaw as summarize_yaw
+
+    monkeypatch.setattr(summarize_yaw, "FULL_EXPECTATIONS",
+                        dict(summarize_yaw.FULL_EXPECTATIONS, n_queries=n_queries,
+                             n_rooms=n_rooms, spectral_cols=tuple(cols),
+                             acoustic_cols=tuple(cols),
+                             e_acoustic_cols=tuple(k for k in cols if k)))
 
 
 @pytest.fixture(scope="module")
@@ -368,16 +397,19 @@ def test_convergence_check_reports_a_zero_width_interval_honestly():
 # --------------------------------------------------------------------------------------
 # main -- the printed summary and the canonical JSON that binds to it
 # --------------------------------------------------------------------------------------
-def test_main_writes_a_summary_and_a_json_that_matches_it(two_runs, tmp_path, capsys):
+def test_main_writes_a_summary_and_a_json_that_matches_it(two_runs, released_run,
+                                                          tmp_path, monkeypatch, capsys):
     import hashlib
 
     from tools.summarize_yaw import main
 
     control, cyl = two_runs
+    relax_full_expectations(monkeypatch)
     json_path = str(tmp_path / "summary.json")
     summary_path = str(tmp_path / "summary.txt")
-    out = main(["--runs", control, cyl, "--labels", "control", "cyl",
-                "--primary-simple", "control", "--cyl", "cyl",
+    out = main(["--mode", "full", "--runs", control, cyl, released_run,
+                "--labels", "control", "cyl", "released",
+                "--primary-simple", "control", "--cyl", "cyl", "--released", "released",
                 "--manifest-hash", MANIFEST_HASH, "--n-boot", "4000",
                 "--json", json_path, "--summary", summary_path])
 
@@ -398,14 +430,17 @@ def test_main_writes_a_summary_and_a_json_that_matches_it(two_runs, tmp_path, ca
     assert config["alpha_adj"] == pytest.approx(0.05 / 18)
     assert config["preregistered_acoustic_cols"] == [0, 8, 32, 64, 128, 256, 384, 448,
                                                      480, 504]
-    assert config["labels"] == ["control", "cyl"]
-    assert config["roles"] == {"primary": "control", "cyl": "cyl", "released": None}
+    assert config["labels"] == ["control", "cyl", "released"]
+    assert config["roles"] == {"primary": "control", "cyl": "cyl", "released": "released"}
+    assert written["mode"] == "full" and written["valid_for_confirmatory"] is True
+    assert written["validation_reasons"] == []
 
     # H1: the control's planted degradation clears +10 %; there is no released run.
     assert written["h1"]["control"] == {"role": "primary", "passes": True,
                                         "cells": written["h1"]["control"]["cells"]}
     assert "cyl" not in written["h1"], "H1 is only asked of the primary and the released model"
-    assert written["h1"]["verdict"] == "supported for the same-budget model only"
+    assert written["h1"]["released"]["passes"] is True
+    assert written["h1"]["verdict"] == "supported and replicated"
     assert {(c["metric"], c["k"]) for c in written["h1"]["control"]["cells"]} == {
         ("edt", 32), ("edt", 64), ("c50", 32), ("c50", 64)}
 
@@ -438,9 +473,10 @@ def test_main_rejects_runs_with_different_manifests(two_runs, tmp_path):
 
     other = write_run(str(tmp_path / "other"), {}, manifest_hash="0" * 64)
     with pytest.raises(ValueError):
-        main(["--runs", two_runs[0], other, "--n-boot", "200"])
+        main(["--mode", "exploratory", "--runs", two_runs[0], other, "--n-boot", "200"])
     with pytest.raises(ValueError):
-        main(["--runs", two_runs[0], "--manifest-hash", "0" * 64, "--n-boot", "200"])
+        main(["--mode", "exploratory", "--runs", two_runs[0],
+              "--manifest-hash", "0" * 64, "--n-boot", "200"])
 
 
 def test_main_skips_a_metric_the_run_did_not_evaluate_at_every_angle(two_runs, tmp_path):
@@ -456,7 +492,8 @@ def test_main_skips_a_metric_the_run_did_not_evaluate_at_every_angle(two_runs, t
     with open(os.path.join(partial, "per_sample_yaw.json"), "w") as fout:
         json.dump(run, fout)
 
-    out = main(["--runs", partial, "--labels", "partial", "--n-boot", "500"])
+    out = main(["--mode", "exploratory", "--runs", partial, "--labels", "partial",
+                "--n-boot", "500"])
     assert "edt" not in out["acoustic"]["partial"]["E"]
     assert "c50" in out["acoustic"]["partial"]["E"]
     assert "edt" in out["acoustic"]["partial"]["P"]
@@ -596,3 +633,107 @@ def test_the_confirmatory_family_is_pre_registered_at_eighteen_tests():
                                            384, 416, 448, 480, 496, 504, 508)
     assert len(PREREGISTERED_SPECTRAL_COLS) == 18
     assert FAMILY_SIZE == 2 * 9 == 18
+
+
+# --------------------------------------------------------------------------------------
+# validate_full -- what the confirmatory analysis is allowed to run on
+# --------------------------------------------------------------------------------------
+def _roles(control, cyl, released):
+    return {"primary": control, "cyl": cyl, "released": released}
+
+
+def _by_label(two_runs, released_run):
+    from tools.summarize_yaw import load_run
+
+    return {"control": load_run(two_runs[0]), "cyl": load_run(two_runs[1]),
+            "released": load_run(released_run)}
+
+
+def test_validate_full_accepts_a_complete_set_of_runs(two_runs, released_run, monkeypatch):
+    from tools.summarize_yaw import validate_full
+
+    relax_full_expectations(monkeypatch)
+    reasons = validate_full(_by_label(two_runs, released_run),
+                            _roles("control", "cyl", "released"), MANIFEST_HASH)
+    assert reasons == []
+
+
+def test_validate_full_names_every_violation(two_runs, released_run, monkeypatch):
+    import copy
+
+    from tools.summarize_yaw import validate_full
+
+    relax_full_expectations(monkeypatch)
+    roles = _roles("control", "cyl", "released")
+
+    def reasons_for(mutate=None, roles_override=None, digest=MANIFEST_HASH):
+        runs = copy.deepcopy(_by_label(two_runs, released_run))
+        if mutate is not None:
+            mutate(runs)
+        return validate_full(runs, roles_override or roles, digest)
+
+    assert any("manifest-hash" in r for r in reasons_for(digest=None))
+    assert any("no released run" in r for r in
+               reasons_for(roles_override=_roles("control", "cyl", None)))
+    assert any("checkpoint" in r for r in reasons_for(
+        lambda runs: runs["control"]["meta"].update(checkpoint="ckpt/other/epoch_12.pth")))
+    assert any("queries" in r for r in reasons_for(
+        lambda runs: runs["cyl"].update(query=runs["cyl"]["query"][:-1])))
+    assert any("unique" in r for r in reasons_for(
+        lambda runs: runs["cyl"]["query"].__setitem__(1, runs["cyl"]["query"][0])))
+    assert any("rooms" in r for r in reasons_for(
+        lambda runs: runs["cyl"].update(
+            query=["Cafe/Cafe_idx_1/S{:03d}_R000_hybrid_IR.wav".format(i)
+                   for i in range(300)])))
+    assert any("gl_seed" in r for r in reasons_for(
+        lambda runs: runs["control"]["meta"].update(gl_seed=7)))
+    assert any("tf32" in r for r in reasons_for(
+        lambda runs: runs["control"]["meta"].update(tf32=True)))
+    assert any("batch_canonical" in r for r in reasons_for(
+        lambda runs: runs["control"]["meta"].update(batch_canonical=False)))
+    assert any("yaw_cols" in r for r in reasons_for(
+        lambda runs: runs["control"]["meta"].update(yaw_cols=[0, 32])))
+    assert any("acoustic_cols" in r for r in reasons_for(
+        lambda runs: runs["control"]["meta"].update(acoustic_cols=[0, 32])))
+    assert any("angle 64" in r for r in reasons_for(
+        lambda runs: runs["control"]["P"].pop("64")))
+    assert any("loss" in r for r in reasons_for(
+        lambda runs: runs["control"]["P"]["32"].__setitem__("loss", [0.0] * 299)))
+    assert any("non-finite" in r for r in reasons_for(
+        lambda runs: runs["control"]["P"]["32"]["loss"].__setitem__(0, None)))
+    assert any("edt" in r for r in reasons_for(
+        lambda runs: runs["control"]["P"]["32"].pop("edt")))
+    assert any("delay_flips" in r for r in reasons_for(
+        lambda runs: runs["control"]["delay_flips"].pop("64")))
+    assert any("index" in r for r in reasons_for(
+        lambda runs: runs["cyl"].update(index=list(range(1, 301)))))
+
+
+def test_main_in_full_mode_refuses_incomplete_runs_and_writes_nothing(two_runs, tmp_path):
+    from tools.summarize_yaw import main
+
+    json_path = str(tmp_path / "summary.json")
+    summary_path = str(tmp_path / "summary.txt")
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--mode", "full", "--runs", two_runs[0], two_runs[1],
+              "--labels", "control", "cyl", "--manifest-hash", MANIFEST_HASH,
+              "--n-boot", "200", "--json", json_path, "--summary", summary_path])
+    assert excinfo.value.code != 0
+    assert not os.path.exists(json_path) and not os.path.exists(summary_path)
+
+
+def test_main_in_exploratory_mode_suppresses_the_verdicts(two_runs, tmp_path):
+    from tools.summarize_yaw import main
+
+    json_path = str(tmp_path / "summary.json")
+    summary_path = str(tmp_path / "summary.txt")
+    out = main(["--mode", "exploratory", "--runs", two_runs[0], two_runs[1],
+                "--labels", "control", "cyl", "--n-boot", "500",
+                "--json", json_path, "--summary", summary_path])
+    assert out["exploratory"] is True and out["mode"] == "exploratory"
+    assert "summary_sha256" not in out
+    assert out["h1"]["verdict"] == "not evaluated (exploratory mode)"
+    assert out["h2"]["verdict"]["aggregate"] == "not evaluated (exploratory mode)"
+    written = json.load(open(json_path))
+    assert written["exploratory"] is True and "summary_sha256" not in written
+    assert "exploratory" in open(summary_path).read()

@@ -53,6 +53,12 @@ def load_run(directory):
     return run
 
 
+def _as_array(values):
+    """One per-sample list as a float64 array, reading strict JSON's ``null`` as NaN."""
+    return np.array([np.nan if value is None else float(value) for value in values],
+                    dtype=np.float64)
+
+
 def rooms_from_paths(queries):
     """The room of each query: the second component of its path.
 
@@ -107,11 +113,11 @@ def degradation_rows(run, condition, metric, cols, n_boot, alpha_adj, seed, room
         ratio does not exist -- ``mean(e_0) == 0``, which is the case for
         ``consistency``, whose baseline is identically zero.
     """
-    e0 = np.asarray(run[condition]["0"][metric], dtype=np.float64)
+    e0 = _as_array(run[condition]["0"][metric])
     rooms = None if rooms is None else np.asarray(rooms)
     rows = []
     for k in cols:
-        ek = np.asarray(run[condition][str(int(k))][metric], dtype=np.float64)
+        ek = _as_array(run[condition][str(int(k))][metric])
         mask = valid_mask(e0, ek)
         row = {"k": int(k), "deg": signed_degrees(k), "n_valid": int(mask.sum()),
                "validity": paired_validity(e0, ek),
@@ -210,13 +216,13 @@ def h2_rows(run_cyl, run_ctrl, condition, metric, cols, n_boot, alpha_adj, seed,
     """
     if run_cyl["query"] != run_ctrl["query"]:
         raise ValueError("the two runs are not query-aligned: D_k would not be paired")
-    a0 = np.asarray(run_cyl[condition]["0"][metric], dtype=np.float64)
-    b0 = np.asarray(run_ctrl[condition]["0"][metric], dtype=np.float64)
+    a0 = _as_array(run_cyl[condition]["0"][metric])
+    b0 = _as_array(run_ctrl[condition]["0"][metric])
     rooms = None if rooms is None else np.asarray(rooms)
     rows = []
     for k in cols:
-        ak = np.asarray(run_cyl[condition][str(int(k))][metric], dtype=np.float64)
-        bk = np.asarray(run_ctrl[condition][str(int(k))][metric], dtype=np.float64)
+        ak = _as_array(run_cyl[condition][str(int(k))][metric])
+        bk = _as_array(run_ctrl[condition][str(int(k))][metric])
         cyl_mask = valid_mask(a0, ak)
         mask = cyl_mask & valid_mask(b0, bk)
         clusters = None if rooms is None else rooms[mask]
@@ -340,8 +346,8 @@ def k0_comparison(run_cyl, run_ctrl, metrics, n_boot, alpha, seed, rooms=None):
     rooms = None if rooms is None else np.asarray(rooms)
     rows = []
     for metric in metrics:
-        a = np.asarray(run_cyl["P"]["0"][metric], dtype=np.float64)
-        b = np.asarray(run_ctrl["P"]["0"][metric], dtype=np.float64)
+        a = _as_array(run_cyl["P"]["0"][metric])
+        b = _as_array(run_ctrl["P"]["0"][metric])
         mask = np.isfinite(a) & np.isfinite(b)
         diff, q_lo, q_hi = _abs_diff_bootstrap(a[mask] - b[mask], n_boot, alpha, seed)
         row = {"metric": metric, "cyl": float(a[mask].mean()), "ctrl": float(b[mask].mean()),
@@ -442,6 +448,109 @@ PREREGISTERED_E_ACOUSTIC_COLS = (32, 128, 384, 480)
 FAMILY_SIZE = len(CONFIRMATORY_METRICS) * len(
     [k for k in PREREGISTERED_ACOUSTIC_COLS if k != 0])
 
+# What a confirmatory ("full") summary is allowed to run on. Production never overrides
+# these; a run that does not meet them is exploratory by definition.
+FULL_EXPECTATIONS = {"n_queries": 6337, "n_rooms": 17, "gl_seed": 0, "tf32": False,
+                     "batch_canonical": True,
+                     "spectral_cols": PREREGISTERED_SPECTRAL_COLS,
+                     "acoustic_cols": PREREGISTERED_ACOUSTIC_COLS,
+                     "e_acoustic_cols": PREREGISTERED_E_ACOUSTIC_COLS}
+EXPECTED_ROLE_CHECKPOINTS = {"primary": "xRIR_simple_8_shot", "cyl": "xRIR_cyl_8_shot",
+                             "released": "checkpoints/xRIR_unseen.pth"}
+
+
+def validate_full(by_label, roles, expected_hash):
+    """Every condition the confirmatory analysis assumes, checked before it runs.
+
+    A pre-registered decision rule is only worth anything if the evidence it reads is the
+    evidence it was written for, so this refuses to *silently* summarise a partial sweep:
+    it returns the reasons rather than raising, and the caller reports them and stops.
+
+    Args:
+        by_label: ``{label: run}``.
+        roles: ``{"primary", "cyl", "released"} -> label or None``.
+        expected_hash: the manifest hash the runs must carry (required in full mode).
+
+    Returns:
+        A list of human-readable reasons; empty means the set is confirmatory-grade.
+    """
+    expectations = FULL_EXPECTATIONS
+    reasons = []
+    if not expected_hash:
+        reasons.append("--manifest-hash is required in full mode")
+    for role in ("primary", "cyl", "released"):
+        label = roles.get(role)
+        needle = EXPECTED_ROLE_CHECKPOINTS[role]
+        if label is None:
+            reasons.append("no {} run".format(role))
+        elif needle not in by_label[label]["meta"]["checkpoint"]:
+            reasons.append("{} run {!r} has checkpoint {!r}, expected one containing {!r}"
+                           .format(role, label, by_label[label]["meta"]["checkpoint"],
+                                   needle))
+    reference = None
+    for label in sorted(by_label):
+        run = by_label[label]
+        meta = run["meta"]
+        queries = run["query"]
+        if len(queries) != expectations["n_queries"]:
+            reasons.append("{}: {} queries, expected {}".format(
+                label, len(queries), expectations["n_queries"]))
+        if len(set(queries)) != len(queries):
+            reasons.append("{}: the queries are not unique ({} of {})".format(
+                label, len(set(queries)), len(queries)))
+        n_rooms = int(len(np.unique(rooms_from_paths(queries))))
+        if n_rooms != expectations["n_rooms"]:
+            reasons.append("{}: {} rooms, expected {}".format(
+                label, n_rooms, expectations["n_rooms"]))
+        for key in ("gl_seed", "tf32", "batch_canonical"):
+            if meta.get(key) != expectations[key]:
+                reasons.append("{}: meta.{} is {!r}, expected {!r}".format(
+                    label, key, meta.get(key), expectations[key]))
+        for key, expected in (("yaw_cols", expectations["spectral_cols"]),
+                              ("acoustic_cols", expectations["acoustic_cols"]),
+                              ("e_acoustic_cols", expectations["e_acoustic_cols"])):
+            if sorted(int(k) for k in meta.get(key, [])) != sorted(int(k) for k in expected):
+                reasons.append("{}: meta.{} is {}, expected exactly {}".format(
+                    label, key, sorted(meta.get(key, [])), sorted(expected)))
+        for k in expectations["spectral_cols"]:
+            if str(int(k)) not in run.get("delay_flips", {}):
+                reasons.append("{}: delay_flips has no angle {}".format(label, k))
+            for condition in ("P", "E"):
+                cell = run[condition].get(str(int(k)))
+                if cell is None:
+                    reasons.append("{}: condition {} has no angle {}".format(
+                        label, condition, k))
+                    continue
+                for metric in SPECTRAL_METRICS:
+                    values = cell.get(metric)
+                    if values is None or len(values) != expectations["n_queries"]:
+                        reasons.append("{}: {} k={} {} has {} values, expected {}".format(
+                            label, condition, k, metric,
+                            "no" if values is None else len(values),
+                            expectations["n_queries"]))
+                    elif not np.isfinite(_as_array(values)).all():
+                        reasons.append("{}: {} k={} {} has non-finite values".format(
+                            label, condition, k, metric))
+        for condition, angles in (("P", expectations["acoustic_cols"]),
+                                  ("E", (0,) + tuple(expectations["e_acoustic_cols"]))):
+            for k in angles:
+                cell = run[condition].get(str(int(k)), {})
+                for metric in ACOUSTIC_METRICS:
+                    values = cell.get(metric)
+                    if values is None or len(values) != expectations["n_queries"]:
+                        reasons.append("{}: {} k={} {} has {} values, expected {}".format(
+                            label, condition, k, metric,
+                            "no" if values is None else len(values),
+                            expectations["n_queries"]))
+        if reference is None:
+            reference = (label, run)
+        else:
+            if run["query"] != reference[1]["query"]:
+                reasons.append("{} is not query-aligned with {}".format(label, reference[0]))
+            if run.get("index") != reference[1].get("index"):
+                reasons.append("{}: index differs from {}".format(label, reference[0]))
+    return reasons
+
 
 def _fmt(value, digits=4, sign=""):
     """Format a float for the tables; ``None`` (an undefined statistic) prints as ``-``."""
@@ -488,6 +597,11 @@ def main(argv=None):
 
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--mode", choices=("full", "k0-gate", "exploratory"), required=True,
+                        help="full: the confirmatory sweep, validated against the "
+                             "pre-registered design and refused if it does not match; "
+                             "k0-gate: the k=0 parity gate; exploratory: anything else, "
+                             "with the verdicts and the canonical sha256 suppressed")
     parser.add_argument("--runs", nargs="+", required=True,
                         help="directories written by eval_yaw_rotation.py")
     parser.add_argument("--labels", nargs="*", default=None,
@@ -531,6 +645,7 @@ def main(argv=None):
         if run["query"] != runs[0]["query"]:
             raise ValueError("run {} is not query-aligned with {}".format(label, labels[0]))
 
+    roles_note = None
     primary = _resolve(args.primary_simple,
                        lambda r: "xRIR_simple_8_shot" in r["meta"]["checkpoint"],
                        by_label, "primary-simple")
@@ -539,6 +654,16 @@ def main(argv=None):
     released = _resolve(args.released,
                         lambda r: "checkpoints/xRIR_unseen.pth" in r["meta"]["checkpoint"],
                         by_label, "released")
+
+    roles = {"primary": primary, "cyl": cyl, "released": released}
+    if args.mode == "full":
+        reasons = validate_full(by_label, roles, args.manifest_hash)
+        print("mode: full -- valid_for_confirmatory: {}".format(not reasons))
+        if reasons:
+            print("this set of runs is not confirmatory-grade; no artefacts were written:")
+            for reason in reasons:
+                print("   - {}".format(reason))
+            raise SystemExit(1)
 
     queries = runs[0]["query"]
     rooms = rooms_from_paths(queries)
@@ -559,7 +684,8 @@ def main(argv=None):
         def flush(self):
             original_stdout.flush()
 
-    out = {"manifest_hash": manifest_hash, "n_queries": len(queries),
+    exploratory = args.mode == "exploratory"
+    out = {"mode": args.mode, "manifest_hash": manifest_hash, "n_queries": len(queries),
            "n_rooms": int(len(np.unique(rooms))),
            "config": {"runs": list(args.runs), "labels": labels,
                       "roles": {"primary": primary, "cyl": cyl, "released": released},
@@ -578,6 +704,11 @@ def main(argv=None):
            "delay_flips": {label: run["delay_flips"] for label, run in by_label.items()},
            "decomposition": {label: run["decomposition"] for label, run in by_label.items()
                              if run["decomposition"] is not None}}
+    if args.mode == "full":
+        out["valid_for_confirmatory"] = True
+        out["validation_reasons"] = []
+    if exploratory:
+        out["exploratory"] = True
 
     sys.stdout = _Tee()
     try:
@@ -646,7 +777,8 @@ def main(argv=None):
               "if the adjusted\n   lower bound of r exceeds {:+.0%} for EDT or C50 at any "
               "angle k != 0, condition P.".format(args.threshold))
         verdicts, primary_h1_cells = {}, []
-        for role, label in (("primary", primary), ("released", released)):
+        for role, label in (() if exploratory else
+                            (("primary", primary), ("released", released))):
             if label is None:
                 print("   {}: no run provided".format(role))
                 continue
@@ -662,13 +794,18 @@ def main(argv=None):
                 print("      {:>4} k={:>4} ({:>6.1f} deg)  r={:+.4f}  adjusted CI "
                       "[{:+.4f}, {:+.4f}]".format(cell["metric"], cell["k"], cell["deg"],
                                                   cell["r"], cell["lo"], cell["hi"]))
-        out["h1"]["verdict"] = h1_wording(verdicts.get("primary", False),
-                                          verdicts.get("released", False))
+        if exploratory:
+            out["h1"]["verdict"] = "not evaluated (exploratory mode)"
+            print("   not evaluated: a pre-registered verdict needs the full design "
+                  "(--mode full)")
+        else:
+            out["h1"]["verdict"] = h1_wording(verdicts.get("primary", False),
+                                              verdicts.get("released", False))
+            missing = [role for role in ("primary", "released") if role not in verdicts]
+            print("   verdict: {}{}".format(out["h1"]["verdict"], "" if not missing else
+                                            "  (no {} run in this summary; it counts as "
+                                            "not passing)".format(" or ".join(missing))))
         out["h1"]["roles_evaluated"] = sorted(verdicts)
-        missing = [role for role in ("primary", "released") if role not in verdicts]
-        print("   verdict: {}{}".format(out["h1"]["verdict"], "" if not missing else
-                                        "  (no {} run in this summary; it counts as "
-                                        "not passing)".format(" or ".join(missing))))
 
         print("\n5. H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, "
               "paired on the\n   same resamples; equivalence (+-{:.0%} TOST on r_cyl) at "
@@ -695,7 +832,10 @@ def main(argv=None):
                               _fmt(row["lo"], 4, "+"), _fmt(row["hi"], 4, "+"),
                               _fmt(row["c_lo"], 4, "+"), _fmt(row["c_hi"], 4, "+"),
                               verdict))
-            out["h2"]["verdict"] = h2_verdict(primary_h1_cells, h2_by_metric)
+            out["h2"]["verdict"] = ({"aggregate": "not evaluated (exploratory mode)",
+                                     "cells": [], "n_cells": 0, "n_passing": 0,
+                                     "passing": [], "failing": []} if exploratory else
+                                    h2_verdict(primary_h1_cells, h2_by_metric))
             verdict = out["h2"]["verdict"]
             print("\n   H2 verdict: {} ({} of {} H1-passing cells)".format(
                 verdict["aggregate"], verdict["n_passing"], verdict["n_cells"]))
@@ -761,7 +901,9 @@ def main(argv=None):
         with open(args.summary, "w") as fout:
             fout.write(text)
         out["summary_path"] = args.summary
-    out["summary_sha256"] = hashlib.sha256(text.encode()).hexdigest()
+    if not exploratory:
+        # An exploratory summary must not look bindable: no canonical digest.
+        out["summary_sha256"] = hashlib.sha256(text.encode()).hexdigest()
     if args.json:
         parent = os.path.dirname(os.path.abspath(args.json))
         if parent:
