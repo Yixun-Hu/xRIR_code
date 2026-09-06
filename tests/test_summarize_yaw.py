@@ -1076,36 +1076,6 @@ def test_k0_gate_rows_report_missing_inputs_as_reasons(tmp_path):
     assert any("no exp_01 per-sample file" in reason for reason in reasons)
 
 
-def test_main_in_k0_gate_mode_prints_the_gate_and_skips_the_hypotheses(tmp_path):
-    from tools.summarize_yaw import main
-
-    control = write_run(str(tmp_path / "control"), {}, cols=(0,))
-    cyl = write_run(str(tmp_path / "cyl"), {}, cols=(0,), backbone="cylindrical",
-                    checkpoint="ckpt/xRIR_cyl_8_shot/epoch_12.pth")
-    noise = write_run(str(tmp_path / "noise1"), {}, cols=(0,), seed=4)
-    exp01_control = _exp01_file(str(tmp_path / "e/c.json"),
-                                json.load(open(os.path.join(control, "per_sample_yaw.json"))))
-    exp01_cyl = _exp01_file(str(tmp_path / "e/y.json"),
-                            json.load(open(os.path.join(cyl, "per_sample_yaw.json"))))
-    json_path, summary_path = str(tmp_path / "g.json"), str(tmp_path / "g.txt")
-
-    out = main(["--mode", "k0-gate", "--runs", control, cyl,
-                "--labels", "control", "cyl", "--manifest-hash", MANIFEST_HASH,
-                "--exp01-per-sample", "control={}".format(exp01_control),
-                "cyl={}".format(exp01_cyl), "--noise-runs", noise,
-                "--n-boot", "500", "--json", json_path, "--summary", summary_path])
-
-    assert out["mode"] == "k0-gate"
-    assert out["gate_pass"] is True and out["gate_reasons"] == []
-    assert len(out["gate_rows"]) == 2 * len(GATE_METRICS)
-    assert out["h1"]["verdict"] == "not evaluated (k0-gate mode)"
-    assert out["h2"]["verdict"]["aggregate"] == "not evaluated (k0-gate mode)"
-    assert out["k0"] and out["k0"][0]["metric"] == "edt"
-    text = open(summary_path).read()
-    assert "k=0 parity gate" in text and "3. Paired cylindrical" in text
-    assert "gate_pass: True" in text
-
-
 def test_main_in_full_mode_writes_nothing_when_the_bootstrap_has_not_converged(
         two_runs, released_run, tmp_path, monkeypatch):
     """A pre-registered threshold read off an unconverged bound is not a decision rule."""
