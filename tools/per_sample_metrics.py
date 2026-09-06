@@ -18,6 +18,7 @@ import contextlib
 import hashlib
 import io
 
+import numpy as np
 import torch
 
 from eval_unseen import griffin_lim
@@ -105,3 +106,49 @@ def griffin_lim_seeded(mag_spec, seed):
             tuple(mag_spec.shape)))
     torch.manual_seed(int(seed))
     return griffin_lim(mag)
+
+
+def acoustic_metrics(pred_ir, gt_ir, evaluator, want_t60=True):
+    """EDT / C50 / T60 errors of one prediction, with exp_01's validity rules.
+
+    Applies ``eval_xRIR_backbone.py``'s rules unchanged, on the arrays exactly as passed
+    (the caller does the ``[:8000]`` slicing):
+
+    * ``edt``  -- ``|EDT(gt) - EDT(pred)|`` in seconds; NaN if either measurement raises
+      ``ValueError``/``IndexError`` (a silent or all-zero IR has no Schroeder decay);
+    * ``c50``  -- ``|C50(gt) - C50(pred)|`` in dB; NaN when the difference is not finite
+      (the exp_01 "C50 outlier" rule);
+    * ``t60``  -- ``|T60(gt) - T60(pred)| / T60(gt) * 100`` as a percentage; NaN on
+      ``ValueError``/``IndexError``/``ZeroDivisionError``, and NaN when ``want_t60`` is
+      False.
+
+    A NaN here means "this sample is invalid at this angle"; the paired analysis drops
+    the pair and reports the invalid fraction separately, so nothing is ever silently
+    imputed.  numpy's divide/invalid warnings are suppressed locally -- a degenerate IR
+    is an expected outcome, not a bug.
+
+    Args:
+        pred_ir: predicted impulse response (1-D numpy array).
+        gt_ir: ground-truth impulse response, same length.
+        evaluator: an ``eval_unseen.Evaluator``.
+        want_t60: compute T60 (it is the noisiest metric and descriptive only).
+
+    Returns:
+        ``{"edt": float, "c50": float, "t60": float}``, NaN where invalid.
+    """
+    nan = float("nan")
+    edt = c50 = t60 = nan
+    with np.errstate(divide="ignore", invalid="ignore"):
+        try:
+            edt = abs(evaluator.measure_edt(gt_ir) - evaluator.measure_edt(pred_ir))
+        except (ValueError, IndexError):
+            edt = nan
+        clarity = abs(evaluator.measure_clarity(gt_ir) - evaluator.measure_clarity(pred_ir))
+        c50 = float(clarity) if np.isfinite(clarity) else nan
+        if want_t60:
+            try:
+                gt_t60 = evaluator.measure_rt60(gt_ir)
+                t60 = abs(gt_t60 - evaluator.measure_rt60(pred_ir)) / gt_t60 * 100.0
+            except (ValueError, IndexError, ZeroDivisionError):
+                t60 = nan
+    return {"edt": float(edt), "c50": float(c50), "t60": float(t60)}

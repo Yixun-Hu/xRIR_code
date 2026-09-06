@@ -11,7 +11,12 @@ import io
 import pytest
 import torch
 
-from tools.per_sample_metrics import griffin_lim_seeded, per_sample_losses, sample_seed
+from tools.per_sample_metrics import (
+    acoustic_metrics,
+    griffin_lim_seeded,
+    per_sample_losses,
+    sample_seed,
+)
 from utils.spec_utils import compute_spect_energy_decay_losses, stft_l1_loss
 
 
@@ -145,3 +150,72 @@ def test_griffin_lim_seeded_separates_different_magnitudes():
     seeded = griffin_lim_seeded(_mag(seed=2), 99)
     other = griffin_lim_seeded(_mag(seed=3), 99)
     assert not torch.equal(seeded, other)
+
+
+# --------------------------------------------------------------------------------------
+# T13 -- acoustic_metrics (exp_01's EDT / C50 / T60 rules, per sample, NaN when invalid)
+# --------------------------------------------------------------------------------------
+def _decaying_ir(seed=0, n=8000, tau=1200.0):
+    import numpy as np
+
+    rng = np.random.RandomState(seed)
+    return (rng.randn(n) * np.exp(-np.arange(n) / tau)).astype(np.float64)
+
+
+@pytest.fixture(scope="module")
+def evaluator():
+    from eval_unseen import Evaluator
+
+    return Evaluator()
+
+
+def test_acoustic_metrics_are_zero_for_a_perfect_prediction(evaluator):
+    gt = _decaying_ir()
+    got = acoustic_metrics(gt.copy(), gt, evaluator)
+    assert set(got) == {"edt", "c50", "t60"}
+    assert got["edt"] == 0.0
+    assert got["c50"] == 0.0
+    assert got["t60"] == 0.0
+
+
+def test_acoustic_metrics_follow_the_exp_01_formulas(evaluator):
+    import numpy as np
+
+    gt, pred = _decaying_ir(seed=0, tau=1200.0), _decaying_ir(seed=1, tau=600.0)
+    got = acoustic_metrics(pred, gt, evaluator)
+
+    assert got["edt"] == pytest.approx(
+        abs(evaluator.measure_edt(gt) - evaluator.measure_edt(pred)))
+    assert got["c50"] == pytest.approx(
+        abs(evaluator.measure_clarity(gt) - evaluator.measure_clarity(pred)))
+    gt_t60, pred_t60 = evaluator.measure_rt60(gt), evaluator.measure_rt60(pred)
+    assert got["t60"] == pytest.approx(abs(gt_t60 - pred_t60) / gt_t60 * 100.0)
+    assert all(np.isfinite(v) for v in got.values())
+    # T60 is a *relative* error, so swapping the two arguments changes it.
+    assert acoustic_metrics(gt, pred, evaluator)["t60"] != got["t60"]
+
+
+def test_acoustic_metrics_return_nan_for_a_degenerate_prediction(evaluator):
+    import warnings
+
+    import numpy as np
+
+    gt = _decaying_ir()
+    zeros = np.zeros(8000)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")             # numpy's 0/0 must be suppressed locally
+        got = acoustic_metrics(zeros, gt, evaluator)
+    assert np.isnan(got["edt"]) and np.isnan(got["c50"]) and np.isnan(got["t60"])
+    # A degenerate ground truth is just as survivable.
+    assert all(np.isnan(v) for v in acoustic_metrics(gt, zeros, evaluator).values())
+
+
+def test_acoustic_metrics_can_skip_t60(evaluator):
+    import numpy as np
+
+    gt, pred = _decaying_ir(seed=0), _decaying_ir(seed=1, tau=600.0)
+    got = acoustic_metrics(pred, gt, evaluator, want_t60=False)
+    assert np.isnan(got["t60"])
+    assert np.isfinite(got["edt"]) and np.isfinite(got["c50"])
+    full = acoustic_metrics(pred, gt, evaluator, want_t60=True)
+    assert got["edt"] == full["edt"] and got["c50"] == full["c50"]
