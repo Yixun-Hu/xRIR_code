@@ -30,7 +30,7 @@ def write_run(directory, shifts, n=300, seed=0, backbone="simple",
               checkpoint="ckpt/xRIR_simple_8_shot/epoch_12.pth", cols=COLS,
               nan_rows=(), baseline_nan_rows=(), manifest_hash=MANIFEST_HASH,
               noise=0.02, noise_seed=None, base_offset=0.0, no_shift_rows=(),
-              gl_seed=0, tf32=False):
+              gl_seed=0, tf32=False, batch_size=16):
     """Write one synthetic ``per_sample_yaw.json`` with planted relative degradations.
 
     Args:
@@ -64,7 +64,7 @@ def write_run(directory, shifts, n=300, seed=0, backbone="simple",
                     "yaw_cols": [int(k) for k in cols],
                     "acoustic_cols": [int(k) for k in cols],
                     "e_acoustic_cols": [int(k) for k in cols if int(k) != 0],
-                    "batch_size": 16, "batch_canonical": True, "n_samples": n,
+                    "batch_size": batch_size, "batch_canonical": True, "n_samples": n,
                     "max_samples": 0, "tf32": tf32,
                     "torch_version": "2.0.1", "elapsed_min": 12.5}}
     for condition in ("P", "E"):
@@ -1245,6 +1245,12 @@ def _gate_setup(tmp_path, monkeypatch):
                          manifest_hash=SEED2_HASH)
     phase = _scaled_run(str(tmp_path / "gate_phase_seed1"), scale=1.001, gl_seed=1)
     tf32 = _scaled_run(str(tmp_path / "gate_tf32"), scale=0.9995, tf32=True)
+    cyl_kwargs = {"backbone": "cylindrical",
+                  "checkpoint": "ckpt/xRIR_cyl_8_shot/epoch_12.pth"}
+    noise_cyl1 = _scaled_run(str(tmp_path / "gate_noise_cyl_seed1"), scale=1.003,
+                             manifest_hash=SEED1_HASH, **cyl_kwargs)
+    noise_cyl2 = _scaled_run(str(tmp_path / "gate_noise_cyl_seed2"), scale=0.997,
+                             manifest_hash=SEED2_HASH, **cyl_kwargs)
     loaded = {name: json.load(open(os.path.join(d, "per_sample_yaw.json")))
               for name, d in (("control", control), ("cyl", cyl), ("released", released))}
     exp01 = {name: _exp01_file(str(tmp_path / "exp01" / "{}.json".format(name)),
@@ -1255,10 +1261,12 @@ def _gate_setup(tmp_path, monkeypatch):
             "--manifest-hash", MANIFEST_HASH,
             "--exp01-per-sample", "control=" + exp01["control"], "cyl=" + exp01["cyl"],
             "--noise-runs", noise1, noise2,
+            "--noise-runs-cyl", noise_cyl1, noise_cyl2,
             "--nuisance-runs", phase, tf32,
             "--released-baseline", baseline, "--n-boot", "200"]
     return argv, {"control": control, "cyl": cyl, "released": released,
-                  "noise1": noise1, "noise2": noise2, "phase": phase, "tf32": tf32}
+                  "noise1": noise1, "noise2": noise2, "phase": phase, "tf32": tf32,
+                  "noise_cyl1": noise_cyl1, "noise_cyl2": noise_cyl2}
 
 
 def _run_gate(argv, tmp_path, name):
@@ -1298,7 +1306,7 @@ def test_the_gate_fails_closed_on_every_missing_or_wrong_input(tmp_path, monkeyp
             (name, needle, out["gate_reasons"])
 
     def drop_a_noise_run(a):
-        return a[:a.index("--noise-runs") + 2] + a[a.index("--nuisance-runs"):]
+        return a[:a.index("--noise-runs") + 2] + a[a.index("--noise-runs-cyl"):]
 
     def drop_the_released_run(a):
         del a[a.index("--runs") + 3]
@@ -1577,7 +1585,7 @@ def test_the_v2_band_is_twice_the_sum_of_the_three_spread_terms(tmp_path):
     rows, gate_pass, reasons = k0_gate_rows(
         {"control": control, "cyl": cyl},
         {"primary": "control", "cyl": "cyl", "released": None}, exp01, noise, None,
-        nuisance_runs=nuisance)
+        nuisance_runs=nuisance, band_rule="v2")
     assert gate_pass is True and reasons == []
 
     for row in rows:
@@ -1598,14 +1606,14 @@ def test_the_v2_band_is_twice_the_sum_of_the_three_spread_terms(tmp_path):
 def test_the_v1_band_is_only_available_when_it_is_asked_for(tmp_path, monkeypatch):
     argv, paths = _gate_setup(tmp_path, monkeypatch)
 
-    # v1 with the nuisance runs still on the command line is a contradiction.
+    # v1 with the amended band's inputs still on the command line is a contradiction.
     out, code = _run_gate(argv + ["--band-rule", "v1"], tmp_path, "v1_with")
     assert code != 0 and out["gate_pass"] is False
     assert any("must not be given --nuisance-runs" in reason
                for reason in out["gate_reasons"])
 
     # v1 without them reproduces the superseded, narrower band.
-    without = argv[:argv.index("--nuisance-runs")] + argv[argv.index("--released-baseline"):]
+    without = _drop_flag(_drop_flag(argv, "--nuisance-runs"), "--noise-runs-cyl")
     out, code = _run_gate(without + ["--band-rule", "v1"], tmp_path, "v1_only")
     assert code == 0 and out["gate_pass"] is True
     assert out["band_rule"] == "v1 (reference draw only)"
@@ -1617,14 +1625,107 @@ def test_the_v1_band_is_only_available_when_it_is_asked_for(tmp_path, monkeypatc
 
 def test_the_gate_reports_the_band_terms_it_used(tmp_path, monkeypatch):
     argv, _ = _gate_setup(tmp_path, monkeypatch)
+    argv = _drop_flag(argv, "--noise-runs-cyl") + ["--band-rule", "v2"]
     out, code = _run_gate(argv, tmp_path, "terms")
 
     assert code == 0
     assert out["band_rule"] == "v2 (2026-09-06 amendment)"
-    assert sorted(out["band_terms"]) == sorted(GATE_METRICS)
-    for metric, terms in out["band_terms"].items():
-        assert sorted(terms) == ["s_phase", "s_ref", "s_tf32"], metric
-        assert all(value > 0 for value in terms.values()), metric
+    assert sorted(out["band_terms"]) == ["control", "cyl", "released"]
+    for label, per_metric in out["band_terms"].items():
+        assert sorted(per_metric) == sorted(GATE_METRICS), label
+        for metric, terms in per_metric.items():
+            assert sorted(terms) == ["s_phase", "s_ref", "s_shape", "s_tf32"], metric
+            assert terms["s_shape"] is None, "v2 has no shape term"
+            assert all(terms[key] > 0 for key in ("s_ref", "s_phase", "s_tf32")), metric
     text = open(str(tmp_path / "terms.txt")).read()
     assert "S_ref" in text and "S_phase" in text and "S_tf32" in text
     assert "v2 (2026-09-06 amendment)" in text
+
+
+# --------------------------------------------------------------------------------------
+# Band v3: every term measured on the model it is applied to
+# --------------------------------------------------------------------------------------
+def _drop_flag(argv, flag, keep=0):
+    """Remove a flag and its values from an argv, optionally keeping the first ``keep``."""
+    start = argv.index(flag)
+    end = start + 1
+    while end < len(argv) and not argv[end].startswith("--"):
+        end += 1
+    return argv[:start] + ([flag] + argv[start + 1:start + 1 + keep] if keep else []) \
+        + argv[end:]
+
+
+def test_the_v3_band_needs_the_cylindrical_reference_draw(tmp_path, monkeypatch):
+    """The cylindrical model's reference-draw spread is not the control's."""
+    argv, _ = _gate_setup(tmp_path, monkeypatch)
+    out, code = _run_gate(_drop_flag(argv, "--noise-runs-cyl"), tmp_path, "no_cyl_noise")
+    assert code != 0 and out["gate_pass"] is False
+    assert any("--noise-runs-cyl" in reason for reason in out["gate_reasons"])
+
+
+def test_the_gate_fails_closed_on_a_bad_cylindrical_noise_run(tmp_path, monkeypatch):
+    argv, paths = _gate_setup(tmp_path, monkeypatch)
+
+    def fails(name, needle, changed=None):
+        out, code = _run_gate(changed or argv, tmp_path, name)
+        assert code != 0, name
+        assert out["gate_pass"] is False, name
+        assert any(needle in reason for reason in out["gate_reasons"]), \
+            (name, needle, out["gate_reasons"])
+
+    fails("one_cyl_noise", "exactly 2 --noise-runs-cyl",
+          _drop_flag(argv, "--noise-runs-cyl", keep=1))
+    _edit_run(paths["noise_cyl1"],
+              lambda run: run["meta"].update(checkpoint="ckpt/xRIR_simple_8_shot/epoch_12.pth",
+                                             backbone="simple"))
+    fails("cyl_noise_ckpt", "checkpoint")
+    _edit_run(paths["noise_cyl1"],
+              lambda run: run["meta"].update(checkpoint="ckpt/xRIR_cyl_8_shot/epoch_12.pth",
+                                             backbone="cylindrical",
+                                             manifest_hash=MANIFEST_HASH))
+    fails("cyl_noise_hash", "manifest")
+
+
+def test_the_v3_band_uses_each_model_own_reference_draw(tmp_path, monkeypatch):
+    argv, _ = _gate_setup(tmp_path, monkeypatch)
+    out, code = _run_gate(argv, tmp_path, "v3")
+
+    assert code == 0 and out["gate_pass"] is True
+    assert out["band_rule"] == "v3 (2026-09-06 per-model amendment)"
+    rows = dict(((row["label"], row["metric"]), row) for row in out["gate_rows"])
+    for metric in GATE_METRICS:
+        control, cyl = rows[("control", metric)], rows[("cyl", metric)]
+        mean = control["mean_k0"]
+        assert control["band_terms"]["s_ref"] == pytest.approx(0.002 * mean, rel=1e-6)
+        assert cyl["band_terms"]["s_ref"] == pytest.approx(0.003 * mean, rel=1e-6)
+        # The phase and TF32 terms are measured on the control and shared.
+        for row in (control, cyl):
+            assert row["band_terms"]["s_phase"] == pytest.approx(0.001 * mean, rel=1e-6)
+            assert row["band_terms"]["s_tf32"] == pytest.approx(0.0005 * mean, rel=1e-6)
+            terms = row["band_terms"]
+            expected = 2.0 * (terms["s_ref"] + terms["s_phase"] + terms["s_tf32"]
+                              + (terms["s_shape"] or 0.0)) + 1e-6
+            assert row["band"] == pytest.approx(expected, rel=1e-12)
+        assert cyl["band"] > control["band"]
+        # The released checkpoint is judged with the control's terms.
+        assert rows[("released", metric)]["band"] == pytest.approx(control["band"])
+
+
+def test_the_older_band_rules_stay_available_only_when_asked_for(tmp_path, monkeypatch):
+    argv, _ = _gate_setup(tmp_path, monkeypatch)
+
+    # v2 does not know about the cylindrical reference draw.
+    out, code = _run_gate(argv + ["--band-rule", "v2"], tmp_path, "v2_with_cyl")
+    assert code != 0
+    assert any("--noise-runs-cyl" in reason and "v2" in reason
+               for reason in out["gate_reasons"])
+
+    v2_argv = _drop_flag(argv, "--noise-runs-cyl") + ["--band-rule", "v2"]
+    out, code = _run_gate(v2_argv, tmp_path, "v2_only")
+    assert code == 0 and out["gate_pass"] is True
+    assert out["band_rule"] == "v2 (2026-09-06 amendment)"
+    for row in out["gate_rows"]:
+        assert row["band_terms"]["s_shape"] is None
+        assert row["band"] == pytest.approx(2.0 * (row["band_terms"]["s_ref"]
+                                                   + row["band_terms"]["s_phase"]
+                                                   + row["band_terms"]["s_tf32"]) + 1e-6)

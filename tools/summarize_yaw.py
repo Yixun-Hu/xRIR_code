@@ -605,7 +605,8 @@ def _finite_mean(values):
 
 
 def k0_gate_rows(by_label, roles, exp01_by_label, noise_runs, released_baseline,
-                 nuisance_runs=(), band_rule="v2", metrics=K0_GATE_METRICS):
+                 nuisance_runs=(), band_rule="v3", noise_runs_cyl=(),
+                 metrics=K0_GATE_METRICS):
     """The k=0 parity gate: do the pinned-manifest runs reproduce exp_01's numbers?
 
     The manifest pins a *different* reference draw than exp_01's (which was never
@@ -619,8 +620,11 @@ def k0_gate_rows(by_label, roles, exp01_by_label, noise_runs, released_baseline,
     * ``s_tf32``  -- TF32 arithmetic, which exp_01's batch-1 forwards used (``--tf32``).
 
     ``band = 2 * (s_ref + s_phase + s_tf32) + 1e-6``.  The superseded ``v1`` rule used
-    ``s_ref`` alone, which is why two cells failed it.  The released checkpoint has no
-    per-sample record, so it is compared with exp_01's reported baseline instead.
+    ``s_ref`` alone, which is why two cells failed it.  ``v3`` additionally measures
+    ``s_ref`` on the model it is applied to -- how far the cylindrical model moves between
+    reference draws is not something the control can report -- so each gated model gets
+    its own band; the released checkpoint, which has no runs of its own, is judged with
+    the control's terms against exp_01's reported baseline.
 
     Args:
         by_label: ``{label: run}`` -- k=0-only runs.
@@ -629,8 +633,9 @@ def k0_gate_rows(by_label, roles, exp01_by_label, noise_runs, released_baseline,
         noise_runs: further k=0 runs of the *control* checkpoint on other manifest seeds.
         released_baseline: ``{"edt", "c50", "t60"}`` from exp_01's baseline reproduction,
             or ``None``.
-        nuisance_runs: the phase and TF32 runs of the control checkpoint (v2 only).
-        band_rule: ``"v2"`` (default, the amendment) or ``"v1"``.
+        nuisance_runs: the phase and TF32 runs of the control checkpoint (v2 and v3).
+        band_rule: ``"v3"`` (default, per-model), ``"v2"`` or ``"v1"``.
+        noise_runs_cyl: the cylindrical checkpoint on manifest seeds 1 and 2 (v3).
         metrics: the metrics to gate on.
 
     Returns:
@@ -640,35 +645,56 @@ def k0_gate_rows(by_label, roles, exp01_by_label, noise_runs, released_baseline,
         no band exists, and such rows do not decide the gate.
     """
     reasons = []
-    control_label = roles.get("primary")
     by_profile = dict((nuisance_profile(run), run) for run in nuisance_runs
                       if nuisance_profile(run) is not None)
-    spreads, band_terms = {}, {}
-    for metric in metrics:
-        control_mean = (None if control_label is None else
-                        _finite_mean(by_label[control_label]["P"]["0"][metric]))
+    means = {}
+    for role in ("primary", "cyl", "released"):
+        label = roles.get(role)
+        means[role] = dict(
+            (metric, None if label is None or label not in by_label else
+             _finite_mean(by_label[label]["P"]["0"][metric])) for metric in metrics)
 
-        def shift(run, control_mean=control_mean, metric=metric):
-            other = _finite_mean(run["P"]["0"][metric]) if run is not None else None
-            return None if control_mean is None or other is None else abs(other - control_mean)
+    def shift_for(run, anchor, metric):
+        """``|mean(run) - anchor|`` for one metric, or ``None`` if either is missing."""
+        if run is None or anchor is None:
+            return None
+        other = _finite_mean(run["P"]["0"][metric])
+        return None if other is None else abs(other - anchor)
 
-        deltas = [value for value in (shift(run) for run in noise_runs)
-                  if value is not None]
-        terms = {"s_ref": max(deltas) if deltas else None,
-                 "s_phase": None, "s_tf32": None}
-        if band_rule == "v2":
-            terms["s_phase"] = shift(by_profile.get("phase"))
-            terms["s_tf32"] = shift(by_profile.get("tf32"))
-        required = ("s_ref",) if band_rule != "v2" else ("s_ref", "s_phase", "s_tf32")
-        band_terms[metric] = terms
-        spreads[metric] = (None if any(terms[key] is None for key in required)
-                           else sum(terms[key] for key in required))
+    terms_by_role = {}
+    for role in ("primary", "cyl", "released"):
+        # Only v3 measures the reference draw on the model it judges; v1 and v2 share the
+        # control's, and the released checkpoint always does (it has no runs of its own).
+        per_model = band_rule == "v3" and role != "released"
+        anchor_role = role if per_model else "primary"
+        noise_for_role = noise_runs_cyl if anchor_role == "cyl" else noise_runs
+        terms_by_role[role] = {}
+        for metric in metrics:
+            anchor = means[anchor_role][metric]
+            deltas = [value for value in
+                      (shift_for(run, anchor, metric) for run in noise_for_role)
+                      if value is not None]
+            terms = {"s_ref": max(deltas) if deltas else None,
+                     "s_phase": None, "s_tf32": None, "s_shape": None}
+            if band_rule in ("v2", "v3"):
+                control_anchor = means["primary"][metric]
+                terms["s_phase"] = shift_for(by_profile.get("phase"), control_anchor,
+                                             metric)
+                terms["s_tf32"] = shift_for(by_profile.get("tf32"), control_anchor, metric)
+            required = {"v1": ("s_ref",),
+                        "v2": ("s_ref", "s_phase", "s_tf32"),
+                        "v3": ("s_ref", "s_phase", "s_tf32")}[band_rule]
+            total = (None if any(terms[key] is None for key in required)
+                     else sum(terms[key] for key in required))
+            terms_by_role[role][metric] = (terms, total)
     if not noise_runs:
         reasons.append("no --noise-runs given: the reference-draw spread is unmeasured")
-    if band_rule == "v2" and sorted(by_profile) != ["phase", "tf32"]:
+    if band_rule == "v3" and not noise_runs_cyl:
+        reasons.append("no --noise-runs-cyl given: the cylindrical model's reference-draw "
+                       "spread is unmeasured")
+    if band_rule in ("v2", "v3") and sorted(by_profile) != ["phase", "tf32"]:
         reasons.append("no --nuisance-runs given: the phase and TF32 spreads are "
                        "unmeasured")
-
     rows = []
     for role in ("primary", "cyl", "released"):
         label = roles.get(role)
@@ -680,6 +706,7 @@ def k0_gate_rows(by_label, roles, exp01_by_label, noise_runs, released_baseline,
         if role != "released" and exp01 is None:
             reasons.append("{}: no exp_01 per-sample file given".format(label))
         for metric in metrics:
+            terms, spread = terms_by_role[role][metric]
             mean_k0 = _finite_mean(run["P"]["0"][metric])
             if role == "released":
                 reference_source = "exp_01 baseline reproduction"
@@ -688,7 +715,6 @@ def k0_gate_rows(by_label, roles, exp01_by_label, noise_runs, released_baseline,
             else:
                 reference = (None if exp01 is None or metric not in exp01
                              else _finite_mean(exp01[metric]))
-            spread = spreads.get(metric)
             band = None if spread is None else 2.0 * spread + 1e-6
             difference = (None if reference is None or mean_k0 is None
                           else abs(mean_k0 - reference))
@@ -697,7 +723,7 @@ def k0_gate_rows(by_label, roles, exp01_by_label, noise_runs, released_baseline,
             rows.append({"label": label, "role": role, "metric": metric,
                          "mean_k0": mean_k0, "reference": reference,
                          "source": reference_source, "spread": spread,
-                         "band_terms": dict(band_terms[metric]),
+                         "band_terms": dict(terms),
                          "abs_diff": difference, "band": band, "pass": passes})
             if passes is False:
                 reasons.append("{} {}: |{:.6g} - {:.6g}| = {:.6g} > band {:.6g}".format(
@@ -914,9 +940,10 @@ def _check_k0_only(name, run):
 # on -- so a k=0 comparison against them has to allow for both.
 NUISANCE_PROFILES = (("phase", {"gl_seed": 1, "tf32": False}),
                      ("tf32", {"gl_seed": 0, "tf32": True}))
-BAND_RULES = ("v1", "v2")
+BAND_RULES = ("v1", "v2", "v3")
 BAND_RULE_LABELS = {"v1": "v1 (reference draw only)",
-                    "v2": "v2 (2026-09-06 amendment)"}
+                    "v2": "v2 (2026-09-06 amendment)",
+                    "v3": "v3 (2026-09-06 per-model amendment)"}
 
 
 def nuisance_profile(run):
@@ -965,8 +992,47 @@ def _check_nuisance_runs(nuisance_runs, reference):
     return reasons
 
 
+def _check_noise_runs(noise_runs, reference, role, flag):
+    """Two runs of one checkpoint, one on each of the seed-1 and seed-2 manifests.
+
+    The reference draw is a property of the *model* being compared -- a spread measured
+    on the control says nothing about how much the cylindrical model moves between draws
+    -- so each model that is gated needs its own pair.
+    """
+    reasons = []
+    if len(noise_runs) != 2:
+        reasons.append("expected exactly 2 {} (manifest seeds 1 and 2), got {}".format(
+            flag, len(noise_runs)))
+    spec = EXPECTED_ROLES[role]
+    seen = []
+    for run in noise_runs:
+        name = "{} {}".format(flag, os.path.basename(os.path.normpath(run.get("dir", "?"))))
+        meta = run["meta"]
+        if not _checkpoint_matches(meta.get("checkpoint", ""), spec["checkpoint"]):
+            reasons.append("{}: checkpoint {!r}, expected {!r}".format(
+                name, meta.get("checkpoint"), spec["checkpoint"]))
+        if meta.get("backbone") != spec["backbone"]:
+            reasons.append("{}: backbone {!r}, expected {!r}".format(
+                name, meta.get("backbone"), spec["backbone"]))
+        digest = meta.get("manifest_hash")
+        if digest not in NOISE_MANIFEST_HASHES:
+            reasons.append("{}: manifest_hash {} is not one of the seed 1/2 manifests"
+                           .format(name, digest))
+        else:
+            seen.append(digest)
+        reasons.extend(_check_run_meta(name, run, None))
+        reasons.extend(_check_k0_only(name, run))
+        reasons.extend(_check_spectral_arrays(name, run, [0]))
+        if reference is not None and run["query"] != reference["query"]:
+            reasons.append("{}: queries differ from the gate runs".format(name))
+    if len(noise_runs) == 2 and sorted(seen) != sorted(NOISE_MANIFEST_HASHES):
+        reasons.append("the two {} must be manifest seeds 1 and 2, one each; got {}"
+                       .format(flag, sorted(seen)))
+    return reasons
+
+
 def validate_gate(by_label, roles, noise_runs, exp01_by_label, expected_hash=None,
-                  nuisance_runs=(), band_rule="v2"):
+                  nuisance_runs=(), band_rule="v3", noise_runs_cyl=()):
     """Everything the k=0 parity gate needs before it is allowed to pass.
 
     The gate decides whether the sweep may start, so it fails closed: a missing noise
@@ -977,6 +1043,7 @@ def validate_gate(by_label, roles, noise_runs, exp01_by_label, expected_hash=Non
         by_label: ``{label: run}`` for the three seed-0 runs.
         roles: ``{"primary", "cyl", "released"} -> label or None``.
         noise_runs: the control checkpoint re-evaluated on manifest seeds 1 and 2.
+        noise_runs_cyl: the same for the cylindrical checkpoint; required by v3.
         nuisance_runs: the control checkpoint re-evaluated with a different Griffin-Lim
             phase seed and with TF32; required by the amended (v2) band.
         band_rule: ``"v2"`` (the amendment) or ``"v1"`` (reference draw only).
@@ -1021,34 +1088,11 @@ def validate_gate(by_label, roles, noise_runs, exp01_by_label, expected_hash=Non
     if len(noise_runs) != 2:
         reasons.append("expected exactly 2 --noise-runs (manifest seeds 1 and 2), got {}"
                        .format(len(noise_runs)))
-    seen = []
-    for run in noise_runs:
-        name = "noise run {}".format(os.path.basename(os.path.normpath(run.get("dir", "?"))))
-        meta = run["meta"]
-        spec = EXPECTED_ROLES["primary"]
-        if not _checkpoint_matches(meta.get("checkpoint", ""), spec["checkpoint"]):
-            reasons.append("{}: checkpoint {!r}, expected the control's {!r}".format(
-                name, meta.get("checkpoint"), spec["checkpoint"]))
-        if meta.get("backbone") != spec["backbone"]:
-            reasons.append("{}: backbone {!r}, expected {!r}".format(
-                name, meta.get("backbone"), spec["backbone"]))
-        digest = meta.get("manifest_hash")
-        if digest not in NOISE_MANIFEST_HASHES:
-            reasons.append("{}: manifest_hash {} is not one of the seed 1/2 manifests"
-                           .format(name, digest))
-        else:
-            seen.append(digest)
-        reasons.extend(_check_run_meta(name, run, None))
-        reasons.extend(_check_k0_only(name, run))
-        reasons.extend(_check_spectral_arrays(name, run, [0]))
-        if reference is not None and run["query"] != reference["query"]:
-            reasons.append("{}: queries differ from the gate runs".format(name))
-    if len(noise_runs) == 2 and sorted(seen) != sorted(NOISE_MANIFEST_HASHES):
-        reasons.append("the two noise runs must be manifest seeds 1 and 2, one each; "
-                       "got {}".format(sorted(seen)))
+    reasons.extend(_check_noise_runs(noise_runs, reference, "primary", "--noise-runs"))
     if band_rule not in BAND_RULES:
         reasons.append("--band-rule {!r} is not one of {}".format(band_rule, BAND_RULES))
-    elif band_rule == "v2":
+        return reasons
+    if band_rule in ("v2", "v3"):
         if not nuisance_runs:
             reasons.append("the amended band needs --nuisance-runs (the phase and TF32 "
                            "runs); --band-rule v1 is the only way to omit them")
@@ -1056,6 +1100,15 @@ def validate_gate(by_label, roles, noise_runs, exp01_by_label, expected_hash=Non
     elif nuisance_runs:
         reasons.append("--band-rule v1 measures the reference draw alone; it must not be "
                        "given --nuisance-runs")
+    if band_rule == "v3":
+        if not noise_runs_cyl:
+            reasons.append("the per-model band needs --noise-runs-cyl (the cylindrical "
+                           "model's own reference draw)")
+        reasons.extend(_check_noise_runs(noise_runs_cyl, reference, "cyl",
+                                         "--noise-runs-cyl"))
+    elif noise_runs_cyl:
+        reasons.append("--band-rule {} has no per-model term; it must not be given "
+                       "--noise-runs-cyl".format(band_rule))
     return reasons
 
 
@@ -1144,6 +1197,14 @@ def validate_full(by_label, roles, expected_hash, settings):
     return reasons
 
 
+def _band_terms_by_label(gate_rows):
+    """``{label: {metric: terms}}`` -- the per-row terms, indexed for a results page."""
+    nested = {}
+    for row in gate_rows:
+        nested.setdefault(row["label"], {})[row["metric"]] = row["band_terms"]
+    return nested
+
+
 def _fmt(value, digits=4, sign=""):
     """Format a float for the tables; ``None`` (an undefined statistic) prints as ``-``."""
     return "-" if value is None else "{:{}.{}f}".format(float(value), sign, digits)
@@ -1212,14 +1273,18 @@ def main(argv=None):
     parser.add_argument("--noise-runs", nargs="*", default=[], metavar="DIR",
                         help="k0-gate: k=0 runs of the control checkpoint on other "
                              "manifest seeds; they measure the reference-draw spread")
+    parser.add_argument("--noise-runs-cyl", nargs="*", default=[], metavar="DIR",
+                        help="k0-gate: the cylindrical checkpoint on manifest seeds 1 and "
+                             "2; the per-model band (v3) measures its reference draw on "
+                             "the model it judges")
     parser.add_argument("--nuisance-runs", nargs="*", default=[], metavar="DIR",
                         help="k0-gate: k=0 runs of the control checkpoint with --gl-seed 1 "
                              "and with --tf32; they measure the Griffin-Lim phase and "
                              "arithmetic noise that exp_01's published means also carry")
-    parser.add_argument("--band-rule", choices=BAND_RULES, default="v2",
-                        help="k0-gate: v2 (default) widens the band by the phase and TF32 "
-                             "terms and requires --nuisance-runs; v1 is the superseded "
-                             "reference-draw-only band")
+    parser.add_argument("--band-rule", choices=BAND_RULES, default="v3",
+                        help="k0-gate: v3 (default) measures the reference draw per model "
+                             "and needs --noise-runs-cyl; v2 shares the control's terms; "
+                             "v1 is the superseded reference-draw-only band")
     parser.add_argument("--released-baseline", default="0.0549,1.358,9.69",
                         help="k0-gate: exp_01's reported EDT,C50,T60 for the released "
                              "checkpoint (it has no per-sample record)")
@@ -1280,6 +1345,7 @@ def main(argv=None):
             exp01_by_label[label] = json.load(fin)
     noise_runs = [load_run(directory) for directory in args.noise_runs]
     nuisance_runs = [load_run(directory) for directory in args.nuisance_runs]
+    noise_runs_cyl = [load_run(directory) for directory in args.noise_runs_cyl]
     released_baseline = None
     if args.released_baseline:
         parts = [value.strip() for value in args.released_baseline.split(",")]
@@ -1413,19 +1479,20 @@ def main(argv=None):
 
         if gate_mode:
             extra = validate_gate(by_label, roles, noise_runs, exp01_by_label,
-                                  args.manifest_hash, nuisance_runs, args.band_rule)
+                                  args.manifest_hash, nuisance_runs, args.band_rule,
+                                  noise_runs_cyl)
             gate_rows, gate_pass, gate_reasons = k0_gate_rows(
                 by_label, roles, exp01_by_label, noise_runs, released_baseline,
-                nuisance_runs, args.band_rule)
+                nuisance_runs, args.band_rule, noise_runs_cyl)
             gate_reasons = extra + gate_reasons
             gate_pass = bool(gate_pass and not extra)
             out.update({"gate_rows": gate_rows, "gate_pass": gate_pass,
                         "gate_reasons": gate_reasons,
                         "noise_runs": list(args.noise_runs),
+                        "noise_runs_cyl": list(args.noise_runs_cyl),
                         "nuisance_runs": list(args.nuisance_runs),
                         "band_rule": BAND_RULE_LABELS[args.band_rule],
-                        "band_terms": dict(
-                            (row["metric"], row["band_terms"]) for row in gate_rows),
+                        "band_terms": _band_terms_by_label(gate_rows),
                         "released_baseline": released_baseline})
             print("\n3b. k=0 parity gate against exp_01, band rule {}.".format(
                 BAND_RULE_LABELS[args.band_rule]))
