@@ -281,3 +281,70 @@ def test_h2_rows_skip_equivalence_at_an_angle_that_is_not_patch_aligned(two_runs
     control["P"]["48"] = control["P"]["32"]
     row = h2_rows(cyl, control, "P", "edt", [48], 200, 0.05, 0)[0]
     assert row["equivalence"] is None and row["d"] == pytest.approx(-0.15, abs=0.01)
+
+
+# --------------------------------------------------------------------------------------
+# k0_comparison -- the properly paired re-evaluation of exp_01 at k = 0
+# --------------------------------------------------------------------------------------
+def test_k0_comparison_recovers_a_known_absolute_difference(tmp_path):
+    from tools.summarize_yaw import k0_comparison, load_run, rooms_from_paths
+
+    # Same baseline seed, so the two runs are paired exactly at k = 0 and differ there
+    # by a planted constant.
+    ctrl = load_run(write_run(str(tmp_path / "ctrl"), {}, seed=3, noise_seed=1))
+    cyl = load_run(write_run(str(tmp_path / "cyl"), {}, seed=3, noise_seed=2,
+                             backbone="cylindrical", base_offset=0.01))
+    rooms = rooms_from_paths(ctrl["query"])
+    rows = {row["metric"]: row for row in
+            k0_comparison(cyl, ctrl, ["edt", "c50"], 500, 0.05, 0, rooms)}
+
+    assert sorted(rows) == ["c50", "edt"]
+    for metric, row in rows.items():
+        assert row["diff"] == pytest.approx(0.01, abs=1e-9), metric
+        assert row["cyl"] - row["ctrl"] == pytest.approx(0.01, abs=1e-9)
+        assert row["n_valid"] == 300
+        # Every resample sees the same constant difference, so both intervals collapse.
+        assert row["q_lo"] == pytest.approx(0.01, abs=1e-9)
+        assert row["q_hi"] == pytest.approx(0.01, abs=1e-9)
+        assert row["r_lo"] == pytest.approx(0.01, abs=1e-9)
+        assert row["r_hi"] == pytest.approx(0.01, abs=1e-9)
+        assert row["rel_pct"] == pytest.approx(100.0 * 0.01 / row["ctrl"], rel=1e-9)
+
+
+def test_k0_comparison_brackets_a_noisy_difference(tmp_path):
+    from tools.summarize_yaw import k0_comparison, load_run, rooms_from_paths
+
+    ctrl = load_run(write_run(str(tmp_path / "ctrl"), {}, seed=3))
+    cyl = load_run(write_run(str(tmp_path / "cyl"), {}, seed=11, backbone="cylindrical"))
+    rooms = rooms_from_paths(ctrl["query"])
+    row = k0_comparison(cyl, ctrl, ["edt"], 2000, 0.05, 0, rooms)[0]
+
+    assert row["q_lo"] < row["diff"] < row["q_hi"]
+    assert row["r_lo"] < row["diff"] < row["r_hi"]
+    assert row["q_hi"] - row["q_lo"] > 0.0 and row["r_hi"] - row["r_lo"] > 0.0
+    assert row["diff"] == pytest.approx(row["cyl"] - row["ctrl"], rel=1e-12)
+
+
+# --------------------------------------------------------------------------------------
+# convergence_check -- is the bootstrap itself converged?
+# --------------------------------------------------------------------------------------
+def test_convergence_check_is_small_for_a_converged_bootstrap(two_runs):
+    from tools.summarize_yaw import convergence_check, degradation_rows, load_run
+
+    control = load_run(two_runs[0])
+
+    def interval(seed):
+        return degradation_rows(control, "P", "edt", [32], 4000, 0.05, seed)[0]
+
+    ratio = convergence_check(interval, 0, 1)
+    assert 0.0 <= ratio < 0.10, ratio
+
+
+def test_convergence_check_reports_a_zero_width_interval_honestly():
+    from tools.summarize_yaw import convergence_check
+
+    assert convergence_check(lambda seed: {"lo": 1.0, "hi": 1.0}, 0, 1) == 0.0
+    assert math.isinf(convergence_check(
+        lambda seed: {"lo": 1.0 + seed, "hi": 1.0 + seed}, 0, 1))
+    assert convergence_check(lambda seed: {"lo": 0.0, "hi": 1.0 + 0.05 * seed}, 0, 1) \
+        == pytest.approx(0.05)

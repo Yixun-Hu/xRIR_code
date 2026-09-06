@@ -247,3 +247,127 @@ def h2_rows(run_cyl, run_ctrl, condition, metric, cols, n_boot, alpha_adj, seed,
                     row["equivalence"][name] = None
         rows.append(row)
     return rows
+
+
+# Resamples are drawn in chunks of at most this many cells (as in tools.paired_stats),
+# so a 20000 x 6337 bootstrap never materialises a 1 GB index matrix.
+_CHUNK_CELLS = 2000000
+
+
+def _abs_diff_bootstrap(d, n_boot, alpha, seed, clusters=None):
+    """Percentile bootstrap interval of ``mean(d)`` (the *absolute* paired difference).
+
+    ``tools.paired_stats`` only offers the relative form, and the ``k = 0`` table reports
+    absolute differences in the metric's own units, exactly as exp_01's tables did.
+    ``clusters`` resamples whole clusters with multiplicity weights, the same convention
+    as ``paired_stats._bootstrap_ratios``.
+
+    Args:
+        d: per-pair differences (finite, non-empty).
+        n_boot: resamples.
+        alpha: two-sided level of the ``1 - alpha`` interval.
+        seed: bootstrap seed.
+        clusters: optional cluster id per pair.
+
+    Returns:
+        ``(mean, lo, hi)`` as Python floats.
+    """
+    d = np.asarray(d, dtype=np.float64)
+    if d.size == 0:
+        raise ValueError("no valid pairs to bootstrap")
+    rng = np.random.default_rng(seed)
+    boots = np.empty(int(n_boot), dtype=np.float64)
+    done = 0
+    if clusters is None:
+        n = d.size
+        chunk = max(1, min(int(n_boot), _CHUNK_CELLS // max(n, 1)))
+        while done < int(n_boot):
+            size = min(chunk, int(n_boot) - done)
+            boots[done:done + size] = d[rng.integers(0, n, size=(size, n))].mean(axis=1)
+            done += size
+    else:
+        _, inverse = np.unique(np.asarray(clusters), return_inverse=True)
+        n_cl = int(inverse.max()) + 1
+        counts = np.bincount(inverse, minlength=n_cl).astype(np.float64)
+        sums = np.bincount(inverse, weights=d, minlength=n_cl)
+        chunk = max(1, min(int(n_boot), _CHUNK_CELLS // max(n_cl, 1)))
+        while done < int(n_boot):
+            size = min(chunk, int(n_boot) - done)
+            draws = rng.integers(0, n_cl, size=(size, n_cl))
+            weights = np.zeros((size, n_cl), dtype=np.float64)
+            np.add.at(weights, (np.repeat(np.arange(size), n_cl), draws.ravel()), 1.0)
+            boots[done:done + size] = (weights @ sums) / (weights @ counts)
+            done += size
+    lo, hi = np.percentile(boots, [100.0 * alpha / 2.0, 100.0 * (1.0 - alpha / 2.0)])
+    return float(d.mean()), float(lo), float(hi)
+
+
+def k0_comparison(run_cyl, run_ctrl, metrics, n_boot, alpha, seed, rooms=None):
+    """The paired cylindrical-vs-control comparison at ``k = 0``.
+
+    This is the properly paired re-evaluation of exp_01: both models are read from the
+    *same* reference manifest with per-query seeded Griffin-Lim phases, so the difference
+    is a genuine paired contrast rather than the reference-draw noise exp_01 measured.
+    Reported at the nominal level, like exp_01's tables -- it is not part of the
+    confirmatory family.
+
+    Args:
+        run_cyl, run_ctrl: the two runs, query-aligned.
+        metrics: metric names to report, in print order.
+        n_boot: bootstrap resamples.
+        alpha: two-sided level (nominal 0.05, unadjusted).
+        seed: bootstrap seed.
+        rooms: optional room id per query, adding the room-cluster interval.
+
+    Returns:
+        One dict per metric: ``{metric, cyl, ctrl, diff, rel_pct, q_lo, q_hi, r_lo, r_hi,
+        n_valid}``.
+
+    Raises:
+        ValueError: if the two runs are not query-aligned.
+    """
+    if run_cyl["query"] != run_ctrl["query"]:
+        raise ValueError("the two runs are not query-aligned: the k=0 contrast would "
+                         "not be paired")
+    rooms = None if rooms is None else np.asarray(rooms)
+    rows = []
+    for metric in metrics:
+        a = np.asarray(run_cyl["P"]["0"][metric], dtype=np.float64)
+        b = np.asarray(run_ctrl["P"]["0"][metric], dtype=np.float64)
+        mask = np.isfinite(a) & np.isfinite(b)
+        diff, q_lo, q_hi = _abs_diff_bootstrap(a[mask] - b[mask], n_boot, alpha, seed)
+        row = {"metric": metric, "cyl": float(a[mask].mean()), "ctrl": float(b[mask].mean()),
+               "diff": diff, "rel_pct": float(100.0 * diff / b[mask].mean()),
+               "q_lo": q_lo, "q_hi": q_hi, "r_lo": None, "r_hi": None,
+               "n_valid": int(mask.sum())}
+        if rooms is not None:
+            _, r_lo, r_hi = _abs_diff_bootstrap(a[mask] - b[mask], n_boot, alpha, seed,
+                                                clusters=rooms[mask])
+            row.update({"r_lo": r_lo, "r_hi": r_hi})
+        rows.append(row)
+    return rows
+
+
+def convergence_check(fn, seed_a, seed_b):
+    """How far a confirmatory interval moves when only the bootstrap seed changes.
+
+    A percentile interval is itself a Monte-Carlo estimate; if ``n_boot`` is too small
+    the reported bound is noise, and a pre-registered threshold on a noisy bound is not
+    a decision rule.  Recomputing with a second seed and expressing the movement as a
+    fraction of the interval's own width makes that visible.
+
+    Args:
+        fn: ``seed -> {"lo": ..., "hi": ...}``.
+        seed_a, seed_b: the two bootstrap seeds.
+
+    Returns:
+        ``max(|dlo|, |dhi|) / width``; ``0.0`` if the interval is degenerate and did not
+        move (perfectly proportional data), ``inf`` if it is degenerate and did move.
+    """
+    first, second = fn(seed_a), fn(seed_b)
+    width = float(first["hi"]) - float(first["lo"])
+    change = max(abs(float(first["lo"]) - float(second["lo"])),
+                 abs(float(first["hi"]) - float(second["hi"])))
+    if width <= 0.0:
+        return 0.0 if change == 0.0 else float("inf")
+    return change / width
