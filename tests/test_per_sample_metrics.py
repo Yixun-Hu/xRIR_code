@@ -11,7 +11,7 @@ import io
 import pytest
 import torch
 
-from tools.per_sample_metrics import per_sample_losses
+from tools.per_sample_metrics import griffin_lim_seeded, per_sample_losses, sample_seed
 from utils.spec_utils import compute_spect_energy_decay_losses, stft_l1_loss
 
 
@@ -89,3 +89,59 @@ def test_per_sample_losses_separate_the_samples():
     assert float(stft[1]) < 1e-6 and float(decay[1]) < 1e-6
     assert float(stft[0]) > 1e-3
     assert float(loss[0]) > float(loss[1])
+
+
+# --------------------------------------------------------------------------------------
+# T12 -- sample_seed / griffin_lim_seeded
+# --------------------------------------------------------------------------------------
+def test_sample_seed_is_stable_distinct_and_63_bit():
+    a = sample_seed(0, "Office/Office_idx_10/S001_R000_hybrid_IR.wav")
+    assert isinstance(a, int)
+    assert a == sample_seed(0, "Office/Office_idx_10/S001_R000_hybrid_IR.wav")
+    assert 0 <= a < 2 ** 63
+    assert a != sample_seed(1, "Office/Office_idx_10/S001_R000_hybrid_IR.wav")
+    assert a != sample_seed(0, "Office/Office_idx_10/S002_R000_hybrid_IR.wav")
+
+    keys = ["Room/S00{}_R000_hybrid_IR.wav".format(i) for i in range(200)]
+    seeds = [sample_seed(0, k) for k in keys]
+    assert len(set(seeds)) == len(seeds)
+    assert all(0 <= s < 2 ** 63 for s in seeds)
+
+
+def _mag(freq=63, time=310, seed=0):
+    gen = torch.Generator().manual_seed(seed)
+    return torch.rand(freq, time, generator=gen) * 2.0
+
+
+def test_griffin_lim_seeded_is_reproducible_and_seed_sensitive():
+    mag = _mag()
+    first = griffin_lim_seeded(mag, 12345)
+    assert first.dim() == 2 and first.shape[0] == 1
+    assert first.shape[1] > 8000, "310 frames at hop 31 must invert to > 8000 samples"
+    assert torch.isfinite(first).all()
+
+    # Same seed, same magnitudes (a distinct tensor object) -> bit-identical waveform.
+    assert torch.equal(griffin_lim_seeded(mag.clone(), 12345), first)
+    # Re-seeding happens inside the call, so an intervening draw cannot shift it.
+    torch.rand(17)
+    assert torch.equal(griffin_lim_seeded(mag, 12345), first)
+    # A different seed picks a different random phase.
+    assert not torch.equal(griffin_lim_seeded(mag, 12346), first)
+
+
+def test_griffin_lim_seeded_accepts_both_layouts_and_rejects_others():
+    mag = _mag(seed=1)
+    flat = griffin_lim_seeded(mag, 7)
+    batched = griffin_lim_seeded(mag.unsqueeze(0), 7)
+    assert batched.shape == flat.shape
+    assert torch.equal(batched, flat), "[F, T] and [1, F, T] must invert identically"
+
+    for bad in (torch.rand(2, 63, 310), torch.rand(310), torch.rand(1, 1, 63, 310)):
+        with pytest.raises(ValueError):
+            griffin_lim_seeded(bad, 7)
+
+
+def test_griffin_lim_seeded_separates_different_magnitudes():
+    seeded = griffin_lim_seeded(_mag(seed=2), 99)
+    other = griffin_lim_seeded(_mag(seed=3), 99)
+    assert not torch.equal(seeded, other)
