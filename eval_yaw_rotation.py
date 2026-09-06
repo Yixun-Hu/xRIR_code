@@ -487,6 +487,17 @@ def _check_cols(yaw_cols, acoustic_cols, e_acoustic_cols):
     return cols, acoustic, e_acoustic
 
 
+def _json_values(values):
+    """One per-sample array as strict JSON: every non-finite value becomes ``null``.
+
+    NaN marks a sample the angle invalidated, and it has to survive the round trip: the
+    JSON ``NaN`` literal is not valid JSON (browsers and strict parsers reject it), so
+    the files are written with ``allow_nan=False`` and invalid samples are ``null``.
+    ``tools/summarize_yaw.py`` reads ``null`` back as NaN.
+    """
+    return [None if not np.isfinite(value) else float(value) for value in values]
+
+
 def _summarize(values):
     """``{"mean", "n_valid", "n_nan"}`` of one per-sample array (mean over finite values)."""
     array = np.asarray(values, dtype=np.float64)
@@ -504,9 +515,9 @@ def run(args):
 
     Writes ``<out-dir>/per_sample_yaw.json`` (every per-sample value, keyed by condition
     and angle, plus the query order and the run's meta block) and
-    ``<out-dir>/metrics_yaw.json`` (their means and validity counts).  NaN marks an
-    invalid sample and is written as the JSON ``NaN`` literal, which Python's ``json``
-    reads back as ``float("nan")`` -- ``tools/summarize_yaw.py`` relies on that.
+    ``<out-dir>/metrics_yaw.json`` (their means and validity counts).  Both are strict
+    JSON (``allow_nan=False``): a sample the angle invalidated is ``null``, never a
+    ``NaN`` literal, and ``tools/summarize_yaw.py`` reads ``null`` back as NaN.
 
     Args:
         args: the parsed CLI namespace (see :func:`main`).
@@ -591,7 +602,7 @@ def run(args):
                    "decomposition": decomposition}
     for condition in ("P", "E"):
         per_sample[condition] = {
-            str(k): {metric: [float(v) for v in values]
+            str(k): {metric: _json_values(values)
                      for metric, values in merged[(condition, k)].items()}
             for k in cols}
         metrics_out[condition] = {
@@ -603,7 +614,7 @@ def run(args):
     for name, payload in (("per_sample_yaw.json", per_sample),
                           ("metrics_yaw.json", metrics_out)):
         with open(os.path.join(args.out_dir, name), "w") as fout:
-            json.dump(payload, fout)          # allow_nan: NaN marks an invalid sample
+            json.dump(payload, fout, allow_nan=False)      # invalid samples are null
         print("wrote {}".format(os.path.join(args.out_dir, name)), flush=True)
     print("done: {} samples x {} angles x 2 conditions in {:.2f} min".format(
         n_samples, len(cols), meta["elapsed_min"]), flush=True)

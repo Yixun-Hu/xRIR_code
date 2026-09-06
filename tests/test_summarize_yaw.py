@@ -81,8 +81,18 @@ def write_run(directory, shifts, n=300, seed=0, backbone="simple",
             run[condition][str(k)] = cell
     os.makedirs(directory, exist_ok=True)
     with open(os.path.join(directory, "per_sample_yaw.json"), "w") as fout:
-        json.dump(run, fout)
+        # Strict JSON, exactly as eval_yaw_rotation.py writes it: invalid samples are null.
+        json.dump(_nulled(run), fout, allow_nan=False)
     return directory
+
+
+def _nulled(run):
+    """Replace every non-finite per-sample value with ``None`` (strict-JSON encoding)."""
+    for condition in ("P", "E"):
+        for cell in run[condition].values():
+            for metric, values in cell.items():
+                cell[metric] = [None if not np.isfinite(v) else float(v) for v in values]
+    return run
 
 
 @pytest.fixture(scope="module")
@@ -436,3 +446,25 @@ def test_main_skips_a_metric_the_run_did_not_evaluate_at_every_angle(two_runs, t
     assert "edt" not in out["acoustic"]["partial"]["E"]
     assert "c50" in out["acoustic"]["partial"]["E"]
     assert "edt" in out["acoustic"]["partial"]["P"]
+
+
+def test_the_summarizer_reads_null_and_nan_encodings_identically(two_runs, tmp_path):
+    """The evaluator writes strict JSON (null); an older file may carry NaN literals."""
+    from tools.summarize_yaw import degradation_rows, load_run
+
+    strict = load_run(two_runs[0])
+    legacy_dir = str(tmp_path / "legacy")
+    os.makedirs(legacy_dir, exist_ok=True)
+    legacy = json.load(open(os.path.join(two_runs[0], "per_sample_yaw.json")))
+    for condition in ("P", "E"):
+        for cell in legacy[condition].values():
+            for metric, values in cell.items():
+                cell[metric] = [float("nan") if v is None else v for v in values]
+    with open(os.path.join(legacy_dir, "per_sample_yaw.json"), "w") as fout:
+        json.dump(legacy, fout)                      # allow_nan default: NaN literals
+
+    assert None in strict["P"]["32"]["edt"], "the fixture must contain an invalid sample"
+    rows_strict = degradation_rows(strict, "P", "edt", [0, 32], 500, 0.05, 0)
+    rows_legacy = degradation_rows(load_run(legacy_dir), "P", "edt", [0, 32], 500, 0.05, 0)
+    assert rows_strict == rows_legacy
+    assert rows_strict[1]["validity"]["newly_invalid"] == 3

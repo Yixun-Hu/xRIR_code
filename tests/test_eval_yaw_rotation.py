@@ -629,6 +629,14 @@ def test_run_writes_both_json_files_for_the_released_checkpoint(tmp_path, capsys
     assert per_sample["delay_flips"]["0"] == 0
     assert per_sample["decomposition"] is None, "the simple backbone has no decomposition"
 
+    # Strict JSON: an invalid sample is null, never the NaN literal, and both files
+    # survive a strict re-encode.
+    for path in (per_sample_path, metrics_path):
+        raw = open(path).read()
+        assert "NaN" not in raw and "Infinity" not in raw, path
+    json.dumps(per_sample, allow_nan=False)
+    json.dumps(metrics, allow_nan=False)
+
     with capsys.disabled():
         print("\n[T16] released checkpoint, 4 queries x 2 angles x 2 conditions in "
               "{:.1f}s ({:.2f} samples/s, meta.elapsed_min={:.3f})".format(
@@ -703,3 +711,16 @@ def test_run_computes_the_last_short_batch_at_the_canonical_shape(tmp_path):
         for angle, cell in short[condition].items():
             for metric, values in cell.items():
                 assert values[2] == full[condition][angle][metric][2], (condition, angle, metric)
+
+
+def test_json_values_replaces_every_non_finite_with_null():
+    import json
+    import math
+
+    from eval_yaw_rotation import _json_values
+
+    got = _json_values([1.5, float("nan"), float("inf"), -float("inf"), 0.0])
+    assert got == [1.5, None, None, None, 0.0]
+    assert json.dumps(got, allow_nan=False) == "[1.5, null, null, null, 0.0]"
+    assert all(isinstance(v, float) for v in got if v is not None)
+    assert not any(v is not None and math.isnan(v) for v in got)
