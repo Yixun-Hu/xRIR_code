@@ -93,6 +93,25 @@ def write_run(directory, shifts, n=300, seed=0, backbone="simple",
         # Strict JSON, exactly as eval_yaw_rotation.py writes it: invalid samples are null.
         json.dump(_nulled(run), fout, allow_nan=False)
     write_provenance(directory, checkpoint, manifest_hash)
+    write_metrics(directory, run)
+    return directory
+
+
+def write_metrics(directory, run):
+    """``metrics_yaw.json`` as eval_yaw_rotation.py writes it: the per-angle summaries."""
+    payload = {"meta": run["meta"], "delay_flips": run["delay_flips"],
+               "decomposition": run["decomposition"]}
+    for condition in ("P", "E"):
+        payload[condition] = {}
+        for angle, cell in run[condition].items():
+            payload[condition][angle] = {}
+            for metric, values in cell.items():
+                finite = [v for v in values if v is not None and np.isfinite(v)]
+                payload[condition][angle][metric] = {
+                    "mean": float(np.mean(finite)) if finite else None,
+                    "n_valid": len(finite), "n_nan": len(values) - len(finite)}
+    with open(os.path.join(directory, "metrics_yaw.json"), "w") as fout:
+        json.dump(payload, fout, allow_nan=False)
     return directory
 
 
@@ -1450,3 +1469,32 @@ def test_main_writes_only_strict_json(two_runs, tmp_path):
     raw = open(json_path).read()
     assert "NaN" not in raw and "Infinity" not in raw
     json.loads(raw)
+
+
+def test_full_mode_reconciles_the_metrics_file_with_the_per_sample_arrays(tmp_path,
+                                                                         monkeypatch):
+    from tools.summarize_yaw import load_run, validate_full
+
+    relax_full_expectations(monkeypatch)
+
+    def reasons_for(mutate=None, remove=False):
+        runs = _full_trio(tmp_path / ("rec{}".format(id(mutate) + int(remove))))
+        path = os.path.join(runs[0], "metrics_yaw.json")
+        if remove:
+            os.remove(path)
+        elif mutate is not None:
+            payload = json.load(open(path))
+            mutate(payload)
+            with open(path, "w") as fout:
+                json.dump(payload, fout)
+        by_label = {label: load_run(directory) for label, directory in
+                    zip(("control", "cyl", "released"), runs)}
+        return validate_full(by_label, _roles("control", "cyl", "released"),
+                             MANIFEST_HASH, PRE_REGISTERED_SETTINGS)
+
+    assert reasons_for() == []
+    assert any("metrics_yaw.json missing" in reason for reason in reasons_for(remove=True))
+    assert any("k=32 edt" in reason and "mean" in reason for reason in reasons_for(
+        lambda payload: payload["P"]["32"]["edt"].update(mean=0.5)))
+    assert any("n_valid" in reason for reason in reasons_for(
+        lambda payload: payload["P"]["32"]["edt"].update(n_valid=1)))

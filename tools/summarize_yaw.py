@@ -18,6 +18,9 @@ family size and the sha256 of the printed text, so a results page can bind the t
   bootstrap is converged; otherwise nothing is written and the exit status is non-zero.
 * ``k0-gate`` -- the ``k = 0`` parity gate that must pass before the sweep runs: the
   paired cylindrical-vs-control table plus the distributional comparison with exp_01.
+  Gate runs are k=0 only, so evaluate them with ``--yaw-cols 0 --acoustic-cols 0
+  --e-acoustic-cols`` and ``--decomposition-batches 0`` (the decomposition is about a
+  rotated angle and has nothing to say here).
 * ``exploratory`` -- anything else (a smoke run, a partial grid).  The verdicts and the
   canonical ``summary_sha256`` are suppressed so the output cannot be mistaken for a
   confirmatory one.
@@ -742,6 +745,54 @@ def _check_provenance(label, run):
     return reasons
 
 
+def _check_metrics_reconciliation(label, run):
+    """``metrics_yaw.json`` must be the summary of the per-sample arrays beside it.
+
+    The two files are written from the same in-memory arrays, so a disagreement means one
+    of them was edited, truncated or copied from another run -- exactly the kind of mix-up
+    a confirmatory summary must not build on.
+    """
+    directory = run.get("dir")
+    path = os.path.join(directory, "metrics_yaw.json") if directory else None
+    if path is None or not os.path.exists(path):
+        return ["{}: metrics_yaw.json missing ({})".format(
+            label, path or "the run has no directory")]
+    try:
+        with open(path, "r") as fin:
+            metrics = json.load(fin)
+    except ValueError as error:
+        return ["{}: metrics_yaw.json is not readable JSON ({})".format(label, error)]
+
+    reasons = []
+    for condition in ("P", "E"):
+        for angle, cell in sorted(metrics.get(condition, {}).items()):
+            for metric, summary in sorted(cell.items()):
+                values = run.get(condition, {}).get(angle, {}).get(metric)
+                if values is None:
+                    reasons.append("{}: metrics_yaw.json has {} k={} {} but the "
+                                   "per-sample file does not".format(
+                                       label, condition, angle, metric))
+                    continue
+                array = _as_array(values)
+                finite = np.isfinite(array)
+                mean = float(array[finite].mean()) if finite.any() else None
+                if int(finite.sum()) != summary.get("n_valid") or \
+                        int((~finite).sum()) != summary.get("n_nan"):
+                    reasons.append("{}: {} k={} {} n_valid/n_nan {}/{} do not match the "
+                                   "per-sample {}/{}".format(
+                                       label, condition, angle, metric,
+                                       summary.get("n_valid"), summary.get("n_nan"),
+                                       int(finite.sum()), int((~finite).sum())))
+                recorded = summary.get("mean")
+                if (mean is None) != (recorded is None) or (
+                        mean is not None and
+                        abs(mean - recorded) > 1e-9 * max(1.0, abs(mean))):
+                    reasons.append("{}: {} k={} {} mean {} does not match the per-sample "
+                                   "{}".format(label, condition, angle, metric, recorded,
+                                               mean))
+    return reasons
+
+
 def _check_roles(by_label, roles):
     """The three runs must be the three pinned checkpoints, on the right backbone."""
     reasons = []
@@ -945,6 +996,7 @@ def validate_full(by_label, roles, expected_hash, settings):
         meta = run["meta"]
         reasons.extend(_check_run_meta(label, run, MANIFEST_HASH_SEED0))
         reasons.extend(_check_provenance(label, run))
+        reasons.extend(_check_metrics_reconciliation(label, run))
         if meta.get("manifest_seed") != expectations["manifest_seed"]:
             reasons.append("{}: meta.manifest_seed is {!r}, expected {!r}".format(
                 label, meta.get("manifest_seed"), expectations["manifest_seed"]))
