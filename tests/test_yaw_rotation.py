@@ -122,16 +122,18 @@ def test_rotate_scene_yaw_matches_reprojected_rolled_depth():
     zeros_src = torch.zeros(1, 3)
     zeros_ref = torch.zeros(1, 1, 3)
 
-    for k in (0, 1, 32, 100, 511):
+    # Negative k is compared against np.roll with a negative shift -- an independent
+    # oracle, not another call of rotate_scene_yaw.
+    for k in (0, 1, 32, 100, 511, -16, -100):
         got = rotate_scene_yaw(depth_coord, zeros_src, zeros_ref, k, W=W)[0]
         want = convert(np.roll(depth_map, k, axis=1))
         assert got.shape == want.shape
         # All three channels, every column.
-        assert torch.allclose(got, want, atol=1e-4), "k={} max|d|={}".format(
+        assert torch.allclose(got, want, atol=1e-5, rtol=0), "k={} max|d|={}".format(
             k, (got - want).abs().max().item())
         # Seam columns checked explicitly (wrap-around is where a convention error shows).
         for col in (0, W - 1):
-            assert torch.allclose(got[..., col], want[..., col], atol=1e-4), \
+            assert torch.allclose(got[..., col], want[..., col], atol=1e-5, rtol=0), \
                 "k={} col={}".format(k, col)
 
 
@@ -226,6 +228,33 @@ def test_integer_delays_reproduces_shift_and_align(simple_model):
     got = simple_model.shift_and_align(refs, src, ref_locs)
     assert got.shape == expected.shape
     assert torch.allclose(got, expected, atol=1e-6)
+
+
+def test_integer_delays_uses_round_half_to_even_at_exact_ties():
+    """Exact float32 .5 ties must round half-to-even, exactly as the model does."""
+    from tools.yaw_rotation import integer_delays
+
+    # float32 values whose (d / 343.) * 22050 evaluates to exactly +-0.5 / +-1.5 in float32
+    # (found by an ulp search; the assertion below fails loudly if that ever stops holding).
+    s_half, s_three_half = 0.007777777500450611, 0.023333333432674408
+    zero = [0.0, 0.0, 0.0]
+    src = torch.tensor([[s_half, 0.0, 0.0], zero, [s_three_half, 0.0, 0.0], zero],
+                       dtype=torch.float32)
+    ref_locs = torch.tensor([[zero], [[s_half, 0.0, 0.0]], [zero], [[s_three_half, 0.0, 0.0]]],
+                            dtype=torch.float32)
+
+    dist_src = torch.linalg.norm(src, dim=1).unsqueeze(1)
+    dist_ref = torch.linalg.norm(ref_locs, dim=-1)
+    raw = (dist_src - dist_ref) / 343. * 22050
+    assert raw.flatten().tolist() == [0.5, -0.5, 1.5, -1.5], "tie construction broke: {}".format(
+        raw.flatten().tolist())
+
+    delay_unit = torch.round(raw).int()                      # the model's own expression
+    got = integer_delays(src, ref_locs)
+    assert got.dtype == torch.int32 == delay_unit.dtype
+    assert torch.equal(got, delay_unit)
+    # Half-to-even, not half-away-from-zero: 0.5 -> 0, -0.5 -> 0, 1.5 -> 2, -1.5 -> -2.
+    assert got.flatten().tolist() == [0, 0, 2, -2]
 
 
 def test_fixed_alignment_swaps_and_restores(simple_model):
