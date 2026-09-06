@@ -226,3 +226,58 @@ def test_h1_wording_covers_the_four_outcomes():
     assert h1_wording(True, False) == "supported for the same-budget model only"
     assert h1_wording(False, True) == "replication only"
     assert h1_wording(False, False) == "not supported"
+
+
+# --------------------------------------------------------------------------------------
+# h2_rows -- difference in differences and patch-aligned equivalence
+# --------------------------------------------------------------------------------------
+def test_h2_rows_have_the_right_sign_and_test_equivalence_where_it_is_claimed(two_runs):
+    from tools.summarize_yaw import h2_rows, load_run, rooms_from_paths
+
+    control, cyl = load_run(two_runs[0]), load_run(two_runs[1])
+    rooms = rooms_from_paths(cyl["query"])
+    rows = {row["k"]: row for row in
+            h2_rows(cyl, control, "P", "edt", [0, 32, 64], 2000, 0.05, 0, rooms=rooms)}
+    assert sorted(rows) == [0, 32, 64]
+
+    # planted: r_cyl - r_ctrl = 0.00 - 0.15 at k=32 and 0.05 - 0.30 at k=64.
+    assert rows[0]["d"] == pytest.approx(0.0, abs=1e-9)
+    assert rows[32]["d"] == pytest.approx(-0.15, abs=0.01)
+    assert rows[64]["d"] == pytest.approx(-0.25, abs=0.01)
+    for k in (32, 64):
+        assert rows[k]["hi"] < 0.0, "the cylindrical model degrades less: D_k < 0"
+        assert rows[k]["lo"] < rows[k]["d"] < rows[k]["hi"]
+        assert rows[k]["c_lo"] is not None and rows[k]["c_hi"] is not None
+        assert rows[k]["r_cyl"] == pytest.approx(0.0 if k == 32 else 0.05, abs=0.01)
+        assert rows[k]["r_ctrl"] == pytest.approx(0.15 if k == 32 else 0.30, abs=0.01)
+        assert rows[k]["n_valid"] == 296
+
+    # Equivalence is claimed only at the patch-aligned angles, and only for the
+    # cylindrical model: it holds for a zero shift and fails for a 5 % one at +-2 %.
+    assert rows[0]["equivalence"] is None
+    assert rows[32]["equivalence"]["query"]["equivalent"] is True
+    assert rows[64]["equivalence"]["query"]["equivalent"] is False
+    assert rows[64]["equivalence"]["query"]["r"] == pytest.approx(0.05, abs=0.01)
+    for k in (32, 64):
+        assert rows[k]["equivalence"]["margin"] == 0.02
+        assert "equivalent" in rows[k]["equivalence"]["cluster"]
+
+
+def test_h2_rows_refuse_two_runs_that_are_not_query_aligned(two_runs, tmp_path):
+    from tools.summarize_yaw import h2_rows, load_run
+
+    control, cyl = load_run(two_runs[0]), load_run(two_runs[1])
+    shuffled = dict(cyl)
+    shuffled["query"] = list(reversed(cyl["query"]))
+    with pytest.raises(ValueError):
+        h2_rows(shuffled, control, "P", "edt", [32], 200, 0.05, 0)
+
+
+def test_h2_rows_skip_equivalence_at_an_angle_that_is_not_patch_aligned(two_runs):
+    from tools.summarize_yaw import h2_rows, load_run
+
+    control, cyl = load_run(two_runs[0]), load_run(two_runs[1])
+    cyl["P"]["48"] = cyl["P"]["32"]
+    control["P"]["48"] = control["P"]["32"]
+    row = h2_rows(cyl, control, "P", "edt", [48], 200, 0.05, 0)[0]
+    assert row["equivalence"] is None and row["d"] == pytest.approx(-0.15, abs=0.01)

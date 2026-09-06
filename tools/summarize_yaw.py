@@ -22,6 +22,8 @@ import os
 import numpy as np
 
 from tools.paired_stats import (
+    diff_in_diff_bootstrap,
+    equivalence_tost,
     paired_validity,
     relative_degradation_bootstrap,
     valid_mask,
@@ -170,3 +172,78 @@ def h1_wording(primary_pass, released_pass):
     if released_pass:
         return "replication only"
     return "not supported"
+
+
+def h2_rows(run_cyl, run_ctrl, condition, metric, cols, n_boot, alpha_adj, seed,
+            rooms=None, equiv_margin=0.02, patch_width=32):
+    """H2: does the cylindrical backbone degrade less than the same-budget control?
+
+    The statistic is the difference in relative degradations ``D_k = r_cyl - r_ctrl``,
+    with both ratios recomputed on the *same* bootstrap resamples, so the interval
+    reflects the cross-model difference and not the query noise the two models share.
+    At the patch-aligned angles -- where CylindricalViT's tokens are equivariant by
+    construction -- the plan claims "nearly unchanged", which is an equivalence claim,
+    so those angles also get a TOST on the cylindrical model's own ``r_k``.
+
+    Args:
+        run_cyl, run_ctrl: the two runs, evaluated on the same queries in the same order.
+        condition: ``"P"`` or ``"E"``.
+        metric: the per-sample metric name.
+        cols: the angles to report.
+        n_boot: bootstrap resamples.
+        alpha_adj: the adjusted level (two-sided for ``D_k``, per one-sided test for TOST).
+        seed: bootstrap seed.
+        rooms: optional room id per query, adding the cluster intervals.
+        equiv_margin: the equivalence margin on ``r`` (the plan's +-2 %).
+        patch_width: columns per azimuth patch; ``k`` is patch-aligned iff it is a
+            non-zero multiple of it.
+
+    Returns:
+        A list of dicts ``{k, deg, d, lo, hi, c_lo, c_hi, r_cyl, r_ctrl, n_valid,
+        equivalence}``; ``equivalence`` is ``None`` unless the angle is patch-aligned,
+        and otherwise ``{"margin", "query", "cluster"}`` with the two TOST results.
+
+    Raises:
+        ValueError: if the two runs are not query-aligned.
+    """
+    if run_cyl["query"] != run_ctrl["query"]:
+        raise ValueError("the two runs are not query-aligned: D_k would not be paired")
+    a0 = np.asarray(run_cyl[condition]["0"][metric], dtype=np.float64)
+    b0 = np.asarray(run_ctrl[condition]["0"][metric], dtype=np.float64)
+    rooms = None if rooms is None else np.asarray(rooms)
+    rows = []
+    for k in cols:
+        ak = np.asarray(run_cyl[condition][str(int(k))][metric], dtype=np.float64)
+        bk = np.asarray(run_ctrl[condition][str(int(k))][metric], dtype=np.float64)
+        mask = valid_mask(a0, ak) & valid_mask(b0, bk)
+        clusters = None if rooms is None else rooms[mask]
+        row = {"k": int(k), "deg": signed_degrees(k), "n_valid": int(mask.sum()),
+               "d": None, "lo": None, "hi": None, "c_lo": None, "c_hi": None,
+               "r_cyl": None, "r_ctrl": None, "equivalence": None}
+        try:
+            res = diff_in_diff_bootstrap(a0[mask], ak[mask], b0[mask], bk[mask],
+                                         n_boot=int(n_boot), alpha=float(alpha_adj),
+                                         seed=int(seed))
+            row.update({"d": res["d"], "lo": res["lo"], "hi": res["hi"],
+                        "r_cyl": res["r_a"], "r_ctrl": res["r_b"]})
+            if clusters is not None:
+                cluster = diff_in_diff_bootstrap(
+                    a0[mask], ak[mask], b0[mask], bk[mask], n_boot=int(n_boot),
+                    alpha=float(alpha_adj), seed=int(seed), clusters=clusters)
+                row.update({"c_lo": cluster["lo"], "c_hi": cluster["hi"]})
+        except ValueError:
+            pass
+        if int(k) != 0 and int(k) % int(patch_width) == 0:
+            row["equivalence"] = {"margin": float(equiv_margin), "query": None,
+                                  "cluster": None}
+            for name, ids in (("query", None), ("cluster", clusters)):
+                if name == "cluster" and ids is None:
+                    continue
+                try:
+                    row["equivalence"][name] = equivalence_tost(
+                        a0[mask], ak[mask], margin=float(equiv_margin), n_boot=int(n_boot),
+                        alpha=float(alpha_adj), seed=int(seed), clusters=ids)
+                except ValueError:
+                    row["equivalence"][name] = None
+        rows.append(row)
+    return rows
