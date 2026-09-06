@@ -1,0 +1,72 @@
+split: unseen  samples: 6337 / 6337  backbone: cylindrical  checkpoint: ckpt/xRIR_cyl_8_shot/epoch_02.pth
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+[1000/6337] EDT 0.0286s  C50 0.6663dB  T60 5.939%  STFT-MSE 0.3604  loss 0.0182  (5.98 samp/s, eta 14.9 min)
+[2000/6337] EDT 0.0758s  C50 1.7762dB  T60 6.708%  STFT-MSE 0.5325  loss 0.0192  (6.04 samp/s, eta 12.0 min)
+[3000/6337] EDT 0.0663s  C50 1.6781dB  T60 7.822%  STFT-MSE 0.4820  loss 0.0194  (6.06 samp/s, eta 9.2 min)
+[4000/6337] EDT 0.0645s  C50 1.7861dB  T60 7.834%  STFT-MSE 0.4759  loss 0.0181  (6.08 samp/s, eta 6.4 min)
+[5000/6337] EDT 0.0575s  C50 1.6079dB  T60 8.766%  STFT-MSE 0.4378  loss 0.0180  (6.08 samp/s, eta 3.7 min)
+[6000/6337] EDT 0.0529s  C50 1.4813dB  T60 9.275%  STFT-MSE 0.4173  loss 0.0178  (6.09 samp/s, eta 0.9 min)
+[6337/6337] EDT 0.0526s  C50 1.4282dB  T60 8.913%  STFT-MSE 0.4266  loss 0.0177  (6.09 samp/s, eta 0.0 min)
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:641: UserWarning: stft with return_complex=False is deprecated. In a future pytorch release, stft will return complex tensors for all inputs, and return_complex=False will raise an error.
+Note: you can still call torch.view_as_real on the complex output to recover the old return format. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:862.)
+  return _VF.stft(input, n_fft, hop_length, win_length, window,  # type: ignore[attr-defined]
+{
+  "backbone": "cylindrical",
+  "checkpoint": "ckpt/xRIR_cyl_8_shot/epoch_02.pth",
+  "split": "unseen",
+  "num_shot": 8,
+  "seed": 0,
+  "shuffle": false,
+  "n_samples": 6337,
+  "n_split_total": 6337,
+  "edt_error_s": {
+    "mean": 0.05257278546577223,
+    "median": 0.027482993197278927,
+    "n": 6337
+  },
+  "c50_error_db": {
+    "mean": 1.428180611900429,
+    "median": 0.8135640621185303,
+    "n": 6337
+  },
+  "t60_error_pct": {
+    "mean": 8.913286623425178,
+    "median": 5.492362690932743,
+    "n": 6337
+  },
+  "stft_log_mse": {
+    "mean": 0.42661737994297794,
+    "median": 0.3608137369155884,
+    "n": 6337
+  },
+  "test_loss": {
+    "mean": 0.017719591631687365,
+    "median": 0.014777489937841892,
+    "n": 6337
+  },
+  "c50_outliers": 0,
+  "t60_invalid": 0,
+  "edt_invalid": 0,
+  "elapsed_min": 17.35215297540029
+}
+Average EDT error: 0.05257278546577223
+Average C50 error: 1.428180611900429
+Average T60 error: 8.913286623425178
+Number of Outliers: 0
+saved ckpt/xRIR_cyl_8_shot/eval_unseen_epoch02.json
+saved ckpt/xRIR_cyl_8_shot/per_sample_unseen_epoch02.json

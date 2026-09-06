@@ -1,0 +1,774 @@
+{
+ "draft": false,
+ "missing": [],
+ "means": {
+  "released|zero-shot|class_room|edt": [
+   [
+    "zeroshot",
+    0.16669752134114987
+   ]
+  ],
+  "released|zero-shot|class_room|c50": [
+   [
+    "zeroshot",
+    3.3727991513087723
+   ]
+  ],
+  "released|zero-shot|class_room|t60": [
+   [
+    "zeroshot",
+    7.869629029338359
+   ]
+  ],
+  "released|zero-shot|dampened_room|edt": [
+   [
+    "zeroshot",
+    0.07492338349481208
+   ]
+  ],
+  "released|zero-shot|dampened_room|c50": [
+   [
+    "zeroshot",
+    4.757396837677619
+   ]
+  ],
+  "released|zero-shot|hallway|edt": [
+   [
+    "zeroshot",
+    0.15234621508177737
+   ]
+  ],
+  "released|zero-shot|hallway|c50": [
+   [
+    "zeroshot",
+    2.0959852563895547
+   ]
+  ],
+  "released|zero-shot|hallway|t60": [
+   [
+    "zeroshot",
+    6.823299872481367
+   ]
+  ],
+  "released|zero-shot|complex_room|edt": [
+   [
+    "zeroshot",
+    0.13237408094550954
+   ]
+  ],
+  "released|zero-shot|complex_room|c50": [
+   [
+    "zeroshot",
+    2.567104432329705
+   ]
+  ],
+  "released|zero-shot|complex_room|t60": [
+   [
+    "zeroshot",
+    6.29056670762045
+   ]
+  ],
+  "released|fine-tuned|class_room|edt": [
+   [
+    "seed0",
+    0.09546318743480113
+   ],
+   [
+    "seed1",
+    0.0941972642188625
+   ],
+   [
+    "seed2",
+    0.09782871247851192
+   ]
+  ],
+  "released|fine-tuned|class_room|c50": [
+   [
+    "seed0",
+    1.8028967637220723
+   ],
+   [
+    "seed1",
+    1.9024709234523063
+   ],
+   [
+    "seed2",
+    2.218691244286175
+   ]
+  ],
+  "released|fine-tuned|class_room|t60": [
+   [
+    "seed0",
+    4.379645434974577
+   ],
+   [
+    "seed1",
+    4.390939208525757
+   ],
+   [
+    "seed2",
+    4.204124046594877
+   ]
+  ],
+  "released|fine-tuned|dampened_room|edt": [
+   [
+    "seed0",
+    0.038677935820792965
+   ],
+   [
+    "seed1",
+    0.0377819006390435
+   ],
+   [
+    "seed2",
+    0.03756613756613757
+   ]
+  ],
+  "released|fine-tuned|dampened_room|c50": [
+   [
+    "seed0",
+    2.8116837625551705
+   ],
+   [
+    "seed1",
+    2.7281721884554084
+   ],
+   [
+    "seed2",
+    2.7000521860941493
+   ]
+  ],
+  "released|fine-tuned|hallway|edt": [
+   [
+    "seed0",
+    0.0971692317588974
+   ],
+   [
+    "seed1",
+    0.0967009215033531
+   ],
+   [
+    "seed2",
+    0.09039417185313842
+   ]
+  ],
+  "released|fine-tuned|hallway|c50": [
+   [
+    "seed0",
+    1.7418820838029463
+   ],
+   [
+    "seed1",
+    1.7316564609409095
+   ],
+   [
+    "seed2",
+    1.6324838929703398
+   ]
+  ],
+  "released|fine-tuned|hallway|t60": [
+   [
+    "seed0",
+    4.564373176557143
+   ],
+   [
+    "seed1",
+    4.444273611796209
+   ],
+   [
+    "seed2",
+    4.249825456764216
+   ]
+  ],
+  "released|fine-tuned|complex_room|edt": [
+   [
+    "seed0",
+    0.10888476602762319
+   ],
+   [
+    "seed1",
+    0.10813715385143956
+   ],
+   [
+    "seed2",
+    0.10452003023431594
+   ]
+  ],
+  "released|fine-tuned|complex_room|c50": [
+   [
+    "seed0",
+    2.261219475877817
+   ],
+   [
+    "seed1",
+    2.2715256831930914
+   ],
+   [
+    "seed2",
+    2.165565009715713
+   ]
+  ],
+  "released|fine-tuned|complex_room|t60": [
+   [
+    "seed0",
+    5.024244776961638
+   ],
+   [
+    "seed1",
+    5.080067392229755
+   ],
+   [
+    "seed2",
+    4.781059147831323
+   ]
+  ],
+  "released_repomaps|fine-tuned|class_room|edt": [
+   [
+    "seed0",
+    0.09509939612994225
+   ]
+  ],
+  "released_repomaps|fine-tuned|class_room|c50": [
+   [
+    "seed0",
+    1.8219555113348933
+   ]
+  ],
+  "released_repomaps|fine-tuned|class_room|t60": [
+   [
+    "seed0",
+    4.034173939379991
+   ]
+  ],
+  "released_repomaps|fine-tuned|dampened_room|edt": [
+   [
+    "seed0",
+    0.03740122311550883
+   ]
+  ],
+  "released_repomaps|fine-tuned|dampened_room|c50": [
+   [
+    "seed0",
+    2.7117284379824245
+   ]
+  ],
+  "released_repomaps|fine-tuned|hallway|edt": [
+   [
+    "seed0",
+    0.09976680979720495
+   ]
+  ],
+  "released_repomaps|fine-tuned|hallway|c50": [
+   [
+    "seed0",
+    1.7931428145452704
+   ]
+  ],
+  "released_repomaps|fine-tuned|hallway|t60": [
+   [
+    "seed0",
+    4.597276333430632
+   ]
+  ],
+  "released_repomaps|fine-tuned|complex_room|edt": [
+   [
+    "seed0",
+    0.10221672507386793
+   ]
+  ],
+  "released_repomaps|fine-tuned|complex_room|c50": [
+   [
+    "seed0",
+    2.1570069160045042
+   ]
+  ],
+  "released_repomaps|fine-tuned|complex_room|t60": [
+   [
+    "seed0",
+    4.958815984144278
+   ]
+  ],
+  "control|zero-shot|class_room|edt": [
+   [
+    "zeroshot",
+    0.11788895255726481
+   ]
+  ],
+  "control|zero-shot|class_room|c50": [
+   [
+    "zeroshot",
+    1.9328957033589016
+   ]
+  ],
+  "control|zero-shot|class_room|t60": [
+   [
+    "zeroshot",
+    7.354586859217261
+   ]
+  ],
+  "control|zero-shot|dampened_room|edt": [
+   [
+    "zeroshot",
+    0.07233147804576374
+   ]
+  ],
+  "control|zero-shot|dampened_room|c50": [
+   [
+    "zeroshot",
+    4.670279591974586
+   ]
+  ],
+  "control|zero-shot|hallway|edt": [
+   [
+    "zeroshot",
+    0.18694456506006654
+   ]
+  ],
+  "control|zero-shot|hallway|c50": [
+   [
+    "zeroshot",
+    2.3889571270711687
+   ]
+  ],
+  "control|zero-shot|hallway|t60": [
+   [
+    "zeroshot",
+    7.467035609581307
+   ]
+  ],
+  "control|zero-shot|complex_room|edt": [
+   [
+    "zeroshot",
+    0.1560585446299732
+   ]
+  ],
+  "control|zero-shot|complex_room|c50": [
+   [
+    "zeroshot",
+    2.765279414367126
+   ]
+  ],
+  "control|zero-shot|complex_room|t60": [
+   [
+    "zeroshot",
+    6.923241243842751
+   ]
+  ],
+  "control|fine-tuned|class_room|edt": [
+   [
+    "seed0",
+    0.08159621515993006
+   ],
+   [
+    "seed1",
+    0.08179956215747637
+   ],
+   [
+    "seed2",
+    0.08028856466992847
+   ]
+  ],
+  "control|fine-tuned|class_room|c50": [
+   [
+    "seed0",
+    1.4973917725664394
+   ],
+   [
+    "seed1",
+    1.492222650061314
+   ],
+   [
+    "seed2",
+    1.5122072287363988
+   ]
+  ],
+  "control|fine-tuned|class_room|t60": [
+   [
+    "seed0",
+    4.307232930057542
+   ],
+   [
+    "seed1",
+    4.468765740492752
+   ],
+   [
+    "seed2",
+    4.154742222177805
+   ]
+  ],
+  "control|fine-tuned|dampened_room|edt": [
+   [
+    "seed0",
+    0.03821480107194392
+   ],
+   [
+    "seed1",
+    0.03844018415446987
+   ],
+   [
+    "seed2",
+    0.038607847179275755
+   ]
+  ],
+  "control|fine-tuned|dampened_room|c50": [
+   [
+    "seed0",
+    2.848464593742833
+   ],
+   [
+    "seed1",
+    2.8117249108324147
+   ],
+   [
+    "seed2",
+    2.880367305543688
+   ]
+  ],
+  "control|fine-tuned|hallway|edt": [
+   [
+    "seed0",
+    0.06187549251379038
+   ],
+   [
+    "seed1",
+    0.06153969862176548
+   ],
+   [
+    "seed2",
+    0.059790611279972976
+   ]
+  ],
+  "control|fine-tuned|hallway|c50": [
+   [
+    "seed0",
+    1.1254318598576658
+   ],
+   [
+    "seed1",
+    1.1444916895312207
+   ],
+   [
+    "seed2",
+    1.1365069832671246
+   ]
+  ],
+  "control|fine-tuned|hallway|t60": [
+   [
+    "seed0",
+    2.6738559747955475
+   ],
+   [
+    "seed1",
+    2.6847189715320208
+   ],
+   [
+    "seed2",
+    2.68302657543859
+   ]
+  ],
+  "control|fine-tuned|complex_room|edt": [
+   [
+    "seed0",
+    0.0760090702947846
+   ],
+   [
+    "seed1",
+    0.07657390228818799
+   ],
+   [
+    "seed2",
+    0.07681715110286538
+   ]
+  ],
+  "control|fine-tuned|complex_room|c50": [
+   [
+    "seed0",
+    1.6454198366828319
+   ],
+   [
+    "seed1",
+    1.658109068017126
+   ],
+   [
+    "seed2",
+    1.695616011605704
+   ]
+  ],
+  "control|fine-tuned|complex_room|t60": [
+   [
+    "seed0",
+    4.850208034644365
+   ],
+   [
+    "seed1",
+    4.961028973720852
+   ],
+   [
+    "seed2",
+    5.018500323436816
+   ]
+  ],
+  "cyl|zero-shot|class_room|edt": [
+   [
+    "zeroshot",
+    0.11993476440252128
+   ]
+  ],
+  "cyl|zero-shot|class_room|c50": [
+   [
+    "zeroshot",
+    1.9151863198451795
+   ]
+  ],
+  "cyl|zero-shot|class_room|t60": [
+   [
+    "zeroshot",
+    7.820339929045455
+   ]
+  ],
+  "cyl|zero-shot|dampened_room|edt": [
+   [
+    "zeroshot",
+    0.07191644334501478
+   ]
+  ],
+  "cyl|zero-shot|dampened_room|c50": [
+   [
+    "zeroshot",
+    4.632303588318102
+   ]
+  ],
+  "cyl|zero-shot|hallway|edt": [
+   [
+    "zeroshot",
+    0.1839700229973786
+   ]
+  ],
+  "cyl|zero-shot|hallway|c50": [
+   [
+    "zeroshot",
+    4.182574212826055
+   ]
+  ],
+  "cyl|zero-shot|hallway|t60": [
+   [
+    "zeroshot",
+    9.90878286465378
+   ]
+  ],
+  "cyl|zero-shot|complex_room|edt": [
+   [
+    "zeroshot",
+    0.10948807805950661
+   ]
+  ],
+  "cyl|zero-shot|complex_room|c50": [
+   [
+    "zeroshot",
+    2.1715844389249046
+   ]
+  ],
+  "cyl|zero-shot|complex_room|t60": [
+   [
+    "zeroshot",
+    5.7674748967062595
+   ]
+  ],
+  "cyl|fine-tuned|class_room|edt": [
+   [
+    "seed0",
+    0.0897412615154053
+   ],
+   [
+    "seed1",
+    0.0877277736148455
+   ],
+   [
+    "seed2",
+    0.0885299951514083
+   ]
+  ],
+  "cyl|fine-tuned|class_room|c50": [
+   [
+    "seed0",
+    1.6016638790987447
+   ],
+   [
+    "seed1",
+    1.6838105019236278
+   ],
+   [
+    "seed2",
+    1.6031020721591622
+   ]
+  ],
+  "cyl|fine-tuned|class_room|t60": [
+   [
+    "seed0",
+    4.259819805061573
+   ],
+   [
+    "seed1",
+    3.6755496364565845
+   ],
+   [
+    "seed2",
+    4.078571710846057
+   ]
+  ],
+  "cyl|fine-tuned|dampened_room|edt": [
+   [
+    "seed0",
+    0.038132343846629564
+   ],
+   [
+    "seed1",
+    0.041257472686044114
+   ],
+   [
+    "seed2",
+    0.03607228750085893
+   ]
+  ],
+  "cyl|fine-tuned|dampened_room|c50": [
+   [
+    "seed0",
+    2.8621303463223007
+   ],
+   [
+    "seed1",
+    3.0242713382749846
+   ],
+   [
+    "seed2",
+    2.7016300655374623
+   ]
+  ],
+  "cyl|fine-tuned|hallway|edt": [
+   [
+    "seed0",
+    0.0866798539746868
+   ],
+   [
+    "seed1",
+    0.08565188723243435
+   ],
+   [
+    "seed2",
+    0.0899277914475483
+   ]
+  ],
+  "cyl|fine-tuned|hallway|c50": [
+   [
+    "seed0",
+    1.9899667012840305
+   ],
+   [
+    "seed1",
+    1.9940070581556921
+   ],
+   [
+    "seed2",
+    2.1710170209616537
+   ]
+  ],
+  "cyl|fine-tuned|hallway|t60": [
+   [
+    "seed0",
+    4.136948783760717
+   ],
+   [
+    "seed1",
+    4.066390541456789
+   ],
+   [
+    "seed2",
+    4.29135863060128
+   ]
+  ],
+  "cyl|fine-tuned|complex_room|edt": [
+   [
+    "seed0",
+    0.08165464165464166
+   ],
+   [
+    "seed1",
+    0.08299869442726586
+   ],
+   [
+    "seed2",
+    0.081717858860716
+   ]
+  ],
+  "cyl|fine-tuned|complex_room|c50": [
+   [
+    "seed0",
+    1.729471266241462
+   ],
+   [
+    "seed1",
+    1.7757190213211802
+   ],
+   [
+    "seed2",
+    1.702957941240377
+   ]
+  ],
+  "cyl|fine-tuned|complex_room|t60": [
+   [
+    "seed0",
+    5.098070133465141
+   ],
+   [
+    "seed1",
+    4.757129275987523
+   ],
+   [
+    "seed2",
+    5.283367072090809
+   ]
+  ],
+  "paired_seeds": [
+   "seed0",
+   "seed1",
+   "seed2"
+  ]
+ },
+ "paper": {
+  "class_room": [
+   0.093,
+   1.628,
+   6.25
+  ],
+  "dampened_room": [
+   0.044,
+   3.302,
+   null
+  ],
+  "hallway": [
+   0.062,
+   0.954,
+   3.2
+  ],
+  "complex_room": [
+   0.077,
+   1.688,
+   4.33
+  ]
+ },
+ "n_boot": 10000,
+ "boot_seed": 0,
+ "verdicts": {
+  "class_room|edt": "control lower",
+  "class_room|c50": "control lower",
+  "class_room|t60": "no detected difference",
+  "dampened_room|edt": "no detected difference",
+  "dampened_room|c50": "no detected difference",
+  "hallway|edt": "control lower",
+  "hallway|c50": "control lower",
+  "hallway|t60": "control lower",
+  "complex_room|edt": "control lower",
+  "complex_room|c50": "no detected difference",
+  "complex_room|t60": "no detected difference"
+ }
+}

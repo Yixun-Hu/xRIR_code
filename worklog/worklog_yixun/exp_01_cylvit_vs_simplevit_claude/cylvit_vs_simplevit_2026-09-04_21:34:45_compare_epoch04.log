@@ -1,0 +1,15 @@
+snapshot simple epoch 4 (22:48:48): {"epoch": 4, "train_loss": 0.012499971265485556, "test_loss": 0.016188083459908638, "best_test_loss": 0.016188083459908638, "is_best": true, "lr": 4.6415888336127804e-05, "epoch_minutes": 141.3838084657987}
+snapshot cyl epoch 4 (23:52:20): {"epoch": 4, "train_loss": 0.01233383587589404, "test_loss": 0.01598920027992159, "best_test_loss": 0.01598920027992159, "is_best": true, "lr": 4.6415888336127804e-05, "epoch_minutes": 156.4079810579618}
+=== epoch 4: both snapshots ready ===
+=== full unseen split, epoch 4 checkpoints ===
+[6337/6337] EDT 0.0453s  C50 1.2444dB  T60 9.999%  STFT-MSE 0.4153  loss 0.0160  (6.17 samp/s, eta 0.0 min)
+[6337/6337] EDT 0.0502s  C50 1.2251dB  T60 9.548%  STFT-MSE 0.4369  loss 0.0162  (5.95 samp/s, eta 0.0 min)
+paired samples: 6337   A = cylindrical (ckpt/xRIR_cyl_8_shot/epoch_04.pth)   B = simple (ckpt/xRIR_simple_8_shot/epoch_04.pth)
+metric              A mean    B mean    A med    B med   A-B mean               95% CI    A<B  valid
+EDT error (s)       0.0453    0.0502   0.0234   0.0259    -0.0048 [ -0.0056,  -0.0040]*   0.56   6337
+C50 error (dB)      1.2444    1.2251   0.7067   0.7251    +0.0193 [ +0.0006,  +0.0380]*   0.51   6337
+T60 error (%)       9.9992    9.5484   5.8626   5.7344    +0.4508 [ +0.3503,  +0.5556]*   0.48   6337
+log-STFT MSE        0.4153    0.4369   0.3622   0.3572    -0.0216 [ -0.0271,  -0.0165]*   0.54   6337
+test loss           0.0160    0.0162   0.0132   0.0134    -0.0002 [ -0.0003,  -0.0001]*   0.53   6337
+* = 95% bootstrap CI of the paired difference excludes 0; negative A-B favours A (lower is better).
+00:10:13

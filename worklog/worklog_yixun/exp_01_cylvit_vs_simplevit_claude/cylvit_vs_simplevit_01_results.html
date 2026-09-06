@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>cylvit_vs_simplevit — results</title>
+<style>
+:root{color-scheme:light;--surface:#fcfcfb;--text:#0b0b0b;--text2:#52514e;--muted:#898781;--grid:#e1e0d9;--axis:#c3c2b7;--s1:#2a78d6;--s2:#eb6834;--good:#006300;--warn:#9a5a00;--card:#f4f3ef}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--surface:#1a1a19;--text:#fff;--text2:#c3c2b7;--muted:#898781;--grid:#2c2c2a;--axis:#383835;--s1:#3987e5;--s2:#d95926;--good:#0ca30c;--warn:#e0a030;--card:#232321}}
+body{margin:0;background:var(--surface);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1000px;margin:0 auto;padding:24px 20px 60px}
+h1{font-size:22px;margin:0 0 4px} h2{font-size:17px;margin:28px 0 8px} .sub{color:var(--text2);margin:0 0 16px}
+.verdicts{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin:14px 0}
+.v{border-left:4px solid var(--muted);background:var(--card);padding:10px 12px;border-radius:6px} .v.good{border-color:var(--good)} .v.goodish{border-color:var(--s1)} .v.warn{border-color:var(--warn)}
+.caveat{background:var(--card);border-left:4px solid var(--warn);padding:10px 12px;border-radius:6px;margin:10px 0;color:var(--text2)} .ci2{stroke:var(--muted);stroke-width:1;opacity:.9}
+.v b{display:block;font-size:15px} .v span{color:var(--text2)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:12px}
+.chart{width:100%;height:auto;background:var(--surface)}
+.ttl{fill:var(--text);font-size:13px;font-weight:600} .tick{fill:var(--muted);font-size:11px} .grid{stroke:var(--grid);stroke-width:1} .axis{stroke:var(--axis);stroke-width:1}
+.line{fill:none;stroke-width:2;stroke-linejoin:round} .line.s1{stroke:var(--s1)} .line.s2{stroke:var(--s2)}
+.mk{stroke:var(--surface);stroke-width:2} .mk.s1{fill:var(--s1)} .mk.s2{fill:var(--s2)} .mk.ns{fill:var(--surface);stroke:var(--s1)}
+.ci{stroke:var(--s1);stroke-width:2;opacity:.6} .ref{stroke:var(--muted);stroke-width:1.5;stroke-dasharray:5 4} .reflbl{fill:var(--muted);font-size:11px}
+.dl{font-size:11px;font-weight:600} .dl.s1{fill:var(--s1)} .dl.s2{fill:var(--s2)}
+.legend{display:flex;gap:18px;color:var(--text2);margin:6px 0 4px} .legend i{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:6px}
+table{border-collapse:collapse;width:100%;font-size:13px;margin:6px 0 10px} th,td{padding:6px 8px;border-bottom:1px solid var(--grid);text-align:right} th:first-child,td:first-child{text-align:left} th{color:var(--text2);font-weight:600}
+.wrap{overflow-x:auto} .pill{padding:2px 8px;border-radius:10px;background:var(--card);color:var(--text2)} .pill.good{color:var(--good);font-weight:600} .pill.warn{color:var(--warn);font-weight:600}
+.math{background:var(--card);padding:10px 14px;border-radius:6px;font-family:ui-serif,Georgia,serif;font-size:15px}
+#tip{position:fixed;pointer-events:none;background:var(--text);color:var(--surface);padding:4px 8px;border-radius:4px;font-size:12px;display:none;z-index:9}
+small,.prov{color:var(--text2)}
+</style></head><body><main>
+<h1>CylindricalViT vs SimpleViT as the xRIR geometry encoder</h1>
+<p class="sub">exp_01 · AcousticRooms unseen-room test split (6337 queries, 17 held-out rooms, K=8) · 12-epoch same-budget training, seed 0 per model · bootstrap 10000 resamples, seed 0 · generated 2026-09-06</p>
+<div class="caveat"><b>Pairing caveat (found in review, 2026-09-05).</b> Queries are paired, but the K=8 reference RIRs were <em>not</em> identical across the two models: the evaluator drew its loader seed from the torch RNG after model construction, and the cylindrical constructor consumes more RNG state, so about 24 % of queries (91 % of those whose receiver has 9 candidate sources) got different reference sets; Griffin-Lim phase initialisation was likewise unpaired. Both are nuisance factors whose <em>expected</em> effect on the paired differences is zero; their realised contribution in these arrays is unknown. A properly paired re-evaluation of the epoch-12 checkpoints is scheduled as the k=0 gate of exp_03. <b>Inference:</b> query-level CIs describe this fixed test split; room-cluster CIs (17 rooms) describe generalisation over rooms and are wider. All intervals are nominal 95 % with no multiplicity adjustment across the five metrics the producer evaluates (four are charted here; log-STFT MSE is in the tables of <code>cylvit_vs_simplevit_results.md</code>).</div>
+<div class="verdicts">
+<div class="v goodish"><b>EDT error (s)</b><span>epochs 5–12 avg: 0.0454 vs 0.0472 (-3.7%), cyl lower in 8/8 epochs · fixed split: <b>cyl lower</b> · over rooms: <b>no detected difference</b></span></div><div class="v neutral"><b>C50 error (dB)</b><span>epochs 5–12 avg: 1.237 vs 1.246 (-0.7%), cyl lower in 5/8 epochs · fixed split: <b>no detected difference</b> · over rooms: <b>no detected difference</b></span></div><div class="v neutral"><b>T60 error (%)</b><span>epochs 5–12 avg: 9.57 vs 9.61 (-0.4%), cyl lower in 7/8 epochs · fixed split: <b>no detected difference</b> · over rooms: <b>no detected difference</b></span></div><div class="v goodish"><b>Test loss</b><span>epochs 5–12 avg: 0.01588 vs 0.01608 (-1.2%), cyl lower in 8/8 epochs · fixed split: <b>cyl lower</b> · over rooms: <b>no detected difference</b></span></div>
+</div>
+<h2>1. Per-epoch means</h2>
+<div class="legend"><span><i style="background:var(--s1)"></i>CylindricalViT + xRIR</span><span><i style="background:var(--s2)"></i>SimpleViT + xRIR (control)</span><span><i style="background:var(--muted);height:0;border-top:2px dashed var(--muted)"></i>released checkpoint (reproduced)</span></div>
+<div class="grid2"><svg class="chart" viewBox="0 0 440 250" role="img" aria-label="EDT error (s) per epoch">
+<text class="ttl" x="58" y="18">EDT error (s) <tspan class="tick">(y-axis zoomed, does not start at 0)</tspan></text>
+<line class="grid" x1="58" x2="424" y1="216.0" y2="216.0"/><text class="tick" x="52" y="220.0" text-anchor="end">0.0400</text>
+<line class="grid" x1="58" x2="424" y1="178.8" y2="178.8"/><text class="tick" x="52" y="182.8" text-anchor="end">0.0450</text>
+<line class="grid" x1="58" x2="424" y1="141.6" y2="141.6"/><text class="tick" x="52" y="145.6" text-anchor="end">0.0500</text>
+<line class="grid" x1="58" x2="424" y1="104.4" y2="104.4"/><text class="tick" x="52" y="108.4" text-anchor="end">0.0550</text>
+<line class="grid" x1="58" x2="424" y1="67.2" y2="67.2"/><text class="tick" x="52" y="71.2" text-anchor="end">0.0600</text>
+<line class="grid" x1="58" x2="424" y1="30.0" y2="30.0"/><text class="tick" x="52" y="34.0" text-anchor="end">0.0650</text>
+<text class="tick" x="58.0" y="236" text-anchor="middle">1</text>
+<text class="tick" x="91.3" y="236" text-anchor="middle">2</text>
+<text class="tick" x="124.5" y="236" text-anchor="middle">3</text>
+<text class="tick" x="157.8" y="236" text-anchor="middle">4</text>
+<text class="tick" x="191.1" y="236" text-anchor="middle">5</text>
+<text class="tick" x="224.4" y="236" text-anchor="middle">6</text>
+<text class="tick" x="257.6" y="236" text-anchor="middle">7</text>
+<text class="tick" x="290.9" y="236" text-anchor="middle">8</text>
+<text class="tick" x="324.2" y="236" text-anchor="middle">9</text>
+<text class="tick" x="357.5" y="236" text-anchor="middle">10</text>
+<text class="tick" x="390.7" y="236" text-anchor="middle">11</text>
+<text class="tick" x="424.0" y="236" text-anchor="middle">12</text>
+<text class="tick" x="241.0" y="248" text-anchor="middle">epoch</text>
+<line class="axis" x1="58" x2="424" y1="216" y2="216"/>
+<line class="ref" x1="58" x2="424" y1="105.1" y2="105.1"/><text class="reflbl" x="424" y="101.1" text-anchor="end">released ckpt 0.0549</text>
+<polyline class="line s2" points="58.0,77.2 91.3,140.2 124.5,147.9 157.8,140.5 191.1,157.5 224.4,163.3 257.6,164.3 290.9,166.4 324.2,160.5 357.5,164.3 390.7,162.4 424.0,161.9"/>
+<circle class="mk s2" cx="58.0" cy="77.2" r="4" data-tip="SimpleViT + xRIR (control) · epoch 1: 0.0586"/>
+<circle class="mk s2" cx="91.3" cy="140.2" r="4" data-tip="SimpleViT + xRIR (control) · epoch 2: 0.0502"/>
+<circle class="mk s2" cx="124.5" cy="147.9" r="4" data-tip="SimpleViT + xRIR (control) · epoch 3: 0.0491"/>
+<circle class="mk s2" cx="157.8" cy="140.5" r="4" data-tip="SimpleViT + xRIR (control) · epoch 4: 0.0502"/>
+<circle class="mk s2" cx="191.1" cy="157.5" r="4" data-tip="SimpleViT + xRIR (control) · epoch 5: 0.0479"/>
+<circle class="mk s2" cx="224.4" cy="163.3" r="4" data-tip="SimpleViT + xRIR (control) · epoch 6: 0.0471"/>
+<circle class="mk s2" cx="257.6" cy="164.3" r="4" data-tip="SimpleViT + xRIR (control) · epoch 7: 0.0470"/>
+<circle class="mk s2" cx="290.9" cy="166.4" r="4" data-tip="SimpleViT + xRIR (control) · epoch 8: 0.0467"/>
+<circle class="mk s2" cx="324.2" cy="160.5" r="4" data-tip="SimpleViT + xRIR (control) · epoch 9: 0.0475"/>
+<circle class="mk s2" cx="357.5" cy="164.3" r="4" data-tip="SimpleViT + xRIR (control) · epoch 10: 0.0469"/>
+<circle class="mk s2" cx="390.7" cy="162.4" r="4" data-tip="SimpleViT + xRIR (control) · epoch 11: 0.0472"/>
+<circle class="mk s2" cx="424.0" cy="161.9" r="4" data-tip="SimpleViT + xRIR (control) · epoch 12: 0.0473"/>
+<text class="dl s2" x="429.0" y="165.9">ctrl</text>
+<polyline class="line s1" points="58.0,84.2 91.3,122.5 124.5,172.6 157.8,176.3 191.1,180.0 224.4,175.2 257.6,170.0 290.9,175.8 324.2,176.2 357.5,175.6 390.7,174.0 424.0,178.4"/>
+<circle class="mk s1" cx="58.0" cy="84.2" r="4" data-tip="CylindricalViT + xRIR · epoch 1: 0.0577"/>
+<circle class="mk s1" cx="91.3" cy="122.5" r="4" data-tip="CylindricalViT + xRIR · epoch 2: 0.0526"/>
+<circle class="mk s1" cx="124.5" cy="172.6" r="4" data-tip="CylindricalViT + xRIR · epoch 3: 0.0458"/>
+<circle class="mk s1" cx="157.8" cy="176.3" r="4" data-tip="CylindricalViT + xRIR · epoch 4: 0.0453"/>
+<circle class="mk s1" cx="191.1" cy="180.0" r="4" data-tip="CylindricalViT + xRIR · epoch 5: 0.0448"/>
+<circle class="mk s1" cx="224.4" cy="175.2" r="4" data-tip="CylindricalViT + xRIR · epoch 6: 0.0455"/>
+<circle class="mk s1" cx="257.6" cy="170.0" r="4" data-tip="CylindricalViT + xRIR · epoch 7: 0.0462"/>
+<circle class="mk s1" cx="290.9" cy="175.8" r="4" data-tip="CylindricalViT + xRIR · epoch 8: 0.0454"/>
+<circle class="mk s1" cx="324.2" cy="176.2" r="4" data-tip="CylindricalViT + xRIR · epoch 9: 0.0454"/>
+<circle class="mk s1" cx="357.5" cy="175.6" r="4" data-tip="CylindricalViT + xRIR · epoch 10: 0.0454"/>
+<circle class="mk s1" cx="390.7" cy="174.0" r="4" data-tip="CylindricalViT + xRIR · epoch 11: 0.0456"/>
+<circle class="mk s1" cx="424.0" cy="178.4" r="4" data-tip="CylindricalViT + xRIR · epoch 12: 0.0451"/>
+<text class="dl s1" x="429.0" y="182.4">cyl</text>
+</svg>
+<svg class="chart" viewBox="0 0 440 250" role="img" aria-label="C50 error (dB) per epoch">
+<text class="ttl" x="58" y="18">C50 error (dB) <tspan class="tick">(y-axis zoomed, does not start at 0)</tspan></text>
+<line class="grid" x1="58" x2="424" y1="216.0" y2="216.0"/><text class="tick" x="52" y="220.0" text-anchor="end">1.100</text>
+<line class="grid" x1="58" x2="424" y1="178.8" y2="178.8"/><text class="tick" x="52" y="182.8" text-anchor="end">1.200</text>
+<line class="grid" x1="58" x2="424" y1="141.6" y2="141.6"/><text class="tick" x="52" y="145.6" text-anchor="end">1.300</text>
+<line class="grid" x1="58" x2="424" y1="104.4" y2="104.4"/><text class="tick" x="52" y="108.4" text-anchor="end">1.400</text>
+<line class="grid" x1="58" x2="424" y1="67.2" y2="67.2"/><text class="tick" x="52" y="71.2" text-anchor="end">1.500</text>
+<line class="grid" x1="58" x2="424" y1="30.0" y2="30.0"/><text class="tick" x="52" y="34.0" text-anchor="end">1.600</text>
+<text class="tick" x="58.0" y="236" text-anchor="middle">1</text>
+<text class="tick" x="91.3" y="236" text-anchor="middle">2</text>
+<text class="tick" x="124.5" y="236" text-anchor="middle">3</text>
+<text class="tick" x="157.8" y="236" text-anchor="middle">4</text>
+<text class="tick" x="191.1" y="236" text-anchor="middle">5</text>
+<text class="tick" x="224.4" y="236" text-anchor="middle">6</text>
+<text class="tick" x="257.6" y="236" text-anchor="middle">7</text>
+<text class="tick" x="290.9" y="236" text-anchor="middle">8</text>
+<text class="tick" x="324.2" y="236" text-anchor="middle">9</text>
+<text class="tick" x="357.5" y="236" text-anchor="middle">10</text>
+<text class="tick" x="390.7" y="236" text-anchor="middle">11</text>
+<text class="tick" x="424.0" y="236" text-anchor="middle">12</text>
+<text class="tick" x="241.0" y="248" text-anchor="middle">epoch</text>
+<line class="axis" x1="58" x2="424" y1="216" y2="216"/>
+<line class="ref" x1="58" x2="424" y1="120.0" y2="120.0"/><text class="reflbl" x="424" y="116.0" text-anchor="end">released ckpt 1.358</text>
+<polyline class="line s2" points="58.0,79.7 91.3,123.1 124.5,159.4 157.8,169.5 191.1,150.5 224.4,158.1 257.6,162.3 290.9,157.8 324.2,165.3 357.5,164.1 390.7,170.6 424.0,166.1"/>
+<circle class="mk s2" cx="58.0" cy="79.7" r="4" data-tip="SimpleViT + xRIR (control) · epoch 1: 1.466"/>
+<circle class="mk s2" cx="91.3" cy="123.1" r="4" data-tip="SimpleViT + xRIR (control) · epoch 2: 1.350"/>
+<circle class="mk s2" cx="124.5" cy="159.4" r="4" data-tip="SimpleViT + xRIR (control) · epoch 3: 1.252"/>
+<circle class="mk s2" cx="157.8" cy="169.5" r="4" data-tip="SimpleViT + xRIR (control) · epoch 4: 1.225"/>
+<circle class="mk s2" cx="191.1" cy="150.5" r="4" data-tip="SimpleViT + xRIR (control) · epoch 5: 1.276"/>
+<circle class="mk s2" cx="224.4" cy="158.1" r="4" data-tip="SimpleViT + xRIR (control) · epoch 6: 1.256"/>
+<circle class="mk s2" cx="257.6" cy="162.3" r="4" data-tip="SimpleViT + xRIR (control) · epoch 7: 1.244"/>
+<circle class="mk s2" cx="290.9" cy="157.8" r="4" data-tip="SimpleViT + xRIR (control) · epoch 8: 1.256"/>
+<circle class="mk s2" cx="324.2" cy="165.3" r="4" data-tip="SimpleViT + xRIR (control) · epoch 9: 1.236"/>
+<circle class="mk s2" cx="357.5" cy="164.1" r="4" data-tip="SimpleViT + xRIR (control) · epoch 10: 1.240"/>
+<circle class="mk s2" cx="390.7" cy="170.6" r="4" data-tip="SimpleViT + xRIR (control) · epoch 11: 1.222"/>
+<circle class="mk s2" cx="424.0" cy="166.1" r="4" data-tip="SimpleViT + xRIR (control) · epoch 12: 1.234"/>
+<text class="dl s2" x="429.0" y="170.1">ctrl</text>
+<polyline class="line s1" points="58.0,68.5 91.3,93.9 124.5,150.4 157.8,162.3 191.1,157.5 224.4,166.6 257.6,163.7 290.9,172.7 324.2,165.4 357.5,163.0 390.7,167.4 424.0,163.4"/>
+<circle class="mk s1" cx="58.0" cy="68.5" r="4" data-tip="CylindricalViT + xRIR · epoch 1: 1.497"/>
+<circle class="mk s1" cx="91.3" cy="93.9" r="4" data-tip="CylindricalViT + xRIR · epoch 2: 1.428"/>
+<circle class="mk s1" cx="124.5" cy="150.4" r="4" data-tip="CylindricalViT + xRIR · epoch 3: 1.276"/>
+<circle class="mk s1" cx="157.8" cy="162.3" r="4" data-tip="CylindricalViT + xRIR · epoch 4: 1.244"/>
+<circle class="mk s1" cx="191.1" cy="157.5" r="4" data-tip="CylindricalViT + xRIR · epoch 5: 1.257"/>
+<circle class="mk s1" cx="224.4" cy="166.6" r="4" data-tip="CylindricalViT + xRIR · epoch 6: 1.233"/>
+<circle class="mk s1" cx="257.6" cy="163.7" r="4" data-tip="CylindricalViT + xRIR · epoch 7: 1.241"/>
+<circle class="mk s1" cx="290.9" cy="172.7" r="4" data-tip="CylindricalViT + xRIR · epoch 8: 1.216"/>
+<circle class="mk s1" cx="324.2" cy="165.4" r="4" data-tip="CylindricalViT + xRIR · epoch 9: 1.236"/>
+<circle class="mk s1" cx="357.5" cy="163.0" r="4" data-tip="CylindricalViT + xRIR · epoch 10: 1.242"/>
+<circle class="mk s1" cx="390.7" cy="167.4" r="4" data-tip="CylindricalViT + xRIR · epoch 11: 1.231"/>
+<circle class="mk s1" cx="424.0" cy="163.4" r="4" data-tip="CylindricalViT + xRIR · epoch 12: 1.241"/>
+<text class="dl s1" x="429.0" y="167.4">cyl</text>
+</svg>
+<svg class="chart" viewBox="0 0 440 250" role="img" aria-label="T60 error (%) per epoch">
+<text class="ttl" x="58" y="18">T60 error (%) <tspan class="tick">(y-axis zoomed, does not start at 0)</tspan></text>
+<line class="grid" x1="58" x2="424" y1="216.0" y2="216.0"/><text class="tick" x="52" y="220.0" text-anchor="end">8.00</text>
+<line class="grid" x1="58" x2="424" y1="178.8" y2="178.8"/><text class="tick" x="52" y="182.8" text-anchor="end">9.00</text>
+<line class="grid" x1="58" x2="424" y1="141.6" y2="141.6"/><text class="tick" x="52" y="145.6" text-anchor="end">10.00</text>
+<line class="grid" x1="58" x2="424" y1="104.4" y2="104.4"/><text class="tick" x="52" y="108.4" text-anchor="end">11.00</text>
+<line class="grid" x1="58" x2="424" y1="67.2" y2="67.2"/><text class="tick" x="52" y="71.2" text-anchor="end">12.00</text>
+<line class="grid" x1="58" x2="424" y1="30.0" y2="30.0"/><text class="tick" x="52" y="34.0" text-anchor="end">13.00</text>
+<text class="tick" x="58.0" y="236" text-anchor="middle">1</text>
+<text class="tick" x="91.3" y="236" text-anchor="middle">2</text>
+<text class="tick" x="124.5" y="236" text-anchor="middle">3</text>
+<text class="tick" x="157.8" y="236" text-anchor="middle">4</text>
+<text class="tick" x="191.1" y="236" text-anchor="middle">5</text>
+<text class="tick" x="224.4" y="236" text-anchor="middle">6</text>
+<text class="tick" x="257.6" y="236" text-anchor="middle">7</text>
+<text class="tick" x="290.9" y="236" text-anchor="middle">8</text>
+<text class="tick" x="324.2" y="236" text-anchor="middle">9</text>
+<text class="tick" x="357.5" y="236" text-anchor="middle">10</text>
+<text class="tick" x="390.7" y="236" text-anchor="middle">11</text>
+<text class="tick" x="424.0" y="236" text-anchor="middle">12</text>
+<text class="tick" x="241.0" y="248" text-anchor="middle">epoch</text>
+<line class="axis" x1="58" x2="424" y1="216" y2="216"/>
+<line class="ref" x1="58" x2="424" y1="153.1" y2="153.1"/><text class="reflbl" x="424" y="149.1" text-anchor="end">released ckpt 9.69</text>
+<polyline class="line s2" points="58.0,63.1 91.3,131.5 124.5,131.1 157.8,158.4 191.1,148.6 224.4,153.6 257.6,160.3 290.9,157.8 324.2,154.2 357.5,160.2 390.7,157.3 424.0,157.0"/>
+<circle class="mk s2" cx="58.0" cy="63.1" r="4" data-tip="SimpleViT + xRIR (control) · epoch 1: 12.11"/>
+<circle class="mk s2" cx="91.3" cy="131.5" r="4" data-tip="SimpleViT + xRIR (control) · epoch 2: 10.27"/>
+<circle class="mk s2" cx="124.5" cy="131.1" r="4" data-tip="SimpleViT + xRIR (control) · epoch 3: 10.28"/>
+<circle class="mk s2" cx="157.8" cy="158.4" r="4" data-tip="SimpleViT + xRIR (control) · epoch 4: 9.55"/>
+<circle class="mk s2" cx="191.1" cy="148.6" r="4" data-tip="SimpleViT + xRIR (control) · epoch 5: 9.81"/>
+<circle class="mk s2" cx="224.4" cy="153.6" r="4" data-tip="SimpleViT + xRIR (control) · epoch 6: 9.68"/>
+<circle class="mk s2" cx="257.6" cy="160.3" r="4" data-tip="SimpleViT + xRIR (control) · epoch 7: 9.50"/>
+<circle class="mk s2" cx="290.9" cy="157.8" r="4" data-tip="SimpleViT + xRIR (control) · epoch 8: 9.56"/>
+<circle class="mk s2" cx="324.2" cy="154.2" r="4" data-tip="SimpleViT + xRIR (control) · epoch 9: 9.66"/>
+<circle class="mk s2" cx="357.5" cy="160.2" r="4" data-tip="SimpleViT + xRIR (control) · epoch 10: 9.50"/>
+<circle class="mk s2" cx="390.7" cy="157.3" r="4" data-tip="SimpleViT + xRIR (control) · epoch 11: 9.58"/>
+<circle class="mk s2" cx="424.0" cy="157.0" r="4" data-tip="SimpleViT + xRIR (control) · epoch 12: 9.59"/>
+<text class="dl s2" x="429.0" y="161.0">ctrl</text>
+<polyline class="line s1" points="58.0,75.6 91.3,182.0 124.5,143.5 157.8,141.6 191.1,152.0 224.4,158.8 257.6,147.8 290.9,158.4 324.2,160.3 357.5,161.0 390.7,160.3 424.0,161.9"/>
+<circle class="mk s1" cx="58.0" cy="75.6" r="4" data-tip="CylindricalViT + xRIR · epoch 1: 11.77"/>
+<circle class="mk s1" cx="91.3" cy="182.0" r="4" data-tip="CylindricalViT + xRIR · epoch 2: 8.91"/>
+<circle class="mk s1" cx="124.5" cy="143.5" r="4" data-tip="CylindricalViT + xRIR · epoch 3: 9.95"/>
+<circle class="mk s1" cx="157.8" cy="141.6" r="4" data-tip="CylindricalViT + xRIR · epoch 4: 10.00"/>
+<circle class="mk s1" cx="191.1" cy="152.0" r="4" data-tip="CylindricalViT + xRIR · epoch 5: 9.72"/>
+<circle class="mk s1" cx="224.4" cy="158.8" r="4" data-tip="CylindricalViT + xRIR · epoch 6: 9.54"/>
+<circle class="mk s1" cx="257.6" cy="147.8" r="4" data-tip="CylindricalViT + xRIR · epoch 7: 9.83"/>
+<circle class="mk s1" cx="290.9" cy="158.4" r="4" data-tip="CylindricalViT + xRIR · epoch 8: 9.55"/>
+<circle class="mk s1" cx="324.2" cy="160.3" r="4" data-tip="CylindricalViT + xRIR · epoch 9: 9.50"/>
+<circle class="mk s1" cx="357.5" cy="161.0" r="4" data-tip="CylindricalViT + xRIR · epoch 10: 9.48"/>
+<circle class="mk s1" cx="390.7" cy="160.3" r="4" data-tip="CylindricalViT + xRIR · epoch 11: 9.50"/>
+<circle class="mk s1" cx="424.0" cy="161.9" r="4" data-tip="CylindricalViT + xRIR · epoch 12: 9.46"/>
+<text class="dl s1" x="429.0" y="165.9">cyl</text>
+</svg>
+<svg class="chart" viewBox="0 0 440 250" role="img" aria-label="Test loss per epoch">
+<text class="ttl" x="58" y="18">Test loss <tspan class="tick">(y-axis zoomed, does not start at 0)</tspan></text>
+<line class="grid" x1="58" x2="424" y1="216.0" y2="216.0"/><text class="tick" x="52" y="220.0" text-anchor="end">0.0150</text>
+<line class="grid" x1="58" x2="424" y1="169.5" y2="169.5"/><text class="tick" x="52" y="173.5" text-anchor="end">0.0160</text>
+<line class="grid" x1="58" x2="424" y1="123.0" y2="123.0"/><text class="tick" x="52" y="127.0" text-anchor="end">0.0170</text>
+<line class="grid" x1="58" x2="424" y1="76.5" y2="76.5"/><text class="tick" x="52" y="80.5" text-anchor="end">0.0180</text>
+<line class="grid" x1="58" x2="424" y1="30.0" y2="30.0"/><text class="tick" x="52" y="34.0" text-anchor="end">0.0190</text>
+<text class="tick" x="58.0" y="236" text-anchor="middle">1</text>
+<text class="tick" x="91.3" y="236" text-anchor="middle">2</text>
+<text class="tick" x="124.5" y="236" text-anchor="middle">3</text>
+<text class="tick" x="157.8" y="236" text-anchor="middle">4</text>
+<text class="tick" x="191.1" y="236" text-anchor="middle">5</text>
+<text class="tick" x="224.4" y="236" text-anchor="middle">6</text>
+<text class="tick" x="257.6" y="236" text-anchor="middle">7</text>
+<text class="tick" x="290.9" y="236" text-anchor="middle">8</text>
+<text class="tick" x="324.2" y="236" text-anchor="middle">9</text>
+<text class="tick" x="357.5" y="236" text-anchor="middle">10</text>
+<text class="tick" x="390.7" y="236" text-anchor="middle">11</text>
+<text class="tick" x="424.0" y="236" text-anchor="middle">12</text>
+<text class="tick" x="241.0" y="248" text-anchor="middle">epoch</text>
+<line class="axis" x1="58" x2="424" y1="216" y2="216"/>
+<polyline class="line s2" points="58.0,59.7 91.3,130.0 124.5,140.0 157.8,160.9 191.1,164.4 224.4,163.9 257.6,168.7 290.9,164.8 324.2,167.4 357.5,169.4 390.7,166.5 424.0,161.4"/>
+<circle class="mk s2" cx="58.0" cy="59.7" r="4" data-tip="SimpleViT + xRIR (control) · epoch 1: 0.01836"/>
+<circle class="mk s2" cx="91.3" cy="130.0" r="4" data-tip="SimpleViT + xRIR (control) · epoch 2: 0.01685"/>
+<circle class="mk s2" cx="124.5" cy="140.0" r="4" data-tip="SimpleViT + xRIR (control) · epoch 3: 0.01663"/>
+<circle class="mk s2" cx="157.8" cy="160.9" r="4" data-tip="SimpleViT + xRIR (control) · epoch 4: 0.01618"/>
+<circle class="mk s2" cx="191.1" cy="164.4" r="4" data-tip="SimpleViT + xRIR (control) · epoch 5: 0.01611"/>
+<circle class="mk s2" cx="224.4" cy="163.9" r="4" data-tip="SimpleViT + xRIR (control) · epoch 6: 0.01612"/>
+<circle class="mk s2" cx="257.6" cy="168.7" r="4" data-tip="SimpleViT + xRIR (control) · epoch 7: 0.01602"/>
+<circle class="mk s2" cx="290.9" cy="164.8" r="4" data-tip="SimpleViT + xRIR (control) · epoch 8: 0.01610"/>
+<circle class="mk s2" cx="324.2" cy="167.4" r="4" data-tip="SimpleViT + xRIR (control) · epoch 9: 0.01604"/>
+<circle class="mk s2" cx="357.5" cy="169.4" r="4" data-tip="SimpleViT + xRIR (control) · epoch 10: 0.01600"/>
+<circle class="mk s2" cx="390.7" cy="166.5" r="4" data-tip="SimpleViT + xRIR (control) · epoch 11: 0.01606"/>
+<circle class="mk s2" cx="424.0" cy="161.4" r="4" data-tip="SimpleViT + xRIR (control) · epoch 12: 0.01617"/>
+<text class="dl s2" x="429.0" y="165.4">ctrl</text>
+<polyline class="line s1" points="58.0,81.3 91.3,89.5 124.5,160.6 157.8,170.9 191.1,168.9 224.4,172.0 257.6,177.4 290.9,175.8 324.2,178.5 357.5,177.8 390.7,175.0 424.0,174.1"/>
+<circle class="mk s1" cx="58.0" cy="81.3" r="4" data-tip="CylindricalViT + xRIR · epoch 1: 0.01790"/>
+<circle class="mk s1" cx="91.3" cy="89.5" r="4" data-tip="CylindricalViT + xRIR · epoch 2: 0.01772"/>
+<circle class="mk s1" cx="124.5" cy="160.6" r="4" data-tip="CylindricalViT + xRIR · epoch 3: 0.01619"/>
+<circle class="mk s1" cx="157.8" cy="170.9" r="4" data-tip="CylindricalViT + xRIR · epoch 4: 0.01597"/>
+<circle class="mk s1" cx="191.1" cy="168.9" r="4" data-tip="CylindricalViT + xRIR · epoch 5: 0.01601"/>
+<circle class="mk s1" cx="224.4" cy="172.0" r="4" data-tip="CylindricalViT + xRIR · epoch 6: 0.01595"/>
+<circle class="mk s1" cx="257.6" cy="177.4" r="4" data-tip="CylindricalViT + xRIR · epoch 7: 0.01583"/>
+<circle class="mk s1" cx="290.9" cy="175.8" r="4" data-tip="CylindricalViT + xRIR · epoch 8: 0.01586"/>
+<circle class="mk s1" cx="324.2" cy="178.5" r="4" data-tip="CylindricalViT + xRIR · epoch 9: 0.01581"/>
+<circle class="mk s1" cx="357.5" cy="177.8" r="4" data-tip="CylindricalViT + xRIR · epoch 10: 0.01582"/>
+<circle class="mk s1" cx="390.7" cy="175.0" r="4" data-tip="CylindricalViT + xRIR · epoch 11: 0.01588"/>
+<circle class="mk s1" cx="424.0" cy="174.1" r="4" data-tip="CylindricalViT + xRIR · epoch 12: 0.01590"/>
+<text class="dl s1" x="429.0" y="178.1">cyl</text>
+</svg></div>
+<h2>2. Paired difference per epoch (cylindrical − control), 95% bootstrap CIs</h2>
+<p class="sub">Thick whisker: query-level CI (this fixed split); thin whisker: room-cluster CI (17 rooms). Filled marker: query-level CI excludes 0. Negative favours cylindrical (all metrics are errors). Each point pairs the same 6337 queries (references not identical, see caveat).</p>
+<div class="grid2"><svg class="chart" viewBox="0 0 440 230" role="img" aria-label="EDT error (s): paired difference per epoch">
+<text class="ttl" x="58" y="18">EDT error (s): cyl − ctrl, % of ctrl</text>
+<line class="grid" x1="58" x2="424" y1="196.0" y2="196.0"/><text class="tick" x="52" y="200.0" text-anchor="end">-30%</text>
+<line class="grid" x1="58" x2="424" y1="162.8" y2="162.8"/><text class="tick" x="52" y="166.8" text-anchor="end">-20%</text>
+<line class="grid" x1="58" x2="424" y1="129.6" y2="129.6"/><text class="tick" x="52" y="133.6" text-anchor="end">-10%</text>
+<line class="grid" x1="58" x2="424" y1="96.4" y2="96.4"/><text class="tick" x="52" y="100.4" text-anchor="end">+0%</text>
+<line class="grid" x1="58" x2="424" y1="63.2" y2="63.2"/><text class="tick" x="52" y="67.2" text-anchor="end">+10%</text>
+<line class="grid" x1="58" x2="424" y1="30.0" y2="30.0"/><text class="tick" x="52" y="34.0" text-anchor="end">+20%</text>
+<line class="axis" x1="58" x2="424" y1="96.4" y2="96.4"/>
+<text class="tick" x="58.0" y="216" text-anchor="middle">1</text>
+<text class="tick" x="91.3" y="216" text-anchor="middle">2</text>
+<text class="tick" x="124.5" y="216" text-anchor="middle">3</text>
+<text class="tick" x="157.8" y="216" text-anchor="middle">4</text>
+<text class="tick" x="191.1" y="216" text-anchor="middle">5</text>
+<text class="tick" x="224.4" y="216" text-anchor="middle">6</text>
+<text class="tick" x="257.6" y="216" text-anchor="middle">7</text>
+<text class="tick" x="290.9" y="216" text-anchor="middle">8</text>
+<text class="tick" x="324.2" y="216" text-anchor="middle">9</text>
+<text class="tick" x="357.5" y="216" text-anchor="middle">10</text>
+<text class="tick" x="390.7" y="216" text-anchor="middle">11</text>
+<text class="tick" x="424.0" y="216" text-anchor="middle">12</text>
+<text class="tick" x="241.0" y="228" text-anchor="middle">epoch</text>
+<line class="ci2" x1="58.0" x2="58.0" y1="123.2" y2="75.4"/>
+<line class="ci" x1="58.0" x2="58.0" y1="107.9" y2="95.7"/>
+<circle class="mk s1 ns" cx="58.0" cy="101.7" r="4.5" data-tip="epoch 1: -1.6%; query-level CI [-3.5, +0.2]; room-cluster CI [-8.1, +6.3]"/>
+<line class="ci2" x1="91.3" x2="91.3" y1="104.4" y2="54.3"/>
+<line class="ci" x1="91.3" x2="91.3" y1="88.3" y2="72.4"/>
+<circle class="mk s1 sig" cx="91.3" cy="80.6" r="4.5" data-tip="epoch 2: +4.7%; query-level CI [+2.4, +7.2] *; room-cluster CI [-2.4, +12.7]"/>
+<line class="ci2" x1="124.5" x2="124.5" y1="139.8" y2="96.4"/>
+<line class="ci" x1="124.5" x2="124.5" y1="124.1" y2="113.4"/>
+<circle class="mk s1 sig" cx="124.5" cy="118.8" r="4.5" data-tip="epoch 3: -6.7%; query-level CI [-8.4, -5.1] *; room-cluster CI [-13.1, +0.0]"/>
+<line class="ci2" x1="157.8" x2="157.8" y1="153.7" y2="98.7"/>
+<line class="ci" x1="157.8" x2="157.8" y1="133.6" y2="123.1"/>
+<circle class="mk s1 sig" cx="157.8" cy="128.3" r="4.5" data-tip="epoch 4: -9.6%; query-level CI [-11.2, -8.1] *; room-cluster CI [-17.3, -0.7]"/>
+<line class="ci2" x1="191.1" x2="191.1" y1="143.6" y2="96.9"/>
+<line class="ci" x1="191.1" x2="191.1" y1="122.5" y2="112.2"/>
+<circle class="mk s1 sig" cx="191.1" cy="117.4" r="4.5" data-tip="epoch 5: -6.3%; query-level CI [-7.9, -4.8] *; room-cluster CI [-14.2, -0.2]"/>
+<line class="ci2" x1="224.4" x2="224.4" y1="123.6" y2="95.1"/>
+<line class="ci" x1="224.4" x2="224.4" y1="112.1" y2="103.1"/>
+<circle class="mk s1 sig" cx="224.4" cy="107.6" r="4.5" data-tip="epoch 6: -3.4%; query-level CI [-4.7, -2.0] *; room-cluster CI [-8.2, +0.4]"/>
+<line class="ci2" x1="257.6" x2="257.6" y1="118.1" y2="89.4"/>
+<line class="ci" x1="257.6" x2="257.6" y1="106.6" y2="97.0"/>
+<circle class="mk s1 sig" cx="257.6" cy="101.8" r="4.5" data-tip="epoch 7: -1.6%; query-level CI [-3.1, -0.2] *; room-cluster CI [-6.5, +2.1]"/>
+<line class="ci2" x1="290.9" x2="290.9" y1="120.2" y2="95.0"/>
+<line class="ci" x1="290.9" x2="290.9" y1="110.2" y2="100.6"/>
+<circle class="mk s1 sig" cx="290.9" cy="105.5" r="4.5" data-tip="epoch 8: -2.7%; query-level CI [-4.2, -1.3] *; room-cluster CI [-7.2, +0.4]"/>
+<line class="ci2" x1="324.2" x2="324.2" y1="124.1" y2="96.0"/>
+<line class="ci" x1="324.2" x2="324.2" y1="115.5" y2="106.7"/>
+<circle class="mk s1 sig" cx="324.2" cy="111.2" r="4.5" data-tip="epoch 9: -4.4%; query-level CI [-5.8, -3.1] *; room-cluster CI [-8.3, +0.1]"/>
+<line class="ci2" x1="357.5" x2="357.5" y1="120.5" y2="94.9"/>
+<line class="ci" x1="357.5" x2="357.5" y1="111.6" y2="102.7"/>
+<circle class="mk s1 sig" cx="357.5" cy="107.2" r="4.5" data-tip="epoch 10: -3.2%; query-level CI [-4.6, -1.9] *; room-cluster CI [-7.3, +0.5]"/>
+<line class="ci2" x1="390.7" x2="390.7" y1="118.6" y2="95.3"/>
+<line class="ci" x1="390.7" x2="390.7" y1="111.7" y2="102.9"/>
+<circle class="mk s1 sig" cx="390.7" cy="107.4" r="4.5" data-tip="epoch 11: -3.3%; query-level CI [-4.6, -2.0] *; room-cluster CI [-6.7, +0.3]"/>
+<line class="ci2" x1="424.0" x2="424.0" y1="125.1" y2="96.4"/>
+<line class="ci" x1="424.0" x2="424.0" y1="116.3" y2="107.6"/>
+<circle class="mk s1 sig" cx="424.0" cy="112.0" r="4.5" data-tip="epoch 12: -4.7%; query-level CI [-6.0, -3.4] *; room-cluster CI [-8.6, -0.0]"/>
+</svg>
+<svg class="chart" viewBox="0 0 440 230" role="img" aria-label="C50 error (dB): paired difference per epoch">
+<text class="ttl" x="58" y="18">C50 error (dB): cyl − ctrl, % of ctrl</text>
+<line class="grid" x1="58" x2="424" y1="196.0" y2="196.0"/><text class="tick" x="52" y="200.0" text-anchor="end">-10%</text>
+<line class="grid" x1="58" x2="424" y1="162.8" y2="162.8"/><text class="tick" x="52" y="166.8" text-anchor="end">-5%</text>
+<line class="grid" x1="58" x2="424" y1="129.6" y2="129.6"/><text class="tick" x="52" y="133.6" text-anchor="end">+0%</text>
+<line class="grid" x1="58" x2="424" y1="96.4" y2="96.4"/><text class="tick" x="52" y="100.4" text-anchor="end">+5%</text>
+<line class="grid" x1="58" x2="424" y1="63.2" y2="63.2"/><text class="tick" x="52" y="67.2" text-anchor="end">+10%</text>
+<line class="grid" x1="58" x2="424" y1="30.0" y2="30.0"/><text class="tick" x="52" y="34.0" text-anchor="end">+15%</text>
+<line class="axis" x1="58" x2="424" y1="129.6" y2="129.6"/>
+<text class="tick" x="58.0" y="216" text-anchor="middle">1</text>
+<text class="tick" x="91.3" y="216" text-anchor="middle">2</text>
+<text class="tick" x="124.5" y="216" text-anchor="middle">3</text>
+<text class="tick" x="157.8" y="216" text-anchor="middle">4</text>
+<text class="tick" x="191.1" y="216" text-anchor="middle">5</text>
+<text class="tick" x="224.4" y="216" text-anchor="middle">6</text>
+<text class="tick" x="257.6" y="216" text-anchor="middle">7</text>
+<text class="tick" x="290.9" y="216" text-anchor="middle">8</text>
+<text class="tick" x="324.2" y="216" text-anchor="middle">9</text>
+<text class="tick" x="357.5" y="216" text-anchor="middle">10</text>
+<text class="tick" x="390.7" y="216" text-anchor="middle">11</text>
+<text class="tick" x="424.0" y="216" text-anchor="middle">12</text>
+<text class="tick" x="241.0" y="228" text-anchor="middle">epoch</text>
+<line class="ci2" x1="58.0" x2="58.0" y1="161.0" y2="60.6"/>
+<line class="ci" x1="58.0" x2="58.0" y1="126.7" y2="105.1"/>
+<circle class="mk s1 sig" cx="58.0" cy="115.9" r="4.5" data-tip="epoch 1: +2.1%; query-level CI [+0.4, +3.7] *; room-cluster CI [-4.7, +10.4]"/>
+<line class="ci2" x1="91.3" x2="91.3" y1="124.7" y2="53.9"/>
+<line class="ci" x1="91.3" x2="91.3" y1="101.5" y2="80.3"/>
+<circle class="mk s1 sig" cx="91.3" cy="91.0" r="4.5" data-tip="epoch 2: +5.8%; query-level CI [+4.2, +7.4] *; room-cluster CI [+0.7, +11.4]"/>
+<line class="ci2" x1="124.5" x2="124.5" y1="139.4" y2="97.2"/>
+<line class="ci" x1="124.5" x2="124.5" y1="126.5" y2="106.6"/>
+<circle class="mk s1 sig" cx="124.5" cy="116.8" r="4.5" data-tip="epoch 3: +1.9%; query-level CI [+0.5, +3.5] *; room-cluster CI [-1.5, +4.9]"/>
+<line class="ci2" x1="157.8" x2="157.8" y1="139.6" y2="102.3"/>
+<line class="ci" x1="157.8" x2="157.8" y1="129.1" y2="109.0"/>
+<circle class="mk s1 sig" cx="157.8" cy="119.2" r="4.5" data-tip="epoch 4: +1.6%; query-level CI [+0.1, +3.1] *; room-cluster CI [-1.5, +4.1]"/>
+<line class="ci2" x1="191.1" x2="191.1" y1="161.0" y2="122.0"/>
+<line class="ci" x1="191.1" x2="191.1" y1="148.8" y2="130.3"/>
+<circle class="mk s1 sig" cx="191.1" cy="139.4" r="4.5" data-tip="epoch 5: -1.5%; query-level CI [-2.9, -0.1] *; room-cluster CI [-4.7, +1.1]"/>
+<line class="ci2" x1="224.4" x2="224.4" y1="160.2" y2="123.5"/>
+<line class="ci" x1="224.4" x2="224.4" y1="150.5" y2="132.8"/>
+<circle class="mk s1 sig" cx="224.4" cy="141.7" r="4.5" data-tip="epoch 6: -1.8%; query-level CI [-3.1, -0.5] *; room-cluster CI [-4.6, +0.9]"/>
+<line class="ci2" x1="257.6" x2="257.6" y1="149.7" y2="116.0"/>
+<line class="ci" x1="257.6" x2="257.6" y1="140.6" y2="122.5"/>
+<circle class="mk s1 ns" cx="257.6" cy="131.7" r="4.5" data-tip="epoch 7: -0.3%; query-level CI [-1.7, +1.1]; room-cluster CI [-3.0, +2.0]"/>
+<line class="ci2" x1="290.9" x2="290.9" y1="168.5" y2="131.4"/>
+<line class="ci" x1="290.9" x2="290.9" y1="159.8" y2="141.5"/>
+<circle class="mk s1 sig" cx="290.9" cy="150.7" r="4.5" data-tip="epoch 8: -3.2%; query-level CI [-4.6, -1.8] *; room-cluster CI [-5.9, -0.3]"/>
+<line class="ci2" x1="324.2" x2="324.2" y1="141.9" y2="119.3"/>
+<line class="ci" x1="324.2" x2="324.2" y1="138.8" y2="120.8"/>
+<circle class="mk s1 ns" cx="324.2" cy="129.8" r="4.5" data-tip="epoch 9: -0.0%; query-level CI [-1.4, +1.3]; room-cluster CI [-1.9, +1.5]"/>
+<line class="ci2" x1="357.5" x2="357.5" y1="142.7" y2="114.3"/>
+<line class="ci" x1="357.5" x2="357.5" y1="136.8" y2="118.9"/>
+<circle class="mk s1 ns" cx="357.5" cy="128.0" r="4.5" data-tip="epoch 10: +0.2%; query-level CI [-1.1, +1.6]; room-cluster CI [-2.0, +2.3]"/>
+<line class="ci2" x1="390.7" x2="390.7" y1="139.3" y2="112.6"/>
+<line class="ci" x1="390.7" x2="390.7" y1="133.9" y2="116.2"/>
+<circle class="mk s1 ns" cx="390.7" cy="124.9" r="4.5" data-tip="epoch 11: +0.7%; query-level CI [-0.6, +2.0]; room-cluster CI [-1.5, +2.6]"/>
+<line class="ci2" x1="424.0" x2="424.0" y1="139.9" y2="114.6"/>
+<line class="ci" x1="424.0" x2="424.0" y1="134.6" y2="116.5"/>
+<circle class="mk s1 ns" cx="424.0" cy="125.6" r="4.5" data-tip="epoch 12: +0.6%; query-level CI [-0.7, +2.0]; room-cluster CI [-1.5, +2.3]"/>
+</svg>
+<svg class="chart" viewBox="0 0 440 230" role="img" aria-label="T60 error (%): paired difference per epoch">
+<text class="ttl" x="58" y="18">T60 error (%): cyl − ctrl, % of ctrl</text>
+<line class="grid" x1="58" x2="424" y1="196.0" y2="196.0"/><text class="tick" x="52" y="200.0" text-anchor="end">-40%</text>
+<line class="grid" x1="58" x2="424" y1="168.3" y2="168.3"/><text class="tick" x="52" y="172.3" text-anchor="end">-30%</text>
+<line class="grid" x1="58" x2="424" y1="140.7" y2="140.7"/><text class="tick" x="52" y="144.7" text-anchor="end">-20%</text>
+<line class="grid" x1="58" x2="424" y1="113.0" y2="113.0"/><text class="tick" x="52" y="117.0" text-anchor="end">-10%</text>
+<line class="grid" x1="58" x2="424" y1="85.3" y2="85.3"/><text class="tick" x="52" y="89.3" text-anchor="end">+0%</text>
+<line class="grid" x1="58" x2="424" y1="57.7" y2="57.7"/><text class="tick" x="52" y="61.7" text-anchor="end">+10%</text>
+<line class="grid" x1="58" x2="424" y1="30.0" y2="30.0"/><text class="tick" x="52" y="34.0" text-anchor="end">+20%</text>
+<line class="axis" x1="58" x2="424" y1="85.3" y2="85.3"/>
+<text class="tick" x="58.0" y="216" text-anchor="middle">1</text>
+<text class="tick" x="91.3" y="216" text-anchor="middle">2</text>
+<text class="tick" x="124.5" y="216" text-anchor="middle">3</text>
+<text class="tick" x="157.8" y="216" text-anchor="middle">4</text>
+<text class="tick" x="191.1" y="216" text-anchor="middle">5</text>
+<text class="tick" x="224.4" y="216" text-anchor="middle">6</text>
+<text class="tick" x="257.6" y="216" text-anchor="middle">7</text>
+<text class="tick" x="290.9" y="216" text-anchor="middle">8</text>
+<text class="tick" x="324.2" y="216" text-anchor="middle">9</text>
+<text class="tick" x="357.5" y="216" text-anchor="middle">10</text>
+<text class="tick" x="390.7" y="216" text-anchor="middle">11</text>
+<text class="tick" x="424.0" y="216" text-anchor="middle">12</text>
+<text class="tick" x="241.0" y="228" text-anchor="middle">epoch</text>
+<line class="ci2" x1="58.0" x2="58.0" y1="121.8" y2="68.3"/>
+<line class="ci" x1="58.0" x2="58.0" y1="96.6" y2="89.5"/>
+<circle class="mk s1 sig" cx="58.0" cy="93.1" r="4.5" data-tip="epoch 1: -2.8%; query-level CI [-4.1, -1.5] *; room-cluster CI [-13.2, +6.2]"/>
+<line class="ci2" x1="91.3" x2="91.3" y1="160.1" y2="89.0"/>
+<line class="ci" x1="91.3" x2="91.3" y1="126.4" y2="117.4"/>
+<circle class="mk s1 sig" cx="91.3" cy="121.9" r="4.5" data-tip="epoch 2: -13.2%; query-level CI [-14.8, -11.6] *; room-cluster CI [-27.0, -1.3]"/>
+<line class="ci2" x1="124.5" x2="124.5" y1="100.5" y2="88.8"/>
+<line class="ci" x1="124.5" x2="124.5" y1="96.8" y2="91.7"/>
+<circle class="mk s1 sig" cx="124.5" cy="94.3" r="4.5" data-tip="epoch 3: -3.2%; query-level CI [-4.2, -2.3] *; room-cluster CI [-5.5, -1.3]"/>
+<line class="ci2" x1="157.8" x2="157.8" y1="86.8" y2="59.0"/>
+<line class="ci" x1="157.8" x2="157.8" y1="75.3" y2="69.2"/>
+<circle class="mk s1 sig" cx="157.8" cy="72.3" r="4.5" data-tip="epoch 4: +4.7%; query-level CI [+3.6, +5.8] *; room-cluster CI [-0.5, +9.5]"/>
+<line class="ci2" x1="191.1" x2="191.1" y1="92.6" y2="83.7"/>
+<line class="ci" x1="191.1" x2="191.1" y1="90.6" y2="85.3"/>
+<circle class="mk s1 ns" cx="191.1" cy="87.9" r="4.5" data-tip="epoch 5: -0.9%; query-level CI [-1.9, +0.0]; room-cluster CI [-2.6, +0.6]"/>
+<line class="ci2" x1="224.4" x2="224.4" y1="101.3" y2="78.2"/>
+<line class="ci" x1="224.4" x2="224.4" y1="91.9" y2="86.7"/>
+<circle class="mk s1 sig" cx="224.4" cy="89.3" r="4.5" data-tip="epoch 6: -1.4%; query-level CI [-2.4, -0.5] *; room-cluster CI [-5.8, +2.6]"/>
+<line class="ci2" x1="257.6" x2="257.6" y1="82.8" y2="68.4"/>
+<line class="ci" x1="257.6" x2="257.6" y1="78.2" y2="72.8"/>
+<circle class="mk s1 sig" cx="257.6" cy="75.5" r="4.5" data-tip="epoch 7: +3.5%; query-level CI [+2.6, +4.5] *; room-cluster CI [+0.9, +6.1]"/>
+<line class="ci2" x1="290.9" x2="290.9" y1="91.8" y2="80.2"/>
+<line class="ci" x1="290.9" x2="290.9" y1="88.5" y2="83.1"/>
+<circle class="mk s1 ns" cx="290.9" cy="85.8" r="4.5" data-tip="epoch 8: -0.2%; query-level CI [-1.1, +0.8]; room-cluster CI [-2.3, +1.8]"/>
+<line class="ci2" x1="324.2" x2="324.2" y1="98.8" y2="83.2"/>
+<line class="ci" x1="324.2" x2="324.2" y1="92.6" y2="87.5"/>
+<circle class="mk s1 sig" cx="324.2" cy="90.0" r="4.5" data-tip="epoch 9: -1.7%; query-level CI [-2.6, -0.8] *; room-cluster CI [-4.9, +0.8]"/>
+<line class="ci2" x1="357.5" x2="357.5" y1="91.1" y2="81.1"/>
+<line class="ci" x1="357.5" x2="357.5" y1="88.5" y2="83.4"/>
+<circle class="mk s1 ns" cx="357.5" cy="86.0" r="4.5" data-tip="epoch 10: -0.2%; query-level CI [-1.2, +0.7]; room-cluster CI [-2.1, +1.5]"/>
+<line class="ci2" x1="390.7" x2="390.7" y1="93.6" y2="82.4"/>
+<line class="ci" x1="390.7" x2="390.7" y1="90.2" y2="85.1"/>
+<circle class="mk s1 ns" cx="390.7" cy="87.6" r="4.5" data-tip="epoch 11: -0.8%; query-level CI [-1.8, +0.1]; room-cluster CI [-3.0, +1.1]"/>
+<line class="ci2" x1="424.0" x2="424.0" y1="96.5" y2="82.4"/>
+<line class="ci" x1="424.0" x2="424.0" y1="91.7" y2="86.6"/>
+<circle class="mk s1 sig" cx="424.0" cy="89.1" r="4.5" data-tip="epoch 12: -1.4%; query-level CI [-2.3, -0.4] *; room-cluster CI [-4.1, +1.1]"/>
+</svg>
+<svg class="chart" viewBox="0 0 440 230" role="img" aria-label="Test loss: paired difference per epoch">
+<text class="ttl" x="58" y="18">Test loss: cyl − ctrl, % of ctrl</text>
+<line class="grid" x1="58" x2="424" y1="196.0" y2="196.0"/><text class="tick" x="52" y="200.0" text-anchor="end">-10%</text>
+<line class="grid" x1="58" x2="424" y1="162.8" y2="162.8"/><text class="tick" x="52" y="166.8" text-anchor="end">-5%</text>
+<line class="grid" x1="58" x2="424" y1="129.6" y2="129.6"/><text class="tick" x="52" y="133.6" text-anchor="end">+0%</text>
+<line class="grid" x1="58" x2="424" y1="96.4" y2="96.4"/><text class="tick" x="52" y="100.4" text-anchor="end">+5%</text>
+<line class="grid" x1="58" x2="424" y1="63.2" y2="63.2"/><text class="tick" x="52" y="67.2" text-anchor="end">+10%</text>
+<line class="grid" x1="58" x2="424" y1="30.0" y2="30.0"/><text class="tick" x="52" y="34.0" text-anchor="end">+15%</text>
+<line class="axis" x1="58" x2="424" y1="129.6" y2="129.6"/>
+<text class="tick" x="58.0" y="216" text-anchor="middle">1</text>
+<text class="tick" x="91.3" y="216" text-anchor="middle">2</text>
+<text class="tick" x="124.5" y="216" text-anchor="middle">3</text>
+<text class="tick" x="157.8" y="216" text-anchor="middle">4</text>
+<text class="tick" x="191.1" y="216" text-anchor="middle">5</text>
+<text class="tick" x="224.4" y="216" text-anchor="middle">6</text>
+<text class="tick" x="257.6" y="216" text-anchor="middle">7</text>
+<text class="tick" x="290.9" y="216" text-anchor="middle">8</text>
+<text class="tick" x="324.2" y="216" text-anchor="middle">9</text>
+<text class="tick" x="357.5" y="216" text-anchor="middle">10</text>
+<text class="tick" x="390.7" y="216" text-anchor="middle">11</text>
+<text class="tick" x="424.0" y="216" text-anchor="middle">12</text>
+<text class="tick" x="241.0" y="228" text-anchor="middle">epoch</text>
+<line class="ci2" x1="58.0" x2="58.0" y1="174.6" y2="119.2"/>
+<line class="ci" x1="58.0" x2="58.0" y1="151.8" y2="140.9"/>
+<circle class="mk s1 sig" cx="58.0" cy="146.4" r="4.5" data-tip="epoch 1: -2.5%; query-level CI [-3.3, -1.7] *; room-cluster CI [-6.8, +1.6]"/>
+<line class="ci2" x1="91.3" x2="91.3" y1="144.6" y2="49.5"/>
+<line class="ci" x1="91.3" x2="91.3" y1="102.1" y2="88.6"/>
+<circle class="mk s1 sig" cx="91.3" cy="95.4" r="4.5" data-tip="epoch 2: +5.2%; query-level CI [+4.1, +6.2] *; room-cluster CI [-2.3, +12.1]"/>
+<line class="ci2" x1="124.5" x2="124.5" y1="170.6" y2="129.1"/>
+<line class="ci" x1="124.5" x2="124.5" y1="151.3" y2="143.2"/>
+<circle class="mk s1 sig" cx="124.5" cy="147.2" r="4.5" data-tip="epoch 3: -2.7%; query-level CI [-3.3, -2.0] *; room-cluster CI [-6.2, +0.1]"/>
+<line class="ci2" x1="157.8" x2="157.8" y1="147.8" y2="126.7"/>
+<line class="ci" x1="157.8" x2="157.8" y1="142.7" y2="134.2"/>
+<circle class="mk s1 sig" cx="157.8" cy="138.4" r="4.5" data-tip="epoch 4: -1.3%; query-level CI [-2.0, -0.7] *; room-cluster CI [-2.7, +0.4]"/>
+<line class="ci2" x1="191.1" x2="191.1" y1="152.5" y2="114.7"/>
+<line class="ci" x1="191.1" x2="191.1" y1="137.7" y2="129.5"/>
+<circle class="mk s1 ns" cx="191.1" cy="133.6" r="4.5" data-tip="epoch 5: -0.6%; query-level CI [-1.2, +0.0]; room-cluster CI [-3.4, +2.2]"/>
+<line class="ci2" x1="224.4" x2="224.4" y1="149.4" y2="123.0"/>
+<line class="ci" x1="224.4" x2="224.4" y1="140.6" y2="133.0"/>
+<circle class="mk s1 sig" cx="224.4" cy="136.8" r="4.5" data-tip="epoch 6: -1.1%; query-level CI [-1.6, -0.5] *; room-cluster CI [-3.0, +1.0]"/>
+<line class="ci2" x1="257.6" x2="257.6" y1="151.7" y2="122.5"/>
+<line class="ci" x1="257.6" x2="257.6" y1="141.6" y2="133.2"/>
+<circle class="mk s1 sig" cx="257.6" cy="137.4" r="4.5" data-tip="epoch 7: -1.2%; query-level CI [-1.8, -0.5] *; room-cluster CI [-3.3, +1.1]"/>
+<line class="ci2" x1="290.9" x2="290.9" y1="148.8" y2="131.1"/>
+<line class="ci" x1="290.9" x2="290.9" y1="143.6" y2="135.3"/>
+<circle class="mk s1 sig" cx="290.9" cy="139.4" r="4.5" data-tip="epoch 8: -1.5%; query-level CI [-2.1, -0.9] *; room-cluster CI [-2.9, -0.2]"/>
+<line class="ci2" x1="324.2" x2="324.2" y1="150.9" y2="128.7"/>
+<line class="ci" x1="324.2" x2="324.2" y1="143.4" y2="135.5"/>
+<circle class="mk s1 sig" cx="324.2" cy="139.4" r="4.5" data-tip="epoch 9: -1.5%; query-level CI [-2.1, -0.9] *; room-cluster CI [-3.2, +0.1]"/>
+<line class="ci2" x1="357.5" x2="357.5" y1="144.2" y2="130.0"/>
+<line class="ci" x1="357.5" x2="357.5" y1="141.0" y2="133.1"/>
+<circle class="mk s1 sig" cx="357.5" cy="137.1" r="4.5" data-tip="epoch 10: -1.1%; query-level CI [-1.7, -0.5] *; room-cluster CI [-2.2, -0.1]"/>
+<line class="ci2" x1="390.7" x2="390.7" y1="143.8" y2="130.2"/>
+<line class="ci" x1="390.7" x2="390.7" y1="141.2" y2="133.2"/>
+<circle class="mk s1 sig" cx="390.7" cy="137.2" r="4.5" data-tip="epoch 11: -1.1%; query-level CI [-1.7, -0.5] *; room-cluster CI [-2.1, -0.1]"/>
+<line class="ci2" x1="424.0" x2="424.0" y1="149.4" y2="131.2"/>
+<line class="ci" x1="424.0" x2="424.0" y1="144.8" y2="136.9"/>
+<circle class="mk s1 sig" cx="424.0" cy="140.8" r="4.5" data-tip="epoch 12: -1.7%; query-level CI [-2.3, -1.1] *; room-cluster CI [-3.0, -0.2]"/>
+</svg></div>
+<h2>3. Averaged over epochs 5-12 (per-sample differences averaged across checkpoints, then bootstrapped; 10000 resamples)</h2>
+<div class="wrap"><table><tr><th>metric</th><th>cyl</th><th>ctrl</th><th>diff</th><th>rel</th><th>query-level 95% CI</th><th>room-cluster 95% CI</th><th>epochs cyl lower</th><th>fixed split</th><th>over rooms</th></tr><tr><td>EDT error (s)</td><td>0.0454</td><td>0.0472</td><td>-0.0018</td><td>-3.7%</td><td>[-0.0024, -0.0011] *</td><td>[-0.0039, 0.0001]</td><td>8/8</td><td>cyl lower</td><td>no detected difference</td></tr><tr><td>C50 error (dB)</td><td>1.237</td><td>1.246</td><td>-0.008</td><td>-0.7%</td><td>[-0.024, 0.008]</td><td>[-0.035, 0.015]</td><td>5/8</td><td>no detected difference</td><td>no detected difference</td></tr><tr><td>T60 error (%)</td><td>9.57</td><td>9.61</td><td>-0.04</td><td>-0.4%</td><td>[-0.12, 0.04]</td><td>[-0.22, 0.15]</td><td>7/8</td><td>no detected difference</td><td>no detected difference</td></tr><tr><td>Test loss</td><td>0.01588</td><td>0.01608</td><td>-0.00020</td><td>-1.2%</td><td>[-0.00029, -0.00010] *</td><td>[-0.00039, 0.00002]</td><td>8/8</td><td>cyl lower</td><td>no detected difference</td></tr></table></div>
+<h2>3b. Best-test-loss checkpoints (cyl epoch 9 vs control epoch 10)</h2>
+<div class="wrap"><table><tr><th>metric</th><th>cyl</th><th>ctrl</th><th>diff</th><th>query-level 95% CI</th><th>room-cluster 95% CI</th></tr><tr><td>EDT error (s)</td><td>0.0454</td><td>0.0469</td><td>-0.0016 (-3.4%)</td><td>[-0.0022, -0.0010] *</td><td>[-0.0035, 0.0000]</td></tr><tr><td>C50 error (dB)</td><td>1.236</td><td>1.240</td><td>-0.004 (-0.3%)</td><td>[-0.020, 0.013]</td><td>[-0.032, 0.023]</td></tr><tr><td>T60 error (%)</td><td>9.50</td><td>9.50</td><td>-0.00 (-0.0%)</td><td>[-0.09, 0.08]</td><td>[-0.19, 0.19]</td></tr><tr><td>Test loss</td><td>0.01581</td><td>0.01600</td><td>-0.00019 (-1.2%)</td><td>[-0.00029, -0.00010] *</td><td>[-0.00033, -0.00003] *</td></tr></table></div>
+<h2>3c. Per-room mean difference (cyl − ctrl), epochs 5-12 average</h2>
+<div class="wrap"><table><tr><th>room</th><th>EDT error (s)</th><th>C50 error (dB)</th><th>T60 error (%)</th><th>Test loss</th></tr><tr><td>Apartments_idx_42</td><td>+0.0003</td><td>+0.003</td><td>+0.02</td><td>-0.00003</td></tr><tr><td>Apartments_idx_50</td><td>-0.0025</td><td>-0.048</td><td>+0.14</td><td>-0.00024</td></tr><tr><td>Auditorium_idx_1</td><td>-0.0026</td><td>+0.019</td><td>-0.52</td><td>-0.00035</td></tr><tr><td>Bathrooms_idx_14</td><td>-0.0006</td><td>-0.021</td><td>-0.27</td><td>-0.00058</td></tr><tr><td>Bathrooms_idx_18</td><td>-0.0000</td><td>-0.010</td><td>-0.01</td><td>-0.00014</td></tr><tr><td>Bedrooms_idx_18</td><td>+0.0002</td><td>+0.008</td><td>-0.15</td><td>-0.00028</td></tr><tr><td>Bedrooms_idx_33</td><td>-0.0012</td><td>-0.025</td><td>-0.07</td><td>-0.00042</td></tr><tr><td>Cafe_idx_1</td><td>-0.0082</td><td>-0.067</td><td>-0.11</td><td>-0.00063</td></tr><tr><td>ListeningRoom_idx_2</td><td>+0.0005</td><td>+0.014</td><td>+0.34</td><td>+0.00021</td></tr><tr><td>LivingRoomsWithHallway_idx_25</td><td>-0.0014</td><td>-0.039</td><td>-0.14</td><td>-0.00025</td></tr><tr><td>LivingRoomsWithHallway_idx_30</td><td>+0.0036</td><td>+0.039</td><td>+0.61</td><td>+0.00077</td></tr><tr><td>MeetingRoom_idx_20</td><td>-0.0002</td><td>+0.012</td><td>+0.02</td><td>+0.00016</td></tr><tr><td>MeetingRoom_idx_32</td><td>+0.0003</td><td>+0.027</td><td>+0.14</td><td>+0.00012</td></tr><tr><td>Office_idx_10</td><td>-0.0034</td><td>-0.136</td><td>+0.08</td><td>-0.00099</td></tr><tr><td>Office_idx_11</td><td>+0.0026</td><td>+0.113</td><td>-0.06</td><td>+0.00016</td></tr><tr><td>Restaurants_idx_22</td><td>-0.0003</td><td>+0.004</td><td>-0.03</td><td>-0.00018</td></tr><tr><td>Restaurants_idx_24</td><td>-0.0029</td><td>-0.019</td><td>-0.08</td><td>-0.00018</td></tr></table></div>
+<h2>4. Baseline reproduction (released checkpoints, untouched eval scripts)</h2>
+<div class="wrap"><table><tr><th>split</th><th>n</th><th>EDT (s)</th><th>C50 (dB)</th><th>T60 (%)</th><th>paper Table 1</th></tr>
+<tr><td>unseen</td><td>6337</td><td>0.0549</td><td>1.358</td><td>9.69</td><td>0.055 / 1.457 / 10.x (last digit lost in the PDF-to-markdown conversion)</td></tr>
+<tr><td>seen</td><td>6217</td><td>0.0389</td><td>1.029</td><td>7.27</td><td>0.038 / 0.94 / 8.13</td></tr></table></div>
+<h2>5. Per-epoch table (cyl / ctrl)</h2>
+<div class="wrap"><table><tr><th>epoch</th><th>EDT error (s)</th><th>C50 error (dB)</th><th>T60 error (%)</th><th>Test loss</th><th>lr</th></tr><tr><td>1</td><td>0.0577 / 0.0586</td><td>1.497 / 1.466</td><td>11.77 / 12.11</td><td>0.01790 / 0.01836</td><td>4.6e-04</td></tr><tr><td>2</td><td>0.0526 / 0.0502</td><td>1.428 / 1.350</td><td>8.91 / 10.27</td><td>0.01772 / 0.01685</td><td>2.2e-04</td></tr><tr><td>3</td><td>0.0458 / 0.0491</td><td>1.276 / 1.252</td><td>9.95 / 10.28</td><td>0.01619 / 0.01663</td><td>1.0e-04</td></tr><tr><td>4</td><td>0.0453 / 0.0502</td><td>1.244 / 1.225</td><td>10.00 / 9.55</td><td>0.01597 / 0.01618</td><td>4.6e-05</td></tr><tr><td>5</td><td>0.0448 / 0.0479</td><td>1.257 / 1.276</td><td>9.72 / 9.81</td><td>0.01601 / 0.01611</td><td>2.2e-05</td></tr><tr><td>6</td><td>0.0455 / 0.0471</td><td>1.233 / 1.256</td><td>9.54 / 9.68</td><td>0.01595 / 0.01612</td><td>1.0e-05</td></tr><tr><td>7</td><td>0.0462 / 0.0470</td><td>1.241 / 1.244</td><td>9.83 / 9.50</td><td>0.01583 / 0.01602</td><td>4.6e-06</td></tr><tr><td>8</td><td>0.0454 / 0.0467</td><td>1.216 / 1.256</td><td>9.55 / 9.56</td><td>0.01586 / 0.01610</td><td>2.2e-06</td></tr><tr><td>9</td><td>0.0454 / 0.0475</td><td>1.236 / 1.236</td><td>9.50 / 9.66</td><td>0.01581 / 0.01604</td><td>1.0e-06</td></tr><tr><td>10</td><td>0.0454 / 0.0469</td><td>1.242 / 1.240</td><td>9.48 / 9.50</td><td>0.01582 / 0.01600</td><td>4.6e-07</td></tr><tr><td>11</td><td>0.0456 / 0.0472</td><td>1.231 / 1.222</td><td>9.50 / 9.58</td><td>0.01588 / 0.01606</td><td>2.2e-07</td></tr><tr><td>12</td><td>0.0451 / 0.0473</td><td>1.241 / 1.234</td><td>9.46 / 9.59</td><td>0.01590 / 0.01617</td><td>1.0e-07</td></tr></table></div>
+<h2>6. Method</h2>
+<p>Only <code>source_network</code> differs: <code>SimpleViT</code> (absolute 2-D sin/cos positional embedding) vs <code>CylindricalViT</code> (per-column gauge alignment R<sub>z</sub>(−θ<sub>c</sub>) of the xyz panorama, elevation-only positional encoding, circular relative-position attention bias); same dim 512, depth 12, 8 heads, 256 tokens. Loss for both:</p>
+<div class="math">ℒ = ‖ log(Ŝ + ε) − log(S + ε) ‖<sub>1</sub> + 0.01 · ‖ EDC<sub>dB</sub>(Ŝ) − EDC<sub>dB</sub>(S) ‖<sub>1</sub>,&nbsp; ε = 10<sup>−8</sup>, EDC = Schroeder backward integration over time of the summed power spectrogram</div>
+<p>Training: AdamW lr 10<sup>−3</sup>, wd 10<sup>−4</sup>, lr × 0.1 every 3 epochs (12 epochs; the authors' 200/50 compressed at the same ratio), effective batch 64 (32 × 2 accumulation), TF32, K=8 references re-drawn each step. Metrics: Griffin-Lim inversion of the predicted magnitude, EDT / C50 / T60 on the first 8000 samples exactly as <code>eval_unseen.py</code>.</p>
+<p class="prov">Sources: every number on this page (statistics, learning rates, baseline reproduction, paper/released references) is read from the canonical <code>ckpt/backbone_comparison_stats.json</code> written by <code>tools/summarize_epochs.py --avg-epochs 5-12 --json</code>, the same run that writes <code>ckpt/backbone_comparison_summary.txt</code>; the generator asserts that <code>cylvit_vs_simplevit_results.md</code> quotes that summary verbatim and computes no statistics of its own. Extract: <code>cylvit_vs_simplevit_results_assets/data.json</code>. Narrative: <code>cylvit_vs_simplevit_results.md</code>, <code>cylvit_vs_simplevit_analysis.md</code>.</p>
+</main><div id="tip"></div>
+<script>
+const tip=document.getElementById('tip');
+document.querySelectorAll('[data-tip]').forEach(el=>{el.addEventListener('mousemove',e=>{tip.textContent=el.dataset.tip;tip.style.display='block';tip.style.left=(e.clientX+12)+'px';tip.style.top=(e.clientY-28)+'px';});el.addEventListener('mouseleave',()=>tip.style.display='none');});
+</script></body></html>

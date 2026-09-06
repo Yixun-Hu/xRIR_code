@@ -1,0 +1,23 @@
+# Analysis — sim2real_transfer
+
+## Outcome
+
+**The hypothesis that the CylindricalViT advantage carries over to real rooms is not supported; after the paper's two-stage few-shot fine-tuning the SimpleViT control is better or equal in every room.** Pooled over three fine-tuning seeds with query-and-seed-resampled 95 % intervals, the control is significantly lower on 6 of 11 room×metric cells (classroom EDT +9 %, classroom C50 +9 %, hallway EDT +43 %, hallway C50 +81 %, hallway T60 +55 %, complex EDT +7 % for the cylindrical model relative to the control) and no cell favours the cylindrical model. The five remaining cells show no detected difference (classroom T60, both dampened metrics, complex C50 and T60). The direction is the opposite of exp_01, where the cylindrical model had the lower EDT on the simulated unseen split.
+
+## Reliability
+
+- **Design.** Same data, splits, fine-tuning recipe, K, deterministic per-query references and evaluation code for both backbones; three independent fine-tuning seeds each; both intervals reported, with verdicts on the more conservative two-way interval; per-seed effects have the same sign in every significant cell (e.g. hallway C50 +0.87 / +0.85 / +1.04 dB). The strict completeness gate verified exact test indices, protocol metadata and stage provenance for all 10 runs. This part of the result is robust.
+- **Nuisance.** Griffin-Lim phase initialisation was unseeded (zero expected effect on paired differences; realised contribution unknown). Intervals are per-cell nominal, unadjusted across 11 cells; the six significant cells would survive a Bonferroni factor of 11 by inspection of their margins (the smallest, complex EDT, has a two-way lower bound of +0.0022 s against a point estimate of +0.0057 s), but this was not pre-registered.
+- **Absolute numbers versus the paper.** The released checkpoint under our protocol does not reproduce Table 2 on the hallway and complex room (EDT 0.095 vs 0.062 and 0.107 vs 0.077), and the as-released depth maps give the same result, so the substituted depth maps are not the cause. Candidate causes: the paper's test split (the repo's odd-index split) and its checkpoint selection on the test split differ from the DiffRIR splits and validation-based selection used here; or the released weights are not the ones behind Table 2. Our retrained control does match or beat Table 2 on EDT in every room, so the pipeline itself is not the limitation. This affects the paper-reproduction claim, not the backbone comparison.
+- **Scope.** One pretraining seed per backbone (exp_01 checkpoints), 12 training RIRs per room, and real loudspeakers with directivity that neither encoder models.
+
+## Interpretation
+
+The hallway drives the result: it is the most anisotropic room (walls 0.7–0.8 m away on ±x, 8–10 m along ±y), and the cylindrical model is already far behind zero-shot there (C50 4.18 vs 2.39 dB) and stays behind after fine-tuning. The cylindrical encoder's per-column gauge alignment and elevation-only positional code make its tokens depend only on relative azimuth structure; the pooled feature must then recover the corridor's orientation relative to the source through the learned token pool, which was trained only on axis-aligned simulated rooms. The SimpleViT's absolute positional code carries that orientation directly. On the near-isotropic dampened room the two are indistinguishable, and on the complex room the cylindrical model's zero-shot advantage disappears once 12 real RIRs are fitted. A plausible reading is that, with only 12 real samples, fine-tuning mostly re-weights the audio branch, so the backbone that starts closer on the early-reflection structure of each specific room wins; equivariance does not help when the test heading distribution is the same as the training one.
+
+## Recommended next steps
+
+1. exp_03 (yaw rotation) will show whether the cylindrical encoder's supposed robustness to heading exists at all in the full model; if it does not, the sim-to-real deficit is consistent with the pool being the bottleneck.
+2. A hallway-only diagnostic: compare per-sample errors as a function of source azimuth relative to the corridor axis for both backbones (data already in `per_sample_hallway.json`).
+3. If the real-room deficit matters for the method, consider an equivariant pooling (e.g. azimuth-softmax attention pool) instead of the learned position pool, and re-run exp_01/exp_02.
+4. Seed the Griffin-Lim phase per query in `sim_to_real/eval_haa.py` and record `depth_variant` in its per-sample meta now that the sweep is over (both deferred to keep the sweep's code state fixed).

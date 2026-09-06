@@ -1,0 +1,24 @@
+model                       | class_room                             | dampened_room                          | hallway                                | complex_room                           
+                            |       EDT (s)     C50 (dB)      T60 (%)|       EDT (s)     C50 (dB)      T60 (%)|       EDT (s)     C50 (dB)      T60 (%)|       EDT (s)     C50 (dB)      T60 (%)
+paper xRIR K=8              |         0.093        1.628         6.25|         0.044        3.302            -|         0.062        0.954          3.2|         0.077        1.688         4.33
+released zero-shot (n=1)    |        0.1667        3.373         7.87|        0.0749        4.757            -|        0.1523        2.096         6.82|        0.1324        2.567         6.29
+released fine-tuned (n=3)   | 0.0958±0.0015  1.975±0.177    4.32±0.09| 0.0380±0.0005  2.747±0.047            -| 0.0948±0.0031  1.702±0.049    4.42±0.13| 0.1072±0.0019  2.233±0.048    4.96±0.13
+released_repomaps fine-tuned (n=1)|        0.0951        1.822         4.03|        0.0374        2.712            -|        0.0998        1.793         4.60|        0.1022        2.157         4.96
+control zero-shot (n=1)     |        0.1179        1.933         7.35|        0.0723        4.670            -|        0.1869        2.389         7.47|        0.1561        2.765         6.92
+control fine-tuned (n=3)    | 0.0812±0.0007  1.501±0.008    4.31±0.13| 0.0384±0.0002  2.847±0.028            -| 0.0611±0.0009  1.135±0.008    2.68±0.00| 0.0765±0.0003  1.666±0.021    4.94±0.07
+cyl zero-shot (n=1)         |        0.1199        1.915         7.82|        0.0719        4.632            -|        0.1840        4.183         9.91|        0.1095        2.172         5.77
+cyl fine-tuned (n=3)        | 0.0887±0.0008  1.630±0.038    4.00±0.24| 0.0385±0.0021  2.863±0.132            -| 0.0874±0.0018  2.052±0.084    4.16±0.09| 0.0821±0.0006  1.736±0.030    5.05±0.22
+
+Paired cylindrical - control (fine-tuned), per-sample differences pooled over training seeds. Two intervals: query-cluster (conditional on the realised seeds) and two-way (queries and seeds resampled); * = nominal 95% CI excludes 0 (no multiplicity adjustment); negative favours cylindrical
+room           metric           cyl      ctrl      diff       query-cluster CI             two-way CI  cyl<ctrl  valid  (seeds seed0, seed1, seed2)
+class_room     EDT (s)       0.0887    0.0812   +0.0074 [  +0.0031,   +0.0119]* [  +0.0028,   +0.0122]*      0.46   1389  per-seed: seed0:+0.0081 (n=463), seed1:+0.0059 (n=463), seed2:+0.0082 (n=463)
+class_room     C50 (dB)       1.630     1.501    +0.129 [   +0.058,    +0.200]* [   +0.045,    +0.226]*      0.45   1389  per-seed: seed0:+0.104 (n=463), seed1:+0.192 (n=463), seed2:+0.091 (n=463)
+class_room     T60 (%)         4.00      4.31     -0.31 [    -0.50,     -0.12]* [    -0.78,     +0.07]       0.53   1389  per-seed: seed0:-0.05 (n=463), seed1:-0.79 (n=463), seed2:-0.08 (n=463)
+dampened_room  EDT (s)       0.0385    0.0384   +0.0001 [  -0.0031,   +0.0032]  [  -0.0040,   +0.0041]       0.51    594  per-seed: seed0:-0.0001 (n=198), seed1:+0.0028 (n=198), seed2:-0.0025 (n=198)
+dampened_room  C50 (dB)       2.863     2.847    +0.016 [   -0.141,    +0.170]  [   -0.227,    +0.256]       0.49    594  per-seed: seed0:+0.014 (n=198), seed1:+0.213 (n=198), seed2:-0.179 (n=198)
+hallway        EDT (s)       0.0874    0.0611   +0.0264 [  +0.0185,   +0.0345]* [  +0.0177,   +0.0351]*      0.40   1269  per-seed: seed0:+0.0248 (n=423), seed1:+0.0241 (n=423), seed2:+0.0301 (n=423)
+hallway        C50 (dB)       2.052     1.135    +0.916 [   +0.769,    +1.069]* [   +0.743,    +1.102]*      0.29   1269  per-seed: seed0:+0.865 (n=423), seed1:+0.850 (n=423), seed2:+1.035 (n=423)
+hallway        T60 (%)         4.16      2.68     +1.48 [    +1.15,     +1.83]* [    +1.12,     +1.85]*      0.32   1269  per-seed: seed0:+1.46 (n=423), seed1:+1.38 (n=423), seed2:+1.61 (n=423)
+complex_room   EDT (s)       0.0821    0.0765   +0.0057 [  +0.0029,   +0.0084]* [  +0.0022,   +0.0092]*      0.42    594  per-seed: seed0:+0.0056 (n=198), seed1:+0.0064 (n=198), seed2:+0.0049 (n=198)
+complex_room   C50 (dB)       1.736     1.666    +0.070 [   +0.013,    +0.125]* [   -0.014,    +0.150]       0.43    594  per-seed: seed0:+0.084 (n=198), seed1:+0.118 (n=198), seed2:+0.007 (n=198)
+complex_room   T60 (%)         5.05      4.94     +0.10 [    -0.07,     +0.29]  [    -0.23,     +0.44]       0.49    594  per-seed: seed0:+0.25 (n=198), seed1:-0.20 (n=198), seed2:+0.26 (n=198)

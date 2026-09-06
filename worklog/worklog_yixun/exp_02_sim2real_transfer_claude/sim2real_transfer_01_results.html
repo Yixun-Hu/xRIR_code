@@ -1,0 +1,260 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>sim2real_transfer — results</title>
+<style>
+:root{color-scheme:light;--surface:#fcfcfb;--text:#0b0b0b;--text2:#52514e;--muted:#898781;--grid:#e1e0d9;--axis:#c3c2b7;--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--good:#006300;--warn:#9a5a00;--card:#f4f3ef}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--surface:#1a1a19;--text:#fff;--text2:#c3c2b7;--grid:#2c2c2a;--axis:#383835;--s1:#3987e5;--s2:#d95926;--s3:#199e70;--good:#0ca30c;--warn:#e0a030;--card:#232321}}
+body{margin:0;background:var(--surface);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif} main{max-width:1000px;margin:0 auto;padding:24px 20px 60px}
+h1{font-size:22px;margin:0 0 4px} h2{font-size:17px;margin:28px 0 8px} .sub{color:var(--text2);margin:0 0 14px}
+.verdicts{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0} .draft{background:#b00020;color:#fff;font-weight:700;padding:10px 14px;border-radius:6px;margin:10px 0;font-size:15px} .s4{fill:var(--muted);stroke:var(--muted)} .legend i.s4{background:var(--muted);border-color:var(--muted)}
+.v{border-left:4px solid var(--muted);background:var(--card);padding:8px 12px;border-radius:6px;min-width:180px} .v.good{border-color:var(--good)} .v.warn{border-color:var(--warn)} .v b{display:block}
+.chart{width:100%;height:auto;background:var(--surface)} .ttl{fill:var(--text);font-size:13px;font-weight:600} .tick{fill:var(--muted);font-size:11px} .grid{stroke:var(--grid)} .axis{stroke:var(--axis)}
+.mk{stroke:var(--surface);stroke-width:1.5} .mk.s1,.mean.s1{fill:var(--s1);stroke:var(--s1)} .mk.s2,.mean.s2{fill:var(--s2);stroke:var(--s2)} .mk.s3,.mean.s3{fill:var(--s3);stroke:var(--s3)}
+.mk.z1{fill:var(--surface);stroke:var(--s1)} .mk.z2{fill:var(--surface);stroke:var(--s2)} .mk.z3{fill:var(--surface);stroke:var(--s3)} .mean{stroke-width:3}
+.ref{stroke:var(--muted);stroke-width:1.5;stroke-dasharray:5 4}
+.legend{display:flex;gap:14px;flex-wrap:wrap;color:var(--text2);margin:6px 0 4px;font-size:13px} .legend i{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;margin-right:5px;border:2px solid}
+.legend i.s1{background:var(--s1);border-color:var(--s1)} .legend i.s2{background:var(--s2);border-color:var(--s2)} .legend i.s3{background:var(--s3);border-color:var(--s3)} .legend i.z1{border-color:var(--s1)} .legend i.z2{border-color:var(--s2)} .legend i.z3{border-color:var(--s3)}
+table{border-collapse:collapse;width:100%;font-size:12.5px;margin:6px 0 10px} th,td{padding:5px 7px;border-bottom:1px solid var(--grid);text-align:right;white-space:nowrap} th:first-child,td:first-child{text-align:left} th{color:var(--text2);font-weight:600} .wrap{overflow-x:auto}
+.pill{padding:2px 8px;border-radius:10px;background:var(--card);color:var(--text2)} .pill.good{color:var(--good);font-weight:600} .pill.warn{color:var(--warn);font-weight:600}
+#tip{position:fixed;pointer-events:none;background:var(--text);color:var(--surface);padding:4px 8px;border-radius:4px;font-size:12px;display:none;z-index:9} .prov{color:var(--text2)}
+</style></head><body><main>
+<h1>Sim-to-real transfer on Hearing Anything Anywhere</h1>
+
+<p class="sub">exp_02 · four real rooms, DiffRIR splits (12 training RIRs per room), two-stage fine-tuning per the paper, K=8, checkpoint selection on the validation split, per-room test split; references are identical for every model and seed (deterministic per query), Griffin-Lim phase initialisation was not seeded (a nuisance whose expected effect on paired differences is zero; its realised contribution is unknown) · bootstrap 10000 resamples, {'query_cluster': 'rows of one query across training seeds resampled together (conditional on the realised seeds)', 'two_way': 'queries and training seeds both resampled with replacement'} · generated 2026-09-06</p>
+<div class="verdicts"><div class="v good"><b>0 room×metric cells: cylindrical lower</b></div><div class="v"><b>5 no detected difference</b></div><div class="v warn"><b>6 cells: control lower</b></div><p class="sub" style="flex-basis:100%">Nominal 95% intervals per cell, no multiplicity adjustment across the 11 cells; "no detected difference" is not evidence of equivalence.</p></div>
+<h2>1. Per-room results (dots = seeds, bar = seed mean, dashed = paper Table 2 xRIR)</h2>
+<div class="legend"><span><i class="s3"></i>Released xRIR (SimpleViT), fine-tuned</span><span><i class="s4"></i>Released, fine-tuned, as-released depth maps (side row)</span><span><i class="s2"></i>SimpleViT control (ours), fine-tuned</span><span><i class="s1"></i>CylindricalViT (ours), fine-tuned</span><span><i class="z3"></i>Released, zero-shot</span><span><i class="z2"></i>SimpleViT control, zero-shot</span><span><i class="z1"></i>CylindricalViT, zero-shot</span><span><i style="border:none;width:14px;height:0;border-top:2px dashed var(--muted);border-radius:0"></i>paper Table 2</span></div>
+<svg class="chart" viewBox="0 0 470 240" role="img" aria-label="EDT error (s) per room and model">
+<text class="ttl" x="52" y="18">EDT error (s)</text>
+<line class="grid" x1="52" x2="458" y1="200.0" y2="200.0"/><text class="tick" x="46" y="204.0" text-anchor="end">0.000</text>
+<line class="grid" x1="52" x2="458" y1="157.5" y2="157.5"/><text class="tick" x="46" y="161.5" text-anchor="end">0.052</text>
+<line class="grid" x1="52" x2="458" y1="115.0" y2="115.0"/><text class="tick" x="46" y="119.0" text-anchor="end">0.105</text>
+<line class="grid" x1="52" x2="458" y1="72.5" y2="72.5"/><text class="tick" x="46" y="76.5" text-anchor="end">0.157</text>
+<line class="grid" x1="52" x2="458" y1="30.0" y2="30.0"/><text class="tick" x="46" y="34.0" text-anchor="end">0.209</text>
+<line class="axis" x1="52" x2="458" y1="200" y2="200"/>
+<text class="tick" x="102.8" y="218" text-anchor="middle">Classroom</text>
+<line class="ref" x1="58.0" x2="147.5" y1="124.5" y2="124.5" data-tip="paper Table 2 xRIR K=8, Classroom: 0.093"/>
+<circle class="mk s3" cx="64.7" cy="122.5" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Classroom · seed0: 0.0955"/>
+<circle class="mk s3" cx="64.7" cy="123.5" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Classroom · seed1: 0.0942"/>
+<circle class="mk s3" cx="64.7" cy="120.6" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Classroom · seed2: 0.0978"/>
+<line class="mean s3" x1="57.7" x2="71.7" y1="122.2" y2="122.2" data-tip="Released xRIR (SimpleViT), fine-tuned · Classroom · mean of 3 seeds: 0.0958"/>
+<circle class="mk s4" cx="77.4" cy="122.8" r="4" data-tip="Released, fine-tuned, as-released depth maps (side row) · Classroom · seed0: 0.0951"/>
+<circle class="mk s2" cx="90.1" cy="133.7" r="4" data-tip="SimpleViT control (ours), fine-tuned · Classroom · seed0: 0.0816"/>
+<circle class="mk s2" cx="90.1" cy="133.6" r="4" data-tip="SimpleViT control (ours), fine-tuned · Classroom · seed1: 0.0818"/>
+<circle class="mk s2" cx="90.1" cy="134.8" r="4" data-tip="SimpleViT control (ours), fine-tuned · Classroom · seed2: 0.0803"/>
+<line class="mean s2" x1="83.1" x2="97.1" y1="134.0" y2="134.0" data-tip="SimpleViT control (ours), fine-tuned · Classroom · mean of 3 seeds: 0.0812"/>
+<circle class="mk s1" cx="102.8" cy="127.1" r="4" data-tip="CylindricalViT (ours), fine-tuned · Classroom · seed0: 0.0897"/>
+<circle class="mk s1" cx="102.8" cy="128.8" r="4" data-tip="CylindricalViT (ours), fine-tuned · Classroom · seed1: 0.0877"/>
+<circle class="mk s1" cx="102.8" cy="128.1" r="4" data-tip="CylindricalViT (ours), fine-tuned · Classroom · seed2: 0.0885"/>
+<line class="mean s1" x1="95.8" x2="109.8" y1="128.0" y2="128.0" data-tip="CylindricalViT (ours), fine-tuned · Classroom · mean of 3 seeds: 0.0887"/>
+<circle class="mk z3" cx="115.4" cy="64.7" r="4" data-tip="Released, zero-shot · Classroom · zeroshot: 0.1667"/>
+<circle class="mk z2" cx="128.1" cy="104.3" r="4" data-tip="SimpleViT control, zero-shot · Classroom · zeroshot: 0.1179"/>
+<circle class="mk z1" cx="140.8" cy="102.6" r="4" data-tip="CylindricalViT, zero-shot · Classroom · zeroshot: 0.1199"/>
+<text class="tick" x="204.2" y="218" text-anchor="middle">Dampened room</text>
+<line class="ref" x1="159.5" x2="249.0" y1="164.3" y2="164.3" data-tip="paper Table 2 xRIR K=8, Dampened room: 0.044"/>
+<circle class="mk s3" cx="166.2" cy="168.6" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Dampened room · seed0: 0.0387"/>
+<circle class="mk s3" cx="166.2" cy="169.3" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Dampened room · seed1: 0.0378"/>
+<circle class="mk s3" cx="166.2" cy="169.5" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Dampened room · seed2: 0.0376"/>
+<line class="mean s3" x1="159.2" x2="173.2" y1="169.1" y2="169.1" data-tip="Released xRIR (SimpleViT), fine-tuned · Dampened room · mean of 3 seeds: 0.0380"/>
+<circle class="mk s4" cx="178.9" cy="169.6" r="4" data-tip="Released, fine-tuned, as-released depth maps (side row) · Dampened room · seed0: 0.0374"/>
+<circle class="mk s2" cx="191.6" cy="169.0" r="4" data-tip="SimpleViT control (ours), fine-tuned · Dampened room · seed0: 0.0382"/>
+<circle class="mk s2" cx="191.6" cy="168.8" r="4" data-tip="SimpleViT control (ours), fine-tuned · Dampened room · seed1: 0.0384"/>
+<circle class="mk s2" cx="191.6" cy="168.7" r="4" data-tip="SimpleViT control (ours), fine-tuned · Dampened room · seed2: 0.0386"/>
+<line class="mean s2" x1="184.6" x2="198.6" y1="168.8" y2="168.8" data-tip="SimpleViT control (ours), fine-tuned · Dampened room · mean of 3 seeds: 0.0384"/>
+<circle class="mk s1" cx="204.2" cy="169.0" r="4" data-tip="CylindricalViT (ours), fine-tuned · Dampened room · seed0: 0.0381"/>
+<circle class="mk s1" cx="204.2" cy="166.5" r="4" data-tip="CylindricalViT (ours), fine-tuned · Dampened room · seed1: 0.0413"/>
+<circle class="mk s1" cx="204.2" cy="170.7" r="4" data-tip="CylindricalViT (ours), fine-tuned · Dampened room · seed2: 0.0361"/>
+<line class="mean s1" x1="197.2" x2="211.2" y1="168.8" y2="168.8" data-tip="CylindricalViT (ours), fine-tuned · Dampened room · mean of 3 seeds: 0.0385"/>
+<circle class="mk z3" cx="216.9" cy="139.2" r="4" data-tip="Released, zero-shot · Dampened room · zeroshot: 0.0749"/>
+<circle class="mk z2" cx="229.6" cy="141.3" r="4" data-tip="SimpleViT control, zero-shot · Dampened room · zeroshot: 0.0723"/>
+<circle class="mk z1" cx="242.3" cy="141.6" r="4" data-tip="CylindricalViT, zero-shot · Dampened room · zeroshot: 0.0719"/>
+<text class="tick" x="305.8" y="218" text-anchor="middle">Hallway</text>
+<line class="ref" x1="261.0" x2="350.5" y1="149.7" y2="149.7" data-tip="paper Table 2 xRIR K=8, Hallway: 0.062"/>
+<circle class="mk s3" cx="267.7" cy="121.1" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Hallway · seed0: 0.0972"/>
+<circle class="mk s3" cx="267.7" cy="121.5" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Hallway · seed1: 0.0967"/>
+<circle class="mk s3" cx="267.7" cy="126.6" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Hallway · seed2: 0.0904"/>
+<line class="mean s3" x1="260.7" x2="274.7" y1="123.1" y2="123.1" data-tip="Released xRIR (SimpleViT), fine-tuned · Hallway · mean of 3 seeds: 0.0948"/>
+<circle class="mk s4" cx="280.4" cy="119.0" r="4" data-tip="Released, fine-tuned, as-released depth maps (side row) · Hallway · seed0: 0.0998"/>
+<circle class="mk s2" cx="293.1" cy="149.8" r="4" data-tip="SimpleViT control (ours), fine-tuned · Hallway · seed0: 0.0619"/>
+<circle class="mk s2" cx="293.1" cy="150.0" r="4" data-tip="SimpleViT control (ours), fine-tuned · Hallway · seed1: 0.0615"/>
+<circle class="mk s2" cx="293.1" cy="151.5" r="4" data-tip="SimpleViT control (ours), fine-tuned · Hallway · seed2: 0.0598"/>
+<line class="mean s2" x1="286.1" x2="300.1" y1="150.4" y2="150.4" data-tip="SimpleViT control (ours), fine-tuned · Hallway · mean of 3 seeds: 0.0611"/>
+<circle class="mk s1" cx="305.8" cy="129.6" r="4" data-tip="CylindricalViT (ours), fine-tuned · Hallway · seed0: 0.0867"/>
+<circle class="mk s1" cx="305.8" cy="130.5" r="4" data-tip="CylindricalViT (ours), fine-tuned · Hallway · seed1: 0.0857"/>
+<circle class="mk s1" cx="305.8" cy="127.0" r="4" data-tip="CylindricalViT (ours), fine-tuned · Hallway · seed2: 0.0899"/>
+<line class="mean s1" x1="298.8" x2="312.8" y1="129.0" y2="129.0" data-tip="CylindricalViT (ours), fine-tuned · Hallway · mean of 3 seeds: 0.0874"/>
+<circle class="mk z3" cx="318.4" cy="76.3" r="4" data-tip="Released, zero-shot · Hallway · zeroshot: 0.1523"/>
+<circle class="mk z2" cx="331.1" cy="48.2" r="4" data-tip="SimpleViT control, zero-shot · Hallway · zeroshot: 0.1869"/>
+<circle class="mk z1" cx="343.8" cy="50.6" r="4" data-tip="CylindricalViT, zero-shot · Hallway · zeroshot: 0.1840"/>
+<text class="tick" x="407.2" y="218" text-anchor="middle">Complex room</text>
+<line class="ref" x1="362.5" x2="452.0" y1="137.5" y2="137.5" data-tip="paper Table 2 xRIR K=8, Complex room: 0.077"/>
+<circle class="mk s3" cx="369.2" cy="111.6" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Complex room · seed0: 0.1089"/>
+<circle class="mk s3" cx="369.2" cy="112.2" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Complex room · seed1: 0.1081"/>
+<circle class="mk s3" cx="369.2" cy="115.1" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Complex room · seed2: 0.1045"/>
+<line class="mean s3" x1="362.2" x2="376.2" y1="113.0" y2="113.0" data-tip="Released xRIR (SimpleViT), fine-tuned · Complex room · mean of 3 seeds: 0.1072"/>
+<circle class="mk s4" cx="381.9" cy="117.0" r="4" data-tip="Released, fine-tuned, as-released depth maps (side row) · Complex room · seed0: 0.1022"/>
+<circle class="mk s2" cx="394.6" cy="138.3" r="4" data-tip="SimpleViT control (ours), fine-tuned · Complex room · seed0: 0.0760"/>
+<circle class="mk s2" cx="394.6" cy="137.8" r="4" data-tip="SimpleViT control (ours), fine-tuned · Complex room · seed1: 0.0766"/>
+<circle class="mk s2" cx="394.6" cy="137.6" r="4" data-tip="SimpleViT control (ours), fine-tuned · Complex room · seed2: 0.0768"/>
+<line class="mean s2" x1="387.6" x2="401.6" y1="137.9" y2="137.9" data-tip="SimpleViT control (ours), fine-tuned · Complex room · mean of 3 seeds: 0.0765"/>
+<circle class="mk s1" cx="407.2" cy="133.7" r="4" data-tip="CylindricalViT (ours), fine-tuned · Complex room · seed0: 0.0817"/>
+<circle class="mk s1" cx="407.2" cy="132.6" r="4" data-tip="CylindricalViT (ours), fine-tuned · Complex room · seed1: 0.0830"/>
+<circle class="mk s1" cx="407.2" cy="133.7" r="4" data-tip="CylindricalViT (ours), fine-tuned · Complex room · seed2: 0.0817"/>
+<line class="mean s1" x1="400.2" x2="414.2" y1="133.3" y2="133.3" data-tip="CylindricalViT (ours), fine-tuned · Complex room · mean of 3 seeds: 0.0821"/>
+<circle class="mk z3" cx="419.9" cy="92.5" r="4" data-tip="Released, zero-shot · Complex room · zeroshot: 0.1324"/>
+<circle class="mk z2" cx="432.6" cy="73.3" r="4" data-tip="SimpleViT control, zero-shot · Complex room · zeroshot: 0.1561"/>
+<circle class="mk z1" cx="445.3" cy="111.1" r="4" data-tip="CylindricalViT, zero-shot · Complex room · zeroshot: 0.1095"/>
+</svg>
+<svg class="chart" viewBox="0 0 470 240" role="img" aria-label="C50 error (dB) per room and model">
+<text class="ttl" x="52" y="18">C50 error (dB)</text>
+<line class="grid" x1="52" x2="458" y1="200.0" y2="200.0"/><text class="tick" x="46" y="204.0" text-anchor="end">0.000</text>
+<line class="grid" x1="52" x2="458" y1="157.5" y2="157.5"/><text class="tick" x="46" y="161.5" text-anchor="end">1.332</text>
+<line class="grid" x1="52" x2="458" y1="115.0" y2="115.0"/><text class="tick" x="46" y="119.0" text-anchor="end">2.664</text>
+<line class="grid" x1="52" x2="458" y1="72.5" y2="72.5"/><text class="tick" x="46" y="76.5" text-anchor="end">3.996</text>
+<line class="grid" x1="52" x2="458" y1="30.0" y2="30.0"/><text class="tick" x="46" y="34.0" text-anchor="end">5.328</text>
+<line class="axis" x1="52" x2="458" y1="200" y2="200"/>
+<text class="tick" x="102.8" y="218" text-anchor="middle">Classroom</text>
+<line class="ref" x1="58.0" x2="147.5" y1="148.1" y2="148.1" data-tip="paper Table 2 xRIR K=8, Classroom: 1.628"/>
+<circle class="mk s3" cx="64.7" cy="142.5" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Classroom · seed0: 1.803"/>
+<circle class="mk s3" cx="64.7" cy="139.3" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Classroom · seed1: 1.902"/>
+<circle class="mk s3" cx="64.7" cy="129.2" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Classroom · seed2: 2.219"/>
+<line class="mean s3" x1="57.7" x2="71.7" y1="137.0" y2="137.0" data-tip="Released xRIR (SimpleViT), fine-tuned · Classroom · mean of 3 seeds: 1.975"/>
+<circle class="mk s4" cx="77.4" cy="141.9" r="4" data-tip="Released, fine-tuned, as-released depth maps (side row) · Classroom · seed0: 1.822"/>
+<circle class="mk s2" cx="90.1" cy="152.2" r="4" data-tip="SimpleViT control (ours), fine-tuned · Classroom · seed0: 1.497"/>
+<circle class="mk s2" cx="90.1" cy="152.4" r="4" data-tip="SimpleViT control (ours), fine-tuned · Classroom · seed1: 1.492"/>
+<circle class="mk s2" cx="90.1" cy="151.8" r="4" data-tip="SimpleViT control (ours), fine-tuned · Classroom · seed2: 1.512"/>
+<line class="mean s2" x1="83.1" x2="97.1" y1="152.1" y2="152.1" data-tip="SimpleViT control (ours), fine-tuned · Classroom · mean of 3 seeds: 1.501"/>
+<circle class="mk s1" cx="102.8" cy="148.9" r="4" data-tip="CylindricalViT (ours), fine-tuned · Classroom · seed0: 1.602"/>
+<circle class="mk s1" cx="102.8" cy="146.3" r="4" data-tip="CylindricalViT (ours), fine-tuned · Classroom · seed1: 1.684"/>
+<circle class="mk s1" cx="102.8" cy="148.9" r="4" data-tip="CylindricalViT (ours), fine-tuned · Classroom · seed2: 1.603"/>
+<line class="mean s1" x1="95.8" x2="109.8" y1="148.0" y2="148.0" data-tip="CylindricalViT (ours), fine-tuned · Classroom · mean of 3 seeds: 1.630"/>
+<circle class="mk z3" cx="115.4" cy="92.4" r="4" data-tip="Released, zero-shot · Classroom · zeroshot: 3.373"/>
+<circle class="mk z2" cx="128.1" cy="138.3" r="4" data-tip="SimpleViT control, zero-shot · Classroom · zeroshot: 1.933"/>
+<circle class="mk z1" cx="140.8" cy="138.9" r="4" data-tip="CylindricalViT, zero-shot · Classroom · zeroshot: 1.915"/>
+<text class="tick" x="204.2" y="218" text-anchor="middle">Dampened room</text>
+<line class="ref" x1="159.5" x2="249.0" y1="94.6" y2="94.6" data-tip="paper Table 2 xRIR K=8, Dampened room: 3.302"/>
+<circle class="mk s3" cx="166.2" cy="110.3" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Dampened room · seed0: 2.812"/>
+<circle class="mk s3" cx="166.2" cy="113.0" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Dampened room · seed1: 2.728"/>
+<circle class="mk s3" cx="166.2" cy="113.9" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Dampened room · seed2: 2.700"/>
+<line class="mean s3" x1="159.2" x2="173.2" y1="112.4" y2="112.4" data-tip="Released xRIR (SimpleViT), fine-tuned · Dampened room · mean of 3 seeds: 2.747"/>
+<circle class="mk s4" cx="178.9" cy="113.5" r="4" data-tip="Released, fine-tuned, as-released depth maps (side row) · Dampened room · seed0: 2.712"/>
+<circle class="mk s2" cx="191.6" cy="109.1" r="4" data-tip="SimpleViT control (ours), fine-tuned · Dampened room · seed0: 2.848"/>
+<circle class="mk s2" cx="191.6" cy="110.3" r="4" data-tip="SimpleViT control (ours), fine-tuned · Dampened room · seed1: 2.812"/>
+<circle class="mk s2" cx="191.6" cy="108.1" r="4" data-tip="SimpleViT control (ours), fine-tuned · Dampened room · seed2: 2.880"/>
+<line class="mean s2" x1="184.6" x2="198.6" y1="109.2" y2="109.2" data-tip="SimpleViT control (ours), fine-tuned · Dampened room · mean of 3 seeds: 2.847"/>
+<circle class="mk s1" cx="204.2" cy="108.7" r="4" data-tip="CylindricalViT (ours), fine-tuned · Dampened room · seed0: 2.862"/>
+<circle class="mk s1" cx="204.2" cy="103.5" r="4" data-tip="CylindricalViT (ours), fine-tuned · Dampened room · seed1: 3.024"/>
+<circle class="mk s1" cx="204.2" cy="113.8" r="4" data-tip="CylindricalViT (ours), fine-tuned · Dampened room · seed2: 2.702"/>
+<line class="mean s1" x1="197.2" x2="211.2" y1="108.7" y2="108.7" data-tip="CylindricalViT (ours), fine-tuned · Dampened room · mean of 3 seeds: 2.863"/>
+<circle class="mk z3" cx="216.9" cy="48.2" r="4" data-tip="Released, zero-shot · Dampened room · zeroshot: 4.757"/>
+<circle class="mk z2" cx="229.6" cy="51.0" r="4" data-tip="SimpleViT control, zero-shot · Dampened room · zeroshot: 4.670"/>
+<circle class="mk z1" cx="242.3" cy="52.2" r="4" data-tip="CylindricalViT, zero-shot · Dampened room · zeroshot: 4.632"/>
+<text class="tick" x="305.8" y="218" text-anchor="middle">Hallway</text>
+<line class="ref" x1="261.0" x2="350.5" y1="169.6" y2="169.6" data-tip="paper Table 2 xRIR K=8, Hallway: 0.954"/>
+<circle class="mk s3" cx="267.7" cy="144.4" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Hallway · seed0: 1.742"/>
+<circle class="mk s3" cx="267.7" cy="144.8" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Hallway · seed1: 1.732"/>
+<circle class="mk s3" cx="267.7" cy="147.9" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Hallway · seed2: 1.632"/>
+<line class="mean s3" x1="260.7" x2="274.7" y1="145.7" y2="145.7" data-tip="Released xRIR (SimpleViT), fine-tuned · Hallway · mean of 3 seeds: 1.702"/>
+<circle class="mk s4" cx="280.4" cy="142.8" r="4" data-tip="Released, fine-tuned, as-released depth maps (side row) · Hallway · seed0: 1.793"/>
+<circle class="mk s2" cx="293.1" cy="164.1" r="4" data-tip="SimpleViT control (ours), fine-tuned · Hallway · seed0: 1.125"/>
+<circle class="mk s2" cx="293.1" cy="163.5" r="4" data-tip="SimpleViT control (ours), fine-tuned · Hallway · seed1: 1.144"/>
+<circle class="mk s2" cx="293.1" cy="163.7" r="4" data-tip="SimpleViT control (ours), fine-tuned · Hallway · seed2: 1.137"/>
+<line class="mean s2" x1="286.1" x2="300.1" y1="163.8" y2="163.8" data-tip="SimpleViT control (ours), fine-tuned · Hallway · mean of 3 seeds: 1.135"/>
+<circle class="mk s1" cx="305.8" cy="136.5" r="4" data-tip="CylindricalViT (ours), fine-tuned · Hallway · seed0: 1.990"/>
+<circle class="mk s1" cx="305.8" cy="136.4" r="4" data-tip="CylindricalViT (ours), fine-tuned · Hallway · seed1: 1.994"/>
+<circle class="mk s1" cx="305.8" cy="130.7" r="4" data-tip="CylindricalViT (ours), fine-tuned · Hallway · seed2: 2.171"/>
+<line class="mean s1" x1="298.8" x2="312.8" y1="134.5" y2="134.5" data-tip="CylindricalViT (ours), fine-tuned · Hallway · mean of 3 seeds: 2.052"/>
+<circle class="mk z3" cx="318.4" cy="133.1" r="4" data-tip="Released, zero-shot · Hallway · zeroshot: 2.096"/>
+<circle class="mk z2" cx="331.1" cy="123.8" r="4" data-tip="SimpleViT control, zero-shot · Hallway · zeroshot: 2.389"/>
+<circle class="mk z1" cx="343.8" cy="66.6" r="4" data-tip="CylindricalViT, zero-shot · Hallway · zeroshot: 4.183"/>
+<text class="tick" x="407.2" y="218" text-anchor="middle">Complex room</text>
+<line class="ref" x1="362.5" x2="452.0" y1="146.1" y2="146.1" data-tip="paper Table 2 xRIR K=8, Complex room: 1.688"/>
+<circle class="mk s3" cx="369.2" cy="127.9" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Complex room · seed0: 2.261"/>
+<circle class="mk s3" cx="369.2" cy="127.5" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Complex room · seed1: 2.272"/>
+<circle class="mk s3" cx="369.2" cy="130.9" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Complex room · seed2: 2.166"/>
+<line class="mean s3" x1="362.2" x2="376.2" y1="128.8" y2="128.8" data-tip="Released xRIR (SimpleViT), fine-tuned · Complex room · mean of 3 seeds: 2.233"/>
+<circle class="mk s4" cx="381.9" cy="131.2" r="4" data-tip="Released, fine-tuned, as-released depth maps (side row) · Complex room · seed0: 2.157"/>
+<circle class="mk s2" cx="394.6" cy="147.5" r="4" data-tip="SimpleViT control (ours), fine-tuned · Complex room · seed0: 1.645"/>
+<circle class="mk s2" cx="394.6" cy="147.1" r="4" data-tip="SimpleViT control (ours), fine-tuned · Complex room · seed1: 1.658"/>
+<circle class="mk s2" cx="394.6" cy="145.9" r="4" data-tip="SimpleViT control (ours), fine-tuned · Complex room · seed2: 1.696"/>
+<line class="mean s2" x1="387.6" x2="401.6" y1="146.8" y2="146.8" data-tip="SimpleViT control (ours), fine-tuned · Complex room · mean of 3 seeds: 1.666"/>
+<circle class="mk s1" cx="407.2" cy="144.8" r="4" data-tip="CylindricalViT (ours), fine-tuned · Complex room · seed0: 1.729"/>
+<circle class="mk s1" cx="407.2" cy="143.3" r="4" data-tip="CylindricalViT (ours), fine-tuned · Complex room · seed1: 1.776"/>
+<circle class="mk s1" cx="407.2" cy="145.7" r="4" data-tip="CylindricalViT (ours), fine-tuned · Complex room · seed2: 1.703"/>
+<line class="mean s1" x1="400.2" x2="414.2" y1="144.6" y2="144.6" data-tip="CylindricalViT (ours), fine-tuned · Complex room · mean of 3 seeds: 1.736"/>
+<circle class="mk z3" cx="419.9" cy="118.1" r="4" data-tip="Released, zero-shot · Complex room · zeroshot: 2.567"/>
+<circle class="mk z2" cx="432.6" cy="111.8" r="4" data-tip="SimpleViT control, zero-shot · Complex room · zeroshot: 2.765"/>
+<circle class="mk z1" cx="445.3" cy="130.7" r="4" data-tip="CylindricalViT, zero-shot · Complex room · zeroshot: 2.172"/>
+</svg>
+<svg class="chart" viewBox="0 0 470 240" role="img" aria-label="T60 error (%) per room and model">
+<text class="ttl" x="52" y="18">T60 error (%)</text>
+<line class="grid" x1="52" x2="458" y1="200.0" y2="200.0"/><text class="tick" x="46" y="204.0" text-anchor="end">0.00</text>
+<line class="grid" x1="52" x2="458" y1="157.5" y2="157.5"/><text class="tick" x="46" y="161.5" text-anchor="end">2.77</text>
+<line class="grid" x1="52" x2="458" y1="115.0" y2="115.0"/><text class="tick" x="46" y="119.0" text-anchor="end">5.55</text>
+<line class="grid" x1="52" x2="458" y1="72.5" y2="72.5"/><text class="tick" x="46" y="76.5" text-anchor="end">8.32</text>
+<line class="grid" x1="52" x2="458" y1="30.0" y2="30.0"/><text class="tick" x="46" y="34.0" text-anchor="end">11.10</text>
+<line class="axis" x1="52" x2="458" y1="200" y2="200"/>
+<text class="tick" x="102.8" y="218" text-anchor="middle">Classroom</text>
+<line class="ref" x1="58.0" x2="147.5" y1="104.3" y2="104.3" data-tip="paper Table 2 xRIR K=8, Classroom: 6.25"/>
+<circle class="mk s3" cx="64.7" cy="132.9" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Classroom · seed0: 4.38"/>
+<circle class="mk s3" cx="64.7" cy="132.7" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Classroom · seed1: 4.39"/>
+<circle class="mk s3" cx="64.7" cy="135.6" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Classroom · seed2: 4.20"/>
+<line class="mean s3" x1="57.7" x2="71.7" y1="133.7" y2="133.7" data-tip="Released xRIR (SimpleViT), fine-tuned · Classroom · mean of 3 seeds: 4.32"/>
+<circle class="mk s4" cx="77.4" cy="138.2" r="4" data-tip="Released, fine-tuned, as-released depth maps (side row) · Classroom · seed0: 4.03"/>
+<circle class="mk s2" cx="90.1" cy="134.0" r="4" data-tip="SimpleViT control (ours), fine-tuned · Classroom · seed0: 4.31"/>
+<circle class="mk s2" cx="90.1" cy="131.5" r="4" data-tip="SimpleViT control (ours), fine-tuned · Classroom · seed1: 4.47"/>
+<circle class="mk s2" cx="90.1" cy="136.4" r="4" data-tip="SimpleViT control (ours), fine-tuned · Classroom · seed2: 4.15"/>
+<line class="mean s2" x1="83.1" x2="97.1" y1="134.0" y2="134.0" data-tip="SimpleViT control (ours), fine-tuned · Classroom · mean of 3 seeds: 4.31"/>
+<circle class="mk s1" cx="102.8" cy="134.7" r="4" data-tip="CylindricalViT (ours), fine-tuned · Classroom · seed0: 4.26"/>
+<circle class="mk s1" cx="102.8" cy="143.7" r="4" data-tip="CylindricalViT (ours), fine-tuned · Classroom · seed1: 3.68"/>
+<circle class="mk s1" cx="102.8" cy="137.5" r="4" data-tip="CylindricalViT (ours), fine-tuned · Classroom · seed2: 4.08"/>
+<line class="mean s1" x1="95.8" x2="109.8" y1="138.7" y2="138.7" data-tip="CylindricalViT (ours), fine-tuned · Classroom · mean of 3 seeds: 4.00"/>
+<circle class="mk z3" cx="115.4" cy="79.5" r="4" data-tip="Released, zero-shot · Classroom · zeroshot: 7.87"/>
+<circle class="mk z2" cx="128.1" cy="87.3" r="4" data-tip="SimpleViT control, zero-shot · Classroom · zeroshot: 7.35"/>
+<circle class="mk z1" cx="140.8" cy="80.2" r="4" data-tip="CylindricalViT, zero-shot · Classroom · zeroshot: 7.82"/>
+<text class="tick" x="204.2" y="218" text-anchor="middle">Dampened room</text>
+<text class="tick" x="305.8" y="218" text-anchor="middle">Hallway</text>
+<line class="ref" x1="261.0" x2="350.5" y1="151.0" y2="151.0" data-tip="paper Table 2 xRIR K=8, Hallway: 3.2"/>
+<circle class="mk s3" cx="267.7" cy="130.1" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Hallway · seed0: 4.56"/>
+<circle class="mk s3" cx="267.7" cy="131.9" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Hallway · seed1: 4.44"/>
+<circle class="mk s3" cx="267.7" cy="134.9" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Hallway · seed2: 4.25"/>
+<line class="mean s3" x1="260.7" x2="274.7" y1="132.3" y2="132.3" data-tip="Released xRIR (SimpleViT), fine-tuned · Hallway · mean of 3 seeds: 4.42"/>
+<circle class="mk s4" cx="280.4" cy="129.6" r="4" data-tip="Released, fine-tuned, as-released depth maps (side row) · Hallway · seed0: 4.60"/>
+<circle class="mk s2" cx="293.1" cy="159.0" r="4" data-tip="SimpleViT control (ours), fine-tuned · Hallway · seed0: 2.67"/>
+<circle class="mk s2" cx="293.1" cy="158.9" r="4" data-tip="SimpleViT control (ours), fine-tuned · Hallway · seed1: 2.68"/>
+<circle class="mk s2" cx="293.1" cy="158.9" r="4" data-tip="SimpleViT control (ours), fine-tuned · Hallway · seed2: 2.68"/>
+<line class="mean s2" x1="286.1" x2="300.1" y1="158.9" y2="158.9" data-tip="SimpleViT control (ours), fine-tuned · Hallway · mean of 3 seeds: 2.68"/>
+<circle class="mk s1" cx="305.8" cy="136.6" r="4" data-tip="CylindricalViT (ours), fine-tuned · Hallway · seed0: 4.14"/>
+<circle class="mk s1" cx="305.8" cy="137.7" r="4" data-tip="CylindricalViT (ours), fine-tuned · Hallway · seed1: 4.07"/>
+<circle class="mk s1" cx="305.8" cy="134.3" r="4" data-tip="CylindricalViT (ours), fine-tuned · Hallway · seed2: 4.29"/>
+<line class="mean s1" x1="298.8" x2="312.8" y1="136.2" y2="136.2" data-tip="CylindricalViT (ours), fine-tuned · Hallway · mean of 3 seeds: 4.16"/>
+<circle class="mk z3" cx="318.4" cy="95.5" r="4" data-tip="Released, zero-shot · Hallway · zeroshot: 6.82"/>
+<circle class="mk z2" cx="331.1" cy="85.6" r="4" data-tip="SimpleViT control, zero-shot · Hallway · zeroshot: 7.47"/>
+<circle class="mk z1" cx="343.8" cy="48.2" r="4" data-tip="CylindricalViT, zero-shot · Hallway · zeroshot: 9.91"/>
+<text class="tick" x="407.2" y="218" text-anchor="middle">Complex room</text>
+<line class="ref" x1="362.5" x2="452.0" y1="133.7" y2="133.7" data-tip="paper Table 2 xRIR K=8, Complex room: 4.33"/>
+<circle class="mk s3" cx="369.2" cy="123.0" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Complex room · seed0: 5.02"/>
+<circle class="mk s3" cx="369.2" cy="122.2" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Complex room · seed1: 5.08"/>
+<circle class="mk s3" cx="369.2" cy="126.8" r="4" data-tip="Released xRIR (SimpleViT), fine-tuned · Complex room · seed2: 4.78"/>
+<line class="mean s3" x1="362.2" x2="376.2" y1="124.0" y2="124.0" data-tip="Released xRIR (SimpleViT), fine-tuned · Complex room · mean of 3 seeds: 4.96"/>
+<circle class="mk s4" cx="381.9" cy="124.0" r="4" data-tip="Released, fine-tuned, as-released depth maps (side row) · Complex room · seed0: 4.96"/>
+<circle class="mk s2" cx="394.6" cy="125.7" r="4" data-tip="SimpleViT control (ours), fine-tuned · Complex room · seed0: 4.85"/>
+<circle class="mk s2" cx="394.6" cy="124.0" r="4" data-tip="SimpleViT control (ours), fine-tuned · Complex room · seed1: 4.96"/>
+<circle class="mk s2" cx="394.6" cy="123.1" r="4" data-tip="SimpleViT control (ours), fine-tuned · Complex room · seed2: 5.02"/>
+<line class="mean s2" x1="387.6" x2="401.6" y1="124.3" y2="124.3" data-tip="SimpleViT control (ours), fine-tuned · Complex room · mean of 3 seeds: 4.94"/>
+<circle class="mk s1" cx="407.2" cy="121.9" r="4" data-tip="CylindricalViT (ours), fine-tuned · Complex room · seed0: 5.10"/>
+<circle class="mk s1" cx="407.2" cy="127.1" r="4" data-tip="CylindricalViT (ours), fine-tuned · Complex room · seed1: 4.76"/>
+<circle class="mk s1" cx="407.2" cy="119.1" r="4" data-tip="CylindricalViT (ours), fine-tuned · Complex room · seed2: 5.28"/>
+<line class="mean s1" x1="400.2" x2="414.2" y1="122.7" y2="122.7" data-tip="CylindricalViT (ours), fine-tuned · Complex room · mean of 3 seeds: 5.05"/>
+<circle class="mk z3" cx="419.9" cy="103.6" r="4" data-tip="Released, zero-shot · Complex room · zeroshot: 6.29"/>
+<circle class="mk z2" cx="432.6" cy="93.9" r="4" data-tip="SimpleViT control, zero-shot · Complex room · zeroshot: 6.92"/>
+<circle class="mk z1" cx="445.3" cy="111.7" r="4" data-tip="CylindricalViT, zero-shot · Complex room · zeroshot: 5.77"/>
+</svg>
+<h2>2. Table (mean ± std over seeds, from the canonical stats)</h2>
+<div class="wrap"><table><tr><th>model</th><th>Classroom EDT</th><th>Classroom C50</th><th>Classroom T60</th><th>Dampened room EDT</th><th>Dampened room C50</th><th>Dampened room T60</th><th>Hallway EDT</th><th>Hallway C50</th><th>Hallway T60</th><th>Complex room EDT</th><th>Complex room C50</th><th>Complex room T60</th></tr><tr><td>Paper Table 2, xRIR K=8</td><td>0.093</td><td>1.628</td><td>6.25</td><td>0.044</td><td>3.302</td><td>–</td><td>0.062</td><td>0.954</td><td>3.2</td><td>0.077</td><td>1.688</td><td>4.33</td></tr><tr><td>Released xRIR (SimpleViT), fine-tuned (n=3)</td><td>0.0958 ±0.0015</td><td>1.975 ±0.177</td><td>4.32 ±0.09</td><td>0.0380 ±0.0005</td><td>2.747 ±0.047</td><td>–</td><td>0.0948 ±0.0031</td><td>1.702 ±0.049</td><td>4.42 ±0.13</td><td>0.1072 ±0.0019</td><td>2.233 ±0.048</td><td>4.96 ±0.13</td></tr><tr><td>Released, fine-tuned, as-released depth maps (side row) (n=1)</td><td>0.0951</td><td>1.822</td><td>4.03</td><td>0.0374</td><td>2.712</td><td>–</td><td>0.0998</td><td>1.793</td><td>4.60</td><td>0.1022</td><td>2.157</td><td>4.96</td></tr><tr><td>SimpleViT control (ours), fine-tuned (n=3)</td><td>0.0812 ±0.0007</td><td>1.501 ±0.008</td><td>4.31 ±0.13</td><td>0.0384 ±0.0002</td><td>2.847 ±0.028</td><td>–</td><td>0.0611 ±0.0009</td><td>1.135 ±0.008</td><td>2.68 ±0.00</td><td>0.0765 ±0.0003</td><td>1.666 ±0.021</td><td>4.94 ±0.07</td></tr><tr><td>CylindricalViT (ours), fine-tuned (n=3)</td><td>0.0887 ±0.0008</td><td>1.630 ±0.038</td><td>4.00 ±0.24</td><td>0.0385 ±0.0021</td><td>2.863 ±0.132</td><td>–</td><td>0.0874 ±0.0018</td><td>2.052 ±0.084</td><td>4.16 ±0.09</td><td>0.0821 ±0.0006</td><td>1.736 ±0.030</td><td>5.05 ±0.22</td></tr><tr><td>Released, zero-shot (n=1)</td><td>0.1667</td><td>3.373</td><td>7.87</td><td>0.0749</td><td>4.757</td><td>–</td><td>0.1523</td><td>2.096</td><td>6.82</td><td>0.1324</td><td>2.567</td><td>6.29</td></tr><tr><td>SimpleViT control, zero-shot (n=1)</td><td>0.1179</td><td>1.933</td><td>7.35</td><td>0.0723</td><td>4.670</td><td>–</td><td>0.1869</td><td>2.389</td><td>7.47</td><td>0.1561</td><td>2.765</td><td>6.92</td></tr><tr><td>CylindricalViT, zero-shot (n=1)</td><td>0.1199</td><td>1.915</td><td>7.82</td><td>0.0719</td><td>4.632</td><td>–</td><td>0.1840</td><td>4.183</td><td>9.91</td><td>0.1095</td><td>2.172</td><td>5.77</td></tr></table></div>
+<h2>3. Paired cylindrical − control (fine-tuned), per-sample differences pooled over seeds</h2>
+<p class="sub">Same (seed, query, references) for both models; negative favours cylindrical. * = nominal 95% bootstrap CI excludes 0.</p>
+<p class="sub">Query-cluster CI: rows of one query across training seeds resampled together (conditional on the realised seeds). Two-way CI: queries and training seeds both resampled; verdicts use the two-way interval. * = nominal 95% CI excludes 0; per-cell, no multiplicity adjustment.</p>
+<div class="wrap"><table><tr><th>room</th><th>metric</th><th>cyl</th><th>ctrl</th><th>diff</th><th>95% CI query-cluster</th><th>95% CI two-way</th><th>valid/total</th><th>per-seed diff (valid n)</th><th>verdict</th></tr><tr><td>Classroom</td><td>EDT error (s)</td><td>0.0887</td><td>0.0812</td><td>+0.0074 (+9.2%)</td><td>[+0.0031, +0.0119]*</td><td>[+0.0028, +0.0122]*</td><td>1389/1389 (463 q × 3 s)</td><td>seed0: +0.0081 (n=463), seed1: +0.0059 (n=463), seed2: +0.0082 (n=463)</td><td><span class='pill warn'>control lower</span></td></tr><tr><td>Classroom</td><td>C50 error (dB)</td><td>1.630</td><td>1.501</td><td>+0.129 (+8.6%)</td><td>[+0.058, +0.200]*</td><td>[+0.045, +0.226]*</td><td>1389/1389 (463 q × 3 s)</td><td>seed0: +0.104 (n=463), seed1: +0.192 (n=463), seed2: +0.091 (n=463)</td><td><span class='pill warn'>control lower</span></td></tr><tr><td>Classroom</td><td>T60 error (%)</td><td>4.00</td><td>4.31</td><td>-0.31 (-7.1%)</td><td>[-0.50, -0.12]*</td><td>[-0.78, +0.07]</td><td>1389/1389 (463 q × 3 s)</td><td>seed0: -0.05 (n=463), seed1: -0.79 (n=463), seed2: -0.08 (n=463)</td><td><span class='pill '>no detected difference</span></td></tr><tr><td>Dampened room</td><td>EDT error (s)</td><td>0.0385</td><td>0.0384</td><td>+0.0001 (+0.2%)</td><td>[-0.0031, +0.0032]</td><td>[-0.0040, +0.0041]</td><td>594/594 (198 q × 3 s)</td><td>seed0: -0.0001 (n=198), seed1: +0.0028 (n=198), seed2: -0.0025 (n=198)</td><td><span class='pill '>no detected difference</span></td></tr><tr><td>Dampened room</td><td>C50 error (dB)</td><td>2.863</td><td>2.847</td><td>+0.016 (+0.6%)</td><td>[-0.141, +0.170]</td><td>[-0.227, +0.256]</td><td>594/594 (198 q × 3 s)</td><td>seed0: +0.014 (n=198), seed1: +0.213 (n=198), seed2: -0.179 (n=198)</td><td><span class='pill '>no detected difference</span></td></tr><tr><td>Hallway</td><td>EDT error (s)</td><td>0.0874</td><td>0.0611</td><td>+0.0264 (+43.2%)</td><td>[+0.0185, +0.0345]*</td><td>[+0.0177, +0.0351]*</td><td>1269/1269 (423 q × 3 s)</td><td>seed0: +0.0248 (n=423), seed1: +0.0241 (n=423), seed2: +0.0301 (n=423)</td><td><span class='pill warn'>control lower</span></td></tr><tr><td>Hallway</td><td>C50 error (dB)</td><td>2.052</td><td>1.135</td><td>+0.916 (+80.7%)</td><td>[+0.769, +1.069]*</td><td>[+0.743, +1.102]*</td><td>1269/1269 (423 q × 3 s)</td><td>seed0: +0.865 (n=423), seed1: +0.850 (n=423), seed2: +1.035 (n=423)</td><td><span class='pill warn'>control lower</span></td></tr><tr><td>Hallway</td><td>T60 error (%)</td><td>4.16</td><td>2.68</td><td>+1.48 (+55.4%)</td><td>[+1.15, +1.83]*</td><td>[+1.12, +1.85]*</td><td>1269/1269 (423 q × 3 s)</td><td>seed0: +1.46 (n=423), seed1: +1.38 (n=423), seed2: +1.61 (n=423)</td><td><span class='pill warn'>control lower</span></td></tr><tr><td>Complex room</td><td>EDT error (s)</td><td>0.0821</td><td>0.0765</td><td>+0.0057 (+7.4%)</td><td>[+0.0029, +0.0084]*</td><td>[+0.0022, +0.0092]*</td><td>594/594 (198 q × 3 s)</td><td>seed0: +0.0056 (n=198), seed1: +0.0064 (n=198), seed2: +0.0049 (n=198)</td><td><span class='pill warn'>control lower</span></td></tr><tr><td>Complex room</td><td>C50 error (dB)</td><td>1.736</td><td>1.666</td><td>+0.070 (+4.2%)</td><td>[+0.013, +0.125]*</td><td>[-0.014, +0.150]</td><td>594/594 (198 q × 3 s)</td><td>seed0: +0.084 (n=198), seed1: +0.118 (n=198), seed2: +0.007 (n=198)</td><td><span class='pill '>no detected difference</span></td></tr><tr><td>Complex room</td><td>T60 error (%)</td><td>5.05</td><td>4.94</td><td>+0.10 (+2.1%)</td><td>[-0.07, +0.29]</td><td>[-0.23, +0.44]</td><td>594/594 (198 q × 3 s)</td><td>seed0: +0.25 (n=198), seed1: -0.20 (n=198), seed2: +0.26 (n=198)</td><td><span class='pill '>no detected difference</span></td></tr></table></div>
+<h2>4. Protocol notes</h2>
+<p>Speaker = model "receiver" (panorama rendered at the speaker), mics = "sources". Stage 1: classroom + hallway + complex (dampened excluded), 36 targets, 1000 full-batch epochs, AdamW lr 10<sup>−4</sup>, wd 10<sup>−4</sup>, lr × 0.1 per 50 epochs; stage 2: per room, 12 targets, 200 epochs. RIRs normalised per room by the training-set peak. T60 omitted for the dampened room (paper). Depth maps: released repo maps for classroom/hallway; for the complex and dampened rooms the released assets are unusable (complex is a byte-identical copy of the hallway map; dampened is misaligned with the mic grid), so the HAA_processed renders are used; a side row re-runs the released checkpoint on the as-released maps.</p>
+<p class="prov">Sources: <code>ckpt/sim2real/&lt;init&gt;/{zeroshot,seed*/eval}/per_sample_&lt;room&gt;.json</code>; every displayed statistic is read from the canonical <code>ckpt/sim2real/stats.json</code> written by <code>sim_to_real/summarize_haa.py --json</code> (which also writes <code>summary.txt</code>); the page asserts exact agreement of the per-run means. Extract: <code>sim2real_transfer_results_assets/data.json</code>. Narrative (final only): <code>sim2real_transfer_results.md</code>, <code>sim2real_transfer_analysis.md</code>.</p>
+</main><div id="tip"></div><script>const tip=document.getElementById('tip');document.querySelectorAll('[data-tip]').forEach(el=>{el.addEventListener('mousemove',e=>{tip.textContent=el.dataset.tip;tip.style.display='block';tip.style.left=(e.clientX+12)+'px';tip.style.top=(e.clientY-28)+'px';});el.addEventListener('mouseleave',()=>tip.style.display='none');});</script></body></html>

@@ -1,0 +1,46 @@
+=== zero-shot released (21:01:34) ===
+class_room     n= 463  EDT 0.1667s  C50 3.373dB  T60 7.87%  env 1.84  loss 0.0436  (1.0 min)
+dampened_room  n= 198  EDT 0.0749s  C50 4.757dB  T60 -  env 1.36  loss 0.0622  (0.4 min)
+hallway        n= 423  EDT 0.1523s  C50 2.096dB  T60 6.82%  env 5.42  loss 0.0407  (0.9 min)
+complex_room   n= 198  EDT 0.1324s  C50 2.567dB  T60 6.29%  env 2.27  loss 0.0485  (0.4 min)
+=== zero-shot control (21:04:17) ===
+class_room     n= 463  EDT 0.1179s  C50 1.933dB  T60 7.35%  env 2.04  loss 0.0381  (0.9 min)
+dampened_room  n= 198  EDT 0.0723s  C50 4.670dB  T60 -  env 1.59  loss 0.0683  (0.4 min)
+hallway        n= 423  EDT 0.1869s  C50 2.389dB  T60 7.47%  env 5.40  loss 0.0424  (0.8 min)
+complex_room   n= 198  EDT 0.1561s  C50 2.765dB  T60 6.92%  env 2.27  loss 0.0501  (0.4 min)
+=== zero-shot cyl (21:06:53) ===
+class_room     n= 463  EDT 0.1199s  C50 1.915dB  T60 7.82%  env 2.05  loss 0.0383  (1.0 min)
+dampened_room  n= 198  EDT 0.0719s  C50 4.632dB  T60 -  env 1.61  loss 0.0656  (0.4 min)
+hallway        n= 423  EDT 0.1840s  C50 4.183dB  T60 9.91%  env 5.75  loss 0.0446  (0.9 min)
+complex_room   n= 198  EDT 0.1095s  C50 2.172dB  T60 5.77%  env 2.33  loss 0.0438  (0.4 min)
+=== job cyl seed 0 on GPU 0 (21:09:40) ===
+  stage1: done: {"best_epoch": 660, "best_val_loss": 0.03520504019490862, "init_val_loss": 0.04271074986228576, "epochs": 1000, "m
+  class_room     n= 463  EDT 0.0897s  C50 1.602dB  T60 4.26%  env 1.87  loss 0.0300  (1.0 min)
+  dampened_room  n= 198  EDT 0.0381s  C50 2.862dB  T60 -  env 0.97  loss 0.0471  (0.4 min)
+  hallway        n= 423  EDT 0.0867s  C50 1.990dB  T60 4.14%  env 5.32  loss 0.0347  (0.9 min)
+  complex_room   n= 198  EDT 0.0817s  C50 1.729dB  T60 5.10%  env 2.22  loss 0.0389  (0.4 min)
+=== job control seed 0 on GPU 0 (22:00:48) ===
+  stage1: done: {"best_epoch": 930, "best_val_loss": 0.03476567679510908, "init_val_loss": 0.04356697915114372, "epochs": 1000, "m
+  class_room     n= 463  EDT 0.0816s  C50 1.497dB  T60 4.31%  env 1.85  loss 0.0296  (0.9 min)
+  dampened_room  n= 198  EDT 0.0382s  C50 2.848dB  T60 -  env 0.99  loss 0.0430  (0.4 min)
+  hallway        n= 423  EDT 0.0619s  C50 1.125dB  T60 2.67%  env 5.28  loss 0.0332  (0.9 min)
+  complex_room   n= 198  EDT 0.0760s  C50 1.645dB  T60 4.85%  env 2.21  loss 0.0384  (0.4 min)
+=== job released seed 0 on GPU 0 (22:46:59) ===
+  stage1: done: {"best_epoch": 730, "best_val_loss": 0.038227770982785264, "init_val_loss": 0.04502151550551658, "epochs": 1000, "
+  class_room     n= 463  EDT 0.0955s  C50 1.803dB  T60 4.38%  env 1.83  loss 0.0306  (1.0 min)
+  dampened_room  n= 198  EDT 0.0387s  C50 2.812dB  T60 -  env 0.98  loss 0.0423  (0.4 min)
+  hallway        n= 423  EDT 0.0972s  C50 1.742dB  T60 4.56%  env 5.38  loss 0.0365  (0.9 min)
+  complex_room   n= 198  EDT 0.1089s  C50 2.261dB  T60 5.02%  env 2.29  loss 0.0431  (0.4 min)
+=== job cyl seed 2 on GPU 0 (23:33:18) ===
+  stage1: done: {"best_epoch": 450, "best_val_loss": 0.035255929213846744, "init_val_loss": 0.04271074986228576, "epochs": 1000, "
+  class_room     n= 463  EDT 0.0885s  C50 1.603dB  T60 4.08%  env 1.87  loss 0.0299  (1.0 min)
+  dampened_room  n= 198  EDT 0.0361s  C50 2.702dB  T60 -  env 0.96  loss 0.0444  (0.4 min)
+  hallway        n= 423  EDT 0.0899s  C50 2.171dB  T60 4.29%  env 5.35  loss 0.0351  (0.9 min)
+  complex_room   n= 198  EDT 0.0817s  C50 1.703dB  T60 5.28%  env 2.22  loss 0.0390  (0.4 min)
+=== job released_repomaps seed 0 on GPU 0 (00:24:33) ===
+  stage1: done: {"best_epoch": 950, "best_val_loss": 0.03816272878664949, "init_val_loss": 0.04609977428307417, "epochs": 1000, "m
+  class_room     n= 463  EDT 0.0951s  C50 1.822dB  T60 4.03%  env 1.83  loss 0.0305  (1.0 min)
+  dampened_room  n= 198  EDT 0.0374s  C50 2.712dB  T60 -  env 1.00  loss 0.0411  (0.4 min)
+  hallway        n= 423  EDT 0.0998s  C50 1.793dB  T60 4.60%  env 5.40  loss 0.0366  (0.9 min)
+  complex_room   n= 198  EDT 0.1022s  C50 2.157dB  T60 4.96%  env 2.27  loss 0.0421  (0.4 min)
+QUEUE_DONE GPU 0 (01:10:31)

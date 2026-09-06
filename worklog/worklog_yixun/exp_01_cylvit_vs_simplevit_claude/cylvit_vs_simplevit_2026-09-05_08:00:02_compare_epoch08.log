@@ -1,0 +1,8 @@
+snapshot simple epoch 8 (08:13:04): {"epoch": 8, "train_loss": 0.012199048072058656, "test_loss": 0.016096895892903133, "best_test_loss": 0.016025652872613778, "is_best": false, "lr": 2.1544346900318848e-06, "epoch_minutes": 140.96359102328617}
+snapshot cyl epoch 8 (10:17:06): {"epoch": 8, "train_loss": 0.011977227324161921, "test_loss": 0.015877356001611182, "best_test_loss": 0.015807892450941118, "is_best": false, "lr": 2.1544346900318848e-06, "epoch_minutes": 156.03456306060156}
+=== epoch 8: both snapshots ready ===
+=== full unseen split, epoch 8 checkpoints ===
+[6337/6337] EDT 0.0454s  C50 1.2165dB  T60 9.548%  STFT-MSE 0.4164  loss 0.0159  (6.15 samp/s, eta 0.0 min)
+[6337/6337] EDT 0.0467s  C50 1.2565dB  T60 9.565%  STFT-MSE 0.4128  loss 0.0161  (5.99 samp/s, eta 0.0 min)
+/tmp/claude-1013/-home-yixunhu-codespace-xRIR-code/279323f7-0bed-4b41-8631-99735eadc6f1/scratchpad/epoch_compare.sh: line 25: unexpected EOF while looking for matching `"'
+/tmp/claude-1013/-home-yixunhu-codespace-xRIR-code/279323f7-0bed-4b41-8631-99735eadc6f1/scratchpad/epoch_compare.sh: line 28: syntax error: unexpected end of file

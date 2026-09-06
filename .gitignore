@@ -8,3 +8,4 @@ data/
 .keras/
 AcoustiX/
 CLAUDE.md
+ckpt/

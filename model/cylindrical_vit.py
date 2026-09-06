@@ -5,6 +5,8 @@ elevation-only sinusoidal position embedding and a pre-norm transformer whose at
 adds a per-head *circular* relative-position bias. Bodies/signatures byte-identical to
 the pinned source; only T3 (concise docstrings + provenance header) applied -- exact.
 """
+from __future__ import annotations
+
 import math
 
 import torch

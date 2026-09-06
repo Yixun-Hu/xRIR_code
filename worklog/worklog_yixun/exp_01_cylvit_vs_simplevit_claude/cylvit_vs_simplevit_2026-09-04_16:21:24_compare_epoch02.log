@@ -1,0 +1,10 @@
+=== epoch 2 history ===
+cyl: {"epoch": 2, "train_loss": 0.013349933574399935, "test_loss": 0.017679488211495793, "best_test_loss": 0.017679488211495793, "is_best": true, "lr": 0.0002154434690031884, "epoch_minutes": 156.66803715626398}
+simple: {"epoch": 2, "train_loss": 0.013299251441063331, "test_loss": 0.016861109119189446, "best_test_loss": 0.016861109119189446, "is_best": true, "lr": 0.0002154434690031884, "epoch_minutes": 141.5944673816363}
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+AssertionError: (3, 2000)
+=== full unseen split, epoch 2 checkpoints ===
+[6337/6337] EDT 0.0526s  C50 1.4282dB  T60 8.913%  STFT-MSE 0.4266  loss 0.0177  (6.09 samp/s, eta 0.0 min)
+[5000/6337] EDT 0.0560s  C50 1.5184dB  T60 10.413%  STFT-MSE 0.4305  loss 0.0171  (5.89 samp/s, eta 3.8 min)
+18:56:56
