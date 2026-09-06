@@ -98,6 +98,51 @@ def test_forward_conditions_rotate_the_geometry_and_pin_only_P(cuda_model):
 
 
 # --------------------------------------------------------------------------------------
+# pad_batch -- canonicalising the compute shape
+# --------------------------------------------------------------------------------------
+def _fake_batch(n, key_prefix="q"):
+    """A seven-tuple shaped like ManifestDataset's, with distinguishable rows."""
+    torch.manual_seed(n)
+    return (torch.arange(n * 3, dtype=torch.float32).reshape(n, 3),
+            torch.arange(n * 3, dtype=torch.float32).reshape(n, 3) + 100.0,
+            torch.arange(n * 3 * 2 * 4, dtype=torch.float32).reshape(n, 3, 2, 4),
+            torch.arange(n * 5, dtype=torch.float32).reshape(n, 1, 5),
+            torch.arange(n * 2 * 5, dtype=torch.float32).reshape(n, 2, 5),
+            torch.arange(n * 2 * 3, dtype=torch.float32).reshape(n, 2, 3),
+            ["{}{}".format(key_prefix, i) for i in range(n)])
+
+
+def test_pad_batch_repeats_the_rows_and_reports_the_real_count():
+    from eval_yaw_rotation import pad_batch
+
+    batch = _fake_batch(3)
+    padded, n_real = pad_batch(batch, 8)
+    assert n_real == 3
+    assert len(padded) == 7
+    assert padded[-1] == ["q0", "q1", "q2", "q0", "q1", "q2", "q0", "q1"]
+    for original, filled in zip(batch[:-1], padded[:-1]):
+        assert filled.shape[0] == 8
+        for row in range(8):
+            assert torch.equal(filled[row], original[row % 3]), row
+
+
+def test_pad_batch_is_the_identity_when_the_batch_is_already_full():
+    from eval_yaw_rotation import pad_batch
+
+    batch = _fake_batch(4)
+    for batch_size in (4, None):
+        padded, n_real = pad_batch(batch, batch_size)
+        assert n_real == 4 and padded is batch
+
+
+def test_pad_batch_rejects_a_batch_longer_than_the_canonical_size():
+    from eval_yaw_rotation import pad_batch
+
+    with pytest.raises(ValueError):
+        pad_batch(_fake_batch(5), 4)
+
+
+# --------------------------------------------------------------------------------------
 # spectral_metrics
 # --------------------------------------------------------------------------------------
 def _spec_pair(batch_size=3, freq=63, time=310, seed=0):

@@ -324,6 +324,41 @@ def build_manifest_dataset(manifest, max_samples=0, max_len=9600):
     return full
 
 
+def pad_batch(batch, batch_size):
+    """Repeat a short batch's rows so it is computed at exactly ``batch_size`` samples.
+
+    cuBLAS and cuDNN pick their algorithm -- and therefore their reduction order -- from
+    the *shape*, so a query's prediction depends on how many samples share its batch:
+    measured on a trained checkpoint, the same query evaluated alone and inside a batch
+    of 16 differs by 4.8e-5 in the log-spectrogram.  The split is 6337 = 396 * 16 + 1, so
+    without padding the last query would be the only one computed at a different shape.
+    Repeating rows (wrap-around) keeps the shape canonical; the padded rows are dropped
+    before anything is recorded, and because every op here is row-independent the kept
+    rows are bit-identical to their values in a full batch.
+
+    Args:
+        batch: the ``ManifestDataset`` seven-tuple, collated (six tensors + the key list).
+        batch_size: the canonical number of rows, or ``None`` to leave the batch alone.
+
+    Returns:
+        ``(padded_batch, n_real)``; the input object itself when no padding is needed.
+
+    Raises:
+        ValueError: if the batch already has more rows than ``batch_size``.
+    """
+    n_real = len(batch[-1])
+    if batch_size is None or n_real == int(batch_size):
+        return batch, n_real
+    if n_real > int(batch_size):
+        raise ValueError("batch of {} rows exceeds the canonical size {}".format(
+            n_real, batch_size))
+    order = [i % n_real for i in range(int(batch_size))]
+    index = torch.as_tensor(order, dtype=torch.long)
+    padded = tuple(item[index] if torch.is_tensor(item) else [item[i] for i in order]
+                   for item in batch)
+    return padded, n_real
+
+
 def evaluate_batch(model, batch, evaluator, cols, acoustic_cols=(), e_acoustic_cols=(),
                    gl_seed=0):
     """Every per-sample metric of one collated batch, at every angle in ``cols``.
