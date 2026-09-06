@@ -16,11 +16,22 @@ between calls.  Inputs must already be masked to the valid samples (see
 """
 from __future__ import annotations
 
+import numbers
+
 import numpy as np
 
 # Resamples are drawn in chunks of at most this many cells, so a 10000 x 6337 bootstrap
 # never materialises a 500 MB index matrix.
 _CHUNK_CELLS = 2000000
+
+
+def _check_positive_int(value, name):
+    """Reject anything but a positive Python integer (``bool`` and ``float`` included)."""
+    if isinstance(value, bool) or not isinstance(value, numbers.Integral):
+        raise TypeError("{} must be an integer, got {!r}".format(name, value))
+    if int(value) < 1:
+        raise ValueError("{} must be >= 1, got {}".format(name, value))
+    return int(value)
 
 
 def _as_1d(values, name):
@@ -223,19 +234,24 @@ def relative_degradation_bootstrap(e0, ek, n_boot=10000, alpha=0.05, seed=0, clu
             "unit": "pair" if clusters is None else "cluster"}
 
 
-def bonferroni_alpha(alpha, m):
+def bonferroni_alpha(m, alpha=0.05):
     """Bonferroni-adjusted level for a family of ``m`` tests: ``alpha / m``.
 
     exp_03's confirmatory family is 2 metrics x 9 non-zero acoustic angles = 18 tests,
-    so every reported confirmatory interval is a ``1 - 0.05/18`` interval.
+    so the pre-registered call is ``bonferroni_alpha(18)`` and every confirmatory
+    interval is a ``1 - 0.05/18`` interval.
+
+    Args:
+        m: family size, a positive ``int``.
+        alpha: family-wise level, in ``(0, 1)``.
 
     Raises:
-        ValueError: if ``alpha`` is outside ``(0, 1)`` or ``m < 1``.
+        TypeError: if ``m`` is not an ``int`` (``bool`` and ``float`` are rejected).
+        ValueError: if ``m < 1`` or ``alpha`` is outside ``(0, 1)``.
     """
+    _check_positive_int(m, "the family size m")
     if not (0.0 < float(alpha) < 1.0):
         raise ValueError("alpha must lie in (0, 1), got {}".format(alpha))
-    if int(m) < 1:
-        raise ValueError("the family size m must be >= 1, got {}".format(m))
     return float(alpha) / int(m)
 
 

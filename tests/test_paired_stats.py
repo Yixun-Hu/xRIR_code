@@ -204,13 +204,19 @@ def test_cluster_bootstrap_is_seed_deterministic_and_validates_its_ids():
 # T10 -- Bonferroni adjustment, the substantial-degradation verdict, and TOST
 # --------------------------------------------------------------------------------------
 def test_bonferroni_alpha_divides_by_the_family_size():
-    assert bonferroni_alpha(0.05, 18) == 0.05 / 18       # 2 metrics x 9 non-zero angles
-    assert bonferroni_alpha(0.05, 1) == 0.05
-    for bad in (0, -3):
+    # The pre-registered call: family = 2 metrics x 9 non-zero acoustic angles.
+    assert bonferroni_alpha(18) == 0.05 / 18
+    assert bonferroni_alpha(18, 0.01) == 0.01 / 18
+    assert bonferroni_alpha(1) == 0.05
+    for bad_m in (0, -3):
         with pytest.raises(ValueError):
-            bonferroni_alpha(0.05, bad)
-    with pytest.raises(ValueError):
-        bonferroni_alpha(1.0, 18)
+            bonferroni_alpha(bad_m)
+    for bad_m in (2.0, True, "18"):
+        with pytest.raises(TypeError):
+            bonferroni_alpha(bad_m)
+    for bad_alpha in (0.0, 1.0, -0.1):
+        with pytest.raises(ValueError):
+            bonferroni_alpha(18, bad_alpha)
 
 
 def test_verdict_substantial_needs_a_strict_lower_bound():
