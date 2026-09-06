@@ -308,3 +308,45 @@ def test_cylindrical_vit_tokens_roll_by_one_azimuth_patch():
         s2 = simple(x2).view(1, 16, 16, 512)
     s_diff = (torch.roll(s1, 1, dims=2) - s2).abs().max().item()
     assert s_diff > 0.1, "SimpleViT unexpectedly azimuth-equivariant: max|d| = {}".format(s_diff)
+
+
+# --------------------------------------------------------------------------------------
+# T8 -- full xRIR forward: k = W reproduces k = 0 under a pinned alignment, k = 32 does not
+# --------------------------------------------------------------------------------------
+@_NEEDS_CUDA
+def test_full_model_period_and_sensitivity_under_fixed_alignment():
+    from model.xRIR import xRIR
+    from model.xRIR_cyl import build_xrir
+    from tools.yaw_rotation import fixed_alignment
+
+    B, K, T, H, W = 1, 8, 9600, 256, 512
+    torch.manual_seed(31)
+    model = build_xrir("cylindrical", K).cuda().eval()
+    depth = (torch.rand(B, 3, H, W) * 5.0).cuda()
+    refs = (torch.randn(B, K, T) * 0.1).cuda()
+    src = torch.randn(B, 3).cuda()
+    ref_locs = torch.randn(B, K, 3).cuda()
+    tgt = (torch.randn(B, 1, T) * 0.1).cuda()
+
+    with torch.no_grad():
+        aligned = model.shift_and_align(refs, src, ref_locs)
+
+        outs = {}
+        for k in (0, 512, 32):
+            depth_k, src_k, ref_locs_k = rotate_scene_yaw(depth, src, ref_locs, k, W=W)
+            with fixed_alignment(model, aligned):
+                out_k, _ = model(depth_k, refs, src_k, ref_locs_k, tgt)
+            outs[k] = out_k
+        assert model.shift_and_align.__func__ is xRIR.shift_and_align
+
+    assert torch.isfinite(outs[0]).all()
+    assert torch.allclose(outs[512], outs[0], atol=1e-5), "k=W max|d| = {}".format(
+        (outs[512] - outs[0]).abs().max().item())
+    assert (outs[32] - outs[0]).abs().max().item() > 1e-4, "k=32 output is indistinguishable from k=0"
+
+    # The alignment override is undone even when the block raises.
+    with pytest.raises(RuntimeError):
+        with fixed_alignment(model, aligned):
+            raise RuntimeError("boom")
+    assert model.shift_and_align.__func__ is xRIR.shift_and_align
+    assert "shift_and_align" not in vars(model)
