@@ -10,6 +10,7 @@ import pytest
 
 from tools.paired_stats import (
     bonferroni_alpha,
+    diff_in_diff_bootstrap,
     equivalence_tost,
     invalid_fraction,
     relative_degradation_bootstrap,
@@ -211,3 +212,56 @@ def test_equivalence_tost_uses_the_one_minus_two_alpha_interval():
     two_sided = relative_degradation_bootstrap(e0, ek, n_boot=2000, alpha=0.05, seed=0)
     assert two_sided["lo"] < tost["lo"] and tost["hi"] < two_sided["hi"]
     assert tost["r"] == two_sided["r"]
+
+
+# --------------------------------------------------------------------------------------
+# T10 -- difference in differences (cross-model, on shared resamples)
+# --------------------------------------------------------------------------------------
+def test_diff_in_diff_of_a_model_with_itself_is_exactly_zero():
+    e0, ek = _paired(n=800, ratio=1.3, noise=0.3, seed=7)
+    res = diff_in_diff_bootstrap(e0, ek, e0, ek, n_boot=500, seed=0)
+    assert {"d", "lo", "hi", "r_a", "r_b", "n", "n_boot", "alpha", "unit"} == set(res)
+    assert res["d"] == 0.0
+    assert res["lo"] == 0.0 and res["hi"] == 0.0, "shared resamples must cancel exactly"
+    assert res["r_a"] == res["r_b"]
+    assert res["n"] == 800 and res["unit"] == "pair"
+
+
+def test_diff_in_diff_uses_the_same_resamples_for_both_models():
+    """With an unchanged model B every resample of B is exactly 0, so the DiD interval
+    must coincide, bound for bound, with model A's own interval at the same seed."""
+    e0_a, ek_a = _paired(n=1000, ratio=1.25, noise=0.3, seed=8)
+    e0_b = _paired(n=1000, ratio=1.0, noise=0.2, seed=9)[0]
+
+    did = diff_in_diff_bootstrap(e0_a, ek_a, e0_b, e0_b.copy(), n_boot=1000, seed=3)
+    alone = relative_degradation_bootstrap(e0_a, ek_a, n_boot=1000, seed=3)
+    assert did["r_b"] == 0.0
+    assert did["d"] == alone["r"]
+    assert (did["lo"], did["hi"]) == (alone["lo"], alone["hi"])
+
+
+def test_diff_in_diff_detects_a_model_that_degrades_less():
+    e0 = _paired(n=3000, seed=10)[0]
+    rng = np.random.default_rng(12)
+    ek_a = e0 * 1.30 * np.exp(rng.normal(0.0, 0.2, size=e0.size))     # A degrades by 30%
+    ek_b = e0 * 1.05 * np.exp(rng.normal(0.0, 0.2, size=e0.size))     # B by 5%
+
+    res = diff_in_diff_bootstrap(e0, ek_b, e0, ek_a, n_boot=2000, seed=0)
+    assert res["r_a"] < res["r_b"]
+    assert res["d"] == pytest.approx(res["r_a"] - res["r_b"], abs=1e-12)
+    assert res["hi"] < 0.0, "B degrading less than A must give a DiD upper bound below 0"
+    assert res["lo"] < res["d"] < res["hi"]
+
+
+def test_diff_in_diff_supports_clusters_and_validates_its_inputs():
+    e0, ek = _paired(n=400, ratio=1.2, noise=0.3, seed=13)
+    ek_b = e0 * 1.05
+    clusters = np.repeat(np.arange(4), 100)
+    res = diff_in_diff_bootstrap(e0, ek, e0, ek_b, n_boot=500, seed=0, clusters=clusters)
+    assert res["unit"] == "cluster"
+    assert res == diff_in_diff_bootstrap(e0, ek, e0, ek_b, n_boot=500, seed=0, clusters=clusters)
+
+    with pytest.raises(ValueError):                       # A and B are not the same queries
+        diff_in_diff_bootstrap(e0, ek, e0[:-1], ek_b[:-1], n_boot=100)
+    with pytest.raises(ValueError):                       # non-finite
+        diff_in_diff_bootstrap(e0, ek, e0, np.full_like(ek_b, np.nan), n_boot=100)

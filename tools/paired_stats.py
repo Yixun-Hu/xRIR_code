@@ -254,3 +254,44 @@ def equivalence_tost(e0, ek, margin, n_boot=10000, alpha=0.05, seed=0):
             "r": float((b.mean() - a.mean()) / a.mean()), "lo": float(lo), "hi": float(hi),
             "margin": float(margin), "n": int(a.size), "n_boot": int(n_boot),
             "alpha": float(alpha)}
+
+
+def diff_in_diff_bootstrap(e0_a, ek_a, e0_b, ek_b, n_boot=10000, alpha=0.05, seed=0,
+                           clusters=None):
+    """Difference in relative degradations of two models, ``d = r_a - r_b``.
+
+    This is the H2 statistic: does the cylindrical backbone degrade *less* than the
+    same-budget SimpleViT control?  Both models are evaluated on the same queries, so
+    the two ratios are recomputed on the **same** resamples inside the bootstrap; the
+    interval then reflects only the cross-model difference, not the shared query noise.
+    Comparing a model with itself therefore returns exactly ``0`` with a zero-width
+    interval.
+
+    Args:
+        e0_a, ek_a: model A's per-sample errors at ``k = 0`` and at the angle.
+        e0_b, ek_b: model B's, for the *same* queries in the same order.
+        n_boot: bootstrap resamples.
+        alpha: two-sided level of the ``1 - alpha`` percentile interval.
+        seed: bootstrap seed.
+        clusters: optional cluster id per query (see
+            :func:`relative_degradation_bootstrap`).
+
+    Returns:
+        ``{"d", "lo", "hi", "r_a", "r_b", "n", "n_boot", "alpha", "unit"}``.
+
+    Raises:
+        ValueError: on degenerate input or series of different lengths.
+    """
+    a0, ak = _check_pair(e0_a, ek_a, "e0_a", "ek_a")
+    b0, bk = _check_pair(e0_b, ek_b, "e0_b", "ek_b")
+    if a0.shape != b0.shape:
+        raise ValueError("the two models must be evaluated on the same queries, got {} and {}"
+                         .format(a0.size, b0.size))
+    _check_boot_args(n_boot, alpha, clusters, a0.size)
+    boots_a, boots_b = _bootstrap_ratios([(a0, ak), (b0, bk)], int(n_boot), seed, clusters)
+    lo, hi = _percentile_interval(boots_a - boots_b, float(alpha))
+    r_a = float((ak.mean() - a0.mean()) / a0.mean())
+    r_b = float((bk.mean() - b0.mean()) / b0.mean())
+    return {"d": r_a - r_b, "lo": lo, "hi": hi, "r_a": r_a, "r_b": r_b,
+            "n": int(a0.size), "n_boot": int(n_boot), "alpha": float(alpha),
+            "unit": "pair" if clusters is None else "cluster"}
