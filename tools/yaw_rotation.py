@@ -28,21 +28,46 @@ from __future__ import annotations
 
 import contextlib
 import math
+import numbers
 from typing import Tuple
 
 import torch
+
+
+def _check_k_and_width(k, W) -> None:
+    """Validate a column roll ``k`` and a panorama width ``W``.
+
+    Raises:
+        TypeError: if ``k`` or ``W`` is not an integer (floats are rejected rather than
+            silently truncated, since a fractional roll has no meaning here).
+        ValueError: if ``W <= 0``.
+    """
+    if isinstance(k, bool) or not isinstance(k, numbers.Integral):
+        raise TypeError("k must be an integer number of panorama columns, got {!r}".format(k))
+    if isinstance(W, bool) or not isinstance(W, numbers.Integral):
+        raise TypeError("W must be an integer panorama width, got {!r}".format(W))
+    if int(W) <= 0:
+        raise ValueError("W must be positive, got {}".format(W))
+
+
+def _require_float(t: torch.Tensor, name: str) -> None:
+    """Raise ``TypeError`` unless ``t`` is a floating-point tensor."""
+    if not torch.is_floating_point(t):
+        raise TypeError("{} must be a floating-point tensor, got dtype {}".format(name, t.dtype))
 
 
 def yaw_angle_rad(k: int, W: int = 512) -> float:
     """Yaw angle in radians corresponding to a roll of ``k`` panorama columns.
 
     Args:
-        k: number of panorama columns; may be negative or ``>= W`` (not reduced here).
-        W: panorama width in columns.
+        k: integer number of panorama columns; may be negative or ``>= W`` (not reduced
+            here).  Non-integer values raise ``TypeError``.
+        W: integer panorama width in columns; must be positive.
 
     Returns:
         ``2 * pi * k / W`` as a Python float.
     """
+    _check_k_and_width(k, W)
     return 2.0 * math.pi * float(k) / float(W)
 
 
@@ -52,15 +77,21 @@ def rotate_vectors_z(v: torch.Tensor, angle: float) -> torch.Tensor:
     ``x' = x cos(a) - y sin(a)``, ``y' = x sin(a) + y cos(a)``, ``z' = z``.
 
     Args:
-        v: tensor of shape ``[..., 3]``; the last axis holds ``(x, y, z)``.
+        v: floating-point tensor of shape ``[..., 3]``; the last axis holds ``(x, y, z)``.
+            Integer tensors are rejected (the rotation is not closed over the integers).
         angle: rotation angle in radians (right-handed about ``+z``).
 
     Returns:
         A new tensor of the same shape, dtype and device as ``v``.
+
+    Raises:
+        TypeError: if ``v`` is not floating point.
+        ValueError: if the last axis of ``v`` is not of size 3.
     """
     if v.shape[-1] != 3:
         raise ValueError("rotate_vectors_z expects the last axis to be xyz (size 3), "
                          "got shape {}".format(tuple(v.shape)))
+    _require_float(v, "v")
     cos_a = math.cos(angle)
     sin_a = math.sin(angle)
     x, y, z = v[..., 0], v[..., 1], v[..., 2]
@@ -80,15 +111,24 @@ def rotate_scene_yaw(
     ``src_loc' = Rz(Delta) src_loc``, ``ref_locs' = Rz(Delta) ref_locs``.
 
     Args:
-        depth_coord: receiver-frame panorama coordinates ``[B, 3, H, W]``.
-        src_loc: receiver-frame query-source position ``[B, 3]``.
-        ref_locs: receiver-frame reference-source positions ``[B, K, 3]``.
-        k: column roll; negative values and values ``>= W`` are reduced modulo ``W``.
-        W: panorama width in columns (must match ``depth_coord.shape[-1]``).
+        depth_coord: receiver-frame panorama coordinates ``[B, 3, H, W]``, floating point.
+        src_loc: receiver-frame query-source position ``[B, 3]``, floating point.
+        ref_locs: receiver-frame reference-source positions ``[B, K, 3]``, floating point.
+        k: integer column roll; negative values and values ``>= W`` are reduced modulo
+            ``W``.  Non-integer values raise ``TypeError``.
+        W: integer panorama width in columns (must match ``depth_coord.shape[-1]``).
 
     Returns:
         ``(depth_coord', src_loc', ref_locs')`` -- new tensors; the inputs are untouched.
+
+    Raises:
+        TypeError: if ``k``/``W`` are not integers or any tensor is not floating point.
+        ValueError: if ``W <= 0`` or the shapes do not match the contract.
     """
+    _check_k_and_width(k, W)
+    _require_float(depth_coord, "depth_coord")
+    _require_float(src_loc, "src_loc")
+    _require_float(ref_locs, "ref_locs")
     if depth_coord.dim() != 4 or depth_coord.shape[1] != 3:
         raise ValueError("depth_coord must have shape [B, 3, H, W], got {}".format(
             tuple(depth_coord.shape)))
@@ -113,8 +153,8 @@ def integer_delays(
     """Integer direct-path delays exactly as ``model.xRIR.xRIR.shift_and_align`` computes them.
 
     The op sequence and dtypes mirror the model line for line
-    (``torch.linalg.norm`` -> ``torch.round(...).int()``) so the values agree bit for bit
-    with the model on the same inputs; only the final container is widened to ``int64``.
+    (``torch.linalg.norm`` -> ``torch.round(...).int()``), so both the values and the
+    dtype agree bit for bit with the model's ``delay_unit`` on the same inputs.
 
     Args:
         src_loc: receiver-frame query-source position ``[B, 3]``.
@@ -123,13 +163,13 @@ def integer_delays(
         c: speed of sound in m/s (the model hard-codes 343).
 
     Returns:
-        ``[B, K]`` int64 tensor of sample delays (positive = reference arrives earlier
-        than the query source and is therefore shifted right).
+        ``[B, K]`` **int32** tensor of sample delays -- the dtype the model itself produces
+        (positive = reference arrives earlier than the query source and is therefore
+        shifted right).
     """
     dist_src = torch.linalg.norm(src_loc, dim=1).unsqueeze(1)          # [B, 1]
     dist_ref = torch.linalg.norm(ref_locs, dim=-1)                     # [B, K]
-    delay_unit = torch.round((dist_src - dist_ref) / c * sr).int()     # as in shift_and_align
-    return delay_unit.long()
+    return torch.round((dist_src - dist_ref) / c * sr).int()           # as in shift_and_align
 
 
 @contextlib.contextmanager

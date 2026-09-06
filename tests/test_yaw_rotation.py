@@ -199,13 +199,17 @@ def test_integer_delays_reproduces_shift_and_align(simple_model):
 
     delays = integer_delays(src, ref_locs)
     assert delays.shape == (B, K)
-    assert not torch.is_floating_point(delays)
     assert int(delays.abs().max()) > 0, "degenerate draw: all delays are zero"
     assert int(delays.abs().max()) < T, "delay exceeds the signal length"
 
     dist_src = torch.linalg.norm(src, dim=1).unsqueeze(1)
     dist_ref = torch.linalg.norm(ref_locs, dim=-1)
     ratio = dist_ref / (dist_src + 1e-7)
+    # The model's own expression, re-derived here: same value AND same dtype (int32).
+    delay_unit = torch.round((dist_src - dist_ref) / 343. * 22050).int()
+    assert delays.dtype == torch.int32
+    assert delays.dtype == delay_unit.dtype
+    assert torch.equal(delays, delay_unit)
     expected = torch.cat(
         [(_apply_delay_reference(refs[:, i, :], delays[:, i]).unsqueeze(1)
           * ratio[:, i:(i + 1)].unsqueeze(2)) for i in range(K)], dim=1)
@@ -366,3 +370,37 @@ def test_fixed_alignment_nests(simple_model):
         assert simple_model.shift_and_align(None, None, None) is outer
     assert simple_model.shift_and_align.__func__ is xRIR.shift_and_align
     assert "shift_and_align" not in vars(simple_model)
+
+
+# --------------------------------------------------------------------------------------
+# Argument validation
+# --------------------------------------------------------------------------------------
+def test_rotation_helpers_reject_integer_tensors():
+    from tools.yaw_rotation import rotate_scene_yaw as _rsy
+
+    with pytest.raises(TypeError):
+        rotate_vectors_z(torch.zeros(4, 3, dtype=torch.int64), 0.3)
+    with pytest.raises(TypeError):
+        _rsy(torch.zeros(1, 3, 4, 512, dtype=torch.int32), torch.zeros(1, 3), torch.zeros(1, 1, 3), 8)
+    with pytest.raises(TypeError):
+        _rsy(torch.zeros(1, 3, 4, 512), torch.zeros(1, 3, dtype=torch.int64), torch.zeros(1, 1, 3), 8)
+    with pytest.raises(TypeError):
+        _rsy(torch.zeros(1, 3, 4, 512), torch.zeros(1, 3), torch.zeros(1, 1, 3, dtype=torch.int64), 8)
+
+
+def test_invalid_k_and_W_are_rejected():
+    depth = torch.zeros(1, 3, 4, 512)
+    src, refs = torch.zeros(1, 3), torch.zeros(1, 1, 3)
+
+    for bad_k in (1.5, 0.0, "8", None):
+        with pytest.raises(TypeError):
+            yaw_angle_rad(bad_k)
+        with pytest.raises(TypeError):
+            rotate_scene_yaw(depth, src, refs, bad_k)
+    for bad_W in (0, -512):
+        with pytest.raises(ValueError):
+            yaw_angle_rad(8, W=bad_W)
+        with pytest.raises(ValueError):
+            rotate_scene_yaw(depth, src, refs, 8, W=bad_W)
+    with pytest.raises(TypeError):
+        yaw_angle_rad(8, W=512.0)
