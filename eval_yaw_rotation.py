@@ -314,6 +314,63 @@ def build_manifest_dataset(manifest, max_samples=0, max_len=9600):
     return full
 
 
+def evaluate_batch(model, batch, evaluator, cols, acoustic_cols=(), e_acoustic_cols=(),
+                   gl_seed=0):
+    """Every per-sample metric of one collated batch, at every angle in ``cols``.
+
+    The whole batch is moved to the GPU once and the ``k = 0`` alignment and prediction
+    are computed once, so the angles share exactly one paired reference.  Nothing in the
+    loop depends on the order of ``cols`` or on which angles came before: the Griffin-Lim
+    phase is seeded per query, so the result is a pure function of
+    ``(model, batch, cols, gl_seed)``.
+
+    Args:
+        model: an ``xRIR`` on CUDA in ``eval()`` mode.
+        batch: the ``ManifestDataset`` seven-tuple, collated.
+        evaluator: an ``eval_unseen.Evaluator``.
+        cols: integer column rolls to evaluate (spectral metrics at every one).
+        acoustic_cols: the subset of ``cols`` that also gets EDT / C50 / T60 under
+            condition P; ``e_acoustic_cols`` is the same for condition E.  At ``k = 0``
+            the two conditions are the same prediction, so the acoustic metrics are
+            computed once and stored under both.
+        gl_seed: run-level Griffin-Lim seed.
+
+    Returns:
+        ``(query_keys, results, delay_flips)`` where ``results[(condition, k)]`` maps a
+        metric name to a float64 ``np.ndarray`` of shape ``[B]``, and ``delay_flips``
+        maps each ``k`` to the number of flipped ``(sample, reference)`` delays.
+    """
+    _, src_loc, depth_coord, tgt_wav, ref_irs, ref_locs, keys = batch
+    src_loc, depth_coord = src_loc.cuda(), depth_coord.cuda()
+    tgt_wav, ref_irs, ref_locs = tgt_wav.cuda(), ref_irs.cuda(), ref_locs.cuda()
+    keys = list(keys)
+    acoustic_at = {"P": set(int(k) for k in acoustic_cols),
+                   "E": set(int(k) for k in e_acoustic_cols)}
+    zero_wanted = bool(acoustic_at["P"] | acoustic_at["E"]) and 0 in (
+        acoustic_at["P"] | acoustic_at["E"])
+
+    with torch.no_grad():
+        aligned0 = model.shift_and_align(ref_irs, src_loc, ref_locs)
+        out_0, _ = model(depth_coord, ref_irs, src_loc, ref_locs, tgt_wav)
+
+    results = {}
+    acoustic_0 = None
+    for k in cols:
+        out_p, out_e, tgt_spec = forward_conditions(
+            model, depth_coord, ref_irs, src_loc, ref_locs, tgt_wav, k, aligned0)
+        for condition, pred in (("P", out_p), ("E", out_e)):
+            cell = {name: value.double().numpy()
+                    for name, value in spectral_metrics(pred, out_0, tgt_spec).items()}
+            if int(k) == 0 and zero_wanted:
+                if acoustic_0 is None:
+                    acoustic_0 = acoustic_metrics_batch(pred, tgt_wav, keys, evaluator, gl_seed)
+                cell.update({name: value.copy() for name, value in acoustic_0.items()})
+            elif int(k) in acoustic_at[condition]:
+                cell.update(acoustic_metrics_batch(pred, tgt_wav, keys, evaluator, gl_seed))
+            results[(condition, int(k))] = cell
+    return keys, results, delay_flip_counts(src_loc, ref_locs, cols)
+
+
 def set_precision(tf32):
     """Pin the TF32 policy of both cuBLAS and cuDNN for the whole run.
 

@@ -344,33 +344,44 @@ def _pinned_manifest():
     return manifest
 
 
-def _evaluate(loader, model, evaluator, cols, gl_seed=0):
-    """The evaluator's inner loop, batched exactly as ``run`` does it."""
-    from eval_yaw_rotation import acoustic_metrics_batch, forward_conditions, spectral_metrics
+@pytest.fixture(scope="module")
+def cuda_simple8():
+    """A seeded random-init baseline xRIR with the manifest's 8 shots, on CUDA."""
+    if not torch.cuda.is_available():
+        pytest.skip("requires CUDA")
+    from model.xRIR_cyl import build_xrir
 
-    out = {("P", k): {} for k in cols}
-    out.update({("E", k): {} for k in cols})
-    keys_seen = []
+    torch.manual_seed(1234)
+    return build_xrir("simple", 8).cuda().eval()
+
+
+@pytest.fixture(scope="module")
+def real_batch_of_4():
+    """One collated batch of the first 4 manifest queries."""
+    from torch.utils.data import DataLoader
+
+    from eval_yaw_rotation import build_manifest_dataset, set_precision
+
+    set_precision(False)
+    dataset = build_manifest_dataset(_pinned_manifest(), max_samples=4)
+    return next(iter(DataLoader(dataset, batch_size=4, shuffle=False, num_workers=2)))
+
+
+def _evaluate(loader, model, evaluator, cols, gl_seed=0):
+    """``run``'s inner loop over a whole loader, one ``evaluate_batch`` call per batch."""
+    import numpy as np
+
+    from eval_yaw_rotation import evaluate_batch
+
+    keys_seen, parts = [], {}
     for batch in loader:
-        _, src, depth, tgt_wav, refs, ref_locs, keys = batch
-        src, depth, tgt_wav = src.cuda(), depth.cuda(), tgt_wav.cuda()
-        refs, ref_locs = refs.cuda(), ref_locs.cuda()
+        keys, results, _ = evaluate_batch(model, batch, evaluator, cols, cols, cols, gl_seed)
         keys_seen.extend(keys)
-        with torch.no_grad():
-            aligned0 = model.shift_and_align(refs, src, ref_locs)
-            out_0, _ = model(depth, refs, src, ref_locs, tgt_wav)
-        for k in cols:
-            out_p, out_e, tgt_spec = forward_conditions(
-                model, depth, refs, src, ref_locs, tgt_wav, k, aligned0)
-            for name, pred in (("P", out_p), ("E", out_e)):
-                metrics = spectral_metrics(pred, out_0, tgt_spec)
-                metrics.update({m: torch.from_numpy(v) for m, v in acoustic_metrics_batch(
-                    pred, tgt_wav, keys, evaluator, gl_seed).items()})
-                for metric, value in metrics.items():
-                    out[(name, k)].setdefault(metric, []).append(value)
-    merged = {cell: {m: torch.cat(v) for m, v in metrics.items()}
-              for cell, metrics in out.items()}
-    return keys_seen, merged
+        for cell, metrics in results.items():
+            for metric, value in metrics.items():
+                parts.setdefault(cell, {}).setdefault(metric, []).append(value)
+    return keys_seen, {cell: {m: np.concatenate(v) for m, v in metrics.items()}
+                       for cell, metrics in parts.items()}
 
 
 @_NEEDS_CUDA
@@ -408,22 +419,56 @@ def test_per_sample_metrics_are_batch_size_invariant(capsys):
         for metric, value in big[cell].items():
             other = small[cell][metric]
             assert value.shape == other.shape == (8,), (cell, metric)
-            diff = float((value.double() - other.double()).abs().max())
+            diff = float(np.abs(value - other).max())
             worst[metric] = max(worst.get(metric, 0.0), diff)
-            scale[metric] = max(scale.get(metric, 0.0), float(value.double().abs().max()))
+            scale[metric] = max(scale.get(metric, 0.0), float(np.abs(value).max()))
             if metric in ("edt", "c50", "t60"):
                 # Griffin-Lim phases are seeded per query, so these differ only through
                 # the (matmul-order) difference in the log-spectrogram itself.
-                assert np.allclose(np.asarray(value), np.asarray(other),
-                                   rtol=1e-6, atol=1e-6), (cell, metric, diff)
+                assert np.allclose(value, other, rtol=1e-6, atol=1e-6), (cell, metric, diff)
             else:
                 # atol 1e-6 plus one float32 ulp of relative slack: with an untrained
                 # model log_mse is ~50, where a single ulp is already 3.8e-6, so a pure
                 # absolute tolerance would test the value's magnitude, not the pipeline.
-                assert torch.allclose(value, other, atol=1e-6, rtol=1e-7), (cell, metric, diff)
+                assert np.allclose(value, other, atol=1e-6, rtol=1e-7), (cell, metric, diff)
     with capsys.disabled():
         print("\n[T14] batch 1 vs batch 8, max |difference| per metric over 8 real queries "
               "x {P,E} x k in {0,32}:")
         for metric in sorted(worst):
             print("        {:12s} {:.3e}  (relative {:.2e})".format(
                 metric, worst[metric], worst[metric] / max(scale[metric], 1e-12)))
+
+
+# --------------------------------------------------------------------------------------
+# T15 -- REAL DATA: the angle order cannot change a per-sample value
+# --------------------------------------------------------------------------------------
+@_NEEDS_CUDA
+def test_angle_order_invariance(real_batch_of_4, cuda_simple8):
+    import numpy as np
+
+    from eval_unseen import Evaluator
+    from eval_yaw_rotation import evaluate_batch
+
+    evaluator = Evaluator()
+    forward_order = evaluate_batch(cuda_simple8, real_batch_of_4, evaluator,
+                                   [0, 32], [0, 32], [32], 0)
+    reverse_order = evaluate_batch(cuda_simple8, real_batch_of_4, evaluator,
+                                   [32, 0], [0, 32], [32], 0)
+
+    keys_a, res_a, flips_a = forward_order
+    keys_b, res_b, flips_b = reverse_order
+    assert keys_a == keys_b
+    assert flips_a == flips_b == {0: 0, 32: flips_a[32]}
+    assert sorted(res_a) == sorted(res_b)
+    for cell in res_a:
+        assert sorted(res_a[cell]) == sorted(res_b[cell]), cell
+        for metric, value in res_a[cell].items():
+            assert np.array_equal(value, res_b[cell][metric]), (cell, metric)
+
+    # k = 0 is the shared paired reference: both conditions collapse onto it, acoustic
+    # metrics included, and the self-consistency term is exactly zero there.
+    assert sorted(res_a[("P", 0)]) == sorted(res_a[("E", 0)])
+    for metric, value in res_a[("P", 0)].items():
+        assert np.array_equal(value, res_a[("E", 0)][metric]), metric
+    assert np.array_equal(res_a[("P", 0)]["consistency"], np.zeros(4))
+    assert (res_a[("P", 32)]["consistency"] > 0).all()
