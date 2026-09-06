@@ -804,7 +804,6 @@ def main(argv=None):
         if run["query"] != runs[0]["query"]:
             raise ValueError("run {} is not query-aligned with {}".format(label, labels[0]))
 
-    roles_note = None
     primary = _resolve(args.primary_simple,
                        lambda r: "xRIR_simple_8_shot" in r["meta"]["checkpoint"],
                        by_label, "primary-simple")
