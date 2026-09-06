@@ -522,8 +522,53 @@ FULL_EXPECTATIONS = {"n_queries": 6337, "n_rooms": 17, "gl_seed": 0, "tf32": Fal
                      "spectral_cols": PREREGISTERED_SPECTRAL_COLS,
                      "acoustic_cols": PREREGISTERED_ACOUSTIC_COLS,
                      "e_acoustic_cols": PREREGISTERED_E_ACOUSTIC_COLS}
-EXPECTED_ROLE_CHECKPOINTS = {"primary": "xRIR_simple_8_shot", "cyl": "xRIR_cyl_8_shot",
-                             "released": "checkpoints/xRIR_unseen.pth"}
+# The three checkpoints the experiment is about, pinned by path, backbone and canonical
+# label. Conclusions are scoped to exactly these epoch-12 / released weights, so a run of
+# anything else is not part of this experiment.
+EXPECTED_ROLES = {
+    "primary": {"checkpoint": "ckpt/xRIR_simple_8_shot/epoch_12.pth",
+                "backbone": "simple", "label": "control"},
+    "cyl": {"checkpoint": "ckpt/xRIR_cyl_8_shot/epoch_12.pth",
+            "backbone": "cylindrical", "label": "cyl"},
+    "released": {"checkpoint": "checkpoints/xRIR_unseen.pth",
+                 "backbone": "simple", "label": "released"},
+}
+EXPECTED_ROLE_CHECKPOINTS = {role: spec["checkpoint"]
+                             for role, spec in EXPECTED_ROLES.items()}
+
+
+def _checkpoint_matches(recorded, expected):
+    """Whether a recorded ``meta.checkpoint`` names the expected repo-relative file.
+
+    Anchored at a path separator, so an absolute path to the same checkpoint matches
+    while ``ckpt/other/xRIR_simple_8_shot/epoch_12.pth`` does not.
+    """
+    recorded = os.path.normpath(str(recorded))
+    expected = os.path.normpath(str(expected))
+    return recorded == expected or recorded.endswith(os.sep + expected)
+
+
+def derive_labels(runs, directories):
+    """Canonical labels for runs given without ``--labels``.
+
+    The documented command names its run directories (``gate_control``, ...), but the
+    role arguments and ``--exp01-per-sample`` speak in labels, so the label is taken from
+    the checkpoint each run actually used; anything unrecognised keeps its directory name.
+
+    Raises:
+        ValueError: if two runs end up with the same label -- two runs of one checkpoint
+            cannot be told apart, and guessing would silently mislabel a table.
+    """
+    labels = []
+    for run, directory in zip(runs, directories):
+        checkpoint = run["meta"]["checkpoint"]
+        match = next((spec["label"] for spec in EXPECTED_ROLES.values()
+                      if _checkpoint_matches(checkpoint, spec["checkpoint"])), None)
+        labels.append(match or os.path.basename(os.path.normpath(directory)))
+    if len(set(labels)) != len(labels):
+        raise ValueError("could not name the runs from their checkpoints ({}); pass "
+                         "--labels".format(labels))
+    return labels
 
 
 K0_GATE_METRICS = ("edt", "c50", "t60", "loss")
@@ -801,8 +846,7 @@ def main(argv=None):
         raise ValueError("--json and --summary must be different files")
 
     runs = [load_run(directory) for directory in args.runs]
-    labels = args.labels if args.labels else [
-        os.path.basename(os.path.normpath(d)) for d in args.runs]
+    labels = args.labels if args.labels else derive_labels(runs, args.runs)
     if len(labels) != len(runs) or len(set(labels)) != len(labels):
         raise ValueError("--labels must give one distinct label per run")
     by_label = dict(zip(labels, runs))

@@ -487,8 +487,10 @@ def test_main_rejects_runs_with_different_manifests(two_runs, tmp_path):
     from tools.summarize_yaw import main
 
     other = write_run(str(tmp_path / "other"), {}, manifest_hash="0" * 64)
-    with pytest.raises(ValueError):
-        main(["--mode", "exploratory", "--runs", two_runs[0], other, "--n-boot", "200"])
+    with pytest.raises(ValueError) as excinfo:
+        main(["--mode", "exploratory", "--runs", two_runs[0], other,
+              "--labels", "control", "other", "--n-boot", "200"])
+    assert "different manifests" in str(excinfo.value)
     with pytest.raises(ValueError):
         main(["--mode", "exploratory", "--runs", two_runs[0],
               "--manifest-hash", "0" * 64, "--n-boot", "200"])
@@ -914,3 +916,32 @@ def test_main_requires_the_json_and_the_summary_together(two_runs, tmp_path):
         main(base + ["--summary", str(tmp_path / "only.txt")])
     with pytest.raises(ValueError):
         main(base + ["--json", path, "--summary", path])
+
+
+# --------------------------------------------------------------------------------------
+# derive_labels -- the documented command line names its runs by directory
+# --------------------------------------------------------------------------------------
+def test_labels_are_derived_from_the_checkpoints(tmp_path):
+    from tools.summarize_yaw import derive_labels, load_run
+
+    directories = [str(tmp_path / "gate_control"), str(tmp_path / "gate_cyl"),
+                   str(tmp_path / "gate_released")]
+    runs = [load_run(write_run(directories[0], {}, cols=(0,))),
+            load_run(write_run(directories[1], {}, cols=(0,), backbone="cylindrical",
+                               checkpoint="ckpt/xRIR_cyl_8_shot/epoch_12.pth")),
+            load_run(write_run(directories[2], {}, cols=(0,),
+                               checkpoint="checkpoints/xRIR_unseen.pth"))]
+    assert derive_labels(runs, directories) == ["control", "cyl", "released"]
+
+    # An absolute path to the same checkpoint is the same run.
+    runs[0]["meta"]["checkpoint"] = "/home/x/repo/ckpt/xRIR_simple_8_shot/epoch_12.pth"
+    assert derive_labels(runs, directories)[0] == "control"
+
+    # An unrecognised checkpoint keeps the directory name.
+    other = str(tmp_path / "something_else")
+    extra = load_run(write_run(other, {}, cols=(0,), checkpoint="ckpt/other/epoch_09.pth"))
+    assert derive_labels([extra], [other]) == ["something_else"]
+
+    # Two runs of the same checkpoint cannot be told apart: say so rather than guess.
+    with pytest.raises(ValueError):
+        derive_labels([runs[0], runs[0]], directories[:2])
