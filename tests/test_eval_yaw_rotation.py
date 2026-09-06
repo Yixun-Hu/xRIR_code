@@ -575,3 +575,44 @@ def test_run_writes_both_json_files_for_the_released_checkpoint(tmp_path, capsys
         print("\n[T16] released checkpoint, 4 queries x 2 angles x 2 conditions in "
               "{:.1f}s ({:.2f} samples/s, meta.elapsed_min={:.3f})".format(
                   elapsed, 4.0 / elapsed, meta["elapsed_min"]))
+
+
+@_NEEDS_CUDA
+def test_run_reports_the_cylindrical_decomposition(tmp_path, capsys):
+    import json
+    import math
+
+    from eval_yaw_rotation import main
+
+    _pinned_manifest()
+    checkpoint = _checkpoint("ckpt/xRIR_cyl_8_shot/epoch_12.pth")
+    out_dir = str(tmp_path / "cyl")
+    main(_smoke_argv("cylindrical", checkpoint, out_dir, 2))
+
+    per_sample = json.load(open(os.path.join(out_dir, "per_sample_yaw.json")))
+    decomposition = per_sample["decomposition"]
+    assert decomposition is not None and decomposition["k"] == 32
+    assert decomposition["n_batches"] == 1
+    names = ("tokens_rel_change", "pooled_rel_change", "coord_rel_change",
+             "logspec_rel_change")
+    for name in names:
+        assert isinstance(decomposition[name], float) and math.isfinite(decomposition[name]), name
+    assert decomposition["tokens_rel_change"] < 1e-3, decomposition
+    assert decomposition["logspec_rel_change"] > 0.0, decomposition
+    with capsys.disabled():
+        print("[T16] cylindrical decomposition at k=32: " + "  ".join(
+            "{}={:.3e}".format(n, decomposition[n]) for n in names))
+
+
+@_NEEDS_CUDA
+def test_run_refuses_a_manifest_whose_hash_does_not_match(tmp_path):
+    from eval_yaw_rotation import main
+
+    _pinned_manifest()
+    argv = _smoke_argv("simple", "/nonexistent/checkpoint.pth", str(tmp_path / "bad"), 4)
+    argv[argv.index("--manifest-hash") + 1] = "0" * 64
+    with pytest.raises(ValueError) as excinfo:
+        main(argv)
+    # The hash is checked before the (deliberately missing) checkpoint is opened.
+    assert "expected" in str(excinfo.value)
+    assert not os.path.exists(str(tmp_path / "bad"))

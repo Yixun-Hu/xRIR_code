@@ -414,6 +414,17 @@ def load_checked_manifest(path, expected_hash):
     return manifest
 
 
+def _decomposition_for_batch(model, batch, k=32):
+    """:func:`decomposition_at` on one collated batch (the alignment is re-derived)."""
+    _, src_loc, depth_coord, tgt_wav, ref_irs, ref_locs, _ = batch
+    src_loc, depth_coord = src_loc.cuda(), depth_coord.cuda()
+    tgt_wav, ref_irs, ref_locs = tgt_wav.cuda(), ref_irs.cuda(), ref_locs.cuda()
+    with torch.no_grad():
+        aligned0 = model.shift_and_align(ref_irs, src_loc, ref_locs)
+    return decomposition_at(model, depth_coord, ref_irs, src_loc, ref_locs, tgt_wav,
+                            aligned0, k=k)
+
+
 def _check_cols(yaw_cols, acoustic_cols, e_acoustic_cols):
     """Reduce the three angle grids and reject a grid the paired design cannot use."""
     cols = [int(k) for k in yaw_cols]
@@ -481,7 +492,7 @@ def run(args):
     print("backbone: {}  checkpoint: {}  samples: {}  angles: {}  batch: {}".format(
         args.backbone, args.checkpoint, n_samples, cols, args.batch_size), flush=True)
 
-    queries, parts, flips = [], {}, {}
+    queries, parts, flips, decompositions = [], {}, {}, []
     for i, batch in enumerate(loader):
         keys, results, batch_flips = evaluate_batch(
             model, batch, evaluator, cols, acoustic_cols, e_acoustic_cols, args.gl_seed)
@@ -491,6 +502,8 @@ def run(args):
                 parts.setdefault(cell, {}).setdefault(metric, []).append(value)
         for k, count in batch_flips.items():
             flips[k] = flips.get(k, 0) + count
+        if args.backbone == "cylindrical" and i < args.decomposition_batches:
+            decompositions.append(_decomposition_for_batch(model, batch))
         if (i + 1) % args.log_interval == 0 or len(queries) == n_samples:
             elapsed = time.time() - started
             rate = len(queries) / elapsed
@@ -504,6 +517,12 @@ def run(args):
     merged = {cell: {metric: np.concatenate(chunks) for metric, chunks in metrics.items()}
               for cell, metrics in parts.items()}
     decomposition = None
+    if decompositions:
+        names = ("tokens_rel_change", "pooled_rel_change", "coord_rel_change",
+                 "logspec_rel_change")
+        decomposition = {"k": decompositions[0]["k"], "n_batches": len(decompositions)}
+        decomposition.update({name: float(np.mean([d[name] for d in decompositions]))
+                              for name in names})
 
     meta = {"backbone": args.backbone, "checkpoint": args.checkpoint,
             "manifest_path": args.manifest, "manifest_hash": args.manifest_hash,
@@ -575,6 +594,8 @@ def main(argv=None):
                         help="allow TF32; off by default because cuDNN's TF32 makes the "
                              "reference encoder batch-size dependent at ~1e-4")
     parser.add_argument("--log-interval", type=int, default=50)
+    parser.add_argument("--decomposition-batches", type=int, default=1,
+                        help="cylindrical backbone: batches used for the k=32 decomposition")
     return run(parser.parse_args(argv))
 
 
