@@ -28,6 +28,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
+from tools.reference_manifest import ManifestDataset, load_manifest, manifest_hash
 from tools.per_sample_metrics import (
     acoustic_metrics,
     griffin_lim_seeded,
@@ -255,3 +256,92 @@ def decomposition_at(model, depth_coord, ref_irs, src_loc, ref_locs, tgt_wav, al
             "pooled_rel_change": _rel_change(pooled_k, pooled_0),
             "coord_rel_change": _rel_change(coord_k, coord_0),
             "logspec_rel_change": _rel_change(out_k, out_0)}
+
+
+class SubsetManifestDataset(torch.utils.data.Dataset):
+    """The first ``n`` entries of an already validated :class:`ManifestDataset`.
+
+    ``ManifestDataset`` checks the manifest's query *set* against the whole split, which
+    a truncated manifest cannot satisfy.  Rather than weaken that check (round-1 code is
+    frozen), the full manifest is validated first and the resulting dataset is wrapped
+    here, so a ``--max-samples`` smoke run still proves the manifest describes the real
+    split.  Exposes ``dataset`` / ``manifest`` / ``entries`` like the wrapped object.
+
+    Args:
+        base: a fully validated ``ManifestDataset``.
+        n: how many leading entries (in the manifest's canonical order) to keep.
+
+    Raises:
+        ValueError: if ``n`` is outside ``1 .. len(base)``.
+    """
+
+    def __init__(self, base, n):
+        if not 1 <= int(n) <= len(base):
+            raise ValueError("cannot take the first {} of {} entries".format(n, len(base)))
+        self.base = base
+        self.dataset = base.dataset
+        self.manifest = base.manifest
+        self.entries = base.entries[:int(n)]
+
+    def __len__(self):
+        return len(self.entries)
+
+    def __getitem__(self, idx):
+        if not 0 <= int(idx) < len(self.entries):
+            raise IndexError("index {} is outside the truncated manifest".format(idx))
+        return self.base[int(idx)]
+
+
+def build_manifest_dataset(manifest, max_samples=0, max_len=9600):
+    """The evaluation dataset: the unseen test split, with the manifest's references.
+
+    Args:
+        manifest: a loaded manifest (its ``num_shot`` selects the dataset's shot count).
+        max_samples: keep only the first ``n`` queries in canonical order (smoke runs
+            only); ``0`` keeps the whole split.
+        max_len: IR length in samples (exp_01's 9600).
+
+    Returns:
+        A ``ManifestDataset`` -- or a :class:`SubsetManifestDataset` of one -- yielding
+        the exp_01 six-tuple plus the query path.
+    """
+    from treble_multi_room_dataset.treble_xRIR_dataset import xRIR_Dataset
+
+    dataset = xRIR_Dataset(split="test", max_len=max_len, num_shot=manifest["num_shot"])
+    full = ManifestDataset(dataset, manifest)
+    if int(max_samples) > 0:
+        return SubsetManifestDataset(full, min(int(max_samples), len(full)))
+    return full
+
+
+def set_precision(tf32):
+    """Pin the TF32 policy of both cuBLAS and cuDNN for the whole run.
+
+    cuDNN's ``allow_tf32`` defaults to ``True``, and the reference-RIR encoder is a
+    ResNet-18, so leaving it on makes the forward pass depend on the batch size at the
+    1e-4 (relative) level -- measured on 8 real queries: max ``|d|`` 2.3e-4 with TF32 on
+    versus 2.4e-7 with it off.  That is far above the effects this experiment measures,
+    so TF32 is off by default and the choice is recorded in the run's meta block.
+
+    Args:
+        tf32: whether to allow TF32 for matmuls and convolutions.
+    """
+    torch.backends.cuda.matmul.allow_tf32 = bool(tf32)
+    torch.backends.cudnn.allow_tf32 = bool(tf32)
+
+
+def load_checked_manifest(path, expected_hash):
+    """Load the manifest at ``path`` and refuse to continue unless its hash matches.
+
+    Every model in the sweep must condition on the *same* references, so the hash is a
+    required argument of the run, not an advisory check.
+
+    Raises:
+        ValueError: if the manifest's content hash is not ``expected_hash``.
+    """
+    manifest = load_manifest(path)
+    digest = manifest_hash(manifest)
+    if digest != expected_hash:
+        raise ValueError("manifest {} hashes to {}, expected {}".format(
+            path, digest, expected_hash))
+    return manifest

@@ -302,3 +302,128 @@ def test_decomposition_at_rejects_a_non_cylindrical_backbone(cuda_model):
         aligned0 = cuda_model.shift_and_align(refs, src, ref_locs)
     with pytest.raises(TypeError):
         decomposition_at(cuda_model, depth, refs, src, ref_locs, tgt, aligned0, k=32)
+
+
+# --------------------------------------------------------------------------------------
+# set_precision / T14 -- REAL DATA: batch-size invariance of every per-sample metric
+# --------------------------------------------------------------------------------------
+def test_set_precision_pins_both_tf32_switches():
+    from eval_yaw_rotation import set_precision
+
+    before = (torch.backends.cuda.matmul.allow_tf32, torch.backends.cudnn.allow_tf32)
+    try:
+        set_precision(True)
+        assert torch.backends.cuda.matmul.allow_tf32 and torch.backends.cudnn.allow_tf32
+        set_precision(False)
+        assert not torch.backends.cuda.matmul.allow_tf32
+        # cuDNN defaults to True: leaving it on makes the ResNet-18 audio encoder
+        # batch-size dependent at ~1e-4, which would swamp the rotation effect.
+        assert not torch.backends.cudnn.allow_tf32
+    finally:
+        torch.backends.cuda.matmul.allow_tf32, torch.backends.cudnn.allow_tf32 = before
+
+
+import os  # noqa: E402  (kept beside the real-data helpers it serves)
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PINNED_MANIFEST = os.path.join(REPO_ROOT, "ckpt", "yaw_rotation", "reference_manifest.json")
+PINNED_HASH = "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d"
+
+
+def _pinned_manifest():
+    """The pinned exp_03 manifest, or skip (it is a run artifact, not a repo file)."""
+    from treble_multi_room_dataset.treble_xRIR_dataset import BASE_DATA_PATH
+    from tools.reference_manifest import load_manifest, manifest_hash
+
+    if not os.path.isdir(os.path.join(BASE_DATA_PATH, "single_channel_ir")):
+        pytest.skip("AcousticRooms not available at XRIR_DATA_PATH={}".format(BASE_DATA_PATH))
+    if not os.path.exists(PINNED_MANIFEST):
+        pytest.skip("pinned manifest not found at {}".format(PINNED_MANIFEST))
+    manifest = load_manifest(PINNED_MANIFEST)
+    assert manifest_hash(manifest) == PINNED_HASH, "the pinned manifest changed"
+    return manifest
+
+
+def _evaluate(loader, model, evaluator, cols, gl_seed=0):
+    """The evaluator's inner loop, batched exactly as ``run`` does it."""
+    from eval_yaw_rotation import acoustic_metrics_batch, forward_conditions, spectral_metrics
+
+    out = {("P", k): {} for k in cols}
+    out.update({("E", k): {} for k in cols})
+    keys_seen = []
+    for batch in loader:
+        _, src, depth, tgt_wav, refs, ref_locs, keys = batch
+        src, depth, tgt_wav = src.cuda(), depth.cuda(), tgt_wav.cuda()
+        refs, ref_locs = refs.cuda(), ref_locs.cuda()
+        keys_seen.extend(keys)
+        with torch.no_grad():
+            aligned0 = model.shift_and_align(refs, src, ref_locs)
+            out_0, _ = model(depth, refs, src, ref_locs, tgt_wav)
+        for k in cols:
+            out_p, out_e, tgt_spec = forward_conditions(
+                model, depth, refs, src, ref_locs, tgt_wav, k, aligned0)
+            for name, pred in (("P", out_p), ("E", out_e)):
+                metrics = spectral_metrics(pred, out_0, tgt_spec)
+                metrics.update({m: torch.from_numpy(v) for m, v in acoustic_metrics_batch(
+                    pred, tgt_wav, keys, evaluator, gl_seed).items()})
+                for metric, value in metrics.items():
+                    out[(name, k)].setdefault(metric, []).append(value)
+    merged = {cell: {m: torch.cat(v) for m, v in metrics.items()}
+              for cell, metrics in out.items()}
+    return keys_seen, merged
+
+
+@_NEEDS_CUDA
+def test_per_sample_metrics_are_batch_size_invariant(capsys):
+    import numpy as np
+    from torch.utils.data import DataLoader
+
+    from eval_unseen import Evaluator
+    from eval_yaw_rotation import build_manifest_dataset, set_precision
+    from model.xRIR_cyl import build_xrir
+
+    manifest = _pinned_manifest()
+    set_precision(False)                       # exactly as ``run`` does; see T14 note below
+    dataset = build_manifest_dataset(manifest, max_samples=8)
+    assert len(dataset) == 8
+    assert [e["query"] for e in dataset.entries] == \
+        [e["query"] for e in manifest["entries"][:8]]
+
+    torch.manual_seed(1234)
+    model = build_xrir("simple", manifest["num_shot"]).cuda().eval()
+    evaluator = Evaluator()
+    cols = [0, 32]
+
+    runs = {}
+    for batch_size in (8, 1):
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=2)
+        runs[batch_size] = _evaluate(loader, model, evaluator, cols)
+
+    keys8, big = runs[8]
+    keys1, small = runs[1]
+    assert keys8 == keys1 == [e["query"] for e in manifest["entries"][:8]]
+
+    worst, scale = {}, {}
+    for cell in big:
+        for metric, value in big[cell].items():
+            other = small[cell][metric]
+            assert value.shape == other.shape == (8,), (cell, metric)
+            diff = float((value.double() - other.double()).abs().max())
+            worst[metric] = max(worst.get(metric, 0.0), diff)
+            scale[metric] = max(scale.get(metric, 0.0), float(value.double().abs().max()))
+            if metric in ("edt", "c50", "t60"):
+                # Griffin-Lim phases are seeded per query, so these differ only through
+                # the (matmul-order) difference in the log-spectrogram itself.
+                assert np.allclose(np.asarray(value), np.asarray(other),
+                                   rtol=1e-6, atol=1e-6), (cell, metric, diff)
+            else:
+                # atol 1e-6 plus one float32 ulp of relative slack: with an untrained
+                # model log_mse is ~50, where a single ulp is already 3.8e-6, so a pure
+                # absolute tolerance would test the value's magnitude, not the pipeline.
+                assert torch.allclose(value, other, atol=1e-6, rtol=1e-7), (cell, metric, diff)
+    with capsys.disabled():
+        print("\n[T14] batch 1 vs batch 8, max |difference| per metric over 8 real queries "
+              "x {P,E} x k in {0,32}:")
+        for metric in sorted(worst):
+            print("        {:12s} {:.3e}  (relative {:.2e})".format(
+                metric, worst[metric], worst[metric] / max(scale[metric], 1e-12)))
