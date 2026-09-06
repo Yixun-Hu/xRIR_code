@@ -29,7 +29,8 @@ def _queries(n):
 def write_run(directory, shifts, n=300, seed=0, backbone="simple",
               checkpoint="ckpt/xRIR_simple_8_shot/epoch_12.pth", cols=COLS,
               nan_rows=(), baseline_nan_rows=(), manifest_hash=MANIFEST_HASH,
-              noise=0.02, noise_seed=None, base_offset=0.0, no_shift_rows=()):
+              noise=0.02, noise_seed=None, base_offset=0.0, no_shift_rows=(),
+              gl_seed=0, tf32=False):
     """Write one synthetic ``per_sample_yaw.json`` with planted relative degradations.
 
     Args:
@@ -58,12 +59,13 @@ def write_run(directory, shifts, n=300, seed=0, backbone="simple",
                              if backbone == "cylindrical" else None),
            "meta": {"backbone": backbone, "checkpoint": checkpoint,
                     "manifest_path": "ckpt/yaw_rotation/reference_manifest.json",
-                    "manifest_hash": manifest_hash, "manifest_seed": 0, "gl_seed": 0,
+                    "manifest_hash": manifest_hash, "manifest_seed": 0,
+                    "gl_seed": gl_seed,
                     "yaw_cols": [int(k) for k in cols],
                     "acoustic_cols": [int(k) for k in cols],
                     "e_acoustic_cols": [int(k) for k in cols if int(k) != 0],
                     "batch_size": 16, "batch_canonical": True, "n_samples": n,
-                    "max_samples": 0, "tf32": False,
+                    "max_samples": 0, "tf32": tf32,
                     "torch_version": "2.0.1", "elapsed_min": 12.5}}
     for condition in ("P", "E"):
         run[condition] = {}
@@ -1237,6 +1239,8 @@ def _gate_setup(tmp_path, monkeypatch):
                          manifest_hash=SEED1_HASH)
     noise2 = _scaled_run(str(tmp_path / "noise_seed2"), scale=0.998,
                          manifest_hash=SEED2_HASH)
+    phase = _scaled_run(str(tmp_path / "gate_phase_seed1"), scale=1.001, gl_seed=1)
+    tf32 = _scaled_run(str(tmp_path / "gate_tf32"), scale=0.9995, tf32=True)
     loaded = {name: json.load(open(os.path.join(d, "per_sample_yaw.json")))
               for name, d in (("control", control), ("cyl", cyl), ("released", released))}
     exp01 = {name: _exp01_file(str(tmp_path / "exp01" / "{}.json".format(name)),
@@ -1246,10 +1250,11 @@ def _gate_setup(tmp_path, monkeypatch):
     argv = ["--mode", "k0-gate", "--runs", control, cyl, released,
             "--manifest-hash", MANIFEST_HASH,
             "--exp01-per-sample", "control=" + exp01["control"], "cyl=" + exp01["cyl"],
-            "--noise-runs", noise1, noise2, "--released-baseline", baseline,
-            "--n-boot", "200"]
+            "--noise-runs", noise1, noise2,
+            "--nuisance-runs", phase, tf32,
+            "--released-baseline", baseline, "--n-boot", "200"]
     return argv, {"control": control, "cyl": cyl, "released": released,
-                  "noise1": noise1, "noise2": noise2}
+                  "noise1": noise1, "noise2": noise2, "phase": phase, "tf32": tf32}
 
 
 def _run_gate(argv, tmp_path, name):
@@ -1289,7 +1294,7 @@ def test_the_gate_fails_closed_on_every_missing_or_wrong_input(tmp_path, monkeyp
             (name, needle, out["gate_reasons"])
 
     def drop_a_noise_run(a):
-        return a[:a.index("--noise-runs") + 2] + a[a.index("--released-baseline"):]
+        return a[:a.index("--noise-runs") + 2] + a[a.index("--nuisance-runs"):]
 
     def drop_the_released_run(a):
         del a[a.index("--runs") + 3]
@@ -1498,3 +1503,55 @@ def test_full_mode_reconciles_the_metrics_file_with_the_per_sample_arrays(tmp_pa
         lambda payload: payload["P"]["32"]["edt"].update(mean=0.5)))
     assert any("n_valid" in reason for reason in reasons_for(
         lambda payload: payload["P"]["32"]["edt"].update(n_valid=1)))
+
+
+# --------------------------------------------------------------------------------------
+# The amended band (v2): the nuisance runs that measure what exp_01's numbers carry
+# --------------------------------------------------------------------------------------
+def test_the_gate_requires_the_two_nuisance_runs(tmp_path, monkeypatch):
+    """exp_01's means also carry unseeded Griffin-Lim phase and TF32 arithmetic.
+
+    The v1 band measured only the reference draw, which is why two cells failed it; the
+    default rule now needs both nuisance runs and cannot silently fall back.
+    """
+    argv, _ = _gate_setup(tmp_path, monkeypatch)
+    without = argv[:argv.index("--nuisance-runs")] + argv[argv.index("--released-baseline"):]
+    out, code = _run_gate(without, tmp_path, "no_nuisance")
+    assert code != 0 and out["gate_pass"] is False
+    assert any("--nuisance-runs" in reason for reason in out["gate_reasons"])
+
+
+def test_the_gate_fails_closed_on_a_bad_nuisance_run(tmp_path, monkeypatch):
+    argv, paths = _gate_setup(tmp_path, monkeypatch)
+
+    def fails(name, needle, mutate_argv=lambda a: a):
+        out, code = _run_gate(mutate_argv(list(argv)), tmp_path, name)
+        assert code != 0, name
+        assert out["gate_pass"] is False, name
+        assert any(needle in reason for reason in out["gate_reasons"]), \
+            (name, needle, out["gate_reasons"])
+
+    def one_only(a):
+        del a[a.index("--nuisance-runs") + 2]
+        return a
+
+    def three(a):
+        a.insert(a.index("--nuisance-runs") + 3, paths["phase"])
+        return a
+
+    fails("one_nuisance", "exactly 2 --nuisance-runs", one_only)
+    fails("three_nuisance", "exactly 2 --nuisance-runs", three)
+
+    # Two phase runs: the TF32 term would silently be missing.
+    _edit_run(paths["tf32"], lambda run: run["meta"].update(gl_seed=1, tf32=False))
+    fails("two_phase", "one --gl-seed 1 phase run and one --tf32 run")
+    # Neither profile at all.
+    _edit_run(paths["tf32"], lambda run: run["meta"].update(gl_seed=7, tf32=True))
+    fails("odd_profile", "gl_seed")
+    _edit_run(paths["tf32"], lambda run: run["meta"].update(gl_seed=0, tf32=True))
+
+    _edit_run(paths["phase"], lambda run: run["meta"].update(manifest_hash=SEED1_HASH))
+    fails("nuisance_hash", "manifest_hash")
+    _edit_run(paths["phase"], lambda run: run["meta"].update(manifest_hash=MANIFEST_HASH,
+                                                             checkpoint="ckpt/xRIR_cyl_8_shot/epoch_12.pth"))
+    fails("nuisance_ckpt", "checkpoint")

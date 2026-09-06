@@ -811,9 +811,16 @@ def _check_roles(by_label, roles):
     return reasons
 
 
-def _check_run_meta(name, run, expected_hash):
-    """The invariants every confirmatory-grade run shares, whatever its angle grid."""
-    expectations = FULL_EXPECTATIONS
+def _check_run_meta(name, run, expected_hash, overrides=None):
+    """The invariants every confirmatory-grade run shares, whatever its angle grid.
+
+    ``overrides`` replaces individual expectations for runs that are *meant* to differ --
+    the nuisance runs vary ``gl_seed`` and ``tf32`` on purpose, and that is exactly what
+    they measure.
+    """
+    expectations = dict(FULL_EXPECTATIONS)
+    if overrides:
+        expectations.update(overrides)
     meta = run["meta"]
     reasons = []
     if expected_hash is not None and meta.get("manifest_hash") != expected_hash:
@@ -875,7 +882,65 @@ def _check_k0_only(name, run):
     return reasons
 
 
-def validate_gate(by_label, roles, noise_runs, exp01_by_label, expected_hash=None):
+# The two nuisance runs of the amended band: the control checkpoint re-evaluated with a
+# different Griffin-Lim phase seed, and with TF32 arithmetic. exp_01's published means
+# carry both -- its phases were unseeded and its forwards ran at batch 1 with cuDNN TF32
+# on -- so a k=0 comparison against them has to allow for both.
+NUISANCE_PROFILES = (("phase", {"gl_seed": 1, "tf32": False}),
+                     ("tf32", {"gl_seed": 0, "tf32": True}))
+BAND_RULES = ("v1", "v2")
+BAND_RULE_LABELS = {"v1": "v1 (reference draw only)",
+                    "v2": "v2 (2026-09-06 amendment)"}
+
+
+def nuisance_profile(run):
+    """Which nuisance run this is (``"phase"``, ``"tf32"``) or ``None`` if neither."""
+    meta = run["meta"]
+    for name, profile in NUISANCE_PROFILES:
+        if meta.get("gl_seed") == profile["gl_seed"] and meta.get("tf32") == profile["tf32"]:
+            return name
+    return None
+
+
+def _check_nuisance_runs(nuisance_runs, reference):
+    """The two nuisance runs must be the control checkpoint, differing only as intended."""
+    reasons = []
+    if len(nuisance_runs) != 2:
+        reasons.append("expected exactly 2 --nuisance-runs (one --gl-seed 1 phase run and "
+                       "one --tf32 run), got {}".format(len(nuisance_runs)))
+    profiles = []
+    spec = EXPECTED_ROLES["primary"]
+    for run in nuisance_runs:
+        name = "nuisance run {}".format(
+            os.path.basename(os.path.normpath(run.get("dir", "?"))))
+        meta = run["meta"]
+        if not _checkpoint_matches(meta.get("checkpoint", ""), spec["checkpoint"]):
+            reasons.append("{}: checkpoint {!r}, expected the control's {!r}".format(
+                name, meta.get("checkpoint"), spec["checkpoint"]))
+        if meta.get("backbone") != spec["backbone"]:
+            reasons.append("{}: backbone {!r}, expected {!r}".format(
+                name, meta.get("backbone"), spec["backbone"]))
+        profile = nuisance_profile(run)
+        profiles.append(profile)
+        if profile is None:
+            reasons.append("{}: gl_seed {!r} with tf32 {!r} is neither the phase run "
+                           "(gl_seed 1, tf32 False) nor the TF32 run (gl_seed 0, tf32 "
+                           "True)".format(name, meta.get("gl_seed"), meta.get("tf32")))
+        overrides = dict(next(p for n, p in NUISANCE_PROFILES if n == profile)) \
+            if profile else {}
+        reasons.extend(_check_run_meta(name, run, MANIFEST_HASH_SEED0, overrides))
+        reasons.extend(_check_k0_only(name, run))
+        reasons.extend(_check_spectral_arrays(name, run, [0]))
+        if reference is not None and run["query"] != reference["query"]:
+            reasons.append("{}: queries differ from the gate runs".format(name))
+    if len(nuisance_runs) == 2 and sorted(p for p in profiles if p) != ["phase", "tf32"]:
+        reasons.append("the two --nuisance-runs must be one --gl-seed 1 phase run and one "
+                       "--tf32 run; got {}".format(sorted(str(p) for p in profiles)))
+    return reasons
+
+
+def validate_gate(by_label, roles, noise_runs, exp01_by_label, expected_hash=None,
+                  nuisance_runs=(), band_rule="v2"):
     """Everything the k=0 parity gate needs before it is allowed to pass.
 
     The gate decides whether the sweep may start, so it fails closed: a missing noise
@@ -886,6 +951,9 @@ def validate_gate(by_label, roles, noise_runs, exp01_by_label, expected_hash=Non
         by_label: ``{label: run}`` for the three seed-0 runs.
         roles: ``{"primary", "cyl", "released"} -> label or None``.
         noise_runs: the control checkpoint re-evaluated on manifest seeds 1 and 2.
+        nuisance_runs: the control checkpoint re-evaluated with a different Griffin-Lim
+            phase seed and with TF32; required by the amended (v2) band.
+        band_rule: ``"v2"`` (the amendment) or ``"v1"`` (reference draw only).
         exp01_by_label: exp_01's per-sample records, needed for the control and the
             cylindrical model (the released checkpoint has none).
         expected_hash: the hash the *caller* asked for; it must be the seed-0 manifest.
@@ -952,6 +1020,16 @@ def validate_gate(by_label, roles, noise_runs, exp01_by_label, expected_hash=Non
     if len(noise_runs) == 2 and sorted(seen) != sorted(NOISE_MANIFEST_HASHES):
         reasons.append("the two noise runs must be manifest seeds 1 and 2, one each; "
                        "got {}".format(sorted(seen)))
+    if band_rule not in BAND_RULES:
+        reasons.append("--band-rule {!r} is not one of {}".format(band_rule, BAND_RULES))
+    elif band_rule == "v2":
+        if not nuisance_runs:
+            reasons.append("the amended band needs --nuisance-runs (the phase and TF32 "
+                           "runs); --band-rule v1 is the only way to omit them")
+        reasons.extend(_check_nuisance_runs(nuisance_runs, reference))
+    elif nuisance_runs:
+        reasons.append("--band-rule v1 measures the reference draw alone; it must not be "
+                       "given --nuisance-runs")
     return reasons
 
 
@@ -1108,6 +1186,14 @@ def main(argv=None):
     parser.add_argument("--noise-runs", nargs="*", default=[], metavar="DIR",
                         help="k0-gate: k=0 runs of the control checkpoint on other "
                              "manifest seeds; they measure the reference-draw spread")
+    parser.add_argument("--nuisance-runs", nargs="*", default=[], metavar="DIR",
+                        help="k0-gate: k=0 runs of the control checkpoint with --gl-seed 1 "
+                             "and with --tf32; they measure the Griffin-Lim phase and "
+                             "arithmetic noise that exp_01's published means also carry")
+    parser.add_argument("--band-rule", choices=BAND_RULES, default="v2",
+                        help="k0-gate: v2 (default) widens the band by the phase and TF32 "
+                             "terms and requires --nuisance-runs; v1 is the superseded "
+                             "reference-draw-only band")
     parser.add_argument("--released-baseline", default="0.0549,1.358,9.69",
                         help="k0-gate: exp_01's reported EDT,C50,T60 for the released "
                              "checkpoint (it has no per-sample record)")
@@ -1167,6 +1253,7 @@ def main(argv=None):
         with open(path, "r") as fin:
             exp01_by_label[label] = json.load(fin)
     noise_runs = [load_run(directory) for directory in args.noise_runs]
+    nuisance_runs = [load_run(directory) for directory in args.nuisance_runs]
     released_baseline = None
     if args.released_baseline:
         parts = [value.strip() for value in args.released_baseline.split(",")]
@@ -1300,7 +1387,7 @@ def main(argv=None):
 
         if gate_mode:
             extra = validate_gate(by_label, roles, noise_runs, exp01_by_label,
-                                  args.manifest_hash)
+                                  args.manifest_hash, nuisance_runs, args.band_rule)
             gate_rows, gate_pass, gate_reasons = k0_gate_rows(
                 by_label, roles, exp01_by_label, noise_runs, released_baseline)
             gate_reasons = extra + gate_reasons
