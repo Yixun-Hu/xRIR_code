@@ -297,3 +297,43 @@ def test_save_and_load_manifest_round_trip(synthetic_dataset, tmp_path):
     loaded = load_manifest(path)
     assert loaded == manifest
     assert manifest_hash(loaded) == manifest_hash(manifest)
+
+
+# --------------------------------------------------------------------------------------
+# T9c -- REAL DATA: the manifest of the published unseen test split
+# --------------------------------------------------------------------------------------
+def _real_test_dataset():
+    """``xRIR_Dataset(split="test", num_shot=8)`` on the real cache, or skip."""
+    from treble_multi_room_dataset.treble_xRIR_dataset import BASE_DATA_PATH
+
+    if not os.path.isdir(os.path.join(BASE_DATA_PATH, "single_channel_ir")):
+        pytest.skip("AcousticRooms not available at XRIR_DATA_PATH={}".format(BASE_DATA_PATH))
+    from treble_multi_room_dataset.treble_xRIR_dataset import xRIR_Dataset
+
+    return xRIR_Dataset(split="test", num_shot=8)
+
+
+def test_build_manifest_on_the_real_unseen_test_split(capsys):
+    import time
+
+    t0 = time.time()
+    dataset = _real_test_dataset()
+    manifest = build_manifest(dataset, seed=0, num_shot=8)
+    elapsed = time.time() - t0
+
+    assert len(manifest["entries"]) == 6337, "the published unseen test split has 6337 queries"
+    assert all(len(entry["refs"]) == 8 for entry in manifest["entries"])
+    assert all(entry["query"] not in entry["refs"] for entry in manifest["entries"])
+    digest = manifest_hash(manifest)
+    assert len(digest) == 64 and all(c in "0123456789abcdef" for c in digest)
+
+    # A second, independent build must reproduce it bit for bit.
+    assert manifest_hash(build_manifest(_real_test_dataset(), seed=0, num_shot=8)) == digest
+    assert elapsed < 60.0, "manifest build took {:.1f}s".format(elapsed)
+
+    # A draw with fewer than 8 distinct references means the room had < 8 candidates.
+    short = sum(1 for entry in manifest["entries"] if len(set(entry["refs"])) < 8)
+    with capsys.disabled():
+        print("\n[T9c] 6337 queries, manifest built in {:.2f}s; queries with < 8 distinct "
+              "candidates: {} ({:.4%}); manifest_hash = {}".format(
+                  elapsed, short, short / len(manifest["entries"]), digest))
