@@ -146,6 +146,24 @@ def test_griffin_lim_seeded_accepts_both_layouts_and_rejects_others():
             griffin_lim_seeded(bad, 7)
 
 
+def test_griffin_lim_seeded_matches_the_unrolled_eval_path():
+    """Bit for bit the same as seeding by hand and calling eval_unseen.griffin_lim."""
+    from eval_unseen import griffin_lim
+
+    mag = _mag(seed=4)
+    seed = sample_seed(0, "Office/Office_idx_10/S001_R000_hybrid_IR.wav")
+
+    got = griffin_lim_seeded(mag, seed)
+    torch.manual_seed(seed)
+    want = griffin_lim(mag.unsqueeze(0))
+    assert torch.equal(got, want)
+
+    # ... and it carries the slice eval_xRIR_backbone.py actually measures.
+    torch.manual_seed(seed)
+    eval_style = griffin_lim(mag.unsqueeze(0)).unsqueeze(0)      # [1, 1, T], as in exp_01
+    assert torch.equal(got[0, :8000], eval_style[0, 0, :8000])
+
+
 def test_griffin_lim_seeded_separates_different_magnitudes():
     seeded = griffin_lim_seeded(_mag(seed=2), 99)
     other = griffin_lim_seeded(_mag(seed=3), 99)
