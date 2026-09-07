@@ -2010,3 +2010,63 @@ def test_the_bounds_block_is_omitted_by_the_k0_gate(tmp_path, monkeypatch):
     assert code == 0
     assert "bounds" not in out["h1"]
     assert "distance to the" not in open(str(tmp_path / "bounds.txt")).read()
+
+
+# --------------------------------------------------------------------------------------
+# metric_names / metric_units -- the label and the unit of every emitted metric
+# --------------------------------------------------------------------------------------
+def _emitted_metric_keys(out):
+    """Every metric key that appears as a metric in the JSON, wherever it appears."""
+    keys = set(row["metric"] for row in out.get("k0", []))
+    keys.update(row["metric"] for row in out.get("gate_rows", []))
+    for block in ("spectral", "acoustic"):
+        for per_label in out.get(block, {}).values():
+            for per_condition in per_label.values():
+                keys.update(per_condition)
+    for per_label in out.get("h1", {}).get("bounds", {}).values():
+        keys.update(per_label)
+    keys.update(out.get("h2", {}).get("rows", {}))
+    return keys
+
+
+def test_the_config_names_and_gives_a_unit_for_every_metric_the_json_emits(
+        exploratory_summary):
+    """A results page must never have to invent a metric label or a unit of its own."""
+    out, _ = exploratory_summary
+
+    names, units = out["config"]["metric_names"], out["config"]["metric_units"]
+    emitted = _emitted_metric_keys(out)
+    assert emitted == {"edt", "c50", "t60", "loss", "log_mse", "consistency"}
+    assert emitted <= set(names) and emitted <= set(units)
+    assert set(names) == set(units)
+    assert names == {"edt": "EDT error", "c50": "C50 error", "t60": "T60 error",
+                     "loss": "test loss = STFT L1 + 0.01 x decay",
+                     "log_mse": "log-STFT MSE",
+                     "consistency": "consistency = mean|log-spec(k) - log-spec(0)|"}
+    # "" is the unit of a unitless metric, so a page can print "name [unit]" or drop the
+    # bracket without a special case per metric.
+    assert units == {"edt": "s", "c50": "dB", "t60": "%",
+                     "loss": "", "log_mse": "", "consistency": ""}
+
+
+def test_the_metric_names_and_units_are_the_ones_the_summary_text_prints(
+        exploratory_summary):
+    out, text = exploratory_summary
+    names, units = out["config"]["metric_names"], out["config"]["metric_units"]
+
+    section1 = _section(text, "\n1. Spectral", "\n2. Acoustic")
+    assert names["consistency"] in section1
+    section2 = _section(text, "\n2. Acoustic", "\n3. Paired")
+    assert "EDT {}, C50 {}, T60 {}".format(units["edt"], units["c50"],
+                                           units["t60"]) in section2
+
+
+def test_the_k0_gate_json_names_the_metrics_it_gates_on(tmp_path, monkeypatch):
+    argv, _ = _gate_setup(tmp_path, monkeypatch)
+    out, code = _run_gate(argv, tmp_path, "names")
+
+    assert code == 0
+    names = out["config"]["metric_names"]
+    assert set(row["metric"] for row in out["gate_rows"]) <= set(names)
+    assert names["edt"] == "EDT error"
+    assert out["config"]["metric_units"]["c50"] == "dB"

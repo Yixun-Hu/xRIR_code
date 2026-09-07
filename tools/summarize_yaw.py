@@ -567,6 +567,17 @@ ACOUSTIC_METRICS = ("edt", "c50", "t60")
 CONFIRMATORY_METRICS = ("edt", "c50")
 K0_METRICS = ("edt", "c50", "t60", "log_mse", "loss")
 
+# What each emitted metric key is called and what it is measured in, exactly as the
+# summary text describes it.  Serialising this is what keeps a results page from
+# inventing a label or a unit the producer never computed; "" is the unit of a unitless
+# metric, so a consumer can always render "name [unit]" or drop the bracket.
+METRIC_NAMES = {"edt": "EDT error", "c50": "C50 error", "t60": "T60 error",
+                "loss": "test loss = STFT L1 + 0.01 x decay",
+                "log_mse": "log-STFT MSE",
+                "consistency": "consistency = mean|log-spec(k) - log-spec(0)|"}
+METRIC_UNITS = {"edt": "s", "c50": "dB", "t60": "%",
+                "loss": "", "log_mse": "", "consistency": ""}
+
 # The pre-registered angle grids (plan section 4). They are constants, not something a
 # run's own meta may redefine: the Bonferroni family is fixed at 2 metrics x 9 non-zero
 # acoustic angles, so a run on a partial grid can never buy itself a laxer correction.
@@ -1507,6 +1518,8 @@ def main(argv=None):
                       "yaw_cols": cols, "acoustic_cols": acoustic_cols,
                       "e_acoustic_cols": e_acoustic_cols,
                       "confirmatory_metrics": list(CONFIRMATORY_METRICS),
+                      "metric_names": dict(METRIC_NAMES),
+                      "metric_units": dict(METRIC_UNITS),
                       # Both degradation intervals are drawn at alpha_adj (the room
                       # bootstrap is called with it too); only the k=0 table is nominal.
                       "interval_levels": {"degradation_query": 1.0 - alpha_adj,
