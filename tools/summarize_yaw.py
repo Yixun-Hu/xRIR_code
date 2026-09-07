@@ -288,6 +288,15 @@ def h1_bounds(rows_by_metric, threshold):
     return bounds
 
 
+# The verdict wording, keyed by (the primary model passes, the released one passes).
+# H1_WORDING_RULE is built from this very mapping, so the rule the JSON states is the
+# rule :func:`h1_wording` applies rather than a second, driftable copy of it.
+H1_WORDING = {(True, True): "supported and replicated",
+              (True, False): "supported for the same-budget model only",
+              (False, True): "replication only",
+              (False, False): "not supported"}
+
+
 def h1_wording(primary_pass, released_pass):
     """The verdict wording for the same-budget control and the released checkpoint.
 
@@ -295,13 +304,7 @@ def h1_wording(primary_pass, released_pass):
     confirmatory model (training-matched to the cylindrical one) and the released
     checkpoint is a replication, so a disagreement is stated as such.
     """
-    if primary_pass and released_pass:
-        return "supported and replicated"
-    if primary_pass:
-        return "supported for the same-budget model only"
-    if released_pass:
-        return "replication only"
-    return "not supported"
+    return H1_WORDING[(bool(primary_pass), bool(released_pass))]
 
 
 def h2_rows(run_cyl, run_ctrl, condition, metric, cols, n_boot, alpha_adj, seed,
@@ -613,6 +616,32 @@ DECOMPOSITION_NOTE = ("Scope: receiver-view tokens and pooling plus the query-so
                       "coordinate embedding; reference-coordinate features not "
                       "decomposed. Relative changes of different representation spaces; "
                       "not additive.")
+
+
+def _one_sentence(text):
+    """A printed, line-wrapped header as one sentence: every run of whitespace a space.
+
+    The JSON carries the summary's own prose, and the summary wraps it over several
+    lines with a three-space indent; flattening here is what lets a test compare the two
+    for equality instead of for resemblance.
+    """
+    return " ".join(text.split())
+
+
+# Section 4's header -- the pre-registered H1 decision rule -- and the wording its
+# verdict is reported in.  The printer formats and prints H1_RULE itself and the JSON
+# carries the same string flattened, so a page quotes the rule the summary applied.
+H1_RULE = ("H1 (joint yaw rotation substantially degrades the model): supported if the "
+           "adjusted\n   lower bound of r exceeds {:+.0%} for EDT or C50 at any angle "
+           "k != 0, condition P.")
+H1_WORDING_RULE = (
+    "Verdict wording (--mode full only; the other modes record \"not evaluated (<mode> "
+    "mode)\"): the same-budget control (role primary) and the released checkpoint (role "
+    "released) are reported separately and never pooled -- both pass: \"{}\"; the "
+    "control only: \"{}\"; the released checkpoint only: \"{}\"; neither: \"{}\". A "
+    "role with no run in the summary counts as not passing.").format(
+        H1_WORDING[(True, True)], H1_WORDING[(True, False)],
+        H1_WORDING[(False, True)], H1_WORDING[(False, False)])
 
 # The pre-registered angle grids (plan section 4). They are constants, not something a
 # run's own meta may redefine: the Bonferroni family is fixed at 2 metrics x 9 non-zero
@@ -1720,9 +1749,10 @@ def main(argv=None):
             for reason in gate_reasons:
                 print("      - {}".format(reason))
 
-        print("\n4. H1 (joint yaw rotation substantially degrades the model): supported "
-              "if the adjusted\n   lower bound of r exceeds {:+.0%} for EDT or C50 at any "
-              "angle k != 0, condition P.".format(args.threshold))
+        # The printed header and the serialised rule are one string, formatted once.
+        out["h1"]["rule"] = _one_sentence(H1_RULE.format(args.threshold))
+        out["h1"]["wording_rule"] = H1_WORDING_RULE
+        print("\n4. " + H1_RULE.format(args.threshold))
         verdicts, primary_h1_cells = {}, []
         for role, label in (() if (exploratory or gate_mode) else
                             (("primary", primary), ("released", released))):

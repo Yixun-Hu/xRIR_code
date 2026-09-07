@@ -2286,3 +2286,59 @@ def test_full_mode_serializes_every_label_the_consumers_read(two_runs, released_
     assert out["k0_note"] in text
     assert out["decomposition_note"].split(".")[0] in _flat(text)
     assert len(out["decomposition_stages"]) == 4
+    # The scientific rules, in the confirmatory artefact and printed there too.
+    assert _header(text, "\n4. ", "\n5. H2", 2) == out["h1"]["rule"]
+    assert out["h1"]["verdict"] in out["h1"]["wording_rule"]
+
+
+# --------------------------------------------------------------------------------------
+# h1.rule / h1.wording_rule -- the pre-registered H1 rule as a producer string
+# --------------------------------------------------------------------------------------
+def _header(text, opener, closer, lines):
+    """A section's first ``lines`` physical lines, unwrapped into one sentence."""
+    return _flat("\n".join(_section(text, opener, closer).split("\n")[:lines]))
+
+
+def test_the_json_states_the_h1_rule_section_4_prints(exploratory_summary):
+    """A results page must quote the decision rule, never compose one of its own."""
+    out, text = exploratory_summary
+
+    rule = out["h1"]["rule"]
+    assert rule == ("H1 (joint yaw rotation substantially degrades the model): supported "
+                    "if the adjusted lower bound of r exceeds +10% for EDT or C50 at any "
+                    "angle k != 0, condition P.")
+    # Word for word section 4's header, only unwrapped: the two cannot drift.
+    assert _header(text, "\n4. ", "\n5. H2", 2) == rule
+    # And the margin in the sentence is the one this run was configured with.
+    assert "{:+.0%}".format(out["config"]["threshold"]) in rule
+
+
+def test_the_json_states_the_verdict_wording_rule_the_code_applies(exploratory_summary):
+    """The five-way verdict wording is a rule of the analysis, not of the page."""
+    from tools.summarize_yaw import H1_WORDING, h1_wording
+
+    out, _ = exploratory_summary
+    wording_rule = out["h1"]["wording_rule"]
+
+    assert set(H1_WORDING) == {(True, True), (True, False), (False, True), (False, False)}
+    for (primary, released), verdict in H1_WORDING.items():
+        # The sentence is built from the mapping h1_wording itself reads.
+        assert h1_wording(primary, released) == verdict
+        assert '"{}"'.format(verdict) in wording_rule
+    assert "counts as not passing" in wording_rule
+    # This mode issues no verdict at all, and the rule says which modes do.
+    assert out["h1"]["verdict"] == "not evaluated (exploratory mode)"
+    assert '"not evaluated (<mode> mode)"' in wording_rule
+
+
+def test_the_k0_gate_json_carries_the_rules_of_the_sections_it_prints(tmp_path,
+                                                                     monkeypatch):
+    """The gate prints section 4's header too, so it serialises its rule too."""
+    argv, _ = _gate_setup(tmp_path, monkeypatch)
+    out, code = _run_gate(argv, tmp_path, "rules")
+    text = open(str(tmp_path / "rules.txt")).read()
+
+    assert code == 0
+    assert _header(text, "\n4. ", "\n5. H2", 2) == out["h1"]["rule"]
+    assert out["h1"]["verdict"] == "not evaluated (k0-gate mode)"
+    assert out["h1"]["wording_rule"].startswith("Verdict wording (--mode full only")
