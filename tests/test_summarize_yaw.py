@@ -1862,3 +1862,29 @@ def test_the_summary_labels_the_room_intervals_as_adjusted(exploratory_summary):
     section3 = _section(text, "\n3. Paired", "\n4. H1")
     assert "nominal 95% CIs, unadjusted" in section3
     assert "adj. room CI" not in section3
+
+
+# --------------------------------------------------------------------------------------
+# Equivalence wording: a failed TOST is "not established", never "inequivalent"
+# --------------------------------------------------------------------------------------
+def test_the_equivalence_column_never_reads_as_a_yes_no_verdict(exploratory_summary):
+    """A TOST that does not clear the margin says nothing; it must not print as "no"."""
+    import re
+
+    out, text = exploratory_summary
+    section5 = _section(text, "\n5. H2", "\n6. Delay")
+
+    # The cylindrical run is planted at r = 0.00 at k = 32 (inside the +-2 % margin) and
+    # at r = 0.05 at k = 64 (outside it), so both renderings appear in this one table.
+    assert "equivalent / equivalent" in section5
+    assert "not established" in section5
+    assert re.search(r"\b(?:yes|no) / (?:yes|no)\b", section5) is None, section5
+    # The section says what is being tested against what, so "equivalent" cannot be read
+    # as a claim about the two models.
+    assert "TOST equivalence of r_cyl to zero within +-2%" in " ".join(text.split())
+    assert "at the adjusted level (query / room)" in " ".join(text.split())
+    # The JSON keeps the booleans; only the rendering changed.
+    equivalences = [row["equivalence"] for row in out["h2"]["rows"]["edt"]
+                    if row["equivalence"] is not None]
+    assert equivalences and all(isinstance(item["query"]["equivalent"], bool)
+                                for item in equivalences)

@@ -1658,8 +1658,9 @@ def main(argv=None):
                 _fmt(margins["c50"], 3)))
 
         print("\n5. H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, "
-              "paired on the\n   same resamples; equivalence (+-{:.0%} TOST on r_cyl) at "
-              "the patch-aligned angles.".format(args.equiv_margin))
+              "paired on the\n   same resamples; TOST equivalence of r_cyl to zero within "
+              "+-{:.0%} at the adjusted level\n   (query / room) at the patch-aligned "
+              "angles.".format(args.equiv_margin))
         h2_by_metric = {}
         if cyl and primary:
             for metric in CONFIRMATORY_METRICS:
@@ -1668,19 +1669,22 @@ def main(argv=None):
                                rooms=rooms, equiv_margin=args.equiv_margin)
                 h2_by_metric[metric] = rows
                 print("\n   metric {}".format(metric))
-                print("   {:>6} {:>7} {:>9} {:>9} {:>9} {:>21} {:>21} {:>24}".format(
+                print("   {:>6} {:>7} {:>9} {:>9} {:>9} {:>21} {:>21} {:>33}".format(
                     "k", "deg", "r_cyl", "r_ctrl", "D_k", "query CI", "adj. room CI",
                     "equivalent (query / room)"))
                 for row in rows:
                     equivalence = row["equivalence"]
 
                     def _tost(name, equivalence=equivalence):
+                        # A TOST that does not clear the margin leaves the question open;
+                        # "no" would read as established inequivalence, which it is not.
                         if equivalence is None or equivalence.get(name) is None:
                             return "-"
-                        return "yes" if equivalence[name]["equivalent"] else "no"
+                        return ("equivalent" if equivalence[name]["equivalent"]
+                                else "not established")
                     verdict = "{} / {}".format(_tost("query"), _tost("cluster"))
                     print("   {:>6} {:>7.1f} {:>9} {:>9} {:>9} [{:>9}, {:>9}] "
-                          "[{:>9}, {:>9}] {:>24}".format(
+                          "[{:>9}, {:>9}] {:>33}".format(
                               row["k"], row["deg"], _fmt(row["r_cyl"], 4, "+"),
                               _fmt(row["r_ctrl"], 4, "+"), _fmt(row["d"], 4, "+"),
                               _fmt(row["lo"], 4, "+"), _fmt(row["hi"], 4, "+"),
