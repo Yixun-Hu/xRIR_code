@@ -1808,3 +1808,57 @@ def test_the_older_band_rules_reject_the_shape_runs(tmp_path, monkeypatch):
     out, code = _run_gate(without_cyl + ["--band-rule", "v2"], tmp_path, "v2_shape")
     assert code != 0
     assert any("--shape-runs" in reason for reason in out["gate_reasons"])
+
+
+# --------------------------------------------------------------------------------------
+# Interval labelling: what level each printed interval is actually at
+# --------------------------------------------------------------------------------------
+@pytest.fixture(scope="module")
+def exploratory_summary(two_runs, tmp_path_factory):
+    """One exploratory summary of the two synthetic runs: ``(json payload, text)``."""
+    from tools.summarize_yaw import main
+
+    root = tmp_path_factory.mktemp("labelling")
+    json_path = str(root / "summary.json")
+    summary_path = str(root / "summary.txt")
+    out = main(["--mode", "exploratory", "--runs", two_runs[0], two_runs[1],
+                "--labels", "control", "cyl", "--n-boot", "500",
+                "--json", json_path, "--summary", summary_path])
+    return out, open(summary_path).read()
+
+
+def _section(text, opener, closer):
+    """The block of the summary between two section headings."""
+    return text.split(opener)[1].split(closer)[0]
+
+
+def test_the_config_records_the_level_of_every_reported_interval(exploratory_summary):
+    """A consumer must not have to guess which intervals carry the Bonferroni level."""
+    out, _ = exploratory_summary
+
+    levels = out["config"]["interval_levels"]
+    assert set(levels) == {"degradation_query", "degradation_room", "k0"}
+    # The room-cluster bootstrap is called with alpha_adj, exactly like the query-level
+    # one, so both are 1 - 0.05/18 intervals; only the k=0 table is nominal.
+    assert levels["degradation_query"] == pytest.approx(1.0 - 0.05 / 18)
+    assert levels["degradation_room"] == pytest.approx(1.0 - out["config"]["alpha_adj"])
+    assert levels["degradation_room"] == levels["degradation_query"]
+    assert levels["k0"] == pytest.approx(1.0 - out["config"]["alpha"]) == pytest.approx(0.95)
+
+
+def test_the_summary_labels_the_room_intervals_as_adjusted(exploratory_summary):
+    """The room columns are at the adjusted level too; the text used to imply otherwise."""
+    _, text = exploratory_summary
+
+    flat = " ".join(text.split())
+    assert "query-level and room-cluster intervals on r_k and D_k are both two-sided" in flat
+    assert "99.72%" in flat
+    for opener, closer in (("\n2. Acoustic", "\n3. Paired"), ("\n5. H2", "\n6. Delay")):
+        section = _section(text, opener, closer)
+        assert "adj. room CI" in section, opener
+        # ... and no bare "room CI" left to be read as an unadjusted interval.
+        assert "room CI" not in section.replace("adj. room CI", ""), opener
+    # Section 3 is the one place that really is nominal, and it still says so.
+    section3 = _section(text, "\n3. Paired", "\n4. H1")
+    assert "nominal 95% CIs, unadjusted" in section3
+    assert "adj. room CI" not in section3

@@ -1276,7 +1276,7 @@ def _print_table(rows, digits, with_cluster):
     header = "{:>6} {:>7} {:>11} {:>11} {:>9} {:>20}".format(
         "k", "deg", "mean0", "mean_k", "r", "query CI")
     if with_cluster:
-        header += " {:>20}".format("room CI")
+        header += " {:>20}".format("adj. room CI")
     print(header + " {:>6} {:>8}".format("n", "newinv"))
     for row in rows:
         line = "{:>6} {:>7.1f} {:>11} {:>11} {:>9} [{:>8}, {:>8}]".format(
@@ -1465,6 +1465,11 @@ def main(argv=None):
                       "yaw_cols": cols, "acoustic_cols": acoustic_cols,
                       "e_acoustic_cols": e_acoustic_cols,
                       "confirmatory_metrics": list(CONFIRMATORY_METRICS),
+                      # Both degradation intervals are drawn at alpha_adj (the room
+                      # bootstrap is called with it too); only the k=0 table is nominal.
+                      "interval_levels": {"degradation_query": 1.0 - alpha_adj,
+                                          "degradation_room": 1.0 - alpha_adj,
+                                          "k0": 1.0 - args.alpha},
                       "preregistered_acoustic_cols": list(PREREGISTERED_ACOUSTIC_COLS),
                       "preregistered_spectral_cols": list(PREREGISTERED_SPECTRAL_COLS),
                       "preregistered_e_acoustic_cols":
@@ -1488,9 +1493,11 @@ def main(argv=None):
             label, run["meta"]["backbone"], run["meta"]["checkpoint"]) for label, run
             in by_label.items()))
         print("roles: primary={} cyl={} released={}".format(primary, cyl, released))
-        print("bootstrap: n_boot={} seed={} family={} tests -> adjusted level {:.5f} "
-              "(two-sided {:.2f}% intervals)".format(
-                  args.n_boot, args.seed, family, alpha_adj, 100 * (1 - alpha_adj)))
+        print("bootstrap: n_boot={} seed={} family={} tests -> adjusted level {:.5f}; "
+              "the query-level and\n   room-cluster intervals on r_k and D_k are both "
+              "two-sided {:.2f}% (section 3's k=0 table\n   is nominal {:.0f}%, "
+              "unadjusted)".format(args.n_boot, args.seed, family, alpha_adj,
+                                   100 * (1 - alpha_adj), 100 * (1 - args.alpha)))
 
         print("\n1. Spectral metrics per angle (condition P = pinned k=0 alignment, "
               "E = end to end).\n   consistency = mean|log-spec(k) - log-spec(0)|; its "
@@ -1507,8 +1514,9 @@ def main(argv=None):
                     _print_table(rows, 5, False)
 
         print("\n2. Acoustic metrics per angle (Griffin-Lim; EDT s, C50 dB, T60 %). "
-              "T60 is descriptive only.\n   query CI = this fixed split; room CI = the "
-              "17 held-out rooms; newinv = fraction of usable baselines the angle broke.")
+              "T60 is descriptive only.\n   query CI = this fixed split; adj. room CI = "
+              "the 17 held-out rooms; both are at the\n   adjusted level; newinv = "
+              "fraction of usable baselines the angle broke.")
         for label, run in by_label.items():
             out["acoustic"][label] = {}
             for condition, angles in (("P", acoustic_cols), ("E", e_acoustic_cols)):
@@ -1661,7 +1669,7 @@ def main(argv=None):
                 h2_by_metric[metric] = rows
                 print("\n   metric {}".format(metric))
                 print("   {:>6} {:>7} {:>9} {:>9} {:>9} {:>21} {:>21} {:>24}".format(
-                    "k", "deg", "r_cyl", "r_ctrl", "D_k", "query CI", "room CI",
+                    "k", "deg", "r_cyl", "r_ctrl", "D_k", "query CI", "adj. room CI",
                     "equivalent (query / room)"))
                 for row in rows:
                     equivalence = row["equivalence"]
