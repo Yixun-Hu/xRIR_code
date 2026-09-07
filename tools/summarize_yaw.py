@@ -642,6 +642,14 @@ def _one_sentence(text):
 H1_RULE = ("H1 (joint yaw rotation substantially degrades the model): supported if the "
            "adjusted\n   lower bound of r exceeds {:+.0%} for EDT or C50 at any angle "
            "k != 0, condition P.")
+H1_WORDING_RULE = (
+    "Verdict wording (--mode full only; the other modes record \"not evaluated (<mode> "
+    "mode)\"): the same-budget control (role primary) and the released checkpoint (role "
+    "released) are reported separately and never pooled -- both pass: \"{}\"; the "
+    "control only: \"{}\"; the released checkpoint only: \"{}\"; neither: \"{}\". A "
+    "role with no run in the summary counts as not passing.").format(
+        H1_WORDING[(True, True)], H1_WORDING[(True, False)],
+        H1_WORDING[(False, True)], H1_WORDING[(False, False)])
 # Section 5's header, in the two halves the JSON serialises separately: the difference
 # in differences (H2_RULE's opening, completed with the cell and aggregate rules
 # h2_verdict applies but never printed) and the equivalence claim.
@@ -655,14 +663,20 @@ H2_RULE = _one_sentence(H2_RULE_HEADER) + (
     "aggregate is \"{all}\" when every such cell passes, \"{some}\" when some do, "
     "\"{none}\" when none does and \"{empty}\" when H1 has no passing cell.").format(
         **H2_AGGREGATES)
-H1_WORDING_RULE = (
-    "Verdict wording (--mode full only; the other modes record \"not evaluated (<mode> "
-    "mode)\"): the same-budget control (role primary) and the released checkpoint (role "
-    "released) are reported separately and never pooled -- both pass: \"{}\"; the "
-    "control only: \"{}\"; the released checkpoint only: \"{}\"; neither: \"{}\". A "
-    "role with no run in the summary counts as not passing.").format(
-        H1_WORDING[(True, True)], H1_WORDING[(True, False)],
-        H1_WORDING[(False, True)], H1_WORDING[(False, False)])
+# What every table's r column is, in the terms tools.paired_stats computes it in: the
+# ratio of the means over the paired-valid queries, resampled whole inside the bootstrap.
+R_DEFINITION = ("r_k = (mean error at k - mean error at 0 deg) / mean error at 0 deg "
+                "over the queries valid at both angles; the bootstrap resamples those "
+                "pairs and recomputes the whole ratio inside each resample.")
+# The header's bootstrap sentence (behind its "bootstrap: " label) and section 8's
+# convergence rule, printed from these templates and serialised from the same strings.
+BOOTSTRAP_DESCRIPTION = ("n_boot={} seed={} family={} tests -> adjusted level {:.5f}; "
+                         "the query-level and\n   room-cluster intervals on r_k and D_k "
+                         "are both two-sided {:.2f}% (section 3's k=0 table\n   is "
+                         "nominal {:.0f}%, unadjusted)")
+CONVERGENCE_RULE = ("Bootstrap convergence: every decision-driving bound recomputed with "
+                    "a second seed,\n   as a fraction of its own interval width (limit "
+                    "{:.2f}).")
 
 # The pre-registered angle grids (plan section 4). They are constants, not something a
 # run's own meta may redefine: the Bonferroni family is fixed at 2 metrics x 9 non-zero
@@ -1616,6 +1630,12 @@ def main(argv=None):
                       "preregistered_e_acoustic_cols":
                           list(PREREGISTERED_E_ACOUSTIC_COLS),
                       "condition_definitions": dict(CONDITION_DEFINITIONS),
+                      "r_definition": R_DEFINITION,
+                      # Verbatim the header's bootstrap line, unwrapped.
+                      "bootstrap_description": _one_sentence(
+                          BOOTSTRAP_DESCRIPTION.format(
+                              args.n_boot, args.seed, family, alpha_adj,
+                              100 * (1 - alpha_adj), 100 * (1 - args.alpha))),
                       # The sizes of the pre-registered grids, not of this run's, which
                       # may be a subset: the design is what a page reports.
                       "angle_counts": {
@@ -1653,11 +1673,9 @@ def main(argv=None):
         print("runs: " + ", ".join(out["config"]["run_descriptions"][label]
                                    for label in labels))
         print("roles: primary={} cyl={} released={}".format(primary, cyl, released))
-        print("bootstrap: n_boot={} seed={} family={} tests -> adjusted level {:.5f}; "
-              "the query-level and\n   room-cluster intervals on r_k and D_k are both "
-              "two-sided {:.2f}% (section 3's k=0 table\n   is nominal {:.0f}%, "
-              "unadjusted)".format(args.n_boot, args.seed, family, alpha_adj,
-                                   100 * (1 - alpha_adj), 100 * (1 - args.alpha)))
+        print("bootstrap: " + BOOTSTRAP_DESCRIPTION.format(
+            args.n_boot, args.seed, family, alpha_adj, 100 * (1 - alpha_adj),
+            100 * (1 - args.alpha)))
 
         print("\n1. Spectral metrics per angle (condition P = pinned k=0 alignment, "
               "E = end to end).\n   consistency = mean|log-spec(k) - log-spec(0)|; its "
@@ -1922,9 +1940,7 @@ def main(argv=None):
         else:
             print("   none written (no cylindrical run)")
 
-        print("\n8. Bootstrap convergence: every decision-driving bound recomputed with "
-              "a second seed,\n   as a fraction of its own interval width (limit "
-              "{:.2f}).".format(CONVERGENCE_LIMIT))
+        print("\n8. " + CONVERGENCE_RULE.format(CONVERGENCE_LIMIT))
         h2_cache = {}
 
         def h2_row_for(metric, k, seed):
@@ -1964,7 +1980,9 @@ def main(argv=None):
         out["convergence"] = {"cells": cells, "max_rel_change": worst,
                               "pass": bool(worst <= CONVERGENCE_LIMIT),
                               "seeds": [args.seed, args.seed + 1],
-                              "limit": CONVERGENCE_LIMIT}
+                              "limit": CONVERGENCE_LIMIT,
+                              "rule": _one_sentence(
+                                  CONVERGENCE_RULE.format(CONVERGENCE_LIMIT))}
         print("   {} bounds recomputed with seed {} -> {}; max movement {:.4f} "
               "(pass: {})".format(len(cells), args.seed, args.seed + 1, worst,
                                   out["convergence"]["pass"]))

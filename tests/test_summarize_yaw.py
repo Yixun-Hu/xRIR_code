@@ -2291,6 +2291,9 @@ def test_full_mode_serializes_every_label_the_consumers_read(two_runs, released_
     assert out["h1"]["verdict"] in out["h1"]["wording_rule"]
     assert out["h2"]["verdict"]["aggregate"] in out["h2"]["rule"]
     assert out["h2"]["equivalence_rule"] in _flat(text)
+    assert out["config"]["bootstrap_description"] in _flat(text)
+    assert out["convergence"]["rule"] in _flat(text)
+    assert "r_k = " in out["config"]["r_definition"]
 
 
 # --------------------------------------------------------------------------------------
@@ -2347,6 +2350,11 @@ def test_the_k0_gate_json_carries_the_rules_of_the_sections_it_prints(tmp_path,
     assert _header(text, "\n5. ", "\n6. Delay", 3) == \
         out["h2"]["rule"].split(" decided cell by cell")[0] + " " + \
         out["h2"]["equivalence_rule"]
+    assert _flat(text.split("\n1. Spectral")[0].split("bootstrap: ")[1]) == \
+        out["config"]["bootstrap_description"]
+    assert _flat("\n".join(text.split("\n8. ")[1].split("\n")[:2])) == \
+        out["convergence"]["rule"]
+    assert out["config"]["r_definition"].startswith("r_k = ")
 
 
 # --------------------------------------------------------------------------------------
@@ -2395,3 +2403,51 @@ def test_the_json_states_the_equivalence_rule_section_5_prints(exploratory_summa
     assert _header(text, "\n5. ", "\n6. Delay", 3) == _H2_PRINTED + " " + equivalence_rule
     assert out["h2"]["rule"].startswith(_H2_PRINTED)
     assert "+-{:.0%}".format(out["config"]["equiv_margin"]) in equivalence_rule
+
+
+# --------------------------------------------------------------------------------------
+# config.r_definition / config.bootstrap_description / convergence.rule
+# --------------------------------------------------------------------------------------
+def test_the_config_defines_r_the_way_the_rows_compute_it(exploratory_summary):
+    """Every table is a table of r; the page must not have to define it itself."""
+    out, _ = exploratory_summary
+
+    definition = out["config"]["r_definition"]
+    assert definition == ("r_k = (mean error at k - mean error at 0 deg) / mean error at "
+                          "0 deg over the queries valid at both angles; the bootstrap "
+                          "resamples those pairs and recomputes the whole ratio inside "
+                          "each resample.")
+    # The arithmetic the sentence describes is the arithmetic the rows carry.
+    for row in out["spectral"]["control"]["P"]["loss"]:
+        assert row["r"] == pytest.approx((row["meank"] - row["mean0"]) / row["mean0"])
+
+
+def test_the_config_carries_the_bootstrap_sentence_the_header_prints(exploratory_summary):
+    out, text = exploratory_summary
+
+    description = out["config"]["bootstrap_description"]
+    assert description == ("n_boot=500 seed=0 family=18 tests -> adjusted level 0.00278; "
+                           "the query-level and room-cluster intervals on r_k and D_k are "
+                           "both two-sided 99.72% (section 3's k=0 table is nominal 95%, "
+                           "unadjusted)")
+    # The header line, unwrapped, is this string behind its "bootstrap: " label.
+    assert _flat(text.split("\n1. Spectral")[0].split("bootstrap: ")[1]) == description
+    config = out["config"]
+    assert "n_boot={} seed={} family={}".format(
+        config["n_boot"], config["seed"], config["family_size"]) in description
+    assert "{:.2f}%".format(100 * config["interval_levels"]["degradation_query"]) in \
+        description
+
+
+def test_the_convergence_rule_is_the_sentence_section_8_prints(exploratory_summary):
+    from tools.summarize_yaw import CONVERGENCE_LIMIT
+
+    out, text = exploratory_summary
+
+    rule = out["convergence"]["rule"]
+    assert rule == ("Bootstrap convergence: every decision-driving bound recomputed with "
+                    "a second seed, as a fraction of its own interval width (limit "
+                    "0.10).")
+    assert _flat("\n".join(text.split("\n8. ")[1].split("\n")[:2])) == rule
+    assert out["convergence"]["limit"] == CONVERGENCE_LIMIT
+    assert "(limit {:.2f})".format(out["convergence"]["limit"]) in rule
