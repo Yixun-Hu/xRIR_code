@@ -2289,6 +2289,8 @@ def test_full_mode_serializes_every_label_the_consumers_read(two_runs, released_
     # The scientific rules, in the confirmatory artefact and printed there too.
     assert _header(text, "\n4. ", "\n5. H2", 2) == out["h1"]["rule"]
     assert out["h1"]["verdict"] in out["h1"]["wording_rule"]
+    assert out["h2"]["verdict"]["aggregate"] in out["h2"]["rule"]
+    assert out["h2"]["equivalence_rule"] in _flat(text)
 
 
 # --------------------------------------------------------------------------------------
@@ -2342,3 +2344,54 @@ def test_the_k0_gate_json_carries_the_rules_of_the_sections_it_prints(tmp_path,
     assert _header(text, "\n4. ", "\n5. H2", 2) == out["h1"]["rule"]
     assert out["h1"]["verdict"] == "not evaluated (k0-gate mode)"
     assert out["h1"]["wording_rule"].startswith("Verdict wording (--mode full only")
+    assert _header(text, "\n5. ", "\n6. Delay", 3) == \
+        out["h2"]["rule"].split(" decided cell by cell")[0] + " " + \
+        out["h2"]["equivalence_rule"]
+
+
+# --------------------------------------------------------------------------------------
+# h2.rule / h2.equivalence_rule -- the H2 cell rule, its aggregate and the TOST
+# --------------------------------------------------------------------------------------
+_H2_PRINTED = ("H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, "
+               "paired on the same resamples;")
+
+
+def test_the_json_states_the_h2_rule_the_verdict_applies(exploratory_summary):
+    """The cell rule and the four-way aggregate are the analysis's, not the page's."""
+    from tools.summarize_yaw import H2_AGGREGATES, h2_verdict
+
+    out, _ = exploratory_summary
+
+    rule = out["h2"]["rule"]
+    assert rule == _H2_PRINTED + (
+        " decided cell by cell at the H1-passing cells of the primary model, where a "
+        "cell passes when D_k is negative and its adjusted upper bound is below zero; "
+        "the aggregate is \"supported\" when every such cell passes, \"partially "
+        "supported\" when some do, \"not supported\" when none does and \"not evaluable "
+        "(H1 has no passing cell)\" when H1 has no passing cell.")
+    # Every word of it is the mapping h2_verdict returns from.
+    for aggregate in H2_AGGREGATES.values():
+        assert '"{}"'.format(aggregate) in rule
+    cell = _h1_cell("edt", 32)
+    assert h2_verdict([], {})["aggregate"] == H2_AGGREGATES["empty"]
+    assert h2_verdict([cell], {"edt": [_h2_row(32, -0.15, -0.10)]})["aggregate"] == \
+        H2_AGGREGATES["all"]
+    assert h2_verdict([cell], {"edt": [_h2_row(32, -0.02, +0.03)]})["aggregate"] == \
+        H2_AGGREGATES["none"]
+    assert h2_verdict([cell, _h1_cell("c50", 32)],
+                      {"edt": [_h2_row(32, -0.15, -0.10)],
+                       "c50": [_h2_row(32, -0.02, +0.03)]})["aggregate"] == \
+        H2_AGGREGATES["some"]
+
+
+def test_the_json_states_the_equivalence_rule_section_5_prints(exploratory_summary):
+    out, text = exploratory_summary
+
+    equivalence_rule = out["h2"]["equivalence_rule"]
+    assert equivalence_rule == ("TOST equivalence of r_cyl to zero within +-2% at the "
+                                "adjusted level (query / room) at the patch-aligned "
+                                "angles.")
+    # Section 5's header is exactly the printed half of the rule plus this sentence.
+    assert _header(text, "\n5. ", "\n6. Delay", 3) == _H2_PRINTED + " " + equivalence_rule
+    assert out["h2"]["rule"].startswith(_H2_PRINTED)
+    assert "+-{:.0%}".format(out["config"]["equiv_margin"]) in equivalence_rule

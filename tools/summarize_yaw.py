@@ -537,6 +537,14 @@ def convergence_check(fn, seed_a, seed_b):
     return convergence_cell(fn, seed_a, seed_b)["rel_change"]
 
 
+# The four aggregate wordings, keyed by how many of the H1-passing cells passed.
+# H2_RULE is built from this mapping, so the rule the JSON states is the rule
+# :func:`h2_verdict` applies.
+H2_AGGREGATES = {"all": "supported", "some": "partially supported",
+                 "none": "not supported",
+                 "empty": "not evaluable (H1 has no passing cell)"}
+
+
 def h2_verdict(h1_cells, h2_by_metric):
     """The pre-registered H2 rule, decided only where H1 actually found a degradation.
 
@@ -572,13 +580,13 @@ def h2_verdict(h1_cells, h2_by_metric):
     passing = [label(cell) for cell in cells if cell["passes"]]
     failing = [label(cell) for cell in cells if not cell["passes"]]
     if not cells:
-        aggregate = "not evaluable (H1 has no passing cell)"
+        aggregate = H2_AGGREGATES["empty"]
     elif not failing:
-        aggregate = "supported"
+        aggregate = H2_AGGREGATES["all"]
     elif passing:
-        aggregate = "partially supported"
+        aggregate = H2_AGGREGATES["some"]
     else:
-        aggregate = "not supported"
+        aggregate = H2_AGGREGATES["none"]
     return {"aggregate": aggregate, "cells": cells, "n_cells": len(cells),
             "n_passing": len(passing), "passing": passing, "failing": failing}
 
@@ -634,6 +642,19 @@ def _one_sentence(text):
 H1_RULE = ("H1 (joint yaw rotation substantially degrades the model): supported if the "
            "adjusted\n   lower bound of r exceeds {:+.0%} for EDT or C50 at any angle "
            "k != 0, condition P.")
+# Section 5's header, in the two halves the JSON serialises separately: the difference
+# in differences (H2_RULE's opening, completed with the cell and aggregate rules
+# h2_verdict applies but never printed) and the equivalence claim.
+H2_RULE_HEADER = ("H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, "
+                  "paired on the\n   same resamples;")
+H2_EQUIVALENCE_HEADER = (" TOST equivalence of r_cyl to zero within +-{:.0%} at the "
+                         "adjusted level\n   (query / room) at the patch-aligned angles.")
+H2_RULE = _one_sentence(H2_RULE_HEADER) + (
+    " decided cell by cell at the H1-passing cells of the primary model, where a cell "
+    "passes when D_k is negative and its adjusted upper bound is below zero; the "
+    "aggregate is \"{all}\" when every such cell passes, \"{some}\" when some do, "
+    "\"{none}\" when none does and \"{empty}\" when H1 has no passing cell.").format(
+        **H2_AGGREGATES)
 H1_WORDING_RULE = (
     "Verdict wording (--mode full only; the other modes record \"not evaluated (<mode> "
     "mode)\"): the same-budget control (role primary) and the released checkpoint (role "
@@ -1825,10 +1846,11 @@ def main(argv=None):
             print("      room-cluster cells with an adjusted upper bound above {:+.0%}: "
                   "{}".format(args.threshold, ", ".join(above) if above else "none"))
 
-        print("\n5. H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, "
-              "paired on the\n   same resamples; TOST equivalence of r_cyl to zero within "
-              "+-{:.0%} at the adjusted level\n   (query / room) at the patch-aligned "
-              "angles.".format(args.equiv_margin))
+        out["h2"]["rule"] = H2_RULE
+        out["h2"]["equivalence_rule"] = _one_sentence(
+            H2_EQUIVALENCE_HEADER.format(args.equiv_margin))
+        print("\n5. " + H2_RULE_HEADER
+              + H2_EQUIVALENCE_HEADER.format(args.equiv_margin))
         h2_by_metric = {}
         if cyl and primary:
             for metric in CONFIRMATORY_METRICS:
