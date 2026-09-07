@@ -2202,3 +2202,87 @@ def test_the_k0_gate_json_also_says_what_a_delay_flip_counts(tmp_path, monkeypat
     assert code == 0
     assert out["delay_flips_entity"].startswith("(query, reference) pairs")
     assert set(out["delay_flips"]) == {"control", "cyl", "released"}
+
+
+# --------------------------------------------------------------------------------------
+# decomposition_stages / decomposition_note / k0_note
+# --------------------------------------------------------------------------------------
+def test_the_json_names_every_decomposition_stage(exploratory_summary):
+    """The four keys are field names, not axis labels; the page needs the labels."""
+    out, _ = exploratory_summary
+
+    stages = out["decomposition_stages"]
+    assert stages == {"tokens_rel_change": "receiver-view tokens",
+                      "pooled_rel_change": "pooled receiver feature",
+                      "coord_rel_change": "query-source coordinate embedding",
+                      "logspec_rel_change": "output log-spectrogram"}
+    # Exactly the numeric fields of a decomposition record, in its own order.
+    decomposition = out["decomposition"]["cyl"]
+    assert [key for key in decomposition if key not in ("k", "n_batches")] == list(stages)
+
+
+def test_the_decomposition_note_carries_the_scope_sentence_section_7_prints(
+        exploratory_summary):
+    out, text = exploratory_summary
+
+    note = out["decomposition_note"]
+    scope = ("Scope: receiver-view tokens and pooling plus the query-source coordinate "
+             "embedding; reference-coordinate features not decomposed.")
+    assert note == scope + (" Relative changes of different representation spaces; "
+                            "not additive.")
+    section7 = _section(text, "\n7. Decomposition", "\n8. Bootstrap")
+    assert scope in _flat(section7)
+
+
+def test_the_json_carries_the_k0_note_the_summary_prints(exploratory_summary):
+    out, text = exploratory_summary
+
+    note = out["k0_note"]
+    assert note == ("Same references and same Griffin-Lim phases for both models: this "
+                    "supersedes exp_01's epoch-12 comparison.")
+    assert note in _section(text, "\n3. Paired", "\n4. H1")
+
+
+def test_the_k0_gate_json_carries_the_notes_of_the_sections_it_prints(tmp_path,
+                                                                     monkeypatch):
+    argv, _ = _gate_setup(tmp_path, monkeypatch)
+    out, code = _run_gate(argv, tmp_path, "notes")
+    text = open(str(tmp_path / "notes.txt")).read()
+
+    assert code == 0
+    assert out["k0_note"] in text
+    assert out["decomposition_note"].split(".")[0] in _flat(text)
+    # The stage labels describe section 7 whether or not this mode fills it in.
+    assert sorted(out["decomposition_stages"]) == ["coord_rel_change",
+                                                   "logspec_rel_change",
+                                                   "pooled_rel_change",
+                                                   "tokens_rel_change"]
+
+
+def test_full_mode_serializes_every_label_the_consumers_read(two_runs, released_run,
+                                                             tmp_path, monkeypatch):
+    """One check that the confirmatory artefact carries the whole descriptive block."""
+    from tools.summarize_yaw import main
+
+    relax_full_expectations(monkeypatch)
+    out = main(["--mode", "full", "--runs", two_runs[0], two_runs[1], released_run,
+                "--labels", "control", "cyl", "released",
+                "--manifest-hash", MANIFEST_HASH, "--n-boot", "4000",
+                "--json", str(tmp_path / "full.json"),
+                "--summary", str(tmp_path / "full.txt")])
+    text = open(str(tmp_path / "full.txt")).read()
+
+    config = out["config"]
+    assert set(config["metric_names"]) == set(config["metric_units"]) == {
+        "edt", "c50", "t60", "loss", "log_mse", "consistency"}
+    assert config["condition_definitions"] == {"P": "pinned k=0 alignment",
+                                               "E": "end to end"}
+    assert config["angle_counts"] == {"spectral": 18, "acoustic": 10, "e_acoustic": 4}
+    assert set(config["run_descriptions"]) == {"control", "cyl", "released"}
+    assert "runs: " + ", ".join(config["run_descriptions"][label]
+                                for label in config["labels"]) in text
+    assert out["delay_flips_entity"] + "." in _flat(text)
+    assert "delay_flips_max" not in out
+    assert out["k0_note"] in text
+    assert out["decomposition_note"].split(".")[0] in _flat(text)
+    assert len(out["decomposition_stages"]) == 4

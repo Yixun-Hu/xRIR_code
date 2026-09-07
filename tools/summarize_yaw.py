@@ -600,6 +600,19 @@ CONDITION_DEFINITIONS = {"P": "pinned k=0 alignment", "E": "end to end"}
 # What section 6's per-angle integers count, in the words its header prints.
 DELAY_FLIPS_ENTITY = ("(query, reference) pairs whose integer direct-path delay moves "
                       "under the rotation -- the numerical noise condition P excludes")
+# What section 3's table is, and what section 7's four fields are: the stage each one
+# measures, and the scope sentence its header prints, extended with the caveat a reader
+# needs to not add the four numbers up.
+K0_NOTE = ("Same references and same Griffin-Lim phases for both models: this supersedes "
+           "exp_01's epoch-12 comparison.")
+DECOMPOSITION_STAGES = {"tokens_rel_change": "receiver-view tokens",
+                        "pooled_rel_change": "pooled receiver feature",
+                        "coord_rel_change": "query-source coordinate embedding",
+                        "logspec_rel_change": "output log-spectrogram"}
+DECOMPOSITION_NOTE = ("Scope: receiver-view tokens and pooling plus the query-source "
+                      "coordinate embedding; reference-coordinate features not "
+                      "decomposed. Relative changes of different representation spaces; "
+                      "not additive.")
 
 # The pre-registered angle grids (plan section 4). They are constants, not something a
 # run's own meta may redefine: the Bonferroni family is fixed at 2 metrics x 9 non-zero
@@ -1568,6 +1581,9 @@ def main(argv=None):
            "spectral": {}, "acoustic": {}, "k0": [], "h1": {}, "h2": {},
            "delay_flips": {label: run["delay_flips"] for label, run in by_label.items()},
            "delay_flips_entity": DELAY_FLIPS_ENTITY,
+           "k0_note": K0_NOTE,
+           "decomposition_stages": dict(DECOMPOSITION_STAGES),
+           "decomposition_note": DECOMPOSITION_NOTE,
            "decomposition": {label: run["decomposition"] for label, run in by_label.items()
                              if run["decomposition"] is not None}}
     references_per_query = shot_count(runs)
