@@ -2070,3 +2070,69 @@ def test_the_k0_gate_json_names_the_metrics_it_gates_on(tmp_path, monkeypatch):
     assert set(row["metric"] for row in out["gate_rows"]) <= set(names)
     assert names["edt"] == "EDT error"
     assert out["config"]["metric_units"]["c50"] == "dB"
+
+
+# --------------------------------------------------------------------------------------
+# condition_definitions / angle_counts / run_descriptions
+# --------------------------------------------------------------------------------------
+def test_the_config_defines_the_two_conditions_the_way_section_1_does(
+        exploratory_summary):
+    """"P" and "E" are opaque letters; the page must not have to gloss them itself."""
+    out, text = exploratory_summary
+
+    definitions = out["config"]["condition_definitions"]
+    assert definitions == {"P": "pinned k=0 alignment", "E": "end to end"}
+    section1 = _section(text, "\n1. Spectral", "\n2. Acoustic")
+    assert "condition P = {}, E = {}".format(definitions["P"],
+                                             definitions["E"]) in section1
+    # Exactly the conditions the JSON is keyed by.
+    assert set(definitions) == set(out["spectral"]["control"])
+
+
+def test_the_config_counts_the_three_preregistered_angle_grids(exploratory_summary):
+    """The page says "18 angles" / "9 rotated acoustic angles"; the counts come from here."""
+    from tools.summarize_yaw import (PREREGISTERED_ACOUSTIC_COLS,
+                                     PREREGISTERED_E_ACOUSTIC_COLS,
+                                     PREREGISTERED_SPECTRAL_COLS)
+    out, _ = exploratory_summary
+
+    counts = out["config"]["angle_counts"]
+    assert counts == {"spectral": 18, "acoustic": 10, "e_acoustic": 4}
+    assert counts["spectral"] == len(PREREGISTERED_SPECTRAL_COLS)
+    assert counts["acoustic"] == len(PREREGISTERED_ACOUSTIC_COLS)
+    assert counts["e_acoustic"] == len(PREREGISTERED_E_ACOUSTIC_COLS)
+    # They count the pre-registered grids, not this run's, which may be a subset.
+    for key, cols in (("spectral", "preregistered_spectral_cols"),
+                      ("acoustic", "preregistered_acoustic_cols"),
+                      ("e_acoustic", "preregistered_e_acoustic_cols")):
+        assert counts[key] == len(out["config"][cols])
+
+
+def test_the_config_describes_each_run_the_way_the_header_line_does(exploratory_summary):
+    out, text = exploratory_summary
+
+    descriptions = out["config"]["run_descriptions"]
+    assert descriptions == {
+        "control": "control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth)",
+        "cyl": "cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth)"}
+    assert set(descriptions) == set(out["config"]["labels"])
+    assert "runs: " + ", ".join(descriptions[label]
+                                for label in out["config"]["labels"]) in text
+    for label, description in descriptions.items():
+        meta = out["meta"][label]
+        assert description == "{} ({}, {})".format(label, meta["backbone"],
+                                                   meta["checkpoint"])
+
+
+def test_the_k0_gate_json_carries_the_same_three_descriptions(tmp_path, monkeypatch):
+    argv, _ = _gate_setup(tmp_path, monkeypatch)
+    out, code = _run_gate(argv, tmp_path, "described")
+
+    assert code == 0
+    config = out["config"]
+    assert config["condition_definitions"] == {"P": "pinned k=0 alignment",
+                                               "E": "end to end"}
+    assert config["angle_counts"] == {"spectral": 18, "acoustic": 10, "e_acoustic": 4}
+    assert set(config["run_descriptions"]) == {"control", "cyl", "released"}
+    assert config["run_descriptions"]["released"] == \
+        "released (simple, checkpoints/xRIR_unseen.pth)"

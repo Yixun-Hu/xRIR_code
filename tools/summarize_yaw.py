@@ -577,6 +577,8 @@ METRIC_NAMES = {"edt": "EDT error", "c50": "C50 error", "t60": "T60 error",
                 "consistency": "consistency = mean|log-spec(k) - log-spec(0)|"}
 METRIC_UNITS = {"edt": "s", "c50": "dB", "t60": "%",
                 "loss": "", "log_mse": "", "consistency": ""}
+# What the two condition letters mean, in the words section 1's header prints.
+CONDITION_DEFINITIONS = {"P": "pinned k=0 alignment", "E": "end to end"}
 
 # The pre-registered angle grids (plan section 4). They are constants, not something a
 # run's own meta may redefine: the Bonferroni family is fixed at 2 metrics x 9 non-zero
@@ -1528,7 +1530,19 @@ def main(argv=None):
                       "preregistered_acoustic_cols": list(PREREGISTERED_ACOUSTIC_COLS),
                       "preregistered_spectral_cols": list(PREREGISTERED_SPECTRAL_COLS),
                       "preregistered_e_acoustic_cols":
-                          list(PREREGISTERED_E_ACOUSTIC_COLS)},
+                          list(PREREGISTERED_E_ACOUSTIC_COLS),
+                      "condition_definitions": dict(CONDITION_DEFINITIONS),
+                      # The sizes of the pre-registered grids, not of this run's, which
+                      # may be a subset: the design is what a page reports.
+                      "angle_counts": {
+                          "spectral": len(PREREGISTERED_SPECTRAL_COLS),
+                          "acoustic": len(PREREGISTERED_ACOUSTIC_COLS),
+                          "e_acoustic": len(PREREGISTERED_E_ACOUSTIC_COLS)},
+                      # Verbatim the header line's "runs: ..." entries.
+                      "run_descriptions": dict(
+                          (label, "{} ({}, {})".format(label, run["meta"]["backbone"],
+                                                       run["meta"]["checkpoint"]))
+                          for label, run in by_label.items())},
            "meta": {label: run["meta"] for label, run in by_label.items()},
            "spectral": {}, "acoustic": {}, "k0": [], "h1": {}, "h2": {},
            "delay_flips": {label: run["delay_flips"] for label, run in by_label.items()},
@@ -1544,9 +1558,9 @@ def main(argv=None):
     try:
         print("exp_03 yaw rotation: {} queries in {} rooms, manifest {}".format(
             out["n_queries"], out["n_rooms"], manifest_hash[:12]))
-        print("runs: " + ", ".join("{} ({}, {})".format(
-            label, run["meta"]["backbone"], run["meta"]["checkpoint"]) for label, run
-            in by_label.items()))
+        # The same strings the JSON serialises, so the two can never drift apart.
+        print("runs: " + ", ".join(out["config"]["run_descriptions"][label]
+                                   for label in labels))
         print("roles: primary={} cyl={} released={}".format(primary, cyl, released))
         print("bootstrap: n_boot={} seed={} family={} tests -> adjusted level {:.5f}; "
               "the query-level and\n   room-cluster intervals on r_k and D_k are both "
