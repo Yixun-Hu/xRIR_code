@@ -1,0 +1,12 @@
+source closure 12 files, digest 5ba818d83edd…
+live environment and data identity recomputed (inventory 13318 files, 1082499862 bytes, digest 23c3d8f6a0f7…)
+ok   k=0 gate independently validated (exact band rule, ten runs with content, bound, decision predates the sweep start 2026-09-06 15:41:19-04:00, decision recomputed with the pinned producer and byte-identical)
+ok   binding report: canonical == assets copy; every live sidecar and gate input matches its retained digest
+== ckpt/yaw_rotation/sweep_control
+ok   sweep_control: meta, manifest order, content (finite, reconciled, P==E at k=0), delay flips, decomposition, provenance; elapsed 120.8 min
+== ckpt/yaw_rotation/sweep_cyl
+ok   sweep_cyl: meta, manifest order, content (finite, reconciled, P==E at k=0), delay flips, decomposition, provenance; elapsed 125.5 min
+== ckpt/yaw_rotation/sweep_released
+ok   sweep_released: meta, manifest order, content (finite, reconciled, P==E at k=0), delay flips, decomposition, provenance; elapsed 119.0 min
+ok   query lists, indices and delay-flip counts identical across the three runs
+ACCEPTANCE PASS

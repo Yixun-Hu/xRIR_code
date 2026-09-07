@@ -1,0 +1,183 @@
+{
+ "final": true,
+ "stats_source": "ckpt/yaw_rotation/full_stats.json",
+ "summary_sha256": "52f1e62eced6cdc55417e97876d3ca85fbbac37832a3a7271dfa8ed745db45f9",
+ "labels": [
+  "control",
+  "cyl",
+  "released"
+ ],
+ "run_descriptions": {
+  "control": "control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth)",
+  "cyl": "cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth)",
+  "released": "released (simple, checkpoints/xRIR_unseen.pth)"
+ },
+ "metric_names": {
+  "edt": "EDT error",
+  "c50": "C50 error",
+  "t60": "T60 error",
+  "loss": "test loss = STFT L1 + 0.01 x decay",
+  "log_mse": "log-STFT MSE",
+  "consistency": "consistency = mean|log-spec(k) - log-spec(0)|"
+ },
+ "metric_units": {
+  "edt": "s",
+  "c50": "dB",
+  "t60": "%",
+  "loss": "",
+  "log_mse": "",
+  "consistency": ""
+ },
+ "h1": {
+  "rule": "H1 (joint yaw rotation substantially degrades the model): supported if the adjusted lower bound of r exceeds +10% for EDT or C50 at any angle k != 0, condition P.",
+  "wording_rule": "Verdict wording (--mode full only; the other modes record \"not evaluated (<mode> mode)\"): the same-budget control (role primary) and the released checkpoint (role released) are reported separately and never pooled -- both pass: \"supported and replicated\"; the control only: \"supported for the same-budget model only\"; the released checkpoint only: \"replication only\"; neither: \"not supported\". A role with no run in the summary counts as not passing.",
+  "control": {
+   "role": "primary",
+   "passes": false,
+   "cells": []
+  },
+  "released": {
+   "role": "released",
+   "passes": false,
+   "cells": []
+  },
+  "verdict": "not supported",
+  "roles_evaluated": [
+   "primary",
+   "released"
+  ],
+  "absolute_margins": {
+   "control": {
+    "edt": 0.004698770529199529,
+    "c50": 0.12351191720604562
+   },
+   "released": {
+    "edt": 0.005513546936843224,
+    "c50": 0.13604997810610067
+   }
+  },
+  "bounds": {
+   "control": {
+    "c50": {
+     "max_query_upper": {
+      "k": 64,
+      "deg": 45.0,
+      "hi": 0.07520585954134501
+     },
+     "max_room_upper": {
+      "k": 64,
+      "deg": 45.0,
+      "r_hi": 0.11374251415243941
+     },
+     "query_upper_above_threshold": [],
+     "room_upper_above_threshold": [
+      {
+       "k": 32,
+       "deg": 22.5,
+       "r_hi": 0.10986129809816648
+      },
+      {
+       "k": 64,
+       "deg": 45.0,
+       "r_hi": 0.11374251415243941
+      }
+     ]
+    },
+    "edt": {
+     "max_query_upper": {
+      "k": 64,
+      "deg": 45.0,
+      "hi": 0.0375669969075323
+     },
+     "max_room_upper": {
+      "k": 64,
+      "deg": 45.0,
+      "r_hi": 0.05654884228588356
+     },
+     "query_upper_above_threshold": [],
+     "room_upper_above_threshold": []
+    }
+   },
+   "cyl": {
+    "c50": {
+     "max_query_upper": {
+      "k": 448,
+      "deg": -45.0,
+      "hi": 0.07372488579676155
+     },
+     "max_room_upper": {
+      "k": 64,
+      "deg": 45.0,
+      "r_hi": 0.10252557004352172
+     },
+     "query_upper_above_threshold": [],
+     "room_upper_above_threshold": [
+      {
+       "k": 64,
+       "deg": 45.0,
+       "r_hi": 0.10252557004352172
+      }
+     ]
+    },
+    "edt": {
+     "max_query_upper": {
+      "k": 448,
+      "deg": -45.0,
+      "hi": 0.0543807297858763
+     },
+     "max_room_upper": {
+      "k": 384,
+      "deg": -90.0,
+      "r_hi": 0.049090617683554855
+     },
+     "query_upper_above_threshold": [],
+     "room_upper_above_threshold": []
+    }
+   },
+   "released": {
+    "c50": {
+     "max_query_upper": {
+      "k": 448,
+      "deg": -45.0,
+      "hi": 0.07558838723622262
+     },
+     "max_room_upper": {
+      "k": 448,
+      "deg": -45.0,
+      "r_hi": 0.10754901541816252
+     },
+     "query_upper_above_threshold": [],
+     "room_upper_above_threshold": [
+      {
+       "k": 448,
+       "deg": -45.0,
+       "r_hi": 0.10754901541816252
+      }
+     ]
+    },
+    "edt": {
+     "max_query_upper": {
+      "k": 448,
+      "deg": -45.0,
+      "hi": 0.054529990270456824
+     },
+     "max_room_upper": {
+      "k": 448,
+      "deg": -45.0,
+      "r_hi": 0.0696029721298045
+     },
+     "query_upper_above_threshold": [],
+     "room_upper_above_threshold": []
+    }
+   }
+  }
+ },
+ "h2": {
+  "aggregate": "not evaluable (H1 has no passing cell)",
+  "cells": [],
+  "n_cells": 0,
+  "n_passing": 0,
+  "passing": [],
+  "failing": []
+ }
+}

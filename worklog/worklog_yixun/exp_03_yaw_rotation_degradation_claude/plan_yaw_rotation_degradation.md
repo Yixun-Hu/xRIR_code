@@ -1,6 +1,6 @@
 # Plan — yaw_rotation_degradation
 
-**Status:** v2 (revised after the Codex plan review of v1, `yaw_rotation_degradation_codex_plan_review.md`). Awaiting user approval. No code has been written. v1 is kept as `plan_yaw_rotation_degradation_v1_superseded.md`.
+**Status:** v2 (revised after the Codex plan review of v1, `yaw_rotation_degradation_codex_plan_review.md`), approved by the user on 2026-09-06 (tests in `tests/`, base commit `5bf4640`); implemented and executed the same day; post-approval amendments are listed in §12 and the outcome in `yaw_rotation_degradation_results.md` / `_analysis.md`. v1 is kept as `plan_yaw_rotation_degradation_v1_superseded.md`.
 
 ## 1. Question
 
@@ -26,7 +26,7 @@ Primary SimpleViT model: the exp_01 **same-budget control** (`ckpt/xRIR_simple_8
 ## 4. Design
 
 - **Data:** full AcousticRooms unseen test split (published config), K=8. **Reference manifest:** references are chosen deterministically per query from a sha256 hash of (manifest seed 0, query path), independent of batch size, worker count and model; the manifest (query path + 8 reference paths) is written once (`ckpt/yaw_rotation/reference_manifest.json`) and every run asserts its hash. Consequently k=0 is *not* per-sample identical to exp_01 (which used worker-local random draws that were never recorded); parity with exp_01 is checked distributionally (§8).
-- **Angles (integer column rolls, W=512):** spectral grid k ∈ {0, ±4, ±8, ±16, ±32, ±64, ±96, ±128, ±192, 256} (19 angles: 0°, ±2.8°, ±5.6°, ±11.25°, ±22.5°, ±45°, ±67.5°, ±90°, ±135°, 180°; negative k ≡ W−k). **Acoustic grid** (Griffin-Lim metrics): k ∈ {0, ±8, ±32, ±64, ±128, 256} (10 angles).
+- **Angles (integer column rolls, W=512):** spectral grid k ∈ {0, ±4, ±8, ±16, ±32, ±64, ±96, ±128, ±192, 256} (18 angles: 0°, ±2.8°, ±5.6°, ±11.25°, ±22.5°, ±45°, ±67.5°, ±90°, ±135°, 180°; negative k ≡ W−k; corrected from "19" in §12). **Acoustic grid** (Griffin-Lim metrics): k ∈ {0, ±8, ±32, ±64, ±128, 256} (10 angles).
 - **Conditions:** (P) primary, alignment fixed at k=0; (E) end-to-end, alignment from rotated coordinates — spectral metrics only for E at all angles, acoustic metrics for E at {±32, ±128} to bound its effect.
 - **Metrics per (model, condition, angle, sample):** spectral — test loss (STFT L1 + 0.01·decay, per-sample reduction by calling the existing loss functions on 1-sample slices so numerics equal the batch-1 path), log-STFT MSE vs GT, consistency = mean |log-spec(k) − log-spec(0)|; acoustic (acoustic grid only) — EDT, C50, T60 via `Evaluator` on the first 8000 samples exactly as exp_01, with **Griffin-Lim phase initialisation seeded per sample** (`torch.manual_seed(hash(manifest seed, query path))` immediately before each inversion) so k=0 and k≠0 use identical random phases for the same sample and results are angle-order- and model-order-invariant.
 - **Decomposition (cylindrical only, diagnostic):** at k=32, report the relative change of (a) ViT tokens after azimuth roll-back (expected ~0), (b) the pooled `lin_proj_0` output, (c) the coordinate-embedding features, (d) the final log-spectrogram — a trained `lin_proj_0` azimuth-shift audit.
@@ -74,7 +74,7 @@ Primary SimpleViT model: the exp_01 **same-budget control** (`ckpt/xRIR_simple_8
 
 ## 7. Validation ladder
 
-1. Static: `py_compile`, `bash -n`, `git diff --check`. 2. `pytest tests/`. 3. Tiny synthetic forward (rotate random tensors; one `xRIR` forward at k=0/32 on GPU). 4. Small real-data readback (8 manifest queries; shapes, dtypes, min/max/std of depth and audio vs the dataset). 5. Smoke `eval_yaw_rotation.py --max-samples 8` with all angles and acoustic grid. 6. Batch probe (batch 16 × 19 angles forward-only beside the running jobs; expected ≈3 GB). 7. **k=0 parity gate on the full split, before any rotated angle is read** (§8). 8. Full runs.
+1. Static: `py_compile`, `bash -n`, `git diff --check`. 2. `pytest tests/`. 3. Tiny synthetic forward (rotate random tensors; one `xRIR` forward at k=0/32 on GPU). 4. Small real-data readback (8 manifest queries; shapes, dtypes, min/max/std of depth and audio vs the dataset). 5. Smoke `eval_yaw_rotation.py --max-samples 8` with all angles and acoustic grid. 6. Batch probe (batch 16 × 18 angles forward-only beside the running jobs; expected ≈3 GB). 7. **k=0 parity gate on the full split, before the full confirmatory sweep** (§8; the 32-query smoke in rung 5 had already read every angle, so the gate precedes the confirmatory runs, not the first rotated read). 8. Full runs.
 
 ## 8. Parity audit (before the full run)
 
@@ -85,7 +85,7 @@ Primary SimpleViT model: the exp_01 **same-budget control** (`ckpt/xRIR_simple_8
 
 ## 9. Runs, cost, acceptance
 
-- 3 models × [19 spectral angles × 2 conditions forward-only ≈ 25 min + acoustic: 10 angles (P) + 4 (E) × 6337 × ≈0.15 s ≈ 3.7 h] ≈ 4 h per model → ≈6 h wall-clock on two GPUs (CPU Griffin-Lim contention may add), after the parity gate (≈20 min per model) and after exp_02's queues finish.
+- 3 models × [18 spectral angles × 2 conditions forward-only ≈ 25 min + acoustic: 10 angles (P) + 4 (E) × 6337 × ≈0.15 s ≈ 3.7 h] ≈ 4 h per model → ≈6 h wall-clock on two GPUs (CPU Griffin-Lim contention may add), after the k=0 parity gate (≈20 min per model; the gate precedes the full confirmatory sweep, not the 32-query smoke, which had already read every angle) and after exp_02's queues finish.
 - Acceptance: all angles complete, no NaN in spectral metrics, manifest hash matches in every output, k=0 gate passed and logged, per-sample arrays have 6337 entries per angle, delay-flip audit written.
 - Outputs: `ckpt/yaw_rotation/{reference_manifest.json, <model>/per_sample_yaw.json, <model>/metrics_yaw.json, summary.txt}`; results page `yaw_rotation_degradation_01_results.html` (degradation vs angle with adjusted CIs, cross-model D_k, decomposition, delay-flip audit).
 
@@ -114,3 +114,13 @@ Primary SimpleViT model: the exp_01 **same-budget control** (`ckpt/xRIR_simple_8
 | Q3 | Reported separately with the wording in §3; no pooling. |
 | Q4 | Cached k=0 alignment; hashed manifest; per-sample seeded Griffin-Lim. |
 | Q5 | Both added (k=±96; signed acoustic grid). |
+
+## 12. Amendments after approval (logged in `_worklog.md`)
+
+- 2026-09-06 13:41 — **H2 aggregation rule** (exact, as implemented in `tools/summarize_yaw.py::h2_verdict` and reviewed in `..._codex_code_evaluator_review.md`): H2 is decided cell by cell at the (metric, angle) cells at which H1 passes for the primary model; a cell passes when D_k = r_k(cyl) − r_k(control) is negative with its Bonferroni-adjusted upper bound below 0. Aggregate: "supported" if every H1-passing cell passes; "partially supported" if a non-empty proper subset passes; "not supported" if none passes; "not evaluable (H1 has no passing cell)" if H1 passes nowhere. D_k is reported at every angle regardless. Summarizer modes (`full` = confirmatory, refuses partial or re-parameterised sweeps; `k0-gate`; `exploratory` = no verdicts). k=0 gate band v1 = 2 × S_ref + 1e-6 per metric, S_ref = max over manifest seeds 1–2 of |mean(control, seed s) − mean(control, seed 0)|. Pre-registered in response to the round-3 code review.
+- 2026-09-06 14:17 — canonical batch shape (every batch padded to 16) after batch-size dependence was measured on trained checkpoints; TF32 off; provenance sidecars.
+- 2026-09-06 14:53 — k=0 gate **v1 FAILED** (2 of 11 cells: control EDT 0.000287 > 0.000247; cyl C50 0.0159 > 0.0065). Band v2 = 2 × (S_ref + S_phase + S_tf32) + 1e-6 pre-specified before the extra runs, with S_phase = |mean(control, gl_seed 1) − mean(control, gl_seed 0)| and S_tf32 = |mean(control, TF32 on) − mean(control, TF32 off)|, all on the seed-0 manifest at k=0; decision kept as `..._gate_decision_v1_FAILED.txt`.
+- 2026-09-06 15:07 — k=0 gate **v2 FAILED** (1 of 11: cyl C50 0.0159 > 0.0094). Band v3 pre-specified: band(model) = 2 × (S_ref(model) + S_phase + S_tf32 + S_shape(model)) + 1e-6 with S_ref(cyl) from the cylindrical checkpoint on manifest seeds 1–2 and S_shape(model) = |mean(batch 1) − mean(batch 16)| at k=0 (measured for cyl only; unmeasured terms enter as 0; S_phase and S_tf32 stay control-measured and are reused for every model); released judged with the control's terms. Decision kept as `..._gate_decision_v2_FAILED.txt`.
+- 2026-09-06 15:40 — k=0 gate **v3 PASSED** (11/11; `..._gate_decision_v3_PASSED.txt`; S_ref(cyl) = 0.000311 s / 0.00802 dB / 0.048 / 0.000055 for EDT / C50 / T60 / loss, S_shape(cyl) ≈ 1e-6 dB). Sweep launched 15:41 under launcher v2. Nothing about H1/H2, the angle grids, the thresholds or the family changed at any amendment.
+- Plan §4 wording: the spectral grid has 18 angles (the listed set), not 19 (§4 corrected in place on 2026-09-06 after the round-2 review of the record).
+- 2026-09-06 20:41 — after the Codex round-2 review of the record: the summarizer labels its room-cluster intervals as adjusted (they always were computed at α/18), renders TOST outcomes as "equivalent" / "not established", and emits the producer field `h1.bounds` (distance to the +10 % threshold); no computed number changed; the canonical JSON/summary were regenerated. The sweep runs were additionally bound to the reviewed source closure (12 files) post hoc.

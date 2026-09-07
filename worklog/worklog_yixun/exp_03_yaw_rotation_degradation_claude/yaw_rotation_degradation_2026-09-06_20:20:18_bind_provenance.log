@@ -1,0 +1,39 @@
+source closure (12 files) reviewed at 62c9107; digest 5ba818d83edd…
+ok   eval_unseen.py: blob d8251da98779 == tree d8251da98779; later commits none; mtime 2026-04-25T17:00:41.409569-04:00
+ok   eval_xRIR_backbone.py: blob 801e60d60bc3 == tree 801e60d60bc3; later commits none; mtime 2026-09-04T15:02:37.610665-04:00
+ok   eval_yaw_rotation.py: blob 82a53bea3cd7 == tree 82a53bea3cd7; later commits none; mtime 2026-09-06T13:53:04.533492-04:00
+ok   model/cylindrical_vit.py: blob 3da7c788e9a5 == tree 3da7c788e9a5; later commits none; mtime 2026-09-04T12:26:55.176222-04:00
+ok   model/simple_vit.py: blob 604aa136a0ea == tree 604aa136a0ea; later commits none; mtime 2026-04-25T17:00:41.409569-04:00
+ok   model/xRIR.py: blob 03ce51dfda04 == tree 03ce51dfda04; later commits none; mtime 2026-04-26T18:02:41.619587-04:00
+ok   model/xRIR_cyl.py: blob e1b339e2acc7 == tree e1b339e2acc7; later commits none; mtime 2026-09-04T12:27:04.939191-04:00
+ok   tools/per_sample_metrics.py: blob 4a49bb0b6ee1 == tree 4a49bb0b6ee1; later commits none; mtime 2026-09-06T12:24:07.601312-04:00
+ok   tools/reference_manifest.py: blob 23f486c7d3af == tree 23f486c7d3af; later commits none; mtime 2026-09-06T12:31:42.081396-04:00
+ok   tools/yaw_rotation.py: blob b35f75408ff0 == tree b35f75408ff0; later commits none; mtime 2026-09-06T11:41:45.000548-04:00
+ok   treble_multi_room_dataset/treble_xRIR_dataset.py: blob 502c4696d853 == tree 502c4696d853; later commits none; mtime 2026-04-25T23:55:05.458073-04:00
+ok   utils/spec_utils.py: blob d8779fdf45a5 == tree d8779fdf45a5; later commits none; mtime 2026-04-25T17:00:41.415569-04:00
+environment: {"python": "3.8.20", "torch": "2.0.1+cu117", "numpy": "1.23.5", "cuda": "11.7", "cudnn": 8500, "torchaudio": "2.0.2+cu117", "gpus": ["NVIDIA RTX A6000", "NVIDIA RTX A6000"], "nvidia_driver": "590.48.01", "host": "CAB-Lab-Server-8", "python_executable": "/home/yixunhu/miniconda3/envs/xRIR/bin/python", "note": "recorded post hoc by bind_provenance.py on the host and conda env that ran the sweep; the runs' metrics meta records torch_version independently"}
+ok   sweep_control: start time consistent (ok)
+ok   sweep_control: every closure file last modified before the run started
+ok   sweep_control: checkpoint digest equals the gate sidecar's and the file on disk
+ok   sweep_control: artefact digests unchanged
+ok   sweep_control: manifest hash equals the metrics meta
+ok   sweep_control: torch version in metrics meta equals the environment's
+ok   sweep_control: existing binding (if any) agrees
+ok   sweep_cyl: start time consistent (ok)
+ok   sweep_cyl: every closure file last modified before the run started
+ok   sweep_cyl: checkpoint digest equals the gate sidecar's and the file on disk
+ok   sweep_cyl: artefact digests unchanged
+ok   sweep_cyl: manifest hash equals the metrics meta
+ok   sweep_cyl: torch version in metrics meta equals the environment's
+ok   sweep_cyl: existing binding (if any) agrees
+ok   sweep_released: start time consistent (ok)
+ok   sweep_released: every closure file last modified before the run started
+ok   sweep_released: checkpoint digest equals the gate sidecar's and the file on disk
+ok   sweep_released: artefact digests unchanged
+ok   sweep_released: manifest hash equals the metrics meta
+ok   sweep_released: torch version in metrics meta equals the environment's
+ok   sweep_released: existing binding (if any) agrees
+bound ckpt/yaw_rotation/sweep_control/provenance.json
+bound ckpt/yaw_rotation/sweep_cyl/provenance.json
+bound ckpt/yaw_rotation/sweep_released/provenance.json
+BIND OK; report ckpt/yaw_rotation/binding_report.json

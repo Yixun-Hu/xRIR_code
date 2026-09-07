@@ -1,0 +1,9 @@
+== py_compile
+ok
+== bash -n
+ok
+== git diff --check
+ok
+== trailing whitespace in untracked record files
+scan done
+== HEAD a9384679804443073b1a5629aecb93d7b3770547

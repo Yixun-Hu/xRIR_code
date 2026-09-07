@@ -1,0 +1,2 @@
+20:22:23 preflight ok: mode gate, launcher HEAD 7f3532ccb617df56109697f5de788bbb9b5247c2, evaluator 82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171 (reviewed 62c9107)
+20:22:23 REFUSED: ckpt/yaw_rotation/gate_control exists (or cannot be created); nothing started

@@ -1,0 +1,10 @@
+source closure 12 files, digest 5ba818d83edd…
+ok   k=0 gate independently validated (band v3, ten runs, bound, decision predates the sweep start 2026-09-06 15:41:19-04:00)
+== ckpt/yaw_rotation/sweep_control
+ok   sweep_control: meta, manifest order, content (finite, reconciled, P==E at k=0), delay flips, decomposition, provenance; elapsed 120.8 min
+== ckpt/yaw_rotation/sweep_cyl
+ok   sweep_cyl: meta, manifest order, content (finite, reconciled, P==E at k=0), delay flips, decomposition, provenance; elapsed 125.5 min
+== ckpt/yaw_rotation/sweep_released
+ok   sweep_released: meta, manifest order, content (finite, reconciled, P==E at k=0), delay flips, decomposition, provenance; elapsed 119.0 min
+ok   query lists, indices and delay-flip counts identical across the three runs
+ACCEPTANCE PASS

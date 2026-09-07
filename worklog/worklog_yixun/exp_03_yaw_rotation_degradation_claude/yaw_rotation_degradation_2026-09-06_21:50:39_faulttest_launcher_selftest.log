@@ -1,0 +1,14 @@
+closure ok (preflight): 12 files, digest 5ba818d83edd
+21:50:51 preflight ok: mode faulttest, launcher HEAD 9cb512789f9b8ee5be5de791d44ef6c204c7c5fe, evaluator 82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171 (reviewed 62c9107b4150e44c4ac410ff4cab359c1e71cc10)
+closure ok (before stub_exit7): 12 files, digest 5ba818d83edd
+21:50:54 start faulttest stub_exit7: CUDA_VISIBLE_DEVICES=0 /home/yixunhu/miniconda3/envs/xRIR/bin/python /tmp/claude-1013/-home-yixunhu-codespace-xRIR-code/279323f7-0bed-4b41-8631-99735eadc6f1/scratchpad/eval_stub.py --backbone simple --checkpoint ckpt/xRIR_simple_8_shot/epoch_12.pth --manifest ckpt/yaw_rotation/reference_manifest.json --manifest-hash 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d --out-dir ckpt/yaw_rotation/faulttest_stub_exit7 --batch-size 16 --num-workers 6 --threads 4 --log-interval 10 --stub-exit 7
+21:50:54 FAILED faulttest stub_exit7 (evaluator) exit 7
+closure ok (before stub_noout): 12 files, digest 5ba818d83edd
+21:50:58 start faulttest stub_noout: CUDA_VISIBLE_DEVICES=0 /home/yixunhu/miniconda3/envs/xRIR/bin/python /tmp/claude-1013/-home-yixunhu-codespace-xRIR-code/279323f7-0bed-4b41-8631-99735eadc6f1/scratchpad/eval_stub.py --backbone simple --checkpoint ckpt/xRIR_simple_8_shot/epoch_12.pth --manifest ckpt/yaw_rotation/reference_manifest.json --manifest-hash 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d --out-dir ckpt/yaw_rotation/faulttest_stub_noout --batch-size 16 --num-workers 6 --threads 4 --log-interval 10 --stub-exit 0
+closure ok (after stub_noout): 12 files, digest 5ba818d83edd
+Traceback (most recent call last):
+  File "<stdin>", line 4, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: 'ckpt/yaw_rotation/faulttest_stub_noout/metrics_yaw.json'
+21:51:02 FAILED faulttest stub_noout (provenance) exit 1
+21:51:02 faulttest: run1 rc=7 (expect 7), run2 rc=1 (expect non-zero: provenance), ABORTED logs: 2 (expect 2), codes: 7 1
+21:51:02 FAULTTEST_DONE

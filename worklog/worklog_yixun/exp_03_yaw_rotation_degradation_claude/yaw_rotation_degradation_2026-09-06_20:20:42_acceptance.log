@@ -1,0 +1,76 @@
+ok   summarizer grids equal the pinned pre-registered grids
+ok   gate: mode k0-gate, gate_pass True, manifest ok
+ok   gate: summary hash binds
+ok   source closure (12 files) equals the reviewed commit 62c9107 with no later commits
+== ckpt/yaw_rotation/sweep_control
+ok   metrics_yaw.json present
+ok   per_sample_yaw.json present
+ok   provenance.json present
+ok   backbone/checkpoint simple ckpt/xRIR_simple_8_shot/epoch_12.pth
+ok   manifest hash pinned (metrics meta and sidecar)
+ok   n_samples 6337 (full split)
+ok   batch 16 canonical, TF32 off, gl_seed 0, manifest seed 0
+ok   angle grids equal the pre-registered grids
+ok   per-sample meta identical to aggregate meta
+ok   query list and index: 6337 unique entries
+ok   17 rooms in the query list (expected 17)
+ok   spectral per-sample arrays: 18 angles × 2 conditions × 3 metrics, 6337 finite numbers each
+ok   acoustic per-sample arrays present at k=0 and the pre-registered P (10) and E (4) angles, numeric or null
+ok   aggregate means reconcile with the per-sample arrays (rel 1e-9)
+ok   delay_flips written for every angle
+ok   sidecar: evaluator bound to the reviewed commit
+ok   sidecar: source-closure digest 5ba818d83edd equals the recomputed closure
+ok   sidecar: launcher HEAD 5febf47 == 5febf47
+ok   sidecar: artefact digests match
+ok   sidecar: checkpoint digest equals ckpt/yaw_rotation/gate_control/provenance.json
+ok   sidecar: environment recorded; torch version equals the metrics meta
+     elapsed 120.8 min
+== ckpt/yaw_rotation/sweep_cyl
+ok   metrics_yaw.json present
+ok   per_sample_yaw.json present
+ok   provenance.json present
+ok   backbone/checkpoint cylindrical ckpt/xRIR_cyl_8_shot/epoch_12.pth
+ok   manifest hash pinned (metrics meta and sidecar)
+ok   n_samples 6337 (full split)
+ok   batch 16 canonical, TF32 off, gl_seed 0, manifest seed 0
+ok   angle grids equal the pre-registered grids
+ok   per-sample meta identical to aggregate meta
+ok   query list and index: 6337 unique entries
+ok   17 rooms in the query list (expected 17)
+ok   spectral per-sample arrays: 18 angles × 2 conditions × 3 metrics, 6337 finite numbers each
+ok   acoustic per-sample arrays present at k=0 and the pre-registered P (10) and E (4) angles, numeric or null
+ok   aggregate means reconcile with the per-sample arrays (rel 1e-9)
+ok   delay_flips written for every angle
+ok   sidecar: evaluator bound to the reviewed commit
+ok   sidecar: source-closure digest 5ba818d83edd equals the recomputed closure
+ok   sidecar: launcher HEAD 5febf47 == 5febf47
+ok   sidecar: artefact digests match
+ok   sidecar: checkpoint digest equals ckpt/yaw_rotation/gate_cyl/provenance.json
+ok   sidecar: environment recorded; torch version equals the metrics meta
+     elapsed 125.5 min
+== ckpt/yaw_rotation/sweep_released
+ok   metrics_yaw.json present
+ok   per_sample_yaw.json present
+ok   provenance.json present
+ok   backbone/checkpoint simple checkpoints/xRIR_unseen.pth
+ok   manifest hash pinned (metrics meta and sidecar)
+ok   n_samples 6337 (full split)
+ok   batch 16 canonical, TF32 off, gl_seed 0, manifest seed 0
+ok   angle grids equal the pre-registered grids
+ok   per-sample meta identical to aggregate meta
+ok   query list and index: 6337 unique entries
+ok   17 rooms in the query list (expected 17)
+ok   spectral per-sample arrays: 18 angles × 2 conditions × 3 metrics, 6337 finite numbers each
+ok   acoustic per-sample arrays present at k=0 and the pre-registered P (10) and E (4) angles, numeric or null
+ok   aggregate means reconcile with the per-sample arrays (rel 1e-9)
+ok   delay_flips written for every angle
+ok   sidecar: evaluator bound to the reviewed commit
+ok   sidecar: source-closure digest 5ba818d83edd equals the recomputed closure
+ok   sidecar: launcher HEAD 5febf47 == 5febf47
+ok   sidecar: artefact digests match
+ok   sidecar: checkpoint digest equals ckpt/yaw_rotation/gate_released/provenance.json
+ok   sidecar: environment recorded; torch version equals the metrics meta
+     elapsed 119.0 min
+ok   query lists and indices identical across the three runs (same order)
+ok   delay-flip counts identical across the three runs (geometry only)
+ACCEPTANCE PASS

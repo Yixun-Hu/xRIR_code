@@ -1,0 +1,5 @@
+closure ok (preflight): 12 files, digest 5ba818d83edd
+21:12:53 preflight ok: mode sweep, launcher HEAD 4fbcc026072b781beff17551793bb6b8f6cc6ed8, evaluator 82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171 (reviewed 62c9107b4150e44c4ac410ff4cab359c1e71cc10)
+gate ok: band v3, ten bound runs, hash-bound decision
+21:12:59 gate decision independently validated (check_sweep_acceptance.gate_ok): ckpt/yaw_rotation/gate_stats.json
+21:12:59 REFUSED: ckpt/yaw_rotation/sweep_control exists (or cannot be created); nothing started

@@ -1,0 +1,3 @@
+closure ok (preflight): 12 files, digest 5ba818d83edd
+21:13:12 preflight ok: mode gate, launcher HEAD 4fbcc026072b781beff17551793bb6b8f6cc6ed8, evaluator 82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171 (reviewed 62c9107b4150e44c4ac410ff4cab359c1e71cc10)
+21:13:12 REFUSED: ckpt/yaw_rotation/gate_control exists (or cannot be created); nothing started

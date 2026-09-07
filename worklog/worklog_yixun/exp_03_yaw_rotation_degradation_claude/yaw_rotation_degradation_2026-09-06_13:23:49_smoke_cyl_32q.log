@@ -1,0 +1,6 @@
+backbone: cylindrical  checkpoint: ckpt/xRIR_cyl_8_shot/epoch_12.pth  samples: 32  angles: [0, 4, 8, 16, 32, 64, 96, 128, 192, 256, 320, 384, 416, 448, 480, 496, 504, 508]  batch: 16
+[16/32] 0.67 samples/s, eta 0.4 min
+[32/32] 0.75 samples/s, eta 0.0 min
+wrote ckpt/yaw_rotation/_smoke_cyl/per_sample_yaw.json
+wrote ckpt/yaw_rotation/_smoke_cyl/metrics_yaw.json
+done: 32 samples x 18 angles x 2 conditions in 0.71 min

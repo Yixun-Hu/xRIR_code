@@ -1,0 +1,37 @@
+# Parameters — yaw_rotation_degradation
+
+> Draft written before launch (2026-09-06 12:36, when the manifest was pinned); finalised at launch with the exact commands (see `_command.md`).
+
+## Models (no training in this experiment)
+| Label | Backbone | Checkpoint | Role |
+|---|---|---|---|
+| control | simple (SimpleViT) | `ckpt/xRIR_simple_8_shot/epoch_12.pth` (exp_01, 12-epoch same-budget control) | primary SimpleViT (H1), comparator (H2) |
+| cyl | cylindrical | `ckpt/xRIR_cyl_8_shot/epoch_12.pth` (exp_01) | H2 |
+| released | simple | `checkpoints/xRIR_unseen.pth` (authors) | replication for H1 |
+
+## Data and pairing
+AcousticRooms unseen test split (published config): 6337 queries, 17 held-out rooms, K=8. Reference manifest `ckpt/yaw_rotation/reference_manifest.json` built by `tools/reference_manifest.build_manifest(dataset, seed=0, num_shot=8)`, canonical order by query relative path, **hash `47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d`**; 520 queries (8.2 %) have fewer than 8 candidate sources and draw with replacement (as in the original dataset code). Every evaluator run must assert this hash. Noise-band manifests for the k=0 gate (same queries, references re-drawn): seed 1 → `reference_manifest_seed1.json`, hash `6ca8164e5727d5f4db84569d5effa840b2cb6e6f77819a69bbb37bb30c6ab11e` (84.3 % of reference sets identical to seed 0); seed 2 → `reference_manifest_seed2.json`, hash `757e5a966ee2d069a07accecbc43e46bd564ea7c788a28c219773df64e986234` (84.1 %). Griffin-Lim phase initialisation seeded per query (`sample_seed(gl_seed=0, query_relpath)`), identical across angles, conditions and models.
+
+## Transform
+Active yaw of the whole scene by Δ = 2πk/W (W = 512 columns): `depth_coord' = Rz(Δ)·roll(depth_coord, k)`, `src' = Rz(Δ)src`, `ref_locs' = Rz(Δ)ref_locs`; reference RIRs and target unchanged (`tools/yaw_rotation.rotate_scene_yaw`, oracle-tested against `convert_equirect_to_camera_coord(roll(depth, k))`, max error ≤ 2.4e-6).
+
+## Conditions
+P (primary): direct-path alignment cached from the k=0 coordinates (`fixed_alignment`), so only the geometry branches see the rotation. E (secondary, end-to-end): alignment recomputed from the rotated coordinates (delay-flip audit expected ≈ 4e-5 of pairs).
+
+## Angle grids (columns → degrees)
+Spectral (both conditions): k ∈ {0, 4, 8, 16, 32, 64, 96, 128, 192, 256, 320, 384, 416, 448, 480, 496, 504, 508} = {0, 2.8, 5.6, 11.25, 22.5, 45, 67.5, 90, 135, 180, −135, −90, −67.5, −45, −22.5, −11.25, −5.6, −2.8}°. Acoustic (Griffin-Lim metrics, P): k ∈ {0, 8, 32, 64, 128, 256, 384, 448, 480, 504} = {0, ±5.6, ±22.5, ±45, ±90, 180}°; E acoustic: k ∈ {32, 128, 384, 480}.
+
+## Metrics
+Spectral per sample: test loss (STFT log-mag L1 + 0.01·decay, 1-sample slices of the original loss functions), log-STFT MSE vs ground truth, consistency = mean |log-spec(k) − log-spec(0)|. Acoustic per sample: EDT (s), C50 (dB), T60 (%) on the first 8000 samples exactly as `eval_unseen.py` (Griffin-Lim n_fft 124 / win 62 / hop 31 / 32 iterations, seeded phases). Invalid-metric rule: a pair enters only if finite at k=0 and at k; newly-invalid fraction reported per angle.
+
+## Statistics (pre-registered, plan §3)
+r_k = (ē_k − ē_0)/ē_0 recomputed inside each paired bootstrap resample; confirmatory family m = 2 metrics (EDT, C50) × 9 non-zero acoustic angles = 18 → Bonferroni α = 0.05/18 (1 − α two-sided percentile intervals); H1 "substantial" iff adjusted lower bound of r_k > +10 % at any angle (primary = control; released = replication; wording rules in plan §3); H2 = difference-in-differences D_k = r_k(cyl) − r_k(control) with shared resamples, decided cell by cell at the (metric, angle) cells where H1 passes for the primary model (a cell passes iff D_k < 0 with its Bonferroni-adjusted upper bound below 0); aggregate "supported" if every H1-passing cell passes, "partially supported" if a non-empty proper subset passes, "not supported" if none passes, "not evaluable (H1 has no passing cell)" if H1 passes nowhere; D_k reported at every angle regardless. Patch-aligned near-invariance = TOST of the cylindrical model's own r_k against zero with margin ±2 % at the adjusted level (query / room). n_boot = 20,000 with a two-seed convergence diagnostic (fail if endpoint change > 10 % of the interval width). Primary inference: this fixed split (query-level bootstrap); secondary: room-cluster bootstrap over the 17 rooms. T60 descriptive only. H2 aggregation (pre-registered 2026-09-06 13:41): supported only if the adjusted DiD upper bound < 0 at every primary-H1-passing cell; partially supported / not supported / not evaluable otherwise. **k=0 gate rule (v1, pre-registered 13:41):** for cyl and control, |mean_k0 − mean_exp01(epoch 12)| ≤ 2 × max over the two noise runs of |mean_noise − mean_k0(control)| + 1e-6 for EDT, C50, T60 and loss; for the released checkpoint the same band around its exp_01 baseline reproduction (0.0549 s, 1.358 dB, 9.69 %). **Outcome: FAILED on control EDT (0.000287 > 0.000247) and cyl C50 (0.0159 > 0.0065); 9/11 cells passed.** **v2 amendment (pre-specified 14:53 before the extra measurements):** band = 2 × (S_ref + S_phase + S_tf32) + 1e-6, adding the Griffin-Lim phase-seed spread (control, gl_seed 1) and the TF32 spread (control, TF32 on), both measured at k=0 on the seed-0 manifest — the two nuisance sources exp_01's numbers contain and this evaluator removed. The v1 decision stays in the record. Batch canonicalisation: every batch padded to 16 samples (compute shape fixed) so per-sample metrics are batch-size invariant; TF32 (matmul and cuDNN) off.
+
+## Runtime
+Batch 16, 6 loader workers, 4 CPU threads for Griffin-Lim, TF32 off (fp32), one A6000 per model; base code state: exp_03 commits on `main` after `5bf4640` (SHAs in `commits_yaw_rotation_degradation.md`).
+
+## k=0 parity gate band — final (v3, 2026-09-06 15:40; history in plan §12)
+v1 = 2 × S_ref(control) + 1e-6 (pre-registered 13:41) → FAILED 2/11 (decision 14:53). v2 = 2 × (S_ref + S_phase + S_tf32) + 1e-6 (pre-specified 14:53, before the 14:54 nuisance launch) → FAILED 1/11 (decision 15:07, cyl C50 0.0159 > 0.0094). v3 pre-specified 15:07. v3 = 2 × (S_ref(model) + S_phase + S_tf32 + S_shape(model)) + 1e-6 → PASSED 11/11 (15:40). Measured terms (EDT s / C50 dB / T60 / loss): control S_ref 0.000123 / 0.00325 / 0.050 / 0.000052; S_phase 0.000068 / 0.00132 / 0.017 / 0; S_tf32 0.000002 / 0.00015 / 0.0005 / 0; cyl S_ref 0.000311 / 0.00802 / 0.048 / 0.000055; S_shape(cyl) ≈ 1e-6 dB (batch 1 vs 16); S_shape(control, released) not measured (0); released judged with the control's terms. Runs: `gate_{control,cyl,released,noise_seed1,noise_seed2,phase_seed1,tf32,noise_cyl_seed1,noise_cyl_seed2,shape_cyl_b1}`.
+
+## Sweep as run (2026-09-06 15:41–19:41, launcher v2)
+`sweep_control` (GPU 0, 120.8 min) → `sweep_released` (GPU 0, 119.0 min); `sweep_cyl` (GPU 1, 125.5 min). Launcher HEAD `5febf47`; 12-file source closure (the evaluator plus its 11 repo-local imports) byte-identical to `62c9107b4150e44c4ac410ff4cab359c1e71cc10` (source-closure digest `5ba818d83edd…`); the closure, the environment, the content-hashed dataset inventory, the log digests and the chronology were all bound post hoc (they prove consistency of the retained bytes, not execution-time identity); batch 16 canonical, TF32 off, gl_seed 0, manifest seed 0 (`47637a55…`); environment Python 3.8.20, torch 2.0.1+cu117, cuDNN 8500, driver 590.48.01, 2 × RTX A6000.

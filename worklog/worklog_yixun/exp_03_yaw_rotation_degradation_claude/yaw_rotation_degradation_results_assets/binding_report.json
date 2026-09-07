@@ -1,0 +1,2251 @@
+{
+ "reviewed_commit": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+ "evaluator_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+ "source_closure_sha256": "5ba818d83eddc6e71055926ea64cb104ebb8d3a1c347ab1bc12dd95866c1be48",
+ "source_closure": [
+  {
+   "path": "eval_unseen.py",
+   "reviewed_blob_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+   "working_tree_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+   "commits_after_reviewed": [],
+   "mtime": "2026-04-25T17:00:41.409569-04:00"
+  },
+  {
+   "path": "eval_xRIR_backbone.py",
+   "reviewed_blob_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+   "working_tree_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+   "commits_after_reviewed": [],
+   "mtime": "2026-09-04T15:02:37.610665-04:00"
+  },
+  {
+   "path": "eval_yaw_rotation.py",
+   "reviewed_blob_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+   "working_tree_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+   "commits_after_reviewed": [],
+   "mtime": "2026-09-06T13:53:04.533492-04:00"
+  },
+  {
+   "path": "model/cylindrical_vit.py",
+   "reviewed_blob_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+   "working_tree_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+   "commits_after_reviewed": [],
+   "mtime": "2026-09-04T12:26:55.176222-04:00"
+  },
+  {
+   "path": "model/simple_vit.py",
+   "reviewed_blob_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+   "working_tree_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+   "commits_after_reviewed": [],
+   "mtime": "2026-04-25T17:00:41.409569-04:00"
+  },
+  {
+   "path": "model/xRIR.py",
+   "reviewed_blob_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+   "working_tree_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+   "commits_after_reviewed": [],
+   "mtime": "2026-04-26T18:02:41.619587-04:00"
+  },
+  {
+   "path": "model/xRIR_cyl.py",
+   "reviewed_blob_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+   "working_tree_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+   "commits_after_reviewed": [],
+   "mtime": "2026-09-04T12:27:04.939191-04:00"
+  },
+  {
+   "path": "tools/per_sample_metrics.py",
+   "reviewed_blob_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+   "working_tree_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+   "commits_after_reviewed": [],
+   "mtime": "2026-09-06T12:24:07.601312-04:00"
+  },
+  {
+   "path": "tools/reference_manifest.py",
+   "reviewed_blob_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+   "working_tree_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+   "commits_after_reviewed": [],
+   "mtime": "2026-09-06T12:31:42.081396-04:00"
+  },
+  {
+   "path": "tools/yaw_rotation.py",
+   "reviewed_blob_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+   "working_tree_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+   "commits_after_reviewed": [],
+   "mtime": "2026-09-06T11:41:45.000548-04:00"
+  },
+  {
+   "path": "treble_multi_room_dataset/treble_xRIR_dataset.py",
+   "reviewed_blob_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+   "working_tree_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+   "commits_after_reviewed": [],
+   "mtime": "2026-04-25T23:55:05.458073-04:00"
+  },
+  {
+   "path": "utils/spec_utils.py",
+   "reviewed_blob_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+   "working_tree_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+   "commits_after_reviewed": [],
+   "mtime": "2026-04-25T17:00:41.415569-04:00"
+  }
+ ],
+ "environment": {
+  "python": "3.8.20",
+  "torch": "2.0.1+cu117",
+  "torchaudio": "2.0.2+cu117",
+  "torchvision": "0.15.2+cu117",
+  "einops": "0.7.0",
+  "numpy": "1.23.5",
+  "scipy": "1.10.0",
+  "cuda": "11.7",
+  "cudnn": 8500,
+  "gpus": [
+   "NVIDIA RTX A6000",
+   "NVIDIA RTX A6000"
+  ],
+  "nvidia_driver": "590.48.01",
+  "host": "CAB-Lab-Server-8",
+  "python_executable": "/home/yixunhu/miniconda3/envs/xRIR/bin/python",
+  "note": "recorded post hoc by bind_provenance.py on the host and conda env that ran the runs; each run's metrics meta records torch_version independently"
+ },
+ "data_identity": {
+  "0": {
+   "manifest_path": "ckpt/yaw_rotation/reference_manifest.json",
+   "manifest_file_sha256": "5eaea3727dd840b1cb7cd77cb821ff955004c05b0f09c74fc39849e59ba5da2a",
+   "manifest_hash": "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d",
+   "data_root": "/home/yixunhu/data_cache/AcousticRooms",
+   "inventory_files": 13318,
+   "inventory_missing": 0,
+   "inventory_bytes": 1082499862,
+   "inventory_sha256": "23c3d8f6a0f740f54cb7d5db5766a80e82c6a78d60c05744e7542529a86a3092",
+   "inventory_key": "(relative path, sha256 of the file bytes) of every IR wav, metadata json and depth map the manifest references"
+  },
+  "1": {
+   "manifest_path": "ckpt/yaw_rotation/reference_manifest_seed1.json",
+   "manifest_file_sha256": "48f5a1097beee89fb503f33ac0e5238696b570a17d5f94687411647a400019bd",
+   "manifest_hash": "6ca8164e5727d5f4db84569d5effa840b2cb6e6f77819a69bbb37bb30c6ab11e",
+   "data_root": "/home/yixunhu/data_cache/AcousticRooms",
+   "inventory_files": 13318,
+   "inventory_missing": 0,
+   "inventory_bytes": 1082499862,
+   "inventory_sha256": "23c3d8f6a0f740f54cb7d5db5766a80e82c6a78d60c05744e7542529a86a3092",
+   "inventory_key": "(relative path, sha256 of the file bytes) of every IR wav, metadata json and depth map the manifest references"
+  },
+  "2": {
+   "manifest_path": "ckpt/yaw_rotation/reference_manifest_seed2.json",
+   "manifest_file_sha256": "b212dc87fd0645f9b092327807ecdc489cc5308858880c5567fd7fb3edf86d6d",
+   "manifest_hash": "757e5a966ee2d069a07accecbc43e46bd564ea7c788a28c219773df64e986234",
+   "data_root": "/home/yixunhu/data_cache/AcousticRooms",
+   "inventory_files": 13318,
+   "inventory_missing": 0,
+   "inventory_bytes": 1082499862,
+   "inventory_sha256": "23c3d8f6a0f740f54cb7d5db5766a80e82c6a78d60c05744e7542529a86a3092",
+   "inventory_key": "(relative path, sha256 of the file bytes) of every IR wav, metadata json and depth map the manifest references"
+  }
+ },
+ "gate_inputs": {
+  "gate_producer_commit": "5febf471318e37e60477ebe72afd48f03879c67e",
+  "gate_producer_sha256": "5694b55d5006b0d90dfcb4b75399289f503022800be5627717d817db4626070e",
+  "gate_producer_closure": [
+   {
+    "path": "tools/summarize_yaw.py",
+    "pinned_blob_sha256": "5694b55d5006b0d90dfcb4b75399289f503022800be5627717d817db4626070e",
+    "working_tree_sha256": "c33e9feac56e34e2e78daba3609695a0d20ac77e5f73b0d183f28a75959922ab"
+   },
+   {
+    "path": "tools/paired_stats.py",
+    "pinned_blob_sha256": "016b375a497c59b20cd3c8a8531e125fea1d9b62d872891fec35a7dd3d537584",
+    "working_tree_sha256": "016b375a497c59b20cd3c8a8531e125fea1d9b62d872891fec35a7dd3d537584"
+   }
+  ],
+  "exp01_control": {
+   "path": "ckpt/xRIR_simple_8_shot/per_sample_unseen_epoch12.json",
+   "sha256": "72a176612e265fd1e19e042a765ea8874c8b3d24b470c860de222c69128437cb"
+  },
+  "exp01_cyl": {
+   "path": "ckpt/xRIR_cyl_8_shot/per_sample_unseen_epoch12.json",
+   "sha256": "47ec70dcc383b6100c1780fb9bbf1d26cdaf8a16dd09ce25b4faf7fcafb355c4"
+  },
+  "gate_json": {
+   "path": "ckpt/yaw_rotation/gate_stats.json",
+   "sha256": "248fc98787b2b3b185af9087ca21ca3e87b49031931a21f6843e15feefac952b"
+  },
+  "gate_summary": {
+   "path": "ckpt/yaw_rotation/gate_summary.txt",
+   "sha256": "46470249b7cb1dec03161878135fa4f7ee04525442005c4b1564b647c2eded95"
+  },
+  "decision_v1": {
+   "path": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_14:53:35_gate_decision_v1_FAILED.txt",
+   "sha256": "d40fad2aecbaa814123230e289a4b05ea0766ca705f7c48732ebeedc688fe0f1"
+  },
+  "decision_v2": {
+   "path": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_15:07:30_gate_decision_v2_FAILED.txt",
+   "sha256": "5f337f8357bcc708d7cd65f16aa1ad9f96dfe7fc17f9cec6c11f8cb2e02be9ea"
+  },
+  "decision_v3": {
+   "path": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_15:40:32_gate_decision_v3_PASSED.txt",
+   "sha256": "46470249b7cb1dec03161878135fa4f7ee04525442005c4b1564b647c2eded95"
+  }
+ },
+ "run_set": "all",
+ "runs": {
+  "ckpt/yaw_rotation/sweep_control": {
+   "sidecar": "ckpt/yaw_rotation/sweep_control/provenance.json",
+   "run_start": "2026-09-06T15:41:19-04:00",
+   "elapsed_min": 120.76249567270278,
+   "backbone": "simple",
+   "batch_size": 16,
+   "tf32": false,
+   "gl_seed": 0,
+   "manifest_seed": 0,
+   "per_sample_sha256": "43b9211f290094b742fdeb78aae037d51499f404eb5a6b1601e0667306ad58ac",
+   "metrics_sha256": "45ff9a444eb536f42509fd28d50939652f01044e12ad1e0ae813e8aef3c9b386",
+   "checkpoint": "ckpt/xRIR_simple_8_shot/epoch_12.pth",
+   "checkpoint_sha256": "651e3a377e110022fbd89332ff1f1c2648ef398bd83840bf369b05eb5decbedf",
+   "command": "CUDA_VISIBLE_DEVICES=0 /home/yixunhu/miniconda3/envs/xRIR/bin/python eval_yaw_rotation.py --backbone simple --checkpoint ckpt/xRIR_simple_8_shot/epoch_12.pth --manifest ckpt/yaw_rotation/reference_manifest.json --manifest-hash 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d --out-dir ckpt/yaw_rotation/sweep_control --batch-size 16 --num-workers 6 --threads 4 --log-interval 10 ",
+   "command_note": "verbatim from the launcher",
+   "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_15:41:19_sweep_control.log",
+   "log_sha256": "0fd0d2c8d57b84e5fc70071fe835b0641476967990a50345b529ad1c9301687f",
+   "launcher_head": "5febf471318e37e60477ebe72afd48f03879c67e",
+   "sidecar_after_binding": {
+    "git_sha": "5febf471318e37e60477ebe72afd48f03879c67e",
+    "checkpoint": "ckpt/xRIR_simple_8_shot/epoch_12.pth",
+    "checkpoint_sha256": "651e3a377e110022fbd89332ff1f1c2648ef398bd83840bf369b05eb5decbedf",
+    "manifest_hash": "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d",
+    "per_sample_sha256": "43b9211f290094b742fdeb78aae037d51499f404eb5a6b1601e0667306ad58ac",
+    "metrics_sha256": "45ff9a444eb536f42509fd28d50939652f01044e12ad1e0ae813e8aef3c9b386",
+    "command": "CUDA_VISIBLE_DEVICES=0 /home/yixunhu/miniconda3/envs/xRIR/bin/python eval_yaw_rotation.py --backbone simple --checkpoint ckpt/xRIR_simple_8_shot/epoch_12.pth --manifest ckpt/yaw_rotation/reference_manifest.json --manifest-hash 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d --out-dir ckpt/yaw_rotation/sweep_control --batch-size 16 --num-workers 6 --threads 4 --log-interval 10 ",
+    "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_15:41:19_sweep_control.log",
+    "written": "2026-09-06T17:42:11.822673-04:00",
+    "evaluator_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+    "reviewed_evaluator_commit": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "launcher_head": "5febf471318e37e60477ebe72afd48f03879c67e",
+    "git_sha_note": "git_sha is the launcher HEAD at run time (or the pinned reviewed commit for sidecars written post hoc); the evaluator and its repo-local imports are bound by source_closure to the reviewed commit (verified post hoc by bind_provenance.py)",
+    "checkpoint_approved_source": "ckpt/yaw_rotation/gate_control/provenance.json",
+    "bound_at": "2026-09-06T21:45:25.265344-04:00",
+    "source_closure_sha256": "5ba818d83eddc6e71055926ea64cb104ebb8d3a1c347ab1bc12dd95866c1be48",
+    "source_closure": [
+     {
+      "path": "eval_unseen.py",
+      "reviewed_blob_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "working_tree_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "eval_xRIR_backbone.py",
+      "reviewed_blob_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "working_tree_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T15:02:37.610665-04:00"
+     },
+     {
+      "path": "eval_yaw_rotation.py",
+      "reviewed_blob_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "working_tree_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T13:53:04.533492-04:00"
+     },
+     {
+      "path": "model/cylindrical_vit.py",
+      "reviewed_blob_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "working_tree_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:26:55.176222-04:00"
+     },
+     {
+      "path": "model/simple_vit.py",
+      "reviewed_blob_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "working_tree_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "model/xRIR.py",
+      "reviewed_blob_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "working_tree_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-26T18:02:41.619587-04:00"
+     },
+     {
+      "path": "model/xRIR_cyl.py",
+      "reviewed_blob_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "working_tree_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:27:04.939191-04:00"
+     },
+     {
+      "path": "tools/per_sample_metrics.py",
+      "reviewed_blob_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "working_tree_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:24:07.601312-04:00"
+     },
+     {
+      "path": "tools/reference_manifest.py",
+      "reviewed_blob_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "working_tree_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:31:42.081396-04:00"
+     },
+     {
+      "path": "tools/yaw_rotation.py",
+      "reviewed_blob_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "working_tree_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T11:41:45.000548-04:00"
+     },
+     {
+      "path": "treble_multi_room_dataset/treble_xRIR_dataset.py",
+      "reviewed_blob_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "working_tree_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T23:55:05.458073-04:00"
+     },
+     {
+      "path": "utils/spec_utils.py",
+      "reviewed_blob_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "working_tree_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.415569-04:00"
+     }
+    ],
+    "environment": {
+     "python": "3.8.20",
+     "torch": "2.0.1+cu117",
+     "torchaudio": "2.0.2+cu117",
+     "torchvision": "0.15.2+cu117",
+     "einops": "0.7.0",
+     "numpy": "1.23.5",
+     "scipy": "1.10.0",
+     "cuda": "11.7",
+     "cudnn": 8500,
+     "gpus": [
+      "NVIDIA RTX A6000",
+      "NVIDIA RTX A6000"
+     ],
+     "nvidia_driver": "590.48.01",
+     "host": "CAB-Lab-Server-8",
+     "python_executable": "/home/yixunhu/miniconda3/envs/xRIR/bin/python",
+     "note": "recorded post hoc by bind_provenance.py on the host and conda env that ran the runs; each run's metrics meta records torch_version independently"
+    },
+    "run_start": "2026-09-06T15:41:19-04:00",
+    "data_identity": {
+     "manifest_path": "ckpt/yaw_rotation/reference_manifest.json",
+     "manifest_file_sha256": "5eaea3727dd840b1cb7cd77cb821ff955004c05b0f09c74fc39849e59ba5da2a",
+     "manifest_hash": "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d",
+     "data_root": "/home/yixunhu/data_cache/AcousticRooms",
+     "inventory_files": 13318,
+     "inventory_missing": 0,
+     "inventory_bytes": 1082499862,
+     "inventory_sha256": "23c3d8f6a0f740f54cb7d5db5766a80e82c6a78d60c05744e7542529a86a3092",
+     "inventory_key": "(relative path, sha256 of the file bytes) of every IR wav, metadata json and depth map the manifest references"
+    },
+    "log_sha256": "0fd0d2c8d57b84e5fc70071fe835b0641476967990a50345b529ad1c9301687f"
+   },
+   "sidecar_sha256": "b992768f325d1773289b53a534b8223c925bb246abe57315e5d00f14af439f98"
+  },
+  "ckpt/yaw_rotation/sweep_cyl": {
+   "sidecar": "ckpt/yaw_rotation/sweep_cyl/provenance.json",
+   "run_start": "2026-09-06T15:41:19-04:00",
+   "elapsed_min": 125.47994124889374,
+   "backbone": "cylindrical",
+   "batch_size": 16,
+   "tf32": false,
+   "gl_seed": 0,
+   "manifest_seed": 0,
+   "per_sample_sha256": "04a073efac560238adde9f1c1a3559d1c60db22493ae338ea1704439c15325b0",
+   "metrics_sha256": "2321fbfec90e9af3dfe342453e7094dcdad42cd8a8cfa230ae73107f13660a81",
+   "checkpoint": "ckpt/xRIR_cyl_8_shot/epoch_12.pth",
+   "checkpoint_sha256": "8ba344ad25d4a68f2ed7f22b4fb90e72b354fafe78b4d28d3eeeb6c1f8eab48e",
+   "command": "CUDA_VISIBLE_DEVICES=1 /home/yixunhu/miniconda3/envs/xRIR/bin/python eval_yaw_rotation.py --backbone cylindrical --checkpoint ckpt/xRIR_cyl_8_shot/epoch_12.pth --manifest ckpt/yaw_rotation/reference_manifest.json --manifest-hash 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d --out-dir ckpt/yaw_rotation/sweep_cyl --batch-size 16 --num-workers 6 --threads 4 --log-interval 10 ",
+   "command_note": "verbatim from the launcher",
+   "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_15:41:19_sweep_cyl.log",
+   "log_sha256": "a33093bda569e184552a5b79d33b588c75faaf2e159a170ff7f2d7eeaa630b55",
+   "launcher_head": "5febf471318e37e60477ebe72afd48f03879c67e",
+   "sidecar_after_binding": {
+    "git_sha": "5febf471318e37e60477ebe72afd48f03879c67e",
+    "checkpoint": "ckpt/xRIR_cyl_8_shot/epoch_12.pth",
+    "checkpoint_sha256": "8ba344ad25d4a68f2ed7f22b4fb90e72b354fafe78b4d28d3eeeb6c1f8eab48e",
+    "manifest_hash": "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d",
+    "per_sample_sha256": "04a073efac560238adde9f1c1a3559d1c60db22493ae338ea1704439c15325b0",
+    "metrics_sha256": "2321fbfec90e9af3dfe342453e7094dcdad42cd8a8cfa230ae73107f13660a81",
+    "command": "CUDA_VISIBLE_DEVICES=1 /home/yixunhu/miniconda3/envs/xRIR/bin/python eval_yaw_rotation.py --backbone cylindrical --checkpoint ckpt/xRIR_cyl_8_shot/epoch_12.pth --manifest ckpt/yaw_rotation/reference_manifest.json --manifest-hash 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d --out-dir ckpt/yaw_rotation/sweep_cyl --batch-size 16 --num-workers 6 --threads 4 --log-interval 10 ",
+    "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_15:41:19_sweep_cyl.log",
+    "written": "2026-09-06T17:46:54.774035-04:00",
+    "evaluator_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+    "reviewed_evaluator_commit": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "launcher_head": "5febf471318e37e60477ebe72afd48f03879c67e",
+    "git_sha_note": "git_sha is the launcher HEAD at run time (or the pinned reviewed commit for sidecars written post hoc); the evaluator and its repo-local imports are bound by source_closure to the reviewed commit (verified post hoc by bind_provenance.py)",
+    "checkpoint_approved_source": "ckpt/yaw_rotation/gate_cyl/provenance.json",
+    "bound_at": "2026-09-06T21:45:25.267000-04:00",
+    "source_closure_sha256": "5ba818d83eddc6e71055926ea64cb104ebb8d3a1c347ab1bc12dd95866c1be48",
+    "source_closure": [
+     {
+      "path": "eval_unseen.py",
+      "reviewed_blob_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "working_tree_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "eval_xRIR_backbone.py",
+      "reviewed_blob_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "working_tree_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T15:02:37.610665-04:00"
+     },
+     {
+      "path": "eval_yaw_rotation.py",
+      "reviewed_blob_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "working_tree_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T13:53:04.533492-04:00"
+     },
+     {
+      "path": "model/cylindrical_vit.py",
+      "reviewed_blob_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "working_tree_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:26:55.176222-04:00"
+     },
+     {
+      "path": "model/simple_vit.py",
+      "reviewed_blob_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "working_tree_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "model/xRIR.py",
+      "reviewed_blob_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "working_tree_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-26T18:02:41.619587-04:00"
+     },
+     {
+      "path": "model/xRIR_cyl.py",
+      "reviewed_blob_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "working_tree_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:27:04.939191-04:00"
+     },
+     {
+      "path": "tools/per_sample_metrics.py",
+      "reviewed_blob_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "working_tree_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:24:07.601312-04:00"
+     },
+     {
+      "path": "tools/reference_manifest.py",
+      "reviewed_blob_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "working_tree_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:31:42.081396-04:00"
+     },
+     {
+      "path": "tools/yaw_rotation.py",
+      "reviewed_blob_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "working_tree_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T11:41:45.000548-04:00"
+     },
+     {
+      "path": "treble_multi_room_dataset/treble_xRIR_dataset.py",
+      "reviewed_blob_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "working_tree_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T23:55:05.458073-04:00"
+     },
+     {
+      "path": "utils/spec_utils.py",
+      "reviewed_blob_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "working_tree_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.415569-04:00"
+     }
+    ],
+    "environment": {
+     "python": "3.8.20",
+     "torch": "2.0.1+cu117",
+     "torchaudio": "2.0.2+cu117",
+     "torchvision": "0.15.2+cu117",
+     "einops": "0.7.0",
+     "numpy": "1.23.5",
+     "scipy": "1.10.0",
+     "cuda": "11.7",
+     "cudnn": 8500,
+     "gpus": [
+      "NVIDIA RTX A6000",
+      "NVIDIA RTX A6000"
+     ],
+     "nvidia_driver": "590.48.01",
+     "host": "CAB-Lab-Server-8",
+     "python_executable": "/home/yixunhu/miniconda3/envs/xRIR/bin/python",
+     "note": "recorded post hoc by bind_provenance.py on the host and conda env that ran the runs; each run's metrics meta records torch_version independently"
+    },
+    "run_start": "2026-09-06T15:41:19-04:00",
+    "data_identity": {
+     "manifest_path": "ckpt/yaw_rotation/reference_manifest.json",
+     "manifest_file_sha256": "5eaea3727dd840b1cb7cd77cb821ff955004c05b0f09c74fc39849e59ba5da2a",
+     "manifest_hash": "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d",
+     "data_root": "/home/yixunhu/data_cache/AcousticRooms",
+     "inventory_files": 13318,
+     "inventory_missing": 0,
+     "inventory_bytes": 1082499862,
+     "inventory_sha256": "23c3d8f6a0f740f54cb7d5db5766a80e82c6a78d60c05744e7542529a86a3092",
+     "inventory_key": "(relative path, sha256 of the file bytes) of every IR wav, metadata json and depth map the manifest references"
+    },
+    "log_sha256": "a33093bda569e184552a5b79d33b588c75faaf2e159a170ff7f2d7eeaa630b55"
+   },
+   "sidecar_sha256": "65e36d016e65a42c122bbb63ac56706c69eeb455acdb30414caa057f5ac86ec0"
+  },
+  "ckpt/yaw_rotation/sweep_released": {
+   "sidecar": "ckpt/yaw_rotation/sweep_released/provenance.json",
+   "run_start": "2026-09-06T17:42:11-04:00",
+   "elapsed_min": 119.04366770982742,
+   "backbone": "simple",
+   "batch_size": 16,
+   "tf32": false,
+   "gl_seed": 0,
+   "manifest_seed": 0,
+   "per_sample_sha256": "3e58f9bb35ca3cf3620884725a592d516c3fd52e393af9d03e6cb00a554d15f2",
+   "metrics_sha256": "75b310ad37137f760cd9270d4cdc4edf5b2ec7e73f1c408c3807d0cf62c9289d",
+   "checkpoint": "checkpoints/xRIR_unseen.pth",
+   "checkpoint_sha256": "6cdb02767b4c11e1be78c3438e1b67bfb9351db4e07ee9c72125f68e337325c5",
+   "command": "CUDA_VISIBLE_DEVICES=0 /home/yixunhu/miniconda3/envs/xRIR/bin/python eval_yaw_rotation.py --backbone simple --checkpoint checkpoints/xRIR_unseen.pth --manifest ckpt/yaw_rotation/reference_manifest.json --manifest-hash 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d --out-dir ckpt/yaw_rotation/sweep_released --batch-size 16 --num-workers 6 --threads 4 --log-interval 10 ",
+   "command_note": "verbatim from the launcher",
+   "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_17:42:11_sweep_released.log",
+   "log_sha256": "dcffe96b1b299a3930912299434b0132b5d69def6f8f441521f7fcfbee870aa4",
+   "launcher_head": "5febf471318e37e60477ebe72afd48f03879c67e",
+   "sidecar_after_binding": {
+    "git_sha": "5febf471318e37e60477ebe72afd48f03879c67e",
+    "checkpoint": "checkpoints/xRIR_unseen.pth",
+    "checkpoint_sha256": "6cdb02767b4c11e1be78c3438e1b67bfb9351db4e07ee9c72125f68e337325c5",
+    "manifest_hash": "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d",
+    "per_sample_sha256": "3e58f9bb35ca3cf3620884725a592d516c3fd52e393af9d03e6cb00a554d15f2",
+    "metrics_sha256": "75b310ad37137f760cd9270d4cdc4edf5b2ec7e73f1c408c3807d0cf62c9289d",
+    "command": "CUDA_VISIBLE_DEVICES=0 /home/yixunhu/miniconda3/envs/xRIR/bin/python eval_yaw_rotation.py --backbone simple --checkpoint checkpoints/xRIR_unseen.pth --manifest ckpt/yaw_rotation/reference_manifest.json --manifest-hash 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d --out-dir ckpt/yaw_rotation/sweep_released --batch-size 16 --num-workers 6 --threads 4 --log-interval 10 ",
+    "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_17:42:11_sweep_released.log",
+    "written": "2026-09-06T19:41:20.690431-04:00",
+    "evaluator_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+    "reviewed_evaluator_commit": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "launcher_head": "5febf471318e37e60477ebe72afd48f03879c67e",
+    "git_sha_note": "git_sha is the launcher HEAD at run time (or the pinned reviewed commit for sidecars written post hoc); the evaluator and its repo-local imports are bound by source_closure to the reviewed commit (verified post hoc by bind_provenance.py)",
+    "checkpoint_approved_source": "ckpt/yaw_rotation/gate_released/provenance.json",
+    "bound_at": "2026-09-06T21:45:25.268306-04:00",
+    "source_closure_sha256": "5ba818d83eddc6e71055926ea64cb104ebb8d3a1c347ab1bc12dd95866c1be48",
+    "source_closure": [
+     {
+      "path": "eval_unseen.py",
+      "reviewed_blob_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "working_tree_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "eval_xRIR_backbone.py",
+      "reviewed_blob_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "working_tree_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T15:02:37.610665-04:00"
+     },
+     {
+      "path": "eval_yaw_rotation.py",
+      "reviewed_blob_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "working_tree_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T13:53:04.533492-04:00"
+     },
+     {
+      "path": "model/cylindrical_vit.py",
+      "reviewed_blob_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "working_tree_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:26:55.176222-04:00"
+     },
+     {
+      "path": "model/simple_vit.py",
+      "reviewed_blob_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "working_tree_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "model/xRIR.py",
+      "reviewed_blob_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "working_tree_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-26T18:02:41.619587-04:00"
+     },
+     {
+      "path": "model/xRIR_cyl.py",
+      "reviewed_blob_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "working_tree_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:27:04.939191-04:00"
+     },
+     {
+      "path": "tools/per_sample_metrics.py",
+      "reviewed_blob_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "working_tree_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:24:07.601312-04:00"
+     },
+     {
+      "path": "tools/reference_manifest.py",
+      "reviewed_blob_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "working_tree_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:31:42.081396-04:00"
+     },
+     {
+      "path": "tools/yaw_rotation.py",
+      "reviewed_blob_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "working_tree_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T11:41:45.000548-04:00"
+     },
+     {
+      "path": "treble_multi_room_dataset/treble_xRIR_dataset.py",
+      "reviewed_blob_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "working_tree_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T23:55:05.458073-04:00"
+     },
+     {
+      "path": "utils/spec_utils.py",
+      "reviewed_blob_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "working_tree_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.415569-04:00"
+     }
+    ],
+    "environment": {
+     "python": "3.8.20",
+     "torch": "2.0.1+cu117",
+     "torchaudio": "2.0.2+cu117",
+     "torchvision": "0.15.2+cu117",
+     "einops": "0.7.0",
+     "numpy": "1.23.5",
+     "scipy": "1.10.0",
+     "cuda": "11.7",
+     "cudnn": 8500,
+     "gpus": [
+      "NVIDIA RTX A6000",
+      "NVIDIA RTX A6000"
+     ],
+     "nvidia_driver": "590.48.01",
+     "host": "CAB-Lab-Server-8",
+     "python_executable": "/home/yixunhu/miniconda3/envs/xRIR/bin/python",
+     "note": "recorded post hoc by bind_provenance.py on the host and conda env that ran the runs; each run's metrics meta records torch_version independently"
+    },
+    "run_start": "2026-09-06T17:42:11-04:00",
+    "data_identity": {
+     "manifest_path": "ckpt/yaw_rotation/reference_manifest.json",
+     "manifest_file_sha256": "5eaea3727dd840b1cb7cd77cb821ff955004c05b0f09c74fc39849e59ba5da2a",
+     "manifest_hash": "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d",
+     "data_root": "/home/yixunhu/data_cache/AcousticRooms",
+     "inventory_files": 13318,
+     "inventory_missing": 0,
+     "inventory_bytes": 1082499862,
+     "inventory_sha256": "23c3d8f6a0f740f54cb7d5db5766a80e82c6a78d60c05744e7542529a86a3092",
+     "inventory_key": "(relative path, sha256 of the file bytes) of every IR wav, metadata json and depth map the manifest references"
+    },
+    "log_sha256": "dcffe96b1b299a3930912299434b0132b5d69def6f8f441521f7fcfbee870aa4"
+   },
+   "sidecar_sha256": "e80a5fb23e1e9f67cfa52f1fcd113401633b2782538cc061d852a5b9dada608b"
+  },
+  "ckpt/yaw_rotation/gate_control": {
+   "sidecar": "ckpt/yaw_rotation/gate_control/provenance.json",
+   "run_start": "2026-09-06T14:18:14-04:00",
+   "elapsed_min": 9.347867127259573,
+   "backbone": "simple",
+   "batch_size": 16,
+   "tf32": false,
+   "gl_seed": 0,
+   "manifest_seed": 0,
+   "per_sample_sha256": "81255538e99b711a22d18362947e6a88a98290d93515f6f45657f8205217caeb",
+   "metrics_sha256": "ee5aad59f4b9ee0fe0a4cc4e6dcfa4925739cb07f9f85bcb4cac375faa37e6c1",
+   "checkpoint": "ckpt/xRIR_simple_8_shot/epoch_12.pth",
+   "checkpoint_sha256": "651e3a377e110022fbd89332ff1f1c2648ef398bd83840bf369b05eb5decbedf",
+   "command": "CUDA_VISIBLE_DEVICES=<0|1> python eval_yaw_rotation.py --backbone simple --checkpoint ckpt/xRIR_simple_8_shot/epoch_12.pth --manifest ckpt/yaw_rotation/reference_manifest.json --manifest-hash 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d --out-dir ckpt/yaw_rotation/gate_control --batch-size 16 --num-workers 6 --threads 4 --log-interval 10 --yaw-cols 0 --acoustic-cols 0 --e-acoustic-cols",
+   "command_note": "launcher v1 template with a <0|1> GPU placeholder",
+   "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_14:18:14_gate_control.log",
+   "log_sha256": "df46f54c0a4ec58e3085a1c30d01516e459811df3001b4361bde76802aa915f2",
+   "launcher_head": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+   "sidecar_after_binding": {
+    "git_sha": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "checkpoint": "ckpt/xRIR_simple_8_shot/epoch_12.pth",
+    "checkpoint_sha256": "651e3a377e110022fbd89332ff1f1c2648ef398bd83840bf369b05eb5decbedf",
+    "manifest_hash": "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d",
+    "per_sample_sha256": "81255538e99b711a22d18362947e6a88a98290d93515f6f45657f8205217caeb",
+    "metrics_sha256": "ee5aad59f4b9ee0fe0a4cc4e6dcfa4925739cb07f9f85bcb4cac375faa37e6c1",
+    "command": "CUDA_VISIBLE_DEVICES=<0|1> python eval_yaw_rotation.py --backbone simple --checkpoint ckpt/xRIR_simple_8_shot/epoch_12.pth --manifest ckpt/yaw_rotation/reference_manifest.json --manifest-hash 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d --out-dir ckpt/yaw_rotation/gate_control --batch-size 16 --num-workers 6 --threads 4 --log-interval 10 --yaw-cols 0 --acoustic-cols 0 --e-acoustic-cols",
+    "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_14:18:14_gate_control.log",
+    "written": "2026-09-06T14:47:45.507570-04:00",
+    "note": "sidecar written by the Planner after the v1 launcher run (v1 wrote no sidecars); the k=32 decomposition was computed on the first batch of these k=0 runs (harmless, per the full review)",
+    "git_sha_note": "git_sha is the launcher HEAD at run time (or the pinned reviewed commit for sidecars written post hoc); the evaluator and its repo-local imports are bound by source_closure to the reviewed commit (verified post hoc by bind_provenance.py)",
+    "evaluator_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+    "reviewed_evaluator_commit": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "launcher_head": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "source_closure_sha256": "5ba818d83eddc6e71055926ea64cb104ebb8d3a1c347ab1bc12dd95866c1be48",
+    "source_closure": [
+     {
+      "path": "eval_unseen.py",
+      "reviewed_blob_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "working_tree_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "eval_xRIR_backbone.py",
+      "reviewed_blob_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "working_tree_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T15:02:37.610665-04:00"
+     },
+     {
+      "path": "eval_yaw_rotation.py",
+      "reviewed_blob_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "working_tree_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T13:53:04.533492-04:00"
+     },
+     {
+      "path": "model/cylindrical_vit.py",
+      "reviewed_blob_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "working_tree_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:26:55.176222-04:00"
+     },
+     {
+      "path": "model/simple_vit.py",
+      "reviewed_blob_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "working_tree_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "model/xRIR.py",
+      "reviewed_blob_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "working_tree_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-26T18:02:41.619587-04:00"
+     },
+     {
+      "path": "model/xRIR_cyl.py",
+      "reviewed_blob_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "working_tree_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:27:04.939191-04:00"
+     },
+     {
+      "path": "tools/per_sample_metrics.py",
+      "reviewed_blob_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "working_tree_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:24:07.601312-04:00"
+     },
+     {
+      "path": "tools/reference_manifest.py",
+      "reviewed_blob_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "working_tree_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:31:42.081396-04:00"
+     },
+     {
+      "path": "tools/yaw_rotation.py",
+      "reviewed_blob_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "working_tree_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T11:41:45.000548-04:00"
+     },
+     {
+      "path": "treble_multi_room_dataset/treble_xRIR_dataset.py",
+      "reviewed_blob_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "working_tree_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T23:55:05.458073-04:00"
+     },
+     {
+      "path": "utils/spec_utils.py",
+      "reviewed_blob_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "working_tree_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.415569-04:00"
+     }
+    ],
+    "environment": {
+     "python": "3.8.20",
+     "torch": "2.0.1+cu117",
+     "torchaudio": "2.0.2+cu117",
+     "torchvision": "0.15.2+cu117",
+     "einops": "0.7.0",
+     "numpy": "1.23.5",
+     "scipy": "1.10.0",
+     "cuda": "11.7",
+     "cudnn": 8500,
+     "gpus": [
+      "NVIDIA RTX A6000",
+      "NVIDIA RTX A6000"
+     ],
+     "nvidia_driver": "590.48.01",
+     "host": "CAB-Lab-Server-8",
+     "python_executable": "/home/yixunhu/miniconda3/envs/xRIR/bin/python",
+     "note": "recorded post hoc by bind_provenance.py on the host and conda env that ran the runs; each run's metrics meta records torch_version independently"
+    },
+    "data_identity": {
+     "manifest_path": "ckpt/yaw_rotation/reference_manifest.json",
+     "manifest_file_sha256": "5eaea3727dd840b1cb7cd77cb821ff955004c05b0f09c74fc39849e59ba5da2a",
+     "manifest_hash": "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d",
+     "data_root": "/home/yixunhu/data_cache/AcousticRooms",
+     "inventory_files": 13318,
+     "inventory_missing": 0,
+     "inventory_bytes": 1082499862,
+     "inventory_sha256": "23c3d8f6a0f740f54cb7d5db5766a80e82c6a78d60c05744e7542529a86a3092",
+     "inventory_key": "(relative path, sha256 of the file bytes) of every IR wav, metadata json and depth map the manifest references"
+    },
+    "run_start": "2026-09-06T14:18:14-04:00",
+    "checkpoint_approved_source": "self (gate run)",
+    "bound_at": "2026-09-06T21:45:25.270207-04:00",
+    "log_sha256": "df46f54c0a4ec58e3085a1c30d01516e459811df3001b4361bde76802aa915f2"
+   },
+   "sidecar_sha256": "3343804d3b2d9ca5f0fdf84d619c05d28d843316ccc51f24d60fda3a253dd132"
+  },
+  "ckpt/yaw_rotation/gate_cyl": {
+   "sidecar": "ckpt/yaw_rotation/gate_cyl/provenance.json",
+   "run_start": "2026-09-06T14:18:14-04:00",
+   "elapsed_min": 9.694805240631103,
+   "backbone": "cylindrical",
+   "batch_size": 16,
+   "tf32": false,
+   "gl_seed": 0,
+   "manifest_seed": 0,
+   "per_sample_sha256": "9cd4d05569149c01b9c38776abadc261c3f32170b3a952ab59bd3a3c1a5d3780",
+   "metrics_sha256": "42a2d2f4e6ef8a8b778d45442932ed7072852125be70d711a292880ba25d9492",
+   "checkpoint": "ckpt/xRIR_cyl_8_shot/epoch_12.pth",
+   "checkpoint_sha256": "8ba344ad25d4a68f2ed7f22b4fb90e72b354fafe78b4d28d3eeeb6c1f8eab48e",
+   "command": "CUDA_VISIBLE_DEVICES=<0|1> python eval_yaw_rotation.py --backbone cylindrical --checkpoint ckpt/xRIR_cyl_8_shot/epoch_12.pth --manifest ckpt/yaw_rotation/reference_manifest.json --manifest-hash 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d --out-dir ckpt/yaw_rotation/gate_cyl --batch-size 16 --num-workers 6 --threads 4 --log-interval 10 --yaw-cols 0 --acoustic-cols 0 --e-acoustic-cols",
+   "command_note": "launcher v1 template with a <0|1> GPU placeholder",
+   "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_14:18:14_gate_cyl.log",
+   "log_sha256": "087b71054f4ad78e7d1b040607dfbb4c8c9f824f4265f40b9524f08d1d18d590",
+   "launcher_head": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+   "sidecar_after_binding": {
+    "git_sha": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "checkpoint": "ckpt/xRIR_cyl_8_shot/epoch_12.pth",
+    "checkpoint_sha256": "8ba344ad25d4a68f2ed7f22b4fb90e72b354fafe78b4d28d3eeeb6c1f8eab48e",
+    "manifest_hash": "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d",
+    "per_sample_sha256": "9cd4d05569149c01b9c38776abadc261c3f32170b3a952ab59bd3a3c1a5d3780",
+    "metrics_sha256": "42a2d2f4e6ef8a8b778d45442932ed7072852125be70d711a292880ba25d9492",
+    "command": "CUDA_VISIBLE_DEVICES=<0|1> python eval_yaw_rotation.py --backbone cylindrical --checkpoint ckpt/xRIR_cyl_8_shot/epoch_12.pth --manifest ckpt/yaw_rotation/reference_manifest.json --manifest-hash 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d --out-dir ckpt/yaw_rotation/gate_cyl --batch-size 16 --num-workers 6 --threads 4 --log-interval 10 --yaw-cols 0 --acoustic-cols 0 --e-acoustic-cols",
+    "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_14:18:14_gate_cyl.log",
+    "written": "2026-09-06T14:47:45.899004-04:00",
+    "note": "sidecar written by the Planner after the v1 launcher run (v1 wrote no sidecars); the k=32 decomposition was computed on the first batch of these k=0 runs (harmless, per the full review)",
+    "git_sha_note": "git_sha is the launcher HEAD at run time (or the pinned reviewed commit for sidecars written post hoc); the evaluator and its repo-local imports are bound by source_closure to the reviewed commit (verified post hoc by bind_provenance.py)",
+    "evaluator_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+    "reviewed_evaluator_commit": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "launcher_head": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "source_closure_sha256": "5ba818d83eddc6e71055926ea64cb104ebb8d3a1c347ab1bc12dd95866c1be48",
+    "source_closure": [
+     {
+      "path": "eval_unseen.py",
+      "reviewed_blob_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "working_tree_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "eval_xRIR_backbone.py",
+      "reviewed_blob_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "working_tree_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T15:02:37.610665-04:00"
+     },
+     {
+      "path": "eval_yaw_rotation.py",
+      "reviewed_blob_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "working_tree_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T13:53:04.533492-04:00"
+     },
+     {
+      "path": "model/cylindrical_vit.py",
+      "reviewed_blob_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "working_tree_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:26:55.176222-04:00"
+     },
+     {
+      "path": "model/simple_vit.py",
+      "reviewed_blob_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "working_tree_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "model/xRIR.py",
+      "reviewed_blob_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "working_tree_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-26T18:02:41.619587-04:00"
+     },
+     {
+      "path": "model/xRIR_cyl.py",
+      "reviewed_blob_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "working_tree_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:27:04.939191-04:00"
+     },
+     {
+      "path": "tools/per_sample_metrics.py",
+      "reviewed_blob_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "working_tree_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:24:07.601312-04:00"
+     },
+     {
+      "path": "tools/reference_manifest.py",
+      "reviewed_blob_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "working_tree_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:31:42.081396-04:00"
+     },
+     {
+      "path": "tools/yaw_rotation.py",
+      "reviewed_blob_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "working_tree_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T11:41:45.000548-04:00"
+     },
+     {
+      "path": "treble_multi_room_dataset/treble_xRIR_dataset.py",
+      "reviewed_blob_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "working_tree_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T23:55:05.458073-04:00"
+     },
+     {
+      "path": "utils/spec_utils.py",
+      "reviewed_blob_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "working_tree_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.415569-04:00"
+     }
+    ],
+    "environment": {
+     "python": "3.8.20",
+     "torch": "2.0.1+cu117",
+     "torchaudio": "2.0.2+cu117",
+     "torchvision": "0.15.2+cu117",
+     "einops": "0.7.0",
+     "numpy": "1.23.5",
+     "scipy": "1.10.0",
+     "cuda": "11.7",
+     "cudnn": 8500,
+     "gpus": [
+      "NVIDIA RTX A6000",
+      "NVIDIA RTX A6000"
+     ],
+     "nvidia_driver": "590.48.01",
+     "host": "CAB-Lab-Server-8",
+     "python_executable": "/home/yixunhu/miniconda3/envs/xRIR/bin/python",
+     "note": "recorded post hoc by bind_provenance.py on the host and conda env that ran the runs; each run's metrics meta records torch_version independently"
+    },
+    "data_identity": {
+     "manifest_path": "ckpt/yaw_rotation/reference_manifest.json",
+     "manifest_file_sha256": "5eaea3727dd840b1cb7cd77cb821ff955004c05b0f09c74fc39849e59ba5da2a",
+     "manifest_hash": "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d",
+     "data_root": "/home/yixunhu/data_cache/AcousticRooms",
+     "inventory_files": 13318,
+     "inventory_missing": 0,
+     "inventory_bytes": 1082499862,
+     "inventory_sha256": "23c3d8f6a0f740f54cb7d5db5766a80e82c6a78d60c05744e7542529a86a3092",
+     "inventory_key": "(relative path, sha256 of the file bytes) of every IR wav, metadata json and depth map the manifest references"
+    },
+    "run_start": "2026-09-06T14:18:14-04:00",
+    "checkpoint_approved_source": "self (gate run)",
+    "bound_at": "2026-09-06T21:45:25.271642-04:00",
+    "log_sha256": "087b71054f4ad78e7d1b040607dfbb4c8c9f824f4265f40b9524f08d1d18d590"
+   },
+   "sidecar_sha256": "6cf867fb98cc4b06e3ab923ad5b7c47e52b94114f3f4eb0131c0160cf837c074"
+  },
+  "ckpt/yaw_rotation/gate_released": {
+   "sidecar": "ckpt/yaw_rotation/gate_released/provenance.json",
+   "run_start": "2026-09-06T14:27:39-04:00",
+   "elapsed_min": 9.2699236313502,
+   "backbone": "simple",
+   "batch_size": 16,
+   "tf32": false,
+   "gl_seed": 0,
+   "manifest_seed": 0,
+   "per_sample_sha256": "68d468bfdfa5417e5f3a8908b57d05742aec4f20b3d48038ffffc22a9fde1082",
+   "metrics_sha256": "3f3a3dad084498ca28dc6fd0d7752cf02927ea0bd2d99af18d5d364a5a493ac3",
+   "checkpoint": "checkpoints/xRIR_unseen.pth",
+   "checkpoint_sha256": "6cdb02767b4c11e1be78c3438e1b67bfb9351db4e07ee9c72125f68e337325c5",
+   "command": "CUDA_VISIBLE_DEVICES=<0|1> python eval_yaw_rotation.py --backbone simple --checkpoint checkpoints/xRIR_unseen.pth --manifest ckpt/yaw_rotation/reference_manifest.json --manifest-hash 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d --out-dir ckpt/yaw_rotation/gate_released --batch-size 16 --num-workers 6 --threads 4 --log-interval 10 --yaw-cols 0 --acoustic-cols 0 --e-acoustic-cols",
+   "command_note": "launcher v1 template with a <0|1> GPU placeholder",
+   "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_14:27:39_gate_released.log",
+   "log_sha256": "e4eec7f2faee397e7ca587c0e5f11cd93303f64be000de8a8ff4dd7cb2f2929b",
+   "launcher_head": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+   "sidecar_after_binding": {
+    "git_sha": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "checkpoint": "checkpoints/xRIR_unseen.pth",
+    "checkpoint_sha256": "6cdb02767b4c11e1be78c3438e1b67bfb9351db4e07ee9c72125f68e337325c5",
+    "manifest_hash": "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d",
+    "per_sample_sha256": "68d468bfdfa5417e5f3a8908b57d05742aec4f20b3d48038ffffc22a9fde1082",
+    "metrics_sha256": "3f3a3dad084498ca28dc6fd0d7752cf02927ea0bd2d99af18d5d364a5a493ac3",
+    "command": "CUDA_VISIBLE_DEVICES=<0|1> python eval_yaw_rotation.py --backbone simple --checkpoint checkpoints/xRIR_unseen.pth --manifest ckpt/yaw_rotation/reference_manifest.json --manifest-hash 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d --out-dir ckpt/yaw_rotation/gate_released --batch-size 16 --num-workers 6 --threads 4 --log-interval 10 --yaw-cols 0 --acoustic-cols 0 --e-acoustic-cols",
+    "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_14:27:39_gate_released.log",
+    "written": "2026-09-06T14:47:46.281938-04:00",
+    "note": "sidecar written by the Planner after the v1 launcher run (v1 wrote no sidecars); the k=32 decomposition was computed on the first batch of these k=0 runs (harmless, per the full review)",
+    "git_sha_note": "git_sha is the launcher HEAD at run time (or the pinned reviewed commit for sidecars written post hoc); the evaluator and its repo-local imports are bound by source_closure to the reviewed commit (verified post hoc by bind_provenance.py)",
+    "evaluator_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+    "reviewed_evaluator_commit": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "launcher_head": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "source_closure_sha256": "5ba818d83eddc6e71055926ea64cb104ebb8d3a1c347ab1bc12dd95866c1be48",
+    "source_closure": [
+     {
+      "path": "eval_unseen.py",
+      "reviewed_blob_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "working_tree_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "eval_xRIR_backbone.py",
+      "reviewed_blob_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "working_tree_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T15:02:37.610665-04:00"
+     },
+     {
+      "path": "eval_yaw_rotation.py",
+      "reviewed_blob_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "working_tree_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T13:53:04.533492-04:00"
+     },
+     {
+      "path": "model/cylindrical_vit.py",
+      "reviewed_blob_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "working_tree_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:26:55.176222-04:00"
+     },
+     {
+      "path": "model/simple_vit.py",
+      "reviewed_blob_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "working_tree_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "model/xRIR.py",
+      "reviewed_blob_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "working_tree_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-26T18:02:41.619587-04:00"
+     },
+     {
+      "path": "model/xRIR_cyl.py",
+      "reviewed_blob_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "working_tree_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:27:04.939191-04:00"
+     },
+     {
+      "path": "tools/per_sample_metrics.py",
+      "reviewed_blob_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "working_tree_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:24:07.601312-04:00"
+     },
+     {
+      "path": "tools/reference_manifest.py",
+      "reviewed_blob_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "working_tree_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:31:42.081396-04:00"
+     },
+     {
+      "path": "tools/yaw_rotation.py",
+      "reviewed_blob_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "working_tree_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T11:41:45.000548-04:00"
+     },
+     {
+      "path": "treble_multi_room_dataset/treble_xRIR_dataset.py",
+      "reviewed_blob_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "working_tree_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T23:55:05.458073-04:00"
+     },
+     {
+      "path": "utils/spec_utils.py",
+      "reviewed_blob_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "working_tree_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.415569-04:00"
+     }
+    ],
+    "environment": {
+     "python": "3.8.20",
+     "torch": "2.0.1+cu117",
+     "torchaudio": "2.0.2+cu117",
+     "torchvision": "0.15.2+cu117",
+     "einops": "0.7.0",
+     "numpy": "1.23.5",
+     "scipy": "1.10.0",
+     "cuda": "11.7",
+     "cudnn": 8500,
+     "gpus": [
+      "NVIDIA RTX A6000",
+      "NVIDIA RTX A6000"
+     ],
+     "nvidia_driver": "590.48.01",
+     "host": "CAB-Lab-Server-8",
+     "python_executable": "/home/yixunhu/miniconda3/envs/xRIR/bin/python",
+     "note": "recorded post hoc by bind_provenance.py on the host and conda env that ran the runs; each run's metrics meta records torch_version independently"
+    },
+    "data_identity": {
+     "manifest_path": "ckpt/yaw_rotation/reference_manifest.json",
+     "manifest_file_sha256": "5eaea3727dd840b1cb7cd77cb821ff955004c05b0f09c74fc39849e59ba5da2a",
+     "manifest_hash": "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d",
+     "data_root": "/home/yixunhu/data_cache/AcousticRooms",
+     "inventory_files": 13318,
+     "inventory_missing": 0,
+     "inventory_bytes": 1082499862,
+     "inventory_sha256": "23c3d8f6a0f740f54cb7d5db5766a80e82c6a78d60c05744e7542529a86a3092",
+     "inventory_key": "(relative path, sha256 of the file bytes) of every IR wav, metadata json and depth map the manifest references"
+    },
+    "run_start": "2026-09-06T14:27:39-04:00",
+    "checkpoint_approved_source": "self (gate run)",
+    "bound_at": "2026-09-06T21:45:25.272906-04:00",
+    "log_sha256": "e4eec7f2faee397e7ca587c0e5f11cd93303f64be000de8a8ff4dd7cb2f2929b"
+   },
+   "sidecar_sha256": "c8130368f8febad8993adba0396aaf11c5c1135fdbfa57f063f6c737ac5b7aba"
+  },
+  "ckpt/yaw_rotation/gate_noise_seed1": {
+   "sidecar": "ckpt/yaw_rotation/gate_noise_seed1/provenance.json",
+   "run_start": "2026-09-06T14:36:58-04:00",
+   "elapsed_min": 9.293641070524851,
+   "backbone": "simple",
+   "batch_size": 16,
+   "tf32": false,
+   "gl_seed": 0,
+   "manifest_seed": 1,
+   "per_sample_sha256": "c34b7dea4b69d7a0ae1f245156f75d61112a26b2dfc69fc22d3c98b864e7d77c",
+   "metrics_sha256": "438cbc5c16d89e2d88c79265c2f28342e60dd8bac18a5c0ea625f5f37d6dcc5e",
+   "checkpoint": "ckpt/xRIR_simple_8_shot/epoch_12.pth",
+   "checkpoint_sha256": "651e3a377e110022fbd89332ff1f1c2648ef398bd83840bf369b05eb5decbedf",
+   "command": "CUDA_VISIBLE_DEVICES=<0|1> python eval_yaw_rotation.py --backbone simple --checkpoint ckpt/xRIR_simple_8_shot/epoch_12.pth --manifest ckpt/yaw_rotation/reference_manifest_seed1.json --manifest-hash 6ca8164e5727d5f4db84569d5effa840b2cb6e6f77819a69bbb37bb30c6ab11e --out-dir ckpt/yaw_rotation/gate_noise_seed1 --batch-size 16 --num-workers 6 --threads 4 --log-interval 10 --yaw-cols 0 --acoustic-cols 0 --e-acoustic-cols",
+   "command_note": "launcher v1 template with a <0|1> GPU placeholder",
+   "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_14:36:58_gate_noise_seed1.log",
+   "log_sha256": "daf02d61c119f35fe743543f69062b391cba3fbefe49dd4341e5bc9851b42aee",
+   "launcher_head": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+   "sidecar_after_binding": {
+    "git_sha": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "checkpoint": "ckpt/xRIR_simple_8_shot/epoch_12.pth",
+    "checkpoint_sha256": "651e3a377e110022fbd89332ff1f1c2648ef398bd83840bf369b05eb5decbedf",
+    "manifest_hash": "6ca8164e5727d5f4db84569d5effa840b2cb6e6f77819a69bbb37bb30c6ab11e",
+    "per_sample_sha256": "c34b7dea4b69d7a0ae1f245156f75d61112a26b2dfc69fc22d3c98b864e7d77c",
+    "metrics_sha256": "438cbc5c16d89e2d88c79265c2f28342e60dd8bac18a5c0ea625f5f37d6dcc5e",
+    "command": "CUDA_VISIBLE_DEVICES=<0|1> python eval_yaw_rotation.py --backbone simple --checkpoint ckpt/xRIR_simple_8_shot/epoch_12.pth --manifest ckpt/yaw_rotation/reference_manifest_seed1.json --manifest-hash 6ca8164e5727d5f4db84569d5effa840b2cb6e6f77819a69bbb37bb30c6ab11e --out-dir ckpt/yaw_rotation/gate_noise_seed1 --batch-size 16 --num-workers 6 --threads 4 --log-interval 10 --yaw-cols 0 --acoustic-cols 0 --e-acoustic-cols",
+    "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_14:36:58_gate_noise_seed1.log",
+    "written": "2026-09-06T14:47:46.682924-04:00",
+    "note": "sidecar written by the Planner after the v1 launcher run (v1 wrote no sidecars); the k=32 decomposition was computed on the first batch of these k=0 runs (harmless, per the full review)",
+    "git_sha_note": "git_sha is the launcher HEAD at run time (or the pinned reviewed commit for sidecars written post hoc); the evaluator and its repo-local imports are bound by source_closure to the reviewed commit (verified post hoc by bind_provenance.py)",
+    "evaluator_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+    "reviewed_evaluator_commit": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "launcher_head": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "source_closure_sha256": "5ba818d83eddc6e71055926ea64cb104ebb8d3a1c347ab1bc12dd95866c1be48",
+    "source_closure": [
+     {
+      "path": "eval_unseen.py",
+      "reviewed_blob_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "working_tree_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "eval_xRIR_backbone.py",
+      "reviewed_blob_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "working_tree_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T15:02:37.610665-04:00"
+     },
+     {
+      "path": "eval_yaw_rotation.py",
+      "reviewed_blob_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "working_tree_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T13:53:04.533492-04:00"
+     },
+     {
+      "path": "model/cylindrical_vit.py",
+      "reviewed_blob_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "working_tree_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:26:55.176222-04:00"
+     },
+     {
+      "path": "model/simple_vit.py",
+      "reviewed_blob_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "working_tree_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "model/xRIR.py",
+      "reviewed_blob_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "working_tree_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-26T18:02:41.619587-04:00"
+     },
+     {
+      "path": "model/xRIR_cyl.py",
+      "reviewed_blob_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "working_tree_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:27:04.939191-04:00"
+     },
+     {
+      "path": "tools/per_sample_metrics.py",
+      "reviewed_blob_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "working_tree_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:24:07.601312-04:00"
+     },
+     {
+      "path": "tools/reference_manifest.py",
+      "reviewed_blob_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "working_tree_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:31:42.081396-04:00"
+     },
+     {
+      "path": "tools/yaw_rotation.py",
+      "reviewed_blob_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "working_tree_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T11:41:45.000548-04:00"
+     },
+     {
+      "path": "treble_multi_room_dataset/treble_xRIR_dataset.py",
+      "reviewed_blob_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "working_tree_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T23:55:05.458073-04:00"
+     },
+     {
+      "path": "utils/spec_utils.py",
+      "reviewed_blob_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "working_tree_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.415569-04:00"
+     }
+    ],
+    "environment": {
+     "python": "3.8.20",
+     "torch": "2.0.1+cu117",
+     "torchaudio": "2.0.2+cu117",
+     "torchvision": "0.15.2+cu117",
+     "einops": "0.7.0",
+     "numpy": "1.23.5",
+     "scipy": "1.10.0",
+     "cuda": "11.7",
+     "cudnn": 8500,
+     "gpus": [
+      "NVIDIA RTX A6000",
+      "NVIDIA RTX A6000"
+     ],
+     "nvidia_driver": "590.48.01",
+     "host": "CAB-Lab-Server-8",
+     "python_executable": "/home/yixunhu/miniconda3/envs/xRIR/bin/python",
+     "note": "recorded post hoc by bind_provenance.py on the host and conda env that ran the runs; each run's metrics meta records torch_version independently"
+    },
+    "data_identity": {
+     "manifest_path": "ckpt/yaw_rotation/reference_manifest_seed1.json",
+     "manifest_file_sha256": "48f5a1097beee89fb503f33ac0e5238696b570a17d5f94687411647a400019bd",
+     "manifest_hash": "6ca8164e5727d5f4db84569d5effa840b2cb6e6f77819a69bbb37bb30c6ab11e",
+     "data_root": "/home/yixunhu/data_cache/AcousticRooms",
+     "inventory_files": 13318,
+     "inventory_missing": 0,
+     "inventory_bytes": 1082499862,
+     "inventory_sha256": "23c3d8f6a0f740f54cb7d5db5766a80e82c6a78d60c05744e7542529a86a3092",
+     "inventory_key": "(relative path, sha256 of the file bytes) of every IR wav, metadata json and depth map the manifest references"
+    },
+    "run_start": "2026-09-06T14:36:58-04:00",
+    "checkpoint_approved_source": "self (gate run)",
+    "bound_at": "2026-09-06T21:45:25.274166-04:00",
+    "log_sha256": "daf02d61c119f35fe743543f69062b391cba3fbefe49dd4341e5bc9851b42aee"
+   },
+   "sidecar_sha256": "77279395f90086a0bf660c8466d1610a60de65389e536e9c467b6bd079524bcd"
+  },
+  "ckpt/yaw_rotation/gate_noise_seed2": {
+   "sidecar": "ckpt/yaw_rotation/gate_noise_seed2/provenance.json",
+   "run_start": "2026-09-06T14:28:00-04:00",
+   "elapsed_min": 9.41421666542689,
+   "backbone": "simple",
+   "batch_size": 16,
+   "tf32": false,
+   "gl_seed": 0,
+   "manifest_seed": 2,
+   "per_sample_sha256": "4c96ff3174bd8476a7142191ab76982a0098c6d8fb5ae5cf7202ab3f5100d3e7",
+   "metrics_sha256": "6a946097cbe390a135bc3277c92687cc70a433dd5b5f2c68c7498092e9911e2d",
+   "checkpoint": "ckpt/xRIR_simple_8_shot/epoch_12.pth",
+   "checkpoint_sha256": "651e3a377e110022fbd89332ff1f1c2648ef398bd83840bf369b05eb5decbedf",
+   "command": "CUDA_VISIBLE_DEVICES=<0|1> python eval_yaw_rotation.py --backbone simple --checkpoint ckpt/xRIR_simple_8_shot/epoch_12.pth --manifest ckpt/yaw_rotation/reference_manifest_seed2.json --manifest-hash 757e5a966ee2d069a07accecbc43e46bd564ea7c788a28c219773df64e986234 --out-dir ckpt/yaw_rotation/gate_noise_seed2 --batch-size 16 --num-workers 6 --threads 4 --log-interval 10 --yaw-cols 0 --acoustic-cols 0 --e-acoustic-cols",
+   "command_note": "launcher v1 template with a <0|1> GPU placeholder",
+   "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_14:28:00_gate_noise_seed2.log",
+   "log_sha256": "43be2e57f786d82f489b5d3ba58e9c6e4192161121999a35c5996b32d4483d9c",
+   "launcher_head": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+   "sidecar_after_binding": {
+    "git_sha": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "checkpoint": "ckpt/xRIR_simple_8_shot/epoch_12.pth",
+    "checkpoint_sha256": "651e3a377e110022fbd89332ff1f1c2648ef398bd83840bf369b05eb5decbedf",
+    "manifest_hash": "757e5a966ee2d069a07accecbc43e46bd564ea7c788a28c219773df64e986234",
+    "per_sample_sha256": "4c96ff3174bd8476a7142191ab76982a0098c6d8fb5ae5cf7202ab3f5100d3e7",
+    "metrics_sha256": "6a946097cbe390a135bc3277c92687cc70a433dd5b5f2c68c7498092e9911e2d",
+    "command": "CUDA_VISIBLE_DEVICES=<0|1> python eval_yaw_rotation.py --backbone simple --checkpoint ckpt/xRIR_simple_8_shot/epoch_12.pth --manifest ckpt/yaw_rotation/reference_manifest_seed2.json --manifest-hash 757e5a966ee2d069a07accecbc43e46bd564ea7c788a28c219773df64e986234 --out-dir ckpt/yaw_rotation/gate_noise_seed2 --batch-size 16 --num-workers 6 --threads 4 --log-interval 10 --yaw-cols 0 --acoustic-cols 0 --e-acoustic-cols",
+    "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_14:28:00_gate_noise_seed2.log",
+    "written": "2026-09-06T14:47:47.108056-04:00",
+    "note": "sidecar written by the Planner after the v1 launcher run (v1 wrote no sidecars); the k=32 decomposition was computed on the first batch of these k=0 runs (harmless, per the full review)",
+    "git_sha_note": "git_sha is the launcher HEAD at run time (or the pinned reviewed commit for sidecars written post hoc); the evaluator and its repo-local imports are bound by source_closure to the reviewed commit (verified post hoc by bind_provenance.py)",
+    "evaluator_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+    "reviewed_evaluator_commit": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "launcher_head": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "source_closure_sha256": "5ba818d83eddc6e71055926ea64cb104ebb8d3a1c347ab1bc12dd95866c1be48",
+    "source_closure": [
+     {
+      "path": "eval_unseen.py",
+      "reviewed_blob_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "working_tree_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "eval_xRIR_backbone.py",
+      "reviewed_blob_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "working_tree_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T15:02:37.610665-04:00"
+     },
+     {
+      "path": "eval_yaw_rotation.py",
+      "reviewed_blob_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "working_tree_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T13:53:04.533492-04:00"
+     },
+     {
+      "path": "model/cylindrical_vit.py",
+      "reviewed_blob_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "working_tree_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:26:55.176222-04:00"
+     },
+     {
+      "path": "model/simple_vit.py",
+      "reviewed_blob_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "working_tree_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "model/xRIR.py",
+      "reviewed_blob_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "working_tree_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-26T18:02:41.619587-04:00"
+     },
+     {
+      "path": "model/xRIR_cyl.py",
+      "reviewed_blob_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "working_tree_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:27:04.939191-04:00"
+     },
+     {
+      "path": "tools/per_sample_metrics.py",
+      "reviewed_blob_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "working_tree_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:24:07.601312-04:00"
+     },
+     {
+      "path": "tools/reference_manifest.py",
+      "reviewed_blob_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "working_tree_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:31:42.081396-04:00"
+     },
+     {
+      "path": "tools/yaw_rotation.py",
+      "reviewed_blob_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "working_tree_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T11:41:45.000548-04:00"
+     },
+     {
+      "path": "treble_multi_room_dataset/treble_xRIR_dataset.py",
+      "reviewed_blob_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "working_tree_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T23:55:05.458073-04:00"
+     },
+     {
+      "path": "utils/spec_utils.py",
+      "reviewed_blob_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "working_tree_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.415569-04:00"
+     }
+    ],
+    "environment": {
+     "python": "3.8.20",
+     "torch": "2.0.1+cu117",
+     "torchaudio": "2.0.2+cu117",
+     "torchvision": "0.15.2+cu117",
+     "einops": "0.7.0",
+     "numpy": "1.23.5",
+     "scipy": "1.10.0",
+     "cuda": "11.7",
+     "cudnn": 8500,
+     "gpus": [
+      "NVIDIA RTX A6000",
+      "NVIDIA RTX A6000"
+     ],
+     "nvidia_driver": "590.48.01",
+     "host": "CAB-Lab-Server-8",
+     "python_executable": "/home/yixunhu/miniconda3/envs/xRIR/bin/python",
+     "note": "recorded post hoc by bind_provenance.py on the host and conda env that ran the runs; each run's metrics meta records torch_version independently"
+    },
+    "data_identity": {
+     "manifest_path": "ckpt/yaw_rotation/reference_manifest_seed2.json",
+     "manifest_file_sha256": "b212dc87fd0645f9b092327807ecdc489cc5308858880c5567fd7fb3edf86d6d",
+     "manifest_hash": "757e5a966ee2d069a07accecbc43e46bd564ea7c788a28c219773df64e986234",
+     "data_root": "/home/yixunhu/data_cache/AcousticRooms",
+     "inventory_files": 13318,
+     "inventory_missing": 0,
+     "inventory_bytes": 1082499862,
+     "inventory_sha256": "23c3d8f6a0f740f54cb7d5db5766a80e82c6a78d60c05744e7542529a86a3092",
+     "inventory_key": "(relative path, sha256 of the file bytes) of every IR wav, metadata json and depth map the manifest references"
+    },
+    "run_start": "2026-09-06T14:28:00-04:00",
+    "checkpoint_approved_source": "self (gate run)",
+    "bound_at": "2026-09-06T21:45:25.275408-04:00",
+    "log_sha256": "43be2e57f786d82f489b5d3ba58e9c6e4192161121999a35c5996b32d4483d9c"
+   },
+   "sidecar_sha256": "49aa6827c4818d796d09ad3ed1d352c22d77da74f691d4bf5686450bc7843409"
+  },
+  "ckpt/yaw_rotation/gate_phase_seed1": {
+   "sidecar": "ckpt/yaw_rotation/gate_phase_seed1/provenance.json",
+   "run_start": "2026-09-06T14:53:35-04:00",
+   "elapsed_min": 10.282750991980235,
+   "backbone": "simple",
+   "batch_size": 16,
+   "tf32": false,
+   "gl_seed": 1,
+   "manifest_seed": 0,
+   "per_sample_sha256": "cc55a1f1af0053d16ff04fbd0469b4330723b7f2fa0894826ec60403c55fcda7",
+   "metrics_sha256": "d13ca926e6a4d18574a7adb6990f6e317a9058bb476a5cc43e1c75f362fae347",
+   "checkpoint": "ckpt/xRIR_simple_8_shot/epoch_12.pth",
+   "checkpoint_sha256": "651e3a377e110022fbd89332ff1f1c2648ef398bd83840bf369b05eb5decbedf",
+   "command": null,
+   "command_note": "sidecar written post hoc; command reconstructed in _command.md",
+   "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_14:53:35_gate_phase_seed1.log",
+   "log_sha256": "0716759fe153cb206570fccea7d554929280ff395bb2bd17ce9b2a8b9fae41ee",
+   "launcher_head": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+   "sidecar_after_binding": {
+    "git_sha": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "git_sha_note": "git_sha is the launcher HEAD at run time (or the pinned reviewed commit for sidecars written post hoc); the evaluator and its repo-local imports are bound by source_closure to the reviewed commit (verified post hoc by bind_provenance.py)",
+    "evaluator_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+    "checkpoint": "ckpt/xRIR_simple_8_shot/epoch_12.pth",
+    "checkpoint_sha256": "651e3a377e110022fbd89332ff1f1c2648ef398bd83840bf369b05eb5decbedf",
+    "manifest_hash": "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d",
+    "per_sample_sha256": "cc55a1f1af0053d16ff04fbd0469b4330723b7f2fa0894826ec60403c55fcda7",
+    "metrics_sha256": "d13ca926e6a4d18574a7adb6990f6e317a9058bb476a5cc43e1c75f362fae347",
+    "settings": {
+     "gl_seed": 1,
+     "tf32": false,
+     "batch_size": 16
+    },
+    "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_14:53:35_gate_phase_seed1.log",
+    "written": "2026-09-06T15:40:33.761630-04:00",
+    "note": "auxiliary gate run (band term); sidecar written by the Planner",
+    "reviewed_evaluator_commit": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "launcher_head": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "source_closure_sha256": "5ba818d83eddc6e71055926ea64cb104ebb8d3a1c347ab1bc12dd95866c1be48",
+    "source_closure": [
+     {
+      "path": "eval_unseen.py",
+      "reviewed_blob_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "working_tree_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "eval_xRIR_backbone.py",
+      "reviewed_blob_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "working_tree_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T15:02:37.610665-04:00"
+     },
+     {
+      "path": "eval_yaw_rotation.py",
+      "reviewed_blob_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "working_tree_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T13:53:04.533492-04:00"
+     },
+     {
+      "path": "model/cylindrical_vit.py",
+      "reviewed_blob_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "working_tree_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:26:55.176222-04:00"
+     },
+     {
+      "path": "model/simple_vit.py",
+      "reviewed_blob_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "working_tree_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "model/xRIR.py",
+      "reviewed_blob_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "working_tree_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-26T18:02:41.619587-04:00"
+     },
+     {
+      "path": "model/xRIR_cyl.py",
+      "reviewed_blob_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "working_tree_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:27:04.939191-04:00"
+     },
+     {
+      "path": "tools/per_sample_metrics.py",
+      "reviewed_blob_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "working_tree_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:24:07.601312-04:00"
+     },
+     {
+      "path": "tools/reference_manifest.py",
+      "reviewed_blob_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "working_tree_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:31:42.081396-04:00"
+     },
+     {
+      "path": "tools/yaw_rotation.py",
+      "reviewed_blob_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "working_tree_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T11:41:45.000548-04:00"
+     },
+     {
+      "path": "treble_multi_room_dataset/treble_xRIR_dataset.py",
+      "reviewed_blob_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "working_tree_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T23:55:05.458073-04:00"
+     },
+     {
+      "path": "utils/spec_utils.py",
+      "reviewed_blob_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "working_tree_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.415569-04:00"
+     }
+    ],
+    "environment": {
+     "python": "3.8.20",
+     "torch": "2.0.1+cu117",
+     "torchaudio": "2.0.2+cu117",
+     "torchvision": "0.15.2+cu117",
+     "einops": "0.7.0",
+     "numpy": "1.23.5",
+     "scipy": "1.10.0",
+     "cuda": "11.7",
+     "cudnn": 8500,
+     "gpus": [
+      "NVIDIA RTX A6000",
+      "NVIDIA RTX A6000"
+     ],
+     "nvidia_driver": "590.48.01",
+     "host": "CAB-Lab-Server-8",
+     "python_executable": "/home/yixunhu/miniconda3/envs/xRIR/bin/python",
+     "note": "recorded post hoc by bind_provenance.py on the host and conda env that ran the runs; each run's metrics meta records torch_version independently"
+    },
+    "data_identity": {
+     "manifest_path": "ckpt/yaw_rotation/reference_manifest.json",
+     "manifest_file_sha256": "5eaea3727dd840b1cb7cd77cb821ff955004c05b0f09c74fc39849e59ba5da2a",
+     "manifest_hash": "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d",
+     "data_root": "/home/yixunhu/data_cache/AcousticRooms",
+     "inventory_files": 13318,
+     "inventory_missing": 0,
+     "inventory_bytes": 1082499862,
+     "inventory_sha256": "23c3d8f6a0f740f54cb7d5db5766a80e82c6a78d60c05744e7542529a86a3092",
+     "inventory_key": "(relative path, sha256 of the file bytes) of every IR wav, metadata json and depth map the manifest references"
+    },
+    "run_start": "2026-09-06T14:53:35-04:00",
+    "checkpoint_approved_source": "self (gate run)",
+    "bound_at": "2026-09-06T21:45:25.276944-04:00",
+    "log_sha256": "0716759fe153cb206570fccea7d554929280ff395bb2bd17ce9b2a8b9fae41ee"
+   },
+   "sidecar_sha256": "8b3be28d8f957ba82b60d1ddf715ca52d582ae2a65bb557551f8952c27e15cf9"
+  },
+  "ckpt/yaw_rotation/gate_tf32": {
+   "sidecar": "ckpt/yaw_rotation/gate_tf32/provenance.json",
+   "run_start": "2026-09-06T14:53:35-04:00",
+   "elapsed_min": 7.867722388108572,
+   "backbone": "simple",
+   "batch_size": 16,
+   "tf32": true,
+   "gl_seed": 0,
+   "manifest_seed": 0,
+   "per_sample_sha256": "b873c7fb919c7803aacf0c2cfd0c4609002a4a4e4479c769445218117ab03723",
+   "metrics_sha256": "77e13e82ab5103ccbac349d808a44c60841898471736540f39de3abbc13118b0",
+   "checkpoint": "ckpt/xRIR_simple_8_shot/epoch_12.pth",
+   "checkpoint_sha256": "651e3a377e110022fbd89332ff1f1c2648ef398bd83840bf369b05eb5decbedf",
+   "command": null,
+   "command_note": "sidecar written post hoc; command reconstructed in _command.md",
+   "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_14:53:35_gate_tf32.log",
+   "log_sha256": "36b7be16b2c43afd2f31df71db3e91f3a872024b0ce1c70ab84feb4a7dc724da",
+   "launcher_head": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+   "sidecar_after_binding": {
+    "git_sha": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "git_sha_note": "git_sha is the launcher HEAD at run time (or the pinned reviewed commit for sidecars written post hoc); the evaluator and its repo-local imports are bound by source_closure to the reviewed commit (verified post hoc by bind_provenance.py)",
+    "evaluator_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+    "checkpoint": "ckpt/xRIR_simple_8_shot/epoch_12.pth",
+    "checkpoint_sha256": "651e3a377e110022fbd89332ff1f1c2648ef398bd83840bf369b05eb5decbedf",
+    "manifest_hash": "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d",
+    "per_sample_sha256": "b873c7fb919c7803aacf0c2cfd0c4609002a4a4e4479c769445218117ab03723",
+    "metrics_sha256": "77e13e82ab5103ccbac349d808a44c60841898471736540f39de3abbc13118b0",
+    "settings": {
+     "gl_seed": 0,
+     "tf32": true,
+     "batch_size": 16
+    },
+    "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_14:53:35_gate_tf32.log",
+    "written": "2026-09-06T15:40:34.122771-04:00",
+    "note": "auxiliary gate run (band term); sidecar written by the Planner",
+    "reviewed_evaluator_commit": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "launcher_head": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "source_closure_sha256": "5ba818d83eddc6e71055926ea64cb104ebb8d3a1c347ab1bc12dd95866c1be48",
+    "source_closure": [
+     {
+      "path": "eval_unseen.py",
+      "reviewed_blob_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "working_tree_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "eval_xRIR_backbone.py",
+      "reviewed_blob_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "working_tree_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T15:02:37.610665-04:00"
+     },
+     {
+      "path": "eval_yaw_rotation.py",
+      "reviewed_blob_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "working_tree_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T13:53:04.533492-04:00"
+     },
+     {
+      "path": "model/cylindrical_vit.py",
+      "reviewed_blob_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "working_tree_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:26:55.176222-04:00"
+     },
+     {
+      "path": "model/simple_vit.py",
+      "reviewed_blob_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "working_tree_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "model/xRIR.py",
+      "reviewed_blob_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "working_tree_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-26T18:02:41.619587-04:00"
+     },
+     {
+      "path": "model/xRIR_cyl.py",
+      "reviewed_blob_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "working_tree_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:27:04.939191-04:00"
+     },
+     {
+      "path": "tools/per_sample_metrics.py",
+      "reviewed_blob_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "working_tree_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:24:07.601312-04:00"
+     },
+     {
+      "path": "tools/reference_manifest.py",
+      "reviewed_blob_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "working_tree_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:31:42.081396-04:00"
+     },
+     {
+      "path": "tools/yaw_rotation.py",
+      "reviewed_blob_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "working_tree_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T11:41:45.000548-04:00"
+     },
+     {
+      "path": "treble_multi_room_dataset/treble_xRIR_dataset.py",
+      "reviewed_blob_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "working_tree_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T23:55:05.458073-04:00"
+     },
+     {
+      "path": "utils/spec_utils.py",
+      "reviewed_blob_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "working_tree_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.415569-04:00"
+     }
+    ],
+    "environment": {
+     "python": "3.8.20",
+     "torch": "2.0.1+cu117",
+     "torchaudio": "2.0.2+cu117",
+     "torchvision": "0.15.2+cu117",
+     "einops": "0.7.0",
+     "numpy": "1.23.5",
+     "scipy": "1.10.0",
+     "cuda": "11.7",
+     "cudnn": 8500,
+     "gpus": [
+      "NVIDIA RTX A6000",
+      "NVIDIA RTX A6000"
+     ],
+     "nvidia_driver": "590.48.01",
+     "host": "CAB-Lab-Server-8",
+     "python_executable": "/home/yixunhu/miniconda3/envs/xRIR/bin/python",
+     "note": "recorded post hoc by bind_provenance.py on the host and conda env that ran the runs; each run's metrics meta records torch_version independently"
+    },
+    "data_identity": {
+     "manifest_path": "ckpt/yaw_rotation/reference_manifest.json",
+     "manifest_file_sha256": "5eaea3727dd840b1cb7cd77cb821ff955004c05b0f09c74fc39849e59ba5da2a",
+     "manifest_hash": "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d",
+     "data_root": "/home/yixunhu/data_cache/AcousticRooms",
+     "inventory_files": 13318,
+     "inventory_missing": 0,
+     "inventory_bytes": 1082499862,
+     "inventory_sha256": "23c3d8f6a0f740f54cb7d5db5766a80e82c6a78d60c05744e7542529a86a3092",
+     "inventory_key": "(relative path, sha256 of the file bytes) of every IR wav, metadata json and depth map the manifest references"
+    },
+    "run_start": "2026-09-06T14:53:35-04:00",
+    "checkpoint_approved_source": "self (gate run)",
+    "bound_at": "2026-09-06T21:45:25.278220-04:00",
+    "log_sha256": "36b7be16b2c43afd2f31df71db3e91f3a872024b0ce1c70ab84feb4a7dc724da"
+   },
+   "sidecar_sha256": "5ead181b53da49478dbd5f0614848a0829c920c11dfc437fda49df1f50857fa2"
+  },
+  "ckpt/yaw_rotation/gate_noise_cyl_seed1": {
+   "sidecar": "ckpt/yaw_rotation/gate_noise_cyl_seed1/provenance.json",
+   "run_start": "2026-09-06T15:07:30-04:00",
+   "elapsed_min": 9.79223427772522,
+   "backbone": "cylindrical",
+   "batch_size": 16,
+   "tf32": false,
+   "gl_seed": 0,
+   "manifest_seed": 1,
+   "per_sample_sha256": "ac1e9c5eb33a4c78e453079866f1d05f3d42520ace93f50c0d6e0ccab9fc7cda",
+   "metrics_sha256": "9647aea1a9d9d8a202721f26fef1a3b7190c44235a9e8b4b04924f911c931f35",
+   "checkpoint": "ckpt/xRIR_cyl_8_shot/epoch_12.pth",
+   "checkpoint_sha256": "8ba344ad25d4a68f2ed7f22b4fb90e72b354fafe78b4d28d3eeeb6c1f8eab48e",
+   "command": null,
+   "command_note": "sidecar written post hoc; command reconstructed in _command.md",
+   "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_15:07:30_gate_noise_cyl_seed1.log",
+   "log_sha256": "2b5be419343490b67128f5d5d9e554a21842bee44e35dee3d0d56b94fc916c0e",
+   "launcher_head": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+   "sidecar_after_binding": {
+    "git_sha": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "git_sha_note": "git_sha is the launcher HEAD at run time (or the pinned reviewed commit for sidecars written post hoc); the evaluator and its repo-local imports are bound by source_closure to the reviewed commit (verified post hoc by bind_provenance.py)",
+    "evaluator_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+    "checkpoint": "ckpt/xRIR_cyl_8_shot/epoch_12.pth",
+    "checkpoint_sha256": "8ba344ad25d4a68f2ed7f22b4fb90e72b354fafe78b4d28d3eeeb6c1f8eab48e",
+    "manifest_hash": "6ca8164e5727d5f4db84569d5effa840b2cb6e6f77819a69bbb37bb30c6ab11e",
+    "per_sample_sha256": "ac1e9c5eb33a4c78e453079866f1d05f3d42520ace93f50c0d6e0ccab9fc7cda",
+    "metrics_sha256": "9647aea1a9d9d8a202721f26fef1a3b7190c44235a9e8b4b04924f911c931f35",
+    "settings": {
+     "gl_seed": 0,
+     "tf32": false,
+     "batch_size": 16
+    },
+    "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_15:07:30_gate_noise_cyl_seed1.log",
+    "written": "2026-09-06T15:40:32.677410-04:00",
+    "note": "auxiliary gate run (band term); sidecar written by the Planner",
+    "reviewed_evaluator_commit": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "launcher_head": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "source_closure_sha256": "5ba818d83eddc6e71055926ea64cb104ebb8d3a1c347ab1bc12dd95866c1be48",
+    "source_closure": [
+     {
+      "path": "eval_unseen.py",
+      "reviewed_blob_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "working_tree_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "eval_xRIR_backbone.py",
+      "reviewed_blob_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "working_tree_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T15:02:37.610665-04:00"
+     },
+     {
+      "path": "eval_yaw_rotation.py",
+      "reviewed_blob_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "working_tree_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T13:53:04.533492-04:00"
+     },
+     {
+      "path": "model/cylindrical_vit.py",
+      "reviewed_blob_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "working_tree_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:26:55.176222-04:00"
+     },
+     {
+      "path": "model/simple_vit.py",
+      "reviewed_blob_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "working_tree_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "model/xRIR.py",
+      "reviewed_blob_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "working_tree_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-26T18:02:41.619587-04:00"
+     },
+     {
+      "path": "model/xRIR_cyl.py",
+      "reviewed_blob_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "working_tree_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:27:04.939191-04:00"
+     },
+     {
+      "path": "tools/per_sample_metrics.py",
+      "reviewed_blob_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "working_tree_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:24:07.601312-04:00"
+     },
+     {
+      "path": "tools/reference_manifest.py",
+      "reviewed_blob_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "working_tree_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:31:42.081396-04:00"
+     },
+     {
+      "path": "tools/yaw_rotation.py",
+      "reviewed_blob_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "working_tree_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T11:41:45.000548-04:00"
+     },
+     {
+      "path": "treble_multi_room_dataset/treble_xRIR_dataset.py",
+      "reviewed_blob_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "working_tree_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T23:55:05.458073-04:00"
+     },
+     {
+      "path": "utils/spec_utils.py",
+      "reviewed_blob_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "working_tree_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.415569-04:00"
+     }
+    ],
+    "environment": {
+     "python": "3.8.20",
+     "torch": "2.0.1+cu117",
+     "torchaudio": "2.0.2+cu117",
+     "torchvision": "0.15.2+cu117",
+     "einops": "0.7.0",
+     "numpy": "1.23.5",
+     "scipy": "1.10.0",
+     "cuda": "11.7",
+     "cudnn": 8500,
+     "gpus": [
+      "NVIDIA RTX A6000",
+      "NVIDIA RTX A6000"
+     ],
+     "nvidia_driver": "590.48.01",
+     "host": "CAB-Lab-Server-8",
+     "python_executable": "/home/yixunhu/miniconda3/envs/xRIR/bin/python",
+     "note": "recorded post hoc by bind_provenance.py on the host and conda env that ran the runs; each run's metrics meta records torch_version independently"
+    },
+    "data_identity": {
+     "manifest_path": "ckpt/yaw_rotation/reference_manifest_seed1.json",
+     "manifest_file_sha256": "48f5a1097beee89fb503f33ac0e5238696b570a17d5f94687411647a400019bd",
+     "manifest_hash": "6ca8164e5727d5f4db84569d5effa840b2cb6e6f77819a69bbb37bb30c6ab11e",
+     "data_root": "/home/yixunhu/data_cache/AcousticRooms",
+     "inventory_files": 13318,
+     "inventory_missing": 0,
+     "inventory_bytes": 1082499862,
+     "inventory_sha256": "23c3d8f6a0f740f54cb7d5db5766a80e82c6a78d60c05744e7542529a86a3092",
+     "inventory_key": "(relative path, sha256 of the file bytes) of every IR wav, metadata json and depth map the manifest references"
+    },
+    "run_start": "2026-09-06T15:07:30-04:00",
+    "checkpoint_approved_source": "self (gate run)",
+    "bound_at": "2026-09-06T21:45:25.279777-04:00",
+    "log_sha256": "2b5be419343490b67128f5d5d9e554a21842bee44e35dee3d0d56b94fc916c0e"
+   },
+   "sidecar_sha256": "bb8ecffcffecb4d2f2a84489dcc8ea047864e8a49a25ceec334a4dea9b29e061"
+  },
+  "ckpt/yaw_rotation/gate_noise_cyl_seed2": {
+   "sidecar": "ckpt/yaw_rotation/gate_noise_cyl_seed2/provenance.json",
+   "run_start": "2026-09-06T15:17:21-04:00",
+   "elapsed_min": 11.185693800449371,
+   "backbone": "cylindrical",
+   "batch_size": 16,
+   "tf32": false,
+   "gl_seed": 0,
+   "manifest_seed": 2,
+   "per_sample_sha256": "e4c7b5ea4a27cd316124530422885ab2911c1fbbf5ad9890bb807ecc647fffc9",
+   "metrics_sha256": "ec1c141fbe7bfc5f465019faacfbabb5867eb6cf5a3085710faf19315486a92e",
+   "checkpoint": "ckpt/xRIR_cyl_8_shot/epoch_12.pth",
+   "checkpoint_sha256": "8ba344ad25d4a68f2ed7f22b4fb90e72b354fafe78b4d28d3eeeb6c1f8eab48e",
+   "command": null,
+   "command_note": "sidecar written post hoc; command reconstructed in _command.md",
+   "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_15:17:21_gate_noise_cyl_seed2.log",
+   "log_sha256": "a76a7c2ab7dc92675d27de84ec19e4373b39c383c78c64239566ca78f35c8194",
+   "launcher_head": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+   "sidecar_after_binding": {
+    "git_sha": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "git_sha_note": "git_sha is the launcher HEAD at run time (or the pinned reviewed commit for sidecars written post hoc); the evaluator and its repo-local imports are bound by source_closure to the reviewed commit (verified post hoc by bind_provenance.py)",
+    "evaluator_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+    "checkpoint": "ckpt/xRIR_cyl_8_shot/epoch_12.pth",
+    "checkpoint_sha256": "8ba344ad25d4a68f2ed7f22b4fb90e72b354fafe78b4d28d3eeeb6c1f8eab48e",
+    "manifest_hash": "757e5a966ee2d069a07accecbc43e46bd564ea7c788a28c219773df64e986234",
+    "per_sample_sha256": "e4c7b5ea4a27cd316124530422885ab2911c1fbbf5ad9890bb807ecc647fffc9",
+    "metrics_sha256": "ec1c141fbe7bfc5f465019faacfbabb5867eb6cf5a3085710faf19315486a92e",
+    "settings": {
+     "gl_seed": 0,
+     "tf32": false,
+     "batch_size": 16
+    },
+    "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_15:17:21_gate_noise_cyl_seed2.log",
+    "written": "2026-09-06T15:40:33.040127-04:00",
+    "note": "auxiliary gate run (band term); sidecar written by the Planner",
+    "reviewed_evaluator_commit": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "launcher_head": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "source_closure_sha256": "5ba818d83eddc6e71055926ea64cb104ebb8d3a1c347ab1bc12dd95866c1be48",
+    "source_closure": [
+     {
+      "path": "eval_unseen.py",
+      "reviewed_blob_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "working_tree_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "eval_xRIR_backbone.py",
+      "reviewed_blob_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "working_tree_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T15:02:37.610665-04:00"
+     },
+     {
+      "path": "eval_yaw_rotation.py",
+      "reviewed_blob_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "working_tree_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T13:53:04.533492-04:00"
+     },
+     {
+      "path": "model/cylindrical_vit.py",
+      "reviewed_blob_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "working_tree_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:26:55.176222-04:00"
+     },
+     {
+      "path": "model/simple_vit.py",
+      "reviewed_blob_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "working_tree_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "model/xRIR.py",
+      "reviewed_blob_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "working_tree_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-26T18:02:41.619587-04:00"
+     },
+     {
+      "path": "model/xRIR_cyl.py",
+      "reviewed_blob_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "working_tree_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:27:04.939191-04:00"
+     },
+     {
+      "path": "tools/per_sample_metrics.py",
+      "reviewed_blob_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "working_tree_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:24:07.601312-04:00"
+     },
+     {
+      "path": "tools/reference_manifest.py",
+      "reviewed_blob_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "working_tree_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:31:42.081396-04:00"
+     },
+     {
+      "path": "tools/yaw_rotation.py",
+      "reviewed_blob_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "working_tree_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T11:41:45.000548-04:00"
+     },
+     {
+      "path": "treble_multi_room_dataset/treble_xRIR_dataset.py",
+      "reviewed_blob_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "working_tree_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T23:55:05.458073-04:00"
+     },
+     {
+      "path": "utils/spec_utils.py",
+      "reviewed_blob_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "working_tree_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.415569-04:00"
+     }
+    ],
+    "environment": {
+     "python": "3.8.20",
+     "torch": "2.0.1+cu117",
+     "torchaudio": "2.0.2+cu117",
+     "torchvision": "0.15.2+cu117",
+     "einops": "0.7.0",
+     "numpy": "1.23.5",
+     "scipy": "1.10.0",
+     "cuda": "11.7",
+     "cudnn": 8500,
+     "gpus": [
+      "NVIDIA RTX A6000",
+      "NVIDIA RTX A6000"
+     ],
+     "nvidia_driver": "590.48.01",
+     "host": "CAB-Lab-Server-8",
+     "python_executable": "/home/yixunhu/miniconda3/envs/xRIR/bin/python",
+     "note": "recorded post hoc by bind_provenance.py on the host and conda env that ran the runs; each run's metrics meta records torch_version independently"
+    },
+    "data_identity": {
+     "manifest_path": "ckpt/yaw_rotation/reference_manifest_seed2.json",
+     "manifest_file_sha256": "b212dc87fd0645f9b092327807ecdc489cc5308858880c5567fd7fb3edf86d6d",
+     "manifest_hash": "757e5a966ee2d069a07accecbc43e46bd564ea7c788a28c219773df64e986234",
+     "data_root": "/home/yixunhu/data_cache/AcousticRooms",
+     "inventory_files": 13318,
+     "inventory_missing": 0,
+     "inventory_bytes": 1082499862,
+     "inventory_sha256": "23c3d8f6a0f740f54cb7d5db5766a80e82c6a78d60c05744e7542529a86a3092",
+     "inventory_key": "(relative path, sha256 of the file bytes) of every IR wav, metadata json and depth map the manifest references"
+    },
+    "run_start": "2026-09-06T15:17:21-04:00",
+    "checkpoint_approved_source": "self (gate run)",
+    "bound_at": "2026-09-06T21:45:25.281135-04:00",
+    "log_sha256": "a76a7c2ab7dc92675d27de84ec19e4373b39c383c78c64239566ca78f35c8194"
+   },
+   "sidecar_sha256": "40de4f2f9378a1959e98cec7bc99cd41f28ce35104cf75b0c21654e031e16840"
+  },
+  "ckpt/yaw_rotation/gate_shape_cyl_b1": {
+   "sidecar": "ckpt/yaw_rotation/gate_shape_cyl_b1/provenance.json",
+   "run_start": "2026-09-06T15:07:30-04:00",
+   "elapsed_min": 31.097140459219613,
+   "backbone": "cylindrical",
+   "batch_size": 1,
+   "tf32": false,
+   "gl_seed": 0,
+   "manifest_seed": 0,
+   "per_sample_sha256": "bd475c98e4e816960caee80323b28336eb62800ff9103aac14fe38a972fe3df4",
+   "metrics_sha256": "0f1fe53c945e685f95af2bc7fd6a50b1cd5708aa8314d9c4e0d96ea455afee1c",
+   "checkpoint": "ckpt/xRIR_cyl_8_shot/epoch_12.pth",
+   "checkpoint_sha256": "8ba344ad25d4a68f2ed7f22b4fb90e72b354fafe78b4d28d3eeeb6c1f8eab48e",
+   "command": null,
+   "command_note": "sidecar written post hoc; command reconstructed in _command.md",
+   "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_15:07:30_gate_shape_cyl_b1.log",
+   "log_sha256": "53924c07103cb7ba2e4633aa2edc3c9035016722160e7ab8539926dcae093c65",
+   "launcher_head": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+   "sidecar_after_binding": {
+    "git_sha": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "git_sha_note": "git_sha is the launcher HEAD at run time (or the pinned reviewed commit for sidecars written post hoc); the evaluator and its repo-local imports are bound by source_closure to the reviewed commit (verified post hoc by bind_provenance.py)",
+    "evaluator_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+    "checkpoint": "ckpt/xRIR_cyl_8_shot/epoch_12.pth",
+    "checkpoint_sha256": "8ba344ad25d4a68f2ed7f22b4fb90e72b354fafe78b4d28d3eeeb6c1f8eab48e",
+    "manifest_hash": "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d",
+    "per_sample_sha256": "bd475c98e4e816960caee80323b28336eb62800ff9103aac14fe38a972fe3df4",
+    "metrics_sha256": "0f1fe53c945e685f95af2bc7fd6a50b1cd5708aa8314d9c4e0d96ea455afee1c",
+    "settings": {
+     "gl_seed": 0,
+     "tf32": false,
+     "batch_size": 1
+    },
+    "log": "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_15:07:30_gate_shape_cyl_b1.log",
+    "written": "2026-09-06T15:40:33.400113-04:00",
+    "note": "auxiliary gate run (band term); sidecar written by the Planner",
+    "reviewed_evaluator_commit": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "launcher_head": "62c9107b4150e44c4ac410ff4cab359c1e71cc10",
+    "source_closure_sha256": "5ba818d83eddc6e71055926ea64cb104ebb8d3a1c347ab1bc12dd95866c1be48",
+    "source_closure": [
+     {
+      "path": "eval_unseen.py",
+      "reviewed_blob_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "working_tree_sha256": "d8251da98779337efc28c109299271c2fd4122259b6da9485bbbec16fa7023ef",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "eval_xRIR_backbone.py",
+      "reviewed_blob_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "working_tree_sha256": "801e60d60bc378d27031da735ca1bdf651a17a8c1f5ae1b5037b5cf3a351a4dc",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T15:02:37.610665-04:00"
+     },
+     {
+      "path": "eval_yaw_rotation.py",
+      "reviewed_blob_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "working_tree_sha256": "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T13:53:04.533492-04:00"
+     },
+     {
+      "path": "model/cylindrical_vit.py",
+      "reviewed_blob_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "working_tree_sha256": "3da7c788e9a50f55660414a3fa0fb680b968d9573d3c469717627ec0583aa1d7",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:26:55.176222-04:00"
+     },
+     {
+      "path": "model/simple_vit.py",
+      "reviewed_blob_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "working_tree_sha256": "604aa136a0ea72399113f9a93ce2545a32cb714bf4eb5f1c14bfe329b52b770d",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.409569-04:00"
+     },
+     {
+      "path": "model/xRIR.py",
+      "reviewed_blob_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "working_tree_sha256": "03ce51dfda04eec82936eb6bd7fcd0cda2d934a1e47fa5d79a686b2c6bba7b12",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-26T18:02:41.619587-04:00"
+     },
+     {
+      "path": "model/xRIR_cyl.py",
+      "reviewed_blob_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "working_tree_sha256": "e1b339e2acc777e47c3cf8c82eb163a73f04f85b90753fe187147527e9728439",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-04T12:27:04.939191-04:00"
+     },
+     {
+      "path": "tools/per_sample_metrics.py",
+      "reviewed_blob_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "working_tree_sha256": "4a49bb0b6ee1018e5b14f6e161e7ff718575f0906695b09f0b42844d079ed6f6",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:24:07.601312-04:00"
+     },
+     {
+      "path": "tools/reference_manifest.py",
+      "reviewed_blob_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "working_tree_sha256": "23f486c7d3af8e22c0328bceabc9a65a416fe9da926d782e33cb7c993713e16b",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T12:31:42.081396-04:00"
+     },
+     {
+      "path": "tools/yaw_rotation.py",
+      "reviewed_blob_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "working_tree_sha256": "b35f75408ff0178c2eb678adda30d87abc83210dabce2d9e1dad2b1024a5d196",
+      "commits_after_reviewed": [],
+      "mtime": "2026-09-06T11:41:45.000548-04:00"
+     },
+     {
+      "path": "treble_multi_room_dataset/treble_xRIR_dataset.py",
+      "reviewed_blob_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "working_tree_sha256": "502c4696d8535698ea1181570fe171caa14124094f6d98f5146fbb2392f98b75",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T23:55:05.458073-04:00"
+     },
+     {
+      "path": "utils/spec_utils.py",
+      "reviewed_blob_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "working_tree_sha256": "d8779fdf45a51bafedbe64dfa25300344ee3f5402c24c36b4b44e5573c0ad08e",
+      "commits_after_reviewed": [],
+      "mtime": "2026-04-25T17:00:41.415569-04:00"
+     }
+    ],
+    "environment": {
+     "python": "3.8.20",
+     "torch": "2.0.1+cu117",
+     "torchaudio": "2.0.2+cu117",
+     "torchvision": "0.15.2+cu117",
+     "einops": "0.7.0",
+     "numpy": "1.23.5",
+     "scipy": "1.10.0",
+     "cuda": "11.7",
+     "cudnn": 8500,
+     "gpus": [
+      "NVIDIA RTX A6000",
+      "NVIDIA RTX A6000"
+     ],
+     "nvidia_driver": "590.48.01",
+     "host": "CAB-Lab-Server-8",
+     "python_executable": "/home/yixunhu/miniconda3/envs/xRIR/bin/python",
+     "note": "recorded post hoc by bind_provenance.py on the host and conda env that ran the runs; each run's metrics meta records torch_version independently"
+    },
+    "data_identity": {
+     "manifest_path": "ckpt/yaw_rotation/reference_manifest.json",
+     "manifest_file_sha256": "5eaea3727dd840b1cb7cd77cb821ff955004c05b0f09c74fc39849e59ba5da2a",
+     "manifest_hash": "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d",
+     "data_root": "/home/yixunhu/data_cache/AcousticRooms",
+     "inventory_files": 13318,
+     "inventory_missing": 0,
+     "inventory_bytes": 1082499862,
+     "inventory_sha256": "23c3d8f6a0f740f54cb7d5db5766a80e82c6a78d60c05744e7542529a86a3092",
+     "inventory_key": "(relative path, sha256 of the file bytes) of every IR wav, metadata json and depth map the manifest references"
+    },
+    "run_start": "2026-09-06T15:07:30-04:00",
+    "checkpoint_approved_source": "self (gate run)",
+    "bound_at": "2026-09-06T21:45:25.282769-04:00",
+    "log_sha256": "53924c07103cb7ba2e4633aa2edc3c9035016722160e7ab8539926dcae093c65"
+   },
+   "sidecar_sha256": "425340f6bc460de1f2a4b6f197416a3d6bb77ef295893e291ec8eb22103aa960"
+  }
+ },
+ "written": "2026-09-06T22:47:43.724431-04:00"
+}

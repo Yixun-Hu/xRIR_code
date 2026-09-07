@@ -1,0 +1,144 @@
+source closure (12 files) reviewed at 62c9107b4150e44c4ac410ff4cab359c1e71cc10; digest 5ba818d83eddc6e71055926ea64cb104ebb8d3a1c347ab1bc12dd95866c1be48
+ok   eval_unseen.py: blob d8251da98779 == tree d8251da98779; later commits none; mtime 2026-04-25T17:00:41.409569-04:00
+ok   eval_xRIR_backbone.py: blob 801e60d60bc3 == tree 801e60d60bc3; later commits none; mtime 2026-09-04T15:02:37.610665-04:00
+ok   eval_yaw_rotation.py: blob 82a53bea3cd7 == tree 82a53bea3cd7; later commits none; mtime 2026-09-06T13:53:04.533492-04:00
+ok   model/cylindrical_vit.py: blob 3da7c788e9a5 == tree 3da7c788e9a5; later commits none; mtime 2026-09-04T12:26:55.176222-04:00
+ok   model/simple_vit.py: blob 604aa136a0ea == tree 604aa136a0ea; later commits none; mtime 2026-04-25T17:00:41.409569-04:00
+ok   model/xRIR.py: blob 03ce51dfda04 == tree 03ce51dfda04; later commits none; mtime 2026-04-26T18:02:41.619587-04:00
+ok   model/xRIR_cyl.py: blob e1b339e2acc7 == tree e1b339e2acc7; later commits none; mtime 2026-09-04T12:27:04.939191-04:00
+ok   tools/per_sample_metrics.py: blob 4a49bb0b6ee1 == tree 4a49bb0b6ee1; later commits none; mtime 2026-09-06T12:24:07.601312-04:00
+ok   tools/reference_manifest.py: blob 23f486c7d3af == tree 23f486c7d3af; later commits none; mtime 2026-09-06T12:31:42.081396-04:00
+ok   tools/yaw_rotation.py: blob b35f75408ff0 == tree b35f75408ff0; later commits none; mtime 2026-09-06T11:41:45.000548-04:00
+ok   treble_multi_room_dataset/treble_xRIR_dataset.py: blob 502c4696d853 == tree 502c4696d853; later commits none; mtime 2026-04-25T23:55:05.458073-04:00
+ok   utils/spec_utils.py: blob d8779fdf45a5 == tree d8779fdf45a5; later commits none; mtime 2026-04-25T17:00:41.415569-04:00
+environment: {"python": "3.8.20", "torch": "2.0.1+cu117", "torchaudio": "2.0.2+cu117", "torchvision": "0.15.2+cu117", "einops": "0.7.0", "numpy": "1.23.5", "scipy": "1.10.0", "cuda": "11.7", "cudnn": 8500, "gpus": ["NVIDIA RTX A6000", "NVIDIA RTX A6000"], "nvidia_driver": "590.48.01", "host": "CAB-Lab-Server-8", "python_executable": "/home/yixunhu/miniconda3/envs/xRIR/bin/python", "note": "recorded post hoc by bind_provenance.py on the host and conda env that ran the runs; each run's metrics meta records torch_version independently"}
+data identity (manifest seed 0): manifest_hash 47637a55ccc5, file sha 5eaea3727dd8, inventory 13318 files, missing 0, digest 23c3d8f6a0f7
+data identity (manifest seed 1): manifest_hash 6ca8164e5727, file sha 48f5a1097bee, inventory 13318 files, missing 0, digest 23c3d8f6a0f7
+data identity (manifest seed 2): manifest_hash 757e5a966ee2, file sha b212dc87fd06, inventory 13318 files, missing 0, digest 23c3d8f6a0f7
+gate inputs: {"gate_producer_commit": "5febf471318e37e60477ebe72afd48f03879c67e", "gate_producer_sha256": "5694b55d5006b0d90dfcb4b75399289f503022800be5627717d817db4626070e", "exp01_control": "72a176612e26", "exp01_cyl": "47ec70dcc383", "gate_json": "248fc98787b2", "gate_summary": "46470249b7cb", "decision_v1": "d40fad2aecba", "decision_v2": "5f337f8357bc", "decision_v3": "46470249b7cb"}
+ok   ckpt/yaw_rotation/sweep_control: start time consistent (ok)
+ok   ckpt/yaw_rotation/sweep_control: run log present in the record folder
+ok   ckpt/yaw_rotation/sweep_control: every closure file last modified before the run started
+ok   ckpt/yaw_rotation/sweep_control: checkpoint digest equals the file on disk
+ok   ckpt/yaw_rotation/sweep_control: artefact digests unchanged
+ok   ckpt/yaw_rotation/sweep_control: manifest hash equals the metrics meta and the manifest file
+ok   ckpt/yaw_rotation/sweep_control: torch version in metrics meta equals the environment's
+ok   ckpt/yaw_rotation/sweep_control: existing binding (if any) agrees
+ok   ckpt/yaw_rotation/sweep_control: checkpoint digest equals the gate sidecar's (approved)
+ok   ckpt/yaw_rotation/sweep_cyl: start time consistent (ok)
+ok   ckpt/yaw_rotation/sweep_cyl: run log present in the record folder
+ok   ckpt/yaw_rotation/sweep_cyl: every closure file last modified before the run started
+ok   ckpt/yaw_rotation/sweep_cyl: checkpoint digest equals the file on disk
+ok   ckpt/yaw_rotation/sweep_cyl: artefact digests unchanged
+ok   ckpt/yaw_rotation/sweep_cyl: manifest hash equals the metrics meta and the manifest file
+ok   ckpt/yaw_rotation/sweep_cyl: torch version in metrics meta equals the environment's
+ok   ckpt/yaw_rotation/sweep_cyl: existing binding (if any) agrees
+ok   ckpt/yaw_rotation/sweep_cyl: checkpoint digest equals the gate sidecar's (approved)
+ok   ckpt/yaw_rotation/sweep_released: start time consistent (ok)
+ok   ckpt/yaw_rotation/sweep_released: run log present in the record folder
+ok   ckpt/yaw_rotation/sweep_released: every closure file last modified before the run started
+ok   ckpt/yaw_rotation/sweep_released: checkpoint digest equals the file on disk
+ok   ckpt/yaw_rotation/sweep_released: artefact digests unchanged
+ok   ckpt/yaw_rotation/sweep_released: manifest hash equals the metrics meta and the manifest file
+ok   ckpt/yaw_rotation/sweep_released: torch version in metrics meta equals the environment's
+ok   ckpt/yaw_rotation/sweep_released: existing binding (if any) agrees
+ok   ckpt/yaw_rotation/sweep_released: checkpoint digest equals the gate sidecar's (approved)
+ok   ckpt/yaw_rotation/gate_control: start time consistent (ok)
+ok   ckpt/yaw_rotation/gate_control: run log present in the record folder
+ok   ckpt/yaw_rotation/gate_control: every closure file last modified before the run started
+ok   ckpt/yaw_rotation/gate_control: checkpoint digest equals the file on disk
+ok   ckpt/yaw_rotation/gate_control: artefact digests unchanged
+ok   ckpt/yaw_rotation/gate_control: manifest hash equals the metrics meta and the manifest file
+ok   ckpt/yaw_rotation/gate_control: torch version in metrics meta equals the environment's
+ok   ckpt/yaw_rotation/gate_control: existing binding (if any) agrees
+ok   ckpt/yaw_rotation/gate_cyl: start time consistent (ok)
+ok   ckpt/yaw_rotation/gate_cyl: run log present in the record folder
+ok   ckpt/yaw_rotation/gate_cyl: every closure file last modified before the run started
+ok   ckpt/yaw_rotation/gate_cyl: checkpoint digest equals the file on disk
+ok   ckpt/yaw_rotation/gate_cyl: artefact digests unchanged
+ok   ckpt/yaw_rotation/gate_cyl: manifest hash equals the metrics meta and the manifest file
+ok   ckpt/yaw_rotation/gate_cyl: torch version in metrics meta equals the environment's
+ok   ckpt/yaw_rotation/gate_cyl: existing binding (if any) agrees
+ok   ckpt/yaw_rotation/gate_released: start time consistent (ok)
+ok   ckpt/yaw_rotation/gate_released: run log present in the record folder
+ok   ckpt/yaw_rotation/gate_released: every closure file last modified before the run started
+ok   ckpt/yaw_rotation/gate_released: checkpoint digest equals the file on disk
+ok   ckpt/yaw_rotation/gate_released: artefact digests unchanged
+ok   ckpt/yaw_rotation/gate_released: manifest hash equals the metrics meta and the manifest file
+ok   ckpt/yaw_rotation/gate_released: torch version in metrics meta equals the environment's
+ok   ckpt/yaw_rotation/gate_released: existing binding (if any) agrees
+ok   ckpt/yaw_rotation/gate_noise_seed1: start time consistent (ok)
+ok   ckpt/yaw_rotation/gate_noise_seed1: run log present in the record folder
+ok   ckpt/yaw_rotation/gate_noise_seed1: every closure file last modified before the run started
+ok   ckpt/yaw_rotation/gate_noise_seed1: checkpoint digest equals the file on disk
+ok   ckpt/yaw_rotation/gate_noise_seed1: artefact digests unchanged
+ok   ckpt/yaw_rotation/gate_noise_seed1: manifest hash equals the metrics meta and the manifest file
+ok   ckpt/yaw_rotation/gate_noise_seed1: torch version in metrics meta equals the environment's
+ok   ckpt/yaw_rotation/gate_noise_seed1: existing binding (if any) agrees
+ok   ckpt/yaw_rotation/gate_noise_seed2: start time consistent (ok)
+ok   ckpt/yaw_rotation/gate_noise_seed2: run log present in the record folder
+ok   ckpt/yaw_rotation/gate_noise_seed2: every closure file last modified before the run started
+ok   ckpt/yaw_rotation/gate_noise_seed2: checkpoint digest equals the file on disk
+ok   ckpt/yaw_rotation/gate_noise_seed2: artefact digests unchanged
+ok   ckpt/yaw_rotation/gate_noise_seed2: manifest hash equals the metrics meta and the manifest file
+ok   ckpt/yaw_rotation/gate_noise_seed2: torch version in metrics meta equals the environment's
+ok   ckpt/yaw_rotation/gate_noise_seed2: existing binding (if any) agrees
+ok   ckpt/yaw_rotation/gate_phase_seed1: start time consistent (ok)
+ok   ckpt/yaw_rotation/gate_phase_seed1: run log present in the record folder
+ok   ckpt/yaw_rotation/gate_phase_seed1: every closure file last modified before the run started
+ok   ckpt/yaw_rotation/gate_phase_seed1: checkpoint digest equals the file on disk
+ok   ckpt/yaw_rotation/gate_phase_seed1: artefact digests unchanged
+ok   ckpt/yaw_rotation/gate_phase_seed1: manifest hash equals the metrics meta and the manifest file
+ok   ckpt/yaw_rotation/gate_phase_seed1: torch version in metrics meta equals the environment's
+ok   ckpt/yaw_rotation/gate_phase_seed1: existing binding (if any) agrees
+ok   ckpt/yaw_rotation/gate_tf32: start time consistent (ok)
+ok   ckpt/yaw_rotation/gate_tf32: run log present in the record folder
+ok   ckpt/yaw_rotation/gate_tf32: every closure file last modified before the run started
+ok   ckpt/yaw_rotation/gate_tf32: checkpoint digest equals the file on disk
+ok   ckpt/yaw_rotation/gate_tf32: artefact digests unchanged
+ok   ckpt/yaw_rotation/gate_tf32: manifest hash equals the metrics meta and the manifest file
+ok   ckpt/yaw_rotation/gate_tf32: torch version in metrics meta equals the environment's
+ok   ckpt/yaw_rotation/gate_tf32: existing binding (if any) agrees
+ok   ckpt/yaw_rotation/gate_noise_cyl_seed1: start time consistent (ok)
+ok   ckpt/yaw_rotation/gate_noise_cyl_seed1: run log present in the record folder
+ok   ckpt/yaw_rotation/gate_noise_cyl_seed1: every closure file last modified before the run started
+ok   ckpt/yaw_rotation/gate_noise_cyl_seed1: checkpoint digest equals the file on disk
+ok   ckpt/yaw_rotation/gate_noise_cyl_seed1: artefact digests unchanged
+ok   ckpt/yaw_rotation/gate_noise_cyl_seed1: manifest hash equals the metrics meta and the manifest file
+ok   ckpt/yaw_rotation/gate_noise_cyl_seed1: torch version in metrics meta equals the environment's
+ok   ckpt/yaw_rotation/gate_noise_cyl_seed1: existing binding (if any) agrees
+ok   ckpt/yaw_rotation/gate_noise_cyl_seed2: start time consistent (ok)
+ok   ckpt/yaw_rotation/gate_noise_cyl_seed2: run log present in the record folder
+ok   ckpt/yaw_rotation/gate_noise_cyl_seed2: every closure file last modified before the run started
+ok   ckpt/yaw_rotation/gate_noise_cyl_seed2: checkpoint digest equals the file on disk
+ok   ckpt/yaw_rotation/gate_noise_cyl_seed2: artefact digests unchanged
+ok   ckpt/yaw_rotation/gate_noise_cyl_seed2: manifest hash equals the metrics meta and the manifest file
+ok   ckpt/yaw_rotation/gate_noise_cyl_seed2: torch version in metrics meta equals the environment's
+ok   ckpt/yaw_rotation/gate_noise_cyl_seed2: existing binding (if any) agrees
+ok   ckpt/yaw_rotation/gate_shape_cyl_b1: start time consistent (ok)
+ok   ckpt/yaw_rotation/gate_shape_cyl_b1: run log present in the record folder
+ok   ckpt/yaw_rotation/gate_shape_cyl_b1: every closure file last modified before the run started
+ok   ckpt/yaw_rotation/gate_shape_cyl_b1: checkpoint digest equals the file on disk
+ok   ckpt/yaw_rotation/gate_shape_cyl_b1: artefact digests unchanged
+ok   ckpt/yaw_rotation/gate_shape_cyl_b1: manifest hash equals the metrics meta and the manifest file
+ok   ckpt/yaw_rotation/gate_shape_cyl_b1: torch version in metrics meta equals the environment's
+ok   ckpt/yaw_rotation/gate_shape_cyl_b1: existing binding (if any) agrees
+bound ckpt/yaw_rotation/sweep_control/provenance.json
+bound ckpt/yaw_rotation/sweep_cyl/provenance.json
+bound ckpt/yaw_rotation/sweep_released/provenance.json
+bound ckpt/yaw_rotation/gate_control/provenance.json
+bound ckpt/yaw_rotation/gate_cyl/provenance.json
+bound ckpt/yaw_rotation/gate_released/provenance.json
+bound ckpt/yaw_rotation/gate_noise_seed1/provenance.json
+bound ckpt/yaw_rotation/gate_noise_seed2/provenance.json
+bound ckpt/yaw_rotation/gate_phase_seed1/provenance.json
+bound ckpt/yaw_rotation/gate_tf32/provenance.json
+bound ckpt/yaw_rotation/gate_noise_cyl_seed1/provenance.json
+bound ckpt/yaw_rotation/gate_noise_cyl_seed2/provenance.json
+bound ckpt/yaw_rotation/gate_shape_cyl_b1/provenance.json
+report written: ckpt/yaw_rotation/binding_report.json
+BIND OK
+
+real	0m19.064s
+user	0m20.461s
+sys	0m23.277s
