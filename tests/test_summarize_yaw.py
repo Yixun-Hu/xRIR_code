@@ -1888,3 +1888,125 @@ def test_the_equivalence_column_never_reads_as_a_yes_no_verdict(exploratory_summ
                     if row["equivalence"] is not None]
     assert equivalences and all(isinstance(item["query"]["equivalent"], bool)
                                 for item in equivalences)
+
+
+# --------------------------------------------------------------------------------------
+# h1_bounds -- how far the data are from the +10 % margin, computed by the producer
+# --------------------------------------------------------------------------------------
+def _bound_rows():
+    """One synthetic metric's rows: two angles above the margin, one null in each column."""
+    return {"edt": [
+        # k = 0 is the baseline of the ratio and is never a bound, however large.
+        {"k": 0, "deg": 0.0, "hi": 9.0, "r_hi": 9.0},
+        {"k": 256, "deg": 180.0, "hi": 0.08, "r_hi": 0.11},
+        {"k": 32, "deg": 22.5, "hi": 0.12, "r_hi": None},
+        {"k": 64, "deg": 45.0, "hi": None, "r_hi": 0.30},
+        {"k": 448, "deg": -45.0, "hi": 0.04, "r_hi": 0.06},
+    ]}
+
+
+def test_h1_bounds_report_the_largest_upper_bound_and_the_cells_above_the_margin():
+    from tools.summarize_yaw import h1_bounds
+
+    bounds = h1_bounds(_bound_rows(), 0.10)["edt"]
+
+    assert bounds["max_query_upper"] == {"k": 32, "deg": 22.5, "hi": 0.12}
+    assert bounds["max_room_upper"] == {"k": 64, "deg": 45.0, "r_hi": 0.30}
+    # Sorted by k, and a row whose bound does not exist is skipped rather than imputed.
+    assert bounds["query_upper_above_threshold"] == [{"k": 32, "deg": 22.5, "hi": 0.12}]
+    assert bounds["room_upper_above_threshold"] == [{"k": 64, "deg": 45.0, "r_hi": 0.30},
+                                                    {"k": 256, "deg": 180.0, "r_hi": 0.11}]
+    assert set(bounds) == {"max_query_upper", "max_room_upper",
+                           "query_upper_above_threshold", "room_upper_above_threshold"}
+
+
+def test_h1_bounds_are_empty_when_no_interval_exists():
+    from tools.summarize_yaw import h1_bounds
+
+    rows = {"c50": [{"k": 32, "deg": 22.5, "hi": None, "r_hi": None},
+                    {"k": 64, "deg": 45.0, "hi": None}]}
+    assert h1_bounds(rows, 0.10)["c50"] == {
+        "max_query_upper": None, "max_room_upper": None,
+        "query_upper_above_threshold": [], "room_upper_above_threshold": []}
+
+
+def test_h1_bounds_are_strict_at_the_margin():
+    from tools.summarize_yaw import h1_bounds
+
+    rows = {"edt": [{"k": 32, "deg": 22.5, "hi": 0.10, "r_hi": 0.1000001}]}
+    bounds = h1_bounds(rows, 0.10)["edt"]
+    assert bounds["query_upper_above_threshold"] == []
+    assert [cell["k"] for cell in bounds["room_upper_above_threshold"]] == [32]
+
+
+def test_the_json_carries_the_bounds_of_every_run(exploratory_summary):
+    """Every run, not only the H1 roles: the page reports the cylindrical one too."""
+    out, _ = exploratory_summary
+
+    bounds = out["h1"]["bounds"]
+    assert sorted(bounds) == ["control", "cyl"]
+    for label in bounds:
+        assert sorted(bounds[label]) == ["c50", "edt"]
+        for metric, cell in bounds[label].items():
+            rows = {row["k"]: row for row in out["acoustic"][label]["P"][metric]}
+            top = cell["max_query_upper"]
+            assert top["hi"] == rows[top["k"]]["hi"] == max(
+                row["hi"] for row in out["acoustic"][label]["P"][metric] if row["k"])
+            assert top["deg"] == rows[top["k"]]["deg"]
+            for above in cell["query_upper_above_threshold"]:
+                assert above["hi"] > out["config"]["threshold"]
+                assert rows[above["k"]]["hi"] == above["hi"]
+            for above in cell["room_upper_above_threshold"]:
+                assert rows[above["k"]]["r_hi"] == above["r_hi"] > out["config"]["threshold"]
+    # The control's planted +15 % / +30 % degradations are far above the margin; the
+    # cylindrical run's are not.
+    assert bounds["control"]["edt"]["room_upper_above_threshold"]
+    assert bounds["cyl"]["edt"]["room_upper_above_threshold"] == []
+
+
+def test_the_summary_prints_the_distance_to_the_margin(exploratory_summary):
+    out, text = exploratory_summary
+    section4 = _section(text, "\n4. H1", "\n5. H2")
+
+    assert "distance to the +10% margin" in section4
+    best = max((cell["max_query_upper"]
+                for per_label in out["h1"]["bounds"].values()
+                for cell in per_label.values()), key=lambda cell: cell["hi"])
+    assert "largest adjusted query-level upper bound: {:+.4f}".format(best["hi"]) in section4
+    above = ["{} {} {:.1f} deg".format(label, metric, cell["deg"])
+             for label, per_label in out["h1"]["bounds"].items()
+             for metric, bound in per_label.items()
+             for cell in bound["room_upper_above_threshold"]]
+    assert above, "the control's planted degradation must show up here"
+    for needle in above:
+        assert needle in section4, needle
+    assert "room-cluster cells with an adjusted upper bound above +10%" in section4
+
+
+def test_the_bounds_block_is_printed_in_full_mode_too(two_runs, released_run, tmp_path,
+                                                      monkeypatch):
+    from tools.summarize_yaw import main
+
+    relax_full_expectations(monkeypatch)
+    out = main(["--mode", "full", "--runs", two_runs[0], two_runs[1], released_run,
+                "--labels", "control", "cyl", "released",
+                "--manifest-hash", MANIFEST_HASH, "--n-boot", "4000",
+                "--json", str(tmp_path / "full.json"),
+                "--summary", str(tmp_path / "full.txt")])
+    text = open(str(tmp_path / "full.txt")).read()
+    section4 = _section(text, "\n4. H1", "\n5. H2")
+
+    assert sorted(out["h1"]["bounds"]) == ["control", "cyl", "released"]
+    # The block sits after the verdict, so a reader gets the decision first.
+    assert section4.index("verdict:") < section4.index("distance to the +10% margin")
+    assert "largest adjusted query-level upper bound:" in section4
+
+
+def test_the_bounds_block_is_omitted_by_the_k0_gate(tmp_path, monkeypatch):
+    """A gate run has no rotated angle, so there is no bound to be far from the margin."""
+    argv, _ = _gate_setup(tmp_path, monkeypatch)
+    out, code = _run_gate(argv, tmp_path, "bounds")
+
+    assert code == 0
+    assert "bounds" not in out["h1"]
+    assert "distance to the" not in open(str(tmp_path / "bounds.txt")).read()

@@ -228,6 +228,48 @@ def h1_verdict(rows_by_metric, threshold):
     return bool(passing), passing
 
 
+def h1_bounds(rows_by_metric, threshold):
+    """How far each run is from H1's margin, from the *upper* end of its intervals.
+
+    H1 is decided by the adjusted lower bound, but a reader also needs to know what the
+    data rule out: an adjusted upper bound below the margin says the degradation is
+    smaller than +10 % at that angle, and a cell whose upper bound is above it is one the
+    experiment cannot call small.  Both are computed here, by the producer, so a results
+    page reports the same numbers as the summary text instead of deriving its own.
+
+    Args:
+        rows_by_metric: ``{metric: rows}`` from :func:`degradation_rows` (condition P);
+            ``k = 0`` rows are the baseline of the ratio and are excluded.
+        threshold: the practical margin on ``r`` (the plan's +10 % is ``0.10``), applied
+            strictly, exactly as :func:`h1_verdict` applies it to the lower bound.
+
+    Returns:
+        ``{metric: {"max_query_upper", "max_room_upper",
+        "query_upper_above_threshold", "room_upper_above_threshold"}}``.  The two maxima
+        are ``{"k", "deg", "hi"}`` / ``{"k", "deg", "r_hi"}`` (``None`` when no interval
+        exists), the two lists hold the same dicts for the cells above the margin, sorted
+        by ``k``.  A row whose bound does not exist is skipped, never imputed.
+    """
+    bounds = {}
+    for metric in sorted(rows_by_metric):
+        rows = sorted((row for row in rows_by_metric[metric] if int(row["k"]) != 0),
+                      key=lambda row: int(row["k"]))
+        cells = {}
+        for name, key in (("query", "hi"), ("room", "r_hi")):
+            cells[name] = [{"k": int(row["k"]), "deg": row["deg"], key: float(row[key])}
+                           for row in rows if row.get(key) is not None]
+        bounds[metric] = {
+            "max_query_upper": (max(cells["query"], key=lambda cell: cell["hi"])
+                                if cells["query"] else None),
+            "max_room_upper": (max(cells["room"], key=lambda cell: cell["r_hi"])
+                               if cells["room"] else None),
+            "query_upper_above_threshold": [cell for cell in cells["query"]
+                                            if cell["hi"] > float(threshold)],
+            "room_upper_above_threshold": [cell for cell in cells["room"]
+                                           if cell["r_hi"] > float(threshold)]}
+    return bounds
+
+
 def h1_wording(primary_pass, released_pass):
     """The verdict wording for the same-budget control and the released checkpoint.
 
@@ -1656,6 +1698,34 @@ def main(argv=None):
             print("   {} ({}): {:+.0%} of the k=0 error is {} s EDT and {} dB C50".format(
                 role, label, args.threshold, _fmt(margins["edt"], 4),
                 _fmt(margins["c50"], 3)))
+        if not gate_mode:
+            # What the intervals rule out, for every run and not only the H1 roles. A
+            # gate run has no rotated angle, so it has no such bound.
+            out["h1"]["bounds"] = dict(
+                (label, h1_bounds(dict((metric, out["acoustic"][label]["P"][metric])
+                                       for metric in CONFIRMATORY_METRICS
+                                       if metric in out["acoustic"].get(label, {}).get("P", {})),
+                                  args.threshold))
+                for label in by_label)
+            print("   distance to the {:+.0%} margin (all runs, condition P, k != 0):"
+                  .format(args.threshold))
+            top = None
+            for label, per_label in out["h1"]["bounds"].items():
+                for metric in sorted(per_label):
+                    cell = per_label[metric]["max_query_upper"]
+                    if cell is not None and (top is None or cell["hi"] > top[2]["hi"]):
+                        top = (label, metric, cell)
+            print("      largest adjusted query-level upper bound: {}".format(
+                "none (no interval exists)" if top is None else
+                "{:+.4f} ({}, {}, {:.1f} deg)".format(top[2]["hi"], top[0], top[1],
+                                                      top[2]["deg"])))
+            above = ["{} {} {:.1f} deg ({:+.4f})".format(label, metric, cell["deg"],
+                                                         cell["r_hi"])
+                     for label, per_label in out["h1"]["bounds"].items()
+                     for metric in sorted(per_label)
+                     for cell in per_label[metric]["room_upper_above_threshold"]]
+            print("      room-cluster cells with an adjusted upper bound above {:+.0%}: "
+                  "{}".format(args.threshold, ", ".join(above) if above else "none"))
 
         print("\n5. H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, "
               "paired on the\n   same resamples; TOST equivalence of r_cyl to zero within "
