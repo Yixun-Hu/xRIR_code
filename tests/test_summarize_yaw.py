@@ -9,6 +9,7 @@ than as noise.
 import json
 import math
 import os
+import shutil
 
 import numpy as np
 import pytest
@@ -2136,3 +2137,68 @@ def test_the_k0_gate_json_carries_the_same_three_descriptions(tmp_path, monkeypa
     assert set(config["run_descriptions"]) == {"control", "cyl", "released"}
     assert config["run_descriptions"]["released"] == \
         "released (simple, checkpoints/xRIR_unseen.pth)"
+
+
+# --------------------------------------------------------------------------------------
+# delay_flips_entity / delay_flips_max -- what the delay-flip counts count
+# --------------------------------------------------------------------------------------
+def _flat(text):
+    """The text with every run of whitespace collapsed, so a wrapped sentence matches."""
+    return " ".join(text.split())
+
+
+def test_the_json_says_what_a_delay_flip_counts(exploratory_summary):
+    """A bare integer per angle is meaningless without the entity it counts."""
+    out, text = exploratory_summary
+
+    entity = out["delay_flips_entity"]
+    assert entity == ("(query, reference) pairs whose integer direct-path delay moves "
+                      "under the rotation -- the numerical noise condition P excludes")
+    section6 = _section(text, "\n6. Delay-flip", "\n7. Decomposition")
+    assert entity + "." in _flat(section6)
+
+
+def test_delay_flips_max_is_omitted_when_no_run_records_a_shot_count(
+        exploratory_summary):
+    """eval_yaw_rotation.py's meta has no num_shot; guessing 8 would be inventing it."""
+    out, _ = exploratory_summary
+
+    assert "delay_flips_max" not in out
+    assert all("num_shot" not in meta for meta in out["meta"].values())
+
+
+def test_delay_flips_max_is_the_number_of_pairs_when_the_runs_record_the_shot_count(
+        two_runs, tmp_path):
+    from tools.summarize_yaw import main
+
+    directories = []
+    for index, source in enumerate(two_runs):
+        directory = str(tmp_path / "shot{}".format(index))
+        shutil.copytree(source, directory)
+        _edit_run(directory, lambda run: run["meta"].update(num_shot=8))
+        directories.append(directory)
+    out = main(["--mode", "exploratory", "--runs", directories[0], directories[1],
+                "--labels", "control", "cyl", "--n-boot", "200",
+                "--json", str(tmp_path / "shot.json"),
+                "--summary", str(tmp_path / "shot.txt")])
+
+    assert out["delay_flips_max"] == out["n_queries"] * 8
+    assert all(counts <= out["delay_flips_max"]
+               for per_label in out["delay_flips"].values()
+               for counts in per_label.values())
+    # Two runs that disagree cannot name one denominator, so none is written.
+    _edit_run(directories[1], lambda run: run["meta"].update(num_shot=4))
+    out = main(["--mode", "exploratory", "--runs", directories[0], directories[1],
+                "--labels", "control", "cyl", "--n-boot", "200",
+                "--json", str(tmp_path / "shot2.json"),
+                "--summary", str(tmp_path / "shot2.txt")])
+    assert "delay_flips_max" not in out
+
+
+def test_the_k0_gate_json_also_says_what_a_delay_flip_counts(tmp_path, monkeypatch):
+    argv, _ = _gate_setup(tmp_path, monkeypatch)
+    out, code = _run_gate(argv, tmp_path, "flips")
+
+    assert code == 0
+    assert out["delay_flips_entity"].startswith("(query, reference) pairs")
+    assert set(out["delay_flips"]) == {"control", "cyl", "released"}

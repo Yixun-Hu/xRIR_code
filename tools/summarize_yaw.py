@@ -132,6 +132,24 @@ def rooms_from_paths(queries):
     return np.array([str(query).split("/")[1] for query in queries])
 
 
+def shot_count(runs):
+    """References per query, if every run records the same one; otherwise ``None``.
+
+    It is the denominator of the delay-flip audit: ``n_queries * num_shot`` is how many
+    (query, reference) pairs an angle *could* flip.  ``eval_yaw_rotation.py``'s ``meta``
+    does not record the manifest's ``num_shot`` today, so this is normally ``None`` and
+    the denominator is simply not reported -- assuming the usual 8 would be asserting a
+    number the summarizer never read.
+    """
+    counts = set()
+    for run in runs:
+        count = run.get("meta", {}).get("num_shot")
+        if count is None:
+            return None
+        counts.add(int(count))
+    return counts.pop() if len(counts) == 1 else None
+
+
 def signed_degrees(k, width=WIDTH):
     """The angle of a column roll in degrees, mapped to ``(-180, 180]``."""
     degrees = 360.0 * (int(k) % int(width)) / float(width)
@@ -579,6 +597,9 @@ METRIC_UNITS = {"edt": "s", "c50": "dB", "t60": "%",
                 "loss": "", "log_mse": "", "consistency": ""}
 # What the two condition letters mean, in the words section 1's header prints.
 CONDITION_DEFINITIONS = {"P": "pinned k=0 alignment", "E": "end to end"}
+# What section 6's per-angle integers count, in the words its header prints.
+DELAY_FLIPS_ENTITY = ("(query, reference) pairs whose integer direct-path delay moves "
+                      "under the rotation -- the numerical noise condition P excludes")
 
 # The pre-registered angle grids (plan section 4). They are constants, not something a
 # run's own meta may redefine: the Bonferroni family is fixed at 2 metrics x 9 non-zero
@@ -1546,8 +1567,12 @@ def main(argv=None):
            "meta": {label: run["meta"] for label, run in by_label.items()},
            "spectral": {}, "acoustic": {}, "k0": [], "h1": {}, "h2": {},
            "delay_flips": {label: run["delay_flips"] for label, run in by_label.items()},
+           "delay_flips_entity": DELAY_FLIPS_ENTITY,
            "decomposition": {label: run["decomposition"] for label, run in by_label.items()
                              if run["decomposition"] is not None}}
+    references_per_query = shot_count(runs)
+    if references_per_query is not None:
+        out["delay_flips_max"] = len(queries) * references_per_query
     if args.mode == "full":
         out["valid_for_confirmatory"] = True
         out["validation_reasons"] = []
