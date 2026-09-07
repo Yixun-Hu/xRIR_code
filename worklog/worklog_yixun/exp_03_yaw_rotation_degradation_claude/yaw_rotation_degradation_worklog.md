@@ -489,3 +489,10 @@
 - **Analysis** — the bug was in the contract for future migrations, not in the retained bindings (no sidecar carries a history yet); the record's evidence is unchanged.
 - **Next** — commit the record (worklog, plan, params, command, results, analysis, page, assets, logs, reviews, tests), then the commits file.
 - **Command / Validation (suite)** — full suite (retained log `yaw_rotation_degradation_2026-09-07_00:08:52_full_suite.log`): 237 passed, 0 skipped, 166 s.
+
+## 2026-09-07T00:14:00-04:00 — record committed
+- **Goal** — commit the record under the decision rule of 23:28:00 after round 8 confirmed the evidence path sound.
+- **Version Control** — `main`; record commit `4131f7d9032a56508cfc417066f86fcaec329380` (the whole record folder: plan, params, command, worklog, results.md, analysis, page, assets with the canonical copies and tooling, all logs, gate decisions, review prompts and reviews; plus `tests/test_exp03_record_tools.py`). Excluded on the reviewer's request: the modified `commits_*.md` of exp_01/exp_02 (unrelated). Not pushed. Bookkeeping commit for `commits_yaw_rotation_degradation.md` and this entry follows immediately (its SHA is the commit that contains this line: `git log -1 -- worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/commits_yaw_rotation_degradation.md`).
+- **Result** — `passed`.
+- **Analysis** — outstanding items are recorded in the analysis ("Residual limitations" and "Open auxiliary tooling items"); the last Codex verdict remains "request changes" on those auxiliary items, overridden by the Planner's documented decision because none affects the evidence path; the user can reopen any of them.
+- **Next** — CLAUDE.md and memory updates; report to the user.
