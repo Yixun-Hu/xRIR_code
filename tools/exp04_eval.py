@@ -71,3 +71,31 @@ def validate_manifest(args):
         raise ValueError("evaluation manifest mismatch: " + ", ".join(sorted(set(mismatches))))
     yaw._check_cols(args.yaw_cols, args.acoustic_cols, args.e_acoustic_cols)
     return fields, digest, reference
+
+
+def evaluate_p_batch(model, batch, evaluator, cols, acoustic_cols=(), e_acoustic_cols=(),
+                     gl_seed=0, batch_size=None):
+    """The frozen P numerical path, including padding, without the E forward passes."""
+    if e_acoustic_cols:
+        raise ValueError("e_acoustic_cols must be empty for P")
+    batch, n_real = yaw.pad_batch(batch, batch_size)
+    _, src, depth, target, refs, locations, keys = batch
+    src, depth = src.cuda(), depth.cuda()
+    target, refs, locations = target.cuda(), refs.cuda(), locations.cuda()
+    keys = list(keys)[:n_real]
+    with yaw.torch.no_grad():
+        aligned0 = model.shift_and_align(refs, src, locations)
+        baseline, _ = model(depth, refs, src, locations, target)
+    baseline, target_real = baseline[:n_real], target[:n_real]
+    results = {}
+    for k in cols:
+        depth_k, src_k, locations_k = yaw.rotated_views(depth, src, locations, k)
+        with yaw.torch.no_grad(), yaw.fixed_alignment(model, aligned0):
+            prediction, spectrum = model(depth_k, refs, src_k, locations_k, target)
+        prediction, spectrum = prediction[:n_real], spectrum[:n_real]
+        cell = {name: values.double().numpy() for name, values in
+                yaw.spectral_metrics(prediction, baseline, spectrum).items()}
+        if int(k) in acoustic_cols:
+            cell.update(yaw.acoustic_metrics_batch(prediction, target_real, keys, evaluator, gl_seed))
+        results[("P", int(k))] = cell
+    return keys, results, yaw.delay_flip_counts(src[:n_real], locations[:n_real], cols)

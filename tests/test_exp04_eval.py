@@ -79,3 +79,38 @@ def test_modified_evaluator_source_is_refused(bound_run, key, value):
     fields["evaluator_closure"]["files"][0][key] = value
     with pytest.raises(ValueError, match="evaluator_closure"):
         subject.validate_manifest(args)
+
+
+def test_p_only_reuses_p_numerics_and_omits_e_forwards(monkeypatch):
+    import numpy as np
+    import torch
+    from eval_yaw_rotation import evaluate_batch
+
+    class Model(torch.nn.Module):
+        calls = 0
+
+        def shift_and_align(self, refs, src, locs):
+            return refs + src[:, 0, None, None]
+
+        def forward(self, depth, refs, src, locs, target):
+            self.calls += 1
+            value = self.shift_and_align(refs, src, locs).mean((1, 2)) + src[:, 0]
+            out = value[:, None, None, None].expand(-1, 3, 5, 1)
+            return out, torch.ones(out.shape[0], 1, 3, 5)
+
+    monkeypatch.setattr(torch.Tensor, "cuda", lambda self: self)
+    monkeypatch.setattr(subject.yaw, "acoustic_metrics_batch", lambda out, *a:
+                        {"edt": out[:, 0, 0, 0].numpy().astype(np.float64)})
+    batch = (torch.zeros(2, 3), torch.ones(2, 3), torch.ones(2, 3, 1, 512),
+             torch.ones(2, 1, 15), torch.ones(2, 8, 15), torch.ones(2, 8, 3), ["a", "b"])
+    model = Model()
+    keys, expected, flips = evaluate_batch(model, batch, None, [0, 32], [0, 32], batch_size=4)
+    assert model.calls == 5
+    model.calls = 0
+    got_keys, actual, got_flips = subject.evaluate_p_batch(
+        model, batch, None, [0, 32], [0, 32], batch_size=4)
+    assert model.calls == 3 and got_keys == keys and got_flips == flips
+    assert set(actual) == {("P", 0), ("P", 32)}
+    for cell, metrics in actual.items():
+        for name, values in metrics.items():
+            np.testing.assert_array_equal(values, expected[cell][name])
