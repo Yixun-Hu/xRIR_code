@@ -267,6 +267,7 @@ def admit_run(run_dir, arm, num_shot, profile, approved, check=None, inputs=None
     """Admit one run. evaluator=exp04_eval; writer=exp04_eval_launch.
 
     training_launcher is recorded, not compared; its evidence is checkpoint-bound.
+    approved is the loader's frozen pins mapping, without its identity receipt.
     Optional check/inputs share deviations and byte bindings across a grouped analysis.
     """
     if check is None:
@@ -412,6 +413,9 @@ def admit_runs(profile, groups, approved=None, exploratory=False, producer=None,
     required = [(key, approved['closures'][key]) for key in ('evaluator', 'writer', producer_key)]
     required += [(a['role'] + ' checkpoint', approved['checkpoints']['aug']['sha256']
                   if a['role'] == 'aug' else a['sha256']) for a, _, _ in groups]
+    if any(arm['role'] == 'aug' for arm, _, _ in groups):
+        required += [('aug checkpoint ' + key, approved['checkpoints']['aug'][key])
+                     for key in ('path', 'epoch')]
     required += [('dataset inventory', profile['dataset']['inventory_sha256']),
                  ('approval schema_version', approved['schema_version'])]
     deviations, inputs, run_flags, data_stats = [], {}, {}, {}

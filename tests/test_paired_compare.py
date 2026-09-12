@@ -1,6 +1,7 @@
 """Pure-statistics regression tests for the exp_04 confirmatory producer."""
 import hashlib
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -577,10 +578,15 @@ def test_public_group_admission_and_null_exploratory(admission_fixture):
     admitted = pc.admit_runs(fixture.profile, groups)
     assert admitted['approved_digests']['sha256'] == receipt['sha256']
     fixture.approved['closures']['producer_paired_compare'] = None
-    fixture.approved['checkpoints']['aug']['sha256'] = None
+    fixture.approved['checkpoints']['aug'] = dict.fromkeys(('path', 'epoch', 'sha256'))
+    with pytest.raises(ValueError, match='aug checkpoint path'):
+        pc.main(fixture.argv)
+    _assert_no_outputs(fixture)
     result = pc.main(fixture.argv + ['--exploratory'])
     assert any('producer_paired_compare' in item for item in result['deviations'])
     assert any('aug checkpoint' in item for item in result['deviations'])
+    for name in ('path', 'epoch'):
+        assert 'profile not yet approved: aug checkpoint ' + name in result['deviations']
     assert 'verdict' not in result
     assert _read(fixture.sidecar)['approved_digests']['git_blob'] == receipt['git_blob']
 
@@ -649,7 +655,11 @@ def test_data_hashed_once_and_mutation_still_refused(admission_fixture, monkeypa
     def analyze(*args):
         result = original_analyze(*args)
         if mutate:
-            data.write_bytes(b'changed fixture dataset')
+            before = data.stat()
+            data.write_bytes(b'x' * before.st_size)
+            os.utime(data, ns=(before.st_atime_ns, before.st_mtime_ns))
+            assert data.stat().st_size == before.st_size
+            assert data.stat().st_mtime_ns == before.st_mtime_ns
         return result
     monkeypatch.setattr(p, 'sha256_file', counted)
     monkeypatch.setattr(pc, 'analyze', analyze)
