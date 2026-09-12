@@ -73,6 +73,7 @@ def test_closure_and_dirty_state(repo):
     assert same_digest == digest and changed[1]['working_tree_sha256'] != records[1]['working_tree_sha256']
     git('commit', '-qam', 'changed')
     assert p.closure_record(files, head, root)[0][1]['commits_after_reviewed'] == [git('rev-parse', 'HEAD')]
+    shutil.rmtree(root / '__pycache__', ignore_errors=True)
     (root / 'untracked').touch()
     assert p.git_state(root)['dirty'] and p.git_state(root)['dirty_outside_worklog']
     assert p.git_state(root)['untracked'] == ['untracked']
