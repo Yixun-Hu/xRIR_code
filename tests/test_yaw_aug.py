@@ -250,10 +250,16 @@ def test_alignment_audit_refuses_incomplete_cohorts(problem):
 
 
 @pytest.mark.parametrize("workers", [None, "0"])
-def test_alignment_cli_matches_training_rng_and_loader(monkeypatch, tmp_path, workers):
+@pytest.mark.parametrize("existing", [False, True])
+def test_alignment_cli_matches_training_rng_and_loader(monkeypatch, tmp_path, workers, existing):
     import json
+    import platform
+    from pathlib import Path
+    import socket
+    import subprocess
     import train_xRIR_backbone as trainer
     import tools.yaw_aug as yaw
+    from treble_multi_room_dataset.treble_xRIR_dataset import BASE_DATA_PATH
     class Dataset(torch.utils.data.Dataset):
         def __init__(self, split="train", max_len=9600, num_shot=8):
             assert max_len == 9600 and num_shot == 8
@@ -291,7 +297,21 @@ def test_alignment_cli_matches_training_rng_and_loader(monkeypatch, tmp_path, wo
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     out = tmp_path / "audit.json"
     argv = ["--audit", "--n-batches", "2", "--seed", "7", "--out", str(out)] + ([] if workers is None else ["--num-workers", workers])
+    if existing:
+        out.write_bytes(b"existing audit must survive")
+        with pytest.raises(FileExistsError):
+            yaw._audit_main(argv)
+        assert out.read_bytes() == b"existing audit must survive"
+        return
+    monkeypatch.setenv("PYTHONHASHSEED", "17")
     yaw._audit_main(argv)
-    assert json.loads(out.read_text())["pairs"] == 2 * 32 * 8
+    result = json.loads(out.read_text())
+    assert set(result) == {"pairs", "changed_delays", "fraction", "cohort_sha256", "W", "args", "env"}
+    assert result["pairs"] == 2 * 32 * 8
+    assert result["args"] == {"seed": 7, "n_batches": 2, "batch_size": 32,
+        "num_workers": 12 if workers is None else 0, "W": 512, "data_root": str(Path(BASE_DATA_PATH).resolve()),
+        "PYTHONHASHSEED": "17", "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()}
+    assert result["env"] == {"python": platform.python_version(), "torch": torch.__version__,
+                             "cuda": torch.version.cuda, "hostname": socket.gethostname()}
     with pytest.raises(SystemExit):
         yaw._audit_main(argv + ["--n-batches", "3"])

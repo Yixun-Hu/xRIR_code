@@ -10,7 +10,11 @@ from itertools import islice, tee, zip_longest
 import json
 import math
 import numbers
+import os
 from pathlib import Path
+import platform
+import socket
+import subprocess
 
 import torch
 from tools.yaw_rotation import integer_delays
@@ -207,6 +211,7 @@ class _AuditDataset(torch.utils.data.Dataset):
 
 def _audit_main(argv=None):
     import train_xRIR_backbone as trainer
+    from treble_multi_room_dataset.treble_xRIR_dataset import BASE_DATA_PATH
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--audit", action="store_true", required=True)
     parser.add_argument("--n-batches", type=int, default=50)
@@ -231,9 +236,17 @@ def _audit_main(argv=None):
     offsets = (aug.offsets_for(1, int(index), int(batch[1].shape[0]))
                for index, batch in enumerate(for_offsets))
     result = alignment_audit(model, batches, offsets)
+    result["args"] = {"seed": args.seed, "n_batches": args.n_batches, "batch_size": args.batch_size,
+                      "num_workers": args.num_workers, "W": aug.W, "data_root": str(Path(BASE_DATA_PATH).resolve()),
+                      "PYTHONHASHSEED": os.environ.get("PYTHONHASHSEED"),
+                      "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"],
+                          cwd=str(Path(__file__).resolve().parents[1]), text=True).strip()}
+    result["env"] = {"python": platform.python_version(), "torch": torch.__version__,
+                     "cuda": torch.version.cuda, "hostname": socket.gethostname()}
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(result, indent=2) + "\n")
+    with out.open("x") as handle:
+        handle.write(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result), flush=True)
 
 

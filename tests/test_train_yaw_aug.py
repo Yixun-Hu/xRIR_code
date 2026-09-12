@@ -64,7 +64,7 @@ def test_real_model_parity_and_augmentation(batch, monkeypatch):
                for p, g in zip(model.parameters(), gradients))
     audio = [batch[i].clone() for i in (3, 4)]
     model.zero_grad(set_to_none=True)
-    rotated = trainer.compute_loss(model, batch, (YawAug(True), np.int64(1), np.int64(0)))[0]
+    rotated = trainer.compute_loss(model, batch, (YawAug(True), 1, 0))[0]
     assert torch.isfinite(rotated) and not torch.equal(actual[0], rotated)
     rotated.backward()
     assert all(p.grad is None or torch.isfinite(p.grad).all() for p in model.parameters())
@@ -156,6 +156,34 @@ def test_no_save_suppresses_mid_epoch_checkpoint(run_main, tmp_path, monkeypatch
     monkeypatch.setattr(trainer, "save_checkpoint", save)
     run_main("--yaw-aug", "0", "--no-save", "--save-every", "1", "--max-train-batches", "2", "--batch-size", "1")
     assert calls == [1] and not list(tmp_path.rglob("*"))
+
+
+_INVALID_COUNTERS = [(1.7, 0), (True, 0), (np.int64(1), 0),
+                     (1, 0.2), (1, False), (1, np.int64(0))]
+
+
+@pytest.mark.parametrize("epoch,idx", _INVALID_COUNTERS)
+def test_train_epoch_requires_native_counters(run_main, monkeypatch, epoch, idx):
+    original = trainer.train_epoch
+    def train(*args):
+        values = list(args)
+        values[4] = epoch
+        return original(*values)
+    monkeypatch.setattr(trainer, "train_epoch", train)
+    monkeypatch.setattr(trainer, "enumerate", lambda loader: iter([(idx, next(iter(loader)))]), raising=False)
+    with pytest.raises(ValueError, match="native int"):
+        run_main("--yaw-aug", "1", "--no-save")
+
+
+@pytest.mark.parametrize("epoch,idx", _INVALID_COUNTERS)
+def test_compute_loss_does_not_coerce_counters(batch, epoch, idx):
+    with pytest.raises(ValueError, match="integers"):
+        trainer.compute_loss(_Tiny(), batch, (YawAug(True), epoch, idx))
+
+
+def test_compute_loss_requires_enabled_augmentation(batch):
+    with pytest.raises(AssertionError):
+        trainer.compute_loss(_Tiny(), batch, (YawAug(False), 1, 0))
 
 
 def test_width_guard(run_main):

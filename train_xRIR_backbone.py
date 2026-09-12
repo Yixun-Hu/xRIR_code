@@ -90,10 +90,11 @@ def compute_loss(model, batch, aug=None):
     _, src_loc, depth_coord, tgt_wav, ref_irs, ref_locs = batch
     if aug is not None:
         yaw, epoch, batch_idx = aug
+        assert yaw.enabled, "aug requires enabled yaw augmentation"
         if yaw.W != depth_coord.shape[-1]:
             raise ValueError("--yaw-aug-width must equal the dataset depth panorama width")
         depth_coord, src_loc, ref_locs = (t.cuda(non_blocking=True) for t in (depth_coord, src_loc, ref_locs))
-        ks = yaw.offsets_for(int(epoch), int(batch_idx), int(src_loc.shape[0]))
+        ks = yaw.offsets_for(epoch, batch_idx, int(src_loc.shape[0]))
         depth_coord, src_loc, ref_locs = apply_yaw_aug(
             depth_coord, src_loc, ref_locs, ks.to(depth_coord.device), W=yaw.W)
     out_spec, tgt_spec = model(
@@ -122,6 +123,8 @@ def save_checkpoint(path, model, optimizer, scheduler, epoch, batch_idx, best_te
 
 
 def train_epoch(model, loader, optimizer, scheduler, epoch, args, best_test_loss):
+    if type(epoch) is not int:
+        raise ValueError("epoch must be a native int")
     model.train()
     aug = YawAug(True, args.yaw_aug_width, args.yaw_aug_seed, args.train_batches_per_epoch) if args.yaw_aug else None
     optimizer.zero_grad(set_to_none=True)
@@ -131,10 +134,12 @@ def train_epoch(model, loader, optimizer, scheduler, epoch, args, best_test_loss
     t_start = time.time()
     t_last = t_start
     for batch_idx, batch in enumerate(loader):
+        if type(batch_idx) is not int:
+            raise ValueError("batch_idx must be a native int")
         if args.max_train_batches and batch_idx >= args.max_train_batches:
             break
         loss, stft_l, decay_l = compute_loss(
-            model, batch, (aug, int(epoch), int(batch_idx)) if aug is not None else None)
+            model, batch, (aug, epoch, batch_idx) if aug is not None else None)
         (loss / args.accum_steps).backward()
         if (batch_idx + 1) % args.accum_steps == 0 or batch_idx + 1 == n_batches:
             optimizer.step()
