@@ -142,3 +142,169 @@ def test_invalid_decision_bounds_and_convergence_tolerances_fail_closed():
     for tolerance in (-.1, np.nan, np.inf):
         with pytest.raises(ValueError, match="tolerance"):
             stats.convergence(lambda seed: (0, 1), tol=tolerance)
+
+
+"""Synthetic execution-bound runs for exp_04 producer admission tests."""
+import hashlib
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+
+from tools import paired_compare as pc
+from tools import provenance as p
+from tools.exp04_profiles import get_profile, json_value
+from tools.reference_manifest import manifest_hash
+
+
+def _canonical_digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True,
+                                   separators=(',', ':')).encode()).hexdigest()
+
+
+def _read(path):
+    return json.loads(Path(path).read_text())
+
+
+def _replace(path, value):
+    path = Path(path)
+    if path.exists():
+        path.unlink()
+    return p.write_manifest(path, value)
+
+
+def _closure(root, name):
+    path = root / (name + '.py')
+    path.write_text('# fixture ' + name + '\n')
+    digest = p.sha256_file(path)
+    files = [{'path': path.name, 'reviewed_blob_sha256': digest,
+              'working_tree_sha256': digest, 'commits_after_reviewed': [],
+              'mtime': '2026-09-12T00:00:00+00:00'}]
+    identity = hashlib.sha256(json.dumps([[path.name, digest]],
+                                        sort_keys=True).encode()).hexdigest()
+    return {'files': files, 'sha256': identity}
+
+
+def _summaries(cells):
+    result = {}
+    for angle, metrics in cells.items():
+        result[angle] = {}
+        for name, values in metrics.items():
+            array = np.asarray(values, dtype=float)
+            finite = np.isfinite(array)
+            result[angle][name] = {'mean': float(array[finite].mean()) if finite.any() else None,
+                                  'n_valid': int(finite.sum()), 'n_nan': int((~finite).sum())}
+    return result
+
+
+def _rebind(run, manifest=None, sample=None, metrics=None):
+    """Refresh byte bindings after a deliberate, otherwise valid protocol mutation."""
+    manifest = manifest if manifest is not None else _read(run / 'eval_manifest.json')
+    digest = _replace(run / 'eval_manifest.json', manifest)
+    sample = sample if sample is not None else _read(run / 'per_sample_yaw.json')
+    sample['meta']['eval_manifest_sha256'] = digest
+    _replace(run / 'per_sample_yaw.json', sample)
+    metrics = metrics if metrics is not None else _read(run / 'metrics_yaw.json')
+    metrics['meta']['eval_manifest_sha256'] = digest
+    _replace(run / 'metrics_yaw.json', metrics)
+    completion = _read(run / 'completion.json')
+    completion['eval_manifest_sha256'] = digest
+    completion['outputs'] = {name: p.sha256_file(run / name)
+                             for name in ('per_sample_yaw.json', 'metrics_yaw.json')}
+    p.write_completion(run / 'completion.json', completion)
+
+
+@pytest.fixture
+def admission_fixture(tmp_path, monkeypatch):
+    def build(name='H1_K8'):
+        root = tmp_path / name
+        root.mkdir()
+        profile = json_value(get_profile(name))
+        profile['n_boot'] = 2000
+        queries = sorted('Room/room_{}/S00{}_R001_hybrid_IR.wav'.format(i // 4, i + 1)
+                         for i in range(12))
+        profile['dataset'].update(n_queries=12, n_rooms=3,
+                                  query_sha256=_canonical_digest(queries))
+        frozen, entry, writer = [_closure(root, item) for item in ('frozen', 'entry', 'writer')]
+        producer = {'sha256': 'a' * 64, 'files': [], 'commit': 'b' * 40}
+        profile['approved_closures'].update(evaluator=entry['sha256'], writer=writer['sha256'],
+                                            launcher=writer['sha256'], producer=producer['sha256'])
+        data_root = root / 'data'
+        data_root.mkdir()
+        (data_root / 'query.dat').write_bytes(b'fixture dataset bytes')
+        identity = p._inventory(['query.dat'], data_root)
+        profile['dataset']['inventory_sha256'] = identity['inventory_sha256']
+        paths = [[], []]
+        for arm_index, arm in enumerate(profile['arms']):
+            checkpoint = root / (arm['role'] + '.pth')
+            checkpoint.write_bytes(('fixture checkpoint ' + arm['role']).encode())
+            arm.update(checkpoint=str(checkpoint), sha256=p.sha256_file(checkpoint))
+        references = {}
+        for seed in range(42, 47):
+            reference = {'seed': seed, 'num_shot': profile['num_shot'], 'ir_root': str(data_root),
+                         'entries': [{'index': i, 'query': query,
+                                      'refs': [query.rsplit('/', 1)[0] + '/S099_R001_hybrid_IR.wav']
+                                      * profile['num_shot']}
+                                     for i, query in enumerate(queries)]}
+            path = root / ('reference_{}.json'.format(seed))
+            p.write_manifest(path, reference)
+            profile['seeds'][profile['num_shot']][seed] = manifest_hash(reference)
+            references[seed] = (path, reference)
+        for arm_index, arm in enumerate(profile['arms']):
+            for seed in range(42, 47):
+                run = root / '{}_{}'.format(arm['role'], seed)
+                run.mkdir()
+                paths[arm_index].append(str(run))
+                ref_path, reference = references[seed]
+                grid = profile['run_grids'][arm['role']]
+                manifest = dict(schema_version=1, repo=str(root), reviewed_commit='b' * 40,
+                    checkpoint=arm['checkpoint'], checkpoint_sha256=arm['sha256'],
+                    manifest_path=str(ref_path), manifest_file_sha256=p.sha256_file(ref_path),
+                    manifest_hash=manifest_hash(reference), manifest_seed=seed, gl_seed=seed,
+                    num_shot=profile['num_shot'], backbone=arm['backbone'], batch_size=16,
+                    batch_canonical=True, max_samples=0, tf32=False, conditions='P', yaw_cols=grid,
+                    acoustic_cols=grid, e_acoustic_cols=[], n_samples=12, split_count=12,
+                    split='unseen', no_tta=True, data_root=str(data_root), mutable_inputs={},
+                    data_identity=dict(identity, manifest_path=str(ref_path),
+                        manifest_file_sha256=p.sha256_file(ref_path), manifest_hash=manifest_hash(reference)),
+                    evaluator_closure=frozen, source_closures={'entrypoint': entry, 'writer': writer})
+                digest = p.write_manifest(run / 'eval_manifest.json', manifest)
+                keys = ('backbone', 'checkpoint', 'manifest_hash', 'gl_seed', 'batch_size',
+                        'max_samples', 'tf32', 'manifest_path', 'manifest_seed', 'yaw_cols',
+                        'acoustic_cols', 'e_acoustic_cols', 'batch_canonical', 'n_samples',
+                        'conditions', 'reviewed_commit')
+                meta = {key: manifest[key] for key in keys}
+                meta.update(eval_manifest_sha256=digest, evaluator_closure_sha256=frozen['sha256'],
+                            elapsed_min=0.1, torch_version='fixture')
+                cells = {str(k): {metric: [1 + i / 16 + (seed - 42) / 100 for i in range(12)]
+                                  for metric in ('edt', 'c50', 't60', 'loss', 'log_mse')}
+                         for k in grid}
+                sample = dict(meta=meta, query=queries, index=list(range(12)), P=cells,
+                              delay_flips={str(k): 0 for k in grid}, decomposition=None)
+                metrics = dict(meta=meta, P=_summaries(cells),
+                               delay_flips=sample['delay_flips'], decomposition=None)
+                p.write_manifest(run / 'per_sample_yaw.json', sample)
+                p.write_manifest(run / 'metrics_yaw.json', metrics)
+                log = root / '{}_{}.log'.format(arm['role'], seed)
+                log.write_text('fixture child completed\n')
+                p.write_completion(run / 'completion.json', dict(schema_version=1,
+                    eval_manifest_sha256=digest, directory_listing=['eval_manifest.json',
+                        'metrics_yaw.json', 'per_sample_yaw.json'], child_exit_status=0,
+                    started_at='2026-09-12T00:00:00+00:00', ended_at='2026-09-12T00:00:01+00:00',
+                    log={'path': str(log), 'sha256': p.sha256_file(log)},
+                    outputs={item: p.sha256_file(run / item)
+                             for item in ('per_sample_yaw.json', 'metrics_yaw.json')}))
+        monkeypatch.setattr(pc, 'get_profile', lambda _: profile)
+        monkeypatch.setattr(pc, 'producer_identity', lambda: producer)
+        output, summary = root / 'result.json', root / 'summary.txt'
+        argv = ['--profile', name, '--runs-a'] + paths[0]
+        if len(profile['arms']) == 2:
+            argv += ['--runs-b'] + paths[1]
+        argv += ['--json', str(output), '--summary', str(summary)]
+        return SimpleNamespace(root=root, profile=profile, paths=paths, argv=argv, output=output,
+                               summary=summary, sidecar=Path(str(output) + '.provenance.json'))
+    return build
+
+
