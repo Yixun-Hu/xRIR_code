@@ -447,6 +447,11 @@ def diagnostic_value(value):
 
 
 def assert_quiescent(pgid, log_path):
+    """Require a gone group and no fuser-visible writers (ordinary user permissions).
+
+    The execution receipt separately requires successful child and tee completion;
+    fuser, like /proc inspection, cannot inspect inaccessible users' descriptors.
+    """
     if type(pgid) is not int or pgid <= 0:
         raise ValueError('missing or invalid recorded process group')
     try:
@@ -455,25 +460,18 @@ def assert_quiescent(pgid, log_path):
         pass
     else:
         raise ValueError('child process group is still present')
-    target = log_path.stat()
-    for process in Path('/proc').iterdir():
-        if not process.name.isdigit():
-            continue
-        try:
-            for fd in (process / 'fd').iterdir():
-                try:
-                    stat = fd.stat()
-                    if (stat.st_dev, stat.st_ino) == (target.st_dev, target.st_ino):
-                        info = (process / 'fdinfo' / fd.name).read_text()
-                        flags = int(re.search(r'^flags:\s+(\d+)$', info, re.M)[1], 8)
-                        if flags & os.O_ACCMODE:
-                            raise ValueError('log writer still open: ' + str(fd))
-                except FileNotFoundError:
-                    pass  # The descriptor closed during inspection.
-        except (FileNotFoundError, ProcessLookupError):
-            pass
-        except PermissionError as error:
-            raise ValueError('cannot inspect log writers: ' + str(process)) from error
+    log_path.stat()
+    result = subprocess.run(['fuser', '-I', '-v', str(log_path.resolve())],
+        capture_output=True, text=True, env=dict(os.environ, LC_ALL='C'))
+    access = re.findall(r'^\s+\S+\s+([.cefrmF]{5})\s+\S+', result.stderr, re.M)
+    pids = result.stdout.split()
+    if (result.returncode not in (0, 1) or
+            result.returncode == 0 and (not access or len(access) != len(pids) or
+                                       not all(pid.isdigit() for pid in pids)) or
+            result.returncode == 1 and (result.stdout.strip() or result.stderr.strip())):
+        raise ValueError('cannot inspect log writers with fuser')
+    if any('F' in flags for flags in access):
+        raise ValueError('log writer still open: ' + result.stdout.strip())
 
 
 def complete_attempt(attempt, mode, log_path, fields, digest, metrics, hours):

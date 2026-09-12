@@ -114,3 +114,15 @@ def test_full_finalization_requires_authorizing_bindings(preserved_attempt, name
     with pytest.raises(ValueError, match=name):
         launch.complete_attempt(attempt, 'full', log, fields, 'digest', {}, 1)
     assert not (attempt / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('status,stdout,stderr', [(2, '', 'failed'), (0, '123', ''),
+                                               (1, '', 'Permission denied')])
+def test_failed_writer_inspection_refuses_recovery(preserved_attempt, monkeypatch, status, stdout, stderr):
+    from types import SimpleNamespace
+    attempt, log = preserved_attempt
+    pgid = json.loads((attempt / 'execution.json').read_text())['child_pgid']
+    monkeypatch.setattr(launch.subprocess, 'run', lambda *a, **k:
+                        SimpleNamespace(returncode=status, stdout=stdout, stderr=stderr))
+    with pytest.raises(ValueError, match='inspect log writers'):
+        launch.assert_quiescent(pgid, log)
