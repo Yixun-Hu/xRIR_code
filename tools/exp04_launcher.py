@@ -160,3 +160,33 @@ def promote(attempt):
     finally:
         if temporary.is_symlink():
             temporary.unlink()
+
+
+TRAIN_MINIMUM = {'train_xRIR_backbone.py', 'treble_multi_room_dataset/treble_xRIR_dataset.py',
+    'model/xRIR.py', 'model/xRIR_cyl.py', 'model/simple_vit.py', 'model/cylindrical_vit.py',
+    'utils/spec_utils.py', 'utils/lr_scheduler.py', 'tools/yaw_aug.py', 'tools/yaw_rotation.py'}
+
+
+def build_fields(argv, gpu, reviewed_commit, mode):
+    files = p.source_closure('train_xRIR_backbone', REPO)
+    if not TRAIN_MINIMUM <= set(files):
+        raise ValueError('training closure missing required files')
+    closures = {}
+    for role, paths in [('training', files), ('launcher',
+            p.source_closure('tools.exp04_launcher', REPO) + ['tools/exp04_probe.py', 'tools/exp04_launch.sh'])]:
+        records, digest = p.closure_record(paths, reviewed_commit, REPO)
+        if not records or any(r['reviewed_blob_sha256'] is None or
+                r['reviewed_blob_sha256'] != r['working_tree_sha256'] or
+                r['commits_after_reviewed'] for r in records):
+            raise ValueError(role + ' closure differs from reviewed commit')
+        closures[role] = {'files': records, 'sha256': digest}
+    print('Hashing training data identity...', flush=True)
+    data = p.train_data_identity(DATA_ROOT)
+    provisional = effective_args(argv, gpu, 1)
+    bpe = math.ceil(data['inventory_files'] / provisional['batch_size'])
+    effective = effective_args(argv, gpu, bpe)
+    check_runtime(effective, effective, mode)
+    return dict(repo=str(REPO), reviewed_commit=reviewed_commit, mode=mode,
+        source_closures=closures, train_data_identity=data, effective_args=effective,
+        command=argv, environment=p.environment(), git_state=p.git_state(REPO),
+        env={key: child_environment(gpu)[key] for key in ENV_KEYS})

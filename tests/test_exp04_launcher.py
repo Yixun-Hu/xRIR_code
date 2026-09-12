@@ -87,3 +87,38 @@ def test_exclusive_attempt_abort_account_and_promote(tmp_path):
 def test_invalid_budget_projection(tmp_path, projection):
     with pytest.raises(ValueError):
         launch.check_budget(tmp_path, projection)
+
+
+@pytest.fixture
+def fake_manifest_inputs(monkeypatch):
+    monkeypatch.setattr(launch.p, 'source_closure', lambda module, repo: sorted(launch.TRAIN_MINIMUM))
+    monkeypatch.setattr(launch.p, 'closure_record', lambda files, commit, repo: ([
+        dict(path=name, reviewed_blob_sha256='same', working_tree_sha256='same',
+             commits_after_reviewed=[]) for name in files], 'closure'))
+    monkeypatch.setattr(launch.p, 'environment', lambda: {'executable': launch.PYTHON})
+    monkeypatch.setattr(launch.p, 'git_state', lambda repo: {'HEAD': 'commit'})
+    monkeypatch.setattr(launch.p, 'train_data_identity', lambda root: {'inventory_files': 296334})
+
+
+def test_manifest_binds_import_closure_data_args_environment(fake_manifest_inputs):
+    command = launch.command('smoke', 'attempt')
+    fields = launch.build_fields(command, '1', 'commit', 'smoke')
+    assert fields['effective_args']['train_batches_per_epoch'] == 74084
+    assert fields['command'] == command and fields['reviewed_commit'] == 'commit'
+    assert fields['train_data_identity']['inventory_files'] == 296334
+    assert fields['env']['CUDA_VISIBLE_DEVICES'] == '1'
+    assert {r['path'] for r in fields['source_closures']['training']['files']} >= launch.TRAIN_MINIMUM
+
+
+@pytest.mark.parametrize('failure', ['missing', 'modified', 'unreviewed', 'later'])
+def test_training_closure_refusal(fake_manifest_inputs, monkeypatch, failure):
+    if failure == 'missing':
+        monkeypatch.setattr(launch.p, 'source_closure', lambda *a: ['train_xRIR_backbone.py'])
+    else:
+        record = dict(path='trainer', reviewed_blob_sha256='same', working_tree_sha256='same',
+                      commits_after_reviewed=[])
+        record[{'modified': 'working_tree_sha256', 'unreviewed': 'reviewed_blob_sha256',
+                'later': 'commits_after_reviewed'}[failure]] = None if failure == 'unreviewed' else 'changed'
+        monkeypatch.setattr(launch.p, 'closure_record', lambda *a: ([record], 'digest'))
+    with pytest.raises(ValueError, match='closure'):
+        launch.build_fields(launch.command('full', 'attempt'), '1', 'commit', 'full')
