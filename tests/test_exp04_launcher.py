@@ -383,12 +383,15 @@ def test_tee_preserves_redirected_launcher_output(tmp_path):
             'from tools.exp04_launcher import run_child; '
             "print('launcher start', flush=True); "
             'run_child([sys.executable, "-c", "print(123, flush=True)"], Path(%r), "1", '
-            'SimpleNamespace(poll=lambda path: None)); ' % str(inner) +
+            'SimpleNamespace(poll=lambda path: None, execution_path=Path(%r), execution={})); ' % (str(inner), str(tmp_path / 'execution.json')) +
             "print('launcher end', flush=True)")
     with outer.open('w') as stream:
         launch.subprocess.run([sys.executable, '-c', code], cwd=launch.REPO, check=True,
                               stdout=stream, stderr=launch.subprocess.STDOUT)
-    assert outer.read_text().splitlines() == ['launcher start', '123', 'launcher end']
+    lines = outer.read_text().splitlines()
+    assert [line for line in lines if not line.startswith('EXP04_SPAWN ')] == ['launcher start', '123', 'launcher end']
+    spawn, = [json.loads(line[12:]) for line in lines if line.startswith('EXP04_SPAWN ')]
+    assert spawn['child_pgid'] == json.loads((tmp_path / 'execution.json').read_text())['child_pgid']
     assert inner.read_text() == '123\n'
 
 
@@ -401,7 +404,7 @@ def test_epoch_one_acceptance_is_checked_immediately(tmp_path):
 
 
 @pytest.mark.parametrize('mode', ['smoke', 'probe'])
-@pytest.mark.parametrize('signum', [launch.signal.SIGTERM, launch.signal.SIGHUP])
+@pytest.mark.parametrize('signum', [launch.signal.SIGTERM, launch.signal.SIGHUP, launch.signal.SIGINT])
 def test_signals_abort_and_reap_sleeping_child(tmp_path, mode, signum):
     import sys
     import time
@@ -415,7 +418,9 @@ def test_signals_abort_and_reap_sleeping_child(tmp_path, mode, signum):
     fields = dict(effective_args=expected, command=[sys.executable, '-c', child])
     ready = tmp_path / 'guard.ready'
     code = ('from tools import exp04_launcher as l; from pathlib import Path; '
-            'l.resource_gate=lambda *a: {}; '
+            'l.resource_gate=lambda *a: {}; import time; '
+            '[l.signal.signal(s, l.signal.SIG_DFL) for s in (l.signal.SIGTERM, l.signal.SIGHUP, l.signal.SIGINT)]; '
+            'abort=l.abort_log; l.abort_log=lambda *a: (Path(%r).touch(), time.sleep(.2), abort(*a))[-1]; ' % str(tmp_path / 'aborting') +
             'poll=l.LogGuard.poll; l.LogGuard.poll=lambda self, path: '
             '(poll(self, path), Path(%r).touch() if self.steps else None); ' % str(ready) +
             'l.execute_attempt(%r, %r, "1", %r, lambda: %r)' %
@@ -429,6 +434,9 @@ def test_signals_abort_and_reap_sleeping_child(tmp_path, mode, signum):
         assert pidfile.exists() and ready.exists()
         child_pid = int(pidfile.read_text())
         process.send_signal(signum)
+        while not (tmp_path / 'aborting').exists() and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(.01)
+        process.send_signal(launch.signal.SIGHUP)
         process.wait(timeout=10)
         aborted, = tmp_path.glob('attempt_t_ABORTED_*')
         assert not attempt.exists() and not (aborted / 'completion.json').exists()
@@ -458,7 +466,7 @@ def test_termination_handlers_restore_previous_dispositions():
     before = [launch.signal.getsignal(s) for s in signals]
     with pytest.raises(launch.LauncherTerminated):
         with launch.termination_handlers():
-            os.kill(os.getpid(), launch.signal.SIGHUP)
+            os.kill(os.getpid(), launch.signal.SIGINT)
     assert [launch.signal.getsignal(s) for s in signals] == before
 
 
@@ -592,3 +600,14 @@ def test_child_records_group_and_closed_log_for_recovery(tmp_path):
 @pytest.mark.parametrize('key', launch.REQUIRED_INPUTS)
 def test_training_required_inputs(key):
     assert 'missing.' + key in launch.p.revalidate({}, required=launch.REQUIRED_INPUTS)
+
+
+def test_termination_respects_nohup():
+    sig = launch.signal.SIGHUP
+    previous = launch.signal.signal(sig, launch.signal.SIG_IGN)
+    try:
+        with launch.termination_handlers():
+            assert launch.signal.getsignal(sig) == launch.signal.SIG_IGN
+            os.kill(os.getpid(), sig)
+    finally:
+        launch.signal.signal(sig, previous)

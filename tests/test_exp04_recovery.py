@@ -32,7 +32,7 @@ def test_recovery_requires_dead_group_and_closed_log(tmp_path):
 
 
 @pytest.fixture
-def preserved_attempt(tmp_path):
+def preserved_attempt(tmp_path, monkeypatch):
     attempt = launch.create_attempt(tmp_path, 'attempt_t')
     expected = launch.effective_args(launch.command('full', str(attempt)), '1', 9261)
     for name in ('args.json', 'effective_args.json'):
@@ -57,15 +57,34 @@ def preserved_attempt(tmp_path):
     identity['inventory_file'] = dict(path=str(sidecar),
         sha256=launch.p.write_manifest(sidecar, {'inventory': identity.pop('inventory')}))
     mutable['train_inventory'] = identity['inventory_file']
+    monkeypatch.setattr(launch, 'REPO', tmp_path)
+    paths = sorted(launch.TRAIN_MINIMUM | {'tools/exp04_launcher.py'})
+    for name in paths:
+        source = tmp_path / name
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text('# reviewed fixture\n')
+    for argv in (['init', '-q'], ['add', *paths], ['-c', 'user.name=Test', '-c',
+            'user.email=test@example.com', 'commit', '-qm', 'fixture']):
+        subprocess.run(['git', *argv], cwd=tmp_path, check=True)
+    commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=tmp_path, text=True).strip()
+    records, sha = launch.p.closure_record(paths, commit, tmp_path)
+    identity['inventory_files'] = 296334
     fields = dict(repo=str(tmp_path), mode='full', effective_args=expected, source_closures={},
         train_data_identity=identity, mutable_inputs=mutable,
         started_at='2026-09-12T00:00:00+00:00', attempt_path=str(attempt), log_path=str(log))
+    fields.update(reviewed_commit=commit, command=launch.command('full', str(attempt)),
+        env={k: expected[k] for k in launch.ENV_KEYS}, resource_before={'gpu': '1'},
+        source_closures={role: dict(files=records, sha256=sha) for role in ('training', 'launcher')})
     digest = launch.p.write_manifest(attempt / 'train_manifest.json', fields)
     child = subprocess.Popen([launch.PYTHON, '-c', 'pass'], start_new_session=True)
     child.wait()
+    spawn = dict(train_manifest_sha256=digest, child_pgid=child.pid, child_exit_status=None)
+    spawn['spawn_execution_sha256'] = launch.p.hashlib.sha256((
+        json.dumps(spawn, sort_keys=True, indent=2) + '\n').encode()).hexdigest()
+    (tmp_path / 'launcher.log').write_text('EXP04_SPAWN ' + json.dumps(spawn, sort_keys=True) + '\n')
     launch.p.write_completion(attempt / 'execution.json', dict(train_manifest_sha256=digest,
         child_pgid=child.pid, child_exit_status=0, ended_at='2026-09-12T01:00:00+00:00',
-        log_sha256=launch.p.sha256_file(log)))
+        log_sha256=launch.p.sha256_file(log), spawn_execution_sha256=spawn['spawn_execution_sha256']))
     return attempt, log
 
 
@@ -91,10 +110,10 @@ def test_finalize_preserved_attempt(preserved_attempt, mutation):
         launch.p.write_completion(path, dict(json.loads(path.read_text()), child_exit_status=3))
     if mutation not in (None, 'renamed'):
         with pytest.raises((ValueError, KeyError)):
-            launch.main(['finalize', str(attempt)])
+            launch.main(['finalize', str(attempt), '--launcher-log', str(attempt.parent / 'launcher.log')])
         assert not (attempt / 'completion.json').exists() and not (attempt.parent / 'final').exists()
     else:
-        result = launch.main(['finalize', str(attempt)])
+        result = launch.main(['finalize', str(attempt), '--launcher-log', str(attempt.parent / 'launcher.log')])
         hours = 1.5 if mutation == 'renamed' else 1
         assert result['wall_hours'] == hours and len(result['outputs']) >= 14
         assert result['directory_listing'] == {path.name: launch.p.sha256_file(path)
@@ -103,7 +122,7 @@ def test_finalize_preserved_attempt(preserved_attempt, mutation):
         assert (attempt.parent / 'final').resolve() == attempt
         assert launch.full_hours(attempt.parent) == hours
         with pytest.raises(FileExistsError):
-            launch.main(['finalize', str(attempt)])
+            launch.main(['finalize', str(attempt), '--launcher-log', str(attempt.parent / 'launcher.log')])
 
 
 @pytest.mark.parametrize('name', ['control_args', 'probe_receipt'])
@@ -126,3 +145,39 @@ def test_failed_writer_inspection_refuses_recovery(preserved_attempt, monkeypatc
                         SimpleNamespace(returncode=status, stdout=stdout, stderr=stderr))
     with pytest.raises(ValueError, match='inspect log writers'):
         launch.assert_quiescent(pgid, log)
+
+
+@pytest.mark.parametrize('key,value', [('repo', '/tmp'), ('source_closures', {}),
+    ('reviewed_commit', 'fake'), ('command', []), ('env', {}), ('resource_before', None),
+    ('mutable_inputs', {}), ('train_data_identity', {'inventory_files': 1}), ('child_pgid', 1)])
+def test_fabricated_recovery_refused(preserved_attempt, key, value):
+    attempt, _ = preserved_attempt
+    fields = json.loads((attempt / 'train_manifest.json').read_text())
+    execution = json.loads((attempt / 'execution.json').read_text())
+    if key == 'child_pgid':
+        execution[key] = value
+    else:
+        fields[key] = value
+        (attempt / 'train_manifest.json').write_text(json.dumps(fields))
+        execution['train_manifest_sha256'] = launch.p.sha256_file(attempt / 'train_manifest.json')
+    if key != 'child_pgid':
+        spawn = dict(execution, child_exit_status=None)
+        for field in ('ended_at', 'log_sha256', 'spawn_execution_sha256'):
+            spawn.pop(field)
+        spawn['spawn_execution_sha256'] = launch.p.hashlib.sha256((
+            json.dumps(spawn, sort_keys=True, indent=2) + '\n').encode()).hexdigest()
+        execution['spawn_execution_sha256'] = spawn['spawn_execution_sha256']
+        (attempt.parent / 'launcher.log').write_text('EXP04_SPAWN ' + json.dumps(spawn, sort_keys=True) + '\n')
+    launch.p.write_completion(attempt / 'execution.json', execution)
+    with pytest.raises(ValueError):
+        launch.finalize_attempt(attempt, attempt.parent / 'launcher.log')
+    assert not (attempt / 'completion.json').exists()
+
+
+def test_recovery_requires_external_log_and_pinned_python(preserved_attempt, monkeypatch):
+    attempt, _ = preserved_attempt
+    with pytest.raises(ValueError, match='launcher-log'):
+        launch.finalize_attempt(attempt)
+    monkeypatch.setattr(launch.sys, 'executable', '/usr/bin/python')
+    with pytest.raises(ValueError, match='pinned interpreter'):
+        launch.finalize_attempt(attempt, attempt.parent / 'launcher.log')

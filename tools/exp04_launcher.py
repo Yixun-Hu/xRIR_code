@@ -250,16 +250,25 @@ class LauncherFailure(ValueError):
 
 @contextmanager
 def termination_handlers():
+    terminating = False
     def terminate(signum, frame):
-        raise LauncherTerminated(signum)
-    previous = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGHUP)}
+        nonlocal terminating
+        if not terminating:
+            terminating = True
+            raise LauncherTerminated(signum)
+    previous = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)}
+    mask = signal.pthread_sigmask(signal.SIG_BLOCK, [])
     try:
         for signum in previous:
-            signal.signal(signum, terminate)
+            if previous[signum] != signal.SIG_IGN:
+                signal.signal(signum, terminate)
         yield
     finally:
-        for signum, handler in previous.items():
-            signal.signal(signum, handler)
+        try:
+            signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+        finally:
+            for signum, handler in previous.items():
+                signal.signal(signum, handler)
 
 
 class LogGuard:
@@ -358,6 +367,8 @@ def run_child(argv, log_path, gpu, guard, deadline=None):
             if getattr(guard, 'execution_path', None):
                 guard.execution.update(child_pgid=child.pid, child_exit_status=None)
                 p.write_completion(guard.execution_path, guard.execution)
+                guard.execution['spawn_execution_sha256'] = p.sha256_file(guard.execution_path)
+                print('EXP04_SPAWN ' + json.dumps(guard.execution, sort_keys=True), flush=True)
             sink = subprocess.Popen(['tee', '-a', str(log_path)], stdin=child.stdout, stdout=2,
                                     start_new_session=True)
             child.stdout.close()
@@ -379,6 +390,7 @@ def run_child(argv, log_path, gpu, guard, deadline=None):
                 p.write_completion(guard.execution_path, guard.execution)
             return child.returncode
         finally:
+            mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGHUP, signal.SIGINT})
             for process in (child, sink):
                 if process is not None:
                     try:
@@ -394,6 +406,7 @@ def run_child(argv, log_path, gpu, guard, deadline=None):
                         os.killpg(process.pid, signal.SIGKILL)  # Reap survivors even after their leader exits.
                     except ProcessLookupError:
                         pass
+            signal.pthread_sigmask(signal.SIG_SETMASK, mask)
 
 
 def validate_outputs(attempt, mode, expected):
@@ -499,8 +512,47 @@ def complete_attempt(attempt, mode, log_path, fields, digest, metrics, hours):
     return completion
 
 
+def recovery_evidence(fields, execution, attempt, launcher_log):
+    if fields.get('repo') != str(REPO) or fields.get('mode') not in ('smoke', 'probe', 'full'):
+        raise ValueError('invalid recovery repo or mode')
+    if not re.fullmatch('[0-9a-fA-F]{40}', fields.get('reviewed_commit', '')):
+        raise ValueError('invalid reviewed_commit')
+    closures = fields.get('source_closures', {})
+    if (not TRAIN_MINIMUM <= {r['path'] for r in closures.get('training', {}).get('files', [])}
+            or not closures.get('launcher', {}).get('files')):
+        raise ValueError('recovery closure minimum missing')
+    if not fields.get('resource_before') or not set(ENV_KEYS) <= set(fields.get('env', {})):
+        raise ValueError('recovery resource_before or env missing')
+    mode = fields['mode']
+    if mode in ('smoke', 'full'):
+        save_dir = fields['effective_args']['save_dir']
+        original = save_dir[:-6] if mode == 'smoke' else save_dir
+        if (REPO / original).resolve() != Path(fields['attempt_path']):
+            raise ValueError('recovery command attempt path mismatch')
+        check_golden(fields['command'], mode, original)
+    required = {'effective_args', 'train_inventory'} | ({'control_args', 'probe_receipt'} if mode == 'full' else set())
+    if not required <= set(fields.get('mutable_inputs', {})):
+        raise ValueError('recovery required bindings missing')
+    if mode == 'full' and fields['train_data_identity'].get('inventory_files') != 296334:
+        raise ValueError('recovery training inventory count')
+    if launcher_log is None:
+        raise ValueError('recovery requires --launcher-log from nohup setsid invocation')
+    path = Path(launcher_log).resolve()
+    spawn = dict(train_manifest_sha256=execution['train_manifest_sha256'],
+                 child_pgid=execution['child_pgid'], child_exit_status=None)
+    spawn['spawn_execution_sha256'] = p.hashlib.sha256((
+        json.dumps(spawn, sort_keys=True, indent=2, allow_nan=False) + '\n').encode()).hexdigest()
+    if execution.get('spawn_execution_sha256') != spawn['spawn_execution_sha256']:
+        raise ValueError('spawn execution digest mismatch')
+    line = 'EXP04_SPAWN ' + json.dumps(spawn, sort_keys=True)
+    if path == attempt or attempt in path.parents or path.read_text().splitlines().count(line) != 1:
+        raise ValueError('execution does not match external launcher log')
+
+
 @termination_handlers()
-def finalize_attempt(attempt):
+def finalize_attempt(attempt, launcher_log=None):
+    if Path(sys.executable).resolve() != Path(PYTHON).resolve():
+        raise ValueError('launcher requires pinned interpreter ' + PYTHON)
     attempt = Path(attempt).resolve()
     with (attempt.parent / '.launch.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -512,6 +564,7 @@ def finalize_attempt(attempt):
         if p.sha256_file(manifest_path) != digest:
             raise ValueError('mutable input mismatch: train_manifest')
         fields = json.loads(manifest_path.read_text())
+        recovery_evidence(fields, execution, attempt, launcher_log)
         log_path = Path(fields['log_path'])
         if (attempt / 'abort.json').exists():
             aborted_log = json.loads((attempt / 'abort.json').read_text())['log']['aborted']
@@ -594,8 +647,9 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
         return complete_attempt(attempt, mode, log_path, fields, digest, metrics,
                                 lambda: (time.monotonic() - started) / 3600)
     except BaseException as error:
+        signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGHUP, signal.SIGINT})
         reason = ('terminated_' + signal.Signals(error.signum).name if isinstance(error, LauncherTerminated)
-                  else getattr(error, 'reason', reason))
+                  else 'terminated_SIGINT' if isinstance(error, KeyboardInterrupt) else getattr(error, 'reason', reason))
         hours = (time.monotonic() - started) / 3600
         renamed = abort_log(log_path, reason, guard is not None and guard.log_created)
         p.write_completion(attempt / 'abort.json', dict(reason=reason,
@@ -673,6 +727,7 @@ def main(argv=None):
     parser.add_argument('--gpu', default='1')
     parser.add_argument('--reviewed-commit')
     parser.add_argument('--log-dir')
+    parser.add_argument('--launcher-log', help='finalize: external nohup setsid launcher stdout log')
     parser.add_argument('--timestamp', default=datetime.datetime.now().strftime('%Y%m%dT%H%M%S%f'))
     parser.add_argument('--allow-cotenant', action='store_true')
     parser.add_argument('--allow-dirty', action='store_true')
@@ -682,7 +737,7 @@ def main(argv=None):
     if args.mode == 'finalize':
         if not args.attempt_dir:
             parser.error('finalize requires an attempt directory')
-        result = finalize_attempt(args.attempt_dir)
+        result = finalize_attempt(args.attempt_dir, args.launcher_log)
         print(json.dumps(result, sort_keys=True, allow_nan=False), flush=True)
         return result
     if args.attempt_dir:
