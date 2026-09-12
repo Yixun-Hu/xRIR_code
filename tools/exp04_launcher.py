@@ -73,3 +73,90 @@ def check_runtime(runtime, expected, mode):
         raise ValueError('runtime args mismatch: ' + ', '.join(sorted(differences)))
     if mode == 'full' and actual['train_batches_per_epoch'] != 9261:
         raise ValueError('full requires train_batches_per_epoch == 9261')
+
+
+import fcntl
+import math
+import subprocess
+import uuid
+from tools import provenance as p
+
+
+def gpu_snapshot(gpu):
+    options = ['nvidia-smi', '-i', str(gpu), '--format=csv,noheader,nounits']
+    raw = subprocess.check_output(options + ['--query-gpu=uuid,memory.free,utilization.gpu'], text=True)
+    identifier, free, utilization = raw.strip().split(',')
+    apps = subprocess.check_output(options +
+        ['--query-compute-apps=pid,process_name,used_gpu_memory'], text=True).strip()
+    return dict(gpu=str(gpu), uuid=identifier.strip(), free_gib=float(free) / 1024,
+                utilization_gpu=float(utilization), compute_apps=apps, query_gpu=raw.strip())
+
+
+def resource_gate(gpu, volume, mode, allow_cotenant=False):
+    if allow_cotenant and mode == 'full':
+        raise ValueError('full forbids --allow-cotenant')
+    state = gpu_snapshot(gpu)
+    free = int(subprocess.check_output(['df', '-B1', '--output=avail', str(volume)],
+                                      text=True).splitlines()[-1]) / 2**30
+    state['disk_free_gib'] = free
+    if free < 50:
+        raise ValueError('checkpoint volume needs >= 50 GiB')
+    if not allow_cotenant and (state['compute_apps'] or state['free_gib'] < 40):
+        raise ValueError('GPU needs no other processes and >= 40 GiB free')
+    return state
+
+
+def create_attempt(root, name):
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    attempt = root / name
+    attempt.mkdir()
+    return attempt
+
+
+def hours_record(root):
+    path = Path(root) / 'cumulative_hours.json'
+    result = json.loads(path.read_text()) if path.exists() else {'total_hours': 0, 'attempts': []}
+    hours = result['total_hours']
+    if not math.isfinite(hours) or hours < 0 or hours != sum(r['hours'] for r in result['attempts']):
+        raise ValueError('invalid cumulative hours')
+    return result
+
+
+def check_budget(root, projection):
+    if not math.isfinite(projection) or projection <= 0:
+        raise ValueError('projection must be finite and positive')
+    if hours_record(root)['total_hours'] + projection > 43:
+        raise ValueError('cumulative hours + projection exceeds 43 h')
+
+
+def account_hours(attempt, hours):
+    with (attempt.parent / '.hours.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        result = hours_record(attempt.parent)
+        if any(row['attempt'] == attempt.name for row in result['attempts']):
+            return
+        result['attempts'].append({'attempt': attempt.name, 'hours': hours})
+        result['total_hours'] = sum(row['hours'] for row in result['attempts'])
+        p.write_completion(attempt.parent / 'cumulative_hours.json', result)
+
+
+def abort_attempt(attempt, reason, hours):
+    aborted = attempt.with_name(attempt.name + '_ABORTED_' + reason)
+    if aborted.exists():
+        aborted = aborted.with_name(aborted.name + '_' + uuid.uuid4().hex)
+    attempt.rename(aborted)
+    account_hours(aborted, hours)
+    return aborted
+
+
+def promote(attempt):
+    if not (attempt / 'completion.json').is_file():
+        raise ValueError('promotion requires completion')
+    temporary = attempt.parent / ('.final_' + uuid.uuid4().hex)
+    try:
+        temporary.symlink_to(attempt.name)
+        os.replace(temporary, attempt.parent / 'final')
+    finally:
+        if temporary.is_symlink():
+            temporary.unlink()

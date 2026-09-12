@@ -1,5 +1,6 @@
 """CPU guards for the exp_04 training launcher."""
 import json
+import os
 from pathlib import Path
 import pytest
 from tools import exp04_launcher as launch
@@ -36,3 +37,53 @@ def test_full_refuses_matching_but_wrong_bpe():
     args = launch.effective_args(launch.command('full', 'ckpt/attempt'), '1', 9260)
     with pytest.raises(ValueError, match='9261'):
         launch.check_runtime(args, args, 'full')
+
+
+@pytest.mark.parametrize('free,apps,disk,allow,mode,refused', [
+    (40, '', 50, False, 'full', False), (39.99, '', 50, False, 'full', True),
+    (40, '123, train.py, 11000', 50, False, 'smoke', True),
+    (30, '123, train.py, 11000', 50, True, 'smoke', False),
+    (30, '123, train.py, 11000', 50, True, 'probe', False),
+    (40, '', 50, True, 'full', True), (40, '', 49.99, True, 'smoke', True)])
+def test_resource_thresholds(monkeypatch, tmp_path, free, apps, disk, allow, mode, refused):
+    def output(argv, **kwargs):
+        if argv[0] == 'df':
+            return 'Avail\n' + str(int(disk * 2**30))
+        if '--query-compute-apps=pid,process_name,used_gpu_memory' in argv:
+            return apps
+        assert '-i' in argv and argv[argv.index('-i') + 1] == '1'
+        return 'GPU-test, {}, 91'.format(free * 1024)
+    monkeypatch.setattr(launch.subprocess, 'check_output', output)
+    if refused:
+        with pytest.raises(ValueError):
+            launch.resource_gate('1', tmp_path, mode, allow)
+    else:
+        state = launch.resource_gate('1', tmp_path, mode, allow)
+        assert state['compute_apps'] == apps and state['utilization_gpu'] == 91
+
+
+def test_exclusive_attempt_abort_account_and_promote(tmp_path):
+    attempt = launch.create_attempt(tmp_path, 'attempt_t')
+    with pytest.raises(FileExistsError):
+        launch.create_attempt(tmp_path, 'attempt_t')
+    (attempt / 'train_manifest.json').write_text('{}')
+    aborted = launch.abort_attempt(attempt, 'child_failed', 2.5)
+    assert aborted.name == 'attempt_t_ABORTED_child_failed'
+    assert (aborted / 'train_manifest.json').exists()
+    assert not attempt.exists()
+    record = json.loads((tmp_path / 'cumulative_hours.json').read_text())
+    assert record['total_hours'] == 2.5 and record['attempts'][0]['hours'] == 2.5
+    launch.check_budget(tmp_path, 40.5)
+    with pytest.raises(ValueError, match='43'):
+        launch.check_budget(tmp_path, 40.5001)
+    complete = launch.create_attempt(tmp_path, 'attempt_done')
+    (complete / 'completion.json').write_text('{}')
+    launch.promote(complete)
+    assert os.readlink(tmp_path / 'final') == 'attempt_done'
+    assert (tmp_path / 'final').resolve() == complete
+
+
+@pytest.mark.parametrize('projection', [-1, float('nan'), float('inf')])
+def test_invalid_budget_projection(tmp_path, projection):
+    with pytest.raises(ValueError):
+        launch.check_budget(tmp_path, projection)
