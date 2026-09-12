@@ -400,23 +400,33 @@ def test_signals_abort_and_reap_sleeping_child(tmp_path, mode, signum):
              'Path(%r).write_text(str(os.getpid())); time.sleep(60)' %
              ('XRIR_RUNTIME_ARGS ' + json.dumps(expected), str(pidfile)))
     fields = dict(effective_args=expected, command=[sys.executable, '-c', child])
-    code = ('from tools import exp04_launcher as l; '
+    ready = tmp_path / 'guard.ready'
+    code = ('from tools import exp04_launcher as l; from pathlib import Path; '
             'l.resource_gate=lambda *a: {}; '
+            'poll=l.LogGuard.poll; l.LogGuard.poll=lambda self, path: '
+            '(poll(self, path), Path(%r).touch() if self.steps else None); ' % str(ready) +
             'l.execute_attempt(%r, %r, "1", %r, lambda: %r)' %
             (str(attempt), mode, str(tmp_path / 'train.log'), fields))
     process = launch.subprocess.Popen([sys.executable, '-c', code], cwd=launch.REPO)
     child_pid = None
     try:
         deadline = time.monotonic() + 10
-        while not pidfile.exists() and process.poll() is None and time.monotonic() < deadline:
+        while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
             time.sleep(0.02)
-        assert pidfile.exists()
+        assert pidfile.exists() and ready.exists()
         child_pid = int(pidfile.read_text())
         process.send_signal(signum)
         process.wait(timeout=10)
         aborted, = tmp_path.glob('attempt_t_ABORTED_*')
         assert not attempt.exists() and not (aborted / 'completion.json').exists()
         assert launch.hours_record(tmp_path)['total_hours'] > 0
+        record = json.loads((aborted / 'abort.json').read_text())
+        assert record['reason'] == 'terminated_' + launch.signal.Signals(signum).name
+        assert record['exception_type'] == 'LauncherTerminated'
+        assert record['wall_hours'] > 0 and record['started_at'] <= record['aborted_at']
+        assert record['last_guard_state']['banner'] is True
+        assert not (tmp_path / 'train.log').exists()
+        assert Path(record['log']['aborted']).is_file()
         with pytest.raises(ProcessLookupError):
             os.kill(child_pid, 0)
     finally:
@@ -483,3 +493,59 @@ def test_probe_receipt_admission_and_binding(tmp_path, monkeypatch, mutation):
             launch.main(argv)
     else:
         launch.main(argv)
+
+
+def test_guard_uses_repo_paths_and_expected_banner(tmp_path, monkeypatch):
+    monkeypatch.setattr(launch, 'REPO', tmp_path)
+    monkeypatch.chdir(tmp_path.parent)
+    attempt = tmp_path / 'attempt'
+    attempt.mkdir()
+    expected = launch.effective_args(launch.command('full', 'attempt'), '1', 9261)
+    expected.update(yaw_aug_seed=7, yaw_aug_width=256)
+    (attempt / 'args.json').write_text(json.dumps(expected))
+    (attempt / 'history.jsonl').write_text(json.dumps({'epoch_minutes': 120}))
+    guard = launch.LogGuard(expected, 'full')
+    guard.feed('XRIR_RUNTIME_ARGS ' + json.dumps(expected))
+    guard.feed('yaw_aug ENABLED W=512 seed=0 counter=(epoch-1)*9261+batch_idx')
+    assert not guard.banner
+    guard.feed('yaw_aug ENABLED W=256 seed=7 counter=(epoch-1)*9261+batch_idx')
+    guard.feed('Train Epoch: 1 [0/9261] loss 1')
+    guard.feed('epoch 1 done')
+    assert guard.epoch_one_done
+
+
+@pytest.mark.parametrize('failure,reason', [('args', 'guard_runtime_args'), ('banner', 'guard_banner'),
+    ('epoch', 'guard_epoch_one'), ('deadline', 'deadline_43h'), ('exit', 'child_exit_3'), ('collision', 'child_failed')])
+def test_abort_diagnostics_and_owned_log(tmp_path, monkeypatch, failure, reason):
+    attempt, log = tmp_path / 'attempt', tmp_path / 'train.log'
+    expected = launch.effective_args(launch.command('full', str(attempt)), '1', 9261)
+    monkeypatch.setattr(launch, 'resource_gate', lambda *a: {})
+    if failure == 'collision':
+        log.write_text('foreign')
+    def runner(argv, path, gpu, guard, deadline):
+        if failure == 'collision':
+            return launch.run_child([], path, gpu, guard)
+        with path.open('x'):
+            guard.log_created = True
+        if failure == 'args':
+            guard.feed('XRIR_RUNTIME_ARGS {}')
+        elif failure == 'banner':
+            guard.feed('Train Epoch: 1 [0/1] loss 1')
+        elif failure == 'epoch':
+            (attempt / 'history.jsonl').write_text('{"epoch_minutes": 146}')
+            guard.feed('epoch 1 done')
+        elif failure == 'deadline':
+            path.unlink()
+            launch.run_child([launch.PYTHON, '-c', 'import time; time.sleep(60)'], path, gpu, guard, 0)
+        return 3
+    with pytest.raises((ValueError, RuntimeError, FileExistsError)):
+        launch.execute_attempt(attempt, 'full', '1', log,
+            lambda: dict(command=[], effective_args=expected), runner=runner)
+    aborted, = tmp_path.glob('attempt_ABORTED_*')
+    record = json.loads((aborted / 'abort.json').read_text())
+    assert record['reason'] == reason and aborted.name.endswith(reason)
+    assert record['log']['original'] == str(log)
+    if failure == 'collision':
+        assert log.read_text() == 'foreign' and record['log']['aborted'] is None
+    else:
+        assert not log.exists() and Path(record['log']['aborted']).is_file()

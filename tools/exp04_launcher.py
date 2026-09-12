@@ -1,5 +1,6 @@
 """Fail-closed training launcher for exp_04 (full runs require a reviewed commit)."""
 import json
+import datetime
 import os
 from pathlib import Path
 import shlex
@@ -70,7 +71,7 @@ def check_runtime(runtime, expected, mode):
                    key not in expected or type(actual[key]) is not type(expected[key]) or
                    actual[key] != expected[key]]
     if differences:
-        raise ValueError('runtime args mismatch: ' + ', '.join(sorted(differences)))
+        raise LauncherFailure('guard_runtime_args', 'runtime args mismatch: ' + ', '.join(sorted(differences)))
     if mode == 'full' and actual['train_batches_per_epoch'] != 9261:
         raise ValueError('full requires train_batches_per_epoch == 9261')
 
@@ -240,6 +241,12 @@ class LauncherTerminated(BaseException):
         super().__init__(signal.Signals(signum).name)
 
 
+class LauncherFailure(ValueError):
+    def __init__(self, reason, message):
+        self.reason = reason
+        super().__init__(message)
+
+
 @contextmanager
 def termination_handlers():
     def terminate(signum, frame):
@@ -265,6 +272,7 @@ class LogGuard:
         self.first_step_time = None
         self.epoch_one_done = False
         self.probe = None
+        self.log_created = False
 
     def feed(self, line):
         if line.startswith('EXP04_PROBE_RESULT '):
@@ -272,18 +280,19 @@ class LogGuard:
         if line.startswith('XRIR_RUNTIME_ARGS '):
             self.runtime = json.loads(line[len('XRIR_RUNTIME_ARGS '):])
             check_runtime(self.runtime, self.expected, self.mode)
-        wanted = ('yaw_aug ENABLED W=512 seed=0 counter=(epoch-1)*{}+batch_idx'.format(
-            self.expected['train_batches_per_epoch']) if self.expected['yaw_aug'] else 'yaw_aug DISABLED')
+        wanted = ('yaw_aug ENABLED W={yaw_aug_width} seed={yaw_aug_seed} '
+                  'counter=(epoch-1)*{train_batches_per_epoch}+batch_idx'.format(**self.expected)
+                  if self.expected['yaw_aug'] else 'yaw_aug DISABLED')
         if line.strip() == wanted:
             if self.banner:
-                raise ValueError('duplicate banner')
+                raise LauncherFailure('guard_banner', 'duplicate banner')
             self.banner = True
         step = re.search(r'Train Epoch: (\d+) \[(\d+)/(\d+)\].*?loss (\S+)', line)
         if step:
             if not self.banner or self.runtime is None:
-                raise ValueError('first step without banner or runtime args')
+                raise LauncherFailure('guard_banner', 'first step without banner or runtime args')
             if self.mode == 'full':
-                runtime = Path(self.expected['save_dir']) / 'args.json'
+                runtime = REPO / self.expected['save_dir'] / 'args.json'
                 check_runtime(json.loads(runtime.read_text()), self.expected, self.mode)
             values = re.findall(r'(?:loss |stft |decay )([^\s,)]+)', line)
             if not values or not all(math.isfinite(float(value)) for value in values):
@@ -299,10 +308,10 @@ class LogGuard:
         if line.startswith('epoch 1 done'):
             self.epoch_one_done = True
             if self.mode == 'full':
-                history = Path(self.expected['save_dir']) / 'history.jsonl'
+                history = REPO / self.expected['save_dir'] / 'history.jsonl'
                 first = json.loads(history.read_text().splitlines()[0])
                 if not math.isfinite(first['epoch_minutes']) or first['epoch_minutes'] > 2.431 * 60:
-                    raise ValueError('epoch one exceeds 2.431 h acceptance')
+                    raise LauncherFailure('guard_epoch_one', 'epoch one exceeds 2.431 h acceptance')
 
     def poll(self, path):
         with path.open() as stream:
@@ -315,11 +324,11 @@ class LogGuard:
                 self.feed(line)
         if (self.mode == 'full' and self.first_step_time and not self.epoch_one_done
                 and time.monotonic() - self.first_step_time > 2.6 * 3600):
-            raise ValueError('epoch one exceeds 2.6 h operational ceiling')
+            raise LauncherFailure('guard_epoch_one', 'epoch one exceeds 2.6 h operational ceiling')
 
     def finish(self):
         if not self.banner or not self.runtime or not self.steps:
-            raise ValueError('missing runtime args, banner or steps')
+            raise LauncherFailure('guard_banner', 'missing runtime args, banner or steps')
         if self.mode == 'smoke' and (self.steps != [(1, 0), (1, 1), (1, 2)] or self.test_loss is None):
             raise ValueError('smoke requires three finite steps and test loss')
         if self.mode == 'probe' and (not self.probe or self.probe.get('yaw_aug') != self.expected['yaw_aug']
@@ -333,6 +342,7 @@ class LogGuard:
 def run_child(argv, log_path, gpu, guard, deadline=None):
     child = sink = None
     with log_path.open('xb') as log:
+        guard.log_created = True
         try:
             child = subprocess.Popen(argv, cwd=REPO, env=child_environment(gpu),
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
@@ -342,7 +352,7 @@ def run_child(argv, log_path, gpu, guard, deadline=None):
             while child.poll() is None or sink.poll() is None:
                 guard.poll(log_path)
                 if deadline is not None and time.monotonic() > deadline:
-                    raise ValueError('43 h cumulative ceiling reached')
+                    raise LauncherFailure('deadline_43h', '43 h cumulative ceiling reached')
                 if sink.poll() not in (None, 0):
                     raise RuntimeError('log sink failed')
                 time.sleep(0.05)
@@ -377,11 +387,24 @@ def validate_outputs(attempt, mode, expected):
             not math.isfinite(r[key]) for r in history for key in ('train_loss', 'test_loss', 'epoch_minutes')):
         raise ValueError('incomplete or non-finite history')
     if history[0]['epoch_minutes'] > 2.431 * 60:
-        raise ValueError('epoch one exceeds 2.431 h acceptance')
+        raise LauncherFailure('guard_epoch_one', 'epoch one exceeds 2.431 h acceptance')
     epochs = sorted(attempt.glob('epoch_*.pth'))
     if [f.name for f in epochs] != ['epoch_%03d.pth' % i for i in range(1, 13)]:
         raise ValueError('missing or unexpected epoch checkpoints')
     return {f.name: p.sha256_file(f) for f in epochs + [attempt / 'history.jsonl', attempt / 'args.json']}
+
+
+def abort_log(log_path, reason, created):
+    if not created:
+        return None
+    destination = log_path.with_name(log_path.stem + '_ABORTED_' + reason + '.log')
+    if destination.exists():
+        destination = destination.with_name(destination.stem + '_' + uuid.uuid4().hex + '.log')
+    try:
+        log_path.rename(destination)
+        return str(destination.resolve())
+    except OSError:
+        return None
 
 
 @termination_handlers()
@@ -392,6 +415,7 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
         check_budget(attempt.parent, projection)
     create_attempt(attempt.parent, attempt.name)  # An existing directory is never renamed.
     started, reason = time.monotonic(), 'setup_failed'
+    started_at, guard = datetime.datetime.now().astimezone().isoformat(), None
     try:
         if attempt == log_path or attempt in log_path.parents:
             raise ValueError('log must be outside attempt')
@@ -411,8 +435,9 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
         guard = LogGuard(expected, mode)
         reason = 'child_failed'
         deadline = started + (43 - full_hours(attempt.parent)) * 3600 if mode == 'full' else None
-        if runner(fields['command'], log_path, gpu, guard, deadline):
-            raise RuntimeError('child exited nonzero')
+        status = runner(fields['command'], log_path, gpu, guard, deadline)
+        if status:
+            raise LauncherFailure('child_exit_' + str(status), 'child exited nonzero: ' + str(status))
         metrics = guard.finish()
         reason = 'invalid_outputs'
         outputs = validate_outputs(attempt, mode, expected)
@@ -431,11 +456,20 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
         if mode == 'full':
             promote(attempt)
         return completion
-    except BaseException:
+    except BaseException as error:
+        reason = ('terminated_' + signal.Signals(error.signum).name if isinstance(error, LauncherTerminated)
+                  else getattr(error, 'reason', reason))
+        hours = (time.monotonic() - started) / 3600
+        renamed = abort_log(log_path, reason, guard is not None and guard.log_created)
+        p.write_completion(attempt / 'abort.json', dict(reason=reason,
+            exception_type=type(error).__name__, exception_message=str(error), started_at=started_at,
+            aborted_at=datetime.datetime.now().astimezone().isoformat(), wall_hours=hours,
+            last_guard_state={k: v for k, v in vars(guard).items() if k != 'expected'} if guard else None,
+            log={'original': str(log_path.resolve()), 'aborted': renamed}))
         completion_path = attempt / 'completion.json'
         if completion_path.exists():
             completion_path.unlink()
-        aborted = abort_attempt(attempt, reason, (time.monotonic() - started) / 3600, mode=mode)
+        aborted = abort_attempt(attempt, reason, hours, mode=mode)
         print('ABORTED ' + str(aborted), flush=True)
         raise
 
