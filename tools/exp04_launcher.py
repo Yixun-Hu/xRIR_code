@@ -14,6 +14,7 @@ GOLDENS = REPO / ('worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/'
                   'yaw_aug_xrir_results_assets')
 ENV_KEYS = ('XRIR_DATA_PATH', 'PYTHONHASHSEED', 'OMP_NUM_THREADS', 'CUDA_VISIBLE_DEVICES')
 DATA_ROOT = '/home/yixunhu/data_cache/AcousticRooms'
+REQUIRED_INPUTS = ('repo', 'source_closures', 'train_data_identity', 'effective_args', 'mutable_inputs')
 
 
 def child_environment(gpu):
@@ -444,10 +445,11 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
         reason = 'input_changed'
         fields['mutable_inputs']['train_manifest'] = {'path': str(manifest_path.resolve()), 'sha256': digest}
         print('Revalidating training inputs after log close...', flush=True)
-        mismatches = p.revalidate(fields)
+        drift = []
+        mismatches = p.revalidate(fields, required=REQUIRED_INPUTS, source_drift=drift)
         if mismatches:
             raise ValueError('mutable input mismatch: ' + ', '.join(mismatches))
-        completion = dict(train_manifest_sha256=digest,
+        completion = dict(train_manifest_sha256=digest, source_drift_after_spawn=drift,
             log={'path': str(log_path.resolve()), 'sha256': p.sha256_file(log_path)},
             outputs=outputs, metrics=metrics, wall_hours=(time.monotonic() - started) / 3600)
         reason = 'completion_failed'

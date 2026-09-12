@@ -99,6 +99,37 @@ def test_required_inputs_cannot_be_omitted(key):
     assert p.revalidate({}, required=(key,)) == ['missing.' + key]
 
 
+@pytest.mark.parametrize('change', ['edit', 'delete', 'forged_blob', 'forged_digest', 'mutable'])
+def test_reviewed_source_revalidation_records_drift_but_refuses_tampering(repo, change):
+    root, git = repo
+    commit = git('rev-parse', 'HEAD')
+    records, digest = p.closure_record(['helper.py'], commit, root)
+    mutable = root / 'args.json'
+    mutable.write_text('{}')
+    fields = dict(repo=str(root), reviewed_commit=commit, source_closures={
+        'training': {'files': records, 'sha256': digest}}, mutable_inputs={
+        'effective_args': {'path': str(mutable), 'sha256': p.sha256_file(mutable)}})
+    if change == 'delete':
+        (root / 'helper.py').unlink()
+    else:
+        (root / 'helper.py').write_text('VALUE = 2\n')
+    if change == 'forged_blob':
+        records[0]['reviewed_blob_sha256'] = 'forged'
+    elif change == 'forged_digest':
+        fields['source_closures']['training']['sha256'] = 'forged'
+    elif change == 'mutable':
+        mutable.write_text('{"changed": true}')
+    drift = []
+    mismatches = p.revalidate(fields, source_drift=drift)
+    if change in ('edit', 'delete'):
+        assert mismatches == []
+        assert drift == [dict(path='helper.py', spawn_sha256=records[0]['working_tree_sha256'],
+            now_sha256=None if change == 'delete' else p.sha256_file(root / 'helper.py'))]
+        assert p.revalidate(fields)  # Evaluation retains strict working-tree checks.
+    else:
+        assert mismatches
+
+
 @pytest.mark.parametrize('symlink', [False, True])
 def test_closure_refuses_foreign_dependencies(repo, tmp_path, symlink):
     root, _ = repo

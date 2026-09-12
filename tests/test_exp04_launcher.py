@@ -203,7 +203,8 @@ def test_attempt_finalization_after_closed_log(tmp_path, monkeypatch, failure):
     expected = launch.effective_args(argv, '1', 74084)
     source = tmp_path / 'source.py'
     source.write_text('original')
-    fields = dict(effective_args=expected, command=argv, mutable_inputs={
+    fields = dict(repo=str(tmp_path), source_closures={}, train_data_identity=launch.p._inventory([], tmp_path),
+        effective_args=expected, command=argv, mutable_inputs={
         'source': {'path': str(source), 'sha256': launch.p.sha256_file(source)}})
     monkeypatch.setattr(launch, 'resource_gate', lambda *a: {})
     def runner(command, path, gpu, guard, deadline):
@@ -340,7 +341,8 @@ def test_control_parity_refuses_nonexcluded_type_or_value_change(control_parity_
 def test_full_promotion_failure_accounts_elapsed_hours_once(tmp_path, monkeypatch):
     attempt, log = tmp_path / 'attempt_t', tmp_path / 'logs/train.log'
     argv = launch.command('full', str(attempt))
-    fields = dict(effective_args=launch.effective_args(argv, '1', 9261), command=argv)
+    fields = dict(repo=str(tmp_path), source_closures={}, train_data_identity=launch.p._inventory([], tmp_path),
+                  effective_args=launch.effective_args(argv, '1', 9261), command=argv)
     clock = [100.0]
     monkeypatch.setattr(launch.time, 'monotonic', lambda: clock[0])
     monkeypatch.setattr(launch, 'resource_gate', lambda *a: {})
@@ -549,3 +551,8 @@ def test_abort_diagnostics_and_owned_log(tmp_path, monkeypatch, failure, reason)
         assert log.read_text() == 'foreign' and record['log']['aborted'] is None
     else:
         assert not log.exists() and Path(record['log']['aborted']).is_file()
+
+
+@pytest.mark.parametrize('key', launch.REQUIRED_INPUTS)
+def test_training_required_inputs(key):
+    assert 'missing.' + key in launch.p.revalidate({}, required=launch.REQUIRED_INPUTS)

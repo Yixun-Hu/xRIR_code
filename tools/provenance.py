@@ -208,7 +208,7 @@ def train_data_identity(data_root, cache_path=None, workers=8):
     return record
 
 
-def revalidate(manifest, required=()):
+def revalidate(manifest, required=(), source_drift=None):
     """Rehash declared inputs; missing required keys and missing files are mismatches.
 
     A launcher adds eval_manifest={path, sha256} in memory after exclusive creation,
@@ -236,7 +236,27 @@ def revalidate(manifest, required=()):
     if 'evaluator_closure' in manifest:
         closures['evaluator'] = manifest['evaluator_closure']
     for name, closure in closures.items():
+        if source_drift is not None:
+            expected = hashlib.sha256(json.dumps([[r['path'], r['reviewed_blob_sha256']]
+                for r in closure['files']], sort_keys=True).encode()).hexdigest()
+            if closure.get('sha256') != expected:
+                mismatches.append('source.' + name + '.sha256')
         for record in closure['files']:
+            if source_drift is not None:
+                blob = subprocess.run(['git', 'show', '{}:{}'.format(manifest['reviewed_commit'], record['path'])],
+                                      cwd=repo, capture_output=True)
+                digest = record.get('reviewed_blob_sha256')
+                if (blob.returncode or hashlib.sha256(blob.stdout).hexdigest() != digest
+                        or digest != record.get('working_tree_sha256')):
+                    mismatches.append('source.{}.{}'.format(name, record['path']))
+                try:
+                    now = sha256_file(repo / record['path'])
+                except OSError:
+                    now = None
+                drift = dict(path=record['path'], spawn_sha256=record.get('working_tree_sha256'), now_sha256=now)
+                if now != drift['spawn_sha256'] and drift not in source_drift:
+                    source_drift.append(drift)
+                continue
             check('source.{}.{}'.format(name, record['path']), repo / record['path'],
                   record.get('working_tree_sha256'))
     for key in ('data_identity', 'train_data_identity'):
