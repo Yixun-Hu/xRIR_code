@@ -105,7 +105,7 @@ def cell_mask(e0_a, ek_a=None, e0_b=None, ek_b=None, seeds=(42, 43, 44, 45, 46))
         baseline_masks.append(base_valid.all(axis=0))
         paired_masks.append(paired.all(axis=0))
         counts[arm] = {"total": _validity_counts(baseline_masks[-1], paired_masks[-1]),
-                       "seeds": {seed: _validity_counts(b, p) for seed, b, p in
+                       "seeds": {str(seed): _validity_counts(b, p) for seed, b, p in
                                  zip(seeds, base_valid, paired)}}
     baseline, mask = np.logical_and.reduce(baseline_masks), np.logical_and.reduce(paired_masks)
     counts["joint"] = _validity_counts(baseline, mask)
@@ -303,6 +303,11 @@ def admit_run(run_dir, arm, num_shot, profile, approved, check=None, inputs=None
             'completion directory_listing')
     bind(completion['log']['path'], completion['log']['sha256'])
     require(_equal(fields.get('schema_version'), 1), 'eval manifest schema')
+    flags = {'confirmatory': True, 'allow_dirty_used': False}
+    for key, value in flags.items():
+        require(_equal(fields.get(key), value) and _equal(completion.get(key), value), key)
+    require(set(fields['mutable_inputs']) <=
+            {'control_args', 'train_manifest', 'train_completion', 'probe_receipt'}, 'mutable_inputs names')
     root = Path(fields['repo'])
     declarations = dict(fields, eval_manifest={'path': str(files['eval_manifest.json']), 'sha256': digest})
     for failure in provenance.revalidate(declarations, required=(
@@ -382,6 +387,7 @@ def admit_run(run_dir, arm, num_shot, profile, approved, check=None, inputs=None
                     'metric validity counts ' + metric)
     for failure in _check_metrics_reconciliation(label, run):
         require(False, 'reconciliation ' + failure)
+    run['admission_flags'] = {key: fields[key] for key in flags}
     return run
 
 
@@ -397,7 +403,7 @@ def admit_runs(profile, groups, approved=None, exploratory=False, producer=None,
                   if a['role'] == 'aug' else a['sha256']) for a, _, _ in groups]
     required += [('dataset inventory', profile['dataset']['inventory_sha256']),
                  ('approval schema_version', approved['schema_version'])]
-    deviations, inputs = [], {}
+    deviations, inputs, run_flags = [], {}, {}
     def check(ok, name):
         if not ok:
             deviations.append(name)
@@ -414,6 +420,7 @@ def admit_runs(profile, groups, approved=None, exploratory=False, producer=None,
         for directory in directories:
             try:
                 runs.append(admit_run(directory, arm, shot, profile, approved, check, inputs))
+                run_flags[str(Path(directory).resolve())] = runs[-1]['admission_flags']
             except (KeyError, TypeError, ValueError, OSError, IndexError) as error:
                 check(False, '{}: admission {}'.format(directory, error))
         seeds = [r['meta'].get('manifest_seed') for r in runs]
@@ -427,7 +434,7 @@ def admit_runs(profile, groups, approved=None, exploratory=False, producer=None,
     if deviations and not exploratory:
         raise ValueError('admission failed: ' + '; '.join(deviations))
     return {'groups': admitted_groups, 'approved_digests': dict(receipt, pins=json_value(approved)),
-            'deviations': deviations, 'inputs': inputs, 'producer': producer}
+            'deviations': deviations, 'inputs': inputs, 'producer': producer, 'run_flags': run_flags}
 
 
 def _seed_summary(values, mask):
@@ -444,6 +451,8 @@ def _analyze_cell(profile, groups, metric, k):
     labels = tuple(sorted(profile['seeds'][profile['num_shot']]))
     mask, exclusions = (cell_mask(arrays[0], e0_b=arrays[1], seeds=labels) if h1 else
                        cell_mask(*arrays, seeds=labels))
+    roles = dict(zip(('a', 'b'), (arm['role'] for arm in profile['arms'])))
+    exclusions = {roles.get(key, key): value for key, value in exclusions.items()}
     means = [five_seed_mean(array)[mask] for array in arrays]
     rooms = rooms_from_paths(groups[0][0]['query'])[mask]
     local = bonferroni_alpha(profile['family'], profile['alpha'])
@@ -493,6 +502,7 @@ def analyze(profile, admitted, exploratory=False):
     groups = admitted['groups']
     result = {'schema_version': 1, 'exploratory': exploratory, 'profile': json_value(profile),
               'profile_digest': _digest(profile), 'inputs': admitted['inputs'],
+              'run_flags': admitted['run_flags'],
               'deviations': list(admitted['deviations']), 'cells': []}
     flat = [r for group in groups for r in group]
     paired = all(len(group) == 5 for group in groups) and flat and all(
@@ -566,7 +576,7 @@ def write_outputs(result, admitted, json_path, summary_path):
     data = (json.dumps(_safe_json(result), sort_keys=True, indent=2, allow_nan=False) + '\n').encode()
     sidecar = {'schema_version': 1, 'exploratory': result['exploratory'], 'inputs': admitted['inputs'],
                'profile_digest': result['profile_digest'], 'producer': admitted['producer'],
-               'approved_digests': admitted['approved_digests'],
+               'approved_digests': admitted['approved_digests'], 'run_flags': admitted['run_flags'],
                'outputs': {str(paths[0].resolve()): hashlib.sha256(data).hexdigest(),
                            str(paths[1].resolve()): hashlib.sha256(text).hexdigest()}}
     receipt = (json.dumps(sidecar, sort_keys=True, indent=2, allow_nan=False) + '\n').encode()
@@ -591,8 +601,8 @@ def write_outputs(result, admitted, json_path, summary_path):
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Profile-bound exp_04 paired comparisons')
     parser.add_argument('--profile', choices=('H1_K8', 'H1_K1', 'H2_K8', 'TOST_K8'), required=True)
-    parser.add_argument('--runs-a', nargs='+', required=True)
-    parser.add_argument('--runs-b', nargs='+')
+    parser.add_argument('--runs-a', nargs='+', required=True, help='First profile arm: aug')
+    parser.add_argument('--runs-b', nargs='+', help='Second profile arm: control (H1/H2 only)')
     parser.add_argument('--json', required=True)
     parser.add_argument('--summary', required=True)
     parser.add_argument('--exploratory', action='store_true')
@@ -614,5 +624,5 @@ def main(argv=None):
 if __name__ == '__main__':
     try:
         main()
-    except (ValueError, OSError) as error:
+    except (ValueError, OSError, RuntimeError) as error:
         raise SystemExit(str(error))

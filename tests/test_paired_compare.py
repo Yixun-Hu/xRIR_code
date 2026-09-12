@@ -67,10 +67,10 @@ def test_masks_joint_and_per_arm_seed_categories():
                                  "excluded": 4, "valid": 2}
     assert counts["a"]["total"]["baseline_invalid"] == 1
     assert counts["a"]["total"]["newly_invalid"] == 1
-    assert counts["a"]["seeds"][42]["baseline_invalid"] == 1
-    assert counts["a"]["seeds"][43]["newly_invalid"] == 1
+    assert counts["a"]["seeds"]["42"]["baseline_invalid"] == 1
+    assert counts["a"]["seeds"]["43"]["newly_invalid"] == 1
     # Per-seed counts condition on that seed's baseline; all-seed totals use all seeds.
-    assert counts["a"]["seeds"][46]["newly_invalid"] == 1
+    assert counts["a"]["seeds"]["46"]["newly_invalid"] == 1
     tost, _ = stats.cell_mask(a0, ak)
     np.testing.assert_array_equal(tost, [False, False, True, True, True, True])
     with pytest.raises(ValueError, match="empty"):
@@ -216,11 +216,11 @@ def _rebind(run, manifest=None, sample=None, metrics=None):
 
 @pytest.fixture
 def admission_fixture(tmp_path, monkeypatch):
-    def build(name='H1_K8'):
+    def build(name='H1_K8', shifted=False):
         root = tmp_path / name
         root.mkdir()
         profile = json_value(get_profile(name))
-        profile['n_boot'] = 2000
+        profile['n_boot'] = 20000 if shifted else 2000
         queries = sorted('Room/room_{}/S00{}_R001_hybrid_IR.wav'.format(i // 4, i + 1)
                          for i in range(12))
         profile['dataset'].update(n_queries=12, n_rooms=3,
@@ -273,6 +273,7 @@ def admission_fixture(tmp_path, monkeypatch):
                     batch_canonical=True, max_samples=0, tf32=False, conditions='P', yaw_cols=grid,
                     acoustic_cols=grid, e_acoustic_cols=[], n_samples=12, split_count=12,
                     split='unseen', no_tta=True, data_root=str(data_root), mutable_inputs={},
+                    confirmatory=True, allow_dirty_used=False,
                     data_identity=dict(identity, manifest_path=str(ref_path),
                         manifest_file_sha256=p.sha256_file(ref_path), manifest_hash=manifest_hash(reference)),
                     evaluator_closure=frozen, source_closures={'entrypoint': entry, 'writer': writer})
@@ -287,6 +288,11 @@ def admission_fixture(tmp_path, monkeypatch):
                 cells = {str(k): {metric: [1 + i / 16 + (seed - 42) / 100 for i in range(12)]
                                   for metric in ('edt', 'c50', 't60', 'loss', 'log_mse')}
                          for k in grid}
+                if shifted and arm['role'] == 'aug':
+                    rng = np.random.default_rng(seed)
+                    for cell in cells.values():
+                        for metric, values in cell.items():
+                            cell[metric] = (np.asarray(values) * (1.01 + rng.normal(0, .003, 12))).tolist()
                 sample = dict(meta=meta, query=queries, index=list(range(12)), P=cells,
                               delay_flips={str(k): 0 for k in grid}, decomposition=None)
                 metrics = dict(meta=meta, P=_summaries(cells),
@@ -296,6 +302,7 @@ def admission_fixture(tmp_path, monkeypatch):
                 log = root / '{}_{}.log'.format(arm['role'], seed)
                 log.write_text('fixture child completed\n')
                 p.write_completion(run / 'completion.json', dict(schema_version=1,
+                    confirmatory=True, allow_dirty_used=False,
                     eval_manifest_sha256=digest, directory_listing=['eval_manifest.json',
                         'metrics_yaw.json', 'per_sample_yaw.json'], child_exit_status=0,
                     started_at='2026-09-12T00:00:00+00:00', ended_at='2026-09-12T00:00:01+00:00',
@@ -536,6 +543,8 @@ def test_named_seed_means_and_descriptive_cells(admission_fixture):
     for cell in result['cells']:
         assert cell['seed_labels'] == list(range(42, 47))
         assert set(cell['seed_means']) == {'aug', 'control'}
+        assert set(cell['exclusions']) == {'aug', 'control', 'joint'}
+        assert set(cell['exclusions']['aug']['seeds']) == set(map(str, range(42, 47)))
         assert cell['seed_means']['aug']['0']['sd'] == pytest.approx(np.std(np.arange(5) / 100, ddof=1))
         if cell['metric'] == 'T60':
             assert not cell['decision_driving'] and 'decision_bound' not in cell
@@ -574,3 +583,54 @@ def test_public_group_admission_and_null_exploratory(admission_fixture):
     assert any('aug checkpoint' in item for item in result['deviations'])
     assert 'verdict' not in result
     assert _read(fixture.sidecar)['approved_digests']['git_blob'] == receipt['git_blob']
+
+
+@pytest.mark.parametrize('key,value', [('confirmatory', False), ('confirmatory', 1),
+    ('allow_dirty_used', True), ('allow_dirty_used', 0), ('mutable_inputs', {'unknown': {}})])
+def test_admission_flags_and_binding_names(admission_fixture, key, value):
+    fixture = admission_fixture()
+    run = Path(fixture.paths[0][0])
+    manifest = _read(run / 'eval_manifest.json')
+    manifest[key] = value
+    _rebind(run, manifest=manifest)
+    with pytest.raises(ValueError, match=key):
+        pc.main(fixture.argv)
+    _assert_no_outputs(fixture)
+
+
+def test_completion_flags_and_recorded_dirty_usage(admission_fixture):
+    fixture = admission_fixture()
+    pc.main(fixture.argv)
+    flags = _read(fixture.sidecar)['run_flags']
+    assert flags == {run: {'confirmatory': True, 'allow_dirty_used': False}
+                     for paths in fixture.paths for run in paths}
+    run = Path(fixture.paths[0][0])
+    completion = _read(run / 'completion.json')
+    completion['confirmatory'] = False
+    p.write_completion(run / 'completion.json', completion)
+    with pytest.raises(ValueError, match='confirmatory'):
+        pc.main(fixture.argv)
+
+
+def test_shifted_noisy_fixture_through_main(admission_fixture):
+    fixture = admission_fixture(shifted=True)
+    result = pc.main(fixture.argv)
+    assert result['verdict'] == 'non-inferior'
+    for cell in result['cells']:
+        assert .005 < cell['estimate'] < .015
+        assert cell['companion_interval'][1] > cell['companion_interval'][0]
+        if cell['decision_driving']:
+            assert not cell['superiority']
+            assert 0 < cell['convergence']['decision']['ratio'] <= .1
+
+
+def test_cli_runtime_error_is_concise(monkeypatch):
+    import runpy
+    import sys
+    def fail(*args):
+        raise RuntimeError('fixture closure failure')
+    monkeypatch.setattr(p, 'source_closure', fail)
+    monkeypatch.setattr(sys, 'argv', ['paired_compare.py', '--profile', 'H1_K8',
+        '--runs-a', '/tmp/a', '--runs-b', '/tmp/b', '--json', '/tmp/x', '--summary', '/tmp/y'])
+    with pytest.raises(SystemExit, match='fixture closure failure'):
+        runpy.run_module('tools.paired_compare', run_name='__main__')
