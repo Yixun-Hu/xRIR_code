@@ -26,7 +26,7 @@ def protocol_run(tmp_path):
                "working_tree_sha256": "source", "commits_after_reviewed": []}]
     fields = {key: value for key, value in vars(args).items()
               if key not in ("eval_manifest", "out_dir", "manifest")}
-    fields.update(checkpoint_sha256=provenance.sha256_file(checkpoint),
+    fields.update(schema_version=1, checkpoint_sha256=provenance.sha256_file(checkpoint),
                   manifest_path=str(reference), manifest_file_sha256=provenance.sha256_file(reference),
                   manifest_seed=42, num_shot=8, batch_canonical=True,
                   data_root=subject.BASE_DATA_PATH, repo=str(Path(__file__).resolve().parents[1]),
@@ -93,7 +93,7 @@ def test_reviewed_commit_must_be_full_lowercase_sha(bound_run, commit):
     "manifest_file_sha256", "gl_seed", "num_shot", "manifest_seed", "yaw_cols",
     "acoustic_cols", "e_acoustic_cols", "conditions", "batch_size", "batch_canonical",
     "tf32", "max_samples", "data_root", "num_workers", "threads", "log_interval",
-    "decomposition_batches", "evaluator_closure", "repo"])
+    "decomposition_batches", "evaluator_closure", "repo", "schema_version"])
 def test_each_manifest_field_mismatch_is_refused(bound_run, field):
     args, fields, path = bound_run
     fields[field] = {"files": [], "sha256": "different"} if field == "evaluator_closure" else "different"
@@ -241,7 +241,7 @@ def test_real_16_query_k8_original_pe_and_p_parity(tmp_path):
         argv += ["--out-dir", str(output), "--eval-manifest", str(path), "--conditions", condition]
         args = subject.parse_args(argv)
         fields = {k: v for k, v in vars(args).items() if k not in ("eval_manifest", "manifest", "out_dir")}
-        fields.update(checkpoint_sha256=provenance.sha256_file(checkpoint), manifest_path=str(reference),
+        fields.update(schema_version=1, checkpoint_sha256=provenance.sha256_file(checkpoint), manifest_path=str(reference),
                       manifest_file_sha256=provenance.sha256_file(reference), manifest_seed=refs["seed"],
                       num_shot=8, batch_canonical=True, data_root=subject.BASE_DATA_PATH, repo=str(repo),
                       reviewed_commit=commit, evaluator_closure={"files": records, "sha256": digest})

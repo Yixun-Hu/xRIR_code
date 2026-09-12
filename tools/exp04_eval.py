@@ -47,7 +47,7 @@ def validate_manifest(args):
     reference = yaw.load_manifest(args.manifest)
     expected = {key: value for key, value in vars(args).items()
                 if key not in ("eval_manifest", "out_dir", "manifest")}
-    expected.update(manifest_path=args.manifest,
+    expected.update(schema_version=1, manifest_path=args.manifest,
                     checkpoint_sha256=provenance.sha256_file(args.checkpoint),
                     manifest_file_sha256=provenance.sha256_file(args.manifest),
                     manifest_hash=yaw.manifest_hash(reference), num_shot=reference["num_shot"],

@@ -15,11 +15,13 @@ from eval_unseen import griffin_lim
 OUTPUTS = ("per_sample_yaw.json", "metrics_yaw.json")
 REQUIRED_INPUTS = ('repo', 'checkpoint', 'checkpoint_sha256', 'manifest_path', 'manifest_file_sha256',
                    'data_identity', 'evaluator_closure', 'source_closures', 'mutable_inputs', 'eval_manifest')
+MUTABLE_INPUTS = {'control_args', 'train_manifest', 'train_completion', 'probe_receipt'}
 
 
 def child_environment(repo, data_root, gpu='1'):
     env = dict(os.environ, XRIR_DATA_PATH=str(data_root), CUDA_VISIBLE_DEVICES=str(gpu))
-    env["PYTHONPATH"] = os.pathsep.join([str(repo)] + [p for p in env.get('PYTHONPATH', '').split(os.pathsep) if p])
+    env["PYTHONPATH"] = os.pathsep.join(dict.fromkeys(
+        [str(repo)] + [p for p in env.get('PYTHONPATH', '').split(os.pathsep) if p]))
     return env
 
 
@@ -27,11 +29,11 @@ def _run_child(command, log_path, repo, data_root, gpu='1'):
     """Run a literal argv through tee; both processes finish before the log closes."""
     env = child_environment(repo, data_root, gpu)
     child = sink = None
-    with log_path.open("xb") as log:
+    with log_path.open("ab") as log:
         try:
             child = subprocess.Popen(command, cwd=repo, env=env, stdout=subprocess.PIPE,
                                      stderr=subprocess.STDOUT)
-            sink = subprocess.Popen(["tee", "/dev/stderr"], stdin=child.stdout, stdout=log)
+            sink = subprocess.Popen(["tee", "-a", str(log_path)], stdin=child.stdout, stdout=2)
             child.stdout.close()
             status = child.wait()
             if sink.wait():
@@ -52,6 +54,7 @@ def execute_run(args, command, fields_factory, repo):
     run.mkdir()  # Deliberately before input hashing and outside abort handling.
     reason = "setup_failed"
     log_path = None
+    log_created = False
     started = datetime.datetime.now().astimezone()
     try:
         log_dir = Path(args.log_dir).resolve()
@@ -66,6 +69,9 @@ def execute_run(args, command, fields_factory, repo):
         fields = dict(fields_factory(), schema_version=1)
         manifest_path = run / "eval_manifest.json"
         digest = p.write_manifest(manifest_path, fields)
+        reason = "log_exists"
+        with log_path.open("xb"):
+            log_created = True
         reason = "child_failed"
         status = _run_child(command, log_path, repo, args.data_root, args.gpu)
         if status:
@@ -91,6 +97,7 @@ def execute_run(args, command, fields_factory, repo):
         if mismatches:
             raise ValueError("mutable input mismatch: " + ", ".join(mismatches))
         completion = {"schema_version": 1, "eval_manifest_sha256": digest,
+                      "confirmatory": fields['confirmatory'], "allow_dirty_used": fields['allow_dirty_used'],
                       "directory_listing": listing, "child_exit_status": status,
                       "started_at": started.isoformat(),
                       "ended_at": datetime.datetime.now().astimezone().isoformat(),
@@ -100,9 +107,12 @@ def execute_run(args, command, fields_factory, repo):
         p.write_completion(run / "completion.json", completion)
         return completion
     except BaseException:
-        if log_path is not None:
+        if log_created:
             try:
-                log_path.rename(log_path.with_name(log_path.stem + "_ABORTED_" + reason + ".log"))
+                aborted_log = log_path.with_name(log_path.stem + "_ABORTED_" + reason + ".log")
+                if aborted_log.exists():
+                    aborted_log = aborted_log.with_name(aborted_log.stem + "_" + uuid.uuid4().hex + ".log")
+                log_path.rename(aborted_log)
             except OSError:
                 pass  # Preserve the original failure if the log cannot be renamed.
         completion_path = run / "completion.json"
@@ -156,12 +166,19 @@ def _capture_environment(repo, data_root, gpu='1'):
 
 
 def build_fields(args, command, repo):
-    """Bind protocol, reviewed code and full referenced data before spawning."""
-    # Bounded evaluations are smokes; full-split evaluations are confirmatory.
-    state = p.checked_git_state(repo, args.max_samples == 0, args.allow_dirty)
+    """Bind protocol, reviewed code and full referenced data before spawning.
+
+    Round-4 admission: dirty_outside_worklog is admissible only when the closure
+    digests equal the profile's approved digests; per-file bindings cover evaluated
+    code. mutable_inputs identifiers are control_args, train_manifest,
+    train_completion and probe_receipt; all other identifiers are refused.
+    """
     commit = subprocess.check_output(['git', 'rev-parse', '--verify', args.reviewed_commit + '^{commit}'],
                                      cwd=repo, text=True).strip()
     reference = evaluator.yaw.load_checked_manifest(args.manifest, args.manifest_hash)
+    count = len(reference["entries"])
+    n_samples = min(count, args.max_samples) if args.max_samples else count
+    state = p.checked_git_state(repo, n_samples == count, args.allow_dirty)
     if args.num_shot != reference["num_shot"]:
         raise ValueError("num_shot differs from reference manifest")
     evaluator.yaw._check_cols(args.yaw_cols, args.acoustic_cols, args.e_acoustic_cols)
@@ -180,7 +197,6 @@ def build_fields(args, command, repo):
     fields.pop("eval_manifest")
     fields.pop("out_dir")
     fields["manifest_path"] = fields.pop("manifest")
-    count = len(reference["entries"])
     fields.update(schema_version=1, repo=str(Path(repo).resolve()), reviewed_commit=commit,
         checkpoint_sha256=p.sha256_file(args.checkpoint),
         manifest_file_sha256=p.sha256_file(args.manifest), manifest_seed=reference["seed"],
@@ -188,15 +204,17 @@ def build_fields(args, command, repo):
         data_identity=p.data_identity(args.manifest, args.data_root),
         evaluator_closure=closures.pop("evaluator"), source_closures=closures,
         environment=_capture_environment(repo, args.data_root, args.gpu), git_state=state, allow_dirty=args.allow_dirty,
+        allow_dirty_used=bool(args.allow_dirty),
+        confirmatory=args.max_samples == 0 and n_samples == count and not args.allow_dirty,
         run_label=args.run_label, command=command, split="unseen", split_count=count,
-        n_samples=min(count, args.max_samples) if args.max_samples else count,
+        n_samples=n_samples,
         no_tta=True,
         stft_gl={name: parameter.default for name, parameter in
                  inspect.signature(griffin_lim).parameters.items() if name != "spec"})
     fields['mutable_inputs'] = {}
     for binding in args.bind_input:
         name, separator, path = binding.partition('=')
-        if not name or not separator or not path or name in fields['mutable_inputs']:
+        if name not in MUTABLE_INPUTS or not separator or not path or name in fields['mutable_inputs']:
             raise ValueError('invalid or duplicate --bind-input: ' + binding)
         path = str(Path(path).resolve())
         fields['mutable_inputs'][name] = {'path': path, 'sha256': p.sha256_file(path)}
