@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 
 
 def sha256_file(path):
@@ -101,3 +102,89 @@ def write_completion(path, fields):
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
+
+
+def _inventory_digest(records):
+    return hashlib.sha256(json.dumps([[r['path'], r['sha256']] for r in records],
+                                    sort_keys=True).encode()).hexdigest()
+
+
+def _inventory(files, data_root, workers=8):
+    root = Path(data_root).resolve()
+    def record(name):
+        path = root / name
+        path.resolve().relative_to(root)
+        before = path.stat()
+        digest = sha256_file(path)
+        after = path.stat()
+        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            raise ValueError('data changed while hashing: ' + name)
+        return {'path': name, 'sha256': digest, 'size': after.st_size,
+                'mtime_ns': after.st_mtime_ns}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        records = list(pool.map(record, sorted(set(files))))
+    return {'data_root': str(root), 'inventory': records, 'inventory_files': len(records),
+        'inventory_missing': 0, 'inventory_bytes': sum(r['size'] for r in records),
+        'inventory_sha256': _inventory_digest(records)}
+
+
+def data_identity(manifest_path, data_root):
+    """Hash every query/reference IR, its unpadded-id metadata, and receiver depth."""
+    from tools.reference_manifest import load_manifest, manifest_hash
+    manifest = load_manifest(manifest_path)
+    files = set()
+    for entry in manifest['entries']:
+        for wav in [entry['query']] + entry['refs']:
+            relative = wav.split('single_channel_ir/')[-1]
+            room, name = relative.rsplit('/', 1)
+            src, rec = [int(token[1:]) for token in name.split('_')[:2]]
+            files.update(('single_channel_ir/' + relative,
+                'metadata/{}/S00{}_R00{}.json'.format(room, src, rec),
+                'depth_map/{}/{}.npy'.format(room, rec)))
+    return dict(_inventory(files, data_root), manifest_path=str(Path(manifest_path).resolve()),
+        manifest_file_sha256=sha256_file(manifest_path), manifest_hash=manifest_hash(manifest))
+
+
+def revalidate(manifest):
+    """Rehash declared inputs completely; missing files are mismatches too.
+
+    A launcher adds eval_manifest={path, sha256} in memory after exclusive creation,
+    avoiding a self-referential digest in the serialized manifest itself.
+    """
+    mismatches = []
+    repo = Path(manifest.get('repo', '.'))
+    def check(label, path, expected):
+        try:
+            actual = sha256_file(path)
+        except OSError:
+            actual = None
+        if expected is None or actual != expected:
+            mismatches.append(label)
+    for key, digest in [('checkpoint', 'checkpoint_sha256'),
+                         ('manifest_path', 'manifest_file_sha256')]:
+        if key in manifest:
+            check(key, repo / manifest[key], manifest.get(digest))
+    for name, record in manifest.get('mutable_inputs', {}).items():
+        check(name, repo / record['path'], record.get('sha256'))
+    if 'eval_manifest' in manifest:
+        record = manifest['eval_manifest']
+        check('eval_manifest', record['path'], record.get('sha256'))
+    closures = dict(manifest.get('source_closures', {}))
+    if 'evaluator_closure' in manifest:
+        closures['evaluator'] = manifest['evaluator_closure']
+    for name, closure in closures.items():
+        for record in closure['files']:
+            check('source.{}.{}'.format(name, record['path']), repo / record['path'],
+                  record.get('working_tree_sha256'))
+    for key in ('data_identity', 'train_data_identity'):
+        if key not in manifest:
+            continue
+        identity = manifest[key]
+        for record in identity['inventory']:
+            check(key + '.' + record['path'], Path(identity['data_root']) / record['path'],
+                  record.get('sha256'))
+        if 'manifest_path' in identity:
+            check(key + '.manifest_path', identity['manifest_path'], identity.get('manifest_file_sha256'))
+        if _inventory_digest(identity['inventory']) != identity.get('inventory_sha256'):
+            mismatches.append(key + '.inventory_sha256')
+    return mismatches

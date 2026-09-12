@@ -80,3 +80,62 @@ def test_environment():
         'numpy', 'scipy', 'cuda', 'cudnn', 'driver', 'gpus', 'host', 'executable'}
     assert record['executable'] == sys.executable
     assert record['python'].startswith('3.8.')
+
+
+@pytest.fixture
+def data(tmp_path):
+    root = tmp_path / 'data'
+    wavs = ['Apartments/room/S0001_R0002_hybrid_IR.wav',
+            'Apartments/room/S003_R002_hybrid_IR.wav']
+    names = ['single_channel_ir/' + w for w in wavs] + [
+        'metadata/Apartments/room/S001_R002.json',
+        'metadata/Apartments/room/S003_R002.json', 'depth_map/Apartments/room/2.npy']
+    for name in names:
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(name.encode())
+    manifest = tmp_path / 'references.json'
+    manifest.write_text(json.dumps({'seed': 42, 'num_shot': 1,
+        'ir_root': str(root / 'single_channel_ir'), 'entries': [
+            {'index': 0, 'query': wavs[0], 'refs': [wavs[1]]}]}))
+    return root, manifest, names
+
+
+def test_data_inventory_hashes_every_referenced_file(data):
+    from tools.reference_manifest import load_manifest, manifest_hash
+    root, manifest, names = data
+    record = p.data_identity(manifest, root)
+    assert record['manifest_hash'] == manifest_hash(load_manifest(manifest))
+    assert record['manifest_file_sha256'] == p.sha256_file(manifest)
+    assert record['inventory_files'] == 5 and record['inventory_missing'] == 0
+    assert [r['path'] for r in record['inventory']] == sorted(names)
+    assert record['inventory_bytes'] == sum((root / n).stat().st_size for n in names)
+    assert all(r['sha256'] == p.sha256_file(root / r['path']) for r in record['inventory'])
+    (root / names[-1]).write_bytes(b'changed depth')
+    assert p.data_identity(manifest, root)['inventory_sha256'] != record['inventory_sha256']
+    (root / names[0]).unlink()
+    with pytest.raises(FileNotFoundError):
+        p.data_identity(manifest, root)
+
+
+@pytest.mark.parametrize('field', ['checkpoint', 'manifest_path', 'source', 'data', 'eval_manifest'])
+def test_revalidate_detects_mutable_inputs(data, tmp_path, field):
+    root, manifest, names = data
+    checkpoint, source = tmp_path / 'checkpoint', tmp_path / 'source.py'
+    checkpoint.write_bytes(b'weights')
+    source.write_text('old source')
+    fields = {'repo': str(tmp_path), 'checkpoint': str(checkpoint),
+        'checkpoint_sha256': p.sha256_file(checkpoint), 'manifest_path': str(manifest),
+        'manifest_file_sha256': p.sha256_file(manifest),
+        'data_identity': p.data_identity(manifest, root), 'evaluator_closure': {'files': [
+            {'path': source.name, 'working_tree_sha256': p.sha256_file(source)}]}}
+    eval_manifest = tmp_path / 'eval_manifest.json'
+    fields['eval_manifest'] = {'path': str(eval_manifest),
+                               'sha256': p.write_manifest(eval_manifest, fields)}
+    assert p.revalidate(fields) == []
+    target = {'checkpoint': checkpoint, 'manifest_path': manifest, 'source': source,
+              'data': root / names[-1], 'eval_manifest': eval_manifest}[field]
+    target.write_bytes(b'changed')
+    assert any(field in mismatch for mismatch in p.revalidate(fields))
+    target.unlink()
+    assert p.revalidate(fields)
