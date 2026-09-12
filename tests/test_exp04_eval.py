@@ -49,7 +49,7 @@ def test_manifest_roundtrip_and_digest(bound_run):
     "manifest_file_sha256", "gl_seed", "num_shot", "manifest_seed", "yaw_cols",
     "acoustic_cols", "e_acoustic_cols", "conditions", "batch_size", "batch_canonical",
     "tf32", "max_samples", "data_root", "num_workers", "threads", "log_interval",
-    "decomposition_batches", "evaluator_closure"])
+    "decomposition_batches", "evaluator_closure", "repo"])
 def test_each_manifest_field_mismatch_is_refused(bound_run, field):
     args, fields, path = bound_run
     fields[field] = {"files": [], "sha256": "different"} if field == "evaluator_closure" else "different"
@@ -79,6 +79,47 @@ def test_modified_evaluator_source_is_refused(bound_run, key, value):
     fields["evaluator_closure"]["files"][0][key] = value
     with pytest.raises(ValueError, match="evaluator_closure"):
         subject.validate_manifest(args)
+
+
+@pytest.mark.parametrize("key", ["reviewed_blob_sha256", "working_tree_sha256", "commits_after_reviewed"])
+def test_declared_source_record_cannot_be_tampered(bound_run, key):
+    args, _, path = bound_run
+    fields = json.loads(path.read_text())
+    fields["evaluator_closure"]["files"][0][key] = "tampered"
+    path.write_text(json.dumps(fields))
+    with pytest.raises(ValueError, match="evaluator_closure"):
+        subject.validate_manifest(args)
+
+
+def test_invalid_reviewed_commit_names_the_field(bound_run, monkeypatch):
+    import subprocess
+
+    def invalid(*args):
+        raise subprocess.CalledProcessError(128, ["git", "log", "invalid..HEAD"])
+
+    args, _, _ = bound_run
+    monkeypatch.setattr(provenance, "closure_record", invalid)
+    with pytest.raises(ValueError, match="reviewed_commit"):
+        subject.validate_manifest(args)
+
+
+def test_angle_element_types_are_bound(bound_run):
+    args, fields, path = bound_run
+    fields["yaw_cols"] = [False] + fields["yaw_cols"][1:]
+    path.write_text(json.dumps(fields))
+    with pytest.raises(ValueError, match="yaw_cols"):
+        subject.validate_manifest(args)
+
+
+def test_eval_manifest_must_be_inside_the_existing_output_directory(bound_run):
+    args, _, path = bound_run
+    for name in ("empty", "absent"):
+        out = path.parent.parent / name
+        if name == "empty":
+            out.mkdir()
+        args.out_dir = str(out)
+        with pytest.raises(ValueError, match="out_dir"):
+            subject.validate_manifest(args)
 
 
 def test_p_only_reuses_p_numerics_and_omits_e_forwards(monkeypatch):
@@ -169,7 +210,8 @@ def test_real_16_query_k8_original_pe_and_p_parity(tmp_path):
             assert actual["meta"].pop("conditions") == condition
             assert actual["meta"].pop("evaluator_closure_sha256") == digest
             assert actual["meta"].pop("reviewed_commit") == commit
-            actual["meta"].pop("elapsed_min"); expected["meta"].pop("elapsed_min")
+            actual["meta"].pop("elapsed_min")
+            expected["meta"].pop("elapsed_min")
             if condition == "P":
                 assert "E" not in actual
                 expected.pop("E")

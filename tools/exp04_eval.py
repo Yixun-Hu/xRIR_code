@@ -1,6 +1,7 @@
 """Manifest-bound exp_04 evaluation using the unchanged exp_03 numerical functions."""
 import argparse
 import json
+import subprocess
 import time
 from pathlib import Path
 
@@ -38,7 +39,9 @@ def validate_manifest(args):
     digest = provenance.sha256_file(path)
     fields = json.loads(path.read_text())
     out = Path(args.out_dir)
-    if out.exists() and any(item.absolute() != path.absolute() for item in out.iterdir()):
+    if not out.is_dir() or path.resolve().parent != out.resolve():
+        raise ValueError("out_dir must exist and contain the eval_manifest")
+    if any(item.absolute() != path.absolute() for item in out.iterdir()):
         raise ValueError("out_dir contains files other than eval_manifest")
     reference = yaw.load_manifest(args.manifest)
     expected = {key: value for key, value in vars(args).items()
@@ -49,7 +52,7 @@ def validate_manifest(args):
                     manifest_hash=yaw.manifest_hash(reference), num_shot=reference["num_shot"],
                     manifest_seed=reference["seed"], batch_canonical=True, data_root=BASE_DATA_PATH)
     mismatches = [key for key, value in expected.items()
-                  if fields.get(key) != value or type(fields.get(key)) is not type(value)]
+                  if json.dumps(fields.get(key), sort_keys=True) != json.dumps(value, sort_keys=True)]
     if args.manifest_hash != expected["manifest_hash"]:
         mismatches.append("manifest_hash")
     if args.conditions == "P" and args.e_acoustic_cols:
@@ -61,12 +64,14 @@ def validate_manifest(args):
         files, closure_digest = provenance.closure_record(
             provenance.source_closure("eval_yaw_rotation", repo), fields["reviewed_commit"], repo)
         declared = fields["evaluator_closure"]
+        identity_keys = ("path", "reviewed_blob_sha256", "working_tree_sha256", "commits_after_reviewed")
         if (declared["sha256"] != closure_digest or
-                [r["path"] for r in declared["files"]] != [r["path"] for r in files] or
+                [[r[key] for key in identity_keys] for r in declared["files"]] !=
+                [[r[key] for key in identity_keys] for r in files] or
                 any(r["working_tree_sha256"] != r["reviewed_blob_sha256"] or
                     r["commits_after_reviewed"] for r in files)):
             mismatches.append("evaluator_closure")
-    except (KeyError, OSError, ValueError) as error:
+    except (KeyError, OSError, ValueError, subprocess.CalledProcessError) as error:
         raise ValueError("reviewed_commit/evaluator_closure: {}".format(error)) from error
     if mismatches:
         raise ValueError("evaluation manifest mismatch: " + ", ".join(sorted(set(mismatches))))
