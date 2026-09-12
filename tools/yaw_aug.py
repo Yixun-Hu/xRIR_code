@@ -143,14 +143,16 @@ class YawAug:
     enabled: bool = False
     W: int = 512
     seed: int = 0
+    batches_per_epoch: int = 9261
 
     def __post_init__(self):
-        _require_ints(self.W, self.seed)
-        if type(self.enabled) is not bool or self.W <= 0:
-            raise ValueError("enabled must be a literal bool and W must be positive")
+        _require_ints(self.W, self.seed, self.batches_per_epoch)
+        if type(self.enabled) is not bool or self.W <= 0 or self.batches_per_epoch <= 0:
+            raise ValueError("enabled must be a literal bool; W and batches_per_epoch must be positive")
 
     def offsets_for(self, epoch, batch_idx, n):
-        generator = torch.Generator(device="cpu").manual_seed(step_seed(self.seed, counter(epoch, batch_idx), 0))
+        t = counter(epoch, batch_idx, self.batches_per_epoch)
+        generator = torch.Generator(device="cpu").manual_seed(step_seed(self.seed, t, 0))
         return draw_offsets(n, self.W, generator)
 
 
@@ -220,12 +222,12 @@ def _audit_main(argv=None):
     loader = trainer.DataLoader(_AuditDataset(dataset), shuffle=True, batch_size=args.batch_size,
                                num_workers=args.num_workers, pin_memory=True,
                                worker_init_fn=trainer.seed_worker, persistent_workers=args.num_workers > 0)
-    if args.n_batches > min(len(loader), 9261):
-        parser.error("requested cohort exceeds the training loader or the 9261-batch counter domain")
+    if args.n_batches > len(loader) or args.n_batches > _YAW_AUG_MAX_STEP:
+        parser.error("requested cohort exceeds the training loader or the 2**20-batch counter domain")
     # Model initialization precedes iterator creation: it determines sampler/worker RNG seeds.
     model = trainer.build_xrir("simple", 8).to("cuda" if torch.cuda.is_available() else "cpu")
     batches, for_offsets = tee(AuditBatch(batch, paths) for batch, paths in islice(loader, args.n_batches))
-    aug = YawAug(True, 512, args.seed)
+    aug = YawAug(True, 512, args.seed, len(loader))
     offsets = (aug.offsets_for(1, int(index), int(batch[1].shape[0]))
                for index, batch in enumerate(for_offsets))
     result = alignment_audit(model, batches, offsets)

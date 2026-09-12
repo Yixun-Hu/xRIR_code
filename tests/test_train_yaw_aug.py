@@ -101,13 +101,14 @@ def test_main_saves_banner_and_eval_gate(run_main, monkeypatch, tmp_path, capsys
     original = YawAug.offsets_for
     def offsets(self, epoch, idx, n):
         assert type(epoch) is int and type(idx) is int
+        assert self.batches_per_epoch == 1
         calls.append((epoch, idx))
         return original(self, epoch, idx, n)
     monkeypatch.setattr(YawAug, "offsets_for", offsets)
     monkeypatch.setenv("PYTHONHASHSEED", "17")
     run_main("--yaw-aug", str(enabled), "--seed", "9", *(["--no-save"] if no_save else []))
     text = capsys.readouterr().out
-    banner = "yaw_aug ENABLED W=512 seed=9 counter=(epoch-1)*9261+batch_idx" if enabled else "yaw_aug DISABLED"
+    banner = "yaw_aug ENABLED W=512 seed=9 counter=(epoch-1)*1+batch_idx" if enabled else "yaw_aug DISABLED"
     assert text.count("yaw_aug ") == 1 and banner in text
     assert calls == ([(1, 0)] if enabled else [])
     monkeypatch.setattr(trainer, "apply_yaw_aug", lambda *a, **k: pytest.fail("evaluation augmented"))
@@ -129,9 +130,25 @@ def test_invalid_flags(run_main, capsys, extra, match):
     assert match in capsys.readouterr().err.splitlines()[-1]
 
 
-@pytest.mark.parametrize("oversized", [False, True])
-def test_width_and_loader_bound(run_main, monkeypatch, oversized):
-    if oversized:
-        monkeypatch.setattr(trainer.DataLoader, "__len__", lambda self: 9262)
-    with pytest.raises(ValueError, match="9261" if oversized else "width|W"):
+def test_width_guard(run_main):
+    with pytest.raises(ValueError, match="width|W"):
         run_main("--yaw-aug", "1", "--no-save", "--yaw-aug-width", "256")
+
+
+@pytest.mark.parametrize("length", [9262, 2**20 - 1, 2**20])
+def test_loader_counter_overflow_boundary(run_main, monkeypatch, length):
+    monkeypatch.setattr(trainer.DataLoader, "__len__", lambda self: length)
+    calls = []
+    original = YawAug.offsets_for
+    def offsets(self, epoch, idx, n):
+        assert self.batches_per_epoch == length
+        calls.append((epoch, idx))
+        return original(self, epoch, idx, n)
+    monkeypatch.setattr(YawAug, "offsets_for", offsets)
+    if length == 2**20:
+        with pytest.raises(ValueError, match=r"epochs.*train_batches_per_epoch.*< 2\*\*20"):
+            run_main("--yaw-aug", "1", "--no-save", "--epochs", "1")
+        assert calls == []
+    else:
+        run_main("--yaw-aug", "1", "--no-save", "--epochs", "1")
+        assert calls == [(1, 0)]

@@ -33,6 +33,13 @@ def test_step_and_offset_goldens(t, seed, offset):
     assert step_seed(0, t, 0) == seed
     assert draw_offsets(1, 512, torch.Generator().manual_seed(seed)).tolist() == [offset]
     assert YawAug(True, 512, 0).offsets_for(t // 9261 + 1, t % 9261, 1).tolist() == [offset]
+    assert YawAug(True, 512, 0, 9261).offsets_for(t // 9261 + 1, t % 9261, 1).tolist() == [offset]
+
+
+def test_config_epoch_length_enters_counter():
+    assert YawAug(True, 512, 0, 1).offsets_for(2, 0, 1).tolist() == [395]
+    assert torch.equal(YawAug(True, 512, 0, 1).offsets_for(2, 0, 1),
+                       YawAug(True, 512, 0).offsets_for(1, 1, 1))
 
 
 def test_counter_and_complete_armed_domain():
@@ -98,7 +105,8 @@ def test_apply_matches_batch_geometry_only():
 
 
 @pytest.mark.parametrize("kwargs", [{"enabled": 1}, {"enabled": None}, {"W": 0}, {"W": -1},
-    {"W": True}, {"W": 1.0}, {"seed": 1.0}, {"seed": True}])
+    {"W": True}, {"W": 1.0}, {"seed": 1.0}, {"seed": True},
+    *[{"batches_per_epoch": value} for value in (0, -1, True, False, 1.0, "1", None)]])
 def test_config_rejects_invalid_types(kwargs):
     with pytest.raises(ValueError):
         YawAug(**kwargs)

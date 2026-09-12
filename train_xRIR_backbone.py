@@ -123,7 +123,7 @@ def save_checkpoint(path, model, optimizer, scheduler, epoch, batch_idx, best_te
 
 def train_epoch(model, loader, optimizer, scheduler, epoch, args, best_test_loss):
     model.train()
-    aug = YawAug(True, args.yaw_aug_width, args.yaw_aug_seed) if args.yaw_aug else None
+    aug = YawAug(True, args.yaw_aug_width, args.yaw_aug_seed, args.train_batches_per_epoch) if args.yaw_aug else None
     optimizer.zero_grad(set_to_none=True)
     n_batches = len(loader) if not args.max_train_batches else min(len(loader), args.max_train_batches)
     tot = tot_stft = tot_decay = 0.0
@@ -196,8 +196,8 @@ def main():
     train_loader = DataLoader(train_dataset, shuffle=True, batch_size=args.batch_size, **loader_kwargs)
     test_loader = DataLoader(test_dataset, shuffle=False, batch_size=args.batch_size, **loader_kwargs)
     args.train_batches_per_epoch = len(train_loader)
-    if args.yaw_aug and args.train_batches_per_epoch > 9261:
-        raise ValueError("--yaw-aug 1 requires len(train_loader) <= 9261")
+    if args.yaw_aug and args.epochs * args.train_batches_per_epoch >= 2**20:
+        raise ValueError("--yaw-aug 1 requires epochs * train_batches_per_epoch < 2**20")
     args.env = {key: os.environ.get(key) for key in
                 ("PYTHONHASHSEED", "XRIR_DATA_PATH", "OMP_NUM_THREADS", "CUDA_VISIBLE_DEVICES")}
     if not args.no_save:
@@ -228,7 +228,7 @@ def main():
 
     history_path = os.path.join(args.save_dir, "history.jsonl")
     print(f"yaw_aug ENABLED W={args.yaw_aug_width} seed={args.yaw_aug_seed} "
-          "counter=(epoch-1)*9261+batch_idx" if args.yaw_aug else "yaw_aug DISABLED", flush=True)
+          f"counter=(epoch-1)*{args.train_batches_per_epoch}+batch_idx" if args.yaw_aug else "yaw_aug DISABLED", flush=True)
     for epoch in range(start_epoch, args.epochs + 1):
         t0 = time.time()
         train_loss = train_epoch(model, train_loader, optimizer, scheduler, epoch, args, best_test_loss)
