@@ -336,3 +336,27 @@ def test_full_promotion_failure_accounts_elapsed_hours_once(tmp_path, monkeypatc
     record = launch.hours_record(tmp_path)
     assert record['total_hours'] == 1.0
     assert record['attempts'] == [{'attempt': aborted.name, 'hours': 1.0}]
+
+
+def test_tee_preserves_redirected_launcher_output(tmp_path):
+    import sys
+    outer, inner = tmp_path / 'outer.log', tmp_path / 'inner.log'
+    code = ('import sys; from pathlib import Path; from types import SimpleNamespace; '
+            'from tools.exp04_launcher import run_child; '
+            "print('launcher start', flush=True); "
+            'run_child([sys.executable, "-c", "print(123, flush=True)"], Path(%r), "1", '
+            'SimpleNamespace(poll=lambda path: None)); ' % str(inner) +
+            "print('launcher end', flush=True)")
+    with outer.open('w') as stream:
+        launch.subprocess.run([sys.executable, '-c', code], cwd=launch.REPO, check=True,
+                              stdout=stream, stderr=launch.subprocess.STDOUT)
+    assert outer.read_text().splitlines() == ['launcher start', '123', 'launcher end']
+    assert inner.read_text() == '123\n'
+
+
+def test_epoch_one_acceptance_is_checked_immediately(tmp_path):
+    (tmp_path / 'history.jsonl').write_text(json.dumps({'epoch': 1, 'epoch_minutes': 2.432 * 60}) + '\n')
+    expected = launch.effective_args(launch.command('full', str(tmp_path)), '1', 9261)
+    guard = launch.LogGuard(expected, 'full')
+    with pytest.raises(ValueError, match='2.431'):
+        guard.feed('epoch 1 done in 145.9 min; best test loss 0.1')

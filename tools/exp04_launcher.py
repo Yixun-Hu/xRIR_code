@@ -267,6 +267,11 @@ class LogGuard:
                 raise ValueError('invalid test loss/count')
         if line.startswith('epoch 1 done'):
             self.epoch_one_done = True
+            if self.mode == 'full':
+                history = Path(self.expected['save_dir']) / 'history.jsonl'
+                first = json.loads(history.read_text().splitlines()[0])
+                if not math.isfinite(first['epoch_minutes']) or first['epoch_minutes'] > 2.431 * 60:
+                    raise ValueError('epoch one exceeds 2.431 h acceptance')
 
     def poll(self, path):
         with path.open() as stream:
@@ -300,7 +305,7 @@ def run_child(argv, log_path, gpu, guard, deadline=None):
         try:
             child = subprocess.Popen(argv, cwd=REPO, env=child_environment(gpu),
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
-            sink = subprocess.Popen(['tee', '/dev/stderr'], stdin=child.stdout, stdout=log,
+            sink = subprocess.Popen(['tee', '-a', str(log_path)], stdin=child.stdout, stdout=2,
                                     start_new_session=True)
             child.stdout.close()
             while child.poll() is None or sink.poll() is None:
