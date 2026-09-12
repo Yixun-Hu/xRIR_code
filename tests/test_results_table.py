@@ -212,3 +212,16 @@ def test_force_md_restores_original_on_sidecar_failure(table_fixture, tmp_path, 
         rt.main(table_argv(table_fixture, tmp_path) + ['--force-md'])
     assert path.read_text() == 'Manual original'
     assert not (tmp_path / 'table.json').exists()
+
+
+def test_manual_edit_inside_generated_block_survives(table_fixture, tmp_path):
+    argv = table_argv(table_fixture, tmp_path)
+    rt.main(argv)
+    path = tmp_path / 'table.md'
+    note = 'User-added note inside the generated block'
+    path.write_text(path.read_text().replace('## Protocol', note + '\n\n## Protocol'))
+    for name in ('second', 'third'):
+        argv[argv.index('--json') + 1] = str(tmp_path / (name + '.json'))
+        rt.main(argv + ['--force-md'])
+        manual = path.read_text().split('## Manual', 1)[1]
+        assert manual.count(note) == 1

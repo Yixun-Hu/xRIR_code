@@ -4,6 +4,7 @@ import datetime
 import os
 import sys
 import shlex
+import re
 import tempfile
 import hashlib
 import json
@@ -86,6 +87,7 @@ def build_table(directories, profile=None, approved=None):
 
 
 BEGIN, END = '<!-- results_table:begin -->', '<!-- results_table:end -->'
+STAMP = '<!-- results_table:sha256:'
 
 
 def render_markdown(json_path, generation_command=None):
@@ -126,8 +128,9 @@ def render_markdown(json_path, generation_command=None):
         .format(result['profile']['finite_count_tolerance']), '', '## Provenance', '',
         'Canonical JSON: `{}`; sha256: `{}`.'.format(path, digest),
         'Profile digest: `{}`.'.format(result['profile_digest']), '', 'Generation command:',
-        '```sh', shlex.join(generation_command or []), '```', END]
-    return '\n'.join(lines) + '\n'
+        '```sh', shlex.join(generation_command or []), '```']
+    body = '\n'.join(lines) + '\n'
+    return body + STAMP + hashlib.sha256(body.encode()).hexdigest() + ' -->\n' + END + '\n'
 
 
 def _preserve_manual(generated, previous):
@@ -135,7 +138,14 @@ def _preserve_manual(generated, previous):
         return generated
     text = previous.decode('utf-8')
     if text.count(BEGIN) == text.count(END) == 1 and text.index(BEGIN) < text.index(END):
-        text = text.split(BEGIN, 1)[0] + text.split(END, 1)[1]
+        prefix, block = text.split(BEGIN, 1)
+        block, suffix = block.split(END, 1)
+        body, separator, claimed = (BEGIN + block).rpartition(STAMP)
+        expected = hashlib.sha256(body.encode()).hexdigest() + ' -->\n'
+        # An edited or older block has uncertain ownership: preserve its entire content.
+        manual = '' if separator and claimed == expected else re.sub(
+            r'<!-- results_table:sha256:[0-9a-f]{64} -->\n?', '', block)
+        text = prefix + manual + suffix
     text = text.strip()
     if text.startswith('## Manual\n'):
         text = text[len('## Manual\n'):].strip()
