@@ -42,7 +42,7 @@ COMMON = MP({'schema_version': 1, 'condition': 'P', 'alpha': .05, 'n_boot': 2000
              'seeds': REFERENCES, 'gl_seed_rule': 'gl_seed == eval seed',
              'dataset': MP({'split': 'unseen', 'n_queries': 6337, 'n_rooms': 17,
                  'query_sha256': 'c94225ce7d67a97f311e22aa351deb193ef27547ba6222a907120388ce06b170',
-                 'inventory_sha256': None}),
+                 'inventory_sha256': '23c3d8f6a0f740f54cb7d5db5766a80e82c6a78d60c05744e7542529a86a3092'}),
              'approved_closures': MP({'evaluator': None, 'writer': None,
                                       'launcher': None, 'producer': None}),
              'max_samples': 0, 'batch_size': 16, 'tf32': False})
@@ -71,7 +71,7 @@ PROFILES = MP({
         'grid': (0,), 'input_selection': 'standalone_k0',
         'run_grids': MP({'control': (0,), 'cyl': (0,), 'aug': (0,)}),
         'metrics': MP({'primary': (), 'supportive': (),
-                       'descriptive': ('T60', 'C50', 'EDT', 'loss', 'log_stft_mse')}),
+                       'descriptive': ('T60', 'C50', 'EDT', 'loss', 'log_mse')}),
         'family': 0, 'margin': None, 'tails': 'descriptive',
         'companion_alpha': None, 'superiority_alpha': None})})
 

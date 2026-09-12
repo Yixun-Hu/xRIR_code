@@ -123,3 +123,24 @@ def test_pinned_checkpoints(arm):
     if not path.exists():
         pytest.skip('checkpoint absent')
     assert sha256_file(path) == arm['sha256']
+
+
+def test_nested_field_types_and_shared_inventory_pin():
+    dataset = profiles.COMMON['dataset']
+    assert type(dataset['n_queries']) is int and type(dataset['n_rooms']) is int
+    assert type(dataset['split']) is str and type(dataset['query_sha256']) is str
+    assert dataset['inventory_sha256'] == '23c3d8f6a0f740f54cb7d5db5766a80e82c6a78d60c05744e7542529a86a3092'
+    for shot, seeds in profiles.REFERENCES.items():
+        assert type(shot) is int and set(seeds) == set(range(42, 47))
+        for seed, digest in seeds.items():
+            assert type(seed) is int and type(digest) is str and len(digest) == 64
+            reference = json.loads((ROOT / 'ckpt/yaw_aug/reference_manifest_k{}_seed{}.json'
+                                    .format(shot, seed)).read_text())
+            queries = {e['query'] for e in reference['entries']}
+            assert {p for e in reference['entries'] for p in e['refs']} <= queries
+    for p in profiles.PROFILES.values():
+        assert all(type(k) is int for k in p['grid'] + p['bootstrap_seeds'])
+        assert all(type(grid) is tuple and all(type(k) is int for k in grid)
+                   for grid in p['run_grids'].values())
+        assert all(type(names) is tuple and all(type(name) is str for name in names)
+                   for names in p['metrics'].values())
