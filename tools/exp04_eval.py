@@ -1,6 +1,7 @@
 """Manifest-bound exp_04 evaluation using the unchanged exp_03 numerical functions."""
 import argparse
 import json
+import time
 from pathlib import Path
 
 import eval_yaw_rotation as yaw
@@ -99,3 +100,91 @@ def evaluate_p_batch(model, batch, evaluator, cols, acoustic_cols=(), e_acoustic
             cell.update(yaw.acoustic_metrics_batch(prediction, target_real, keys, evaluator, gl_seed))
         results[("P", int(k))] = cell
     return keys, results, yaw.delay_flip_counts(src[:n_real], locations[:n_real], cols)
+
+
+def run_exp04(args):
+    """Mirror the frozen run, binding its outputs to preflight-validated inputs."""
+    fields, digest, manifest = validate_manifest(args)
+    if not yaw.torch.cuda.is_available():
+        raise RuntimeError("exp04_eval needs a GPU: xRIR.apply_delay is .cuda()-only")
+    started = time.time()
+    yaw.torch.set_num_threads(args.threads)
+    yaw.set_precision(args.tf32)
+    manifest = yaw.load_checked_manifest(args.manifest, args.manifest_hash)
+    cols, acoustic, e_acoustic = yaw._check_cols(args.yaw_cols, args.acoustic_cols, args.e_acoustic_cols)
+    dataset = yaw.build_manifest_dataset(manifest, max_samples=args.max_samples)
+    loader = yaw.DataLoader(dataset, batch_size=args.batch_size, shuffle=False,
+                            num_workers=args.num_workers, pin_memory=True)
+    model = yaw.build_xrir(args.backbone, manifest["num_shot"])
+    model.load_state_dict(yaw.load_model_state(args.checkpoint), strict=True)
+    model.cuda().eval()
+    evaluator = yaw.Evaluator()
+    n_samples = len(dataset)
+    print("backbone: {}  checkpoint: {}  samples: {}  angles: {}  batch: {}".format(
+        args.backbone, args.checkpoint, n_samples, cols, args.batch_size), flush=True)
+    queries, parts, flips, decompositions = [], {}, {}, []
+    evaluate = yaw.evaluate_batch if args.conditions == "PE" else evaluate_p_batch
+    for i, batch in enumerate(loader):
+        keys, results, batch_flips = evaluate(model, batch, evaluator, cols, acoustic,
+                                              e_acoustic, args.gl_seed, batch_size=args.batch_size)
+        queries.extend(keys)
+        for cell, metrics in results.items():
+            for metric, values in metrics.items():
+                parts.setdefault(cell, {}).setdefault(metric, []).append(values)
+        for k, count in batch_flips.items():
+            flips[k] = flips.get(k, 0) + count
+        if args.backbone == "cylindrical" and i < args.decomposition_batches:
+            # The unchanged diagnostic internally computes P and E forwards.
+            decompositions.append(yaw._decomposition_for_batch(model, batch))
+        if (i + 1) % args.log_interval == 0 or len(queries) == n_samples:
+            rate = len(queries) / (time.time() - started)
+            print("[{}/{}] {:.2f} samples/s, eta {:.1f} min".format(
+                len(queries), n_samples, rate, (n_samples - len(queries)) / rate / 60), flush=True)
+    entries = dataset.entries
+    if queries != [entry["query"] for entry in entries]:
+        raise ValueError("the loader did not return the manifest's canonical order")
+    merged = {cell: {metric: yaw.np.concatenate(chunks) for metric, chunks in metrics.items()}
+              for cell, metrics in parts.items()}
+    decomposition = None
+    if decompositions:
+        names = ("tokens_rel_change", "pooled_rel_change", "coord_rel_change", "logspec_rel_change")
+        decomposition = {"k": decompositions[0]["k"], "n_batches": len(decompositions)}
+        decomposition.update({name: float(yaw.np.mean([d[name] for d in decompositions])) for name in names})
+    meta = {key: getattr(args, key) for key in ("backbone", "checkpoint", "manifest_hash",
+            "gl_seed", "batch_size", "max_samples", "tf32")}
+    meta.update(manifest_path=args.manifest, manifest_seed=manifest["seed"], yaw_cols=cols,
+                acoustic_cols=acoustic, e_acoustic_cols=e_acoustic, batch_canonical=True,
+                n_samples=n_samples, torch_version=yaw.torch.__version__,
+                elapsed_min=(time.time() - started) / 60, eval_manifest_sha256=digest,
+                conditions=args.conditions, evaluator_closure_sha256=fields["evaluator_closure"]["sha256"],
+                reviewed_commit=fields["reviewed_commit"])
+    per_sample = {"meta": meta, "query": queries, "index": [entry["index"] for entry in entries],
+                  "delay_flips": {str(k): int(v) for k, v in sorted(flips.items())},
+                  "decomposition": decomposition}
+    metrics_out = {"meta": meta, "delay_flips": per_sample["delay_flips"], "decomposition": decomposition}
+    for condition in args.conditions:
+        per_sample[condition] = {str(k): {name: yaw._json_values(values) for name, values in
+                                merged[(condition, k)].items()} for k in cols}
+        metrics_out[condition] = {str(k): {name: yaw._summarize(values) for name, values in
+                                 merged[(condition, k)].items()} for k in cols}
+    Path(args.out_dir).mkdir(parents=True, exist_ok=True)
+    for name, payload in (("per_sample_yaw.json", per_sample), ("metrics_yaw.json", metrics_out)):
+        path = str(Path(args.out_dir) / name)
+        yaw._write_json(payload, path)
+        print("wrote {}".format(path), flush=True)
+    for name, path, expected in (("checkpoint", args.checkpoint, fields["checkpoint_sha256"]),
+                                 ("manifest", args.manifest, fields["manifest_file_sha256"]),
+                                 ("eval_manifest", args.eval_manifest, digest)):
+        if provenance.sha256_file(path) != expected:
+            raise ValueError("{} changed during evaluation".format(name))
+    print("done: {} samples x {} angles x {} conditions in {:.2f} min".format(
+        n_samples, len(cols), len(args.conditions), meta["elapsed_min"]), flush=True)
+    return per_sample
+
+
+def main(argv=None):
+    return run_exp04(parse_args(argv))
+
+
+if __name__ == "__main__":
+    main()

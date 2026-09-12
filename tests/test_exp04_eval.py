@@ -114,3 +114,64 @@ def test_p_only_reuses_p_numerics_and_omits_e_forwards(monkeypatch):
     for cell, metrics in actual.items():
         for name, values in metrics.items():
             np.testing.assert_array_equal(values, expected[cell][name])
+
+
+def test_run_validates_before_model_construction(bound_run, monkeypatch):
+    args, fields, path = bound_run
+    fields["batch_size"] = 999
+    path.write_text(json.dumps(fields))
+    monkeypatch.setattr(subject.yaw, "build_xrir", lambda *a: pytest.fail("model built before gate"))
+    with pytest.raises(ValueError, match="batch_size"):
+        subject.run_exp04(args)
+
+
+def test_real_16_query_k8_original_pe_and_p_parity(tmp_path):
+    import os
+    import subprocess
+    import sys
+    import torch
+
+    repo = Path(__file__).resolve().parents[1]
+    checkpoint = repo / "ckpt/xRIR_simple_8_shot/epoch_12.pth"
+    reference = repo / "ckpt/yaw_rotation/reference_manifest.json"
+    if not torch.cuda.is_available() or not checkpoint.exists() or not reference.exists():
+        pytest.skip("requires CUDA and the local K8 checkpoint/reference assets")
+    refs = json.loads(reference.read_text())
+    common = ["--backbone", "simple", "--checkpoint", str(checkpoint), "--manifest",
+              str(reference), "--manifest-hash", manifest_hash(refs), "--max-samples", "16",
+              "--yaw-cols", "0", "32", "--acoustic-cols", "0", "32", "--num-workers", "0",
+              "--threads", "2", "--decomposition-batches", "0"]
+    env = dict(os.environ, CUDA_VISIBLE_DEVICES="1", PYTHONPATH=str(repo))
+    baseline = tmp_path / "original"
+    subprocess.run([sys.executable, str(repo / "eval_yaw_rotation.py"), *common,
+                    "--e-acoustic-cols", "32", "--out-dir", str(baseline)],
+                   cwd=str(repo), env=env, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(repo)).decode().strip()
+    records, digest = provenance.closure_record(provenance.source_closure("eval_yaw_rotation", repo), commit, repo)
+    for condition in ("PE", "P"):
+        output = tmp_path / condition
+        output.mkdir()
+        path = output / "eval_manifest.json"
+        argv = common + ["--e-acoustic-cols"] + (["32"] if condition == "PE" else [])
+        argv += ["--out-dir", str(output), "--eval-manifest", str(path), "--conditions", condition]
+        args = subject.parse_args(argv)
+        fields = {k: v for k, v in vars(args).items() if k not in ("eval_manifest", "manifest", "out_dir")}
+        fields.update(checkpoint_sha256=provenance.sha256_file(checkpoint), manifest_path=str(reference),
+                      manifest_file_sha256=provenance.sha256_file(reference), manifest_seed=refs["seed"],
+                      num_shot=8, batch_canonical=True, data_root=subject.BASE_DATA_PATH, repo=str(repo),
+                      reviewed_commit=commit, evaluator_closure={"files": records, "sha256": digest})
+        provenance.write_manifest(path, fields)
+        subprocess.run([sys.executable, str(repo / "tools/exp04_eval.py"), *argv], cwd=str(repo),
+                       env=env, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        for name in ("per_sample_yaw.json", "metrics_yaw.json"):
+            actual, expected = json.loads((output / name).read_text()), json.loads((baseline / name).read_text())
+            assert actual["meta"].pop("eval_manifest_sha256") == provenance.sha256_file(path)
+            assert actual["meta"].pop("conditions") == condition
+            assert actual["meta"].pop("evaluator_closure_sha256") == digest
+            assert actual["meta"].pop("reviewed_commit") == commit
+            actual["meta"].pop("elapsed_min"); expected["meta"].pop("elapsed_min")
+            if condition == "P":
+                assert "E" not in actual
+                expected.pop("E")
+                expected["meta"]["e_acoustic_cols"] = []
+            assert actual == expected
