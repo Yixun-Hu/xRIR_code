@@ -12,6 +12,7 @@ import torch
 
 import train_xRIR_backbone as trainer
 from tools.yaw_aug import YawAug
+from tools.yaw_rotation import rotate_scene_yaw
 from utils.spec_utils import compute_spect_energy_decay_losses, stft_l1_loss
 
 
@@ -70,6 +71,16 @@ def test_real_model_parity_and_augmentation(batch, monkeypatch):
     with torch.no_grad():
         monkeypatch.setattr(YawAug, "offsets_for", lambda self, epoch, idx, n: torch.zeros(n, dtype=torch.long))
         assert torch.equal(actual[0], trainer.compute_loss(model, batch, (YawAug(True), 1, 0))[0])
+        ks = torch.tensor([37, 400])
+        monkeypatch.setattr(YawAug, "offsets_for", lambda self, epoch, idx, n: ks)
+        scenes = [rotate_scene_yaw(*(batch[i][b:b + 1] for i in (2, 1, 5)), int(ks[b]))
+                  for b in range(len(ks))]
+        batch_rot = list(batch)
+        for index, rows in zip((2, 1, 5), zip(*scenes)):
+            batch_rot[index] = torch.cat(rows)
+        expected = _reference_compute_loss(model, batch_rot)
+        actual_rot = trainer.compute_loss(model, batch, (YawAug(True), 1, 0))
+        assert all(torch.equal(a, b) for a, b in zip(actual_rot, expected))
     assert all(torch.equal(batch[i], old) for i, old in zip((3, 4), audio))
 
 
@@ -95,8 +106,9 @@ def run_main(monkeypatch, tmp_path, batch):
     return run
 
 
-@pytest.mark.parametrize("enabled,no_save", [(0, True), (1, True), (1, False)])
-def test_main_saves_banner_and_eval_gate(run_main, monkeypatch, tmp_path, capsys, enabled, no_save, batch):
+@pytest.mark.parametrize("enabled,no_save,epochs,aug_seed", [
+    (0, True, 1, None), (1, True, 2, None), (1, False, 1, None), (1, False, 1, 3)])
+def test_main_saves_banner_and_eval_gate(run_main, monkeypatch, tmp_path, capsys, enabled, no_save, epochs, aug_seed, batch):
     calls = []
     original = YawAug.offsets_for
     def offsets(self, epoch, idx, n):
@@ -106,28 +118,44 @@ def test_main_saves_banner_and_eval_gate(run_main, monkeypatch, tmp_path, capsys
         return original(self, epoch, idx, n)
     monkeypatch.setattr(YawAug, "offsets_for", offsets)
     monkeypatch.setenv("PYTHONHASHSEED", "17")
-    run_main("--yaw-aug", str(enabled), "--seed", "9", *(["--no-save"] if no_save else []))
+    seed = 9 if aug_seed is None else aug_seed
+    extra = [] if aug_seed is None else ["--yaw-aug-seed", str(aug_seed)]
+    run_main("--yaw-aug", str(enabled), "--seed", "9" if aug_seed is None else "0",
+             "--epochs", str(epochs), *extra, *(["--no-save"] if no_save else []))
     text = capsys.readouterr().out
-    banner = "yaw_aug ENABLED W=512 seed=9 counter=(epoch-1)*1+batch_idx" if enabled else "yaw_aug DISABLED"
+    banner = f"yaw_aug ENABLED W=512 seed={seed} counter=(epoch-1)*1+batch_idx" if enabled else "yaw_aug DISABLED"
     assert text.count("yaw_aug ") == 1 and banner in text
-    assert calls == ([(1, 0)] if enabled else [])
+    assert text.index("yaw_aug ") < text.index("Train Epoch")
+    assert calls == ([(epoch, 0) for epoch in range(1, epochs + 1)] if enabled else [])
     monkeypatch.setattr(trainer, "apply_yaw_aug", lambda *a, **k: pytest.fail("evaluation augmented"))
     trainer.test_epoch(_Tiny(), [batch], 1, trainer.parse_args())
     if no_save:
         assert not list(tmp_path.rglob("*"))
     else:
         args = json.loads((tmp_path / "run" / "args.json").read_text())
-        assert (args["yaw_aug"], args["yaw_aug_seed"], args["yaw_aug_width"], args["no_save"]) == (1, 9, 512, False)
+        assert (args["yaw_aug"], args["yaw_aug_seed"], args["yaw_aug_width"], args["no_save"]) == (1, seed, 512, False)
         assert args["train_batches_per_epoch"] == 1 and args["env"]["PYTHONHASHSEED"] == "17"
         assert set(args["env"]) == {"PYTHONHASHSEED", "XRIR_DATA_PATH", "OMP_NUM_THREADS", "CUDA_VISIBLE_DEVICES"}
 
 
-@pytest.mark.parametrize("extra,match", [(["--resume", "x"], "resume"), (["--save-every", "500"], "save-every"),
+@pytest.mark.parametrize("extra,match", [(["--resume", "x"], "resume"), (["--resume", ""], "resume"),
+    (["--save-every", "500"], "save-every"),
     (["--save-every", "-1"], "save-every"), (["--yaw-aug", "2"], "invalid choice")])
 def test_invalid_flags(run_main, capsys, extra, match):
     with pytest.raises(SystemExit):
         run_main("--yaw-aug", "1", *extra)
     assert match in capsys.readouterr().err.splitlines()[-1]
+
+
+def test_no_save_suppresses_mid_epoch_checkpoint(run_main, tmp_path, monkeypatch):
+    calls = []
+    original = trainer.save_checkpoint
+    def save(*args):
+        calls.append(args[5])
+        return original(*args)
+    monkeypatch.setattr(trainer, "save_checkpoint", save)
+    run_main("--yaw-aug", "0", "--no-save", "--save-every", "1", "--max-train-batches", "2", "--batch-size", "1")
+    assert calls == [1] and not list(tmp_path.rglob("*"))
 
 
 def test_width_guard(run_main):

@@ -200,8 +200,10 @@ def test_batch_yaw_accepts_integer_offset_dtypes(dtype):
 def _audit_fixture():
     from tools.yaw_aug import AuditBatch
     src = torch.tensor([[0.007777777500450611, 0., 0.], [1., 0., 0.]])
+    # Row 2: float32(1 - 0.5 * 343 / 22050); k=23 changes only the reference norm.
+    refs = torch.tensor([[[0., 0., 0.]], [[0.992222249507904, 0., 0.]]])
     batch = (torch.zeros(2, 3), src, torch.zeros(2, 3, 1, 512),
-             torch.zeros(2, 1, 8), torch.zeros(2, 1, 8), torch.zeros(2, 1, 3))
+             torch.zeros(2, 1, 8), torch.zeros(2, 1, 8), refs)
     return torch.nn.Linear(1, 1), AuditBatch(batch, ["room/query_a.wav", "room/query_b.wav"])
 
 
@@ -210,13 +212,15 @@ def test_alignment_audit_real_rounding_boundary_and_schema(offset, changed):
     from tools.yaw_aug import alignment_audit
     from tools.yaw_rotation import integer_delays
     model, batch = _audit_fixture()
-    assert integer_delays(batch[1], batch[5]).tolist() == [[0], [64]]
-    _, src, refs = apply_yaw_aug(batch[2], batch[1], batch[5], torch.tensor([offset, 0]))
-    assert integer_delays(src, refs).tolist() == [[changed], [64]]
+    offsets = torch.tensor([offset, 23 * offset])
+    assert integer_delays(batch[1], batch[5]).tolist() == [[0], [0]]
+    _, src, refs = apply_yaw_aug(batch[2], batch[1], batch[5], offsets)
+    assert integer_delays(src, refs).tolist() == [[changed], [changed]]
+    assert integer_delays(src, batch[5]).tolist() == [[changed], [0]]
     before = [tensor.clone() for tensor in batch]
-    result = alignment_audit(model, [batch], [torch.tensor([offset, 0])])
+    result = alignment_audit(model, [batch], [offsets])
     assert set(result) == {"pairs", "changed_delays", "fraction", "cohort_sha256", "W"}
-    assert (result["pairs"], result["changed_delays"], result["fraction"], result["W"]) == (2, changed, changed / 2, 512)
+    assert (result["pairs"], result["changed_delays"], result["fraction"], result["W"]) == (2, 2 * changed, changed, 512)
     assert len(result["cohort_sha256"]) == 64 and int(result["cohort_sha256"], 16) >= 0
     assert all(torch.equal(a, b) for a, b in zip(batch, before))
 
@@ -264,7 +268,7 @@ def test_alignment_cli_matches_training_rng_and_loader(monkeypatch, tmp_path, wo
     trainer.seed_everything(7)
     reference = torch.utils.data.DataLoader(Dataset(), batch_size=32, shuffle=True, num_workers=0)
     expected_model = build("simple", 8)
-    expected = next(iter(reference))
+    expected = list(reference)
     original_loader, original_audit = trainer.DataLoader, yaw.alignment_audit
     def loader(dataset, **kwargs):
         assert kwargs["worker_init_fn"] is trainer.seed_worker and kwargs["pin_memory"]
@@ -273,15 +277,21 @@ def test_alignment_cli_matches_training_rng_and_loader(monkeypatch, tmp_path, wo
         return original_loader(dataset, **dict(kwargs, num_workers=0, persistent_workers=False))
     def audit(model, batches, offsets, **kwargs):
         batches, offsets = list(batches), list(offsets)
-        assert all(torch.equal(a, b) for a, b in zip(expected, batches[0]))
-        assert list(batches[0].query_paths) == ["query_%d.wav" % i for i in expected[1][:, 0]]
+        assert len(batches) == len(offsets) == len(expected) == 2
+        for idx, (want, batch) in enumerate(zip(expected, batches)):
+            assert all(torch.equal(a, b) for a, b in zip(want, batch))
+            assert list(batch.query_paths) == ["query_%d.wav" % i for i in want[1][:, 0]]
+            assert torch.equal(offsets[idx], YawAug(seed=7).offsets_for(1, idx, 32))
+        assert not torch.equal(offsets[0], offsets[1])
         assert torch.equal(model.weight, expected_model.weight)
-        assert torch.equal(offsets[0], YawAug(seed=7).offsets_for(1, 0, 32))
         return original_audit(model, batches, offsets, **kwargs)
     for name, value in [("xRIR_Dataset", Dataset), ("build_xrir", build), ("DataLoader", loader)]:
         monkeypatch.setattr(trainer, name, value)
     monkeypatch.setattr(yaw, "alignment_audit", audit)
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     out = tmp_path / "audit.json"
-    yaw._audit_main(["--audit", "--n-batches", "1", "--seed", "7", "--out", str(out)] + ([] if workers is None else ["--num-workers", workers]))
-    assert json.loads(out.read_text())["pairs"] == 32 * 8
+    argv = ["--audit", "--n-batches", "2", "--seed", "7", "--out", str(out)] + ([] if workers is None else ["--num-workers", workers])
+    yaw._audit_main(argv)
+    assert json.loads(out.read_text())["pairs"] == 2 * 32 * 8
+    with pytest.raises(SystemExit):
+        yaw._audit_main(argv + ["--n-batches", "3"])
