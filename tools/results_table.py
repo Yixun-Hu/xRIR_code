@@ -3,6 +3,7 @@ import argparse
 import datetime
 import os
 import sys
+import shlex
 import tempfile
 import hashlib
 import json
@@ -84,11 +85,31 @@ def build_table(directories, profile=None, approved=None):
                 producer_closure_sha256=producer['sha256'], rows=rows), admitted
 
 
-def render_markdown(json_path):
-    """Render metric cells and protocol exclusively from the saved canonical JSON."""
-    result = json.loads(Path(json_path).read_text())
+BEGIN, END = '<!-- results_table:begin -->', '<!-- results_table:end -->'
+
+
+def render_markdown(json_path, generation_command=None):
+    """Read all table content from JSON; the sidecar supplies only command provenance.
+
+    During publication the writer supplies that command before finalizing the sidecar.
+    No run directories are opened, including when regenerating an existing table.
+    """
+    path = Path(json_path).absolute()
+    raw = path.read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    result = json.loads(raw)
+    sidecar = Path(str(path) + '.provenance.json')
+    if sidecar.exists():
+        receipt = json.loads(sidecar.read_text())
+        if receipt['outputs'].get(str(path)) != digest:
+            raise ValueError('canonical JSON digest mismatch')
+        generation_command = receipt['generation_command']
+    lines = [BEGIN, '# Model comparison', '',
+        'Mean ± sample SD over five evaluation seeds (42–46). Each seed selects the K-specific '
+        'reference manifest and the Griffin-Lim phase. Each seed mean uses its finite queries; '
+        'per-seed finite counts are recorded in the canonical JSON.', '']
     columns = ('T60', 'C50', 'EDT', 'loss', 'log_mse')
-    lines = ['| Model | K | T60 (%) | C50 (dB) | EDT (ms) | Loss (objective) | Log-STFT MSE | Protocol |',
+    lines += ['| Model | K | T60 (%) | C50 (dB) | EDT (ms) | Loss (objective) | Log-STFT MSE | Protocol |',
              '| --- | --- | --- | --- | --- | --- | --- | --- |']
     for row in result['rows']:
         cells = ['{:.6g} ± {:.6g}'.format(row['metrics'][name]['mean'], row['metrics'][name]['sd'])
@@ -98,7 +119,27 @@ def render_markdown(json_path):
             '{} seeds; epoch {{epoch}}; {{condition}}; k = {{k}}; batch {{batch_size}}; TF32 {{precision}}'
             .format(len(protocol['seeds']))).format(**protocol, precision='on' if protocol['tf32'] else 'off')
         lines.append('| ' + ' | '.join([row['label'], str(row['num_shot'])] + cells + [description]) + ' |')
+    lines += ['', '## Protocol', '',
+        'Rows report K, unseen split query count, five seeds, epoch, condition P, standalone k = 0, '
+        'canonical batch 16, and TF32 off. max_samples = 0; no test-time augmentation.',
+        'Finite-count tolerance: {} queries between seeds in each row/metric; empty seeds are refused.'
+        .format(result['profile']['finite_count_tolerance']), '', '## Provenance', '',
+        'Canonical JSON: `{}`; sha256: `{}`.'.format(path, digest),
+        'Profile digest: `{}`.'.format(result['profile_digest']), '', 'Generation command:',
+        '```sh', shlex.join(generation_command or []), '```', END]
     return '\n'.join(lines) + '\n'
+
+
+def _preserve_manual(generated, previous):
+    if previous is None:
+        return generated
+    text = previous.decode('utf-8')
+    if text.count(BEGIN) == text.count(END) == 1 and text.index(BEGIN) < text.index(END):
+        text = text.split(BEGIN, 1)[0] + text.split(END, 1)[1]
+    text = text.strip()
+    if text.startswith('## Manual\n'):
+        text = text[len('## Manual\n'):].strip()
+    return generated + ('\n## Manual\n\n' + text + '\n' if text else '')
 
 
 def _json_bytes(value):
@@ -137,7 +178,7 @@ def write_outputs(result, admitted, json_path, md_path, force_md=False, command=
     try:
         _publish(paths[0], data)
         created.append(paths[0])
-        markdown = render_markdown(paths[0]).encode()
+        markdown = _preserve_manual(render_markdown(paths[0], command), previous).encode()
         receipt = dict(schema_version=1, profile_digest=result['profile_digest'],
             inputs=admitted['inputs'], producer=admitted['producer'],
             approved_digests=admitted['approved_digests'], run_flags=admitted['run_flags'],
@@ -145,7 +186,10 @@ def write_outputs(result, admitted, json_path, md_path, force_md=False, command=
             generation_command=list(command), outputs={str(path): hashlib.sha256(payload).hexdigest()
                 for path, payload in zip(paths, (data, markdown))})
         recheck_inputs(admitted)
-        _publish(paths[1], markdown, overwrite=force_md)
+        current = paths[1].read_bytes() if paths[1].exists() else None
+        if current != previous:
+            raise ValueError('Markdown changed during rendering')
+        _publish(paths[1], markdown, overwrite=previous is not None)
         created.append(paths[1])
         _publish(paths[2], _json_bytes(receipt))
     except BaseException:

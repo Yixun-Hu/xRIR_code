@@ -158,3 +158,57 @@ def test_no_partial_outputs_on_render_failure(table_fixture, tmp_path, monkeypat
     with pytest.raises(RuntimeError, match='render failed'):
         rt.main(table_argv(table_fixture, tmp_path))
     assert not list(tmp_path.glob('table.*'))
+
+
+def test_synthetic_json_template_and_provenance(table_fixture, tmp_path):
+    result, _ = rt.build_table(table_fixture.directories)
+    for row in result['rows']:
+        row['protocol']['n_queries'] = 6337
+    path, output = tmp_path / 'synthetic.json', tmp_path / 'rendered.md'
+    path.write_text(json.dumps(result))
+    command = ['results_table.py', '--profile', 'TABLE_V1', '--json', str(path)]
+    output.write_text(rt.render_markdown(path, command))
+    text = output.read_text()
+    for phrase in ('# Model comparison', 'sample SD', 'five evaluation seeds',
+                   'reference manifest', 'Griffin-Lim', '## Protocol', '6337 queries',
+                   'finite queries', 'tolerance: 2', '## Provenance', str(path),
+                   p.sha256_file(path), result['profile_digest'], 'results_table.py --profile TABLE_V1'):
+        assert phrase in text
+
+
+def test_force_md_preserves_manual_content_idempotently(table_fixture, tmp_path):
+    path = tmp_path / 'table.md'
+    manual = 'Legacy note\n\n| Legacy model | 7.5 |\n'
+    path.write_text(manual)
+    argv = table_argv(table_fixture, tmp_path)
+    rt.main(argv + ['--force-md'])
+    first = path.read_text()
+    assert first.count('Legacy note') == first.count('## Manual') == 1
+    assert manual.strip() in first.split('## Manual', 1)[1]
+    argv[argv.index('--json') + 1] = str(tmp_path / 'second.json')
+    rt.main(argv + ['--force-md'])
+    assert path.read_text().count('Legacy note') == path.read_text().count('## Manual') == 1
+    assert path.read_text().count('# Model comparison') == 1
+
+
+def test_renderer_refuses_tampered_canonical_json(table_fixture, tmp_path):
+    rt.main(table_argv(table_fixture, tmp_path))
+    path = tmp_path / 'table.json'
+    path.write_text(path.read_text() + ' ')
+    with pytest.raises(ValueError, match='digest'):
+        rt.render_markdown(path)
+
+
+def test_force_md_restores_original_on_sidecar_failure(table_fixture, tmp_path, monkeypatch):
+    path = tmp_path / 'table.md'
+    path.write_text('Manual original')
+    original = rt._publish
+    def fail(path, *args, **kwargs):
+        if path.name.endswith('.provenance.json'):
+            raise OSError('sidecar failed')
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(rt, '_publish', fail)
+    with pytest.raises(OSError, match='sidecar failed'):
+        rt.main(table_argv(table_fixture, tmp_path) + ['--force-md'])
+    assert path.read_text() == 'Manual original'
+    assert not (tmp_path / 'table.json').exists()
