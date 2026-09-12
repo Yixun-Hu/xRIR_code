@@ -408,3 +408,88 @@ def refusal_self_test():
         abort_attempt(attempt, 'test', 1)
         refuses('cumulative_budget', lambda: check_budget(root, 42.1))
     return {'passed': True, 'refusals': refusals}
+
+
+def main(argv=None):
+    import argparse
+    import datetime
+    from tools.exp04_probe import trainer_command, compare_results
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('mode', choices=('smoke', 'probe', 'full', 'refuse-test'))
+    parser.add_argument('--gpu', default='1', choices=[str(i) for i in range(16)])
+    parser.add_argument('--reviewed-commit')
+    parser.add_argument('--log-dir')
+    parser.add_argument('--timestamp', default=datetime.datetime.now().strftime('%Y%m%dT%H%M%S%f'))
+    parser.add_argument('--allow-cotenant', action='store_true')
+    parser.add_argument('--projection-hours', type=float, default=30.0)
+    parser.add_argument('--probe-json', help='full requires a clean passing probe receipt')
+    args = parser.parse_args(argv)
+    if args.mode == 'refuse-test':
+        result = refusal_self_test()
+        print(json.dumps(result), flush=True)
+        return result
+    if not args.reviewed_commit or not args.log_dir:
+        parser.error('--reviewed-commit and --log-dir are required')
+    if not re.fullmatch(r'[A-Za-z0-9_-]+', args.timestamp):
+        parser.error('timestamp must be a safe filename component')
+    if Path(sys.executable).resolve() != Path(PYTHON).resolve():
+        parser.error('launcher requires pinned interpreter ' + PYTHON)
+    if args.mode == 'full':
+        if args.allow_cotenant:
+            parser.error('full forbids --allow-cotenant')
+        if not args.probe_json:
+            parser.error('full requires --probe-json (clean passing probe)')
+        receipt = json.loads(Path(args.probe_json).read_text())
+        if receipt.get('PROBE_NOT_CLEAN') is not False or receipt.get('passed') is not True:
+            parser.error('full requires a clean passing probe')
+        check_budget(ROOT, args.projection_hours)
+    commit = subprocess.check_output(['git', 'rev-parse', args.reviewed_commit + '^{commit}'],
+                                     cwd=REPO, text=True).strip()
+    ROOT.mkdir(parents=True, exist_ok=True)
+    with (ROOT / '.launch.lock').open('a') as lock, patch.dict(os.environ, child_environment(args.gpu)):
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        stamp, mode = args.timestamp, args.mode
+        log_dir = Path(args.log_dir).resolve()
+        if mode in ('smoke', 'full'):
+            attempt = ROOT / (('_smoke_' if mode == 'smoke' else 'attempt_') + stamp)
+            relative = os.path.relpath(attempt, REPO)
+            cmd = command(mode, relative)
+            check_golden(cmd, mode, relative)
+            result = execute_attempt(attempt, mode, args.gpu,
+                log_dir / ('yaw_aug_xrir_' + stamp + '_train_' + mode + '.log'),
+                lambda: build_fields(cmd, args.gpu, commit, mode),
+                allow_cotenant=args.allow_cotenant, projection=args.projection_hours)
+        else:
+            output = ROOT / ('_probe_' + stamp + '.json')
+            if output.exists():
+                raise FileExistsError(str(output))
+            before = gpu_snapshot(args.gpu)
+            measurements, attempts = [], []
+            for yaw, label in ((0, 'off'), (1, 'on')):
+                attempt = ROOT / ('attempt_' + stamp + '_probe_' + label)
+                relative = os.path.relpath(attempt, REPO)
+                cmd = [PYTHON, '-m', 'tools.exp04_probe', '--yaw-aug', str(yaw), '--save-dir', relative]
+                def fields_factory():
+                    fields = build_fields([PYTHON] + trainer_command(yaw, relative), args.gpu, commit, 'probe')
+                    fields['trainer_command'], fields['command'] = fields['command'], cmd
+                    return fields
+                completed = execute_attempt(attempt, 'probe', args.gpu,
+                    log_dir / ('yaw_aug_xrir_' + stamp + '_' + label + '_train_probe.log'),
+                    fields_factory, allow_cotenant=args.allow_cotenant)
+                measurements.append(completed['metrics']['probe'])
+                attempts.append(str(attempt))
+            after = gpu_snapshot(args.gpu)
+            result = dict(compare_results(*measurements), yaw_off=measurements[0], yaw_on=measurements[1],
+                before=before, after=after, PROBE_NOT_CLEAN=bool(before['compute_apps'] or after['compute_apps']),
+                attempts=attempts, reviewed_commit=commit)
+            p.write_manifest(output, result)
+            if result['PROBE_NOT_CLEAN']:
+                print('PROBE_NOT_CLEAN: another process was present; timing gate needs Planner judgment.', flush=True)
+        print(json.dumps(result, sort_keys=True, allow_nan=False), flush=True)
+        if mode == 'probe' and not result['passed']:
+            raise SystemExit(1)
+        return result
+
+
+if __name__ == '__main__':
+    main()

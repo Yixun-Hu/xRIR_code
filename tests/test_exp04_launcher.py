@@ -252,3 +252,31 @@ def test_refuse_mode_never_spawns_trainer(monkeypatch):
     monkeypatch.setattr(launch.subprocess, 'Popen', lambda *a, **k: pytest.fail('spawned trainer'))
     result = launch.refusal_self_test()
     assert len(result['refusals']) >= 6 and result['passed']
+
+
+@pytest.mark.parametrize('mode', ['smoke', 'probe'])
+def test_cli_modes_preserve_probe_cotenant_evidence(tmp_path, monkeypatch, mode):
+    monkeypatch.setattr(launch, 'ROOT', tmp_path)
+    monkeypatch.setattr(launch, 'gpu_snapshot', lambda gpu: {'compute_apps': '123, foreign.py, 11000',
+                                                          'utilization_gpu': 90})
+    monkeypatch.setattr(launch.subprocess, 'check_output', lambda *a, **k: 'reviewed\n')
+    calls = []
+    def execute(attempt, mode, gpu, log, factory, **kwargs):
+        calls.append((attempt, mode, gpu, log, kwargs))
+        return {'metrics': {'probe': {'mean_iteration_seconds': 1.0, 'peak_allocated_bytes': 123}}}
+    monkeypatch.setattr(launch, 'execute_attempt', execute)
+    result = launch.main([mode, '--gpu', '1', '--reviewed-commit', 'HEAD', '--timestamp', 'test',
+                          '--log-dir', str(tmp_path / 'logs'), '--allow-cotenant'])
+    assert len(calls) == (1 if mode == 'smoke' else 2)
+    assert all(row[2] == '1' and row[4]['allow_cotenant'] for row in calls)
+    if mode == 'smoke':
+        assert calls[0][0].name == '_smoke_test'
+    else:
+        assert result['PROBE_NOT_CLEAN'] is True and result['overhead_ratio'] == 1
+        assert result['before']['compute_apps'] and result['after']['utilization_gpu'] == 90
+        assert json.loads((tmp_path / '_probe_test.json').read_text()) == result
+
+
+def test_cli_full_forbids_cotenant():
+    with pytest.raises(SystemExit):
+        launch.main(['full', '--allow-cotenant'])
