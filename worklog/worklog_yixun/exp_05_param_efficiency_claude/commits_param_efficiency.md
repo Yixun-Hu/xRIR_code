@@ -1,0 +1,1 @@
+- `2d2a3867b9360964fd5482aaf4fbe426e60c85a1` — exp_05 plan v3 approved and committed for handoff (record folder: query, plan v1–v3, two Codex plan reviews, notebook); also carries exp_04's round-1 review and prompts
