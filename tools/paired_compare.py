@@ -210,3 +210,56 @@ def h2_verdict(c50_uppers):
 def tost_verdict(lo, hi, margin=0.02):
     equivalent = np.isfinite([lo, hi, margin]).all() and 0 < margin and -margin < lo <= hi < margin
     return "equivalent" if equivalent else "equivalence not established"
+
+
+# Admission imports are at module scope so source_closure sees every dependency.
+import argparse
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import subprocess
+
+from tools import provenance as provenance
+from tools.exp04_profiles import get_profile, json_value
+from tools.reference_manifest import load_manifest, manifest_hash
+from tools.summarize_yaw import load_run, rooms_from_paths, signed_degrees, _check_metrics_reconciliation
+
+REPO = Path(__file__).resolve().parents[1]
+_UNBOUND = object()
+
+
+def _digest(value):
+    return hashlib.sha256(json.dumps(json_value(value), sort_keys=True,
+        separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+
+
+def producer_identity():
+    """Bind imported producer dependencies to committed HEAD and current bytes."""
+    commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=REPO, text=True).strip()
+    records, digest = provenance.closure_record(
+        provenance.source_closure('tools.paired_compare', REPO), commit, REPO)
+    if any(r['reviewed_blob_sha256'] != r['working_tree_sha256'] or
+           r['reviewed_blob_sha256'] is None for r in records):
+        raise ValueError('producer closure differs from HEAD')
+    return {'sha256': digest, 'files': records, 'commit': commit}
+
+
+def _equal(actual, expected):
+    """JSON comparison keeps bool, int, float, and missing values distinct."""
+    return json.dumps(actual, sort_keys=True) == json.dumps(json_value(expected), sort_keys=True)
+
+
+def _closure_digest(closure):
+    records = closure['files']
+    names = [r['path'] for r in records]
+    if not records or names != sorted(set(names)) or any(
+            r['working_tree_sha256'] != r['reviewed_blob_sha256'] or
+            r['reviewed_blob_sha256'] is None or r['commits_after_reviewed'] for r in records):
+        raise ValueError('closure records are incomplete or unreviewed')
+    # Match tools.provenance.closure_record's deliberately noncompact encoding.
+    return hashlib.sha256(json.dumps([[r['path'], r['reviewed_blob_sha256']]
+        for r in records], sort_keys=True).encode()).hexdigest()
+
+

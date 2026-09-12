@@ -308,3 +308,148 @@ def admission_fixture(tmp_path, monkeypatch):
     return build
 
 
+def _assert_no_outputs(fixture):
+    assert not fixture.output.exists()
+    assert not fixture.summary.exists()
+    assert not fixture.sidecar.exists()
+
+
+def _all_strings(value):
+    if isinstance(value, str):
+        return {value}
+    if isinstance(value, dict):
+        return set().union(*[_all_strings(item) for item in value.values()]) if value else set()
+    if isinstance(value, list):
+        return set().union(*[_all_strings(item) for item in value]) if value else set()
+    return set()
+
+
+def test_admission_happy_path(admission_fixture):
+    fixture = admission_fixture()
+    pc.main(fixture.argv)
+    payload = _read(fixture.output)
+    assert payload['exploratory'] is False
+    assert 'non-inferior' in _all_strings(payload)
+    assert fixture.summary.is_file() and fixture.sidecar.is_file()
+    sidecar = _read(fixture.sidecar)
+    strings = _all_strings(sidecar)
+    assert p.sha256_file(fixture.output) in strings
+    assert p.sha256_file(fixture.summary) in strings
+    assert _canonical_digest(fixture.profile) in strings
+    assert fixture.profile['approved_closures']['producer'] in strings
+    for arm in fixture.paths:
+        for run in arm:
+            for filename in ('eval_manifest.json', 'per_sample_yaw.json', 'metrics_yaw.json',
+                             'completion.json'):
+                assert p.sha256_file(Path(run) / filename) in strings
+    before = {path: path.read_bytes() for path in (fixture.output, fixture.summary, fixture.sidecar)}
+    with pytest.raises((ValueError, FileExistsError)):
+        pc.main(fixture.argv)
+    assert all(path.read_bytes() == content for path, content in before.items())
+
+
+@pytest.mark.parametrize('kind', ['missing_seed', 'wrong_seed', 'queries', 'num_shot',
+    'grid', 'truncated', 'manifest_sidecar', 'checkpoint', 'missing_completion',
+    'stale_output', 'missing_metrics_cell', 'reconciliation', 'forged_closure'])
+def test_admission_refuses_invalid_run(admission_fixture, kind):
+    fixture = admission_fixture()
+    run = Path(fixture.paths[0][0])
+    manifest = _read(run / 'eval_manifest.json')
+    sample = _read(run / 'per_sample_yaw.json')
+    metrics = _read(run / 'metrics_yaw.json')
+    match = None
+    if kind == 'missing_seed':
+        fixture.argv.remove(str(run))
+        match = 'seed|five|5'
+    elif kind == 'wrong_seed':
+        manifest['manifest_seed'] = 47
+        sample['meta']['manifest_seed'] = metrics['meta']['manifest_seed'] = 47
+        match = 'seed'
+    elif kind == 'queries':
+        sample['query'][0], sample['query'][1] = sample['query'][1], sample['query'][0]
+        match = 'quer|order'
+    elif kind == 'num_shot':
+        manifest['num_shot'] = 1
+        match = 'num_shot|shot| K'
+    elif kind == 'grid':
+        manifest['yaw_cols'] = [0, 32]
+        sample['meta']['yaw_cols'] = metrics['meta']['yaw_cols'] = [0, 32]
+        match = 'grid|yaw_cols|cols'
+    elif kind == 'truncated':
+        sample['P']['0']['edt'].pop()
+        metrics['P'] = _summaries(sample['P'])
+        match = 'length|count|shape|samples|queries'
+    elif kind == 'checkpoint':
+        manifest['checkpoint_sha256'] = 'f' * 64
+        match = 'checkpoint'
+    elif kind == 'missing_metrics_cell':
+        del metrics['P']['0']['edt']
+        match = 'metric|edt|cell'
+    elif kind == 'reconciliation':
+        metrics['P']['0']['edt']['mean'] += 1
+        match = 'mean|reconcil'
+    elif kind == 'forged_closure':
+        manifest['source_closures']['entrypoint']['sha256'] = 'f' * 64
+        match = 'closure|evaluator'
+    _rebind(run, manifest, sample, metrics)
+    if kind == 'missing_completion':
+        (run / 'completion.json').unlink()
+        match = 'completion'
+    elif kind == 'manifest_sidecar':
+        manifest['gl_seed'] = 99
+        _replace(run / 'eval_manifest.json', manifest)
+        match = 'manifest|digest'
+    elif kind == 'stale_output':
+        path = run / 'per_sample_yaw.json'
+        path.write_text(path.read_text() + ' ')
+        match = 'per_sample|digest|output'
+    with pytest.raises(ValueError, match=match):
+        pc.main(fixture.argv)
+    _assert_no_outputs(fixture)
+
+
+def test_tost_refuses_runs_b(admission_fixture):
+    fixture = admission_fixture('TOST_K8')
+    with pytest.raises((ValueError, SystemExit)):
+        pc.main(fixture.argv + ['--runs-b', fixture.paths[0][0]])
+    _assert_no_outputs(fixture)
+
+
+def test_profile_cli_refuses_analytic_overrides(admission_fixture):
+    fixture = admission_fixture()
+    with pytest.raises(SystemExit):
+        pc.main(fixture.argv + ['--n-boot', '10'])
+    _assert_no_outputs(fixture)
+
+
+@pytest.mark.parametrize('unapproved', ['evaluator', 'writer', 'launcher', 'producer', 'checkpoint'])
+def test_production_refuses_unapproved_identity(admission_fixture, unapproved):
+    fixture = admission_fixture()
+    if unapproved == 'checkpoint':
+        fixture.profile['arms'][0]['sha256'] = None
+    else:
+        fixture.profile['approved_closures'][unapproved] = None
+    with pytest.raises(ValueError, match='approved|None|digest|sha256'):
+        pc.main(fixture.argv)
+    _assert_no_outputs(fixture)
+
+
+def test_exploratory_records_deviation_and_omits_all_verdicts(admission_fixture):
+    fixture = admission_fixture()
+    run = Path(fixture.paths[0][0])
+    manifest = _read(run / 'eval_manifest.json')
+    manifest['batch_size'] = 8
+    sample = _read(run / 'per_sample_yaw.json')
+    metrics = _read(run / 'metrics_yaw.json')
+    sample['meta']['batch_size'] = metrics['meta']['batch_size'] = 8
+    _rebind(run, manifest=manifest, sample=sample, metrics=metrics)
+    pc.main(fixture.argv + ['--exploratory'])
+    payload = _read(fixture.output)
+    assert payload['exploratory'] is True
+    assert 'batch_size' in fixture.output.read_text()
+    assert 'verdict' not in fixture.output.read_text().lower()
+    assert 'non-inferior' not in fixture.summary.read_text()
+    assert 'exploratory' in fixture.summary.read_text().lower()
+    assert _read(fixture.sidecar)['exploratory'] is True
+
+
