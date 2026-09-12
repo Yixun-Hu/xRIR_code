@@ -26,6 +26,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
 
 from model.xRIR_cyl import BACKBONES, build_xrir
+from tools.yaw_aug import YawAug, apply_yaw_aug
 from treble_multi_room_dataset.treble_xRIR_dataset import xRIR_Dataset
 from utils.lr_scheduler import ExponentialLR
 from utils.spec_utils import compute_spect_energy_decay_losses, stft_l1_loss
@@ -49,6 +50,10 @@ def parse_args():
     # Runtime.
     p.add_argument("--num-workers", type=int, default=16)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--yaw-aug", type=int, choices=(0, 1), default=0)
+    p.add_argument("--yaw-aug-seed", type=int, default=None)
+    p.add_argument("--yaw-aug-width", type=int, default=512)
+    p.add_argument("--no-save", action="store_true", help="write nothing to save-dir (smoke runs)")
     p.add_argument("--tf32", action="store_true", help="allow TF32 matmul/cudnn (faster, slightly different numerics)")
     p.add_argument("--log-interval", type=int, default=20)
     p.add_argument("--save-every", type=int, default=500, help="save last.pth every N train batches (0 = only per epoch)")
@@ -60,7 +65,11 @@ def parse_args():
     p.add_argument("--max-test-batches", type=int, default=0, help="0 = full test split")
     p.add_argument("--test-subset", type=int, default=0,
                    help="evaluate on a fixed seeded subset of N test samples each epoch (0 = all)")
-    return p.parse_args()
+    args = p.parse_args()
+    args.yaw_aug_seed = args.seed if args.yaw_aug_seed is None else args.yaw_aug_seed
+    if args.yaw_aug and (args.resume is not None or args.save_every != 0):
+        p.error("--yaw-aug 1 requires --resume to be None and --save-every exactly 0")
+    return args
 
 
 def seed_everything(seed):
@@ -76,9 +85,17 @@ def seed_worker(worker_id):
     random.seed(s)
 
 
-def compute_loss(model, batch):
+def compute_loss(model, batch, aug=None):
     """Identical loss to train_xRIR_unseen.py: STFT log-mag L1 + Schroeder energy-decay L1."""
     _, src_loc, depth_coord, tgt_wav, ref_irs, ref_locs = batch
+    if aug is not None:
+        yaw, epoch, batch_idx = aug
+        if yaw.W != depth_coord.shape[-1]:
+            raise ValueError("--yaw-aug-width must equal the dataset depth panorama width")
+        depth_coord, src_loc, ref_locs = (t.cuda(non_blocking=True) for t in (depth_coord, src_loc, ref_locs))
+        ks = yaw.offsets_for(int(epoch), int(batch_idx), int(src_loc.shape[0]))
+        depth_coord, src_loc, ref_locs = apply_yaw_aug(
+            depth_coord, src_loc, ref_locs, ks.to(depth_coord.device), W=yaw.W)
     out_spec, tgt_spec = model(
         depth_coord.cuda(non_blocking=True), ref_irs.cuda(non_blocking=True),
         src_loc.cuda(non_blocking=True), ref_locs.cuda(non_blocking=True),
@@ -91,6 +108,8 @@ def compute_loss(model, batch):
 
 
 def save_checkpoint(path, model, optimizer, scheduler, epoch, batch_idx, best_test_loss, args):
+    if args.no_save:
+        return
     torch.save({
         "model": model.state_dict(),
         "optimizer": optimizer.state_dict(),
@@ -104,6 +123,7 @@ def save_checkpoint(path, model, optimizer, scheduler, epoch, batch_idx, best_te
 
 def train_epoch(model, loader, optimizer, scheduler, epoch, args, best_test_loss):
     model.train()
+    aug = YawAug(True, args.yaw_aug_width, args.yaw_aug_seed) if args.yaw_aug else None
     optimizer.zero_grad(set_to_none=True)
     n_batches = len(loader) if not args.max_train_batches else min(len(loader), args.max_train_batches)
     tot = tot_stft = tot_decay = 0.0
@@ -113,7 +133,8 @@ def train_epoch(model, loader, optimizer, scheduler, epoch, args, best_test_loss
     for batch_idx, batch in enumerate(loader):
         if args.max_train_batches and batch_idx >= args.max_train_batches:
             break
-        loss, stft_l, decay_l = compute_loss(model, batch)
+        loss, stft_l, decay_l = compute_loss(
+            model, batch, (aug, int(epoch), int(batch_idx)) if aug is not None else None)
         (loss / args.accum_steps).backward()
         if (batch_idx + 1) % args.accum_steps == 0 or batch_idx + 1 == n_batches:
             optimizer.step()
@@ -162,9 +183,6 @@ def main():
     seed_everything(args.seed)
     torch.backends.cuda.matmul.allow_tf32 = args.tf32
     torch.backends.cudnn.allow_tf32 = args.tf32
-    os.makedirs(args.save_dir, exist_ok=True)
-    with open(os.path.join(args.save_dir, "args.json"), "w") as f:
-        json.dump(vars(args), f, indent=2)
 
     train_dataset = xRIR_Dataset(split="train", max_len=args.max_len, num_shot=args.num_shot)
     test_dataset = xRIR_Dataset(split="test", max_len=args.max_len, num_shot=args.num_shot)
@@ -177,6 +195,15 @@ def main():
                          persistent_workers=args.num_workers > 0)
     train_loader = DataLoader(train_dataset, shuffle=True, batch_size=args.batch_size, **loader_kwargs)
     test_loader = DataLoader(test_dataset, shuffle=False, batch_size=args.batch_size, **loader_kwargs)
+    args.train_batches_per_epoch = len(train_loader)
+    if args.yaw_aug and args.train_batches_per_epoch > 9261:
+        raise ValueError("--yaw-aug 1 requires len(train_loader) <= 9261")
+    args.env = {key: os.environ.get(key) for key in
+                ("PYTHONHASHSEED", "XRIR_DATA_PATH", "OMP_NUM_THREADS", "CUDA_VISIBLE_DEVICES")}
+    if not args.no_save:
+        os.makedirs(args.save_dir, exist_ok=True)
+        with open(os.path.join(args.save_dir, "args.json"), "w") as f:
+            json.dump(vars(args), f, indent=2)
 
     model = build_xrir(args.backbone, args.num_shot).cuda()
     n_params = sum(p.numel() for p in model.parameters())
@@ -200,10 +227,14 @@ def main():
               f"best_test_loss {best_test_loss:.5f} -> starting epoch {start_epoch}", flush=True)
 
     history_path = os.path.join(args.save_dir, "history.jsonl")
+    print(f"yaw_aug ENABLED W={args.yaw_aug_width} seed={args.yaw_aug_seed} "
+          "counter=(epoch-1)*9261+batch_idx" if args.yaw_aug else "yaw_aug DISABLED", flush=True)
     for epoch in range(start_epoch, args.epochs + 1):
         t0 = time.time()
         train_loss = train_epoch(model, train_loader, optimizer, scheduler, epoch, args, best_test_loss)
         test_loss = test_epoch(model, test_loader, epoch, args)
+        if args.no_save:
+            continue
         is_best = test_loss < best_test_loss
         if is_best:
             best_test_loss = test_loss
