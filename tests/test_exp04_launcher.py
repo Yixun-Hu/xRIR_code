@@ -122,3 +122,53 @@ def test_training_closure_refusal(fake_manifest_inputs, monkeypatch, failure):
         monkeypatch.setattr(launch.p, 'closure_record', lambda *a: ([record], 'digest'))
     with pytest.raises(ValueError, match='closure'):
         launch.build_fields(launch.command('full', 'attempt'), '1', 'commit', 'full')
+
+
+def log_lines(expected):
+    return ['XRIR_RUNTIME_ARGS ' + json.dumps(expected),
+            'yaw_aug ENABLED W=512 seed=0 counter=(epoch-1)*74084+batch_idx'] + [
+        'Train Epoch: 1 [{}/3]  loss 1.25 (stft 0.5, decay 0.75)'.format(i) for i in range(3)] + [
+        'Test set (epoch 1): Average loss: 0.25 over 2 batches']
+
+
+@pytest.mark.parametrize('failure', [None, 'banner', 'late', 'args', 'nan', 'steps'])
+def test_log_guard(failure):
+    expected = launch.effective_args(launch.command('smoke', 'attempt'), '1', 74084)
+    lines = log_lines(expected)
+    if failure == 'banner':
+        lines.pop(1)
+    elif failure == 'late':
+        lines[1], lines[2] = lines[2], lines[1]
+    elif failure == 'args':
+        lines[0] = lines[0].replace('74084', '1')
+    elif failure == 'nan':
+        lines[2] = lines[2].replace('loss 1.25', 'loss nan')
+    elif failure == 'steps':
+        lines.pop(4)
+    guard = launch.LogGuard(expected, 'smoke')
+    def consume():
+        for line in lines:
+            guard.feed(line)
+        return guard.finish()
+    if failure:
+        with pytest.raises(ValueError):
+            consume()
+    else:
+        assert consume()['train_losses'] == [1.25, 1.25, 1.25]
+        assert guard.runtime == expected
+
+
+def test_teed_child_closed_log_and_early_abort(tmp_path):
+    import sys
+    expected = launch.effective_args(launch.command('smoke', 'attempt'), '1', 74084)
+    log = tmp_path / 'train.log'
+    lines = log_lines(expected)
+    code = 'print(' + repr('\n'.join(lines)) + ', flush=True)'
+    guard = launch.LogGuard(expected, 'smoke')
+    assert launch.run_child([sys.executable, '-c', code], log, '1', guard) == 0
+    assert log.read_text().splitlines() == lines
+    assert guard.finish()['test_loss'] == 0.25
+    code = "import time; print('Train Epoch: 1 [0/3] loss 1.0', flush=True); time.sleep(30)"
+    with pytest.raises(ValueError, match='banner|runtime'):
+        launch.run_child([sys.executable, '-c', code], tmp_path / 'bad.log', '1',
+                         launch.LogGuard(expected, 'smoke'))

@@ -190,3 +190,107 @@ def build_fields(argv, gpu, reviewed_commit, mode):
         source_closures=closures, train_data_identity=data, effective_args=effective,
         command=argv, environment=p.environment(), git_state=p.git_state(REPO),
         env={key: child_environment(gpu)[key] for key in ENV_KEYS})
+
+
+import re
+import signal
+import time
+
+
+class LogGuard:
+    def __init__(self, expected, mode):
+        self.expected, self.mode = expected, mode
+        self.runtime = None
+        self.banner = False
+        self.steps, self.losses = [], []
+        self.test_loss = None
+        self.position = 0
+        self.first_step_time = None
+        self.epoch_one_done = False
+
+    def feed(self, line):
+        if line.startswith('XRIR_RUNTIME_ARGS '):
+            self.runtime = json.loads(line[len('XRIR_RUNTIME_ARGS '):])
+            check_runtime(self.runtime, self.expected, self.mode)
+        wanted = ('yaw_aug ENABLED W=512 seed=0 counter=(epoch-1)*{}+batch_idx'.format(
+            self.expected['train_batches_per_epoch']) if self.expected['yaw_aug'] else 'yaw_aug DISABLED')
+        if line.strip() == wanted:
+            if self.banner:
+                raise ValueError('duplicate banner')
+            self.banner = True
+        step = re.search(r'Train Epoch: (\d+) \[(\d+)/(\d+)\].*?loss (\S+)', line)
+        if step:
+            if not self.banner or self.runtime is None:
+                raise ValueError('first step without banner or runtime args')
+            if self.mode == 'full':
+                runtime = Path(self.expected['save_dir']) / 'args.json'
+                check_runtime(json.loads(runtime.read_text()), self.expected, self.mode)
+            values = re.findall(r'(?:loss |stft |decay )([^\s,)]+)', line)
+            if not values or not all(math.isfinite(float(value)) for value in values):
+                raise ValueError('non-finite training loss')
+            self.first_step_time = self.first_step_time or time.monotonic()
+            self.steps.append((int(step[1]), int(step[2])))
+            self.losses.append(float(step[4]))
+        if line.startswith('Test set (epoch 1):'):
+            match = re.search(r'Average loss: (\S+) over (\d+) batches', line)
+            self.test_loss = float(match[1])
+            if not math.isfinite(self.test_loss) or (self.mode == 'smoke' and int(match[2]) != 2):
+                raise ValueError('invalid test loss/count')
+        if line.startswith('epoch 1 done'):
+            self.epoch_one_done = True
+
+    def poll(self, path):
+        with path.open() as stream:
+            stream.seek(self.position)
+            while True:
+                line = stream.readline()
+                if not line.endswith('\n'):
+                    break
+                self.position = stream.tell()
+                self.feed(line)
+        if (self.mode == 'full' and self.first_step_time and not self.epoch_one_done
+                and time.monotonic() - self.first_step_time > 2.6 * 3600):
+            raise ValueError('epoch one exceeds 2.6 h operational ceiling')
+
+    def finish(self):
+        if not self.banner or not self.runtime or not self.steps:
+            raise ValueError('missing runtime args, banner or steps')
+        if self.mode == 'smoke' and (self.steps != [(1, 0), (1, 1), (1, 2)] or self.test_loss is None):
+            raise ValueError('smoke requires three finite steps and test loss')
+        return dict(train_losses=self.losses, test_loss=self.test_loss, banner=self.banner)
+
+
+def run_child(argv, log_path, gpu, guard, deadline=None):
+    child = sink = None
+    with log_path.open('xb') as log:
+        try:
+            child = subprocess.Popen(argv, cwd=REPO, env=child_environment(gpu),
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
+            sink = subprocess.Popen(['tee', '/dev/stderr'], stdin=child.stdout, stdout=log,
+                                    start_new_session=True)
+            child.stdout.close()
+            while child.poll() is None or sink.poll() is None:
+                guard.poll(log_path)
+                if deadline is not None and time.monotonic() > deadline:
+                    raise ValueError('43 h cumulative ceiling reached')
+                if sink.poll() not in (None, 0):
+                    raise RuntimeError('log sink failed')
+                time.sleep(0.05)
+            log.flush()
+            os.fsync(log.fileno())
+            guard.poll(log_path)
+            if sink.returncode:
+                raise RuntimeError('log sink failed')
+            return child.returncode
+        finally:
+            for process in (child, sink):
+                if process is not None:
+                    try:
+                        os.killpg(process.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(process.pid, signal.SIGKILL)
+                        process.wait()
