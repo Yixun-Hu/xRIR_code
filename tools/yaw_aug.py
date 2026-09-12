@@ -1,13 +1,19 @@
 """Counter-seeded, geometry-only yaw augmentation for exp_04; audio is never an input.
 
 The FLAC integer mixer is preserved, with strict argument validation before coercion.
-The model/GPU-dependent alignment_audit is added in the next round.
+The audit CLI needs the same PYTHONHASHSEED as training (approved run: 0).
 """
+import argparse
 from dataclasses import dataclass
+import hashlib
+from itertools import islice, tee, zip_longest
+import json
 import math
 import numbers
+from pathlib import Path
 
 import torch
+from tools.yaw_rotation import integer_delays
 
 _MASK64 = (1 << 64) - 1
 _SPLITMIX64_GAMMA = 0x9E3779B97F4A7C15
@@ -146,3 +152,88 @@ class YawAug:
     def offsets_for(self, epoch, batch_idx, n):
         generator = torch.Generator(device="cpu").manual_seed(step_seed(self.seed, counter(epoch, batch_idx), 0))
         return draw_offsets(n, self.W, generator)
+
+
+class AuditBatch(tuple):
+    """Trainer's six tensors plus query paths, attached after loader collation."""
+    def __new__(cls, batch, query_paths):
+        instance = super().__new__(cls, batch)
+        instance.query_paths = query_paths
+        return instance
+
+
+@torch.no_grad()
+def alignment_audit(model, batches, offsets_per_batch, W=512, sr=22050, c=343.0):
+    """Count changed integer delays on the model's dtype/device, without a forward.
+
+    Each six-tuple must carry ``query_paths`` (use AuditBatch). The digest hashes
+    compact JSON [path, offset] records, each followed by a newline, in query order.
+    """
+    parameter = next(model.parameters())
+    pairs = changed = 0
+    digest = hashlib.sha256()
+    for batch, offsets in zip_longest(batches, offsets_per_batch):
+        if batch is None or offsets is None:
+            raise ValueError("batch and offset iterables must have equal lengths")
+        paths = getattr(batch, "query_paths", None)
+        if paths is None or len(paths) != batch[1].shape[0] or any(not isinstance(p, str) for p in paths):
+            raise ValueError("query_paths must contain one path string per query")
+        depth, src, refs = (batch[i].to(device=parameter.device, dtype=parameter.dtype, non_blocking=True)
+                            for i in (2, 1, 5))
+        offsets = offsets.to(parameter.device)
+        _, rotated_src, rotated_refs = apply_yaw_aug(depth, src, refs, offsets, W=W)
+        before = integer_delays(src, refs, sr=sr, c=c)
+        after = integer_delays(rotated_src, rotated_refs, sr=sr, c=c)
+        pairs += before.numel()
+        changed += int((before != after).sum().item())
+        for path, offset in zip(paths, offsets.tolist()):
+            digest.update((json.dumps([path, offset], separators=(",", ":")) + "\n").encode("utf-8"))
+    return {"pairs": pairs, "changed_delays": changed, "fraction": changed / pairs if pairs else 0.0,
+            "cohort_sha256": digest.hexdigest(), "W": W}
+
+
+class _AuditDataset(torch.utils.data.Dataset):
+    def __init__(self, dataset):
+        self.dataset = dataset
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, index):
+        return self.dataset[index], self.dataset.file_list[index]
+
+
+def _audit_main(argv=None):
+    import train_xRIR_backbone as trainer
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--audit", action="store_true", required=True)
+    parser.add_argument("--n-batches", type=int, default=50)
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--num-workers", type=int, default=12, help="approved training run's worker count")
+    parser.add_argument("--out", default="ckpt/yaw_aug/alignment_audit.json")
+    args = parser.parse_args(argv)
+    if args.n_batches <= 0 or args.batch_size <= 0 or args.num_workers < 0:
+        parser.error("batch counts/sizes must be positive and num-workers nonnegative")
+    trainer.seed_everything(args.seed)
+    dataset = trainer.xRIR_Dataset(split="train", max_len=9600, num_shot=8)
+    loader = trainer.DataLoader(_AuditDataset(dataset), shuffle=True, batch_size=args.batch_size,
+                               num_workers=args.num_workers, pin_memory=True,
+                               worker_init_fn=trainer.seed_worker, persistent_workers=args.num_workers > 0)
+    if args.n_batches > min(len(loader), 9261):
+        parser.error("requested cohort exceeds the training loader or the 9261-batch counter domain")
+    # Model initialization precedes iterator creation: it determines sampler/worker RNG seeds.
+    model = trainer.build_xrir("simple", 8).to("cuda" if torch.cuda.is_available() else "cpu")
+    batches, for_offsets = tee(AuditBatch(batch, paths) for batch, paths in islice(loader, args.n_batches))
+    aug = YawAug(True, 512, args.seed)
+    offsets = (aug.offsets_for(1, int(index), int(batch[1].shape[0]))
+               for index, batch in enumerate(for_offsets))
+    result = alignment_audit(model, batches, offsets)
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(result, indent=2) + "\n")
+    print(json.dumps(result), flush=True)
+
+
+if __name__ == "__main__":
+    _audit_main()
