@@ -429,6 +429,55 @@ def diagnostic_value(value):
     return value
 
 
+def assert_quiescent(pgid, log_path):
+    if type(pgid) is not int or pgid <= 0:
+        raise ValueError('missing or invalid recorded process group')
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        pass
+    else:
+        raise ValueError('child process group is still present')
+    target = log_path.stat()
+    for process in Path('/proc').iterdir():
+        if not process.name.isdigit():
+            continue
+        try:
+            for fd in (process / 'fd').iterdir():
+                try:
+                    stat = fd.stat()
+                    if (stat.st_dev, stat.st_ino) == (target.st_dev, target.st_ino):
+                        info = (process / 'fdinfo' / fd.name).read_text()
+                        flags = int(re.search(r'^flags:\s+(\d+)$', info, re.M)[1], 8)
+                        if flags & os.O_ACCMODE:
+                            raise ValueError('log writer still open: ' + str(fd))
+                except FileNotFoundError:
+                    pass  # The descriptor closed during inspection.
+        except (FileNotFoundError, ProcessLookupError):
+            pass
+        except PermissionError as error:
+            raise ValueError('cannot inspect log writers: ' + str(process)) from error
+
+
+def complete_attempt(attempt, mode, log_path, fields, digest, metrics, hours):
+    outputs = validate_outputs(attempt, mode, fields['effective_args'])
+    fields['mutable_inputs']['train_manifest'] = {
+        'path': str((attempt / 'train_manifest.json').resolve()), 'sha256': digest}
+    print('Revalidating training inputs after log close...', flush=True)
+    drift = []
+    mismatches = p.revalidate(fields, required=REQUIRED_INPUTS, source_drift=drift)
+    if mismatches:
+        raise LauncherFailure('input_changed', 'mutable input mismatch: ' + ', '.join(mismatches))
+    completion = dict(train_manifest_sha256=digest, source_drift_after_spawn=drift,
+        log={'path': str(log_path.resolve()), 'sha256': p.sha256_file(log_path)},
+        outputs=outputs, metrics=metrics, wall_hours=hours() if callable(hours) else hours)
+    p.write_completion(attempt / 'completion.json', completion)
+    account_hours(attempt, completion['wall_hours'], mode=mode)
+    if mode == 'full':
+        promote(attempt)
+    return completion
+
+
 @termination_handlers()
 def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant=False,
                     projection=30.0, runner=run_child):
@@ -465,23 +514,8 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
             raise LauncherFailure('child_exit_' + str(status), 'child exited nonzero: ' + str(status))
         metrics = guard.finish()
         reason = 'invalid_outputs'
-        outputs = validate_outputs(attempt, mode, expected)
-        reason = 'input_changed'
-        fields['mutable_inputs']['train_manifest'] = {'path': str(manifest_path.resolve()), 'sha256': digest}
-        print('Revalidating training inputs after log close...', flush=True)
-        drift = []
-        mismatches = p.revalidate(fields, required=REQUIRED_INPUTS, source_drift=drift)
-        if mismatches:
-            raise ValueError('mutable input mismatch: ' + ', '.join(mismatches))
-        completion = dict(train_manifest_sha256=digest, source_drift_after_spawn=drift,
-            log={'path': str(log_path.resolve()), 'sha256': p.sha256_file(log_path)},
-            outputs=outputs, metrics=metrics, wall_hours=(time.monotonic() - started) / 3600)
-        reason = 'completion_failed'
-        p.write_completion(attempt / 'completion.json', completion)
-        account_hours(attempt, completion['wall_hours'], mode=mode)
-        if mode == 'full':
-            promote(attempt)
-        return completion
+        return complete_attempt(attempt, mode, log_path, fields, digest, metrics,
+                                lambda: (time.monotonic() - started) / 3600)
     except BaseException as error:
         reason = ('terminated_' + signal.Signals(error.signum).name if isinstance(error, LauncherTerminated)
                   else getattr(error, 'reason', reason))
