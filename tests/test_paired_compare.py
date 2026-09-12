@@ -1,4 +1,15 @@
 """Pure-statistics regression tests for the exp_04 confirmatory producer."""
+import hashlib
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+
+from tools import paired_compare as pc
+from tools import provenance as p
+from tools.exp04_profiles import get_profile, json_value
+from tools.reference_manifest import manifest_hash
+
 import numpy as np
 import pytest
 
@@ -144,19 +155,6 @@ def test_invalid_decision_bounds_and_convergence_tolerances_fail_closed():
             stats.convergence(lambda seed: (0, 1), tol=tolerance)
 
 
-"""Synthetic execution-bound runs for exp_04 producer admission tests."""
-import hashlib
-import json
-from pathlib import Path
-from types import SimpleNamespace
-
-import numpy as np
-import pytest
-
-from tools import paired_compare as pc
-from tools import provenance as p
-from tools.exp04_profiles import get_profile, json_value
-from tools.reference_manifest import manifest_hash
 
 
 def _canonical_digest(value):
@@ -533,3 +531,21 @@ def test_named_seed_means_and_descriptive_cells(admission_fixture):
         assert cell['seed_means']['aug']['0']['sd'] == pytest.approx(np.std(np.arange(5) / 100, ddof=1))
         if cell['metric'] == 'T60':
             assert not cell['decision_driving'] and 'decision_bound' not in cell
+
+
+@pytest.mark.parametrize('role', ['evaluator', 'writer', 'launcher', 'producer'])
+def test_run_claim_cannot_replace_an_approved_closure_pin(admission_fixture, role):
+    fixture = admission_fixture()
+    fixture.profile['approved_closures'][role] = 'f' * 64
+    with pytest.raises(ValueError, match=role + ' approved closure'):
+        pc.main(fixture.argv)
+    _assert_no_outputs(fixture)
+
+
+def test_existing_summary_never_leaves_a_partial_json(admission_fixture):
+    fixture = admission_fixture()
+    fixture.summary.write_text('preserve me')
+    with pytest.raises(FileExistsError):
+        pc.main(fixture.argv)
+    assert fixture.summary.read_text() == 'preserve me'
+    assert not fixture.output.exists() and not fixture.sidecar.exists()

@@ -1,4 +1,17 @@
-"""Profile-driven paired inference for exp_04; pure statistical functions."""
+"""Pure statistics and fail-closed, profile-driven paired inference for exp_04."""
+import argparse
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import subprocess
+
+from tools import provenance
+from tools.exp04_profiles import get_profile, json_value
+from tools.reference_manifest import load_manifest, manifest_hash
+from tools.summarize_yaw import load_run, rooms_from_paths, signed_degrees, _check_metrics_reconciliation
+
 from decimal import Decimal, ROUND_CEILING
 import numbers
 
@@ -212,19 +225,6 @@ def tost_verdict(lo, hi, margin=0.02):
     return "equivalent" if equivalent else "equivalence not established"
 
 
-# Admission imports are at module scope so source_closure sees every dependency.
-import argparse
-import hashlib
-import json
-import math
-import os
-from pathlib import Path
-import subprocess
-
-from tools import provenance as provenance
-from tools.exp04_profiles import get_profile, json_value
-from tools.reference_manifest import load_manifest, manifest_hash
-from tools.summarize_yaw import load_run, rooms_from_paths, signed_degrees, _check_metrics_reconciliation
 
 REPO = Path(__file__).resolve().parents[1]
 _UNBOUND = object()
