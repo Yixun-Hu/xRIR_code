@@ -370,6 +370,7 @@ def test_full_promotion_failure_accounts_elapsed_hours_once(tmp_path, monkeypatc
     with pytest.raises(OSError, match='promotion failed'):
         launch.execute_attempt(attempt, 'full', '1', log, lambda: fields, runner=runner)
     aborted, = tmp_path.glob('attempt_t_ABORTED_*')
+    assert aborted.name.endswith('_ABORTED_output_invalid')
     assert not attempt.exists() and not (aborted / 'completion.json').exists()
     record = launch.hours_record(tmp_path)
     assert record['total_hours'] == 1.0
@@ -470,9 +471,14 @@ def test_termination_handlers_restore_previous_dispositions():
     assert [launch.signal.getsignal(s) for s in signals] == before
 
 
-def test_budget_counts_only_full_including_legacy_rows(tmp_path):
+def test_budget_refuses_legacy_rows_and_counts_explicit_modes(tmp_path):
     rows = [{'attempt': '_smoke_old', 'hours': 20}, {'attempt': 'attempt_t_probe_on', 'hours': 20},
-            {'attempt': 'attempt_old', 'hours': 10}]
+            {'attempt': 'attempt_full_probe_label', 'hours': 10}]
+    launch.p.write_completion(tmp_path / 'cumulative_hours.json', dict(total_hours=50, attempts=rows))
+    with pytest.raises(ValueError, match='mode'):
+        launch.hours_record(tmp_path)
+    for row, mode in zip(rows, ('smoke', 'probe', 'full')):
+        row['mode'] = mode
     launch.p.write_completion(tmp_path / 'cumulative_hours.json', dict(total_hours=50, attempts=rows))
     for mode in ('probe', 'smoke', 'full'):
         launch.account_hours(tmp_path / mode, 1, mode=mode)
@@ -484,7 +490,7 @@ def test_budget_counts_only_full_including_legacy_rows(tmp_path):
 
 @pytest.mark.parametrize('mutation', [None, 'commit', 'before', 'after', 'ratio', 'slow', 'dirty', 'passed'])
 def test_probe_receipt_admission_and_binding(tmp_path, monkeypatch, mutation):
-    receipt = dict(reviewed_commit='a' * 40, before={'gpu': 'GPU-free'}, after={'gpu': 'GPU-free'},
+    receipt = dict(reviewed_commit='a' * 40, before={'gpu': '0'}, after={'gpu': '0'},
         yaw_off={'mean_iteration_seconds': 1}, yaw_on={'mean_iteration_seconds': 1.05},
         overhead_ratio=1.05, passed=True, PROBE_NOT_CLEAN=False)
     if mutation == 'commit':
@@ -504,11 +510,11 @@ def test_probe_receipt_admission_and_binding(tmp_path, monkeypatch, mutation):
     monkeypatch.setattr(launch.subprocess, 'check_output', lambda *a, **k: 'a' * 40 + '\n')
     monkeypatch.setattr(launch, 'build_fields', lambda *a: {'mutable_inputs': {}})
     def execute(attempt, mode, gpu, log, factory, **kwargs):
-        assert gpu == 'GPU-free'
+        assert gpu == '0'
         assert factory()['mutable_inputs']['probe_receipt'] == {'path': str(path), 'sha256': launch.p.sha256_file(path)}
         return {}
     monkeypatch.setattr(launch, 'execute_attempt', execute)
-    argv = ['full', '--gpu', 'GPU-free', '--reviewed-commit', 'HEAD', '--probe-json', str(path), '--log-dir', str(tmp_path)]
+    argv = ['full', '--gpu', '0', '--reviewed-commit', 'HEAD', '--probe-json', str(path), '--log-dir', str(tmp_path)]
     if mutation:
         with pytest.raises(ValueError, match='probe'):
             launch.main(argv)
@@ -611,3 +617,11 @@ def test_termination_respects_nohup():
             os.kill(os.getpid(), sig)
     finally:
         launch.signal.signal(sig, previous)
+
+
+@pytest.mark.parametrize('gpu', ['0,1', 'foo', '', '2'])
+def test_cli_refuses_invalid_gpu_before_attempt(tmp_path, monkeypatch, gpu):
+    monkeypatch.setattr(launch, 'ROOT', tmp_path / 'absent')
+    with pytest.raises(SystemExit):
+        launch.main(['smoke', '--gpu', gpu, '--reviewed-commit', 'HEAD', '--log-dir', str(tmp_path)])
+    assert not launch.ROOT.exists()

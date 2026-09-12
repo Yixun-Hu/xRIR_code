@@ -231,7 +231,8 @@ def test_confirmatory_manifest_flags(launch_args, samples, allow, confirmatory):
     launch_args.max_samples, launch_args.allow_dirty = samples, allow
     repo = Path(launcher.__file__).resolve().parents[1]
     fields = launcher.build_fields(launch_args, launcher.child_command(launch_args, repo), repo)
-    assert fields['confirmatory'] is confirmatory and fields['allow_dirty_used'] is allow
+    assert fields['confirmatory'] is confirmatory and fields['allow_dirty_used'] is False
+    assert 'allow_dirty' not in fields
 
 
 @pytest.mark.parametrize('name', ['unknown', 'control-args', ''])
@@ -301,3 +302,16 @@ def test_manifest_builder_refuses_unbound_input(launch_args, monkeypatch, failur
     repo = Path(launcher.__file__).resolve().parents[1]
     with pytest.raises(ValueError):
         launcher.build_fields(args, launcher.child_command(args, repo), repo)
+
+
+def test_completion_hash_failure_is_output_invalid(attempt, monkeypatch):
+    args, _, fields = attempt
+    sha256 = p.sha256_file
+    def fail(path):
+        if Path(path).suffix == '.log':
+            raise OSError('log hash failed')
+        return sha256(path)
+    monkeypatch.setattr(p, 'sha256_file', fail)
+    with pytest.raises(OSError, match='log hash failed'):
+        launcher.execute_run(args, child_code(args.out_dir), lambda: fields, args.data_root)
+    assert Path(args.out_dir + '_ABORTED_output_invalid').is_dir()

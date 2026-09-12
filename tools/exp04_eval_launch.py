@@ -96,6 +96,7 @@ def execute_run(args, command, fields_factory, repo):
         mismatches = p.revalidate(declared, required=REQUIRED_INPUTS)
         if mismatches:
             raise ValueError("mutable input mismatch: " + ", ".join(mismatches))
+        reason = "output_invalid"
         completion = {"schema_version": 1, "eval_manifest_sha256": digest,
                       "confirmatory": fields['confirmatory'], "allow_dirty_used": fields['allow_dirty_used'],
                       "directory_listing": listing, "child_exit_status": status,
@@ -103,7 +104,6 @@ def execute_run(args, command, fields_factory, repo):
                       "ended_at": datetime.datetime.now().astimezone().isoformat(),
                       "log": {"path": str(log_path), "sha256": p.sha256_file(log_path)},
                       "outputs": {name: p.sha256_file(run / name) for name in OUTPUTS}}
-        reason = "completion_failed"
         p.write_completion(run / "completion.json", completion)
         return completion
     except BaseException:
@@ -203,8 +203,8 @@ def build_fields(args, command, repo):
         num_shot=args.num_shot, batch_canonical=True, data_root=args.data_root,
         data_identity=p.data_identity(args.manifest, args.data_root),
         evaluator_closure=closures.pop("evaluator"), source_closures=closures,
-        environment=_capture_environment(repo, args.data_root, args.gpu), git_state=state, allow_dirty=args.allow_dirty,
-        allow_dirty_used=bool(args.allow_dirty),
+        environment=_capture_environment(repo, args.data_root, args.gpu), git_state=state,
+        allow_dirty_used=bool(args.allow_dirty and state['dirty_outside_worklog']),
         confirmatory=args.max_samples == 0 and n_samples == count and not args.allow_dirty,
         run_label=args.run_label, command=command, split="unseen", split_count=count,
         n_samples=n_samples,

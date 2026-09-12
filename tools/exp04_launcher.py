@@ -123,8 +123,8 @@ def hours_record(root):
     if not math.isfinite(hours) or hours < 0 or hours != sum(r['hours'] for r in result['attempts']):
         raise ValueError('invalid cumulative hours')
     for row in result['attempts']:
-        name = row['attempt']
-        row.setdefault('mode', 'probe' if '_probe_' in name else 'smoke' if name.startswith('_smoke_') else 'full')
+        if 'mode' not in row:
+            raise ValueError('legacy cumulative hours row missing mode; regenerate from attempt records')
         if row['mode'] not in ('full', 'smoke', 'probe') or not math.isfinite(row['hours']) or row['hours'] < 0:
             raise ValueError('invalid cumulative hours row')
     return result
@@ -162,6 +162,8 @@ def abort_attempt(attempt, reason, hours, mode='full'):
 
 
 def promote(attempt):
+    if '_ABORTED_' in attempt.name:
+        raise ValueError('promotion requires a recovered attempt name')
     if not (attempt / 'completion.json').is_file():
         raise ValueError('promotion requires completion')
     temporary = attempt.parent / ('.final_' + uuid.uuid4().hex)
@@ -505,11 +507,43 @@ def complete_attempt(attempt, mode, log_path, fields, digest, metrics, hours):
         outputs=outputs, directory_listing=outputs if mode == 'full' else directory_listing(attempt),
         resource_before=fields.get('resource_before'),
         metrics=metrics, wall_hours=hours() if callable(hours) else hours)
-    p.write_completion(attempt / 'completion.json', completion)
-    account_hours(attempt, completion['wall_hours'], mode=mode)
-    if mode == 'full':
-        promote(attempt)
-    return completion
+    preserved = attempt
+    recovered = Path(fields.get('attempt_path', str(attempt)))
+    if recovered != attempt:
+        if recovered.parent != attempt.parent or not attempt.name.startswith(recovered.name + '_ABORTED_'):
+            raise ValueError('invalid recovered attempt path')
+        if os.path.lexists(recovered):
+            raise FileExistsError('recovery destination already exists: ' + str(recovered))
+        completion['recovered_from'] = dict(attempt=attempt.name,
+            abort=json.loads((attempt / 'abort.json').read_text()),
+            recovered_at=datetime.datetime.now().astimezone().isoformat())
+    final = attempt.parent / 'final'
+    previous_final = os.readlink(final) if final.is_symlink() else None
+    mask = signal.pthread_sigmask(signal.SIG_BLOCK,
+        {signal.SIGTERM, signal.SIGHUP, signal.SIGINT} if recovered != attempt else set())
+    try:
+        if recovered != attempt:
+            attempt.rename(recovered)
+            attempt = recovered
+        p.write_completion(attempt / 'completion.json', completion)
+        account_hours(attempt, completion['wall_hours'], previous_name=preserved.name, mode=mode)
+        if mode == 'full':
+            promote(attempt)
+        return completion
+    except BaseException:
+        if attempt != preserved:
+            if final.is_symlink() and os.readlink(final) == attempt.name:
+                if previous_final is None:
+                    final.unlink()
+                else:
+                    temporary = final.with_name('.final_' + uuid.uuid4().hex)
+                    temporary.symlink_to(previous_final)
+                    os.replace(temporary, final)
+            attempt.rename(preserved)
+            account_hours(preserved, completion['wall_hours'], previous_name=attempt.name, mode=mode)
+        raise
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
 
 
 def recovery_evidence(fields, execution, attempt, launcher_log):
@@ -643,7 +677,7 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
         if status:
             raise LauncherFailure('child_exit_' + str(status), 'child exited nonzero: ' + str(status))
         metrics = guard.finish()
-        reason = 'invalid_outputs'
+        reason = 'output_invalid'
         return complete_attempt(attempt, mode, log_path, fields, digest, metrics,
                                 lambda: (time.monotonic() - started) / 3600)
     except BaseException as error:
@@ -724,7 +758,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mode', choices=('smoke', 'probe', 'full', 'finalize', 'refuse-test'))
     parser.add_argument('attempt_dir', nargs='?')
-    parser.add_argument('--gpu', default='1')
+    parser.add_argument('--gpu', default='1', choices=('0', '1'))
     parser.add_argument('--reviewed-commit')
     parser.add_argument('--log-dir')
     parser.add_argument('--launcher-log', help='finalize: external nohup setsid launcher stdout log')
@@ -748,7 +782,7 @@ def main(argv=None):
         return result
     if not args.reviewed_commit or not args.log_dir:
         parser.error('--reviewed-commit and --log-dir are required')
-    if not re.fullmatch(r'[A-Za-z0-9_-]+', args.timestamp):
+    if not re.fullmatch(r'[A-Za-z0-9_-]+', args.timestamp) or '_ABORTED_' in args.timestamp:
         parser.error('timestamp must be a safe filename component')
     if Path(sys.executable).resolve() != Path(PYTHON).resolve():
         parser.error('launcher requires pinned interpreter ' + PYTHON)

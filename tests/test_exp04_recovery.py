@@ -113,7 +113,14 @@ def test_finalize_preserved_attempt(preserved_attempt, mutation):
             launch.main(['finalize', str(attempt), '--launcher-log', str(attempt.parent / 'launcher.log')])
         assert not (attempt / 'completion.json').exists() and not (attempt.parent / 'final').exists()
     else:
+        previous_name = attempt.name
         result = launch.main(['finalize', str(attempt), '--launcher-log', str(attempt.parent / 'launcher.log')])
+        if mutation == 'renamed':
+            attempt = attempt.with_name('attempt_t')
+            recovery = result['recovered_from']
+            assert recovery['attempt'] == previous_name and recovery['recovered_at']
+            assert recovery['abort'] == json.loads((attempt / 'abort.json').read_text())
+            assert launch.hours_record(attempt.parent)['attempts'][0]['attempt'] == 'attempt_t'
         hours = 1.5 if mutation == 'renamed' else 1
         assert result['wall_hours'] == hours and len(result['outputs']) >= 14
         assert result['directory_listing'] == {path.name: launch.p.sha256_file(path)
@@ -181,3 +188,30 @@ def test_recovery_requires_external_log_and_pinned_python(preserved_attempt, mon
     monkeypatch.setattr(launch.sys, 'executable', '/usr/bin/python')
     with pytest.raises(ValueError, match='pinned interpreter'):
         launch.finalize_attempt(attempt, attempt.parent / 'launcher.log')
+
+
+@pytest.mark.parametrize('failure', ['occupied', 'promotion', 'after_promotion', 'replace_final'])
+def test_recovery_rename_failure_preserves_abort(preserved_attempt, monkeypatch, failure):
+    original, log = preserved_attempt
+    launch.p.write_completion(original / 'abort.json', {'log': {'aborted': str(log)}})
+    attempt = launch.abort_attempt(original, 'interrupted', 1.5)
+    if failure == 'occupied':
+        original.mkdir()
+        (original / 'foreign').touch()
+    else:
+        promote = launch.promote
+        if failure == 'replace_final':
+            (attempt.parent / 'final').symlink_to('previous')
+        def fail(path):
+            if failure in ('after_promotion', 'replace_final'):
+                promote(path)
+            raise OSError('promotion failed')
+        monkeypatch.setattr(launch, 'promote', fail)
+    with pytest.raises(OSError):
+        launch.finalize_attempt(attempt, attempt.parent / 'launcher.log')
+    assert attempt.exists() and not (attempt / 'completion.json').exists()
+    if failure == 'replace_final':
+        assert os.readlink(attempt.parent / 'final') == 'previous'
+    else:
+        assert not os.path.lexists(attempt.parent / 'final')
+    assert launch.hours_record(attempt.parent)['attempts'] == [dict(attempt=attempt.name, hours=1.5, mode='full')]
