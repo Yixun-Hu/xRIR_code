@@ -250,7 +250,7 @@ def test_alignment_audit_refuses_incomplete_cohorts(problem):
 
 
 @pytest.mark.parametrize("workers", [None, "0"])
-@pytest.mark.parametrize("existing", [False, True])
+@pytest.mark.parametrize("existing", [False, True, "race"])
 def test_alignment_cli_matches_training_rng_and_loader(monkeypatch, tmp_path, workers, existing):
     import json
     import platform
@@ -282,6 +282,8 @@ def test_alignment_cli_matches_training_rng_and_loader(monkeypatch, tmp_path, wo
         assert kwargs["persistent_workers"] == (workers is None)
         return original_loader(dataset, **dict(kwargs, num_workers=0, persistent_workers=False))
     def audit(model, batches, offsets, **kwargs):
+        if existing == "race":
+            out.write_bytes(b"existing audit must survive")
         batches, offsets = list(batches), list(offsets)
         assert len(batches) == len(offsets) == len(expected) == 2
         for idx, (want, batch) in enumerate(zip(expected, batches)):
@@ -298,8 +300,10 @@ def test_alignment_cli_matches_training_rng_and_loader(monkeypatch, tmp_path, wo
     out = tmp_path / "audit.json"
     argv = ["--audit", "--n-batches", "2", "--seed", "7", "--out", str(out)] + ([] if workers is None else ["--num-workers", workers])
     if existing:
-        out.write_bytes(b"existing audit must survive")
-        with pytest.raises(FileExistsError):
+        if existing is True:
+            out.write_bytes(b"existing audit must survive")
+            monkeypatch.setattr(trainer, "seed_everything", lambda *a: pytest.fail("work before output refusal"))
+        with pytest.raises(SystemExit if existing is True else FileExistsError):
             yaw._audit_main(argv)
         assert out.read_bytes() == b"existing audit must survive"
         return
@@ -310,8 +314,10 @@ def test_alignment_cli_matches_training_rng_and_loader(monkeypatch, tmp_path, wo
     assert result["pairs"] == 2 * 32 * 8
     assert result["args"] == {"seed": 7, "n_batches": 2, "batch_size": 32,
         "num_workers": 12 if workers is None else 0, "W": 512, "data_root": str(Path(BASE_DATA_PATH).resolve()),
-        "PYTHONHASHSEED": "17", "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()}
+        "PYTHONHASHSEED": "17", "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"],
+            cwd=Path(yaw.__file__).resolve().parents[1], text=True).strip()}
     assert result["env"] == {"python": platform.python_version(), "torch": torch.__version__,
                              "cuda": torch.version.cuda, "hostname": socket.gethostname()}
+    out.unlink()
     with pytest.raises(SystemExit):
         yaw._audit_main(argv + ["--n-batches", "3"])

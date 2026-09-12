@@ -220,6 +220,8 @@ def _audit_main(argv=None):
     parser.add_argument("--num-workers", type=int, default=12, help="approved training run's worker count")
     parser.add_argument("--out", default="ckpt/yaw_aug/alignment_audit.json")
     args = parser.parse_args(argv)
+    if Path(args.out).exists():
+        parser.error("refusing to overwrite " + args.out)
     if args.n_batches <= 0 or args.batch_size <= 0 or args.num_workers < 0:
         parser.error("batch counts/sizes must be positive and num-workers nonnegative")
     trainer.seed_everything(args.seed)

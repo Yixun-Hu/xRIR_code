@@ -97,7 +97,7 @@ class _Tiny(torch.nn.Module):
 def run_main(monkeypatch, tmp_path, batch):
     monkeypatch.setattr(trainer, "build_xrir", lambda *a, **k: _Tiny())
     samples = [tuple(component[i] for component in batch) for i in range(2)]
-    monkeypatch.setattr(trainer, "xRIR_Dataset", lambda **k: samples)
+    monkeypatch.setattr(trainer, "xRIR_Dataset", lambda **k: samples if k["split"] == "train" else samples * 2)
     def run(*extra):
         monkeypatch.setattr(sys, "argv", ["trainer", "--backbone", "simple", "--save-dir", str(tmp_path / "run"),
             "--epochs", "1", "--num-workers", "0", "--num-shot", "2", "--batch-size", "2", "--save-every", "0",
