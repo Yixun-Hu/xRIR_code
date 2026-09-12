@@ -634,3 +634,41 @@ def test_cli_runtime_error_is_concise(monkeypatch):
         '--runs-a', '/tmp/a', '--runs-b', '/tmp/b', '--json', '/tmp/x', '--summary', '/tmp/y'])
     with pytest.raises(SystemExit, match='fixture closure failure'):
         runpy.run_module('tools.paired_compare', run_name='__main__')
+
+
+@pytest.mark.parametrize('mutate', (False, True))
+def test_data_hashed_once_and_mutation_still_refused(admission_fixture, monkeypatch, mutate):
+    fixture = admission_fixture()
+    data = fixture.root / 'data/query.dat'
+    original_hash, original_analyze = p.sha256_file, pc.analyze
+    hashes = []
+    def counted(path):
+        if Path(path).resolve() == data:
+            hashes.append(path)
+        return original_hash(path)
+    def analyze(*args):
+        result = original_analyze(*args)
+        if mutate:
+            data.write_bytes(b'changed fixture dataset')
+        return result
+    monkeypatch.setattr(p, 'sha256_file', counted)
+    monkeypatch.setattr(pc, 'analyze', analyze)
+    if mutate:
+        with pytest.raises(ValueError, match='input changed'):
+            pc.main(fixture.argv)
+        _assert_no_outputs(fixture)
+    else:
+        pc.main(fixture.argv)
+    assert len(hashes) == 1
+
+
+def test_tampered_inventory_digest_refused(admission_fixture):
+    fixture = admission_fixture()
+    run = Path(fixture.paths[0][0])
+    manifest = _read(run / 'eval_manifest.json')
+    manifest['data_identity']['inventory_sha256'] = 'd' * 64
+    fixture.profile['dataset']['inventory_sha256'] = 'd' * 64
+    _rebind(run, manifest=manifest)
+    with pytest.raises(ValueError, match='inventory'):
+        pc.main(fixture.argv)
+    _assert_no_outputs(fixture)

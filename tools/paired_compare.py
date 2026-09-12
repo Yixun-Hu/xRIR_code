@@ -263,7 +263,7 @@ def _closure_digest(closure):
         for r in records], sort_keys=True).encode()).hexdigest()
 
 
-def admit_run(run_dir, arm, num_shot, profile, approved, check=None, inputs=None):
+def admit_run(run_dir, arm, num_shot, profile, approved, check=None, inputs=None, data_stats=None):
     """Admit one run. evaluator=exp04_eval; writer=exp04_eval_launch.
 
     training_launcher is recorded, not compared; its evidence is checkpoint-bound.
@@ -274,13 +274,14 @@ def admit_run(run_dir, arm, num_shot, profile, approved, check=None, inputs=None
             if not ok:
                 raise ValueError(name)
     inputs = {} if inputs is None else inputs
+    data_stats = {} if data_stats is None else data_stats
     directory = Path(run_dir).resolve()
     label = str(directory)
     def require(ok, name):
         check(ok, label + ': ' + name)
     def bind(path, expected=_UNBOUND):
         path = str(Path(path).resolve())
-        actual = provenance.sha256_file(path)
+        actual = inputs[path] if path in inputs else provenance.sha256_file(path)
         require(expected is _UNBOUND or actual == expected, 'digest ' + path)
         require(path not in inputs or inputs[path] == actual, 'input changed ' + path)
         inputs[path] = actual
@@ -310,9 +311,11 @@ def admit_run(run_dir, arm, num_shot, profile, approved, check=None, inputs=None
             {'control_args', 'train_manifest', 'train_completion', 'probe_receipt'}, 'mutable_inputs names')
     root = Path(fields['repo'])
     declarations = dict(fields, eval_manifest={'path': str(files['eval_manifest.json']), 'sha256': digest})
+    # The shared data cache below validates inventory bytes and stat identity once.
+    declarations.pop('data_identity')
     for failure in provenance.revalidate(declarations, required=(
             'repo', 'checkpoint', 'checkpoint_sha256', 'manifest_path', 'manifest_file_sha256',
-            'data_identity', 'evaluator_closure', 'source_closures', 'mutable_inputs', 'eval_manifest')):
+            'evaluator_closure', 'source_closures', 'mutable_inputs', 'eval_manifest')):
         require(False, 'revalidate ' + failure)
     closures = dict(fields['source_closures'], frozen_evaluator=fields['evaluator_closure'])
     for name, closure in closures.items():
@@ -345,8 +348,16 @@ def admit_run(run_dir, arm, num_shot, profile, approved, check=None, inputs=None
     require(identity['inventory_sha256'] == profile['dataset']['inventory_sha256'], 'dataset inventory')
     require(identity.get('manifest_hash') == fields['manifest_hash'] and
             identity.get('manifest_file_sha256') == fields['manifest_file_sha256'], 'dataset manifest identity')
+    require(provenance._inventory_digest(identity['inventory']) == identity['inventory_sha256'],
+            'data inventory digest')
+    if 'manifest_path' in identity:
+        bind(identity['manifest_path'], identity['manifest_file_sha256'])
     for record in identity['inventory']:
-        bind(Path(identity['data_root']) / record['path'], record['sha256'])
+        path = str((Path(identity['data_root']) / record['path']).resolve())
+        before = _file_stamp(path)
+        bind(path, record['sha256'])
+        require(before == _file_stamp(path) and data_stats.get(path, before) == before, 'data changed ' + path)
+        data_stats[path] = before
     for record in fields['mutable_inputs'].values():
         bind(root / record['path'], record['sha256'])
     run = load_run(str(directory))
@@ -403,7 +414,7 @@ def admit_runs(profile, groups, approved=None, exploratory=False, producer=None,
                   if a['role'] == 'aug' else a['sha256']) for a, _, _ in groups]
     required += [('dataset inventory', profile['dataset']['inventory_sha256']),
                  ('approval schema_version', approved['schema_version'])]
-    deviations, inputs, run_flags = [], {}, {}
+    deviations, inputs, run_flags, data_stats = [], {}, {}, {}
     def check(ok, name):
         if not ok:
             deviations.append(name)
@@ -419,7 +430,7 @@ def admit_runs(profile, groups, approved=None, exploratory=False, producer=None,
         runs = []
         for directory in directories:
             try:
-                runs.append(admit_run(directory, arm, shot, profile, approved, check, inputs))
+                runs.append(admit_run(directory, arm, shot, profile, approved, check, inputs, data_stats))
                 run_flags[str(Path(directory).resolve())] = runs[-1]['admission_flags']
             except (KeyError, TypeError, ValueError, OSError, IndexError) as error:
                 check(False, '{}: admission {}'.format(directory, error))
@@ -434,7 +445,8 @@ def admit_runs(profile, groups, approved=None, exploratory=False, producer=None,
     if deviations and not exploratory:
         raise ValueError('admission failed: ' + '; '.join(deviations))
     return {'groups': admitted_groups, 'approved_digests': dict(receipt, pins=json_value(approved)),
-            'deviations': deviations, 'inputs': inputs, 'producer': producer, 'run_flags': run_flags}
+            'deviations': deviations, 'inputs': inputs, 'producer': producer,
+            'run_flags': run_flags, 'data_stats': data_stats}
 
 
 def _seed_summary(values, mask):
@@ -567,6 +579,21 @@ def render_summary(result):
     return '\n'.join(lines) + '\n'
 
 
+def _file_stamp(path):
+    stat = Path(path).stat()
+    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+
+
+def recheck_inputs(admitted):
+    """Rehash mutable artifacts; data bytes are hashed once with stat checks until publish."""
+    for path, digest in admitted['inputs'].items():
+        expected = admitted['data_stats'].get(path)
+        unchanged = (_file_stamp(path) == expected if expected is not None
+                     else provenance.sha256_file(path) == digest)
+        if not unchanged:
+            raise ValueError('input changed during analysis: ' + path)
+
+
 def write_outputs(result, admitted, json_path, summary_path):
     """Exclusive creation; the last sidecar binds inputs and both completed outputs."""
     paths = [Path(json_path), Path(summary_path), Path(str(json_path) + '.provenance.json')]
@@ -580,10 +607,7 @@ def write_outputs(result, admitted, json_path, summary_path):
                'outputs': {str(paths[0].resolve()): hashlib.sha256(data).hexdigest(),
                            str(paths[1].resolve()): hashlib.sha256(text).hexdigest()}}
     receipt = (json.dumps(sidecar, sort_keys=True, indent=2, allow_nan=False) + '\n').encode()
-    # Recheck input bytes after bootstrapping, before creating any artefact.
-    for path, digest in admitted['inputs'].items():
-        if provenance.sha256_file(path) != digest:
-            raise ValueError('input changed during analysis: ' + path)
+    recheck_inputs(admitted)
     created = []
     try:
         for path, payload in zip(paths, (data, text, receipt)):
