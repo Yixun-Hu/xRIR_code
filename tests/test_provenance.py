@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -55,7 +56,7 @@ def test_atomic_write_failure_preserves_previous(tmp_path, monkeypatch):
 def test_closure_and_dirty_state(repo):
     root, git = repo
     head = git('rev-parse', 'HEAD')
-    assert p.git_state(root) == {'HEAD': head, 'dirty': False, 'diff_sha256': None}
+    assert p.git_state(root) == {'HEAD': head, 'dirty': False, 'dirty_outside_worklog': False, 'diff_sha256': None}
     files = p.source_closure('entry', root)
     assert files == ['entry.py', 'helper.py']
     records, digest = p.closure_record(files, head, root)
@@ -72,7 +73,30 @@ def test_closure_and_dirty_state(repo):
     git('commit', '-qam', 'changed')
     assert p.closure_record(files, head, root)[0][1]['commits_after_reviewed'] == [git('rev-parse', 'HEAD')]
     (root / 'untracked').touch()
-    assert p.git_state(root)['dirty']
+    assert p.git_state(root)['dirty'] and p.git_state(root)['dirty_outside_worklog']
+
+
+def test_worklog_only_and_rename_status(repo):
+    root, git = repo
+    (root / 'worklog').mkdir()
+    (root / 'worklog/note with\nnewline').write_text('notes')
+    assert p.git_state(root)['dirty'] and not p.git_state(root)['dirty_outside_worklog']
+    git('mv', 'helper.py', 'worklog/helper.py')
+    assert p.git_state(root)['dirty_outside_worklog']
+
+
+def test_completion_respects_umask(tmp_path):
+    previous = os.umask(0o027)
+    try:
+        p.write_completion(tmp_path / 'done.json', {})
+    finally:
+        os.umask(previous)
+    assert (tmp_path / 'done.json').stat().st_mode & 0o777 == 0o640
+
+
+@pytest.mark.parametrize('key', ['checkpoint_sha256', 'data_identity', 'source_closures'])
+def test_required_inputs_cannot_be_omitted(key):
+    assert p.revalidate({}, required=(key,)) == ['missing.' + key]
 
 
 @pytest.mark.parametrize('symlink', [False, True])
@@ -200,6 +224,7 @@ def test_training_inventory_cache_is_checked(data, tmp_path, monkeypatch, change
     assert result['inventory_files'] == len(listed) == 2
     assert all(r['path'].startswith('single_channel_ir/') for r in result['inventory'])
     assert cache.is_file()
+    assert cache.stat().st_mode & 0o777 == (root / names[0]).stat().st_mode & 0o777
     def no_hash(*args):
         pytest.fail('valid cache should avoid content rereads')
     with monkeypatch.context() as patch:

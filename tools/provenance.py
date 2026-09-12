@@ -66,10 +66,28 @@ def closure_record(files, reviewed_commit, repo):
 
 def git_state(repo):
     head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=repo, text=True).strip()
-    dirty = bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=repo))
+    status = subprocess.check_output(['git', 'status', '--porcelain', '-z'], cwd=repo, text=True)
+    paths, entries = [], iter(status.split('\0'))
+    for entry in entries:
+        if entry:
+            paths.append(entry[3:])
+            if 'R' in entry[:2] or 'C' in entry[:2]:
+                paths.append(next(entries))  # Include the source path of a rename/copy.
+    dirty = bool(status)
     diff = subprocess.check_output(['git', 'diff', 'HEAD'], cwd=repo) if dirty else None
     return {'HEAD': head, 'dirty': dirty,
+            'dirty_outside_worklog': any(not path.startswith('worklog/') for path in paths),
             'diff_sha256': hashlib.sha256(diff).hexdigest() if dirty else None}
+
+
+def checked_git_state(repo, confirmatory, allow_dirty=False):
+    """Gate confirmatory launches, allowing notebook-only edits without an override."""
+    state = git_state(repo)
+    if state['dirty_outside_worklog']:
+        if confirmatory and not allow_dirty:
+            raise ValueError('dirty_outside_worklog requires --allow-dirty')
+        print('WARNING: dirty_outside_worklog', flush=True)
+    return state
 
 
 def environment():
@@ -103,6 +121,9 @@ def write_completion(path, fields):
     fd, temporary = tempfile.mkstemp(prefix='.' + Path(path).name, dir=Path(path).parent)
     try:
         with os.fdopen(fd, 'wb') as stream:
+            mask = os.umask(0)
+            os.umask(mask)
+            os.fchmod(stream.fileno(), 0o666 & ~mask)
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
@@ -131,6 +152,7 @@ def _inventory(files, data_root, workers=8):
                 'mtime_ns': after.st_mtime_ns}
     with ThreadPoolExecutor(max_workers=workers) as pool:
         records = list(pool.map(record, sorted(set(files))))
+    # Missing files raise above; retain the zero field for exp_03 schema compatibility.
     return {'data_root': str(root), 'inventory': records, 'inventory_files': len(records),
         'inventory_missing': 0, 'inventory_bytes': sum(r['size'] for r in records),
         'inventory_sha256': _inventory_digest(records)}
@@ -186,13 +208,13 @@ def train_data_identity(data_root, cache_path=None, workers=8):
     return record
 
 
-def revalidate(manifest):
-    """Rehash declared inputs completely; missing files are mismatches too.
+def revalidate(manifest, required=()):
+    """Rehash declared inputs; missing required keys and missing files are mismatches.
 
     A launcher adds eval_manifest={path, sha256} in memory after exclusive creation,
     avoiding a self-referential digest in the serialized manifest itself.
     """
-    mismatches = []
+    mismatches = ['missing.' + key for key in required if key not in manifest]
     repo = Path(manifest.get('repo', '.'))
     def check(label, path, expected):
         try:

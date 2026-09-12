@@ -13,17 +13,19 @@ from tools import exp04_eval as evaluator
 from eval_unseen import griffin_lim
 
 OUTPUTS = ("per_sample_yaw.json", "metrics_yaw.json")
+REQUIRED_INPUTS = ('repo', 'checkpoint', 'checkpoint_sha256', 'manifest_path', 'manifest_file_sha256',
+                   'data_identity', 'evaluator_closure', 'source_closures', 'mutable_inputs', 'eval_manifest')
 
 
-def child_environment(repo, data_root):
-    env = dict(os.environ, XRIR_DATA_PATH=str(data_root), CUDA_VISIBLE_DEVICES="1")
-    env["PYTHONPATH"] = str(repo) + os.pathsep + env.get("PYTHONPATH", "")
+def child_environment(repo, data_root, gpu='1'):
+    env = dict(os.environ, XRIR_DATA_PATH=str(data_root), CUDA_VISIBLE_DEVICES=str(gpu))
+    env["PYTHONPATH"] = os.pathsep.join([str(repo)] + [p for p in env.get('PYTHONPATH', '').split(os.pathsep) if p])
     return env
 
 
-def _run_child(command, log_path, repo, data_root):
+def _run_child(command, log_path, repo, data_root, gpu='1'):
     """Run a literal argv through tee; both processes finish before the log closes."""
-    env = child_environment(repo, data_root)
+    env = child_environment(repo, data_root, gpu)
     child = sink = None
     with log_path.open("xb") as log:
         try:
@@ -65,7 +67,7 @@ def execute_run(args, command, fields_factory, repo):
         manifest_path = run / "eval_manifest.json"
         digest = p.write_manifest(manifest_path, fields)
         reason = "child_failed"
-        status = _run_child(command, log_path, repo, args.data_root)
+        status = _run_child(command, log_path, repo, args.data_root, args.gpu)
         if status:
             raise RuntimeError(reason)
         reason = "output_invalid"
@@ -85,7 +87,7 @@ def execute_run(args, command, fields_factory, repo):
                 raise ValueError("output query count mismatch")
         reason = "input_changed"
         declared = dict(fields, eval_manifest={"path": str(manifest_path), "sha256": digest})
-        mismatches = p.revalidate(declared)
+        mismatches = p.revalidate(declared, required=REQUIRED_INPUTS)
         if mismatches:
             raise ValueError("mutable input mismatch: " + ", ".join(mismatches))
         completion = {"schema_version": 1, "eval_manifest_sha256": digest,
@@ -118,6 +120,9 @@ def parse_args(argv=None):
     for name in ("run-label", "reviewed-commit", "data-root", "log-dir"):
         parser.add_argument("--" + name, required=True)
     parser.add_argument("--num-shot", type=int, required=True)
+    parser.add_argument('--gpu', default='1')
+    parser.add_argument('--allow-dirty', action='store_true')
+    parser.add_argument('--bind-input', action='append', default=[], metavar='NAME=PATH')
     args = parser.parse_args(argv)
     if args.eval_manifest is not None:
         parser.error("eval-manifest is created by the launcher")
@@ -143,15 +148,17 @@ def child_command(args, repo):
     return command
 
 
-def _capture_environment(repo, data_root):
+def _capture_environment(repo, data_root, gpu='1'):
     code = "from tools.provenance import environment; import json; print(json.dumps(environment()))"
     output = subprocess.check_output([sys.executable, "-c", code], cwd=repo, text=True,
-                                     env=child_environment(repo, data_root))
+                                     env=child_environment(repo, data_root, gpu))
     return json.loads(output.splitlines()[-1])
 
 
 def build_fields(args, command, repo):
     """Bind protocol, reviewed code and full referenced data before spawning."""
+    # Bounded evaluations are smokes; full-split evaluations are confirmatory.
+    state = p.checked_git_state(repo, args.max_samples == 0, args.allow_dirty)
     commit = subprocess.check_output(['git', 'rev-parse', '--verify', args.reviewed_commit + '^{commit}'],
                                      cwd=repo, text=True).strip()
     reference = evaluator.yaw.load_checked_manifest(args.manifest, args.manifest_hash)
@@ -180,13 +187,20 @@ def build_fields(args, command, repo):
         num_shot=args.num_shot, batch_canonical=True, data_root=args.data_root,
         data_identity=p.data_identity(args.manifest, args.data_root),
         evaluator_closure=closures.pop("evaluator"), source_closures=closures,
-        environment=_capture_environment(repo, args.data_root), git_state=p.git_state(repo),
+        environment=_capture_environment(repo, args.data_root, args.gpu), git_state=state, allow_dirty=args.allow_dirty,
         run_label=args.run_label, command=command, split="unseen", split_count=count,
         n_samples=min(count, args.max_samples) if args.max_samples else count,
         no_tta=True,
         stft_gl={name: parameter.default for name, parameter in
                  inspect.signature(griffin_lim).parameters.items() if name != "spec"})
-    fields["env"] = {key: child_environment(repo, args.data_root).get(key) for key in
+    fields['mutable_inputs'] = {}
+    for binding in args.bind_input:
+        name, separator, path = binding.partition('=')
+        if not name or not separator or not path or name in fields['mutable_inputs']:
+            raise ValueError('invalid or duplicate --bind-input: ' + binding)
+        path = str(Path(path).resolve())
+        fields['mutable_inputs'][name] = {'path': path, 'sha256': p.sha256_file(path)}
+    fields["env"] = {key: child_environment(repo, args.data_root, args.gpu).get(key) for key in
                      ("CUDA_VISIBLE_DEVICES", "XRIR_DATA_PATH", "PYTHONPATH", "PYTHONHASHSEED")}
     return fields
 

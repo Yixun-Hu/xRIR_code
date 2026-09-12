@@ -186,7 +186,8 @@ def compare_control(runtime, control, control_env):
     return differences
 
 
-def build_fields(argv, gpu, reviewed_commit, mode):
+def build_fields(argv, gpu, reviewed_commit, mode, allow_dirty=False):
+    state = p.checked_git_state(REPO, mode == 'full', allow_dirty)
     files = p.source_closure('train_xRIR_backbone', REPO)
     if not TRAIN_MINIMUM <= set(files):
         raise ValueError('training closure missing required files')
@@ -200,14 +201,14 @@ def build_fields(argv, gpu, reviewed_commit, mode):
             raise ValueError(role + ' closure differs from reviewed commit')
         closures[role] = {'files': records, 'sha256': digest}
     print('Hashing training data identity...', flush=True)
-    data = p.train_data_identity(DATA_ROOT)
+    data = p.train_data_identity(DATA_ROOT, cache_path=REPO / 'ckpt/yaw_aug/train_inventory.json')
     provisional = effective_args(argv, gpu, 1)
     bpe = math.ceil(data['inventory_files'] / provisional['batch_size'])
     effective = effective_args(argv, gpu, bpe)
     check_runtime(effective, effective, mode)
     fields = dict(repo=str(REPO), reviewed_commit=reviewed_commit, mode=mode,
         source_closures=closures, train_data_identity=data, effective_args=effective,
-        command=argv, environment=p.environment(), git_state=p.git_state(REPO),
+        command=argv, environment=p.environment(), git_state=state, allow_dirty=allow_dirty,
         env={key: child_environment(gpu)[key] for key in ENV_KEYS})
     if mode == 'full':
         control_path = REPO / 'ckpt/xRIR_simple_8_shot/args.json'
@@ -452,6 +453,7 @@ def main(argv=None):
     parser.add_argument('--log-dir')
     parser.add_argument('--timestamp', default=datetime.datetime.now().strftime('%Y%m%dT%H%M%S%f'))
     parser.add_argument('--allow-cotenant', action='store_true')
+    parser.add_argument('--allow-dirty', action='store_true')
     parser.add_argument('--projection-hours', type=float, default=30.0)
     parser.add_argument('--probe-json', help='full requires a clean passing probe receipt')
     args = parser.parse_args(argv)
@@ -488,7 +490,7 @@ def main(argv=None):
             check_golden(cmd, mode, relative)
             result = execute_attempt(attempt, mode, args.gpu,
                 log_dir / ('yaw_aug_xrir_' + stamp + '_train_' + mode + '.log'),
-                lambda: build_fields(cmd, args.gpu, commit, mode),
+                lambda: build_fields(cmd, args.gpu, commit, mode, args.allow_dirty),
                 allow_cotenant=args.allow_cotenant, projection=args.projection_hours)
         else:
             output = ROOT / ('_probe_' + stamp + '.json')
@@ -501,7 +503,7 @@ def main(argv=None):
                 relative = os.path.relpath(attempt, REPO)
                 cmd = [PYTHON, '-m', 'tools.exp04_probe', '--yaw-aug', str(yaw), '--save-dir', relative]
                 def fields_factory():
-                    fields = build_fields([PYTHON] + trainer_command(yaw, relative), args.gpu, commit, 'probe')
+                    fields = build_fields([PYTHON] + trainer_command(yaw, relative), args.gpu, commit, 'probe', args.allow_dirty)
                     fields['trainer_command'], fields['command'] = fields['command'], cmd
                     return fields
                 completed = execute_attempt(attempt, 'probe', args.gpu,

@@ -16,11 +16,12 @@ from tools import provenance as p
 @pytest.fixture
 def attempt(tmp_path):
     args = SimpleNamespace(out_dir=str(tmp_path / "run"), log_dir=str(tmp_path / "logs"),
-                           run_label="tiny", data_root=str(tmp_path))
+                           run_label="tiny", data_root=str(tmp_path), gpu='1')
     paths = {key: tmp_path / key for key in ("checkpoint", "reference", "source", "data")}
     for path in paths.values():
         path.write_text("original")
     fields = {"repo": str(tmp_path), "conditions": "P", "n_samples": 1,
+              "source_closures": {}, "mutable_inputs": {},
               "checkpoint": str(paths["checkpoint"]),
               "checkpoint_sha256": p.sha256_file(paths["checkpoint"]),
               "manifest_path": str(paths["reference"]),
@@ -132,8 +133,8 @@ def launch_args(attempt, monkeypatch):
         [{"path": path, "reviewed_blob_sha256": "sha", "working_tree_sha256": "sha",
           "commits_after_reviewed": []} for path in files], "closure-sha"))
     monkeypatch.setattr(p, "data_identity", lambda path, root: {"inventory_sha256": "data-sha"})
-    monkeypatch.setattr(p, "git_state", lambda repo: {"HEAD": "head", "dirty": False})
-    monkeypatch.setattr(launcher, "_capture_environment", lambda repo, root: {"python": "3.8"})
+    monkeypatch.setattr(p, "git_state", lambda repo: {"dirty_outside_worklog": False})
+    monkeypatch.setattr(launcher, "_capture_environment", lambda *a: {"python": "3.8"})
     return args
 
 
@@ -158,9 +159,62 @@ def test_manifest_builder_binds_exact_child_cli_and_all_closures(launch_args):
     assert fields["evaluator_closure"]["files"][0]["path"] == "eval_yaw_rotation.py"
     assert child.eval_manifest == str(Path(args.out_dir) / "eval_manifest.json")
     assert "--reviewed-commit" not in command
+    assert args.gpu == '1' and args.bind_input == [] and args.allow_dirty is False
     for key, value in vars(child).items():
         if key not in ("eval_manifest", "out_dir"):
             assert fields["manifest_path" if key == "manifest" else key] == value
+
+
+@pytest.mark.parametrize('changed', [None, 'control_args', 'train_manifest', 'train_completion'])
+def test_bound_training_inputs_are_revalidated(launch_args, attempt, changed):
+    args, paths, fields = attempt
+    fields['manifest_file_sha256'] = p.sha256_file(paths['reference'])
+    repo = Path(launcher.__file__).resolve().parents[1]
+    cli = launcher.child_command(launch_args, repo)[2:]
+    cli = cli[:cli.index('--eval-manifest')] + cli[cli.index('--eval-manifest') + 2:]
+    bindings = [item for name in ('control_args', 'train_manifest', 'train_completion')
+                for item in ('--bind-input', name + '=' + str(paths['data']))]
+    parsed = launcher.parse_args(cli + ['--log-dir', args.log_dir, '--data-root', args.data_root,
+        '--run-label', 'binding', '--reviewed-commit', 'HEAD', '--num-shot', '8', *bindings])
+    fields['mutable_inputs'] = launcher.build_fields(parsed, launcher.child_command(parsed, repo), repo)['mutable_inputs']
+    assert set(fields['mutable_inputs']) == {'control_args', 'train_manifest', 'train_completion'}
+    extra = "Path(%r).write_text('changed')" % fields['mutable_inputs'][changed]['path'] if changed else ''
+    if changed:
+        with pytest.raises(ValueError, match=changed):
+            launcher.execute_run(args, child_code(args.out_dir, extra), lambda: fields, args.data_root)
+    else:
+        launcher.execute_run(args, child_code(args.out_dir), lambda: fields, args.data_root)
+
+
+@pytest.mark.parametrize('key', ['checkpoint_sha256', 'data_identity', 'source_closures', 'evaluator_closure'])
+def test_finalization_requires_inputs(attempt, key):
+    args, _, fields = attempt
+    fields.pop(key)
+    with pytest.raises(ValueError, match=key):
+        launcher.execute_run(args, child_code(args.out_dir), lambda: fields, args.data_root)
+
+
+@pytest.mark.parametrize('samples,allow', [(0, False), (0, True), (16, False)])
+def test_dirty_evaluation_gate(launch_args, monkeypatch, capsys, samples, allow):
+    launch_args.max_samples, launch_args.allow_dirty = samples, allow
+    monkeypatch.setattr(p, 'git_state', lambda repo: {'dirty_outside_worklog': True})
+    repo = Path(launcher.__file__).resolve().parents[1]
+    if samples == 0 and not allow:
+        with pytest.raises(ValueError, match='dirty_outside_worklog'):
+            launcher.build_fields(launch_args, launcher.child_command(launch_args, repo), repo)
+    else:
+        assert launcher.build_fields(launch_args, launcher.child_command(launch_args, repo), repo)['allow_dirty'] == allow
+        assert 'WARNING' in capsys.readouterr().out
+
+
+def test_child_gpu_and_pythonpath(attempt, monkeypatch):
+    args, _, fields = attempt
+    args.gpu = '0'
+    monkeypatch.setenv('PYTHONPATH', ':old::path:')
+    assert launcher.child_environment('repo', 'data', '0')['PYTHONPATH'] == 'repo:old:path'
+    command = child_code(args.out_dir)
+    command[-1] = command[-1].replace("== '1'", "== '0'")
+    launcher.execute_run(args, command, lambda: fields, args.data_root)
 
 
 @pytest.mark.parametrize('ref', ['HEAD', 'main', '07f3bc9', 'no-such-commit'])

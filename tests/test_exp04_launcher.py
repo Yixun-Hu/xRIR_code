@@ -96,8 +96,11 @@ def fake_manifest_inputs(monkeypatch):
         dict(path=name, reviewed_blob_sha256='same', working_tree_sha256='same',
              commits_after_reviewed=[]) for name in files], 'closure'))
     monkeypatch.setattr(launch.p, 'environment', lambda: {'executable': launch.PYTHON})
-    monkeypatch.setattr(launch.p, 'git_state', lambda repo: {'HEAD': 'commit'})
-    monkeypatch.setattr(launch.p, 'train_data_identity', lambda root: {'inventory_files': 296334})
+    monkeypatch.setattr(launch.p, 'git_state', lambda repo: {'HEAD': 'commit', 'dirty_outside_worklog': False})
+    def inventory(root, cache_path):
+        assert cache_path == launch.REPO / 'ckpt/yaw_aug/train_inventory.json'
+        return {'inventory_files': 296334}
+    monkeypatch.setattr(launch.p, 'train_data_identity', inventory)
 
 
 def test_manifest_binds_import_closure_data_args_environment(fake_manifest_inputs):
@@ -108,6 +111,25 @@ def test_manifest_binds_import_closure_data_args_environment(fake_manifest_input
     assert fields['train_data_identity']['inventory_files'] == 296334
     assert fields['env']['CUDA_VISIBLE_DEVICES'] == '1'
     assert {r['path'] for r in fields['source_closures']['training']['files']} >= launch.TRAIN_MINIMUM
+
+
+@pytest.mark.parametrize('mode,allow', [('full', False), ('full', True), ('smoke', False), ('probe', False)])
+def test_dirty_training_gate(fake_manifest_inputs, tmp_path, monkeypatch, capsys, mode, allow):
+    state = {'dirty_outside_worklog': True}
+    monkeypatch.setattr(launch.p, 'git_state', lambda repo: state)
+    monkeypatch.setattr(launch, 'REPO', tmp_path)
+    control = tmp_path / 'ckpt/xRIR_simple_8_shot/args.json'
+    control.parent.mkdir(parents=True)
+    control.write_text('{}')
+    monkeypatch.setattr(launch, 'compare_control', lambda *a: {})
+    command = launch.command('full' if mode == 'full' else 'smoke', 'attempt')
+    if mode == 'full' and not allow:
+        with pytest.raises(ValueError, match='dirty_outside_worklog'):
+            launch.build_fields(command, '1', 'commit', mode, allow)
+    else:
+        fields = launch.build_fields(command, '1', 'commit', mode, allow)
+        assert fields['git_state'] == state and fields['allow_dirty'] == allow
+        assert 'WARNING' in capsys.readouterr().out
 
 
 @pytest.mark.parametrize('failure', ['missing', 'modified', 'unreviewed', 'later'])
@@ -261,12 +283,14 @@ def test_cli_modes_preserve_probe_cotenant_evidence(tmp_path, monkeypatch, mode)
                                                           'utilization_gpu': 90})
     monkeypatch.setattr(launch.subprocess, 'check_output', lambda *a, **k: 'reviewed\n')
     calls = []
+    monkeypatch.setattr(launch, 'build_fields', lambda *a: {'command': [], 'allow_dirty': a[-1]})
     def execute(attempt, mode, gpu, log, factory, **kwargs):
+        assert factory()['allow_dirty'] is True
         calls.append((attempt, mode, gpu, log, kwargs))
         return {'metrics': {'probe': {'mean_iteration_seconds': 1.0, 'peak_allocated_bytes': 123}}}
     monkeypatch.setattr(launch, 'execute_attempt', execute)
     result = launch.main([mode, '--gpu', '1', '--reviewed-commit', 'HEAD', '--timestamp', 'test',
-                          '--log-dir', str(tmp_path / 'logs'), '--allow-cotenant'])
+                          '--log-dir', str(tmp_path / 'logs'), '--allow-cotenant', '--allow-dirty'])
     assert len(calls) == (1 if mode == 'smoke' else 2)
     assert all(row[2] == '1' and row[4]['allow_cotenant'] for row in calls)
     if mode == 'smoke':
