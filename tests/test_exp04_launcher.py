@@ -208,7 +208,10 @@ def test_attempt_finalization_after_closed_log(tmp_path, monkeypatch, failure):
         'source': {'path': str(source), 'sha256': launch.p.sha256_file(source)}})
     monkeypatch.setattr(launch, 'resource_gate', lambda *a: {})
     def runner(command, path, gpu, guard, deadline):
-        assert {f.name for f in attempt.iterdir()} == {'effective_args.json', 'train_manifest.json'}
+        assert {f.name for f in attempt.iterdir()} == {'effective_args.json', 'train_manifest.json', 'train_inventory.json'}
+        saved = json.loads((attempt / 'train_manifest.json').read_text())
+        assert 'inventory' not in saved['train_data_identity']
+        assert saved['train_data_identity']['inventory_file']['sha256'] == launch.p.sha256_file(attempt / 'train_inventory.json')
         path.write_text('\n'.join(log_lines(expected)) + '\n')
         guard.poll(path)
         if failure == 'source':
@@ -226,7 +229,7 @@ def test_attempt_finalization_after_closed_log(tmp_path, monkeypatch, failure):
         assert json.loads((tmp_path / 'cumulative_hours.json').read_text())['total_hours'] >= 0
     else:
         result = launch.execute_attempt(attempt, 'smoke', '1', log, lambda: fields, runner=runner)
-        assert {f.name for f in attempt.iterdir()} == {'effective_args.json', 'train_manifest.json', 'completion.json'}
+        assert {f.name for f in attempt.iterdir()} == {'effective_args.json', 'train_manifest.json', 'train_inventory.json', 'completion.json'}
         assert result['log']['sha256'] == launch.p.sha256_file(log)
         assert result['train_manifest_sha256'] == launch.p.sha256_file(attempt / 'train_manifest.json')
         assert result['metrics']['train_losses'] == [1.25] * 3

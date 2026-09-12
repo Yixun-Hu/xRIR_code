@@ -391,7 +391,7 @@ def run_child(argv, log_path, gpu, guard, deadline=None):
 
 def validate_outputs(attempt, mode, expected):
     if mode != 'full':
-        if {f.name for f in attempt.iterdir()} - {'execution.json', 'abort.json'} != {'effective_args.json', 'train_manifest.json'}:
+        if {f.name for f in attempt.iterdir()} - {'execution.json', 'abort.json', 'train_inventory.json'} != {'effective_args.json', 'train_manifest.json'}:
             raise ValueError('no-save run wrote unexpected outputs')
         return {}
     check_runtime(json.loads((attempt / 'args.json').read_text()), expected, mode)
@@ -517,6 +517,12 @@ def finalize_attempt(attempt):
         if Path(effective['path']) != original / 'effective_args.json':
             raise ValueError('unexpected effective_args path')
         effective['path'] = str(attempt / 'effective_args.json')
+        identity = fields['train_data_identity']
+        if 'inventory_file' in identity:
+            for record in (identity['inventory_file'], fields['mutable_inputs']['train_inventory']):
+                if Path(record['path']) != original / 'train_inventory.json':
+                    raise ValueError('unexpected train_inventory path')
+                record['path'] = str(attempt / 'train_inventory.json')
         guard = LogGuard(fields['effective_args'], fields['mode'], attempt)
         guard.poll(log_path)
         hours = (datetime.datetime.fromisoformat(execution['ended_at']) -
@@ -551,11 +557,17 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
         effective_digest = p.write_manifest(effective_path, expected)
         fields.setdefault('mutable_inputs', {})['effective_args'] = {
             'path': str(effective_path.resolve()), 'sha256': effective_digest}
+        identity = fields.get('train_data_identity', {})
+        if 'inventory' in identity:
+            inventory_path = attempt / 'train_inventory.json'
+            inventory_digest = p.write_manifest(inventory_path, {'inventory': identity.pop('inventory')})
+            identity['inventory_file'] = {'path': str(inventory_path.resolve()), 'sha256': inventory_digest}
+            fields['mutable_inputs']['train_inventory'] = dict(identity['inventory_file'])
         fields.update(resource_before=before, allow_cotenant=allow_cotenant, mode=mode,
                       started_at=started_at, attempt_path=str(attempt.resolve()), log_path=str(log_path.resolve()))
         manifest_path = attempt / 'train_manifest.json'
         digest = p.write_manifest(manifest_path, fields)
-        if {f.name for f in attempt.iterdir()} != {'effective_args.json', 'train_manifest.json'}:
+        if {f.name for f in attempt.iterdir()} - {'train_inventory.json'} != {'effective_args.json', 'train_manifest.json'}:
             raise ValueError('unexpected pre-spawn files')
         guard = LogGuard(expected, mode)
         guard.execution_path = attempt / 'execution.json'

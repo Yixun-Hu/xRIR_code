@@ -52,8 +52,13 @@ def preserved_attempt(tmp_path):
     log.write_text('XRIR_RUNTIME_ARGS ' + json.dumps(expected) + '\n'
         'yaw_aug ENABLED W=512 seed=0 counter=(epoch-1)*9261+batch_idx\n'
         'Train Epoch: 1 [0/9261] loss 1\nepoch 1 done\n')
+    identity = launch.p._inventory(['data'], tmp_path)
+    sidecar = attempt / 'train_inventory.json'
+    identity['inventory_file'] = dict(path=str(sidecar),
+        sha256=launch.p.write_manifest(sidecar, {'inventory': identity.pop('inventory')}))
+    mutable['train_inventory'] = identity['inventory_file']
     fields = dict(repo=str(tmp_path), mode='full', effective_args=expected, source_closures={},
-        train_data_identity=launch.p._inventory(['data'], tmp_path), mutable_inputs=mutable,
+        train_data_identity=identity, mutable_inputs=mutable,
         started_at='2026-09-12T00:00:00+00:00', attempt_path=str(attempt), log_path=str(log))
     digest = launch.p.write_manifest(attempt / 'train_manifest.json', fields)
     child = subprocess.Popen([launch.PYTHON, '-c', 'pass'], start_new_session=True)
@@ -65,7 +70,7 @@ def preserved_attempt(tmp_path):
 
 
 @pytest.mark.parametrize('mutation', [None, 'renamed', 'effective_args', 'train_manifest',
-                                    'control_args', 'probe_receipt', 'data', 'output', 'log', 'exit'])
+                                    'control_args', 'probe_receipt', 'train_inventory', 'data', 'output', 'log', 'exit'])
 def test_finalize_preserved_attempt(preserved_attempt, mutation):
     attempt, log = preserved_attempt
     if mutation == 'renamed':
@@ -73,7 +78,7 @@ def test_finalize_preserved_attempt(preserved_attempt, mutation):
         log.rename(new_log)
         launch.p.write_completion(attempt / 'abort.json', {'log': {'aborted': str(new_log)}})
         attempt = launch.abort_attempt(attempt, 'input_changed', 1)
-    elif mutation in ('effective_args', 'train_manifest'):
+    elif mutation in ('effective_args', 'train_manifest', 'train_inventory'):
         (attempt / (mutation + '.json')).write_text('{}')
     elif mutation in ('control_args', 'probe_receipt', 'data'):
         (attempt.parent / mutation).write_text('changed')

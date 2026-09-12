@@ -134,6 +134,20 @@ def test_reviewed_source_revalidation_records_drift_but_refuses_tampering(repo, 
         assert mismatches
 
 
+@pytest.mark.parametrize('mutation', [None, 'sidecar', 'data'])
+def test_training_inventory_sidecar_is_revalidated(tmp_path, mutation):
+    data = tmp_path / 'sample.wav'
+    data.write_bytes(b'audio')
+    identity = p._inventory(['sample.wav'], tmp_path)
+    sidecar = tmp_path / 'train_inventory.json'
+    digest = p.write_manifest(sidecar, {'inventory': identity.pop('inventory')})
+    identity['inventory_file'] = {'path': str(sidecar), 'sha256': digest}
+    if mutation:
+        (sidecar if mutation == 'sidecar' else data).write_bytes(b'changed')
+    mismatches = p.revalidate({'train_data_identity': identity})
+    assert bool(mismatches) == bool(mutation)
+
+
 @pytest.mark.parametrize('symlink', [False, True])
 def test_closure_refuses_foreign_dependencies(repo, tmp_path, symlink):
     root, _ = repo

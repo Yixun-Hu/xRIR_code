@@ -266,11 +266,20 @@ def revalidate(manifest, required=(), source_drift=None):
         if key not in manifest:
             continue
         identity = manifest[key]
-        for record in identity['inventory']:
+        inventory = identity.get('inventory')
+        if inventory is None:
+            try:
+                sidecar = identity['inventory_file']
+                check(key + '.inventory_file', sidecar['path'], sidecar.get('sha256'))
+                inventory = json.loads(Path(sidecar['path']).read_text())['inventory']
+            except (OSError, KeyError, ValueError, TypeError):
+                mismatches.append(key + '.inventory_file')
+                continue
+        for record in inventory:
             check(key + '.' + record['path'], Path(identity['data_root']) / record['path'],
                   record.get('sha256'))
         if 'manifest_path' in identity:
             check(key + '.manifest_path', identity['manifest_path'], identity.get('manifest_file_sha256'))
-        if _inventory_digest(identity['inventory']) != identity.get('inventory_sha256'):
+        if _inventory_digest(inventory) != identity.get('inventory_sha256'):
             mismatches.append(key + '.inventory_sha256')
     return mismatches
