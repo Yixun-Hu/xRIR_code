@@ -66,3 +66,60 @@ def test_hypotheses_and_canonical_input_selection():
     assert tost['family'] == 14 and tost['margin'] == .02
     assert [a['role'] for a in tost['arms']] == ['aug']
     assert h2['input_selection'] == tost['input_selection'] == 'block'
+
+
+@pytest.mark.parametrize('name', tuple(profiles.PROFILES))
+def test_every_field_has_its_declared_type(name):
+    p = profiles.get_profile(name)
+    schema = {'schema_version': int, 'mode': str, 'arms': tuple, 'num_shot': int,
+              'condition': str, 'grid': tuple, 'input_selection': str, 'run_grids': MappingProxyType,
+              'metrics': MappingProxyType, 'family': int, 'margin': float, 'alpha': float,
+              'tails': str, 'n_boot': int, 'bootstrap_seeds': tuple, 'convergence_tolerance': float,
+              'seeds': MappingProxyType, 'gl_seed_rule': str, 'dataset': MappingProxyType,
+              'approved_closures': MappingProxyType, 'max_samples': int, 'batch_size': int,
+              'tf32': bool, 'companion_alpha': float, 'superiority_alpha': type(None)}
+    if name.startswith('H1'):
+        schema['superiority_alpha'] = float
+    if name == 'TABLE_V1':
+        schema.update(num_shot=tuple, margin=type(None), companion_alpha=type(None))
+    assert p.keys() == schema.keys()
+    assert all(type(p[key]) is kind for key, kind in schema.items())
+    for arm in p['arms']:
+        assert set(arm) == {'label', 'backbone', 'role', 'epoch', 'checkpoint', 'sha256'}
+        assert type(arm['epoch']) is int and arm['epoch'] == 12
+        assert all(type(arm[key]) is str for key in ('label', 'backbone', 'role', 'checkpoint'))
+        assert arm['sha256'] is None if arm['role'] == 'aug' else len(arm['sha256']) == 64
+    detached = profiles.json_value(p)
+    detached['arms'][0]['label'] = 'changed'
+    assert p['arms'][0]['label'] != 'changed'
+    with pytest.raises(AttributeError):
+        p.changed = True
+
+
+@pytest.mark.parametrize('shot', (1, 8))
+@pytest.mark.parametrize('seed', range(42, 47))
+def test_pinned_references_and_query_identity(shot, seed):
+    from tools.reference_manifest import load_manifest, manifest_hash
+    from tools.provenance import sha256_file
+    index = json.loads((ROOT / 'ckpt/yaw_aug/reference_manifests_index.json').read_text())
+    entry = index['k{}_seed{}'.format(shot, seed)]
+    path = ROOT / entry['path']
+    reference = load_manifest(path)
+    assert profiles.REFERENCES[shot][seed] == entry['hash'] == manifest_hash(reference)
+    assert sha256_file(path) == entry['file_sha256']
+    assert reference['seed'] == seed and reference['num_shot'] == shot
+    queries = [row['query'] for row in reference['entries']]
+    digest = hashlib.sha256(json.dumps(queries, separators=(',', ':')).encode()).hexdigest()
+    dataset = profiles.COMMON['dataset']
+    assert digest == dataset['query_sha256']
+    assert len(queries) == dataset['n_queries'] == entry['entries']
+    assert len({q.split('/')[1] for q in queries}) == dataset['n_rooms']
+
+
+@pytest.mark.parametrize('arm', (profiles.CONTROL, profiles.CYL))
+def test_pinned_checkpoints(arm):
+    from tools.provenance import sha256_file
+    path = ROOT / arm['checkpoint']
+    if not path.exists():
+        pytest.skip('checkpoint absent')
+    assert sha256_file(path) == arm['sha256']
