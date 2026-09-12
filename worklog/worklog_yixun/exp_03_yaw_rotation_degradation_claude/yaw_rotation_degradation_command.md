@@ -171,3 +171,14 @@ $A/static_checks.sh 2>&1 | tee $E/yaw_rotation_degradation_2026-09-07_00:08:52_s
 python -m pytest tests/test_exp03_record_tools.py -q -p no:cacheprovider 2>&1 | tee $E/yaw_rotation_degradation_2026-09-07_00:08:52_record_tools_tests.log   # 32 passed
 python -m pytest tests -q -p no:cacheprovider > $E/yaw_rotation_degradation_2026-09-07_00:08:52_full_suite.log 2>&1   # detached; count in the log's last lines
 ```
+
+## Follow-up: K = 1 evaluation for the paper table (2026-09-12 11:00–11:20; HEAD `19a04ef`; evaluator/closure unchanged)
+```bash
+export PYTHONPATH=$PYTHONPATH:$(pwd); export XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms
+python -c "from treble_multi_room_dataset.treble_xRIR_dataset import xRIR_Dataset; from tools.reference_manifest import build_manifest, save_manifest, manifest_hash; ds=xRIR_Dataset(split='test', max_len=9600, num_shot=1); m=build_manifest(ds, seed=0, num_shot=1); save_manifest(m, 'ckpt/yaw_rotation/reference_manifest_k1.json'); print(manifest_hash(m))"   # f6d71f86d5d313f2a982fe6f8cb801116a20ea1c37b0a65d290c088934fd73e3
+H1=f6d71f86d5d313f2a982fe6f8cb801116a20ea1c37b0a65d290c088934fd73e3; K0="--yaw-cols 0 --acoustic-cols 0 --e-acoustic-cols --decomposition-batches 0"; STD="--batch-size 16 --num-workers 6 --threads 4 --log-interval 10"
+CUDA_VISIBLE_DEVICES=0 python eval_yaw_rotation.py --backbone simple      --checkpoint ckpt/xRIR_simple_8_shot/epoch_12.pth --manifest ckpt/yaw_rotation/reference_manifest_k1.json --manifest-hash $H1 --out-dir ckpt/yaw_rotation/k1_control  $STD $K0   # log yaw_rotation_degradation_2026-09-12_11:00:21_k1_control.log
+CUDA_VISIBLE_DEVICES=0 python eval_yaw_rotation.py --backbone simple      --checkpoint checkpoints/xRIR_unseen.pth           --manifest ckpt/yaw_rotation/reference_manifest_k1.json --manifest-hash $H1 --out-dir ckpt/yaw_rotation/k1_released $STD $K0   # log ..._k1_released.log (same timestamp prefix)
+CUDA_VISIBLE_DEVICES=1 python eval_yaw_rotation.py --backbone cylindrical --checkpoint ckpt/xRIR_cyl_8_shot/epoch_12.pth    --manifest ckpt/yaw_rotation/reference_manifest_k1.json --manifest-hash $H1 --out-dir ckpt/yaw_rotation/k1_cyl      $STD $K0   # log ..._k1_cyl.log
+python tools/summarize_yaw.py --mode exploratory --runs ckpt/yaw_rotation/k1_control ckpt/yaw_rotation/k1_cyl --labels control cyl --manifest-hash $H1 --n-boot 20000 --json ckpt/yaw_rotation/k1_stats.json --summary ckpt/yaw_rotation/k1_summary.txt
+```
