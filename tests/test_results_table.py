@@ -101,3 +101,60 @@ def test_finite_count_boundary_and_empty_seed(table_fixture, count):
         cell = next(row for row in result['rows'] if row['role'] == 'cyl' and row['num_shot'] == 1)
         assert cell['metrics']['EDT']['per_seed']['42']['n_finite'] == 10
         assert cell['metrics']['EDT']['per_seed']['42']['mean'] == pytest.approx((1 + 6.5 / 16) * 1000)
+
+
+def table_argv(fixture, tmp_path, name='table'):
+    return ['--profile', 'TABLE_V1', '--runs'] + fixture.directories + [
+        '--json', str(tmp_path / (name + '.json')), '--md', str(tmp_path / (name + '.md'))]
+
+
+def test_cli_outputs_protocol_and_json_only_renderer(table_fixture, tmp_path, monkeypatch):
+    argv = table_argv(table_fixture, tmp_path)
+    result = rt.main(argv)
+    path, md = tmp_path / 'table.json', tmp_path / 'table.md'
+    receipt = _read(str(path) + '.provenance.json')
+    assert _read(path) == result and 'generated_at' not in result
+    assert receipt['outputs'] == {str(path): p.sha256_file(path), str(md): p.sha256_file(md)}
+    assert receipt['producer']['sha256'] == result['producer_closure_sha256']
+    assert receipt['approved_digests']['git_blob'] and receipt['generated_at']
+    assert receipt['inputs'] == result['inputs'] and len(receipt['run_flags']) == 30
+    for row in result['rows']:
+        for cell in row['metrics'].values():
+            assert '{:.6g} ± {:.6g}'.format(cell['mean'], cell['sd']) in md.read_text()
+    assert 'K = 1; unseen; 12 queries; 5 seeds; epoch 12; P; k = 0; batch 16; TF32 off' in md.read_text()
+    for directory in table_fixture.directories:
+        shutil.rmtree(directory)
+    monkeypatch.setattr(rt, 'build_table', lambda *a: pytest.fail('renderer read runs'))
+    assert rt.render_markdown(path) == md.read_text()
+
+
+@pytest.mark.parametrize('existing', ['table.json', 'table.md', 'table.json.provenance.json'])
+def test_exclusive_outputs(table_fixture, tmp_path, existing):
+    path = tmp_path / existing
+    path.write_text('preserve')
+    with pytest.raises(FileExistsError):
+        rt.main(table_argv(table_fixture, tmp_path))
+    assert path.read_text() == 'preserve'
+    assert sorted(p.name for p in tmp_path.iterdir() if p.is_file()) == [existing]
+
+
+def test_json_idempotence_and_force_md_only(table_fixture, tmp_path):
+    rt.main(table_argv(table_fixture, tmp_path))
+    first = (tmp_path / 'table.json').read_bytes()
+    rt.main(table_argv(table_fixture, tmp_path, 'again'))
+    assert (tmp_path / 'again.json').read_bytes() == first
+    argv = table_argv(table_fixture, tmp_path, 'third')
+    argv[-1] = str(tmp_path / 'table.md')
+    rt.main(argv + ['--force-md'])
+    with pytest.raises(FileExistsError):
+        rt.main(argv + ['--force-md'])
+    assert (tmp_path / 'table.json').read_bytes() == first
+
+
+def test_no_partial_outputs_on_render_failure(table_fixture, tmp_path, monkeypatch):
+    def fail(*args):
+        raise RuntimeError('render failed')
+    monkeypatch.setattr(rt, 'render_markdown', fail)
+    with pytest.raises(RuntimeError, match='render failed'):
+        rt.main(table_argv(table_fixture, tmp_path))
+    assert not list(tmp_path.glob('table.*'))

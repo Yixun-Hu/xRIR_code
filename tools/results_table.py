@@ -1,11 +1,16 @@
 """Canonical five-evaluation-seed TABLE_V1 aggregation for exp_04."""
+import argparse
+import datetime
+import os
+import sys
+import tempfile
 import hashlib
 import json
 from pathlib import Path
 
 import numpy as np
 from tools.exp04_profiles import get_profile, json_value, load_approved_digests
-from tools.paired_compare import admit_runs, producer_identity
+from tools.paired_compare import admit_runs, producer_identity, recheck_inputs
 
 # Source names are evaluator-owned; acoustic T60 is already a percentage.
 METRICS = {'t60': ('T60', '%', 1), 'c50': ('C50', 'dB', 1),
@@ -71,9 +76,103 @@ def build_table(directories, profile=None, approved=None):
             batch_size=profile['batch_size'], tf32=profile['tf32'], max_samples=profile['max_samples'])
         rows.append(dict(role=arm['role'], label=arm['label'], num_shot=shot,
                          epoch=arm['epoch'], protocol=protocol, metrics=metrics))
-    literal = json_value(profile)
+    literal = json.loads(json.dumps(json_value(profile)))
     digest = hashlib.sha256(json.dumps(literal, sort_keys=True,
         separators=(',', ':'), allow_nan=False).encode()).hexdigest()
     return dict(schema_version=1, profile_name='TABLE_V1', profile=literal,
                 profile_digest=digest, inputs=admitted['inputs'],
                 producer_closure_sha256=producer['sha256'], rows=rows), admitted
+
+
+def render_markdown(json_path):
+    """Render metric cells and protocol exclusively from the saved canonical JSON."""
+    result = json.loads(Path(json_path).read_text())
+    columns = ('T60', 'C50', 'EDT', 'loss', 'log_mse')
+    lines = ['| Model | K | T60 (%) | C50 (dB) | EDT (ms) | Loss (objective) | Log-STFT MSE | Protocol |',
+             '| --- | --- | --- | --- | --- | --- | --- | --- |']
+    for row in result['rows']:
+        cells = ['{:.6g} ± {:.6g}'.format(row['metrics'][name]['mean'], row['metrics'][name]['sd'])
+                 if name in row['metrics'] else '—' for name in columns]
+        protocol = row['protocol']
+        description = ('K = {num_shot}; {split}; {n_queries} queries; ' +
+            '{} seeds; epoch {{epoch}}; {{condition}}; k = {{k}}; batch {{batch_size}}; TF32 {{precision}}'
+            .format(len(protocol['seeds']))).format(**protocol, precision='on' if protocol['tf32'] else 'off')
+        lines.append('| ' + ' | '.join([row['label'], str(row['num_shot'])] + cells + [description]) + ' |')
+    return '\n'.join(lines) + '\n'
+
+
+def _json_bytes(value):
+    return (json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + '\n').encode()
+
+
+def _publish(path, payload, overwrite=False):
+    """Atomic complete-file publication; hard-link creation refuses an existing name."""
+    fd, temporary = tempfile.mkstemp(prefix='.' + path.name, dir=path.parent)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if overwrite:
+            os.replace(temporary, path)
+        else:
+            os.link(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def write_outputs(result, admitted, json_path, md_path, force_md=False, command=()):
+    paths = [Path(json_path).absolute(), Path(md_path).absolute(),
+             Path(str(json_path) + '.provenance.json').absolute()]
+    if (len({p.resolve() for p in paths}) != 3 or any(p.is_symlink() for p in paths)
+            or any(os.path.lexists(paths[i]) for i in (0, 2))
+            or (os.path.lexists(paths[1]) and not force_md)):
+        raise FileExistsError('output paths must be distinct and absent; --force-md permits Markdown only')
+    if any(str(path.resolve()) in admitted['inputs'] for path in paths):
+        raise ValueError('output overlaps an input')
+    previous = paths[1].read_bytes() if paths[1].exists() else None
+    data, created = _json_bytes(result), []
+    recheck_inputs(admitted)
+    try:
+        _publish(paths[0], data)
+        created.append(paths[0])
+        markdown = render_markdown(paths[0]).encode()
+        receipt = dict(schema_version=1, profile_digest=result['profile_digest'],
+            inputs=admitted['inputs'], producer=admitted['producer'],
+            approved_digests=admitted['approved_digests'], run_flags=admitted['run_flags'],
+            generated_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            generation_command=list(command), outputs={str(path): hashlib.sha256(payload).hexdigest()
+                for path, payload in zip(paths, (data, markdown))})
+        recheck_inputs(admitted)
+        _publish(paths[1], markdown, overwrite=force_md)
+        created.append(paths[1])
+        _publish(paths[2], _json_bytes(receipt))
+    except BaseException:
+        for path in reversed(created):
+            if path == paths[1] and previous is not None:
+                _publish(path, previous, overwrite=True)
+            else:
+                path.unlink()
+        raise
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--profile', choices=('TABLE_V1',), required=True)
+    parser.add_argument('--runs', nargs='+', required=True)
+    parser.add_argument('--json', required=True)
+    parser.add_argument('--md', required=True)
+    parser.add_argument('--force-md', action='store_true', help='Regenerate Markdown; JSON is always exclusive')
+    argv = sys.argv[1:] if argv is None else argv
+    args = parser.parse_args(argv)
+    result, admitted = build_table(args.runs)
+    write_outputs(result, admitted, args.json, args.md, args.force_md, ['results_table.py'] + list(argv))
+    return result
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (ValueError, OSError, RuntimeError) as error:
+        raise SystemExit(str(error))
