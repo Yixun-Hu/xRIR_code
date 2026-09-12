@@ -77,7 +77,7 @@ def test_finalize_preserved_attempt(preserved_attempt, mutation):
         new_log = log.with_name('train_ABORTED_input_changed.log')
         log.rename(new_log)
         launch.p.write_completion(attempt / 'abort.json', {'log': {'aborted': str(new_log)}})
-        attempt = launch.abort_attempt(attempt, 'input_changed', 1)
+        attempt = launch.abort_attempt(attempt, 'input_changed', 1.5)
     elif mutation in ('effective_args', 'train_manifest', 'train_inventory'):
         (attempt / (mutation + '.json')).write_text('{}')
     elif mutation in ('control_args', 'probe_receipt', 'data'):
@@ -95,11 +95,22 @@ def test_finalize_preserved_attempt(preserved_attempt, mutation):
         assert not (attempt / 'completion.json').exists() and not (attempt.parent / 'final').exists()
     else:
         result = launch.main(['finalize', str(attempt)])
-        assert result['wall_hours'] == 1 and len(result['outputs']) >= 14
+        hours = 1.5 if mutation == 'renamed' else 1
+        assert result['wall_hours'] == hours and len(result['outputs']) >= 14
         assert result['directory_listing'] == {path.name: launch.p.sha256_file(path)
             for path in attempt.iterdir() if path.name != 'completion.json'}
         assert result['source_drift_after_spawn'] == []
         assert (attempt.parent / 'final').resolve() == attempt
-        assert launch.full_hours(attempt.parent) == 1
+        assert launch.full_hours(attempt.parent) == hours
         with pytest.raises(FileExistsError):
             launch.main(['finalize', str(attempt)])
+
+
+@pytest.mark.parametrize('name', ['control_args', 'probe_receipt'])
+def test_full_finalization_requires_authorizing_bindings(preserved_attempt, name):
+    attempt, log = preserved_attempt
+    fields = json.loads((attempt / 'train_manifest.json').read_text())
+    del fields['mutable_inputs'][name]
+    with pytest.raises(ValueError, match=name):
+        launch.complete_attempt(attempt, 'full', log, fields, 'digest', {}, 1)
+    assert not (attempt / 'completion.json').exists()

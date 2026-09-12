@@ -352,6 +352,8 @@ def test_full_promotion_failure_accounts_elapsed_hours_once(tmp_path, monkeypatc
     argv = launch.command('full', str(attempt))
     fields = dict(repo=str(tmp_path), source_closures={}, train_data_identity=launch.p._inventory([], tmp_path),
                   effective_args=launch.effective_args(argv, '1', 9261), command=argv)
+    binding = dict(path=__file__, sha256=launch.p.sha256_file(__file__))
+    fields['mutable_inputs'] = dict(control_args=binding, probe_receipt=binding)
     clock = [100.0]
     monkeypatch.setattr(launch.time, 'monotonic', lambda: clock[0])
     monkeypatch.setattr(launch, 'resource_gate', lambda *a: {})

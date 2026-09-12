@@ -473,6 +473,10 @@ def complete_attempt(attempt, mode, log_path, fields, digest, metrics, hours):
     outputs = validate_outputs(attempt, mode, fields['effective_args'])
     fields['mutable_inputs']['train_manifest'] = {
         'path': str((attempt / 'train_manifest.json').resolve()), 'sha256': digest}
+    required = {'effective_args', 'train_manifest'} | ({'control_args', 'probe_receipt'} if mode == 'full' else set())
+    missing = required - fields['mutable_inputs'].keys()
+    if missing:
+        raise LauncherFailure('input_changed', 'missing mutable inputs: ' + ', '.join(sorted(missing)))
     print('Revalidating training inputs after log close...', flush=True)
     drift = []
     mismatches = p.revalidate(fields, required=REQUIRED_INPUTS, source_drift=drift)
@@ -480,7 +484,8 @@ def complete_attempt(attempt, mode, log_path, fields, digest, metrics, hours):
         raise LauncherFailure('input_changed', 'mutable input mismatch: ' + ', '.join(mismatches))
     completion = dict(train_manifest_sha256=digest, source_drift_after_spawn=drift,
         log={'path': str(log_path.resolve()), 'sha256': p.sha256_file(log_path)},
-        outputs=outputs, directory_listing=directory_listing(attempt), resource_before=fields.get('resource_before'),
+        outputs=outputs, directory_listing=outputs if mode == 'full' else directory_listing(attempt),
+        resource_before=fields.get('resource_before'),
         metrics=metrics, wall_hours=hours() if callable(hours) else hours)
     p.write_completion(attempt / 'completion.json', completion)
     account_hours(attempt, completion['wall_hours'], mode=mode)
@@ -529,6 +534,8 @@ def finalize_attempt(attempt):
                  datetime.datetime.fromisoformat(fields['started_at'])).total_seconds() / 3600
         if not math.isfinite(hours) or hours < 0:
             raise ValueError('invalid recorded execution duration')
+        hours = max([hours] + [row['hours'] for row in hours_record(attempt.parent)['attempts']
+                              if row['attempt'] == attempt.name])
         try:
             return complete_attempt(attempt, fields['mode'], log_path, fields, digest, guard.finish(), hours)
         except BaseException:
