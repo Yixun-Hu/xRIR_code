@@ -320,15 +320,16 @@ def control_parity_inputs():
 
 def test_control_parity_reconstructs_bpe_and_reports_exact_exclusions(control_parity_inputs):
     runtime, control, control_env = control_parity_inputs
+    runtime['env']['CUDA_VISIBLE_DEVICES'] = '0'
     assert runtime['train_batches_per_epoch'] == (296334 + control['batch_size'] - 1) // control['batch_size']
     differences = launch.compare_control(runtime, control, control_env)
     assert set(differences) == {'save_dir', 'yaw_aug', 'yaw_aug_seed', 'yaw_aug_width',
-                                'no_save', 'save_every', 'epoch_ckpt_every', 'PYTHONHASHSEED'}
+                                'no_save', 'save_every', 'epoch_ckpt_every', 'PYTHONHASHSEED', 'CUDA_VISIBLE_DEVICES'}
     assert 'env' not in control and 'train_batches_per_epoch' not in control
 
 
 @pytest.mark.parametrize('key,value', [('lr', 0.002), ('num_workers', '12'), ('tf32', 1),
-    ('CUDA_VISIBLE_DEVICES', '0'), ('train_batches_per_epoch', 9260), ('unexpected', 1)])
+    ('train_batches_per_epoch', 9260), ('unexpected', 1)])
 def test_control_parity_refuses_nonexcluded_type_or_value_change(control_parity_inputs, key, value):
     runtime, control, control_env = control_parity_inputs
     (runtime['env'] if key in launch.ENV_KEYS else runtime)[key] = value
@@ -359,7 +360,7 @@ def test_full_promotion_failure_accounts_elapsed_hours_once(tmp_path, monkeypatc
     assert not attempt.exists() and not (aborted / 'completion.json').exists()
     record = launch.hours_record(tmp_path)
     assert record['total_hours'] == 1.0
-    assert record['attempts'] == [{'attempt': aborted.name, 'hours': 1.0}]
+    assert record['attempts'] == [{'attempt': aborted.name, 'hours': 1.0, 'mode': 'full'}]
 
 
 def test_tee_preserves_redirected_launcher_output(tmp_path):
@@ -436,3 +437,49 @@ def test_termination_handlers_restore_previous_dispositions():
         with launch.termination_handlers():
             os.kill(os.getpid(), launch.signal.SIGHUP)
     assert [launch.signal.getsignal(s) for s in signals] == before
+
+
+def test_budget_counts_only_full_including_legacy_rows(tmp_path):
+    rows = [{'attempt': '_smoke_old', 'hours': 20}, {'attempt': 'attempt_t_probe_on', 'hours': 20},
+            {'attempt': 'attempt_old', 'hours': 10}]
+    launch.p.write_completion(tmp_path / 'cumulative_hours.json', dict(total_hours=50, attempts=rows))
+    for mode in ('probe', 'smoke', 'full'):
+        launch.account_hours(tmp_path / mode, 1, mode=mode)
+    assert all('mode' in row for row in launch.hours_record(tmp_path)['attempts'])
+    launch.check_budget(tmp_path, 32)
+    with pytest.raises(ValueError, match='43'):
+        launch.check_budget(tmp_path, 32.01)
+
+
+@pytest.mark.parametrize('mutation', [None, 'commit', 'before', 'after', 'ratio', 'slow', 'dirty', 'passed'])
+def test_probe_receipt_admission_and_binding(tmp_path, monkeypatch, mutation):
+    receipt = dict(reviewed_commit='a' * 40, before={'gpu': 'GPU-free'}, after={'gpu': 'GPU-free'},
+        yaw_off={'mean_iteration_seconds': 1}, yaw_on={'mean_iteration_seconds': 1.05},
+        overhead_ratio=1.05, passed=True, PROBE_NOT_CLEAN=False)
+    if mutation == 'commit':
+        receipt['reviewed_commit'] = 'b' * 40
+    elif mutation in ('before', 'after'):
+        receipt[mutation]['gpu'] = '1'
+    elif mutation == 'ratio':
+        receipt['overhead_ratio'] = 1
+    elif mutation == 'slow':
+        receipt['yaw_on']['mean_iteration_seconds'] = 1.1
+        receipt['overhead_ratio'] = 1.1
+    elif mutation in ('dirty', 'passed'):
+        receipt['PROBE_NOT_CLEAN' if mutation == 'dirty' else 'passed'] = mutation == 'dirty'
+    path = tmp_path / 'probe.json'
+    path.write_text(json.dumps(receipt))
+    monkeypatch.setattr(launch, 'ROOT', tmp_path)
+    monkeypatch.setattr(launch.subprocess, 'check_output', lambda *a, **k: 'a' * 40 + '\n')
+    monkeypatch.setattr(launch, 'build_fields', lambda *a: {'mutable_inputs': {}})
+    def execute(attempt, mode, gpu, log, factory, **kwargs):
+        assert gpu == 'GPU-free'
+        assert factory()['mutable_inputs']['probe_receipt'] == {'path': str(path), 'sha256': launch.p.sha256_file(path)}
+        return {}
+    monkeypatch.setattr(launch, 'execute_attempt', execute)
+    argv = ['full', '--gpu', 'GPU-free', '--reviewed-commit', 'HEAD', '--probe-json', str(path), '--log-dir', str(tmp_path)]
+    if mutation:
+        with pytest.raises(ValueError, match='probe'):
+            launch.main(argv)
+    else:
+        launch.main(argv)

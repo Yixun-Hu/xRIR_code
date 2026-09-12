@@ -120,33 +120,42 @@ def hours_record(root):
     hours = result['total_hours']
     if not math.isfinite(hours) or hours < 0 or hours != sum(r['hours'] for r in result['attempts']):
         raise ValueError('invalid cumulative hours')
+    for row in result['attempts']:
+        name = row['attempt']
+        row.setdefault('mode', 'probe' if '_probe_' in name else 'smoke' if name.startswith('_smoke_') else 'full')
+        if row['mode'] not in ('full', 'smoke', 'probe') or not math.isfinite(row['hours']) or row['hours'] < 0:
+            raise ValueError('invalid cumulative hours row')
     return result
+
+
+def full_hours(root):
+    return sum(row['hours'] for row in hours_record(root)['attempts'] if row['mode'] == 'full')
 
 
 def check_budget(root, projection):
     if not math.isfinite(projection) or projection <= 0:
         raise ValueError('projection must be finite and positive')
-    if hours_record(root)['total_hours'] + projection > 43:
+    if full_hours(root) + projection > 43:
         raise ValueError('cumulative hours + projection exceeds 43 h')
 
 
-def account_hours(attempt, hours, previous_name=None):
+def account_hours(attempt, hours, previous_name=None, mode='full'):
     with (attempt.parent / '.hours.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         result = hours_record(attempt.parent)
         result['attempts'] = [row for row in result['attempts']
                               if row['attempt'] not in (attempt.name, previous_name)]
-        result['attempts'].append({'attempt': attempt.name, 'hours': hours})
+        result['attempts'].append({'attempt': attempt.name, 'hours': hours, 'mode': mode})
         result['total_hours'] = sum(row['hours'] for row in result['attempts'])
         p.write_completion(attempt.parent / 'cumulative_hours.json', result)
 
 
-def abort_attempt(attempt, reason, hours):
+def abort_attempt(attempt, reason, hours, mode='full'):
     aborted = attempt.with_name(attempt.name + '_ABORTED_' + reason)
     if aborted.exists():
         aborted = aborted.with_name(aborted.name + '_' + uuid.uuid4().hex)
     attempt.rename(aborted)
-    account_hours(aborted, hours, previous_name=attempt.name)
+    account_hours(aborted, hours, previous_name=attempt.name, mode=mode)
     return aborted
 
 
@@ -169,7 +178,7 @@ TRAIN_MINIMUM = {'train_xRIR_backbone.py', 'treble_multi_room_dataset/treble_xRI
 
 
 CONTROL_EXCLUSIONS = {'save_dir', 'yaw_aug', 'yaw_aug_seed', 'yaw_aug_width', 'no_save',
-                      'save_every', 'epoch_ckpt_every', 'PYTHONHASHSEED'}
+                      'save_every', 'epoch_ckpt_every', 'PYTHONHASHSEED', 'CUDA_VISIBLE_DEVICES'}
 
 
 def compare_control(runtime, control, control_env):
@@ -401,7 +410,7 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
             raise ValueError('unexpected pre-spawn files')
         guard = LogGuard(expected, mode)
         reason = 'child_failed'
-        deadline = started + (43 - hours_record(attempt.parent)['total_hours']) * 3600 if mode == 'full' else None
+        deadline = started + (43 - full_hours(attempt.parent)) * 3600 if mode == 'full' else None
         if runner(fields['command'], log_path, gpu, guard, deadline):
             raise RuntimeError('child exited nonzero')
         metrics = guard.finish()
@@ -418,7 +427,7 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
             outputs=outputs, metrics=metrics, wall_hours=(time.monotonic() - started) / 3600)
         reason = 'completion_failed'
         p.write_completion(attempt / 'completion.json', completion)
-        account_hours(attempt, completion['wall_hours'])
+        account_hours(attempt, completion['wall_hours'], mode=mode)
         if mode == 'full':
             promote(attempt)
         return completion
@@ -426,7 +435,7 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
         completion_path = attempt / 'completion.json'
         if completion_path.exists():
             completion_path.unlink()
-        aborted = abort_attempt(attempt, reason, (time.monotonic() - started) / 3600)
+        aborted = abort_attempt(attempt, reason, (time.monotonic() - started) / 3600, mode=mode)
         print('ABORTED ' + str(aborted), flush=True)
         raise
 
@@ -464,6 +473,24 @@ def refusal_self_test():
     return {'passed': True, 'refusals': refusals}
 
 
+def probe_receipt(path, commit, gpu):
+    from tools.exp04_probe import compare_results
+    path = Path(path).resolve()
+    digest = p.sha256_file(path)
+    receipt = json.loads(path.read_text())
+    try:
+        measured = compare_results(receipt['yaw_off'], receipt['yaw_on'])
+        valid = (receipt['reviewed_commit'] == commit and receipt['before']['gpu'] == gpu
+            and receipt['after']['gpu'] == gpu and receipt['PROBE_NOT_CLEAN'] is False
+            and receipt['passed'] is True and measured['passed']
+            and receipt['overhead_ratio'] == measured['overhead_ratio'])
+    except (KeyError, TypeError, ValueError):
+        valid = False
+    if not valid or p.sha256_file(path) != digest:
+        raise ValueError('full requires a clean passing probe bound to reviewed commit and GPU')
+    return {'path': str(path), 'sha256': digest}
+
+
 @termination_handlers()
 def main(argv=None):
     import argparse
@@ -471,7 +498,7 @@ def main(argv=None):
     from tools.exp04_probe import trainer_command, compare_results
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mode', choices=('smoke', 'probe', 'full', 'refuse-test'))
-    parser.add_argument('--gpu', default='1', choices=[str(i) for i in range(16)])
+    parser.add_argument('--gpu', default='1')
     parser.add_argument('--reviewed-commit')
     parser.add_argument('--log-dir')
     parser.add_argument('--timestamp', default=datetime.datetime.now().strftime('%Y%m%dT%H%M%S%f'))
@@ -490,17 +517,15 @@ def main(argv=None):
         parser.error('timestamp must be a safe filename component')
     if Path(sys.executable).resolve() != Path(PYTHON).resolve():
         parser.error('launcher requires pinned interpreter ' + PYTHON)
+    commit = subprocess.check_output(['git', 'rev-parse', args.reviewed_commit + '^{commit}'],
+                                     cwd=REPO, text=True).strip()
     if args.mode == 'full':
         if args.allow_cotenant:
             parser.error('full forbids --allow-cotenant')
         if not args.probe_json:
             parser.error('full requires --probe-json (clean passing probe)')
-        receipt = json.loads(Path(args.probe_json).read_text())
-        if receipt.get('PROBE_NOT_CLEAN') is not False or receipt.get('passed') is not True:
-            parser.error('full requires a clean passing probe')
+        receipt = probe_receipt(args.probe_json, commit, args.gpu)
         check_budget(ROOT, args.projection_hours)
-    commit = subprocess.check_output(['git', 'rev-parse', args.reviewed_commit + '^{commit}'],
-                                     cwd=REPO, text=True).strip()
     ROOT.mkdir(parents=True, exist_ok=True)
     with (ROOT / '.launch.lock').open('a') as lock, patch.dict(os.environ, child_environment(args.gpu)):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -511,9 +536,14 @@ def main(argv=None):
             relative = os.path.relpath(attempt, REPO)
             cmd = command(mode, relative)
             check_golden(cmd, mode, relative)
+            def fields_factory():
+                fields = build_fields(cmd, args.gpu, commit, mode, args.allow_dirty)
+                if mode == 'full':
+                    fields['mutable_inputs']['probe_receipt'] = receipt
+                return fields
             result = execute_attempt(attempt, mode, args.gpu,
                 log_dir / ('yaw_aug_xrir_' + stamp + '_train_' + mode + '.log'),
-                lambda: build_fields(cmd, args.gpu, commit, mode, args.allow_dirty),
+                fields_factory,
                 allow_cotenant=args.allow_cotenant, projection=args.projection_hours)
         else:
             output = ROOT / ('_probe_' + stamp + '.json')
