@@ -49,6 +49,8 @@ def execute_run(args, command, fields_factory, repo):
     run = Path(args.out_dir).resolve()
     run.mkdir()  # Deliberately before input hashing and outside abort handling.
     reason = "setup_failed"
+    log_path = None
+    started = datetime.datetime.now().astimezone()
     try:
         log_dir = Path(args.log_dir).resolve()
         if run == log_dir or run in log_dir.parents:
@@ -59,27 +61,48 @@ def execute_run(args, command, fields_factory, repo):
         if not label or Path(label).name != label or label in (".", ".."):
             raise ValueError("run-label must be a filename component")
         log_path = log_dir / (label + "_" + stamp + ".log")
-        fields = fields_factory()
+        fields = dict(fields_factory(), schema_version=1)
         manifest_path = run / "eval_manifest.json"
         digest = p.write_manifest(manifest_path, fields)
         reason = "child_failed"
-        if _run_child(command, log_path, repo, args.data_root):
+        status = _run_child(command, log_path, repo, args.data_root)
+        if status:
             raise RuntimeError(reason)
-        reason = "missing_output"
-        if any(not (run / name).is_file() for name in OUTPUTS):
+        reason = "output_invalid"
+        listing = sorted(item.name for item in run.iterdir())
+        if listing != sorted(["eval_manifest.json", *OUTPUTS]):
             raise RuntimeError(reason)
+        expected = dict(eval_manifest_sha256=digest, conditions=fields["conditions"],
+                        n_samples=fields["n_samples"])
+        for name in OUTPUTS:
+            payload = json.loads((run / name).read_text())
+            meta = payload.get("meta", {})
+            if any(type(meta.get(key)) is not type(value) or meta.get(key) != value
+                   for key, value in expected.items()):
+                raise ValueError("output meta mismatch: " + name)
+            if name == "per_sample_yaw.json" and (not isinstance(payload.get("query"), list)
+                    or len(payload["query"]) != fields["n_samples"]):
+                raise ValueError("output query count mismatch")
         reason = "input_changed"
         declared = dict(fields, eval_manifest={"path": str(manifest_path), "sha256": digest})
         mismatches = p.revalidate(declared)
         if mismatches:
             raise ValueError("mutable input mismatch: " + ", ".join(mismatches))
-        completion = {"eval_manifest_sha256": digest,
+        completion = {"schema_version": 1, "eval_manifest_sha256": digest,
+                      "directory_listing": listing, "child_exit_status": status,
+                      "started_at": started.isoformat(),
+                      "ended_at": datetime.datetime.now().astimezone().isoformat(),
                       "log": {"path": str(log_path), "sha256": p.sha256_file(log_path)},
                       "outputs": {name: p.sha256_file(run / name) for name in OUTPUTS}}
         reason = "completion_failed"
         p.write_completion(run / "completion.json", completion)
         return completion
     except BaseException:
+        if log_path is not None:
+            try:
+                log_path.rename(log_path.with_name(log_path.stem + "_ABORTED_" + reason + ".log"))
+            except OSError:
+                pass  # Preserve the original failure if the log cannot be renamed.
         completion_path = run / "completion.json"
         if completion_path.exists():
             completion_path.unlink()
@@ -129,6 +152,8 @@ def _capture_environment(repo, data_root):
 
 def build_fields(args, command, repo):
     """Bind protocol, reviewed code and full referenced data before spawning."""
+    commit = subprocess.check_output(['git', 'rev-parse', '--verify', args.reviewed_commit + '^{commit}'],
+                                     cwd=repo, text=True).strip()
     reference = evaluator.yaw.load_checked_manifest(args.manifest, args.manifest_hash)
     if args.num_shot != reference["num_shot"]:
         raise ValueError("num_shot differs from reference manifest")
@@ -138,7 +163,7 @@ def build_fields(args, command, repo):
     closures = {}
     for role, module in (("evaluator", "eval_yaw_rotation"), ("entrypoint", "tools.exp04_eval"),
                          ("writer", "tools.exp04_eval_launch")):
-        records, digest = p.closure_record(p.source_closure(module, repo), args.reviewed_commit, repo)
+        records, digest = p.closure_record(p.source_closure(module, repo), commit, repo)
         if not records or any(record["reviewed_blob_sha256"] is None or
                 record["reviewed_blob_sha256"] != record["working_tree_sha256"] or
                 record["commits_after_reviewed"] for record in records):
@@ -149,7 +174,7 @@ def build_fields(args, command, repo):
     fields.pop("out_dir")
     fields["manifest_path"] = fields.pop("manifest")
     count = len(reference["entries"])
-    fields.update(repo=str(Path(repo).resolve()), reviewed_commit=args.reviewed_commit,
+    fields.update(schema_version=1, repo=str(Path(repo).resolve()), reviewed_commit=commit,
         checkpoint_sha256=p.sha256_file(args.checkpoint),
         manifest_file_sha256=p.sha256_file(args.manifest), manifest_seed=reference["seed"],
         num_shot=args.num_shot, batch_canonical=True, data_root=args.data_root,

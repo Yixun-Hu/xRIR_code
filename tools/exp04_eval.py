@@ -1,6 +1,7 @@
 """Manifest-bound exp_04 evaluation using the unchanged exp_03 numerical functions."""
 import argparse
 import json
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -61,6 +62,9 @@ def validate_manifest(args):
     if fields.get("repo") != repo:
         mismatches.append("repo")
     try:
+        commit = fields.get("reviewed_commit")
+        if not isinstance(commit, str) or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+            raise ValueError("reviewed_commit must be 40 lowercase hex characters")
         files, closure_digest = provenance.closure_record(
             provenance.source_closure("eval_yaw_rotation", repo), fields["reviewed_commit"], repo)
         declared = fields["evaluator_closure"]

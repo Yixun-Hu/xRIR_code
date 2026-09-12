@@ -30,7 +30,7 @@ def protocol_run(tmp_path):
                   manifest_path=str(reference), manifest_file_sha256=provenance.sha256_file(reference),
                   manifest_seed=42, num_shot=8, batch_canonical=True,
                   data_root=subject.BASE_DATA_PATH, repo=str(Path(__file__).resolve().parents[1]),
-                  reviewed_commit="reviewed", evaluator_closure={"files": record, "sha256": "closure"})
+                  reviewed_commit="a" * 40, evaluator_closure={"files": record, "sha256": "closure"})
     path.write_text(json.dumps(fields))
     return args, fields, path
 
@@ -77,6 +77,15 @@ def test_manifest_roundtrip_and_digest(bound_run):
     got, digest, reference = subject.validate_manifest(args)
     assert got == fields and digest == provenance.sha256_file(path)
     assert reference["num_shot"] == 8
+
+
+@pytest.mark.parametrize('commit', ['HEAD', 'main', 'fce0035', 'A' * 40, 'a' * 39, None, 123])
+def test_reviewed_commit_must_be_full_lowercase_sha(bound_run, commit):
+    args, fields, path = bound_run
+    fields['reviewed_commit'] = commit
+    path.write_text(json.dumps(fields))
+    with pytest.raises(ValueError, match='reviewed_commit'):
+        subject.validate_manifest(args)
 
 
 @pytest.mark.parametrize("field", [
