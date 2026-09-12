@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 
 from tools import provenance
-from tools.exp04_profiles import get_profile, json_value
+from tools.exp04_profiles import get_profile, json_value, load_approved_digests
 from tools.reference_manifest import load_manifest, manifest_hash
 from tools.summarize_yaw import load_run, rooms_from_paths, signed_degrees, _check_metrics_reconciliation
 
@@ -235,11 +235,11 @@ def _digest(value):
         separators=(',', ':'), allow_nan=False).encode()).hexdigest()
 
 
-def producer_identity():
+def producer_identity(entry_module='tools.paired_compare'):
     """Bind imported producer dependencies to committed HEAD and current bytes."""
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=REPO, text=True).strip()
     records, digest = provenance.closure_record(
-        provenance.source_closure('tools.paired_compare', REPO), commit, REPO)
+        provenance.source_closure(entry_module, REPO), commit, REPO)
     if any(r['reviewed_blob_sha256'] != r['working_tree_sha256'] or
            r['reviewed_blob_sha256'] is None for r in records):
         raise ValueError('producer closure differs from HEAD')
@@ -263,8 +263,18 @@ def _closure_digest(closure):
         for r in records], sort_keys=True).encode()).hexdigest()
 
 
-def _admit_run(directory, arm, profile, check, inputs):
-    directory = Path(directory).resolve()
+def admit_run(run_dir, arm, num_shot, profile, approved, check=None, inputs=None):
+    """Admit one run. evaluator=exp04_eval; writer=exp04_eval_launch.
+
+    training_launcher is recorded, not compared; its evidence is checkpoint-bound.
+    Optional check/inputs share deviations and byte bindings across a grouped analysis.
+    """
+    if check is None:
+        def check(ok, name):
+            if not ok:
+                raise ValueError(name)
+    inputs = {} if inputs is None else inputs
+    directory = Path(run_dir).resolve()
     label = str(directory)
     def require(ok, name):
         check(ok, label + ': ' + name)
@@ -304,17 +314,20 @@ def _admit_run(directory, arm, profile, check, inputs):
         require(_closure_digest(closure) == closure['sha256'], 'closure digest ' + name)
         for record in closure['files']:
             bind(root / record['path'], record['working_tree_sha256'])
-    for approved, recorded in (('evaluator', 'entrypoint'), ('writer', 'writer'), ('launcher', 'writer')):
-        require(closures[recorded]['sha256'] == profile['approved_closures'][approved],
-                approved + ' approved closure')
+    for pin, recorded in (('evaluator', 'entrypoint'), ('writer', 'writer')):
+        require(closures[recorded]['sha256'] == approved['closures'][pin], pin + ' approved closure')
     reference = load_manifest(root / fields['manifest_path'])
-    seed, shot = fields['manifest_seed'], profile['num_shot']
+    seed, shot = fields['manifest_seed'], num_shot
+    checkpoint = approved['checkpoints']['aug'] if arm['role'] == 'aug' else arm
+    if arm['role'] == 'aug':
+        require(checkpoint['path'] == arm['checkpoint'] and checkpoint['epoch'] == arm['epoch'],
+                'aug checkpoint path/epoch approval')
     require(type(seed) is int, 'seed type')
     expected = {'num_shot': shot, 'gl_seed': seed, 'split': profile['dataset']['split'],
         'split_count': profile['dataset']['n_queries'], 'n_samples': profile['dataset']['n_queries'],
         'conditions': profile['condition'], 'batch_size': profile['batch_size'],
         'max_samples': profile['max_samples'], 'tf32': profile['tf32'], 'batch_canonical': True,
-        'no_tta': True, 'backbone': arm['backbone'], 'checkpoint_sha256': arm['sha256'],
+        'no_tta': True, 'backbone': arm['backbone'], 'checkpoint_sha256': checkpoint['sha256'],
         'manifest_hash': profile['seeds'][shot].get(seed), 'e_acoustic_cols': []}
     for key, value in expected.items():
         require(value is not None and _equal(fields.get(key), value), key)
@@ -372,45 +385,49 @@ def _admit_run(directory, arm, profile, check, inputs):
     return run
 
 
-def admit_runs(profile, runs_a, runs_b=None, exploratory=False):
-    """Finish every admission check before computing any statistic or writing files."""
-    if profile['mode'] == 'one_arm' and runs_b is not None:
-        raise ValueError('one-arm TOST refuses --runs-b')
-    if profile['mode'] == 'two_arm' and not runs_b:
-        raise ValueError('two-arm profile requires --runs-b')
-    required = list(profile['approved_closures'].items())
-    required += [(a['role'] + ' checkpoint', a['sha256']) for a in profile['arms']]
-    required += [('dataset inventory', profile['dataset']['inventory_sha256'])]
-    for key, value in required:
-        if value is None:
-            raise ValueError('profile not yet approved: ' + key)
+def admit_runs(profile, groups, approved=None, exploratory=False, producer=None,
+               producer_key='producer_paired_compare'):
+    """Admit (arm, num_shot, directories) groups before computing statistics.
+
+    approved is the loader's (pins, identity) pair; only this producer's pin is compared.
+    """
+    approved, receipt = load_approved_digests() if approved is None else approved
+    required = [(key, approved['closures'][key]) for key in ('evaluator', 'writer', producer_key)]
+    required += [(a['role'] + ' checkpoint', approved['checkpoints']['aug']['sha256']
+                  if a['role'] == 'aug' else a['sha256']) for a, _, _ in groups]
+    required += [('dataset inventory', profile['dataset']['inventory_sha256']),
+                 ('approval schema_version', approved['schema_version'])]
     deviations, inputs = [], {}
     def check(ok, name):
         if not ok:
             deviations.append(name)
-    producer = producer_identity()
-    check(producer['sha256'] == profile['approved_closures']['producer'], 'producer approved closure')
+    for key, value in required:
+        check(value is not None, 'profile not yet approved: ' + key)
+    producer = producer_identity() if producer is None else producer
+    check(producer['sha256'] == approved['closures'][producer_key], producer_key + ' approved closure')
+    inputs[receipt['path']] = receipt['sha256']
     for record in producer['files']:
         inputs[str((REPO / record['path']).resolve())] = record['working_tree_sha256']
-    groups = []
-    for arm, directories in zip(profile['arms'], (runs_a, runs_b)):
+    admitted_groups = []
+    for arm, shot, directories in groups:
         runs = []
         for directory in directories:
             try:
-                runs.append(_admit_run(directory, arm, profile, check, inputs))
+                runs.append(admit_run(directory, arm, shot, profile, approved, check, inputs))
             except (KeyError, TypeError, ValueError, OSError, IndexError) as error:
                 check(False, '{}: admission {}'.format(directory, error))
         seeds = [r['meta'].get('manifest_seed') for r in runs]
         check(len(runs) == 5 and all(type(s) is int for s in seeds) and
-              set(seeds) == set(profile['seeds'][profile['num_shot']]), arm['role'] + ' seed set')
-        groups.append(sorted(runs, key=lambda r: str(r['meta'].get('manifest_seed'))))
-    flat = [r for group in groups for r in group]
+              set(seeds) == set(profile['seeds'][shot]), arm['role'] + ' seed set')
+        admitted_groups.append(sorted(runs, key=lambda r: int(r['meta']['manifest_seed'])))
+    flat = [r for group in admitted_groups for r in group]
     if flat:
         check(all(r['query'] == flat[0]['query'] and r['index'] == flat[0]['index'] for r in flat),
               'query/index order across runs')
     if deviations and not exploratory:
         raise ValueError('admission failed: ' + '; '.join(deviations))
-    return {'groups': groups, 'deviations': deviations, 'inputs': inputs, 'producer': producer}
+    return {'groups': admitted_groups, 'approved_digests': dict(receipt, pins=json_value(approved)),
+            'deviations': deviations, 'inputs': inputs, 'producer': producer}
 
 
 def _seed_summary(values, mask):
@@ -549,6 +566,7 @@ def write_outputs(result, admitted, json_path, summary_path):
     data = (json.dumps(_safe_json(result), sort_keys=True, indent=2, allow_nan=False) + '\n').encode()
     sidecar = {'schema_version': 1, 'exploratory': result['exploratory'], 'inputs': admitted['inputs'],
                'profile_digest': result['profile_digest'], 'producer': admitted['producer'],
+               'approved_digests': admitted['approved_digests'],
                'outputs': {str(paths[0].resolve()): hashlib.sha256(data).hexdigest(),
                            str(paths[1].resolve()): hashlib.sha256(text).hexdigest()}}
     receipt = (json.dumps(sidecar, sort_keys=True, indent=2, allow_nan=False) + '\n').encode()
@@ -580,7 +598,13 @@ def main(argv=None):
     parser.add_argument('--exploratory', action='store_true')
     args = parser.parse_args(argv)
     profile = get_profile(args.profile)
-    admitted = admit_runs(profile, args.runs_a, args.runs_b, args.exploratory)
+    if profile['mode'] == 'one_arm' and args.runs_b is not None:
+        raise ValueError('one-arm TOST refuses --runs-b')
+    if profile['mode'] == 'two_arm' and not args.runs_b:
+        raise ValueError('two-arm profile requires --runs-b')
+    groups = [(arm, profile['num_shot'], paths) for arm, paths in
+              zip(profile['arms'], (args.runs_a, args.runs_b))]
+    admitted = admit_runs(profile, groups, exploratory=args.exploratory)
     result = analyze(profile, admitted, args.exploratory)
     result['profile_name'] = args.profile
     write_outputs(result, admitted, args.json, args.summary)

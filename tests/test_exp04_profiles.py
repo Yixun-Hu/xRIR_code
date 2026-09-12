@@ -37,8 +37,7 @@ def test_profiles_frozen_and_typed():
         assert profile['convergence_tolerance'] == .10
         assert profile['batch_size'] == 16 and profile['max_samples'] == 0
         assert profile['tf32'] is False
-        assert set(profile['approved_closures']) == {'evaluator', 'writer', 'launcher', 'producer'}
-        assert all(v is None for v in profile['approved_closures'].values())
+        assert 'approved_closures' not in profile
     with pytest.raises(KeyError):
         profiles.get_profile('UNKNOWN')
 
@@ -77,7 +76,7 @@ def test_every_field_has_its_declared_type(name):
               'metrics': MappingProxyType, 'family': int, 'margin': float, 'alpha': float,
               'tails': str, 'n_boot': int, 'bootstrap_seeds': tuple, 'convergence_tolerance': float,
               'seeds': MappingProxyType, 'gl_seed_rule': str, 'dataset': MappingProxyType,
-              'approved_closures': MappingProxyType, 'max_samples': int, 'batch_size': int,
+              'max_samples': int, 'batch_size': int,
               'tf32': bool, 'companion_alpha': float, 'superiority_alpha': type(None)}
     if name.startswith('H1'):
         schema['superiority_alpha'] = float
@@ -88,10 +87,11 @@ def test_every_field_has_its_declared_type(name):
     assert p.keys() == schema.keys()
     assert all(type(p[key]) is kind for key, kind in schema.items())
     for arm in p['arms']:
-        assert set(arm) == {'label', 'backbone', 'role', 'epoch', 'checkpoint', 'sha256'}
+        assert set(arm) == {'label', 'backbone', 'role', 'epoch', 'checkpoint'} | (
+            set() if arm['role'] == 'aug' else {'sha256'})
         assert type(arm['epoch']) is int and arm['epoch'] == 12
         assert all(type(arm[key]) is str for key in ('label', 'backbone', 'role', 'checkpoint'))
-        assert arm['sha256'] is None if arm['role'] == 'aug' else len(arm['sha256']) == 64
+        assert 'sha256' not in arm if arm['role'] == 'aug' else len(arm['sha256']) == 64
     detached = profiles.json_value(p)
     detached['arms'][0]['label'] = 'changed'
     assert p['arms'][0]['label'] != 'changed'

@@ -85,15 +85,13 @@ CYL = MP({'label': 'CylindricalViT', 'backbone': 'cylindrical', 'role': 'cyl', '
           'checkpoint': 'ckpt/xRIR_cyl_8_shot/epoch_12.pth',
           'sha256': '8ba344ad25d4a68f2ed7f22b4fb90e72b354fafe78b4d28d3eeeb6c1f8eab48e'})
 AUG = MP({'label': 'YawAugxRIR', 'backbone': 'simple', 'role': 'aug', 'epoch': 12,
-          'checkpoint': 'ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth', 'sha256': None})
+          'checkpoint': 'ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth'})
 COMMON = MP({'schema_version': 1, 'condition': 'P', 'alpha': .05, 'n_boot': 20000,
              'bootstrap_seeds': (0, 1), 'convergence_tolerance': .10,
              'seeds': REFERENCES, 'gl_seed_rule': 'gl_seed == eval seed',
              'dataset': MP({'split': 'unseen', 'n_queries': 6337, 'n_rooms': 17,
                  'query_sha256': 'c94225ce7d67a97f311e22aa351deb193ef27547ba6222a907120388ce06b170',
                  'inventory_sha256': '23c3d8f6a0f740f54cb7d5db5766a80e82c6a78d60c05744e7542529a86a3092'}),
-             'approved_closures': MP({'evaluator': None, 'writer': None,
-                                      'launcher': None, 'producer': None}),
              'max_samples': 0, 'batch_size': 16, 'tf32': False})
 H1 = MP({**COMMON, 'mode': 'two_arm', 'arms': (AUG, CONTROL), 'grid': (0,),
          'input_selection': 'standalone_k0', 'run_grids': MP({'aug': (0,), 'control': (0,)}),

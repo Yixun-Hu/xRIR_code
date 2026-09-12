@@ -227,8 +227,9 @@ def admission_fixture(tmp_path, monkeypatch):
                                   query_sha256=_canonical_digest(queries))
         frozen, entry, writer = [_closure(root, item) for item in ('frozen', 'entry', 'writer')]
         producer = {'sha256': 'a' * 64, 'files': [], 'commit': 'b' * 40}
-        profile['approved_closures'].update(evaluator=entry['sha256'], writer=writer['sha256'],
-                                            launcher=writer['sha256'], producer=producer['sha256'])
+        approved = dict(schema_version=1, closures=dict(evaluator=entry['sha256'],
+            writer=writer['sha256'], training_launcher=None,
+            producer_paired_compare=producer['sha256'], producer_results_table=None), checkpoints={})
         data_root = root / 'data'
         data_root.mkdir()
         (data_root / 'query.dat').write_bytes(b'fixture dataset bytes')
@@ -239,6 +240,13 @@ def admission_fixture(tmp_path, monkeypatch):
             checkpoint = root / (arm['role'] + '.pth')
             checkpoint.write_bytes(('fixture checkpoint ' + arm['role']).encode())
             arm.update(checkpoint=str(checkpoint), sha256=p.sha256_file(checkpoint))
+        approved['checkpoints']['aug'] = dict(path=profile['arms'][0]['checkpoint'],
+            epoch=12, sha256=profile['arms'][0]['sha256'])
+        approval_path = root / 'approved.json'
+        def approval():
+            _replace(approval_path, approved)
+            return approved, dict(path=str(approval_path), sha256=p.sha256_file(approval_path), git_blob='c' * 40)
+        monkeypatch.setattr(pc, 'load_approved_digests', approval)
         references = {}
         for seed in range(42, 47):
             reference = {'seed': seed, 'num_shot': profile['num_shot'], 'ir_root': str(data_root),
@@ -302,7 +310,7 @@ def admission_fixture(tmp_path, monkeypatch):
             argv += ['--runs-b'] + paths[1]
         argv += ['--json', str(output), '--summary', str(summary)]
         return SimpleNamespace(root=root, profile=profile, paths=paths, argv=argv, output=output,
-                               summary=summary, sidecar=Path(str(output) + '.provenance.json'))
+                               summary=summary, approved=approved, sidecar=Path(str(output) + '.provenance.json'))
     return build
 
 
@@ -334,7 +342,7 @@ def test_admission_happy_path(admission_fixture):
     assert p.sha256_file(fixture.output) in strings
     assert p.sha256_file(fixture.summary) in strings
     assert _canonical_digest(fixture.profile) in strings
-    assert fixture.profile['approved_closures']['producer'] in strings
+    assert fixture.approved['closures']['producer_paired_compare'] in strings
     for arm in fixture.paths:
         for run in arm:
             for filename in ('eval_manifest.json', 'per_sample_yaw.json', 'metrics_yaw.json',
@@ -420,13 +428,13 @@ def test_profile_cli_refuses_analytic_overrides(admission_fixture):
     _assert_no_outputs(fixture)
 
 
-@pytest.mark.parametrize('unapproved', ['evaluator', 'writer', 'launcher', 'producer', 'checkpoint'])
+@pytest.mark.parametrize('unapproved', ['evaluator', 'writer', 'producer_paired_compare', 'checkpoint'])
 def test_production_refuses_unapproved_identity(admission_fixture, unapproved):
     fixture = admission_fixture()
     if unapproved == 'checkpoint':
-        fixture.profile['arms'][0]['sha256'] = None
+        fixture.approved['checkpoints']['aug']['sha256'] = None
     else:
-        fixture.profile['approved_closures'][unapproved] = None
+        fixture.approved['closures'][unapproved] = None
     with pytest.raises(ValueError, match='approved|None|digest|sha256'):
         pc.main(fixture.argv)
     _assert_no_outputs(fixture)
@@ -533,10 +541,10 @@ def test_named_seed_means_and_descriptive_cells(admission_fixture):
             assert not cell['decision_driving'] and 'decision_bound' not in cell
 
 
-@pytest.mark.parametrize('role', ['evaluator', 'writer', 'launcher', 'producer'])
+@pytest.mark.parametrize('role', ['evaluator', 'writer', 'producer_paired_compare'])
 def test_run_claim_cannot_replace_an_approved_closure_pin(admission_fixture, role):
     fixture = admission_fixture()
-    fixture.profile['approved_closures'][role] = 'f' * 64
+    fixture.approved['closures'][role] = 'f' * 64
     with pytest.raises(ValueError, match=role + ' approved closure'):
         pc.main(fixture.argv)
     _assert_no_outputs(fixture)
@@ -549,3 +557,20 @@ def test_existing_summary_never_leaves_a_partial_json(admission_fixture):
         pc.main(fixture.argv)
     assert fixture.summary.read_text() == 'preserve me'
     assert not fixture.output.exists() and not fixture.sidecar.exists()
+
+
+def test_public_group_admission_and_null_exploratory(admission_fixture):
+    fixture = admission_fixture()
+    groups = [(arm, 8, paths) for arm, paths in zip(fixture.profile['arms'], fixture.paths)]
+    approved, receipt = pc.load_approved_digests()
+    run = pc.admit_run(groups[0][2][0], groups[0][0], 8, fixture.profile, approved)
+    assert run['meta']['manifest_seed'] == 42
+    admitted = pc.admit_runs(fixture.profile, groups)
+    assert admitted['approved_digests']['sha256'] == receipt['sha256']
+    fixture.approved['closures']['producer_paired_compare'] = None
+    fixture.approved['checkpoints']['aug']['sha256'] = None
+    result = pc.main(fixture.argv + ['--exploratory'])
+    assert any('producer_paired_compare' in item for item in result['deviations'])
+    assert any('aug checkpoint' in item for item in result['deviations'])
+    assert 'verdict' not in result
+    assert _read(fixture.sidecar)['approved_digests']['git_blob'] == receipt['git_blob']
