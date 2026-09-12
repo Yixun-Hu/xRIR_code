@@ -413,3 +413,182 @@ def admit_runs(profile, runs_a, runs_b=None, exploratory=False):
     return {'groups': groups, 'deviations': deviations, 'inputs': inputs, 'producer': producer}
 
 
+def _seed_summary(values, mask):
+    means = values[:, mask].mean(axis=1)
+    return {'per_seed': means.tolist(), 'mean': float(means.mean()),
+            'sd': float(means.std(ddof=1))}
+
+
+def _analyze_cell(profile, groups, metric, k):
+    h1 = profile['input_selection'] == 'standalone_k0'
+    one_arm = profile['mode'] == 'one_arm'
+    arrays = [np.asarray([r['P'][str(angle)][metric.lower()] for r in group], dtype=float)
+              for group in groups for angle in ((0,) if h1 else (0, k))]
+    labels = tuple(sorted(profile['seeds'][profile['num_shot']]))
+    mask, exclusions = (cell_mask(arrays[0], e0_b=arrays[1], seeds=labels) if h1 else
+                       cell_mask(*arrays, seeds=labels))
+    means = [five_seed_mean(array)[mask] for array in arrays]
+    rooms = rooms_from_paths(groups[0][0]['query'])[mask]
+    local = bonferroni_alpha(profile['family'], profile['alpha'])
+    def compute(seed, clusters=None):
+        kwargs = dict(n_boot=profile['n_boot'], seed=seed, clusters=clusters)
+        if h1:
+            return rho_bootstrap(*means, **kwargs)
+        if one_arm:
+            return tost_cell(*means, margin=profile['margin'], alpha_local=local, **kwargs)
+        return dk_bootstrap(*means, **kwargs)
+    seed0, seed1 = profile['bootstrap_seeds']
+    result = compute(seed0)
+    draws = {seed0: result.pop('samples')}
+    companion = two_sided_interval(draws[seed0], profile['companion_alpha'])
+    primary = metric in profile['metrics']['primary']
+    decision = primary or metric in profile['metrics']['supportive']
+    stride = 1 if h1 else 2
+    seed_means = {arm['role']: {str(angle): _seed_summary(arrays[i * stride + j], mask)
+                  for j, angle in enumerate((0,) if h1 else (0, k))}
+                  for i, arm in enumerate(profile['arms'])}
+    cell = {'metric': metric, 'k': k, 'degrees': signed_degrees(k), 'primary': primary,
+            'decision_driving': decision, 'mask': mask.tolist(), 'exclusions': exclusions,
+            'seed_labels': list(labels), 'seed_means': seed_means,
+            'estimate': result['rho' if h1 else 'r' if one_arm else 'd'],
+            'alpha_local': local, 'companion_interval': list(companion)}
+    cluster = compute(seed0, rooms)
+    cell['room_cluster_interval'] = list(two_sided_interval(cluster['samples'], profile['companion_alpha']))
+    cell['n_rooms_retained'] = len(set(rooms))
+    cell['convergence'] = {}
+    if decision:
+        cell['decision_bound'] = one_sided_upper(draws[seed0], local)
+        draws[seed1] = compute(seed1)['samples']
+        def gate(alpha):
+            return convergence(lambda seed: two_sided_interval(draws[seed], alpha),
+                               seed0, seed1, profile['convergence_tolerance'])
+        cell['convergence']['decision'] = gate(profile['companion_alpha'])
+        if h1:
+            cell['superiority_interval'] = list(two_sided_interval(draws[seed0], profile['superiority_alpha']))
+            cell['convergence']['superiority'] = gate(profile['superiority_alpha'])
+    if not h1 and not one_arm:
+        cell.update(r_a=result['r_a'], r_b=result['r_b'])
+    return cell
+
+
+def analyze(profile, admitted, exploratory=False):
+    """Use profile-only analytic settings; every canonical decision must converge."""
+    groups = admitted['groups']
+    result = {'schema_version': 1, 'exploratory': exploratory, 'profile': json_value(profile),
+              'profile_digest': _digest(profile), 'inputs': admitted['inputs'],
+              'deviations': list(admitted['deviations']), 'cells': []}
+    flat = [r for group in groups for r in group]
+    paired = all(len(group) == 5 for group in groups) and flat and all(
+        r['query'] == flat[0]['query'] and r['index'] == flat[0]['index'] for r in flat)
+    if not paired:
+        if not exploratory:
+            raise ValueError('five-seed pairing unavailable')
+        result['deviations'].append('analysis unavailable: five-seed query pairing')
+        return result
+    metrics = sum((tuple(profile['metrics'][kind]) for kind in ('primary', 'supportive', 'descriptive')), ())
+    for metric in metrics:
+        for k in profile['grid']:
+            try:
+                result['cells'].append(_analyze_cell(profile, groups, metric, k))
+            except (KeyError, ValueError, TypeError) as error:
+                if not exploratory:
+                    raise ValueError('{} k={}: {}'.format(metric, k, error)) from error
+                result['deviations'].append('{} k={}: {}'.format(metric, k, error))
+    failed = ['{} k={} {}'.format(cell['metric'], cell['k'], name)
+              for cell in result['cells'] for name, gate in cell['convergence'].items()
+              if not gate['passed']]
+    if failed:
+        if not exploratory:
+            raise ValueError('convergence gate failed: ' + ', '.join(failed))
+        result['deviations'].append('convergence gate failed: ' + ', '.join(failed))
+    if not exploratory:
+        cells = [cell for cell in result['cells'] if cell['decision_driving']]
+        if profile['input_selection'] == 'standalone_k0':
+            bounds = {c['metric']: c['decision_bound'] for c in cells}
+            result['verdict'] = h1_verdict(bounds['EDT'], bounds['C50'], profile['margin'])
+            for cell in cells:
+                cell['superiority'] = superiority(cell['superiority_interval'][1])
+        elif profile['mode'] == 'two_arm':
+            result['verdict'] = h2_verdict([c['decision_bound'] for c in cells if c['primary']])
+        else:
+            for cell in cells:
+                cell['verdict'] = tost_verdict(*cell['companion_interval'], margin=profile['margin'])
+    return result
+
+
+def _safe_json(value):
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _safe_json(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_safe_json(item) for item in value]
+    return value
+
+
+def render_summary(result):
+    label = 'EXPLORATORY' if result['exploratory'] else 'CONFIRMATORY'
+    lines = [label + ' ' + result['profile_name'], 'Profile sha256: ' + result['profile_digest']]
+    for cell in result['cells']:
+        text = '{} k={}: estimate={:.8g}, upper={:.8g}, companion={}, rooms={}, n={}'.format(
+            cell['metric'], cell['k'], cell['estimate'], cell['companion_interval'][1],
+            cell['companion_interval'], cell['room_cluster_interval'], cell['exclusions']['joint']['valid'])
+        lines.append(text + ('; ' + cell['verdict'] if 'verdict' in cell else ''))
+    if 'verdict' in result:
+        lines.append(result['verdict'])
+    lines.extend('Deviation: ' + item for item in result['deviations'])
+    return '\n'.join(lines) + '\n'
+
+
+def write_outputs(result, admitted, json_path, summary_path):
+    """Exclusive creation; the last sidecar binds inputs and both completed outputs."""
+    paths = [Path(json_path), Path(summary_path), Path(str(json_path) + '.provenance.json')]
+    if len({p.resolve() for p in paths}) != 3 or any(os.path.lexists(p) for p in paths):
+        raise FileExistsError('output paths must be distinct and absent')
+    text = render_summary(result).encode()
+    data = (json.dumps(_safe_json(result), sort_keys=True, indent=2, allow_nan=False) + '\n').encode()
+    sidecar = {'schema_version': 1, 'exploratory': result['exploratory'], 'inputs': admitted['inputs'],
+               'profile_digest': result['profile_digest'], 'producer': admitted['producer'],
+               'outputs': {str(paths[0].resolve()): hashlib.sha256(data).hexdigest(),
+                           str(paths[1].resolve()): hashlib.sha256(text).hexdigest()}}
+    receipt = (json.dumps(sidecar, sort_keys=True, indent=2, allow_nan=False) + '\n').encode()
+    # Recheck input bytes after bootstrapping, before creating any artefact.
+    for path, digest in admitted['inputs'].items():
+        if provenance.sha256_file(path) != digest:
+            raise ValueError('input changed during analysis: ' + path)
+    created = []
+    try:
+        for path, payload in zip(paths, (data, text, receipt)):
+            with path.open('xb') as stream:
+                created.append(path)
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+    except BaseException:
+        for path in created:
+            path.unlink()
+        raise
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description='Profile-bound exp_04 paired comparisons')
+    parser.add_argument('--profile', choices=('H1_K8', 'H1_K1', 'H2_K8', 'TOST_K8'), required=True)
+    parser.add_argument('--runs-a', nargs='+', required=True)
+    parser.add_argument('--runs-b', nargs='+')
+    parser.add_argument('--json', required=True)
+    parser.add_argument('--summary', required=True)
+    parser.add_argument('--exploratory', action='store_true')
+    args = parser.parse_args(argv)
+    profile = get_profile(args.profile)
+    admitted = admit_runs(profile, args.runs_a, args.runs_b, args.exploratory)
+    result = analyze(profile, admitted, args.exploratory)
+    result['profile_name'] = args.profile
+    write_outputs(result, admitted, args.json, args.summary)
+    return result
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (ValueError, OSError) as error:
+        raise SystemExit(str(error))
