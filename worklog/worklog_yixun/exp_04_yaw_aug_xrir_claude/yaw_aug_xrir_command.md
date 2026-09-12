@@ -60,3 +60,19 @@ export PYTHONHASHSEED=0 OMP_NUM_THREADS=2 NUMBA_CACHE_DIR=/tmp/xrir_numba_cache
 ```
 
 `/tmp/exp04_closeout_gpu1/sitecustomize.py` selects `torch.cuda.set_device(1)` while retaining both visible GPUs for the exp_03 record check. Log: `/tmp/exp04_closeout_full_suite.log`.
+
+## Rounds 2-fix … 3b-fix (Codex gpt-6-astra) and Fable reviews (2026-09-12 16:31 → 19:01)
+```bash
+codex exec -s workspace-write -C $(pwd) --skip-git-repo-check "$(cat …/coder_prompts/<round>_prompt.md)" < /dev/null   # rounds: round2_fix, round3a, round3b, round3a_fix, round4, round3b_fix, round5 — one log each, yaw_aug_xrir_<ts>_coder_<round>.log
+# Fable 5.1 reviews: Agent tool (model fable) with review_prompts/code_review_briefing.md; outputs yaw_aug_xrir_fable_code_<round>_review.md
+```
+
+## Validation ladder rung 4 — 50-batch alignment audit (2026-09-12 19:02, HEAD f7596c0, GPU 1 shared with the FLAC job; correctness only)
+```bash
+PYTHONHASHSEED=0 OMP_NUM_THREADS=2 CUDA_VISIBLE_DEVICES=1 python -m tools.yaw_aug --audit --n-batches 50 --batch-size 32 --seed 0 --num-workers 12 --out ckpt/yaw_aug/alignment_audit.json   # log yaw_aug_xrir_2026-09-12_19:02:15_rung4_alignment_audit.log
+```
+
+## Planner kernel benchmark (2026-09-12 17:5x, GPU 1 shared)
+```bash
+CUDA_VISIBLE_DEVICES=1 python worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results_assets/planner_bench_rotation.py
+```

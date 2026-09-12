@@ -1,0 +1,1315 @@
+Reading additional input from stdin...
+OpenAI Codex v0.154.0
+--------
+workdir: /home/yixunhu/codespace/xRIR_code
+model: gpt-6-astra
+provider: openai
+approval: on-request
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: ultra
+reasoning summaries: none
+session id: 01a097ff-3bb8-7163-8c08-782e6811e446
+--------
+user
+You are the Coder (OpenAI Codex) for experiment exp_04 "yaw_aug_xrir" in /home/yixunhu/codespace/xRIR_code (branch main). Round 6 = pre-launch hardening: close the non-blocking items of the Fable round-3b close-out review worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round3b_close_review.md (findings 1–9; read it in full, its "Verified" section shows the reproductions) and of the Fable round-5 review yaw_aug_xrir_fable_code_round5_review.md (read it in full; its findings are listed at the end of this prompt if any). Also read plan §11 (A1–A10; A10 is the Planner decision answering the 3b close-out finding 4), the notebook, and the launcher/producer code. Environment: /home/yixunhu/miniconda3/envs/xRIR/bin/python (Python 3.8), `export PYTHONPATH=$PYTHONPATH:/home/yixunhu/codespace/xRIR_code`, `export XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms`; GPU work only on `CUDA_VISIBLE_DEVICES=1`; never run `full`; the full suite once at the end with both GPUs visible. Never edit exp_03's pinned closure files. TDD, one commit per cycle, < 200 changed lines per commit, trailer `Co-Authored-By: OpenAI Codex gpt-6-astra <noreply@openai.com>`, add only the files you changed, no ckpt/ or worklog/ files (except `approved_digests.json` if a schema fix is needed), no push, never amend/rebase/reset.
+
+Cycle 1 — launcher robustness (3b close-out findings 1–3, 5): (1) the abort path is idempotent and signal-safe: a second SIGTERM/SIGHUP during the abort is deferred (block the signals while renaming/accounting, or make every step re-entrant) so the attempt is always renamed with `abort.json` and hours accounted — test by sending two signals in quick succession; (2) `termination_handlers` must not override an inherited `SIG_IGN` (respect `nohup`): install a handler only when the current disposition is not `SIG_IGN`, and document that the certified invocation is `nohup setsid …`; (3) `finalize` refuses a fabricated attempt: require `repo == REPO`, the golden command, the closure minimum (plan §4), a 40-hex `reviewed_commit`, all required bindings, and a `child_pgid` that the launcher echoed into the launcher log at spawn (`execution.json` must match the log line); test with the review's fabricated-attempt recipe → refused; (5) SIGINT aborts are labelled `terminated_SIGINT`, not `child_failed`.
+
+Cycle 2 — A10 and nits 6–9: (A10) on successful `finalize` the attempt is renamed back to `attempt_<ts>`, `completion.recovered_from` records the `_ABORTED_<reason>` name, `abort.json` content and recovery timestamp, and `final` never points at an `_ABORTED_` directory (test); (6) `--gpu` regains `choices=(0, 1)` (or validates against `nvidia-smi -L`); (7) drop the duplicate flag (keep `allow_dirty_used` in the record; derive it, do not accept it as input); (8) post-validation failures use `output_invalid` (the eval launcher's name) consistently; (9) legacy `cumulative_hours.json` rows without `mode` are refused (the file is regenerated from the current attempts if needed — say so in the report), no name-based inference.
+
+Cycle 3 — round-5 carried items: (should-fix 1, Planner decision: fail closed) `results_table` refuses to regenerate when a generated block's stamp does not verify — `ValueError('generated block was edited by hand; move your notes below the end marker and rerun')` — never salvaging an edited block; the test `test_manual_edit_inside_generated_block_survives` is replaced by a refusal test; (should-fix 2) iterate over every BEGIN…END pair and refuse when more than one generated block is present or a manual note quotes the marker text (no unbounded growth; test three regenerations are byte-stable); (should-fix 3) `admit_run` requires `{'train_manifest', 'train_completion'} <= set(mutable_inputs)` for the aug arm (and documents that the aug evaluation launches must pass both `--bind-input`s); nits 4 (K = 8 rows before K = 1), 5 (protocol paragraph rendered from the JSON's profile fields), 6 (header states the 6-significant-digit rounding and that the JSON is canonical), 7 (check the pins before role mapping so the refusal names the cause), 8 (absolutise `--runs` in `generation_command` or record cwd), 11 (`KeyError` at the CLI boundary), 12 (`load_approved_digests` requires all-null or all-filled), 13 (remove the tautological `require(path not in inputs …)` check or make it real); also round-4 nits 9 (`paired_compare.write_outputs` temp + `os.replace` like `results_table`) and 14 (`_quantile` accepts the tail directly).
+
+After each cycle run the touched tests; at the end `python -m pytest tests -q -p no:cacheprovider` (both GPUs visible), `python -m py_compile` on changed files, `bash -n tools/exp04_launch.sh`, `git diff --check`. Finish by printing the commit SHAs, per-commit line counts, test counts, and any spec/code discrepancy (report rather than guess).
+codex
+I’ll read both reviews, plan §11, the notebook, and the launcher/producer code, then work through three TDD cycles with a separate commit for each. I’ll keep exp_03’s pinned files untouched and run the full test suite once at the end.
+
+
+exec
+/bin/bash -lc "pwd; git status --short; rg --files -g 'AGENTS.md' -g '*yaw_aug_xrir*' -g '*exp04*' -g '*paired_compare*' -g '*results_table*' -g '*approved_digest*' -g '*.ipynb'" in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+/home/yixunhu/codespace/xRIR_code
+ M worklog/worklog_yixun/exp_01_cylvit_vs_simplevit_claude/commits_cylvit_vs_simplevit.md
+ M worklog/worklog_yixun/exp_02_sim2real_transfer_claude/commits_sim2real_transfer.md
+ M worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/coder_prompts/round3b_fix_prompt.md
+ M worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/coder_prompts/round5_prompt.md
+ M worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/plan_yaw_aug_xrir.md
+ M worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_18:11:16_coder_round4.log
+ M worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_command.md
+ M worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_worklog.md
+?? worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/coder_prompts/round6_prompt.md
+?? worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_18:33:40_coder_round3bfix.log
+?? worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_19:01:02_coder_round5.log
+?? worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_19:02:15_rung4_alignment_audit.log
+?? worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_19:41:21_coder_round6.log
+?? worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round3a_close_review.md
+?? worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round3b_close_review.md
+?? worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round4_review.md
+?? worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round5_review.md
+tests/test_exp04_eval.py
+tests/test_exp04_probe.py
+tools/exp04_profiles.py
+tools/paired_compare.py
+tools/exp04_probe.py
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_19:41:21_coder_round6.log
+tools/exp04_launch.sh
+tools/exp04_launcher.py
+tools/exp04_eval_launch.py
+tools/results_table.py
+tools/exp04_eval.py
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_19:01:02_coder_round5.log
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round2_review.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/plan_yaw_aug_xrir.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_17:21:05_coder_round3b.log
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_17:02:51_coder_round3a.log
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/commits_yaw_aug_xrir.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round3b_review.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round2_close_review.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_codex_plan_round3_review.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_15:05:25_coder_round1.log
+tests/test_exp04_profiles.py
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_18:11:16_coder_round4.log
+tests/test_paired_compare.py
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round3a_close_review.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_round2_closeout_full_suite.log
+tests/test_exp04_recovery.py
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round3a_review.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round5_review.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_17:52:50_coder_round3afix.log
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/plan_yaw_aug_xrir_v2_superseded.md
+tests/test_results_table.py
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_command.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_15:43:21_coder_round2.log
+tests/test_exp04_eval_launch.py
+tests/test_exp04_launcher.py
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_yixun_query.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_codex_plan_round2_review.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_round2_closeout_rung5.log
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_codex_plan_v4_verification.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/plan_yaw_aug_xrir_v1_superseded.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round3b_close_review.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_worklog.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/plan_yaw_aug_xrir_v3_superseded.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_15:50:01_full_suite.log
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round1_review.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_15:19:31_coder_round1b.log
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_15:50:01_audit_smoke.log
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_19:02:15_rung4_alignment_audit.log
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_16:31:31_coder_round2fix.log
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_18:33:40_coder_round3bfix.log
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_codex_plan_review.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round4_review.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results_assets/approved_digests.json
+
+exec
+/bin/bash -lc 'cat worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round5_review.md' in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+**Reviewer:** Claude Fable 5.1 (Agent subagent, model fable) · **Date:** 2026-09-12
+
+# exp_04 yaw_aug_xrir — Coder round 5 code review (A9 refactor, carried round-4 items, `tools/results_table.py`, living-table template)
+
+**Scope.** The nine Codex commits `d750597, fcde688, 310604f, e9e2cdd, 59e62fa, a30d67d, e16f2f3, a2a0b8b, be5830d` (`f7596c0..be5830d`: 836 insertions / 67 deletions over `tools/exp04_profiles.py` (+54), `tools/paired_compare.py` (+150/−49), `tools/results_table.py` (new, 232), `tests/test_exp04_profiles.py`, `tests/test_paired_compare.py`, `tests/test_results_table.py` (new, 227) and the new record-folder file `yaw_aug_xrir_results_assets/approved_digests.json`). Specification: `coder_prompts/round5_prompt.md` (cycle 0 = A9 + round-4 carried items; cycles 1–2 = results table + template), plan v4 §3 (estimand basis), §4 "canonical input selection", §5 row `tools/results_table.py`, §8, §11 A1–A9 (A9's settled schema), the Fable round-4 review (findings 1–15), the notebook entries 18:33–19:25 and the Coder transcript `yaw_aug_xrir_2026-09-12_19:01:02_coder_round5.log` (final report: 748 passed, tolerance 2 queries, all-null template with `schema_version: null`). Context read first: `worklog/experiment_SOP.md`, the plan, the notebook, exp_03's record conventions, `tools/exp04_eval_launch.py::build_fields` at `be5830d` (the run layout the producers consume), `tools/provenance.py`.
+
+**Method.** All reading and execution on an isolated clone at `be5830d` (`<scratchpad>/r5/r5_clone`, with `ckpt/{yaw_aug,xRIR_simple_8_shot,xRIR_cyl_8_shot,yaw_rotation}` and `checkpoints/` symlinked in read-only), a second clone at `b42b559` for the before/after comparison and a throwaway third clone for the tamper probes that commit. No tracked file of the real repository was modified; this review is the only file created there. I re-derived the table aggregation by hand in pure Python from the raw run files, replayed the round-4 producer on the same synthetic runs, attacked admission with 17 mutations beyond the Coder's, and tampered with the approved-digests JSON in six ways.
+
+## Summary verdict
+
+**Approve with changes** (no blocking findings). The A9 refactor is correct and decoupled (the JSON is in no import-derived closure; a JSON commit leaves both producer digests unchanged; every tamper variant is refused; exploratory runs list each null pin and carry no verdict). All six round-4 should-fix items and the four requested nits are closed with evidence. `results_table.py` admits only through the shared helpers, its numbers equal an independent hand computation on 6 rows × 5 metrics, the Markdown is rendered from the JSON alone and reproduces byte-for-byte, every mutation I tried is refused with nothing written, and the `b42b559 → be5830d` refactor leaves every H1/H2/TOST cell numerically identical (0 differing fields over 36 cells). The three should-fix items below concern the living-table salvage policy (a hand-edited number is carried forward verbatim, which plan §5 forbids in spirit) and one provenance requirement the producers do not yet enforce for the augmented arm; none affects the numbers.
+
+## Findings
+
+### Should-fix
+
+**1. `tools/results_table.py:136-152` — an edited generated block is salvaged verbatim into `## Manual`, so a hand-edited number survives regeneration (as a stale second table).**
+`_preserve_manual` recomputes the block's stamp; on mismatch it moves the *entire* old block (minus the stamp and markers) under `## Manual`. Verified: after replacing `1363.75 ± 15.8114` by `999.999 ± 0.001` inside the generated table and regenerating with `--force-md`, the generated block carries the JSON value (good), but the file now also contains, under `## Manual`, a second `# Model comparison` heading, the estimand paragraph and the full six-row table with `999.999 ± 0.001` — and this persists through every later regeneration (count stays 1, never removed). `be5830d`'s own test `test_manual_edit_inside_generated_block_survives` asserts exactly this behaviour. Plan §5 says "numbers never hand-edited"; the round-5 prompt asked to preserve "rows/notes that are **not produced by this tool**". A stale, unlabelled copy of the tool's table with a hand-edited cell is neither. *Fix (choose one, ~10 lines):* (a) fail closed — on stamp mismatch raise `ValueError('generated block was edited by hand; move your notes below the end marker and rerun')`, which is consistent with every other refusal in this pipeline; or (b) if salvage is wanted, wrap the salvaged text in an explicit marker (`<!-- salvaged from an edited generated block; these numbers are NOT canonical -->`), drop its `# Model comparison` heading and its table rows, and keep only prose. Update the test to the chosen policy.
+
+**2. `tools/results_table.py:140` — a file with two generated blocks grows without bound.**
+The salvage branch runs only when `count(BEGIN) == count(END) == 1`; otherwise the whole previous text (including the old stamped blocks) is treated as manual and a fresh block is prepended. Measured on a file where the generated block had been pasted twice: 15 023 → 22 551 → 30 079 → 37 607 bytes over three `--force-md` regenerations, BEGIN markers 2 → 5. The same happens if a manual note quotes the marker text. *Fix:* iterate over every `BEGIN…END` pair, drop each one whose stamp verifies, apply finding 1's policy to the rest; or refuse when more than one block is present.
+
+**3. `tools/paired_compare.py:311-312, 362-363` — the augmented arm is admitted without its training provenance bound.**
+A9 (plan §11) says the training launcher "is recorded, not compared — its identity reaches the analysis through the augmented checkpoint's sha256 **and the train completion bound as `mutable_inputs.train_completion`**". `admit_run` validates the *names* in `mutable_inputs` (⊆ {control_args, train_manifest, train_completion, probe_receipt}) and binds whatever is present, but `mutable_inputs == {}` is accepted for an aug run. The eval launcher only binds what the operator passes on the command line (`tools/exp04_eval_launch.py:214-220`, `--bind-input name=path`), so an aug evaluation launched without `--bind-input train_manifest=… --bind-input train_completion=…` is admitted with no link to the attempt that produced the checkpoint. *Fix (3 lines):* in `admit_run`, `if arm['role'] == 'aug': require({'train_manifest', 'train_completion'} <= set(fields['mutable_inputs']), 'aug train provenance binding')`, plus a test; and the Planner's eval-launch command for the aug arm must pass both bindings (see "Fitness" below).
+
+### Nits
+
+**4. `results_table.py:32`** rows come out K = 1 before K = 8 for each arm; the plan's table and the prompt list K = 8 first (`sorted(profile['num_shot'], reverse=True)`).
+**5. `results_table.py:124-126`** the "Protocol" paragraph hard-codes "canonical batch 16, and TF32 off. max_samples = 0" as literal text instead of rendering `result['profile']['batch_size'] / tf32 / max_samples`; the per-row protocol column *is* rendered from the JSON. If a later profile version changed any of them the paragraph would lie.
+**6. `results_table.py:117`** Markdown cells are `{:.6g}`; say "rounded to 6 significant digits; the JSON is canonical" in the header line.
+**7. `results_table.py:38-41`** with a null aug sha256 an aug run is refused as "checkpoint/num_shot does not map to a TABLE_V1 role" (verified on the real CLI) rather than "profile not yet approved: aug checkpoint"; check the pins before role mapping so the message names the cause.
+**8. `results_table.py:224`** `generation_command` records `--runs` exactly as typed (relative paths if given relative); absolutise or record the cwd in the sidecar.
+**9. `results_table.py:150-151`** only a *leading* `## Manual` is de-duplicated: a legacy file whose own `## Manual` sits mid-text gets two headings (probe `test_legacy_file_and_manual_heading`). Harmless.
+**10. Canonical JSON size.** `inputs` carries every bound path, including the 13 318-file data inventory (≈2.5 MB on the real split) — same in `paired_compare`'s JSON. Acceptable; the sidecar already holds it, so the result JSON could keep only run/producer/approved digests.
+**11. `results_table.py:229-232`, `paired_compare.py:652-656`** `KeyError` (e.g. a hand-made JSON lacking `finite_count_tolerance` given to the renderer) escapes as a traceback; add it to the handler.
+**12. `exp04_profiles.load_approved_digests`** accepts a mixed JSON (`schema_version: 1` with null pins, or `schema_version: null` with filled pins). Production is still refused through `admit_runs` (`approval schema_version` and each pin are in `required`), so no hole; requiring all-null or all-filled would keep the template semantics crisp.
+**13. `paired_compare.py:285-287`** `require(path not in inputs or inputs[path] == actual, 'input changed …')` is now tautological (`actual` is read from the cache when present) — dead check. Change detection rests on the `data_stats` stamps and `recheck_inputs` at publish, which is sound (a same-size, mtime-restored rewrite is caught through ctime; verified in both producers).
+
+## Round-4 carried items — closure evidence
+
+| # | Item | Evidence at `be5830d` |
+|---|---|---|
+| 1 | launcher pin semantics | `admit_run:326-327` compares only `('evaluator','entrypoint')` and `('writer','writer')`; `training_launcher` is a JSON key that is recorded (sidecar `approved_digests.pins`) and never compared; docstring line 269 states it. |
+| 2 | exclusion keys by role | `_analyze_cell:470-471` remaps `a/b → profile arm roles`; `cell_mask:108` keys per-seed counts by `str(seed)`; test `test_named_seed_means_and_descriptive_cells` asserts `{'aug','control','joint'}`; old-vs-new replay shows the remapped dicts equal the old `a/b` dicts. |
+| 3 | public `admit_run`/`admit_runs` with explicit `num_shot` | `admit_run(run_dir, arm, num_shot, profile, approved, …)` and `admit_runs(profile, groups=[(arm, num_shot, dirs)…], approved, exploratory, producer, producer_key)`; `results_table.build_table` builds six `(arm, K)` groups and calls the same helper (no duplicated admission code — `results_table.py` imports `admit_runs, producer_identity, recheck_inputs`). |
+| 4 | `confirmatory` + named `mutable_inputs` | `admit_run:308-312` requires `confirmatory is True` and `allow_dirty_used is False` in **both** manifest and completion, names ⊆ the four identifiers; `run_flags` recorded per run in both sidecars; tests `test_admission_flags_and_binding_names` (5 params), `test_completion_flags_and_recorded_dirty_usage`. |
+| 5 | two producer keys + aug sha256 in JSON | JSON schema `closures.{evaluator, writer, training_launcher, producer_paired_compare, producer_results_table}`, `checkpoints.aug.{path, epoch, sha256}`; `AUG` profile entry has no `sha256`; `admit_run:330` takes the aug sha256 from the JSON; `admit_runs` compares only its own `producer_key`. |
+| 6 | exploratory with unapproved pins | `admit_runs:425-426` turns each null pin into a deviation; real CLI with the committed all-null JSON: production exit 1 with "profile not yet approved: evaluator; writer; producer_paired_compare; aug checkpoint; aug checkpoint path; aug checkpoint epoch; approval schema_version", nothing written; `--exploratory` exit 0, JSON/summary/sidecar written, the seven null-pin deviations listed, no `verdict` key anywhere. |
+| 7 (nit) | double hashing | `bind` reads the cache; `revalidate` is called with `data_identity` popped; inventory hashed once per analysis with stat stamps (`data_stats`) and re-stamped at publish; test `test_data_hashed_once_and_mutation_still_refused` (hash count 1, mutation refused). |
+| 10 (nit) | seed sort | `admit_runs:444` sorts by `int(manifest_seed)`. |
+| 11 (nit) | `RuntimeError` in `__main__` | `paired_compare.py:655` and `results_table.py:231` catch it; test `test_cli_runtime_error_is_concise`. |
+| 12 (nit) | CLI help | `--runs-a` "First profile arm: aug", `--runs-b` "Second profile arm: control (H1/H2 only)". |
+| 13 (nit) | fixture realism | `admission_fixture(shifted=True)`: aug = control × (1.01 + N(0, .003)); `test_shifted_noisy_fixture_through_main` asserts non-zero widths, ratio in (0, .1], no superiority. |
+| 15 (nit) | profile test | `approved_closures` removed from `COMMON`; `test_profiles_frozen_and_typed` asserts its absence. |
+
+Nits 8, 9 and 14 of round 4 were not in this round's scope and remain open (summary terseness, `xb`+fsync vs temp+replace in `paired_compare.write_outputs` — `results_table` already uses temp + link/replace —, Decimal tail spelling).
+
+## Verified (commands on the isolated clones; `PYTHONPATH=<clone>`, `XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms`, Python 3.8.20, CPU unless stated)
+
+**A9 loader and closures.**
+- `provenance.source_closure` at `be5830d`: `tools.paired_compare` → `{exp04_profiles, paired_compare, paired_stats, provenance, reference_manifest, summarize_yaw, treble_xRIR_dataset, spec_utils}`; `tools.results_table` → the same plus `results_table.py`; `tools.exp04_eval` (14 files) and `tools.exp04_eval_launch` (15) and `tools.exp04_launcher` (`exp04_launcher.py, provenance.py`). **`approved_digests.json` appears in none** (asserted programmatically).
+- `load_approved_digests()` on the committed template → all-null frozen `mappingproxy` (recursive), identity `{path, sha256 c9ddca5f…, git_blob 1999ae52…}`; `git_blob` equals `git rev-parse HEAD:<path>`; item assignment raises `TypeError`.
+- Tamper probes (throwaway clone): trailing newline (uncommitted) → "differ from committed HEAD bytes"; uncommitted evaluator pin → same; extra top-level key → "schema: expected schema_version, closures, checkpoints"; `{` → `JSONDecodeError`; **committed** `'ZZ'*32` pin → "schema: invalid pin type or value"; committed fully-filled JSON (schema 1, five 64-hex closures, aug path/epoch/sha256) → accepted, blob id matches. The Coder's schema tests cover 9 more malformed shapes (`test_approval_schema_refuses_malformed_values`).
+- Decoupling: `producer_identity('tools.paired_compare')` = `c21717ad152dbcb97ed78d98b275e61d32375b1f956b8269f7ff6ac373e53dbe`, `producer_identity('tools.results_table')` = `3c766eb617fe955c5aeb383c9b98f623b61ddd11f761e8c0f52219231d8ec4d5` at `be5830d`, **unchanged after committing a filled JSON** (so the fill sequence "compute producer closures → fill JSON → commit" is sound and the aug sha256 pin no longer touches any closure).
+- Sidecars: both producers write `approved_digests: {path, sha256, git_blob, pins}` and put the JSON's path→sha256 into `inputs` (result JSON and sidecar); `recheck_inputs` rehashes it at publish.
+
+**`results_table.py` (`probes/test_r5_table_probe.py`, 29 probes, 28 as expected + 1 documenting nit 9).**
+- Hand computation: from the raw `per_sample_yaw.json` files of the 30-run fixture (3 roles × K ∈ {1, 8} × seeds 42–46, 12 queries), per-seed finite means × scale, five-seed mean and sample SD (ddof = 1) in pure Python equal `build_table`'s values to 1e-12 on all 6 rows × 5 metrics; per-seed `n_finite` equal; row set = {control, cyl, aug} × {1, 8}; first row EDT `1363.75 ± 15.8114` ms (= (1 + 5.5/16 + .02) × 1000, SD of {0, 10, 20, 30, 40}/… ). Role/K scaling probe (control ×1, cyl ×2, aug ×3; +10 at K = 8) recovered in every row → no row mix-up.
+- Units: `tools/per_sample_metrics.py:124-125` — `t60` is already `|ΔT60|/T60(gt) × 100` (%), `edt` in seconds (× 1000 → ms), `c50` in dB; `METRICS` maps them accordingly; `stft/decay/consistency` validated but not columns; unknown name (`spectral_flux`) → "unknown metric names"; one run lacking `loss` → "metric coverage differs across seeds"; all runs lacking `loss` → column absent, rendered "—".
+- Tolerance: pinned `finite_count_tolerance: 2` in `TABLE_V1` (inside the profile digest `be0449f5…`) and rendered in the Markdown; 3 non-finite in one seed → "finite count tolerance exceeded"; 2 in seed 42 and 1 in seed 43 → accepted with `n_finite` 10/11 and each seed mean over **its own** finite set (hand-checked); 12 → "zero finite queries".
+- Refusals, nothing written (17 mutations): per-sample value without rebind → digest; completion output digest → digest; checkpoint sha256 → "does not map to a TABLE_V1 role"; `gl_seed ≠ seed` → `gl_seed`; seed 47 → seed set; `tf32`, `batch_size 8`, `max_samples 12`, `conditions PE`, `confirmatory false`, `allow_dirty_used true` → each named; per-sample changed with stale aggregate → reconciliation; same directory twice → "cyl seed set"; swapped queries → order; K flipped in the manifest → seed set + reference seed/num_shot; evaluator pin altered → "evaluator approved closure"; cyl run relabelled as control → refused. Also: null `producer_results_table` → "profile not yet approved: producer_results_table"; a symlink at the JSON path → `FileExistsError`; `--md` equal to `--json` → refused; a data file rewritten (same size, mtime restored) between admission and publish → "input changed", nothing written. Legitimate change with full rebind → accepted and the affected seed/row move by exactly the injected amount.
+- Outputs: JSON has `schema_version`, `profile`, `profile_digest`, `inputs`, `producer_closure_sha256`, `rows` and **no timestamp** (`generated_at` only in the sidecar); Markdown numbers parsed back from the table equal the JSON's to 6 significant digits on every cell; protocol column "K = 8; unseen; 12 queries; 5 seeds; epoch 12; P; k = 0; batch 16; TF32 off"; `render_markdown(json_path)` with the run directories deleted reproduces the published Markdown byte-for-byte; sidecar `outputs` = sha256 of both files; tampered JSON → "canonical JSON digest mismatch". Idempotence: two generations → byte-identical JSON (Coder's test, re-run); `--force-md` overwrites only the Markdown, the JSON path stays exclusive; render failure or sidecar failure → JSON removed and the previous Markdown restored (Coder's tests).
+- Real CLI (`python tools/results_table.py … --profile TABLE_V1`) with the committed null JSON on the fixture runs: exit 1, "checkpoint/num_shot does not map to a TABLE_V1 role: …/aug_42" (nit 7), nothing written.
+- Living-table salvage: findings 1–2 and nit 9 (measured above); a legacy file without markers is preserved whole under `## Manual` after the generated block; a pristine block + manual section is idempotent.
+
+**`paired_compare.py` before/after (`probes/old_driver.py`).** The shifted five-seed fixture built with the new code (`H1_K8`, `H2_K8`, `TOST_K8`) was analysed by the new `main` and by the `b42b559` `admit_runs`/`analyze` (profile given the old `approved_closures` block; `launcher := writer`). Per cell, `estimate, companion_interval, decision_bound, superiority_interval, room_cluster_interval, n_rooms_retained, mask, alpha_local, seed_means, verdict, superiority, r_a, r_b`, both convergence gates and the exclusions (old `a/b/joint` vs new role keys): **0 differing fields over 3 + 12 + 21 cells**; verdicts `non-inferior` / `not supported` / per-cell TOST unchanged. Statistics region (`paired_compare.py:26-227`) differs from `f7596c0` only by `str(seed)` keying; `_analyze_cell` by the two remap lines.
+
+**Hygiene.** `git diff --name-only 62c9107..be5830d -- <nine pinned exp_03 files>` → empty; `f7596c0..be5830d -- tools/paired_stats.py tools/summarize_yaw.py` → empty; the nine commits touch only the seven allowed files; `git diff --check f7596c0..be5830d` clean; changed lines per commit 119 / 145 / 94 / 84 / 182 / 160 / 18 / 110 / 29 (all < 200; the Coder's numbers reproduced); every commit carries `Co-Authored-By: OpenAI Codex gpt-6-astra <noreply@openai.com>`; `python -m py_compile` on the six `.py` files OK (3.8.20). Focused: `pytest tests/test_exp04_profiles.py tests/test_paired_compare.py tests/test_results_table.py -q` → **119 passed**. Full suite on the clone with both GPUs visible (`nice -n 15`, the user's FLAC job at 100 % on both cards untouched): **748 passed, 0 failed, 0 skipped in 514.9 s (`pytest tests -q -p no:cacheprovider`; 748 collected, the Coder's count; no absent-artefact skips because the four `ckpt/` directories and `checkpoints/` were linked in)**.
+
+## Fitness for the analysis phase — what the Planner must do in the second reviewed commit
+
+1. **Order of operations.** Land every remaining code change to any closure member first (round 6 cycle 3 = this round's carried items touches `tools/paired_compare.py` and `tools/results_table.py`, both producer closures; a change to `tools/provenance.py` invalidates *every* pin; `tools/exp04_launcher.py` is in no evaluator/producer closure). Only then compute the pins.
+2. **Aug checkpoint** (after training completes and `final` is promoted): `sha256sum ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth` → `checkpoints.aug = {"path": "ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth", "epoch": 12, "sha256": …}`. The `path` string must equal `AUG['checkpoint']` **literally** (`admit_run:332` compares strings); `admit_run:343` then compares `resolve()`d paths, so `final` may stay a symlink.
+3. **Closures** at the reviewed commit on a clean tree, from the real repo path: `closure_record(source_closure('tools.exp04_eval', REPO), commit, REPO)[1]` → `evaluator`; `'tools.exp04_eval_launch'` → `writer`; `'tools.exp04_launcher'` → `training_launcher` (recorded only); `paired_compare.producer_identity('tools.paired_compare')['sha256']` → `producer_paired_compare`; `producer_identity('tools.results_table')['sha256']` → `producer_results_table`. (At `be5830d`: `c21717ad…` and `3c766eb6…`; they will change with round 6.) Note the evaluator/writer values must equal what `exp04_eval_launch.build_fields` writes into `source_closures.entrypoint.sha256` / `writer.sha256` for the confirmatory runs — i.e. the eval launches' `--reviewed-commit` must be a commit whose closure blobs are those pinned; the JSON commit itself qualifies because it touches no closure file.
+4. **Fill** `schema_version: 1`, commit the JSON alone (the JSON commit changes no closure digest — verified), record the commit in the notebook.
+5. **Evaluation launches:** aug runs with `--bind-input train_manifest=<attempt>/train_manifest.json --bind-input train_completion=<attempt>/completion.json` (finding 3); all runs `--conditions P`, `--max-samples 0`, batch 16, no `--allow-dirty` (else `confirmatory` is false and admission refuses).
+6. **Run the producers** from the checkout recorded as `repo` in the eval manifests (the real repository, not a clone — `admit_run:343` compares `REPO / arm['checkpoint']` with the run's `repo`), on a clean tree at HEAD ≥ the JSON commit. First table generation at a fresh `--json` path without `--force-md`; later regenerations with a new `--json` and `--force-md` on `worklog/worklog_yixun/model_comparison.md`.
+7. **Fields still missing:** none for the producers beyond finding 3. Interpretive note for `_analysis.md`: the table's per-seed means are over each seed's own finite queries (the evaluator's own convention), whereas H1's `seed_means` use the joint all-seed both-arm mask — the K = 8 table cells and H1's per-arm means can differ in the last digits when any query is non-finite; say so once in the results page.
+
+## Verdict
+
+**Approve with changes.** Blocking findings: **none.** Should-fix 1–3 go to round 6 cycle 3 (salvage policy for an edited generated block; multi-block growth; `train_completion` binding required for the aug arm); nits 4–13 may be batched.
+
+exec
+/bin/bash -lc 'cat worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/plan_yaw_aug_xrir.md' in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+# Plan — yaw_aug_xrir (exp_04)
+
+**Status:** v4, revised 2026-09-12 after the round-3 Codex plan review (`yaw_aug_xrir_codex_plan_round3_review.md`; v1–v3 kept as `plan_yaw_aug_xrir_v{1,2,3}_superseded.md`). Three review rounds have been run; rounds 2–3 raised operational-contract items only (no scientific-design objection since round 1). **Presented to the user for approval.** No code has been written.
+
+## 1. Question
+
+Does training-time random yaw augmentation — one physically consistent yaw per training sample, the contract of the user's FLAC exp_17 arm (`/home/yixunhu/codespace/exp-17-yawaug-a6000`, `training.yaw_aug = {enabled, img_w: 512, seed}`) — change xRIR's few-shot RIR prediction on AcousticRooms (a) at the canonical heading and (b) under scene yaw, relative to the same-budget un-augmented SimpleViT control of exp_01? Deliverables: the \YawAugxRIR{} row of the user's table (K = 1 and K = 8: T60, C50, EDT, unseen split, mean ± SD over five evaluation seeds) and the yaw-sensitivity contrast under exp_03's protocol.
+
+## 2. Treatment and single-delta contract (port of exp_17 §2)
+
+- **Augmentation semantics (port of FLAC `draw_yaw_offsets` / `offsets_to_radians` / `rotate_scene_metadata` and `_apply_yaw_aug`):** for every training sample, one integer panorama-column offset `d ~ Uniform{0, …, W−1}`, W = 512 (every sample rotated, no skip probability), exact angle `Δ = 2πd/W`, active yaw of the whole scene: `depth_coord' = Rz(Δ)·roll(depth_coord, d, dim=W)`, `src_loc' = Rz(Δ)·src_loc`, `ref_locs' = Rz(Δ)·ref_locs`. The target RIR and the reference RIRs are untouched. Implementation: `tools/yaw_rotation.rotate_scene_yaw` (exp_03, reviewed) applied per sample through a batched variant with per-sample offsets.
+- **Seeding (literal port of `_yaw_aug_step_seed`):** the per-micro-batch generator seed is `_yaw_aug_step_seed(seed, t, rank=0)` with the FLAC mixer copied verbatim (splitmix64 key → `k_lo`, `k_hi`; `v = (t << 12) | 0`; `fmix32(v ^ k_lo) ^ k_hi`; 32-bit result) and the xRIR counter **`t = (epoch − 1)·9261 + batch_idx`** (micro-batch index over the whole run; 9 261 micro-batches per epoch, so t < 111 132 < 2^20, injective; gradient accumulation does not enter the counter). Offsets are drawn from a dedicated CPU `torch.Generator` seeded with that value, one `randint` call per micro-batch; the global Python/NumPy/Torch RNG streams are never consumed. Golden vectors (independently computed by the round-2 reviewer from the FLAC implementation and pinned as literals in the tests): for seed = 0 and t ∈ {0, 1, 9261, 111131} the mixer gives {1254532375, 2068746652, 2466316700, 368013681} and the first W = 512 offsets are {474, 395, 358, 401}; a collision check over the complete armed domain (111 132 values, rank 0) asserts injectivity; boundary tests reject t = −1, t = 2^20, rank = −1 and 4096, epoch 0, batch_idx −1 and 9261, and non-int/bool inputs.
+- **Resume: none for the reportable arm.** The trainer's checkpoints do not carry the sampler, worker or RNG states, and a mid-epoch resume restarts the epoch; counter-based offsets cannot repair that. Therefore `--yaw-aug 1` refuses `--resume` and forces `--save-every 0` (no mid-epoch checkpoints); an interrupted run is recorded as `_ABORTED_` and restarted from epoch 1. (The un-augmented exp_01 control was itself a single uninterrupted run.)
+- **Where:** `train_xRIR_backbone.py::compute_loss` in `train_epoch` only; `test_epoch` and every evaluator never augment (tested with a spy). A banner `yaw_aug ENABLED W=512 seed=<s> counter=(epoch-1)*9261+batch_idx` is printed and flushed before the first optimizer step; its absence fails the launch gate.
+- **Single intended algorithmic/config delta with disabled-path evidence — not bitwise trajectory pairing.** With `--yaw-aug 0` the training path is behaviourally identical to the exp_01 script (parity: same seed, same synthetic batch → bit-identical loss, gradients, buffers, and unchanged Python/NumPy/Torch RNG states). The recipe otherwise equals the control's launch (`cylvit_vs_simplevit_command.md`: `--num-shot 8 --batch-size 32 --accum-steps 2 --tf32 --epochs 12 --decay-epochs 3 --num-workers 12 --log-interval 50 --save-every 500 --seed 0`, defaults `--lr 1e-3 --weight-decay 1e-4 --lr-gamma 0.1 --max-len 9600`, environment `XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms`, `OMP_NUM_THREADS=2`, one GPU), verified by **one normalised schema used everywhere (§2, §5, §6): `effective_args.json` = every trainer flag by its argparse name plus the environment keys `XRIR_DATA_PATH`, `PYTHONHASHSEED`, `OMP_NUM_THREADS`, `CUDA_VISIBLE_DEVICES`**; the parity diff against the control's `args.json` + recorded launch environment is type-strict and excludes exactly `save_dir`, `yaw_aug`, `yaw_aug_seed`, `yaw_aug_width`, `no_save`, `save_every`, `epoch_ckpt_every` and `PYTHONHASHSEED` (unrecorded for the control), every excluded difference being listed in the notebook. Guards: `--yaw-aug 1` requires `resume is None` and `save_every == 0` exactly (negative and positive values refused; tested). Known operational differences, enumerated: the control ran with `save_every 500` (mid-epoch `last.pth` overwrites) and `epoch_ckpt_every 5` plus per-epoch snapshots taken by the exp_01 evaluation pipeline (files present in `ckpt/xRIR_simple_8_shot/`: trainer-written `epoch_005.pth`, `epoch_010.pth`, `best_epoch01.pth`, `best.pth`, `last.pth`, `snapshot_ep1_partial.pth`; pipeline snapshots `epoch_02.pth` … `epoch_12.pth`; the confirmatory comparator is `epoch_12.pth`); the treatment saves every epoch and never mid-epoch. Realization limitations: training-sample order comes from an unordered `set` of paths (no `PYTHONHASHSEED` recorded for the control; it is set and recorded for the treatment), references are drawn by worker-local `np.random.choice`, one training seed per arm — the two arms cannot share the exact sample/reference trajectory, and run-to-run training noise is not estimated. An exact causal single-delta claim would require a contemporaneous un-augmented retrain, which is not planned (cost); the claim made is the intended-delta one.
+- **Alignment policy (fixed now):** the model's `shift_and_align` runs on the **rotated** geometry, exactly as at inference on any scene — no special-casing, no branch. Its integer delays are rounded float32 distances, so a rotation can flip a delay by one sample for a few pairs (exp_03: ≤ 4 of 50 696 pairs per angle; the gain `‖ref‖/(‖src‖ + 1e-7)` is continuous and ulp-scale changes are harmless, so only integer-delay changes are counted). Rung 4 measures, on a deterministic cohort — the first 50 micro-batches of epoch 1 with their actual counter offsets — the fraction of (query, reference) pairs whose integer delay differs between the rotated and the un-rotated geometry (denominator: all pairs in the cohort, 50 × 32 × 8), and the record discloses it as part of the treatment's definition. Descriptive only; no threshold selects a different training path.
+
+## 3. Pre-registered hypotheses and decision rules
+
+Estimand basis (adopting FLAC directive 04): every reported cell is the mean ± sample SD over **five evaluation seeds s ∈ {42, 43, 44, 45, 46}**; seed s selects the K-specific reference manifest (`build_manifest(seed=s, num_shot=K)`) and the Griffin-Lim phase seed (`--gl-seed s`). Control and treatment are evaluated under every seed with the same evaluator closure, so every comparison is paired per query and per seed. Inference: per query, the five per-seed errors of each arm are averaged with plain arithmetic means (never `nanmean`; a query with any non-finite value in a cell's mask is excluded from that cell); the paired per-query differences (or ratios inside the resample) are bootstrapped over queries (20 000 resamples, bootstrap seed 0; query-level, this fixed split) with the room-cluster bootstrap (17 rooms) as the secondary interval. **Convergence gate:** every decision-driving query-level bound is recomputed with bootstrap seed 1 on the companion interval whose upper endpoint *is* the decision bound — H1 [Q_0.025, Q_0.975], H2 [Q_0.00625, Q_0.99375], TOST [Q_{0.05/14}, Q_{1−0.05/14}] — and the maximum endpoint movement divided by the seed-0 width must be ≤ 0.10; otherwise no canonical artefact is written until `n_boot` is raised and the gate passes. Single-seed runs are technical diagnostics only and never enter a table or a verdict. H1, H2 and the TOST block are separate family-local claims; there is no omnibus success rule.
+
+- **H1 (accuracy at the canonical heading; K = 8, unseen, epoch 12 vs epoch 12, condition P at k = 0).** For each j ∈ {EDT, C50}, ρ_j = (mean error_aug − mean error_control)/mean error_control (recomputed inside each resample). Per-cell mask: a query enters iff its value is finite for all five seeds in both arms at k = 0 (ordinary five-value means afterwards); an empty cell is refused, exclusions are reported per arm and seed. H0_j: ρ_j ≥ +0.03; HA_j: ρ_j < +0.03. Test statistic: the **one-sided upper bound U_j = Q_{1−0.05/2} = Q_{0.975}** of the bootstrap distribution of ρ_j (family m = 2, Bonferroni); H1 passes for metric j iff U_j < +0.03. Verdict: "non-inferior" (both pass), "non-inferior on EDT/C50 only", "not shown". Superiority is reported when the upper endpoint of the two-sided adjusted companion interval [Q_0.0125, Q_0.9875] (family 2) is below 0; that interval is included in the convergence gate. The same rule, as a separate family, at K = 1. T60 descriptive.
+- **H2 (yaw robustness; K = 8, condition P).** D_k = r_k(aug) − r_k(control) on shared resamples at k ∈ {32, 64, 448, 480} (±22.5°, ±45°) for C50 and EDT (family m = 8, directional one-sided bound U = Q_{1−0.05/8} = Q_{0.99375}); a cell passes iff U < 0. **C50 is primary:** "supported" if all four C50 cells pass, "partially supported" if some, "not supported" if none; EDT cells are supportive (reported, not in the verdict). D_k at the other acoustic angles is descriptive only where both arms have five-seed data (none beyond the four H2 angles under this matrix); the augmented arm's own r_k at the remaining angles, and any comparison with exp_03's single-seed control sweep, are labelled single-seed diagnostics. Per-cell mask: a query enters cell (metric, k) only if its value is finite for every seed, both arms, at k = 0 and at k; invalidity counts are reported by category (baseline-invalid, newly invalid, per arm).
+- **TOST (near-invariance of the augmented arm only; one-arm test; K = 8, condition P, five seeds).** r_k(aug) within ±2 % at the seven non-zero patch-aligned acoustic angles k ∈ {32, 64, 128, 256, 384, 448, 480} for C50 and EDT: family m = 14, each test at α = 0.05/14, two one-sided tests; per-cell mask: finite for every augmented-arm seed at k = 0 and k; wording "equivalent" / "equivalence not established".
+- **Descriptive:** the augmented arm's absolute r_k curve (acoustic grid, seed 42, and the 18-angle spectral grid), the epoch-9 checkpoint (41 679 updates, the exp_17 "40k" convention) at K = 8 under the five seeds — diagnostic only, no verdict; no `best.pth` or test-selected epoch enters any verdict; no seen-split evaluation.
+
+## 4. Runs, data, budget
+
+- Training: 296 334 samples / epoch → 9 261 micro-batches → 4 631 updates / epoch; 41 679 updates through epoch 9, 55 572 through epoch 12. One RTX A6000; the control took 28.2 h for 12 epochs (`history.jsonl`), so the central estimate is 28.2 h × (1 + measured overhead, gate ≤ 5 %) ≈ 30 h; 43 h is the cumulative ceiling across attempts (§7). Output `ckpt/xRIR_simple_yawaug_8_shot/attempt_<ts>/` (per-epoch `epoch_NNN.pth`, no mid-epoch saves), promoted to `final` on completion.
+- Comparators: `ckpt/xRIR_simple_8_shot/epoch_12.pth` (control) and `ckpt/xRIR_cyl_8_shot/epoch_12.pth` (for the table only), both **re-evaluated fresh** under exp_04's evaluator closure and the five seeds; the exp_03 seed-0 runs and the 2026-09-12 K = 1 runs remain diagnostics.
+- Evaluation matrix (all `eval_yaw_rotation.py`, batch 16 canonical, TF32 off, unseen split, 6 337 queries, `max_samples 0`, no test-time augmentation): (i) k = 0 at K = 8 and K = 1 for control, aug, cyl × 5 seeds = 30 runs (≈10 min / ≈6 min each ≈ 4 h); (ii) the augmented arm's five-seed P block at the eight-angle union {0, 32, 64, 128, 256, 384, 448, 480} (serves H2's four angles and all seven TOST angles; ≈70 min each ≈ 6 h) and the control's five-seed P block at {0, 32, 64, 448, 480} (≈45 min each ≈ 4 h) — a registered grid superset for the augmented arm, run with `--conditions P` (no E output exists), spectral grid restricted to the same angles; **canonical input selection:** H1 and the table use only the standalone k = 0 runs of (i); H2 and TOST use only the blocks of (ii) (their k = 0 rows serve as those blocks' own baselines and never feed H1); the profiles pin this mapping; (iii) descriptive full grid (exp_03's 18 + 10 + 4) for the aug arm at seed 42 (≈2 h); (iv) epoch-9 diagnostic k = 0, K = 8, 5 seeds (≈50 min). Total ≈ 17 h on the second GPU, overlapping the training.
+- **Immutable, evaluator-bound evaluation manifest (directive 05):** the evaluation launcher (`tools/exp04_eval_launch.py`) creates the run directory *exclusively* (`mkdir`, refuses an existing one), writes `eval_manifest.json` there and computes its digest; `eval_yaw_rotation.py` (`--eval-manifest <path>`) validates before loading the model that its CLI, the checkpoint sha256, the reference manifest hash, the GL seed, K, grids, conditions, batch/canonical/TF32 flags and the evaluator source-closure digest equal the manifest, refuses any other file in the output directory, and echoes the manifest digest into `metrics_yaw.json` and `per_sample_yaw.json` meta. **Finalisation is owned by the launcher, not the running child:** after the child exits and the `tee` log sink is closed, the launcher re-validates every declared mutable digest (checkpoint, reference manifest, data inventory, evaluator/writer source closures, manifest) and only then atomically writes `completion.json` binding the manifest digest, the closed-log digest and the output digests; a child failure or a missing output leaves the directory renamed `_ABORTED_<reason>` with no completion sidecar. Tests: existing directory refused; child failure / missing output → no completion; a checkpoint, reference manifest, source file or data file changed between spawn and finalisation → refused. **Training attempt provenance, execution-bound:** the training launcher writes `train_manifest.json` before spawn (training source closure at the reviewed commit, **computed by importing the trainer and listing every repo-local module it loads** (the same mechanism as the evaluator closure), which must contain at least `train_xRIR_backbone.py`, `treble_multi_room_dataset/treble_xRIR_dataset.py`, `model/xRIR.py`, `model/xRIR_cyl.py`, `model/simple_vit.py`, `model/cylindrical_vit.py`, `utils/spec_utils.py`, **`utils/lr_scheduler.py`** (the trainer's `ExponentialLR`), `tools/yaw_aug.py` and `tools/yaw_rotation.py` — a closure missing any of these fails the manifest; the training-split content-hashed data identity, `effective_args.json`, environment) and, after the child exits and the log closes, re-validates those digests and writes `completion.json` (closed log digest, `history.jsonl` digest, every `epoch_NNN.pth` digest) — only then is the attempt promoted to `final`. The exp_01 control's training provenance was not execution-bound at launch and is described in the record as *reconstructed* from its `args.json`, log and checkpoints. Manifest fields: checkpoint path + sha256, the training `args.json` sha256 **and the training source closure** (train script, dataset module, model files at the training commit), the evaluator closure, the manifest-writer and producer closures, dataset identity (manifest-file sha256 + content-hashed inventory digest, data root), split and count, K, reference-manifest path/hash/seed, GL seed and STFT/GL parameters, batch size and canonical padding, TF32, condition and grids, no-TTA flag, exact command, environment. The exp_03 helpers are generalised with an explicit reviewed exp_04 commit and data root (exp_03's `closure_record` hard-codes `62c9107…`, and `tools/yaw_rotation.py`, a member of that closure, changes here).
+
+## 5. Code (Coder = OpenAI Codex `gpt-6-astra` at Ultra via `codex exec`, per the SOP roles of 2026-09-12; TDD, one small commit per red→green cycle; each round reviewed by Claude Fable 5.1 (a separate Fable subagent with the SOP briefing; reciprocity: the Reviewer is the opposite family from the Coder); final integrative Fable review before launch)
+
+| file | change | tests (`tests/test_yaw_aug.py`, `tests/test_paired_compare.py`) |
+|---|---|---|
+| `tools/yaw_rotation.py` | `rotate_scene_yaw_batch(depth_coord, src, ref_locs, ks, W)`: per-sample integer offsets `ks: LongTensor [B]` (exact roll via index gather, `Rz` per sample); strict schema: `depth_coord [B,3,H,W]` with `W == depth_coord.shape[-1]`, `src [B,3]`, `ref_locs [B,K,3]`, common B, same dtype/device; returns new tensors (inputs not mutated) | equals `rotate_scene_yaw` per sample for random `ks`; `ks = 0` identity (bit-exact); `ks = W` ≡ 0; B = 0 legal; inputs unchanged; wrong shapes/width/dtype refused; norms of src/refs preserved to 1e-6 |
+| `tools/yaw_aug.py` (new) | `splitmix64`, `fmix32`, `step_seed(seed, t, rank=0)` (verbatim exp_17 mixer, domain asserted), `counter(epoch, batch_idx, batches_per_epoch)`, `draw_offsets(n, W, generator)`, `apply_yaw_aug(depth_coord, src, ref_locs, ks)`, `alignment_audit(batches, offsets, model)`; `YawAug` config object with strict types (`enabled` literal bool, `W` positive int, `seed` int) | golden vectors from FLAC (seeds and first offsets for pinned `(seed, t)`); injectivity over the full armed domain; determinism; global RNG state (Python `random`, NumPy, Torch CPU and CUDA) bit-identical before/after a draw; empirical uniformity over 10^6 draws (chi-square sanity); offsets in [0, W); target/reference audio untouched by construction (apply takes only geometry) |
+| `train_xRIR_backbone.py` | flags `--yaw-aug {0,1}` (default 0; literal only), `--yaw-aug-seed` (default `--seed`), `--yaw-aug-width 512`; `--yaw-aug 1` refuses `--resume` and any `--save-every > 0`; `compute_loss(model, batch, aug=None)`; `train_epoch` passes `(epoch, batch_idx)`; banner flushed before step one; `--no-save` (nothing written, for smokes); `args.json` records the flags and `PYTHONHASHSEED` | parity: `--yaw-aug 0` on a fixed synthetic batch → bit-identical loss, gradients, buffers and RNG states versus the current function; `--yaw-aug 1` with forced `ks = 0` equals the un-augmented loss; `test_epoch` never calls the augmentation (spy); flag validation (non-literal, resume, save-every) refused; `--no-save` writes nothing; banner appears exactly once in a smoke log |
+| `tools/provenance.py` (new; the reusable helper) | generalises exp_03's binder functions with explicit arguments: `closure_record(files, reviewed_commit)`, `source_closure(entry_module)`, `data_identity(manifest_path, data_root)`, `train_data_identity(split, data_root)` (content-hashed inventory of the training split), `environment()`, `write_manifest(path, fields)` (exclusive create, digest returned), `write_completion(path, manifest_digest, log_digest, output_digests)` (atomic), `revalidate(manifest)` (every declared mutable digest: checkpoint, reference manifest, data inventory, source closures) | round trip; refusal on any field mismatch; exclusive create refuses an existing file; revalidate detects a changed checkpoint / reference manifest / source file / data file |
+| `eval_yaw_rotation.py` | `--eval-manifest PATH` (required for confirmatory runs): validate CLI + closure + inputs against the manifest before loading the model; refuse a non-empty output directory (only the manifest may pre-exist); echo the manifest digest into both output metas; `--conditions {P,PE}` (default `PE` = today's behaviour; the registered yaw blocks use `P`, so no E output exists for them) | manifest mismatch refused (each field); stale directory refused; digest echoed; `--conditions P` writes no E section and the P numbers are bit-identical to a `PE` run |
+| `tools/exp04_profiles.py` (new; the immutable analysis specification) | hard-coded confirmatory profiles `H1_K8`, `H1_K1`, `H2_K8`, `TOST_K8`, `TABLE_V1` (schema version in each): arm labels and backbones, the approved digests of the evaluator, manifest-writer, launcher and producer closures (set in the second reviewed commit after the final code review), the dataset identity digests (query-list digest of the unseen split, content-hashed inventory), the role-specific grids (augmented arm eight-angle union, control five-angle block), checkpoint **paths and epochs** (the sha256 of the augmented checkpoint is added in a second reviewed commit after training completes and before any confirmatory evaluation; the control's and the cylindrical checkpoints' sha256 are pinned now), the seed → reference-manifest hashes for K = 8 and K = 1 and seeds 42–46 (manifests built and hashed before evaluation), GL coupling (`gl_seed = eval seed`), K, grids, margins (+3 %, ±2 %), family sizes (2, 8, 14), tails, bootstrap seeds (0, 1) and `n_boot` (20 000) | the profile module is a literal; tests assert every field's type and that a profile cannot be mutated at runtime |
+| `tools/paired_compare.py` (new; fail-closed confirmatory producer) | CLI (exact): `paired_compare.py --profile {H1_K8,H1_K1,H2_K8,TOST_K8} --runs-a DIR [DIR …] [--runs-b DIR [DIR …]] --json PATH --summary PATH [--exploratory]`; H1/H2 are two-arm modes (`--runs-b` required), TOST is one-arm (`--runs-b` refused); everything analytic (angles, margins, families, tails, bootstrap seeds, n_boot, K, grids) comes from the profile and cannot be overridden — `--exploratory` allows deviations but then no verdict is written and the outputs are labelled exploratory. Requires: every run's completion sidecar and manifest digest present and consistent, the run's evaluator/writer closure digests equal to the profile's approved digests (validated independently of the run's own declarations), the producer's own closure digest equal to the profile's, checkpoint sha256 equal to the profile's, exactly five runs per arm whose seeds are {42–46} with the profile's reference-manifest hashes and `gl_seed = seed`, identical query/index order across all runs, 6 337 queries / 17 rooms, K, grids and condition P as in the profile, `max_samples 0`, per-sample/aggregate reconciliation; per-cell masks as in §3; plain five-value averaging; shared resamples; `one_sided_upper(samples, alpha)` (exact quantile, strict boundary) and the companion intervals; room-cluster secondary; the two-seed convergence gate; verdict wording per §3; outputs: JSON, text summary, and a non-self-referential `<json>.provenance.json` listing every input digest, the profile digest, the producer closure digest and the JSON/summary digests | synthetic per-seed inputs with a known shift (H1, H2) and a known invariant arm (TOST); margin rule at the boundary; refusals: missing seed, wrong seed set, mismatched queries, wrong K, wrong grid, truncated run, manifest/sidecar mismatch, checkpoint hash mismatch, `--runs-b` with TOST, override attempts; mask (any non-finite seed value excludes the query), tails, families, convergence gate (fails when n_boot is tiny) |
+| `tools/exp04_launch.sh` + `tools/exp04_launcher.py` (new; training launcher and its testable helper) + `tools/exp04_eval_launch.py` (evaluation launcher, §4) | training launcher: environment pinned (`XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms`, `PYTHONHASHSEED=0`, `OMP_NUM_THREADS=2`, `CUDA_VISIBLE_DEVICES=0`) and the interpreter path pinned; exact argv from a golden file (smoke and full, §6/§7); the attempt directory must be absent, is created exclusively, and before spawn contains only the whitelisted pre-run files `effective_args.json` and `train_manifest.json`; `effective_args.json` (the normalised schema of §2) must equal the runtime `args.json` + environment; resource gates: GPU 0 has no other process and ≥ 40 GiB free VRAM, ≥ 50 GiB free on the checkpoint volume; verifies the banner line in the log before step one; on failure renames the whole attempt directory `attempt_<ts>_ABORTED_<reason>` (preserved) and records the cumulative training hours; a completed attempt is promoted by an atomic symlink `final -> attempt_<ts>`; evaluation launcher as in §4 | guard tests (`tests/test_exp04_launcher.py`): argv golden equality, attempt-directory exclusivity, effective-args allowlist and mismatch refusal, resource-gate thresholds, banner detection, abort renaming, promotion symlink, cumulative-budget refusal |
+| `tools/results_table.py` (new; living table, directive 04) | CLI (exact): `results_table.py --profile TABLE_V1 --runs DIR [DIR …] --json PATH --md PATH`; admits a run only with a valid completion sidecar, an approved closure digest and a checkpoint hash that maps to a profile role; aggregates the raw per-seed metric JSONs into canonical JSON (rows = arm × K, metrics T60, C50, EDT, loss, log-STFT MSE; mean ± SD over the five seeds; the eval protocol per row) plus `worklog/worklog_yixun/model_comparison.md` rendered from that JSON, both written exclusively/atomically with a provenance sidecar; refuses incomplete or protocol-mismatched seed sets; numbers never hand-edited; the results page and results.md consume the canonical JSON and verify its sidecar | completeness refusal; wrong-role and tampered-run refusal; overwrite refusal; protocol column; regeneration idempotence |
+
+Estimated size ≈ 1 000 lines including tests; 6 Coder rounds (rotation batch + seeding; trainer flags + parity; evaluator manifest handshake + launchers; profiles + paired_compare; results table; provenance generalisation).
+
+## 6. Validation ladder (each rung logged with commands and outputs)
+
+1. static (`py_compile`, `bash -n`, `git diff --check`); 2. `pytest tests/` (all existing tests plus the new ones); 3. tiny synthetic forward with `--yaw-aug 1` (finite loss, gradients flow); 4. real-data readback on 50 batches: depth roll exact, source and reference distances unchanged, target and reference audio unchanged, **alignment audit** by `tools/yaw_aug.alignment_audit(batches, offsets, model)` (integer delays only, computed with the model's own `shift_and_align` on the GPU in float32 exactly as in training, for the rotated versus the un-rotated geometry; cohort = the first 50 micro-batches of epoch 1 with their counter offsets; artefact `alignment_audit.json` with the cohort digest (query paths + offsets), the changed-delay count and the denominator 12 800; reviewed with round 1); 5. smoke (exact argv, same environment and interpreter as the full run): `python train_xRIR_backbone.py --backbone simple --save-dir <attempt>/smoke --num-shot 8 --max-len 9600 --lr 1e-3 --weight-decay 1e-4 --decay-epochs 3 --lr-gamma 0.1 --epochs 1 --max-train-batches 3 --max-test-batches 2 --batch-size 4 --accum-steps 2 --num-workers 4 --seed 0 --tf32 --log-interval 1 --save-every 0 --epoch-ckpt-every 0 --no-save --yaw-aug 1 --yaw-aug-seed 0 --yaw-aug-width 512` (banner, three finite steps, nothing written); 6. throughput probe: 50 micro-batches at 32 × 2 with and without augmentation on the target GPU, overhead > 5 % blocks the launch; 7. parity audit: `--yaw-aug 0` loss on the first real batch equals the exp_01 script's loss bit for bit (same seed); type-strict diff of the launcher's pre-spawn `effective_args.json` against the control's `args.json`, excluding only `save_dir`, the three yaw keys, `no_save`, `PYTHONHASHSEED` and the cadence keys (`save_every`, `epoch_ckpt_every`), with every excluded difference listed in the notebook; 8. final integrative Codex review of the whole diff; 9. full run through a fail-closed launcher (`launch_yaw_aug.sh`: exact argv, source/data identity, empty output directory, free GPU and disk, banner flushed before step one, teed timestamped log).
+
+## 7. Launch, acceptance criteria, monitoring
+
+Full-run argv (exact, from the golden file): `XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms PYTHONHASHSEED=0 OMP_NUM_THREADS=2 CUDA_VISIBLE_DEVICES=0 /home/yixunhu/miniconda3/envs/xRIR/bin/python train_xRIR_backbone.py --backbone simple --save-dir ckpt/xRIR_simple_yawaug_8_shot/attempt_<ts> --num-shot 8 --max-len 9600 --lr 1e-3 --weight-decay 1e-4 --decay-epochs 3 --lr-gamma 0.1 --epochs 12 --batch-size 32 --accum-steps 2 --num-workers 12 --seed 0 --tf32 --log-interval 50 --save-every 0 --epoch-ckpt-every 1 --yaw-aug 1 --yaw-aug-seed 0 --yaw-aug-width 512` (every trainer flag stated; the trainer's native checkpoint names are `epoch_001.pth` … `epoch_012.pth`; confirmatory: `epoch_012.pth`, diagnostic: `epoch_009.pth`). Written in `_worklog.md` before launch: commit SHA; GPU 0; the argv above; the banner in the log; ≥ 1 optimizer step with finite loss; **epoch-1 acceptance ≤ 2.431 h** (control's epoch 1 2.315 h + 5 %) with 2.6 h as a separate operational abort ceiling; `history.jsonl` one line per epoch; every `epoch_NNN.pth` present; no `--resume`. `_command.md` and `_params_set_up.md` at launch. Failure triage infrastructure vs bug; an interrupted attempt is preserved as `_ABORTED_` and a fresh attempt starts from epoch 1; **43 h is the cumulative ceiling over all attempts** — exceeding it requires renewed authorisation from the user.
+
+## 8. Analysis and deliverables
+
+`_results.md` generated from the producers' canonical JSON (paired_compare, results_table) — tables only; `_analysis.md` (Planner); `yaw_aug_xrir_01_results.html` + assets (reads producer JSON only, as exp_03); the table row values with their seed SD; `commits_yaw_aug_xrir.md`; provenance sidecars and binding for every new run as in exp_03.
+
+## 9. Cost and risks
+
+- Cost: ≈30 h training on GPU 0 (cumulative ceiling 43 h); ≈17 h of evaluation on GPU 1 (fresh five-seed comparators and the augmented arm's eight-angle blocks included); summaries minutes.
+- Risks and limitations, stated now: (i) augmentation may raise the canonical-heading error on the axis-aligned test rooms (a finding under H1); (ii) one training seed per arm and non-shared training realizations (§2); (iii) the finite-precision alignment effect (§2 rule); (iv) throughput overhead (gated); (v) only the SimpleViT backbone is augmented.
+
+## 10. Decisions requested from the user
+
+1. Budget: 12 epochs (≈30 h) with the epoch-12 checkpoint as the only confirmatory comparison (recommended), the epoch-9 checkpoint reported as a diagnostic under the "40k" convention.
+2. Only the SimpleViT backbone is augmented (no YawAug-CylindricalViT row; another ≈30 h if wanted).
+3. Five evaluation seeds {42–46} for every table cell, including fresh re-evaluation of the control and the cylindrical checkpoints (≈4 h extra GPU) so the whole table shares one protocol.
+4. Tests in `tests/`; the living table `worklog/worklog_yixun/model_comparison.md` introduced here.
+5. R@1/5/10 stay undefined (no retrieval task exists in this pipeline).
+
+## 11. v4 changelog (responses to the round-3 plan review)
+
+**Amendments during implementation (logged in the notebook):** (A1, 2026-09-12 15:1x) the empirical-uniformity test uses a chi-square sanity bound (χ² < 700 over 512 bins, 511 d.o.f.) instead of a ±5 % per-bin rule, which rejects a correct generator at 10^6 draws. (A2, same time) `rotate_scene_yaw_batch` is implemented in `tools/yaw_aug.py`, not in `tools/yaw_rotation.py`, which stays byte-identical to exp_03's reviewed state so exp_03's committed closure pins remain valid; the exp_04 training closure therefore contains the unchanged `tools/yaw_rotation.py` plus `tools/yaw_aug.py` (the §5 table's first row is read with this relocation). (A3, 2026-09-12 16:0x) The same rule applies to every member of exp_03's pinned closure, in particular `eval_yaw_rotation.py`: the evaluation-manifest handshake, the `--conditions P` mode and the tier/provenance metadata of §4/§5 are implemented in a NEW entry point `tools/exp04_eval.py` that imports `eval_yaw_rotation`'s functions unchanged (same outputs for the same inputs, tested on a 32-query subset), and `eval_yaw_rotation.py` is not edited; the §5 row "`eval_yaw_rotation.py`" is read as "`tools/exp04_eval.py`". (A4, same time) The trainer's counter uses `batches_per_epoch = len(train_loader)` (recorded in `args.json`, injectivity `epochs × batches_per_epoch < 2^20` asserted); the confirmatory run's launcher asserts `batches_per_epoch == 9261`, so the registered counter `t = (epoch−1)·9261 + batch_idx` holds for the reported run while smokes with other loader lengths remain possible. §2's counter sentence and the banner are read as `t = (epoch−1)·B + batch_idx`, `B = len(train_loader)` (banner `counter=(epoch-1)*<B>+batch_idx`; B = 9261 for the confirmatory run). (A5, 2026-09-12 16:3x, from the Fable round-2 review, finding 3) The trainer's `args.json` now carries `train_batches_per_epoch` and `env`, which the exp_01 control's `args.json` lacks; the §2 type-strict `effective_args` diff compares `train_batches_per_epoch` against the value reconstructed for the control by the same loader arithmetic (ceil(296334/32) = 9261) and treats `env` as the schema's environment block (control values reconstructed from the exp_01 record; `PYTHONHASHSEED` excluded as already specified). (A6, 2026-09-12 18:4x, from the Fable round-3b review, finding 2) `CUDA_VISIBLE_DEVICES` is excluded from the control-parity diff: the device index is not a recipe parameter (both cards are identical RTX A6000s; exp_01's control trained on GPU 1), and the treatment trains on whichever card the launcher is given (`--gpu`), recorded in `effective_args.json`; §5/§7's `CUDA_VISIBLE_DEVICES=0` is read as `<gpu>`. (A7, same time, finding 3) Finalisation policy: after the child exits the launcher re-hashes the genuinely mutable inputs strictly (`effective_args.json`, `train_manifest.json`, the control's `args.json`, the bound probe receipt, the training-split inventory) but compares the source closures against the immutable `reviewed_blob_sha256` recorded at spawn; working-tree drift of closure files after spawn cannot affect the running interpreter and is recorded in `completion.json` as `source_drift_after_spawn` instead of aborting; a `finalize <attempt_dir>` mode re-runs output validation → revalidation → completion → promotion for a preserved attempt once the child's process group is gone and the log sink is closed. (A8, same time, finding 10) The 43 h cumulative ceiling of §7 counts `full` attempts only; smoke and probe attempts are recorded in `cumulative_hours.json` with their mode but not summed. (A9, 2026-09-12 19:0x, from the Coder's round-4 report) The approved closure digests (evaluator, manifest writer, launchers, producers) are NOT stored inside `tools/exp04_profiles.py` — the producers import that module, so its own digest would be circular — but in a committed, runtime-read JSON `worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results_assets/approved_digests.json` (not imported, hence outside every import-derived closure); every producer records that file's sha256 and git blob in its provenance sidecar, the profiles keep every other field, and the second reviewed commit fills the JSON. Schema (settled 2026-09-12 19:2x after the Fable round-4 review): `{schema_version, closures: {evaluator, writer, training_launcher, producer_paired_compare, producer_results_table}, checkpoints: {aug: {path, epoch, sha256}}}`; the producers compare `evaluator`, `writer` and their own producer key only — the training launcher's identity reaches the analysis through the augmented checkpoint's sha256 and the train completion bound as `mutable_inputs.train_completion`, so `training_launcher` is recorded, not compared; the augmented checkpoint's sha256 lives in the JSON (not in the profile module) so that the producer closures are independent of the pin. Fill sequence after training: pin the aug sha256 → compute the producer closures → fill the JSON → second reviewed commit. `--exploratory` may run with unapproved pins, each recorded as a listed deviation (diagnostics only; no verdict). (A10, 2026-09-12 19:3x, from the Fable round-3b close-out review, finding 4) An attempt certified by `finalize` after an abort is renamed back to `attempt_<ts>` on success, its abort history (`abort.json`, the `_ABORTED_<reason>` name it carried, recovery timestamp) is recorded in `completion.json` under `recovered_from`, and `final` never points at an `_ABORTED_` directory.
+
+0 (user correction, 2026-09-12) the training source closure now explicitly includes `utils/lr_scheduler.py` (the trainer imports `ExponentialLR` from it) and is computed by importing the trainer, with the enumerated files as a required minimum, so a hand-written list cannot omit a dependency again.
+
+1 complete training argv and environment (`--log-interval 50`, `XRIR_DATA_PATH`, `OMP_NUM_THREADS=2`, interpreter), one normalised args/environment schema with one exclusion list, directory lifecycle (absent → exclusive → whitelisted pre-run files), strict `resume is None` / `save_every == 0` guards; 2 `eval_yaw_rotation.py` and a reusable `tools/provenance.py` added to the file table, launcher-owned finalisation after the log sink closes with full revalidation, execution-bound training manifest/completion before promotion, exp_01 provenance labelled reconstructed, mutation/stale/failure tests; 3 H1's all-seed both-arm mask; 4 profiles pin schema versions, approved closure digests, dataset identity and role-specific grids, producers validate them independently, `results_table.py` given an exact CLI, canonical JSON with sidecar and admission tests, downstream readers verify sidecars; 5 `--conditions P` mode, canonical k = 0 inputs pinned (standalone runs → H1/table; blocks → H2/TOST), descriptive D_k narrowed; 6 alignment audit assigned to a reviewed helper with a hashed artefact and the denominator 12 800; 7 superiority pinned to [Q_0.0125, Q_0.9875] within the convergence gate.
+
+## 12. v3 changelog (responses to the round-2 plan review)
+
+1 the augmented arm's five-seed P block covers the eight-angle union, so every TOST cell has five seeds; TOST declared one-arm; budget 17 h; 2 convergence gate defined on the companion intervals whose upper endpoint is the decision bound, bootstrap seeds 0/1, canonical artefacts withheld until it passes; 3 evaluation manifest made operationally immutable (exclusive directory, evaluator `--eval-manifest` handshake, digest echoed into outputs, post-run recheck, completion sidecar), training/evaluator/writer/producer closures bound, helpers generalised with an exp_04 reviewed commit; 4 producer driven by hard-coded profiles (`tools/exp04_profiles.py`), exact CLI, one-arm TOST, per-cell masks over all seeds, plain averaging, non-self-referential provenance sidecar; 5 exact smoke/full argv with `--save-every 0 --epoch-ckpt-every 1`, native names, immutable attempt directories with `_ABORTED_` preservation and promotion, 43 h cumulative ceiling; 6 alignment policy fixed (rotated geometry, integer-delay-only descriptive audit on a deterministic cohort, no branch); 7 seed boundary tests enumerated, `effective_args` allowlist, `PYTHONHASHSEED=0` pinned by the launcher, numeric GPU/disk gates, epoch-1 gate 2.431 h with 2.6 h as an abort ceiling; golden vectors pinned to the reviewer's independently computed values.
+
+## 13. v2 changelog (responses to the round-1 plan review)
+
+1 seed mapping pinned with the verbatim mixer, golden vectors and a full-domain collision check; 2 no resume for the reportable arm; 3 five-seed paired evaluation, fresh comparators, living table; 4 one-sided quantiles specified, dedicated helper; 5 H2 C50-primary with EDT supportive, TOST angles/family/alpha listed, no omnibus rule, descriptive-only labelled; 6 immutable evaluation manifests; 7 fail-closed producer specification; 8 single-delta wording qualified, operational differences enumerated, `PYTHONHASHSEED` recorded; 9 alignment audit with a pre-registered rule; 10 tests, no-save smoke, overhead gate, launcher preflight, final integrative review; 11 counts and budgets corrected (296 334 / 9 261 / 4 631; 28.2 h), confirmatory matrix pinned, seen split dropped; 12 test count not hard-coded.
+
+exec
+/bin/bash -lc 'cat worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round3b_close_review.md' in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+**Reviewer:** Claude Fable 5.1 (Agent subagent, model fable) · **Date:** 2026-09-12T19:20:00-04:00
+
+# Code review — exp_04 yaw_aug_xrir, round-3b close-out (Codex fix commits `9b47c7a`…`f7596c0`)
+
+**Scope reviewed:** `git diff b42b559..f7596c0` — 12 files, +843/−99: `tools/exp04_launcher.py` (+293/−58), `tools/provenance.py` (+38/−6), `tools/exp04_eval_launch.py` (+29/−11), `tools/exp04_probe.py` (+4/−1), `tools/exp04_eval.py` (+1/−1), `tools/exp04_launch.sh` (+3), `tests/test_exp04_launcher.py` (+217/−9), `tests/test_exp04_recovery.py` (new, 128), `tests/test_provenance.py` (+50/−1), `tests/test_exp04_eval_launch.py` (+65/−8), `tests/test_exp04_probe.py` (+12/−1), `tests/test_exp04_eval.py` (+3/−3). The fourteen commits `9b47c7a, 5d04d0a, 8a8e515, b48cd7b, 5d6d4f9, 248688b, f518224, 32c3df5, 7306ff6, 90a6077, 4772e15, 89521df, 30779cb, f7596c0` answer (a) the round-3b review (`yaw_aug_xrir_fable_code_round3b_review.md`: blocker 1, should-fix 4–9, nits 11, 13–15, Planner decisions A6–A8 in plan §11) and (b) the round-3a close-out review (`yaw_aug_xrir_fable_code_round3a_close_review.md`, findings 1–6 and the Planner's admission decisions), per `coder_prompts/round3b_fix_prompt.md` cycles 1–4. Read before judging: the SOP briefing, plan §2/§4/§7/§11 (A1–A9), the notebook 18:15–19:01, both prior reviews in full, the fix prompt, the Coder transcript `yaw_aug_xrir_2026-09-12_18:33:40_coder_round3bfix.log` and its final report (`/tmp/exp04_round3b_closeout_report.md`: 702 passed / 3 failed on `30779cb`, 102 focused after `f7596c0`, suite not re-run), the recorded artefacts under `ckpt/xRIR_simple_yawaug_8_shot/` (read only).
+
+**Isolation:** all reading, tests and probes ran on a full-history clone at `f7596c0` under the scratchpad (`…/scratchpad/r3bfix/r3bfix_clone`, with `ckpt/{xRIR_simple_8_shot,xRIR_cyl_8_shot,yaw_rotation}` and `checkpoints` symlinked read-only and `ckpt/yaw_aug` a *copy* — the launcher writes its inventory cache there and the real `ckpt/yaw_aug/` has no `train_inventory.json`, so a symlink would have written into the real repository). The goldens are committed (`a367d06`) and present in the clone. The working tree the round-5 Coder is editing was never touched; `git status` of the real repository shows only the Planner's/Coder's worklog files; `find ckpt -newermt 19:02` returns only the round-5 Coder's `ckpt/yaw_aug/alignment_audit.json` (19:02:24, ten seconds before my first symlink). GPU work only on GPU 1 (`--gpu 1`, `CUDA_VISIBLE_DEVICES=1`; the suite with `1,0`); both A6000s carried the user's FLAC job (11.3–11.7 GB, 100 %) throughout; nothing was killed; `full` mode was never invoked. This file is the only file I created in the repository.
+
+## Close-out status
+
+| # (source) | item | status | evidence (Verified §) |
+|---|---|---|---|
+| 3b-1 (blocker) | SIGTERM/SIGHUP bypass the abort path | **closed** | V1: SIGTERM → `attempt_t_ABORTED_terminated_SIGTERM`, SIGHUP → `…_terminated_SIGHUP`; child gone, log renamed `train_ABORTED_terminated_<sig>.log`, `abort.json`, hours row with `mode`, no completion, handlers restored to `SIG_DFL`; SIGINT still aborts (`KeyboardInterrupt`, reason `child_failed`, nit 5); a SIGTERM during finalisation leaves no completion and a recoverable `execution.json` (exit 0) that `finalize` then certifies. Residuals: a *second* signal inside the abort path (finding 1) and an inherited `SIG_IGN` being overridden (finding 2) |
+| 3b-2 / A6 | `CUDA_VISIBLE_DEVICES` vs control parity | **closed** | V2: `compare_control` on the real `ckpt/xRIR_simple_8_shot/args.json` passes for `--gpu 0` (nine excluded differences incl. `CUDA_VISIBLE_DEVICES`) and `--gpu 1` (eight); `main(['full','--gpu','0'…])` and `'1'` both reach `execute_attempt` with a matching receipt |
+| 3b-3 / A7 | finalisation policy + `finalize` mode | **closed** (findings 3, 4) | V3: real smoke on GPU 1 with `tools/yaw_aug.py` (training closure) and `tools/exp04_launch.sh` (launcher closure) edited *during* the run → completion with `source_drift_after_spawn` listing both (spawn/now sha) and the run certified; stub full runs: editing/deleting a closure file → completed with drift; `effective_args.json`, `train_manifest.json`, control `args.json`, probe receipt, `train_inventory.json`, a data file, a forged closure digest → `_ABORTED_input_changed`; symlink in the attempt → `_ABORTED_invalid_outputs`. `finalize`: recovers the signal-aborted stub; refuses a live process group, an open writer (`fuser`), exit ≠ 0 / `None` / `"0"`, a changed log, a missing `execution.json`, a held `.launch.lock`, a legacy recorded attempt (no `log_path`), a second run (`FileExistsError`); reader-only handle passes |
+| 3b-4 | probe receipt bound | **closed** | V4: real recorded receipt (`PROBE_NOT_CLEAN true`) refused; a clean synthetic receipt accepted and bound as `mutable_inputs.probe_receipt {path, sha256}`; commit / `before.gpu` / `after.gpu` / int-typed gpu / tampered `overhead_ratio` / ratio 1.06 with `passed` forced / `PROBE_NOT_CLEAN` `0` or `true` / `passed` `1` / missing `before` / non-numeric, negative, NaN timing / a list → all refused |
+| 3b-5 | `abort.json` with specific reasons | **closed** (nits 5, 8) | V1/V5: reasons `terminated_SIGTERM`, `terminated_SIGHUP`, `guard_runtime_args`, `guard_banner`, `guard_epoch_one`, `deadline_43h`, `child_exit_3`, `input_changed`, `invalid_outputs`; keys `reason, exception_type, exception_message, started_at, aborted_at, wall_hours, last_guard_state{banner, steps, losses, runtime, execution, …}, log{original, aborted}` |
+| 3b-6 | owned log renamed `_ABORTED_<reason>.log` | **closed** | V1/V5: renamed in every abort; a foreign pre-existing log is left alone (`log.aborted: null`, test `collision`); wrapper carries the `nohup setsid … > launcher.log 2>&1 &` template |
+| 3b-7 | guard paths vs cwd | **closed** | V6: from cwd `/tmp`, `LogGuard(expected,'full')` with the relative `save_dir` that `main()` passes resolves `args.json`/`history.jsonl` under `REPO`; the real smoke was launched from cwd `/tmp` |
+| 3b-8 | banner from `expected` | **closed** | V6: `seed=0` banner rejected against `yaw_aug_seed 7`; `seed=7` accepted; real smoke banner `W=512 seed=0 counter=(epoch-1)*74084+batch_idx` |
+| 3b-9 | per-iteration probe record | **closed** (by tests; no clean GPU) | `TimedLoader.result` → `iteration_seconds` (50 floats), `median_iteration_seconds`, `min_iteration_seconds`, mean kept as the gate; receipt `arms_before` and `PROBE_NOT_CLEAN` over before/arms/after (`test_cli_modes_preserve_probe_cotenant_evidence`); not re-run on the GPU (co-tenant, gate undecidable anyway) |
+| 3b-10 / A8 | 43 h counts `full` only | **closed** (nit 9) | V2: rows carry `mode`; the real `cumulative_hours.json` (three legacy rows) infers `smoke/probe/probe`, `full_hours 0`; 13 h full + 30 → pass, +30.01 → refused; 20 h smoke ignored; `mode: weird` refused |
+| 3b-11 | `_probe_<ts>_{off,on}` | **closed** | `main:735`; CLI test asserts the names |
+| 3b-13 | explicit cache under `ckpt/yaw_aug/`, inventory sidecar | **closed** | V3: manifest 10 361 bytes (was 77 MB), `train_data_identity.inventory_file {path, sha256}` bound also as `mutable_inputs.train_inventory`; sidecar 73 MB, 296 334 entries, digest `0ebf6ac7…` = exp_03/round-3a/3b values |
+| 3b-14 | full directory listing with digests | **closed** | V3/V5: `validate_outputs` returns `directory_listing` incl. `best.pth`, `last.pth`, any extra file; symlinks refused; digests re-hash equal |
+| 3b-15 | untracked list separate | **closed** | `git_state.untracked` (`['checkpoints']` in the clone), `diff_sha256` of tracked changes only |
+| 3a-1 | confirmatory = all queries | **closed** (nit 7) | dirty gate now `n_samples == split_count` (`test_dirty_evaluation_gate` 6337/100000 refused); manifest+completion carry `confirmatory` (true iff `max_samples == 0 and n_samples == count and not allow_dirty`) and `allow_dirty_used`; V7 manifests: `confirmatory false, allow_dirty_used false` for the 32-query runs |
+| 3a-2 | `tee /dev/stderr` | **closed** | V7: `tee -a <log>` with `stdout=2`; the `WARNING: dirty_outside_worklog` line survives at the head of both `> file 2>&1` driver logs; `test_redirected_launcher_lines_survive_child_tee` |
+| 3a-3 | `log_created` | **closed** | `open("xb")` before the child with reason `log_exists`; rename only if created; `test_foreign_log_is_preserved` |
+| 3a-4 | training launcher log rename + `required=` | **closed** | `REQUIRED_INPUTS` in `complete_attempt`; `test_training_required_inputs` |
+| 3a-5 | PYTHONPATH de-dup | **closed** | V7: `':old::path:repo:old:'` → `repo:old:path`; real manifests record the clone path once |
+| 3a-6 | child asserts `schema_version` | **closed** | V7: `validate_manifest` refuses `schema_version` 2 / missing / `"1"` / `True` |
+| Planner (3a) | fixed `mutable_inputs` names | **closed** | `MUTABLE_INPUTS = {control_args, train_manifest, train_completion, probe_receipt}`; `--bind-input foo=…` refused on the real path (`p_badname_ABORTED_setup_failed`, no log left); admission decision recorded in `build_fields`' docstring |
+
+## Findings
+
+Severity legend: blocker / should-fix / nit. None blocks the round; 1–3 are small and should land before the confirmatory launch (which cannot start before a GPU frees anyway).
+
+1. **should-fix** — `tools/exp04_launcher.py:596-611` (`execute_attempt` abort path) and `:381-396` (`run_child` finally). What: the abort path is not signal-safe. A second SIGTERM/SIGHUP arriving while the first abort is being processed re-raises `LauncherTerminated` out of the `except` block: the child is already dead (killed in `run_child`'s `finally`), but `abort.json` is not written, the attempt and its log are **not renamed**, and **no hours are accounted** — the directory stays `attempt_<ts>` with `execution.json {child_exit_status: null}` (reproduced: SIGTERM, then SIGHUP while `abort_log` was running → listing `attempt_t/{effective_args, execution, train_inventory, train_manifest}.json`, `logs/train.log`, no `cumulative_hours.json`). The same window exists inside `run_child`'s `finally` (a signal between killing the child and killing the sink leaves `tee` alive). Why: an impatient `kill` twice or a `pkill -f` matching twice within the ≤ 5 s kill/wait window leaves an attempt that looks live, and its hours escape the 43 h ledger. Fix: make the handler idempotent — set a `terminating` flag on the first signal and ignore later ones (or `signal.pthread_sigmask(SIG_BLOCK, {SIGTERM, SIGHUP, SIGINT})` on entering the `except` block and `run_child`'s `finally`, restored by the context manager); test: SIGTERM then SIGHUP with `abort_log` patched to sleep, assert the `_ABORTED_terminated_SIGTERM` rename and the hours row.
+
+2. **should-fix** — `tools/exp04_launcher.py:251-262` (`termination_handlers`). What: the handler is installed unconditionally, overriding an inherited `SIG_IGN`. Under `nohup <launcher>` (without `setsid`) Python inherits `SIGHUP = SIG_IGN`; the launcher re-arms it, so the terminal hangup that `nohup` exists to survive now **aborts the 30 h run** as `terminated_SIGHUP` (reproduced: `nohup python …` → inherited `Handlers.SIG_IGN`, inside the context → `terminate`). The `nohup setsid` template in `exp04_launch.sh` detaches from the terminal and is safe, so this is a footgun rather than a live defect. Fix (POSIX convention, two lines): do not install a handler for a signal whose previous disposition is `SIG_IGN`; test by setting `SIG_IGN` before entering the context and asserting `getsignal` is unchanged and `os.kill(SIGHUP)` is ignored.
+
+3. **should-fix (required before `finalize` is ever used on the confirmatory attempt)** — `tools/exp04_launcher.py:502-549` (`finalize_attempt`). What: the "recorded execution evidence" is an unsigned `execution.json` inside the attempt, and `finalize` validates only its internal consistency. A fabricated attempt that **never ran** — `train_manifest.json` with `source_closures: {}`, `repo` = any directory, `mutable_inputs` pointing at `{}` files, twelve `epoch_NNN.pth` containing bytes, a hand-written `history.jsonl` and log, and an `execution.json` naming an exited pid with `child_exit_status 0` — is certified through the CLI: `completion.json` written, `final -> attempt_forged`, **30 h charged** (V3 probe 1; this is exactly the recipe of the test fixture `preserved_attempt`). No launcher can make a plain file unforgeable, so this is about raising the bar from "any JSON" to "the shape only a real launcher run leaves": require `fields['repo'] == str(REPO)`, `mode in ('smoke','probe','full')`, `check_golden(fields['command'], mode, …)` for smoke/full, `source_closures` with `training ⊇ TRAIN_MINIMUM` and a non-empty `launcher`, a 40-hex `reviewed_commit`, `resource_before`, `env`, and for `full` `train_data_identity.inventory_files == 296334` and both `control_args`/`probe_receipt` bindings; also run the pinned-interpreter check (finalize skips it). Corroboration outside the attempt directory: print `child_pgid` and the `execution.json` digest to the launcher's stdout at spawn, so the `nohup … > launcher.log` file (which the Planner keeps in the record) can be matched against `execution.json` before any recovery is accepted. Planner: any `finalize` of the confirmatory attempt must be logged in the notebook with that match.
+
+4. **should-fix (Planner decision)** — `tools/exp04_launcher.py:497-498, 545` (promotion of a recovered attempt). What: a recovered attempt keeps its `_ABORTED_<reason>` name and log, so `completion.json` lives inside `attempt_<ts>_ABORTED_terminated_SIGTERM/` and `final` points at that name (test `test_finalize_preserved_attempt[renamed]` asserts it; my recovered stub likewise). Why: the SOP reads `_ABORTED_` as failed; round-5 tooling and the results page will have to special-case a certified `_ABORTED_` directory. Fix: on successful recovery rename to `<original>_RECOVERED_<reason>` (or back to the original name if free), keep `abort.json`, and record `recovered_from` / both names in the completion; rename the log likewise.
+
+5. **nit** — `tools/exp04_launcher.py:597`. SIGINT is filed as `child_failed` / `KeyboardInterrupt` (probe `int`); map `KeyboardInterrupt → terminated_SIGINT` for consistency with `terminated_<signal>`.
+
+6. **nit** — `tools/exp04_launcher.py:673`. `--gpu` lost its `choices`; `--gpu 0,1`, `foo`, `''` are accepted by argparse and fail later (`gpu_snapshot('0,1')` → `ValueError: too many values to unpack`, `'foo'`/`''` → `CalledProcessError`) *after* `create_attempt`, leaving `_ABORTED_setup_failed`. A6 needs `0` and `1`; restore `choices=[str(i) for i in range(16)]`.
+
+7. **nit** — `tools/exp04_eval_launch.py:207`. `allow_dirty_used = bool(args.allow_dirty)` duplicates `allow_dirty`; the informative flag is whether the bypass took effect: `args.allow_dirty and state['dirty_outside_worklog']`.
+
+8. **nit** — `tools/exp04_launcher.py:593` / `complete_attempt`. A failure after `validate_outputs` (write_completion, `account_hours`, `promote`) is filed as `invalid_outputs` (probe: `promote` raising → `attempt_t_ABORTED_invalid_outputs`); the old `completion_failed` label is gone. Raise `LauncherFailure('completion_failed', …)` around those three calls.
+
+9. **nit** — `tools/exp04_launcher.py:127`. Legacy rows without `mode` are classified by name (`'_probe_' in name`); `--timestamp` allows underscores, so a hypothetical full attempt `attempt_my_probe_x` would be excluded from the 43 h sum. Only the three recorded rows are legacy; a one-time migration adding `mode` to the real `cumulative_hours.json` removes the inference.
+
+10. **nit / observation** — `assert_quiescent`: after a reboot a stale `child_pgid` can collide with an unrelated live group → "child process group is still present" (fail closed, no override), and `fuser` sees only this user's descriptors (declared by the Coder). Acceptable; note in the runbook that `finalize` is run by the launching user on the same boot.
+
+11. **observation** — the probe record (3b-9) is verified by unit tests only; the ≤ 5 % gate remains undecidable until the rung-6 probe is re-run on a free GPU (the recorded receipt is `PROBE_NOT_CLEAN true` and is now refused by `full`, as intended).
+
+12. **observation** — the smoke wall time was 2.1 min (round-3b replay 4.4 min); the inventory hash of 296 334 files ran from the page cache. The trainer numbers are unchanged (train losses bit-identical, test loss differs by the known worker-local reference draw).
+
+## Verified (commands and outputs)
+
+Environment: `/home/yixunhu/miniconda3/envs/xRIR/bin/python` 3.8.20, `PYTHONPATH` = the clone, `XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms`. Scratch: `…/scratchpad/r3bfix/{r3bfix_clone, probes/*.py, probes/sig_*/, probes/finalize/, probes/drift/, smoke_logs/, smoke_launcher.log, parity/{pe,p,logs,*_driver.log}, gpu_runs.{sh,log}, full_suite.log}`.
+
+**V0 Hygiene.** `--numstat` add+del per commit: 75 / 115 / 138 / 70 / 51 / 99 / 127 / 66 / 1 / 61 / 31 / 21 / 121 / 48 — all < 200; each carries exactly one `Co-Authored-By: OpenAI Codex gpt-6-astra <noreply@openai.com>`; single-parent chain `b42b559 → 9b47c7a → … → f7596c0`; only the 12 files above change; no `ckpt/` or `worklog/` path in any commit. `git diff --name-only 62c9107..f7596c0 -- eval_yaw_rotation.py eval_unseen.py eval_xRIR_backbone.py model/ tools/yaw_rotation.py tools/reference_manifest.py tools/per_sample_metrics.py treble_multi_room_dataset/treble_xRIR_dataset.py utils/spec_utils.py` → empty. `git diff --check b42b559..f7596c0` exit 0 (also `62c9107..f7596c0 -- tools tests`). `py_compile` of the 11 Python files under 3.8 OK; `bash -n tools/exp04_launch.sh` OK; grep for walrus / `removeprefix` / `is_relative_to` / PEP 585 generics / `| None` empty. `fuser` = PSmisc 23.4; its `-v` layout on this host (pids on stdout, `USER ACCESS COMMAND` rows on stderr, path on its own line) matches the regex in `assert_quiescent`.
+
+**V1 Signals (`probes/signals.py`: launcher `execute_attempt` in a subprocess, stub child sleeping after step one, `resource_gate` stubbed).** `term` → launcher prints `ABORTED …/attempt_t_ABORTED_terminated_SIGTERM`, `RAISED LauncherTerminated SIGTERM`, handlers `SIG_DFL` before and after; child pid gone; listing `attempt_t_ABORTED_terminated_SIGTERM/{abort.json, effective_args.json, execution.json, train_manifest.json}`, `logs/train_ABORTED_terminated_SIGTERM.log`; `abort.json {reason: terminated_SIGTERM, exception_type: LauncherTerminated, wall_hours: 2.2e-5, log: {original, aborted}}`; `cumulative_hours.json` row `{attempt, hours, mode: smoke}`; `execution.json {child_exit_status: null, child_pgid, train_manifest_sha256}`; no completion. `hup` → identical with `SIGHUP`. `int` → `attempt_t_ABORTED_child_failed`, `KeyboardInterrupt`, child gone (nit 5). `during_finalize` (stub child completes; `p.revalidate` patched to sleep 8 s; SIGTERM after 2 s) → `attempt_t_ABORTED_terminated_SIGTERM`, no completion, `execution.json {child_exit_status: 0, ended_at, log_sha256}`; then `python -m tools.exp04_launcher finalize <aborted dir>` → completion written (`wall_hours` = max(recorded 0.00058 h, execution duration), `source_drift_after_spawn []`, listing incl. `abort.json`/`execution.json`, `log.path` = the `_ABORTED_` log), hours row replaced, no `final` (smoke); second `finalize` → `FileExistsError: attempt already has completion`. `double` (SIGTERM, then SIGHUP while `abort_log` sleeps) → finding 1. `nohup` probe → finding 2.
+
+**V2 A6 / A8 / receipt (`probes/a6_a8_receipt.py`).** `compare_control(effective_args(command('full',…), gpu, 9261), <real control args.json>, control_env)`: gpu `0` → passes, excluded `{CUDA_VISIBLE_DEVICES, PYTHONHASHSEED, epoch_ckpt_every, no_save, save_dir, save_every, yaw_aug, yaw_aug_seed, yaw_aug_width}`; gpu `1` → the eight without `CUDA_VISIBLE_DEVICES`. Copy of the real `cumulative_hours.json`: inferred modes `smoke / probe / probe`, `full_hours 0`, `check_budget(43.0)` passes; after `account_hours(attempt_a, 13, full)` and `(_smoke_big, 20, smoke)`: projection 30.0 passes, 30.01 refused; `mode: weird` → `invalid cumulative hours row`. Receipt: the real `_probe_20260912Tround3b_probe.json` at its own commit/GPU → refused (NOT CLEAN); synthetic clean receipt (ratio 1.02, `f`×40) accepted with `{path, sha256}`; 14 mutations refused (list in the status table); `main(['full','--gpu','0',…])` with a gpu-0 receipt and `'1'` with a gpu-1 receipt → `execute_attempt(mode full, gpu, mutable_inputs.probe_receipt = {path, sha256 of the file})`; gpu `1` with the gpu-0 receipt and `--gpu 0,1` → refused.
+
+**V3 A7 drift vs strict inputs, `finalize` (`probes/drift_and_inputs.py`, `probes/finalize.py`, real smoke).** Stub full runs against a tmp git repo closure (`entry.py`, `helper.py` at `commit`): `helper.py` edited after spawn → COMPLETED, `source_drift_after_spawn [{path: helper.py, spawn_sha256, now_sha256}]`, `final -> attempt_t`, listing 19 entries incl. `best.pth`/`last.pth`; deleted → COMPLETED with `now_sha256 null`; `effective_args` / `train_manifest` / `control_args` / `probe_receipt` / `train_inventory` (+ `train_data_identity.inventory_file`, `.inventory_sha256`) / data file (`train_data_identity.a.wav`) / forged closure digest (`source.training.sha256`) → `_ABORTED_input_changed` with `train_ABORTED_input_changed.log`; a symlink in the attempt → `_ABORTED_invalid_outputs`. Manifest of the stub run: inventory not inlined, `inventory_file {path, sha256}` = re-hash of the sidecar, `mutable_inputs {control_args, effective_args, probe_receipt, train_inventory}`, `mode/started_at/attempt_path/log_path` present. `finalize` probes: (1) forged never-run attempt → exit 0, completion, `final -> attempt_forged`, hours `[{attempt_forged, 30.0, full}]` (finding 3); (2) `execution.child_pgid` = a live sleeper → `child process group is still present`, after `killpg` → exit 0; (3) log held open `'a'` → `log writer still open: <pid>`; held `'r'` → certified; (4) `child_exit_status` 1 / `None` / `"0"` → `recovery requires recorded successful child exit`; log appended → `closed log changed`; no `execution.json` → `FileNotFoundError`; (5) copy of the Coder's recorded `_smoke_20260912Tround3b_smoke` → `attempt already has completion`; without it → no `execution.json`; with a forged `execution.json` → `KeyError: 'log_path'` (legacy manifests are refused, as the Coder said); (6) `.launch.lock` held by another process → `BlockingIOError`; (7) smoke-mode forged attempt → certified without `final`, hours `mode smoke`.
+
+**V4 Real rung-5 smoke on GPU 1 (`gpu_runs.sh`, 19:14:43–19:16:50, cwd `/tmp`).** `tools/exp04_launch.sh smoke --gpu 1 --reviewed-commit f7596c0 --allow-cotenant --timestamp fable_r3bfix --log-dir <scratch>/smoke_logs > smoke_launcher.log 2>&1`, with an injector appending `# drift probe` to `tools/yaw_aug.py` and `tools/exp04_launch.sh` after the second step line appeared (19:16:12; both restored with `git checkout` afterwards). Exit 0. Attempt `ckpt/xRIR_simple_yawaug_8_shot/_smoke_fable_r3bfix/` = exactly `{completion.json, effective_args.json, execution.json, train_inventory.json, train_manifest.json}` (no `smoke/` sub-directory); ROOT holds only that, `cumulative_hours.json` (`{_smoke_fable_r3bfix, 0.0351 h, mode smoke}`) and the two lock files. Manifest: `reviewed_commit f7596c03…`, closures `launcher bf899560… (4 files: exp04_launch.sh, exp04_launcher.py, exp04_probe.py, provenance.py)`, `training c07c59c0… (10 files = TRAIN_MINIMUM)` — the training digest equals the round-3b/3a values; `train_data_identity` 296 334 files, `inventory_sha256 0ebf6ac7…` (= prior computations), inventory in the sidecar (73 482 775 bytes, digest of its entries = manifest value, `inventory_file.sha256` = re-hash), manifest 10 361 bytes; `mutable_inputs {effective_args, train_inventory}`; `git_state {HEAD f7596c0…, dirty, dirty_outside_worklog, untracked: ['checkpoints']}`; `effective_args` `CUDA_VISIBLE_DEVICES '1'`, `PYTHONHASHSEED '0'`, bpe 74084. `execution.json {child_exit_status 0, child_pgid 4133799, ended_at, log_sha256, train_manifest_sha256}` (digest = re-hash of the manifest). Completion: `source_drift_after_spawn` = `[{tools/yaw_aug.py, spawn d0b681de…, now d52f7e77…}, {tools/exp04_launch.sh, spawn 90967fc1…, now c7346de5…}]`, `directory_listing` = the four pre-completion files with digests all re-hashing equal, `log.sha256` = re-hash = `execution.log_sha256`, metrics `train_losses [1.2363, 1.1575, 0.7239]` (bit-identical to the round-2 close-out, the Coder's, and the round-3b replay), `test_loss 0.17467` over 2 batches, `banner true`. Teed log: `XRIR_RUNTIME_ARGS` line 1, banner `yaw_aug ENABLED W=512 seed=0 counter=(epoch-1)*74084+batch_idx` line 7, first step line 19 (banner before step one). Launcher stdout (redirected) keeps `WARNING: dirty_outside_worklog` and `Hashing training data identity...` at its head.
+
+**V5 Abort reasons, listing, promotion label.** Test `test_abort_diagnostics_and_owned_log` (9 cases) passes in the suite; my probes add `terminated_SIGTERM/SIGHUP`, `input_changed`, `invalid_outputs`; `abort.json` keys `['aborted_at', 'exception_message', 'exception_type', 'last_guard_state', 'log', 'reason', 'started_at', 'wall_hours']`, `last_guard_state` keys `['banner', 'epoch_one_done', 'execution', 'execution_path', 'first_step_time', 'log_created', 'losses', 'mode', 'output_dir', 'position', 'probe', 'runtime', 'steps', 'test_loss']`; `promote` raising → `attempt_t_ABORTED_invalid_outputs` (nit 8).
+
+**V6 Guard paths and banner (cwd `/tmp`, `REPO` = clone).** `LogGuard(expected,'full')` with `save_dir ckpt/xRIR_simple_yawaug_8_shot/attempt_guardprobe`: `output_dir` = `<clone>/ckpt/…/attempt_guardprobe`, the step and `epoch 1 done` lines read `args.json`/`history.jsonl` there (`epoch_one_done True`); `yaw_aug_seed 7` → `seed=0` banner not accepted, `seed=7` accepted.
+
+**V7 Evaluation launcher (CPU + GPU 1).** `child_environment` with caller `PYTHONPATH=<clone>` → `/r:<clone>`; `'/r:/r::/x:/r'` → `/r:/x`; `MUTABLE_INPUTS = {control_args, probe_receipt, train_completion, train_manifest}`. `validate_manifest` on the previous review's PE manifest: `schema_version` 2 / missing / `"1"` / `True` → `evaluation manifest mismatch: … schema_version`. 32-query K = 8 parity on GPU 1 (19:16:50–19:18:30; `ckpt/xRIR_simple_8_shot/epoch_12.pth`, `reference_manifest_k8_seed42.json` hash `9cf5c8a2…`, `--yaw-cols 0 32 --acoustic-cols 0 32 --batch-size 16 --max-samples 32 --num-workers 2 --threads 4 --decomposition-batches 0`): (b) `tools/exp04_eval_launch.py … --conditions PE --e-acoustic-cols 32 --gpu 1 --bind-input control_args=<real args.json> --reviewed-commit f7596c0`; (c) `… --conditions P --e-acoustic-cols --gpu 1 --reviewed-commit f7596c03d3a33fc1a4f7b5b9449f10923c428d13`. `probes/compare_parity.py` against the frozen `eval_yaw_rotation.py` output of the round-3a close-out (`…/r3afix/parity/original`, itself JSON-identical to the round-3b frozen run) for both `per_sample_yaw.json` and `metrics_yaw.json`: (b) **IDENTICAL** to the frozen original and to the previous review's PE after removing `elapsed_min` and the four added meta keys; (c) has no `E` section and its **`P` section is bit-identical** to (b)'s and to the original's; the only other difference is `meta.e_acoustic_cols [] vs [32]`. Manifests: `schema_version 1`, `confirmatory false`, `allow_dirty_used false`, `allow_dirty false`, `max_samples 32`, `n_samples 32`, `split_count 6337`, `reviewed_commit` 40-hex in both (resolved from the short form in (b)), `PYTHONPATH` = the clone once, `git_state.untracked ['checkpoints']`, `mutable_inputs.control_args 13fb7cc0…` (= re-hash of the real `args.json`), evaluator closure `5ba818d8…` (12 files, exp_03's); completions carry `confirmatory`/`allow_dirty_used`, `child_exit_status 0`, listing `[eval_manifest.json, metrics_yaw.json, per_sample_yaw.json]`, `eval_manifest_sha256` = re-hash. Both driver logs (`> file 2>&1`) start with `WARNING: dirty_outside_worklog` (3a-2 closed). `--bind-input foo=…` → `ValueError: invalid or duplicate --bind-input`, `p_badname_ABORTED_setup_failed`, no log created.
+
+**V8 Full suite.** Clone at `f7596c0`, both GPUs visible (`CUDA_VISIBLE_DEVICES=1,0`), `ckpt`/`checkpoints` linked, goldens present, `NUMBA_CACHE_DIR` in the scratchpad: **708 passed, 29 warnings in 503.15 s (0:08:23)**, exit 0 — no failures, no skips; the three `tests/test_exp04_recovery.py` cases that failed on the Coder's `30779cb` run pass on `f7596c0` (the `fuser` fix), and the count is the Coder's 705 plus the three `test_failed_writer_inspection_refuses_recovery` cases added in `f7596c0`. The clone's tree stayed clean apart from the untracked `checkpoints` symlink (the drift edits were reverted).
+
+## Fitness for the confirmatory launch (plan §7)
+
+Ready: the abort-or-certify guarantee now survives SIGTERM/SIGHUP/SIGINT and a signal during finalisation; `abort.json` and the `_ABORTED_` log name say why; the parity diff accepts either card; the probe receipt is bound to commit and GPU and revalidated; closure drift during the run is recorded instead of aborting while every genuinely mutable input stays strict; a preserved attempt can be finalised; the manifest is small with a digest-bound inventory sidecar; the completion lists every file; hours are per mode. Still missing before `full` can be *started*: (i) the rung-6 probe re-run on a free GPU (`tools/exp04_launch.sh probe --gpu <g> --reviewed-commit <sha> --log-dir …`) with `PROBE_NOT_CLEAN false` and `passed true` at the same `<sha>` and `<g>` as the launch — the recorded receipt is refused by design; (ii) findings 1–2 (one small cycle; without them the run is safe only under the exact `nohup setsid` template and a single kill); (iii) finding 3 before `finalize` is trusted for the confirmatory attempt (it is not needed for a clean run); (iv) the Planner's naming decision (finding 4) so round-5 tooling knows what a recovered attempt is called; (v) a working tree clean outside `worklog/` at launch (`full` refuses `dirty_outside_worklog` without `--allow-dirty`, and `--allow-dirty` must not be used for the reportable run), at a HEAD whose training/launcher closure blobs equal `--reviewed-commit`'s (round-5 commits touch `tools/exp04_profiles.py`, `tools/paired_compare.py`, `tools/results_table.py` and tests, none of which is in either closure, so `--reviewed-commit f7596c0` stays valid while those 14 files are untouched); (vi) `cumulative_hours.json` full rows + 30 h ≤ 43 h (currently 0 h of `full`).
+
+Invocation I would consider certified once (i)–(v) hold (the launcher's own stdout goes to the record folder, the teed training log to `--log-dir`, the attempt under `ckpt/xRIR_simple_yawaug_8_shot/attempt_<ts>`):
+
+```
+cd /home/yixunhu/codespace/xRIR_code && git status --short | grep -v '^.. worklog/' ; # must print nothing
+TS=$(date +%Y%m%dT%H%M%S)
+nohup setsid tools/exp04_launch.sh full --gpu <0|1> \
+  --reviewed-commit <40-hex sha whose closure blobs equal f7596c0's> \
+  --probe-json ckpt/xRIR_simple_yawaug_8_shot/_probe_<probe-ts>.json \
+  --log-dir ckpt/xRIR_simple_yawaug_8_shot/_logs --timestamp "$TS" \
+  > worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_${TS}_launcher.log 2>&1 &
+```
+
+No `--allow-cotenant`, no `--allow-dirty`, default `--projection-hours 30`; the same `<gpu>` as the receipt's `before.gpu`/`after.gpu`; the GPU free of compute apps with ≥ 40 GiB and the volume ≥ 50 GiB (the gate checks both); stop it only with a single `kill -TERM <launcher pid>` (finding 1) and recover with `tools/exp04_launch.sh finalize <attempt dir>` only after checking `execution.json` against the launcher log (finding 3). The golden's `CUDA_VISIBLE_DEVICES=0` is read as `<gpu>` per A6.
+
+## Verdict
+
+**approve with changes.**
+
+The round-3b blocker is closed the way the fix prompt specified and holds under the routes it did not name (SIGHUP, SIGINT, a signal during finalisation, recovery afterwards); A6–A8 and findings 4–9 / nits 11, 13–15 are implemented and each was exercised on the real path — the smoke certified on GPU 1 with two closure files edited mid-run and both recorded as drift, the real control `args.json` passes parity on either card, the recorded NOT-CLEAN receipt is refused and a clean one is bound, the manifest shrank to 10 KB with a digest-bound 73 MB sidecar, and the 32-query K = 8 parity is bit-identical through the fixed evaluation launcher (P section identical across P/PE/frozen; PE identical to the frozen evaluator modulo `elapsed_min` and the added keys). The round-3a close-out items (confirmatory = all queries with an explicit flag, no `tee /dev/stderr`, `log_created`, `required=`, PYTHONPATH de-dup, `schema_version` assert, fixed binding names) are closed with tests. The suite is 708 green on the clone with both GPUs visible. What remains is small: the abort path is not idempotent under a second signal (1), an inherited `SIG_IGN` is overridden (2), `finalize` accepts a fabricated attempt because its evidence is an unsigned file and it checks no structural invariant of a real run (3), and a recovered attempt keeps an `_ABORTED_` name (4, Planner decision); plus batchable nits 5–9.
+
+## Blocking findings the Coder must fix before the round closes
+
+None.
+
+Strongly recommended in one small cycle before the confirmatory launch (non-blocking for the round): 1 (idempotent abort path / signal mask), 2 (respect `SIG_IGN`), 3 (structural checks in `finalize` + spawn-time `child_pgid` echo to the launcher log). Planner decision: 4 (recovered-attempt naming). Batchable nits: 5–9. Operational: item (i) above — the clean rung-6 probe on the launch GPU at the launch commit.
+
+exec
+/bin/bash -lc 'for p in /AGENTS.md /home/AGENTS.md /home/yixunhu/AGENTS.md /home/yixunhu/codespace/AGENTS.md /home/yixunhu/codespace/xRIR_code/AGENTS.md; do if [ -f "$p" ]; then cat "$p"; fi; done; find tools tests worklog -name AGENTS.md -print; git branch --show-current' in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+main
+
+exec
+/bin/bash -lc 'cat worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round5_review.md' in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+**Reviewer:** Claude Fable 5.1 (Agent subagent, model fable) · **Date:** 2026-09-12
+
+# exp_04 yaw_aug_xrir — Coder round 5 code review (A9 refactor, carried round-4 items, `tools/results_table.py`, living-table template)
+
+**Scope.** The nine Codex commits `d750597, fcde688, 310604f, e9e2cdd, 59e62fa, a30d67d, e16f2f3, a2a0b8b, be5830d` (`f7596c0..be5830d`: 836 insertions / 67 deletions over `tools/exp04_profiles.py` (+54), `tools/paired_compare.py` (+150/−49), `tools/results_table.py` (new, 232), `tests/test_exp04_profiles.py`, `tests/test_paired_compare.py`, `tests/test_results_table.py` (new, 227) and the new record-folder file `yaw_aug_xrir_results_assets/approved_digests.json`). Specification: `coder_prompts/round5_prompt.md` (cycle 0 = A9 + round-4 carried items; cycles 1–2 = results table + template), plan v4 §3 (estimand basis), §4 "canonical input selection", §5 row `tools/results_table.py`, §8, §11 A1–A9 (A9's settled schema), the Fable round-4 review (findings 1–15), the notebook entries 18:33–19:25 and the Coder transcript `yaw_aug_xrir_2026-09-12_19:01:02_coder_round5.log` (final report: 748 passed, tolerance 2 queries, all-null template with `schema_version: null`). Context read first: `worklog/experiment_SOP.md`, the plan, the notebook, exp_03's record conventions, `tools/exp04_eval_launch.py::build_fields` at `be5830d` (the run layout the producers consume), `tools/provenance.py`.
+
+**Method.** All reading and execution on an isolated clone at `be5830d` (`<scratchpad>/r5/r5_clone`, with `ckpt/{yaw_aug,xRIR_simple_8_shot,xRIR_cyl_8_shot,yaw_rotation}` and `checkpoints/` symlinked in read-only), a second clone at `b42b559` for the before/after comparison and a throwaway third clone for the tamper probes that commit. No tracked file of the real repository was modified; this review is the only file created there. I re-derived the table aggregation by hand in pure Python from the raw run files, replayed the round-4 producer on the same synthetic runs, attacked admission with 17 mutations beyond the Coder's, and tampered with the approved-digests JSON in six ways.
+
+## Summary verdict
+
+**Approve with changes** (no blocking findings). The A9 refactor is correct and decoupled (the JSON is in no import-derived closure; a JSON commit leaves both producer digests unchanged; every tamper variant is refused; exploratory runs list each null pin and carry no verdict). All six round-4 should-fix items and the four requested nits are closed with evidence. `results_table.py` admits only through the shared helpers, its numbers equal an independent hand computation on 6 rows × 5 metrics, the Markdown is rendered from the JSON alone and reproduces byte-for-byte, every mutation I tried is refused with nothing written, and the `b42b559 → be5830d` refactor leaves every H1/H2/TOST cell numerically identical (0 differing fields over 36 cells). The three should-fix items below concern the living-table salvage policy (a hand-edited number is carried forward verbatim, which plan §5 forbids in spirit) and one provenance requirement the producers do not yet enforce for the augmented arm; none affects the numbers.
+
+## Findings
+
+### Should-fix
+
+**1. `tools/results_table.py:136-152` — an edited generated block is salvaged verbatim into `## Manual`, so a hand-edited number survives regeneration (as a stale second table).**
+`_preserve_manual` recomputes the block's stamp; on mismatch it moves the *entire* old block (minus the stamp and markers) under `## Manual`. Verified: after replacing `1363.75 ± 15.8114` by `999.999 ± 0.001` inside the generated table and regenerating with `--force-md`, the generated block carries the JSON value (good), but the file now also contains, under `## Manual`, a second `# Model comparison` heading, the estimand paragraph and the full six-row table with `999.999 ± 0.001` — and this persists through every later regeneration (count stays 1, never removed). `be5830d`'s own test `test_manual_edit_inside_generated_block_survives` asserts exactly this behaviour. Plan §5 says "numbers never hand-edited"; the round-5 prompt asked to preserve "rows/notes that are **not produced by this tool**". A stale, unlabelled copy of the tool's table with a hand-edited cell is neither. *Fix (choose one, ~10 lines):* (a) fail closed — on stamp mismatch raise `ValueError('generated block was edited by hand; move your notes below the end marker and rerun')`, which is consistent with every other refusal in this pipeline; or (b) if salvage is wanted, wrap the salvaged text in an explicit marker (`<!-- salvaged from an edited generated block; these numbers are NOT canonical -->`), drop its `# Model comparison` heading and its table rows, and keep only prose. Update the test to the chosen policy.
+
+**2. `tools/results_table.py:140` — a file with two generated blocks grows without bound.**
+The salvage branch runs only when `count(BEGIN) == count(END) == 1`; otherwise the whole previous text (including the old stamped blocks) is treated as manual and a fresh block is prepended. Measured on a file where the generated block had been pasted twice: 15 023 → 22 551 → 30 079 → 37 607 bytes over three `--force-md` regenerations, BEGIN markers 2 → 5. The same happens if a manual note quotes the marker text. *Fix:* iterate over every `BEGIN…END` pair, drop each one whose stamp verifies, apply finding 1's policy to the rest; or refuse when more than one block is present.
+
+**3. `tools/paired_compare.py:311-312, 362-363` — the augmented arm is admitted without its training provenance bound.**
+A9 (plan §11) says the training launcher "is recorded, not compared — its identity reaches the analysis through the augmented checkpoint's sha256 **and the train completion bound as `mutable_inputs.train_completion`**". `admit_run` validates the *names* in `mutable_inputs` (⊆ {control_args, train_manifest, train_completion, probe_receipt}) and binds whatever is present, but `mutable_inputs == {}` is accepted for an aug run. The eval launcher only binds what the operator passes on the command line (`tools/exp04_eval_launch.py:214-220`, `--bind-input name=path`), so an aug evaluation launched without `--bind-input train_manifest=… --bind-input train_completion=…` is admitted with no link to the attempt that produced the checkpoint. *Fix (3 lines):* in `admit_run`, `if arm['role'] == 'aug': require({'train_manifest', 'train_completion'} <= set(fields['mutable_inputs']), 'aug train provenance binding')`, plus a test; and the Planner's eval-launch command for the aug arm must pass both bindings (see "Fitness" below).
+
+### Nits
+
+**4. `results_table.py:32`** rows come out K = 1 before K = 8 for each arm; the plan's table and the prompt list K = 8 first (`sorted(profile['num_shot'], reverse=True)`).
+**5. `results_table.py:124-126`** the "Protocol" paragraph hard-codes "canonical batch 16, and TF32 off. max_samples = 0" as literal text instead of rendering `result['profile']['batch_size'] / tf32 / max_samples`; the per-row protocol column *is* rendered from the JSON. If a later profile version changed any of them the paragraph would lie.
+**6. `results_table.py:117`** Markdown cells are `{:.6g}`; say "rounded to 6 significant digits; the JSON is canonical" in the header line.
+**7. `results_table.py:38-41`** with a null aug sha256 an aug run is refused as "checkpoint/num_shot does not map to a TABLE_V1 role" (verified on the real CLI) rather than "profile not yet approved: aug checkpoint"; check the pins before role mapping so the message names the cause.
+**8. `results_table.py:224`** `generation_command` records `--runs` exactly as typed (relative paths if given relative); absolutise or record the cwd in the sidecar.
+**9. `results_table.py:150-151`** only a *leading* `## Manual` is de-duplicated: a legacy file whose own `## Manual` sits mid-text gets two headings (probe `test_legacy_file_and_manual_heading`). Harmless.
+**10. Canonical JSON size.** `inputs` carries every bound path, including the 13 318-file data inventory (≈2.5 MB on the real split) — same in `paired_compare`'s JSON. Acceptable; the sidecar already holds it, so the result JSON could keep only run/producer/approved digests.
+**11. `results_table.py:229-232`, `paired_compare.py:652-656`** `KeyError` (e.g. a hand-made JSON lacking `finite_count_tolerance` given to the renderer) escapes as a traceback; add it to the handler.
+**12. `exp04_profiles.load_approved_digests`** accepts a mixed JSON (`schema_version: 1` with null pins, or `schema_version: null` with filled pins). Production is still refused through `admit_runs` (`approval schema_version` and each pin are in `required`), so no hole; requiring all-null or all-filled would keep the template semantics crisp.
+**13. `paired_compare.py:285-287`** `require(path not in inputs or inputs[path] == actual, 'input changed …')` is now tautological (`actual` is read from the cache when present) — dead check. Change detection rests on the `data_stats` stamps and `recheck_inputs` at publish, which is sound (a same-size, mtime-restored rewrite is caught through ctime; verified in both producers).
+
+## Round-4 carried items — closure evidence
+
+| # | Item | Evidence at `be5830d` |
+|---|---|---|
+| 1 | launcher pin semantics | `admit_run:326-327` compares only `('evaluator','entrypoint')` and `('writer','writer')`; `training_launcher` is a JSON key that is recorded (sidecar `approved_digests.pins`) and never compared; docstring line 269 states it. |
+| 2 | exclusion keys by role | `_analyze_cell:470-471` remaps `a/b → profile arm roles`; `cell_mask:108` keys per-seed counts by `str(seed)`; test `test_named_seed_means_and_descriptive_cells` asserts `{'aug','control','joint'}`; old-vs-new replay shows the remapped dicts equal the old `a/b` dicts. |
+| 3 | public `admit_run`/`admit_runs` with explicit `num_shot` | `admit_run(run_dir, arm, num_shot, profile, approved, …)` and `admit_runs(profile, groups=[(arm, num_shot, dirs)…], approved, exploratory, producer, producer_key)`; `results_table.build_table` builds six `(arm, K)` groups and calls the same helper (no duplicated admission code — `results_table.py` imports `admit_runs, producer_identity, recheck_inputs`). |
+| 4 | `confirmatory` + named `mutable_inputs` | `admit_run:308-312` requires `confirmatory is True` and `allow_dirty_used is False` in **both** manifest and completion, names ⊆ the four identifiers; `run_flags` recorded per run in both sidecars; tests `test_admission_flags_and_binding_names` (5 params), `test_completion_flags_and_recorded_dirty_usage`. |
+| 5 | two producer keys + aug sha256 in JSON | JSON schema `closures.{evaluator, writer, training_launcher, producer_paired_compare, producer_results_table}`, `checkpoints.aug.{path, epoch, sha256}`; `AUG` profile entry has no `sha256`; `admit_run:330` takes the aug sha256 from the JSON; `admit_runs` compares only its own `producer_key`. |
+| 6 | exploratory with unapproved pins | `admit_runs:425-426` turns each null pin into a deviation; real CLI with the committed all-null JSON: production exit 1 with "profile not yet approved: evaluator; writer; producer_paired_compare; aug checkpoint; aug checkpoint path; aug checkpoint epoch; approval schema_version", nothing written; `--exploratory` exit 0, JSON/summary/sidecar written, the seven null-pin deviations listed, no `verdict` key anywhere. |
+| 7 (nit) | double hashing | `bind` reads the cache; `revalidate` is called with `data_identity` popped; inventory hashed once per analysis with stat stamps (`data_stats`) and re-stamped at publish; test `test_data_hashed_once_and_mutation_still_refused` (hash count 1, mutation refused). |
+| 10 (nit) | seed sort | `admit_runs:444` sorts by `int(manifest_seed)`. |
+| 11 (nit) | `RuntimeError` in `__main__` | `paired_compare.py:655` and `results_table.py:231` catch it; test `test_cli_runtime_error_is_concise`. |
+| 12 (nit) | CLI help | `--runs-a` "First profile arm: aug", `--runs-b` "Second profile arm: control (H1/H2 only)". |
+| 13 (nit) | fixture realism | `admission_fixture(shifted=True)`: aug = control × (1.01 + N(0, .003)); `test_shifted_noisy_fixture_through_main` asserts non-zero widths, ratio in (0, .1], no superiority. |
+| 15 (nit) | profile test | `approved_closures` removed from `COMMON`; `test_profiles_frozen_and_typed` asserts its absence. |
+
+Nits 8, 9 and 14 of round 4 were not in this round's scope and remain open (summary terseness, `xb`+fsync vs temp+replace in `paired_compare.write_outputs` — `results_table` already uses temp + link/replace —, Decimal tail spelling).
+
+## Verified (commands on the isolated clones; `PYTHONPATH=<clone>`, `XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms`, Python 3.8.20, CPU unless stated)
+
+**A9 loader and closures.**
+- `provenance.source_closure` at `be5830d`: `tools.paired_compare` → `{exp04_profiles, paired_compare, paired_stats, provenance, reference_manifest, summarize_yaw, treble_xRIR_dataset, spec_utils}`; `tools.results_table` → the same plus `results_table.py`; `tools.exp04_eval` (14 files) and `tools.exp04_eval_launch` (15) and `tools.exp04_launcher` (`exp04_launcher.py, provenance.py`). **`approved_digests.json` appears in none** (asserted programmatically).
+- `load_approved_digests()` on the committed template → all-null frozen `mappingproxy` (recursive), identity `{path, sha256 c9ddca5f…, git_blob 1999ae52…}`; `git_blob` equals `git rev-parse HEAD:<path>`; item assignment raises `TypeError`.
+- Tamper probes (throwaway clone): trailing newline (uncommitted) → "differ from committed HEAD bytes"; uncommitted evaluator pin → same; extra top-level key → "schema: expected schema_version, closures, checkpoints"; `{` → `JSONDecodeError`; **committed** `'ZZ'*32` pin → "schema: invalid pin type or value"; committed fully-filled JSON (schema 1, five 64-hex closures, aug path/epoch/sha256) → accepted, blob id matches. The Coder's schema tests cover 9 more malformed shapes (`test_approval_schema_refuses_malformed_values`).
+- Decoupling: `producer_identity('tools.paired_compare')` = `c21717ad152dbcb97ed78d98b275e61d32375b1f956b8269f7ff6ac373e53dbe`, `producer_identity('tools.results_table')` = `3c766eb617fe955c5aeb383c9b98f623b61ddd11f761e8c0f52219231d8ec4d5` at `be5830d`, **unchanged after committing a filled JSON** (so the fill sequence "compute producer closures → fill JSON → commit" is sound and the aug sha256 pin no longer touches any closure).
+- Sidecars: both producers write `approved_digests: {path, sha256, git_blob, pins}` and put the JSON's path→sha256 into `inputs` (result JSON and sidecar); `recheck_inputs` rehashes it at publish.
+
+**`results_table.py` (`probes/test_r5_table_probe.py`, 29 probes, 28 as expected + 1 documenting nit 9).**
+- Hand computation: from the raw `per_sample_yaw.json` files of the 30-run fixture (3 roles × K ∈ {1, 8} × seeds 42–46, 12 queries), per-seed finite means × scale, five-seed mean and sample SD (ddof = 1) in pure Python equal `build_table`'s values to 1e-12 on all 6 rows × 5 metrics; per-seed `n_finite` equal; row set = {control, cyl, aug} × {1, 8}; first row EDT `1363.75 ± 15.8114` ms (= (1 + 5.5/16 + .02) × 1000, SD of {0, 10, 20, 30, 40}/… ). Role/K scaling probe (control ×1, cyl ×2, aug ×3; +10 at K = 8) recovered in every row → no row mix-up.
+- Units: `tools/per_sample_metrics.py:124-125` — `t60` is already `|ΔT60|/T60(gt) × 100` (%), `edt` in seconds (× 1000 → ms), `c50` in dB; `METRICS` maps them accordingly; `stft/decay/consistency` validated but not columns; unknown name (`spectral_flux`) → "unknown metric names"; one run lacking `loss` → "metric coverage differs across seeds"; all runs lacking `loss` → column absent, rendered "—".
+- Tolerance: pinned `finite_count_tolerance: 2` in `TABLE_V1` (inside the profile digest `be0449f5…`) and rendered in the Markdown; 3 non-finite in one seed → "finite count tolerance exceeded"; 2 in seed 42 and 1 in seed 43 → accepted with `n_finite` 10/11 and each seed mean over **its own** finite set (hand-checked); 12 → "zero finite queries".
+- Refusals, nothing written (17 mutations): per-sample value without rebind → digest; completion output digest → digest; checkpoint sha256 → "does not map to a TABLE_V1 role"; `gl_seed ≠ seed` → `gl_seed`; seed 47 → seed set; `tf32`, `batch_size 8`, `max_samples 12`, `conditions PE`, `confirmatory false`, `allow_dirty_used true` → each named; per-sample changed with stale aggregate → reconciliation; same directory twice → "cyl seed set"; swapped queries → order; K flipped in the manifest → seed set + reference seed/num_shot; evaluator pin altered → "evaluator approved closure"; cyl run relabelled as control → refused. Also: null `producer_results_table` → "profile not yet approved: producer_results_table"; a symlink at the JSON path → `FileExistsError`; `--md` equal to `--json` → refused; a data file rewritten (same size, mtime restored) between admission and publish → "input changed", nothing written. Legitimate change with full rebind → accepted and the affected seed/row move by exactly the injected amount.
+- Outputs: JSON has `schema_version`, `profile`, `profile_digest`, `inputs`, `producer_closure_sha256`, `rows` and **no timestamp** (`generated_at` only in the sidecar); Markdown numbers parsed back from the table equal the JSON's to 6 significant digits on every cell; protocol column "K = 8; unseen; 12 queries; 5 seeds; epoch 12; P; k = 0; batch 16; TF32 off"; `render_markdown(json_path)` with the run directories deleted reproduces the published Markdown byte-for-byte; sidecar `outputs` = sha256 of both files; tampered JSON → "canonical JSON digest mismatch". Idempotence: two generations → byte-identical JSON (Coder's test, re-run); `--force-md` overwrites only the Markdown, the JSON path stays exclusive; render failure or sidecar failure → JSON removed and the previous Markdown restored (Coder's tests).
+- Real CLI (`python tools/results_table.py … --profile TABLE_V1`) with the committed null JSON on the fixture runs: exit 1, "checkpoint/num_shot does not map to a TABLE_V1 role: …/aug_42" (nit 7), nothing written.
+- Living-table salvage: findings 1–2 and nit 9 (measured above); a legacy file without markers is preserved whole under `## Manual` after the generated block; a pristine block + manual section is idempotent.
+
+**`paired_compare.py` before/after (`probes/old_driver.py`).** The shifted five-seed fixture built with the new code (`H1_K8`, `H2_K8`, `TOST_K8`) was analysed by the new `main` and by the `b42b559` `admit_runs`/`analyze` (profile given the old `approved_closures` block; `launcher := writer`). Per cell, `estimate, companion_interval, decision_bound, superiority_interval, room_cluster_interval, n_rooms_retained, mask, alpha_local, seed_means, verdict, superiority, r_a, r_b`, both convergence gates and the exclusions (old `a/b/joint` vs new role keys): **0 differing fields over 3 + 12 + 21 cells**; verdicts `non-inferior` / `not supported` / per-cell TOST unchanged. Statistics region (`paired_compare.py:26-227`) differs from `f7596c0` only by `str(seed)` keying; `_analyze_cell` by the two remap lines.
+
+**Hygiene.** `git diff --name-only 62c9107..be5830d -- <nine pinned exp_03 files>` → empty; `f7596c0..be5830d -- tools/paired_stats.py tools/summarize_yaw.py` → empty; the nine commits touch only the seven allowed files; `git diff --check f7596c0..be5830d` clean; changed lines per commit 119 / 145 / 94 / 84 / 182 / 160 / 18 / 110 / 29 (all < 200; the Coder's numbers reproduced); every commit carries `Co-Authored-By: OpenAI Codex gpt-6-astra <noreply@openai.com>`; `python -m py_compile` on the six `.py` files OK (3.8.20). Focused: `pytest tests/test_exp04_profiles.py tests/test_paired_compare.py tests/test_results_table.py -q` → **119 passed**. Full suite on the clone with both GPUs visible (`nice -n 15`, the user's FLAC job at 100 % on both cards untouched): **748 passed, 0 failed, 0 skipped in 514.9 s (`pytest tests -q -p no:cacheprovider`; 748 collected, the Coder's count; no absent-artefact skips because the four `ckpt/` directories and `checkpoints/` were linked in)**.
+
+## Fitness for the analysis phase — what the Planner must do in the second reviewed commit
+
+1. **Order of operations.** Land every remaining code change to any closure member first (round 6 cycle 3 = this round's carried items touches `tools/paired_compare.py` and `tools/results_table.py`, both producer closures; a change to `tools/provenance.py` invalidates *every* pin; `tools/exp04_launcher.py` is in no evaluator/producer closure). Only then compute the pins.
+2. **Aug checkpoint** (after training completes and `final` is promoted): `sha256sum ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth` → `checkpoints.aug = {"path": "ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth", "epoch": 12, "sha256": …}`. The `path` string must equal `AUG['checkpoint']` **literally** (`admit_run:332` compares strings); `admit_run:343` then compares `resolve()`d paths, so `final` may stay a symlink.
+3. **Closures** at the reviewed commit on a clean tree, from the real repo path: `closure_record(source_closure('tools.exp04_eval', REPO), commit, REPO)[1]` → `evaluator`; `'tools.exp04_eval_launch'` → `writer`; `'tools.exp04_launcher'` → `training_launcher` (recorded only); `paired_compare.producer_identity('tools.paired_compare')['sha256']` → `producer_paired_compare`; `producer_identity('tools.results_table')['sha256']` → `producer_results_table`. (At `be5830d`: `c21717ad…` and `3c766eb6…`; they will change with round 6.) Note the evaluator/writer values must equal what `exp04_eval_launch.build_fields` writes into `source_closures.entrypoint.sha256` / `writer.sha256` for the confirmatory runs — i.e. the eval launches' `--reviewed-commit` must be a commit whose closure blobs are those pinned; the JSON commit itself qualifies because it touches no closure file.
+4. **Fill** `schema_version: 1`, commit the JSON alone (the JSON commit changes no closure digest — verified), record the commit in the notebook.
+5. **Evaluation launches:** aug runs with `--bind-input train_manifest=<attempt>/train_manifest.json --bind-input train_completion=<attempt>/completion.json` (finding 3); all runs `--conditions P`, `--max-samples 0`, batch 16, no `--allow-dirty` (else `confirmatory` is false and admission refuses).
+6. **Run the producers** from the checkout recorded as `repo` in the eval manifests (the real repository, not a clone — `admit_run:343` compares `REPO / arm['checkpoint']` with the run's `repo`), on a clean tree at HEAD ≥ the JSON commit. First table generation at a fresh `--json` path without `--force-md`; later regenerations with a new `--json` and `--force-md` on `worklog/worklog_yixun/model_comparison.md`.
+7. **Fields still missing:** none for the producers beyond finding 3. Interpretive note for `_analysis.md`: the table's per-seed means are over each seed's own finite queries (the evaluator's own convention), whereas H1's `seed_means` use the joint all-seed both-arm mask — the K = 8 table cells and H1's per-arm means can differ in the last digits when any query is non-finite; say so once in the results page.
+
+## Verdict
+
+**Approve with changes.** Blocking findings: **none.** Should-fix 1–3 go to round 6 cycle 3 (salvage policy for an edited generated block; multi-block growth; `train_completion` binding required for the aug arm); nits 4–13 may be batched.
+
+exec
+/bin/bash -lc "sed -n '80,240p' worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round3b_close_review.md; wc -l worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_worklog.md worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/plan_yaw_aug_xrir.md tools/exp04_launcher.py tools/paired_compare.py; cat tools/exp04_launcher.py" in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+
+**V7 Evaluation launcher (CPU + GPU 1).** `child_environment` with caller `PYTHONPATH=<clone>` → `/r:<clone>`; `'/r:/r::/x:/r'` → `/r:/x`; `MUTABLE_INPUTS = {control_args, probe_receipt, train_completion, train_manifest}`. `validate_manifest` on the previous review's PE manifest: `schema_version` 2 / missing / `"1"` / `True` → `evaluation manifest mismatch: … schema_version`. 32-query K = 8 parity on GPU 1 (19:16:50–19:18:30; `ckpt/xRIR_simple_8_shot/epoch_12.pth`, `reference_manifest_k8_seed42.json` hash `9cf5c8a2…`, `--yaw-cols 0 32 --acoustic-cols 0 32 --batch-size 16 --max-samples 32 --num-workers 2 --threads 4 --decomposition-batches 0`): (b) `tools/exp04_eval_launch.py … --conditions PE --e-acoustic-cols 32 --gpu 1 --bind-input control_args=<real args.json> --reviewed-commit f7596c0`; (c) `… --conditions P --e-acoustic-cols --gpu 1 --reviewed-commit f7596c03d3a33fc1a4f7b5b9449f10923c428d13`. `probes/compare_parity.py` against the frozen `eval_yaw_rotation.py` output of the round-3a close-out (`…/r3afix/parity/original`, itself JSON-identical to the round-3b frozen run) for both `per_sample_yaw.json` and `metrics_yaw.json`: (b) **IDENTICAL** to the frozen original and to the previous review's PE after removing `elapsed_min` and the four added meta keys; (c) has no `E` section and its **`P` section is bit-identical** to (b)'s and to the original's; the only other difference is `meta.e_acoustic_cols [] vs [32]`. Manifests: `schema_version 1`, `confirmatory false`, `allow_dirty_used false`, `allow_dirty false`, `max_samples 32`, `n_samples 32`, `split_count 6337`, `reviewed_commit` 40-hex in both (resolved from the short form in (b)), `PYTHONPATH` = the clone once, `git_state.untracked ['checkpoints']`, `mutable_inputs.control_args 13fb7cc0…` (= re-hash of the real `args.json`), evaluator closure `5ba818d8…` (12 files, exp_03's); completions carry `confirmatory`/`allow_dirty_used`, `child_exit_status 0`, listing `[eval_manifest.json, metrics_yaw.json, per_sample_yaw.json]`, `eval_manifest_sha256` = re-hash. Both driver logs (`> file 2>&1`) start with `WARNING: dirty_outside_worklog` (3a-2 closed). `--bind-input foo=…` → `ValueError: invalid or duplicate --bind-input`, `p_badname_ABORTED_setup_failed`, no log created.
+
+**V8 Full suite.** Clone at `f7596c0`, both GPUs visible (`CUDA_VISIBLE_DEVICES=1,0`), `ckpt`/`checkpoints` linked, goldens present, `NUMBA_CACHE_DIR` in the scratchpad: **708 passed, 29 warnings in 503.15 s (0:08:23)**, exit 0 — no failures, no skips; the three `tests/test_exp04_recovery.py` cases that failed on the Coder's `30779cb` run pass on `f7596c0` (the `fuser` fix), and the count is the Coder's 705 plus the three `test_failed_writer_inspection_refuses_recovery` cases added in `f7596c0`. The clone's tree stayed clean apart from the untracked `checkpoints` symlink (the drift edits were reverted).
+
+## Fitness for the confirmatory launch (plan §7)
+
+Ready: the abort-or-certify guarantee now survives SIGTERM/SIGHUP/SIGINT and a signal during finalisation; `abort.json` and the `_ABORTED_` log name say why; the parity diff accepts either card; the probe receipt is bound to commit and GPU and revalidated; closure drift during the run is recorded instead of aborting while every genuinely mutable input stays strict; a preserved attempt can be finalised; the manifest is small with a digest-bound inventory sidecar; the completion lists every file; hours are per mode. Still missing before `full` can be *started*: (i) the rung-6 probe re-run on a free GPU (`tools/exp04_launch.sh probe --gpu <g> --reviewed-commit <sha> --log-dir …`) with `PROBE_NOT_CLEAN false` and `passed true` at the same `<sha>` and `<g>` as the launch — the recorded receipt is refused by design; (ii) findings 1–2 (one small cycle; without them the run is safe only under the exact `nohup setsid` template and a single kill); (iii) finding 3 before `finalize` is trusted for the confirmatory attempt (it is not needed for a clean run); (iv) the Planner's naming decision (finding 4) so round-5 tooling knows what a recovered attempt is called; (v) a working tree clean outside `worklog/` at launch (`full` refuses `dirty_outside_worklog` without `--allow-dirty`, and `--allow-dirty` must not be used for the reportable run), at a HEAD whose training/launcher closure blobs equal `--reviewed-commit`'s (round-5 commits touch `tools/exp04_profiles.py`, `tools/paired_compare.py`, `tools/results_table.py` and tests, none of which is in either closure, so `--reviewed-commit f7596c0` stays valid while those 14 files are untouched); (vi) `cumulative_hours.json` full rows + 30 h ≤ 43 h (currently 0 h of `full`).
+
+Invocation I would consider certified once (i)–(v) hold (the launcher's own stdout goes to the record folder, the teed training log to `--log-dir`, the attempt under `ckpt/xRIR_simple_yawaug_8_shot/attempt_<ts>`):
+
+```
+cd /home/yixunhu/codespace/xRIR_code && git status --short | grep -v '^.. worklog/' ; # must print nothing
+TS=$(date +%Y%m%dT%H%M%S)
+nohup setsid tools/exp04_launch.sh full --gpu <0|1> \
+  --reviewed-commit <40-hex sha whose closure blobs equal f7596c0's> \
+  --probe-json ckpt/xRIR_simple_yawaug_8_shot/_probe_<probe-ts>.json \
+  --log-dir ckpt/xRIR_simple_yawaug_8_shot/_logs --timestamp "$TS" \
+  > worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_${TS}_launcher.log 2>&1 &
+```
+
+No `--allow-cotenant`, no `--allow-dirty`, default `--projection-hours 30`; the same `<gpu>` as the receipt's `before.gpu`/`after.gpu`; the GPU free of compute apps with ≥ 40 GiB and the volume ≥ 50 GiB (the gate checks both); stop it only with a single `kill -TERM <launcher pid>` (finding 1) and recover with `tools/exp04_launch.sh finalize <attempt dir>` only after checking `execution.json` against the launcher log (finding 3). The golden's `CUDA_VISIBLE_DEVICES=0` is read as `<gpu>` per A6.
+
+## Verdict
+
+**approve with changes.**
+
+The round-3b blocker is closed the way the fix prompt specified and holds under the routes it did not name (SIGHUP, SIGINT, a signal during finalisation, recovery afterwards); A6–A8 and findings 4–9 / nits 11, 13–15 are implemented and each was exercised on the real path — the smoke certified on GPU 1 with two closure files edited mid-run and both recorded as drift, the real control `args.json` passes parity on either card, the recorded NOT-CLEAN receipt is refused and a clean one is bound, the manifest shrank to 10 KB with a digest-bound 73 MB sidecar, and the 32-query K = 8 parity is bit-identical through the fixed evaluation launcher (P section identical across P/PE/frozen; PE identical to the frozen evaluator modulo `elapsed_min` and the added keys). The round-3a close-out items (confirmatory = all queries with an explicit flag, no `tee /dev/stderr`, `log_created`, `required=`, PYTHONPATH de-dup, `schema_version` assert, fixed binding names) are closed with tests. The suite is 708 green on the clone with both GPUs visible. What remains is small: the abort path is not idempotent under a second signal (1), an inherited `SIG_IGN` is overridden (2), `finalize` accepts a fabricated attempt because its evidence is an unsigned file and it checks no structural invariant of a real run (3), and a recovered attempt keeps an `_ABORTED_` name (4, Planner decision); plus batchable nits 5–9.
+
+## Blocking findings the Coder must fix before the round closes
+
+None.
+
+Strongly recommended in one small cycle before the confirmatory launch (non-blocking for the round): 1 (idempotent abort path / signal mask), 2 (respect `SIG_IGN`), 3 (structural checks in `finalize` + spawn-time `child_pgid` echo to the launcher log). Planner decision: 4 (recovered-attempt naming). Batchable nits: 5–9. Operational: item (i) above — the clean rung-6 probe on the launch GPU at the launch commit.
+   227 worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_worklog.md
+    89 worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/plan_yaw_aug_xrir.md
+   763 tools/exp04_launcher.py
+   656 tools/paired_compare.py
+  1735 total
+"""Fail-closed training launcher for exp_04 (full runs require a reviewed commit)."""
+import json
+import datetime
+import os
+from pathlib import Path
+import shlex
+import sys
+from unittest.mock import patch
+
+PYTHON = '/home/yixunhu/miniconda3/envs/xRIR/bin/python'
+REPO = Path(__file__).resolve().parents[1]
+ROOT = REPO / 'ckpt/xRIR_simple_yawaug_8_shot'
+GOLDENS = REPO / ('worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/'
+                  'yaw_aug_xrir_results_assets')
+ENV_KEYS = ('XRIR_DATA_PATH', 'PYTHONHASHSEED', 'OMP_NUM_THREADS', 'CUDA_VISIBLE_DEVICES')
+DATA_ROOT = '/home/yixunhu/data_cache/AcousticRooms'
+REQUIRED_INPUTS = ('repo', 'source_closures', 'train_data_identity', 'effective_args', 'mutable_inputs')
+
+
+def child_environment(gpu):
+    return dict(os.environ, XRIR_DATA_PATH=DATA_ROOT, PYTHONHASHSEED='0',
+                OMP_NUM_THREADS='2', CUDA_VISIBLE_DEVICES=str(gpu),
+                PYTHONPATH=str(REPO), PYTHONUNBUFFERED='1')
+
+
+def command(mode, attempt):
+    if mode not in ('smoke', 'full'):
+        raise ValueError('command requires smoke or full')
+    smoke = mode == 'smoke'
+    result = [PYTHON, 'train_xRIR_backbone.py', '--backbone', 'simple', '--save-dir',
+              str(attempt) + ('/smoke' if smoke else '')]
+    result += shlex.split('--num-shot 8 --max-len 9600 --lr 1e-3 --weight-decay 1e-4 '
+                          '--decay-epochs 3 --lr-gamma 0.1 --epochs ' + ('1' if smoke else '12'))
+    if smoke:
+        result += shlex.split('--max-train-batches 3 --max-test-batches 2')
+    result += shlex.split('--batch-size 4 --accum-steps 2 --num-workers 4' if smoke else
+                          '--batch-size 32 --accum-steps 2 --num-workers 12')
+    result += shlex.split('--seed 0 --tf32 --log-interval ' + ('1' if smoke else '50') +
+                          ' --save-every 0 --epoch-ckpt-every ' + ('0 --no-save' if smoke else '1'))
+    return result + shlex.split('--yaw-aug 1 --yaw-aug-seed 0 --yaw-aug-width 512')
+
+
+def check_golden(argv, mode, attempt):
+    golden = shlex.split((GOLDENS / ('argv_golden_' + mode + '.txt')).read_text())
+    expected = [part.replace('<attempt>', str(attempt)) for part in golden]
+    if argv != expected:
+        raise ValueError('argv differs from golden ' + mode)
+
+
+def effective_args(argv, gpu, batches_per_epoch):
+    import train_xRIR_backbone as trainer
+    with patch.object(sys, 'argv', argv[1:]):
+        result = vars(trainer.parse_args())
+    result.update({key: child_environment(gpu)[key] for key in ENV_KEYS})
+    result['train_batches_per_epoch'] = batches_per_epoch
+    return result
+
+
+def normalize(runtime):
+    result = dict(runtime)
+    env = result.pop('env', {})
+    for key, value in env.items():
+        if key in result and (type(result[key]) is not type(value) or result[key] != value):
+            raise ValueError('conflicting env.' + key)
+        result[key] = value
+    return result
+
+
+def check_runtime(runtime, expected, mode):
+    actual = normalize(runtime)
+    differences = [key for key in actual.keys() | expected.keys() if key not in actual or
+                   key not in expected or type(actual[key]) is not type(expected[key]) or
+                   actual[key] != expected[key]]
+    if differences:
+        raise LauncherFailure('guard_runtime_args', 'runtime args mismatch: ' + ', '.join(sorted(differences)))
+    if mode == 'full' and actual['train_batches_per_epoch'] != 9261:
+        raise ValueError('full requires train_batches_per_epoch == 9261')
+
+
+import fcntl
+import math
+import subprocess
+import uuid
+from tools import provenance as p
+
+
+def gpu_snapshot(gpu):
+    options = ['nvidia-smi', '-i', str(gpu), '--format=csv,noheader,nounits']
+    raw = subprocess.check_output(options + ['--query-gpu=uuid,memory.free,utilization.gpu'], text=True)
+    identifier, free, utilization = raw.strip().split(',')
+    apps = subprocess.check_output(options +
+        ['--query-compute-apps=pid,process_name,used_gpu_memory'], text=True).strip()
+    return dict(gpu=str(gpu), uuid=identifier.strip(), free_gib=float(free) / 1024,
+                utilization_gpu=float(utilization), compute_apps=apps, query_gpu=raw.strip())
+
+
+def resource_gate(gpu, volume, mode, allow_cotenant=False):
+    if allow_cotenant and mode == 'full':
+        raise ValueError('full forbids --allow-cotenant')
+    state = gpu_snapshot(gpu)
+    free = int(subprocess.check_output(['df', '-B1', '--output=avail', str(volume)],
+                                      text=True).splitlines()[-1]) / 2**30
+    state['disk_free_gib'] = free
+    if free < 50:
+        raise ValueError('checkpoint volume needs >= 50 GiB')
+    if not allow_cotenant and (state['compute_apps'] or state['free_gib'] < 40):
+        raise ValueError('GPU needs no other processes and >= 40 GiB free')
+    return state
+
+
+def create_attempt(root, name):
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    attempt = root / name
+    attempt.mkdir()
+    return attempt
+
+
+def hours_record(root):
+    path = Path(root) / 'cumulative_hours.json'
+    result = json.loads(path.read_text()) if path.exists() else {'total_hours': 0, 'attempts': []}
+    hours = result['total_hours']
+    if not math.isfinite(hours) or hours < 0 or hours != sum(r['hours'] for r in result['attempts']):
+        raise ValueError('invalid cumulative hours')
+    for row in result['attempts']:
+        name = row['attempt']
+        row.setdefault('mode', 'probe' if '_probe_' in name else 'smoke' if name.startswith('_smoke_') else 'full')
+        if row['mode'] not in ('full', 'smoke', 'probe') or not math.isfinite(row['hours']) or row['hours'] < 0:
+            raise ValueError('invalid cumulative hours row')
+    return result
+
+
+def full_hours(root):
+    return sum(row['hours'] for row in hours_record(root)['attempts'] if row['mode'] == 'full')
+
+
+def check_budget(root, projection):
+    if not math.isfinite(projection) or projection <= 0:
+        raise ValueError('projection must be finite and positive')
+    if full_hours(root) + projection > 43:
+        raise ValueError('cumulative hours + projection exceeds 43 h')
+
+
+def account_hours(attempt, hours, previous_name=None, mode='full'):
+    with (attempt.parent / '.hours.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        result = hours_record(attempt.parent)
+        result['attempts'] = [row for row in result['attempts']
+                              if row['attempt'] not in (attempt.name, previous_name)]
+        result['attempts'].append({'attempt': attempt.name, 'hours': hours, 'mode': mode})
+        result['total_hours'] = sum(row['hours'] for row in result['attempts'])
+        p.write_completion(attempt.parent / 'cumulative_hours.json', result)
+
+
+def abort_attempt(attempt, reason, hours, mode='full'):
+    aborted = attempt.with_name(attempt.name + '_ABORTED_' + reason)
+    if aborted.exists():
+        aborted = aborted.with_name(aborted.name + '_' + uuid.uuid4().hex)
+    attempt.rename(aborted)
+    account_hours(aborted, hours, previous_name=attempt.name, mode=mode)
+    return aborted
+
+
+def promote(attempt):
+    if not (attempt / 'completion.json').is_file():
+        raise ValueError('promotion requires completion')
+    temporary = attempt.parent / ('.final_' + uuid.uuid4().hex)
+    try:
+        temporary.symlink_to(attempt.name)
+        os.replace(temporary, attempt.parent / 'final')
+    finally:
+        if temporary.is_symlink():
+            temporary.unlink()
+
+
+TRAIN_MINIMUM = {'train_xRIR_backbone.py', 'treble_multi_room_dataset/treble_xRIR_dataset.py',
+    'model/xRIR.py', 'model/xRIR_cyl.py', 'model/simple_vit.py', 'model/cylindrical_vit.py',
+    'utils/spec_utils.py', 'utils/lr_scheduler.py', 'tools/yaw_aug.py', 'tools/yaw_rotation.py'}
+
+
+
+CONTROL_EXCLUSIONS = {'save_dir', 'yaw_aug', 'yaw_aug_seed', 'yaw_aug_width', 'no_save',
+                      'save_every', 'epoch_ckpt_every', 'PYTHONHASHSEED', 'CUDA_VISIBLE_DEVICES'}
+
+
+def compare_control(runtime, control, control_env):
+    treatment, baseline = normalize(runtime), normalize(dict(control, env=control_env))
+    baseline.setdefault('train_batches_per_epoch', math.ceil(296334 / baseline['batch_size']))
+    missing = object()
+    differences = {key: {'treatment': treatment.get(key), 'control': baseline.get(key)}
+        for key in treatment.keys() | baseline.keys()
+        if type(treatment.get(key, missing)) is not type(baseline.get(key, missing))
+        or treatment.get(key, missing) != baseline.get(key, missing)}
+    refused = differences.keys() - CONTROL_EXCLUSIONS
+    if refused:
+        raise ValueError('control mismatch: ' + ', '.join(sorted(refused)))
+    return differences
+
+
+def build_fields(argv, gpu, reviewed_commit, mode, allow_dirty=False):
+    state = p.checked_git_state(REPO, mode == 'full', allow_dirty)
+    files = p.source_closure('train_xRIR_backbone', REPO)
+    if not TRAIN_MINIMUM <= set(files):
+        raise ValueError('training closure missing required files')
+    closures = {}
+    for role, paths in [('training', files), ('launcher',
+            p.source_closure('tools.exp04_launcher', REPO) + ['tools/exp04_probe.py', 'tools/exp04_launch.sh'])]:
+        records, digest = p.closure_record(paths, reviewed_commit, REPO)
+        if not records or any(r['reviewed_blob_sha256'] is None or
+                r['reviewed_blob_sha256'] != r['working_tree_sha256'] or
+                r['commits_after_reviewed'] for r in records):
+            raise ValueError(role + ' closure differs from reviewed commit')
+        closures[role] = {'files': records, 'sha256': digest}
+    print('Hashing training data identity...', flush=True)
+    data = p.train_data_identity(DATA_ROOT, cache_path=REPO / 'ckpt/yaw_aug/train_inventory.json')
+    provisional = effective_args(argv, gpu, 1)
+    bpe = math.ceil(data['inventory_files'] / provisional['batch_size'])
+    effective = effective_args(argv, gpu, bpe)
+    check_runtime(effective, effective, mode)
+    fields = dict(repo=str(REPO), reviewed_commit=reviewed_commit, mode=mode,
+        source_closures=closures, train_data_identity=data, effective_args=effective,
+        command=argv, environment=p.environment(), git_state=state, allow_dirty=allow_dirty,
+        env={key: child_environment(gpu)[key] for key in ENV_KEYS})
+    if mode == 'full':
+        control_path = REPO / 'ckpt/xRIR_simple_8_shot/args.json'
+        control_env = dict(XRIR_DATA_PATH=DATA_ROOT, OMP_NUM_THREADS='2', CUDA_VISIBLE_DEVICES='1')
+        fields['control_excluded_differences'] = compare_control(effective, json.loads(control_path.read_text()), control_env)
+        fields['control_env_reconstructed'] = control_env
+        fields['mutable_inputs'] = {'control_args': {'path': str(control_path), 'sha256': p.sha256_file(control_path)}}
+    return fields
+
+
+import re
+import signal
+import time
+from contextlib import contextmanager
+
+
+class LauncherTerminated(BaseException):
+    def __init__(self, signum):
+        self.signum = signum
+        super().__init__(signal.Signals(signum).name)
+
+
+class LauncherFailure(ValueError):
+    def __init__(self, reason, message):
+        self.reason = reason
+        super().__init__(message)
+
+
+@contextmanager
+def termination_handlers():
+    def terminate(signum, frame):
+        raise LauncherTerminated(signum)
+    previous = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGHUP)}
+    try:
+        for signum in previous:
+            signal.signal(signum, terminate)
+        yield
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
+class LogGuard:
+    def __init__(self, expected, mode, attempt=None):
+        self.expected, self.mode = expected, mode
+        self.output_dir = Path(attempt) if attempt else REPO / expected.get('save_dir', '.')
+        self.runtime = None
+        self.banner = False
+        self.steps, self.losses = [], []
+        self.test_loss = None
+        self.position = 0
+        self.first_step_time = None
+        self.epoch_one_done = False
+        self.probe = None
+        self.log_created = False
+
+    def runtime_payload(self, payload):
+        try:
+            actual = json.loads(payload.read_text() if isinstance(payload, Path) else payload)
+            check_runtime(actual, self.expected, self.mode)
+            return actual
+        except (OSError, ValueError, TypeError, AttributeError) as error:
+            raise LauncherFailure('guard_runtime_args', str(error)) from error
+
+    def feed(self, line):
+        if line.startswith('EXP04_PROBE_RESULT '):
+            self.probe = json.loads(line[len('EXP04_PROBE_RESULT '):])
+        if line.startswith('XRIR_RUNTIME_ARGS '):
+            self.runtime = self.runtime_payload(line[len('XRIR_RUNTIME_ARGS '):])
+        wanted = ('yaw_aug ENABLED W={yaw_aug_width} seed={yaw_aug_seed} '
+                  'counter=(epoch-1)*{train_batches_per_epoch}+batch_idx'.format(**self.expected)
+                  if self.expected['yaw_aug'] else 'yaw_aug DISABLED')
+        if line.strip() == wanted:
+            if self.banner:
+                raise LauncherFailure('guard_banner', 'duplicate banner')
+            self.banner = True
+        step = re.search(r'Train Epoch: (\d+) \[(\d+)/(\d+)\].*?loss (\S+)', line)
+        if step:
+            if not self.banner or self.runtime is None:
+                raise LauncherFailure('guard_banner', 'first step without banner or runtime args')
+            if self.mode == 'full':
+                runtime = self.output_dir / 'args.json'
+                self.runtime_payload(runtime)
+            values = re.findall(r'(?:loss |stft |decay )([^\s,)]+)', line)
+            if not values or not all(math.isfinite(float(value)) for value in values):
+                raise ValueError('non-finite training loss')
+            self.first_step_time = self.first_step_time or time.monotonic()
+            self.steps.append((int(step[1]), int(step[2])))
+            self.losses.append(float(step[4]))
+        if line.startswith('Test set (epoch 1):'):
+            match = re.search(r'Average loss: (\S+) over (\d+) batches', line)
+            self.test_loss = float(match[1])
+            if not math.isfinite(self.test_loss) or (self.mode == 'smoke' and int(match[2]) != 2):
+                raise ValueError('invalid test loss/count')
+        if line.startswith('epoch 1 done'):
+            self.epoch_one_done = True
+            if self.mode == 'full':
+                history = self.output_dir / 'history.jsonl'
+                first = json.loads(history.read_text().splitlines()[0])
+                if not math.isfinite(first['epoch_minutes']) or first['epoch_minutes'] > 2.431 * 60:
+                    raise LauncherFailure('guard_epoch_one', 'epoch one exceeds 2.431 h acceptance')
+
+    def poll(self, path):
+        with path.open() as stream:
+            stream.seek(self.position)
+            while True:
+                line = stream.readline()
+                if not line.endswith('\n'):
+                    break
+                self.position = stream.tell()
+                self.feed(line)
+        if (self.mode == 'full' and self.first_step_time and not self.epoch_one_done
+                and time.monotonic() - self.first_step_time > 2.6 * 3600):
+            raise LauncherFailure('guard_epoch_one', 'epoch one exceeds 2.6 h operational ceiling')
+
+    def finish(self):
+        if not self.banner or not self.runtime or not self.steps:
+            raise LauncherFailure('guard_banner', 'missing runtime args, banner or steps')
+        if self.mode == 'smoke' and (self.steps != [(1, 0), (1, 1), (1, 2)] or self.test_loss is None):
+            raise ValueError('smoke requires three finite steps and test loss')
+        if self.mode == 'probe' and (not self.probe or self.probe.get('yaw_aug') != self.expected['yaw_aug']
+                or self.probe.get('warmup_micro_batches') != 10 or self.probe.get('timed_micro_batches') != 50
+                or not math.isfinite(self.probe.get('mean_iteration_seconds', float('nan')))
+                or self.probe['mean_iteration_seconds'] <= 0):
+            raise ValueError('missing or invalid probe result')
+        return dict(train_losses=self.losses, test_loss=self.test_loss, banner=self.banner, probe=self.probe)
+
+
+def run_child(argv, log_path, gpu, guard, deadline=None):
+    child = sink = None
+    with log_path.open('xb') as log:
+        guard.log_created = True
+        try:
+            child = subprocess.Popen(argv, cwd=REPO, env=child_environment(gpu),
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
+            if getattr(guard, 'execution_path', None):
+                guard.execution.update(child_pgid=child.pid, child_exit_status=None)
+                p.write_completion(guard.execution_path, guard.execution)
+            sink = subprocess.Popen(['tee', '-a', str(log_path)], stdin=child.stdout, stdout=2,
+                                    start_new_session=True)
+            child.stdout.close()
+            while child.poll() is None or sink.poll() is None:
+                guard.poll(log_path)
+                if deadline is not None and time.monotonic() > deadline:
+                    raise LauncherFailure('deadline_43h', '43 h cumulative ceiling reached')
+                if sink.poll() not in (None, 0):
+                    raise RuntimeError('log sink failed')
+                time.sleep(0.05)
+            log.flush()
+            os.fsync(log.fileno())
+            guard.poll(log_path)
+            if sink.returncode:
+                raise RuntimeError('log sink failed')
+            if getattr(guard, 'execution_path', None):
+                guard.execution.update(child_exit_status=child.returncode,
+                    ended_at=datetime.datetime.now().astimezone().isoformat(), log_sha256=p.sha256_file(log_path))
+                p.write_completion(guard.execution_path, guard.execution)
+            return child.returncode
+        finally:
+            for process in (child, sink):
+                if process is not None:
+                    try:
+                        os.killpg(process.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(process.pid, signal.SIGKILL)
+                        process.wait()
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)  # Reap survivors even after their leader exits.
+                    except ProcessLookupError:
+                        pass
+
+
+def validate_outputs(attempt, mode, expected):
+    if mode != 'full':
+        if {f.name for f in attempt.iterdir()} - {'execution.json', 'abort.json', 'train_inventory.json'} != {'effective_args.json', 'train_manifest.json'}:
+            raise ValueError('no-save run wrote unexpected outputs')
+        return {}
+    check_runtime(json.loads((attempt / 'args.json').read_text()), expected, mode)
+    history = [json.loads(line) for line in (attempt / 'history.jsonl').read_text().splitlines()]
+    if [r['epoch'] for r in history] != list(range(1, 13)) or any(
+            not math.isfinite(r[key]) for r in history for key in ('train_loss', 'test_loss', 'epoch_minutes')):
+        raise ValueError('incomplete or non-finite history')
+    if history[0]['epoch_minutes'] > 2.431 * 60:
+        raise LauncherFailure('guard_epoch_one', 'epoch one exceeds 2.431 h acceptance')
+    epochs = sorted(attempt.glob('epoch_*.pth'))
+    if [f.name for f in epochs] != ['epoch_%03d.pth' % i for i in range(1, 13)]:
+        raise ValueError('missing or unexpected epoch checkpoints')
+    return directory_listing(attempt)
+
+
+def directory_listing(attempt):
+    listing = {}
+    for path in sorted(attempt.rglob('*')):
+        if path.is_symlink() or not (path.is_file() or path.is_dir()):
+            raise ValueError('unexpected attempt entry: ' + str(path))
+        listing[str(path.relative_to(attempt))] = p.sha256_file(path) if path.is_file() else None
+    return listing
+
+
+def abort_log(log_path, reason, created):
+    if not created:
+        return None
+    destination = log_path.with_name(log_path.stem + '_ABORTED_' + reason + '.log')
+    if destination.exists():
+        destination = destination.with_name(destination.stem + '_' + uuid.uuid4().hex + '.log')
+    try:
+        log_path.rename(destination)
+        return str(destination.resolve())
+    except OSError:
+        return None
+
+
+def diagnostic_value(value):
+    if isinstance(value, dict):
+        return {k: diagnostic_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [diagnostic_value(v) for v in value]
+    if isinstance(value, Path) or isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    return value
+
+
+def assert_quiescent(pgid, log_path):
+    """Require a gone group and no fuser-visible writers (ordinary user permissions).
+
+    The execution receipt separately requires successful child and tee completion;
+    fuser, like /proc inspection, cannot inspect inaccessible users' descriptors.
+    """
+    if type(pgid) is not int or pgid <= 0:
+        raise ValueError('missing or invalid recorded process group')
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        pass
+    else:
+        raise ValueError('child process group is still present')
+    log_path.stat()
+    result = subprocess.run(['fuser', '-I', '-v', str(log_path.resolve())],
+        capture_output=True, text=True, env=dict(os.environ, LC_ALL='C'))
+    access = re.findall(r'^\s+\S+\s+([.cefrmF]{5})\s+\S+', result.stderr, re.M)
+    pids = result.stdout.split()
+    if (result.returncode not in (0, 1) or
+            result.returncode == 0 and (not access or len(access) != len(pids) or
+                                       not all(pid.isdigit() for pid in pids)) or
+            result.returncode == 1 and (result.stdout.strip() or result.stderr.strip())):
+        raise ValueError('cannot inspect log writers with fuser')
+    if any('F' in flags for flags in access):
+        raise ValueError('log writer still open: ' + result.stdout.strip())
+
+
+def complete_attempt(attempt, mode, log_path, fields, digest, metrics, hours):
+    outputs = validate_outputs(attempt, mode, fields['effective_args'])
+    fields['mutable_inputs']['train_manifest'] = {
+        'path': str((attempt / 'train_manifest.json').resolve()), 'sha256': digest}
+    required = {'effective_args', 'train_manifest'} | ({'control_args', 'probe_receipt'} if mode == 'full' else set())
+    missing = required - fields['mutable_inputs'].keys()
+    if missing:
+        raise LauncherFailure('input_changed', 'missing mutable inputs: ' + ', '.join(sorted(missing)))
+    print('Revalidating training inputs after log close...', flush=True)
+    drift = []
+    mismatches = p.revalidate(fields, required=REQUIRED_INPUTS, source_drift=drift)
+    if mismatches:
+        raise LauncherFailure('input_changed', 'mutable input mismatch: ' + ', '.join(mismatches))
+    completion = dict(train_manifest_sha256=digest, source_drift_after_spawn=drift,
+        log={'path': str(log_path.resolve()), 'sha256': p.sha256_file(log_path)},
+        outputs=outputs, directory_listing=outputs if mode == 'full' else directory_listing(attempt),
+        resource_before=fields.get('resource_before'),
+        metrics=metrics, wall_hours=hours() if callable(hours) else hours)
+    p.write_completion(attempt / 'completion.json', completion)
+    account_hours(attempt, completion['wall_hours'], mode=mode)
+    if mode == 'full':
+        promote(attempt)
+    return completion
+
+
+@termination_handlers()
+def finalize_attempt(attempt):
+    attempt = Path(attempt).resolve()
+    with (attempt.parent / '.launch.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if (attempt / 'completion.json').exists():
+            raise FileExistsError('attempt already has completion')
+        execution = json.loads((attempt / 'execution.json').read_text())
+        manifest_path = attempt / 'train_manifest.json'
+        digest = execution['train_manifest_sha256']
+        if p.sha256_file(manifest_path) != digest:
+            raise ValueError('mutable input mismatch: train_manifest')
+        fields = json.loads(manifest_path.read_text())
+        log_path = Path(fields['log_path'])
+        if (attempt / 'abort.json').exists():
+            aborted_log = json.loads((attempt / 'abort.json').read_text())['log']['aborted']
+            if aborted_log:
+                log_path = Path(aborted_log)
+        assert_quiescent(execution.get('child_pgid'), log_path)
+        if type(execution.get('child_exit_status')) is not int or execution['child_exit_status'] != 0:
+            raise ValueError('recovery requires recorded successful child exit')
+        if p.sha256_file(log_path) != execution['log_sha256']:
+            raise ValueError('closed log changed')
+        original = Path(fields['attempt_path'])
+        effective = fields['mutable_inputs']['effective_args']
+        if Path(effective['path']) != original / 'effective_args.json':
+            raise ValueError('unexpected effective_args path')
+        effective['path'] = str(attempt / 'effective_args.json')
+        identity = fields['train_data_identity']
+        if 'inventory_file' in identity:
+            for record in (identity['inventory_file'], fields['mutable_inputs']['train_inventory']):
+                if Path(record['path']) != original / 'train_inventory.json':
+                    raise ValueError('unexpected train_inventory path')
+                record['path'] = str(attempt / 'train_inventory.json')
+        guard = LogGuard(fields['effective_args'], fields['mode'], attempt)
+        guard.poll(log_path)
+        hours = (datetime.datetime.fromisoformat(execution['ended_at']) -
+                 datetime.datetime.fromisoformat(fields['started_at'])).total_seconds() / 3600
+        if not math.isfinite(hours) or hours < 0:
+            raise ValueError('invalid recorded execution duration')
+        hours = max([hours] + [row['hours'] for row in hours_record(attempt.parent)['attempts']
+                              if row['attempt'] == attempt.name])
+        try:
+            return complete_attempt(attempt, fields['mode'], log_path, fields, digest, guard.finish(), hours)
+        except BaseException:
+            if (attempt / 'completion.json').exists():
+                (attempt / 'completion.json').unlink()
+            raise
+
+
+@termination_handlers()
+def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant=False,
+                    projection=30.0, runner=run_child):
+    attempt, log_path = Path(attempt), Path(log_path)
+    if mode == 'full':
+        check_budget(attempt.parent, projection)
+    create_attempt(attempt.parent, attempt.name)  # An existing directory is never renamed.
+    started, reason = time.monotonic(), 'setup_failed'
+    started_at, guard = datetime.datetime.now().astimezone().isoformat(), None
+    try:
+        if attempt == log_path or attempt in log_path.parents:
+            raise ValueError('log must be outside attempt')
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        before = resource_gate(gpu, attempt.parent, mode, allow_cotenant)
+        fields = fields_factory()
+        expected = fields['effective_args']
+        effective_path = attempt / 'effective_args.json'
+        effective_digest = p.write_manifest(effective_path, expected)
+        fields.setdefault('mutable_inputs', {})['effective_args'] = {
+            'path': str(effective_path.resolve()), 'sha256': effective_digest}
+        identity = fields.get('train_data_identity', {})
+        if 'inventory' in identity:
+            inventory_path = attempt / 'train_inventory.json'
+            inventory_digest = p.write_manifest(inventory_path, {'inventory': identity.pop('inventory')})
+            identity['inventory_file'] = {'path': str(inventory_path.resolve()), 'sha256': inventory_digest}
+            fields['mutable_inputs']['train_inventory'] = dict(identity['inventory_file'])
+        fields.update(resource_before=before, allow_cotenant=allow_cotenant, mode=mode,
+                      started_at=started_at, attempt_path=str(attempt.resolve()), log_path=str(log_path.resolve()))
+        manifest_path = attempt / 'train_manifest.json'
+        digest = p.write_manifest(manifest_path, fields)
+        if {f.name for f in attempt.iterdir()} - {'train_inventory.json'} != {'effective_args.json', 'train_manifest.json'}:
+            raise ValueError('unexpected pre-spawn files')
+        guard = LogGuard(expected, mode)
+        guard.execution_path = attempt / 'execution.json'
+        guard.execution = {'train_manifest_sha256': digest}
+        reason = 'child_failed'
+        deadline = started + (43 - full_hours(attempt.parent)) * 3600 if mode == 'full' else None
+        status = runner(fields['command'], log_path, gpu, guard, deadline)
+        if status:
+            raise LauncherFailure('child_exit_' + str(status), 'child exited nonzero: ' + str(status))
+        metrics = guard.finish()
+        reason = 'invalid_outputs'
+        return complete_attempt(attempt, mode, log_path, fields, digest, metrics,
+                                lambda: (time.monotonic() - started) / 3600)
+    except BaseException as error:
+        reason = ('terminated_' + signal.Signals(error.signum).name if isinstance(error, LauncherTerminated)
+                  else getattr(error, 'reason', reason))
+        hours = (time.monotonic() - started) / 3600
+        renamed = abort_log(log_path, reason, guard is not None and guard.log_created)
+        p.write_completion(attempt / 'abort.json', dict(reason=reason,
+            exception_type=type(error).__name__, exception_message=str(error), started_at=started_at,
+            aborted_at=datetime.datetime.now().astimezone().isoformat(), wall_hours=hours,
+            last_guard_state=diagnostic_value({k: v for k, v in vars(guard).items() if k != 'expected'}) if guard else None,
+            log={'original': str(log_path.resolve()), 'aborted': renamed}))
+        completion_path = attempt / 'completion.json'
+        if completion_path.exists():
+            completion_path.unlink()
+        aborted = abort_attempt(attempt, reason, hours, mode=mode)
+        print('ABORTED ' + str(aborted), flush=True)
+        raise
+
+
+def refusal_self_test():
+    """Exercise operational refusals in scratch storage, with no trainer spawn."""
+    import tempfile
+    refusals = []
+    def refuses(name, action):
+        try:
+            action()
+        except (ValueError, FileExistsError):
+            refusals.append(name)
+        else:
+            raise AssertionError('refusal not enforced: ' + name)
+    with tempfile.TemporaryDirectory(prefix='exp04_refuse_') as temporary:
+        root = Path(temporary)
+        attempt = create_attempt(root, 'attempt_test')
+        refuses('exclusive_directory', lambda: create_attempt(root, attempt.name))
+        argv = command('full', str(attempt))
+        argv[argv.index('--lr') + 1] = '0.5'
+        refuses('golden_argv', lambda: check_golden(argv, 'full', str(attempt)))
+        expected = effective_args(command('full', str(attempt)), '1', 9261)
+        refuses('runtime_schema', lambda: check_runtime(dict(expected, lr='0.001'), expected, 'full'))
+        invalid = dict(expected, train_batches_per_epoch=9260)
+        refuses('full_bpe', lambda: check_runtime(invalid, invalid, 'full'))
+        refuses('banner', lambda: LogGuard(expected, 'full').feed('Train Epoch: 1 [0/9261] loss 1'))
+        refuses('budget', lambda: check_budget(root, 44))
+        refuses('full_cotenant', lambda: resource_gate('1', root, 'full', True))
+        with patch(__name__ + '.gpu_snapshot', return_value={'compute_apps': 'foreign', 'free_gib': 39}), \
+                patch.object(subprocess, 'check_output', return_value='Avail\n' + str(50 * 2**30)):
+            refuses('gpu', lambda: resource_gate('1', root, 'smoke'))
+        abort_attempt(attempt, 'test', 1)
+        refuses('cumulative_budget', lambda: check_budget(root, 42.1))
+    return {'passed': True, 'refusals': refusals}
+
+
+def probe_receipt(path, commit, gpu):
+    from tools.exp04_probe import compare_results
+    path = Path(path).resolve()
+    digest = p.sha256_file(path)
+    receipt = json.loads(path.read_text())
+    try:
+        measured = compare_results(receipt['yaw_off'], receipt['yaw_on'])
+        valid = (receipt['reviewed_commit'] == commit and receipt['before']['gpu'] == gpu
+            and receipt['after']['gpu'] == gpu and receipt['PROBE_NOT_CLEAN'] is False
+            and receipt['passed'] is True and measured['passed']
+            and receipt['overhead_ratio'] == measured['overhead_ratio'])
+    except (KeyError, TypeError, ValueError):
+        valid = False
+    if not valid or p.sha256_file(path) != digest:
+        raise ValueError('full requires a clean passing probe bound to reviewed commit and GPU')
+    return {'path': str(path), 'sha256': digest}
+
+
+@termination_handlers()
+def main(argv=None):
+    import argparse
+    import datetime
+    from tools.exp04_probe import trainer_command, compare_results
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('mode', choices=('smoke', 'probe', 'full', 'finalize', 'refuse-test'))
+    parser.add_argument('attempt_dir', nargs='?')
+    parser.add_argument('--gpu', default='1')
+    parser.add_argument('--reviewed-commit')
+    parser.add_argument('--log-dir')
+    parser.add_argument('--timestamp', default=datetime.datetime.now().strftime('%Y%m%dT%H%M%S%f'))
+    parser.add_argument('--allow-cotenant', action='store_true')
+    parser.add_argument('--allow-dirty', action='store_true')
+    parser.add_argument('--projection-hours', type=float, default=30.0)
+    parser.add_argument('--probe-json', help='full requires a clean passing probe receipt')
+    args = parser.parse_args(argv)
+    if args.mode == 'finalize':
+        if not args.attempt_dir:
+            parser.error('finalize requires an attempt directory')
+        result = finalize_attempt(args.attempt_dir)
+        print(json.dumps(result, sort_keys=True, allow_nan=False), flush=True)
+        return result
+    if args.attempt_dir:
+        parser.error('attempt directory is only valid for finalize')
+    if args.mode == 'refuse-test':
+        result = refusal_self_test()
+        print(json.dumps(result), flush=True)
+        return result
+    if not args.reviewed_commit or not args.log_dir:
+        parser.error('--reviewed-commit and --log-dir are required')
+    if not re.fullmatch(r'[A-Za-z0-9_-]+', args.timestamp):
+        parser.error('timestamp must be a safe filename component')
+    if Path(sys.executable).resolve() != Path(PYTHON).resolve():
+        parser.error('launcher requires pinned interpreter ' + PYTHON)
+    commit = subprocess.check_output(['git', 'rev-parse', args.reviewed_commit + '^{commit}'],
+                                     cwd=REPO, text=True).strip()
+    if args.mode == 'full':
+        if args.allow_cotenant:
+            parser.error('full forbids --allow-cotenant')
+        if not args.probe_json:
+            parser.error('full requires --probe-json (clean passing probe)')
+        receipt = probe_receipt(args.probe_json, commit, args.gpu)
+        check_budget(ROOT, args.projection_hours)
+    ROOT.mkdir(parents=True, exist_ok=True)
+    with (ROOT / '.launch.lock').open('a') as lock, patch.dict(os.environ, child_environment(args.gpu)):
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        stamp, mode = args.timestamp, args.mode
+        log_dir = Path(args.log_dir).resolve()
+        if mode in ('smoke', 'full'):
+            attempt = ROOT / (('_smoke_' if mode == 'smoke' else 'attempt_') + stamp)
+            relative = os.path.relpath(attempt, REPO)
+            cmd = command(mode, relative)
+            check_golden(cmd, mode, relative)
+            def fields_factory():
+                fields = build_fields(cmd, args.gpu, commit, mode, args.allow_dirty)
+                if mode == 'full':
+                    fields['mutable_inputs']['probe_receipt'] = receipt
+                return fields
+            result = execute_attempt(attempt, mode, args.gpu,
+                log_dir / ('yaw_aug_xrir_' + stamp + '_train_' + mode + '.log'),
+                fields_factory,
+                allow_cotenant=args.allow_cotenant, projection=args.projection_hours)
+        else:
+            output = ROOT / ('_probe_' + stamp + '.json')
+            if output.exists():
+                raise FileExistsError(str(output))
+            before = gpu_snapshot(args.gpu)
+            measurements, attempts, arms_before = [], [], []
+            for yaw, label in ((0, 'off'), (1, 'on')):
+                attempt = ROOT / ('_probe_' + stamp + '_' + label)
+                relative = os.path.relpath(attempt, REPO)
+                cmd = [PYTHON, '-m', 'tools.exp04_probe', '--yaw-aug', str(yaw), '--save-dir', relative]
+                def fields_factory():
+                    fields = build_fields([PYTHON] + trainer_command(yaw, relative), args.gpu, commit, 'probe', args.allow_dirty)
+                    fields['trainer_command'], fields['command'] = fields['command'], cmd
+                    return fields
+                completed = execute_attempt(attempt, 'probe', args.gpu,
+                    log_dir / ('yaw_aug_xrir_' + stamp + '_' + label + '_train_probe.log'),
+                    fields_factory, allow_cotenant=args.allow_cotenant)
+                measurements.append(completed['metrics']['probe'])
+                arms_before.append(completed['resource_before'])
+                attempts.append(str(attempt))
+            after = gpu_snapshot(args.gpu)
+            result = dict(compare_results(*measurements), yaw_off=measurements[0], yaw_on=measurements[1],
+                before=before, after=after, arms_before=arms_before,
+                PROBE_NOT_CLEAN=any(bool(state['compute_apps']) for state in [before, *arms_before, after]),
+                attempts=attempts, reviewed_commit=commit)
+            p.write_manifest(output, result)
+            if result['PROBE_NOT_CLEAN']:
+                print('PROBE_NOT_CLEAN: another process was present; timing gate needs Planner judgment.', flush=True)
+        print(json.dumps(result, sort_keys=True, allow_nan=False), flush=True)
+        if mode == 'probe' and not result['passed']:
+            raise SystemExit(1)
+        return result
+
+
+if __name__ == '__main__':
+    main()
+
