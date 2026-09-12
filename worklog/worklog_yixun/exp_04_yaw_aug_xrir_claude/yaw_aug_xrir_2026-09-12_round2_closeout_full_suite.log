@@ -1,0 +1,55 @@
+...............
+[T14] epoch_12.pth (simple): batch 1 vs batch 16 at the canonical shape, max |difference| over 16 real queries x {P,E} x k in {0,32}:
+        c50 0.000e+00  consistency 3.725e-09  decay 0.000e+00  edt 0.000e+00  log_mse 5.960e-08  loss 0.000e+00  stft 0.000e+00  t60 0.000e+00
+.
+[T14] epoch_12.pth (cylindrical): batch 1 vs batch 16 at the canonical shape, max |difference| over 16 real queries x {P,E} x k in {0,32}:
+        c50 0.000e+00  consistency 7.451e-09  decay 0.000e+00  edt 0.000e+00  log_mse 2.980e-08  loss 0.000e+00  stft 0.000e+00  t60 0.000e+00
+.
+[T14] xRIR_unseen.pth (simple): batch 1 vs batch 16 at the canonical shape, max |difference| over 16 real queries x {P,E} x k in {0,32}:
+        c50 0.000e+00  consistency 2.980e-08  decay 0.000e+00  edt 0.000e+00  log_mse 5.960e-08  loss 0.000e+00  stft 0.000e+00  t60 0.000e+00
+....
+[T16] released checkpoint, 4 queries x 2 angles x 2 conditions in 4.2s (0.96 samples/s, meta.elapsed_min=0.069)
+.[T16] cylindrical decomposition at k=32: tokens_rel_change=3.206e-07  pooled_rel_change=1.647e-02  coord_rel_change=6.818e-01  logspec_rel_change=1.968e-03
+.................................................. [ 19%]
+..................................................
+[T9c] 6337 queries, manifest built in 3.12s; queries with < 8 distinct candidates: 520 (8.2058%); manifest_hash = 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d
+...................... [ 38%]
+........................................................................ [ 57%]
+........................................................................ [ 77%]
+........................................................................ [ 96%]
+.......
+[exploratory] delay flips at k=4 over 8 query x 8 reference pairs: 0 / 64
+......                                                            [100%]
+=============================== warnings summary ===============================
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+    from pkg_resources import resource_filename
+
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154: DeprecationWarning: Deprecated call to `pkg_resources.declare_namespace('mpl_toolkits')`.
+  Implementing implicit namespace packages (as specified in PEP 420) is preferred to `pkg_resources.declare_namespace`. See https://setuptools.pypa.io/en/latest/references/keywords.html#keyword-namespace-packages
+    declare_namespace(pkg)
+
+tests/test_eval_yaw_rotation.py: 9 warnings
+tests/test_train_yaw_aug.py: 1 warning
+tests/test_yaw_rotation.py: 2 warnings
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+    warnings.warn(
+
+tests/test_eval_yaw_rotation.py: 9 warnings
+tests/test_train_yaw_aug.py: 1 warning
+tests/test_yaw_rotation.py: 2 warnings
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+    warnings.warn(msg)
+
+tests/test_eval_yaw_rotation.py::test_forward_conditions_reduce_to_the_plain_forward_at_k0
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:641: UserWarning: stft with return_complex=False is deprecated. In a future pytorch release, stft will return complex tensors for all inputs, and return_complex=False will raise an error.
+  Note: you can still call torch.view_as_real on the complex output to recover the old return format. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:862.)
+    return _VF.stft(input, n_fft, hop_length, win_length, window,  # type: ignore[attr-defined]
+
+tests/test_reference_manifest.py::test_build_manifest_is_independent_of_the_file_list_order
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+    return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+373 passed, 28 warnings in 413.79s (0:06:53)
