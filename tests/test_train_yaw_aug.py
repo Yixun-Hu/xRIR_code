@@ -126,6 +126,16 @@ def test_main_saves_banner_and_eval_gate(run_main, monkeypatch, tmp_path, capsys
     banner = f"yaw_aug ENABLED W=512 seed={seed} counter=(epoch-1)*1+batch_idx" if enabled else "yaw_aug DISABLED"
     assert text.count("yaw_aug ") == 1 and banner in text
     assert text.index("yaw_aug ") < text.index("Train Epoch")
+    records = [line[len("XRIR_RUNTIME_ARGS "):] for line in text.splitlines()
+               if line.startswith("XRIR_RUNTIME_ARGS ")]
+    assert len(records) == 1
+    runtime = json.loads(records[0])
+    assert text.index("XRIR_RUNTIME_ARGS ") < text.index("backbone:")
+    assert set(runtime) == set(vars(trainer.parse_args())) | {"train_batches_per_epoch", "env"}
+    assert (runtime["yaw_aug"], runtime["yaw_aug_seed"], runtime["yaw_aug_width"], runtime["no_save"]) == (
+        enabled, seed, 512, no_save)
+    assert runtime["train_batches_per_epoch"] == 1 and runtime["env"]["PYTHONHASHSEED"] == "17"
+    assert set(runtime["env"]) == {"PYTHONHASHSEED", "XRIR_DATA_PATH", "OMP_NUM_THREADS", "CUDA_VISIBLE_DEVICES"}
     assert calls == ([(epoch, 0) for epoch in range(1, epochs + 1)] if enabled else [])
     monkeypatch.setattr(trainer, "apply_yaw_aug", lambda *a, **k: pytest.fail("evaluation augmented"))
     trainer.test_epoch(_Tiny(), [batch], 1, trainer.parse_args())
@@ -133,6 +143,7 @@ def test_main_saves_banner_and_eval_gate(run_main, monkeypatch, tmp_path, capsys
         assert not list(tmp_path.rglob("*"))
     else:
         args = json.loads((tmp_path / "run" / "args.json").read_text())
+        assert args == runtime
         assert (args["yaw_aug"], args["yaw_aug_seed"], args["yaw_aug_width"], args["no_save"]) == (1, seed, 512, False)
         assert args["train_batches_per_epoch"] == 1 and args["env"]["PYTHONHASHSEED"] == "17"
         assert set(args["env"]) == {"PYTHONHASHSEED", "XRIR_DATA_PATH", "OMP_NUM_THREADS", "CUDA_VISIBLE_DEVICES"}
@@ -191,8 +202,10 @@ def test_width_guard(run_main):
         run_main("--yaw-aug", "1", "--no-save", "--yaw-aug-width", "256")
 
 
-@pytest.mark.parametrize("length", [9262, 2**20 - 1, 2**20])
-def test_loader_counter_overflow_boundary(run_main, monkeypatch, length):
+@pytest.mark.parametrize("length,epochs,refused", [
+    (9262, 1, False), (2**20 - 1, 1, False), (2**20, 1, True),
+    (2**19, 2, True), (2**19 - 1, 2, False), (9261, 114, True)])
+def test_loader_counter_overflow_boundary(run_main, monkeypatch, length, epochs, refused):
     monkeypatch.setattr(trainer.DataLoader, "__len__", lambda self: length)
     calls = []
     original = YawAug.offsets_for
@@ -201,10 +214,10 @@ def test_loader_counter_overflow_boundary(run_main, monkeypatch, length):
         calls.append((epoch, idx))
         return original(self, epoch, idx, n)
     monkeypatch.setattr(YawAug, "offsets_for", offsets)
-    if length == 2**20:
+    if refused:
         with pytest.raises(ValueError, match=r"epochs.*train_batches_per_epoch.*< 2\*\*20"):
-            run_main("--yaw-aug", "1", "--no-save", "--epochs", "1")
+            run_main("--yaw-aug", "1", "--no-save", "--epochs", str(epochs))
         assert calls == []
     else:
-        run_main("--yaw-aug", "1", "--no-save", "--epochs", "1")
-        assert calls == [(1, 0)]
+        run_main("--yaw-aug", "1", "--no-save", "--epochs", str(epochs))
+        assert calls == [(epoch, 0) for epoch in range(1, epochs + 1)]

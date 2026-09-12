@@ -205,6 +205,7 @@ def main():
         raise ValueError("--yaw-aug 1 requires epochs * train_batches_per_epoch < 2**20")
     args.env = {key: os.environ.get(key) for key in
                 ("PYTHONHASHSEED", "XRIR_DATA_PATH", "OMP_NUM_THREADS", "CUDA_VISIBLE_DEVICES")}
+    print("XRIR_RUNTIME_ARGS " + json.dumps(vars(args), sort_keys=True, allow_nan=False), flush=True)
     if not args.no_save:
         os.makedirs(args.save_dir, exist_ok=True)
         with open(os.path.join(args.save_dir, "args.json"), "w") as f:
