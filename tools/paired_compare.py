@@ -263,3 +263,153 @@ def _closure_digest(closure):
         for r in records], sort_keys=True).encode()).hexdigest()
 
 
+def _admit_run(directory, arm, profile, check, inputs):
+    directory = Path(directory).resolve()
+    label = str(directory)
+    def require(ok, name):
+        check(ok, label + ': ' + name)
+    def bind(path, expected=_UNBOUND):
+        path = str(Path(path).resolve())
+        actual = provenance.sha256_file(path)
+        require(expected is _UNBOUND or actual == expected, 'digest ' + path)
+        require(path not in inputs or inputs[path] == actual, 'input changed ' + path)
+        inputs[path] = actual
+        return actual
+    files = {name: directory / name for name in
+             ('eval_manifest.json', 'completion.json', 'per_sample_yaw.json', 'metrics_yaw.json')}
+    require({p.name for p in directory.iterdir()} == set(files), 'run directory contents')
+    payloads = {name: json.loads(path.read_text()) for name, path in files.items()}
+    fields, completion = (payloads[name] for name in ('eval_manifest.json', 'completion.json'))
+    digest = bind(files['eval_manifest.json'], completion.get('eval_manifest_sha256'))
+    require(completion.get('eval_manifest_sha256') == digest, 'completion manifest digest')
+    bind(files['completion.json'])
+    for name in ('per_sample_yaw.json', 'metrics_yaw.json'):
+        require(name in completion['outputs'], 'completion output ' + name)
+        bind(files[name], completion['outputs'][name])
+    require(_equal(completion.get('schema_version'), 1) and
+            type(completion.get('child_exit_status')) is int and completion['child_exit_status'] == 0,
+            'completion status/schema')
+    require(completion.get('directory_listing') == sorted(n for n in files if n != 'completion.json'),
+            'completion directory_listing')
+    bind(completion['log']['path'], completion['log']['sha256'])
+    require(_equal(fields.get('schema_version'), 1), 'eval manifest schema')
+    root = Path(fields['repo'])
+    declarations = dict(fields, eval_manifest={'path': str(files['eval_manifest.json']), 'sha256': digest})
+    for failure in provenance.revalidate(declarations, required=(
+            'repo', 'checkpoint', 'checkpoint_sha256', 'manifest_path', 'manifest_file_sha256',
+            'data_identity', 'evaluator_closure', 'source_closures', 'mutable_inputs', 'eval_manifest')):
+        require(False, 'revalidate ' + failure)
+    closures = dict(fields['source_closures'], frozen_evaluator=fields['evaluator_closure'])
+    for name, closure in closures.items():
+        require(_closure_digest(closure) == closure['sha256'], 'closure digest ' + name)
+        for record in closure['files']:
+            bind(root / record['path'], record['working_tree_sha256'])
+    for approved, recorded in (('evaluator', 'entrypoint'), ('writer', 'writer'), ('launcher', 'writer')):
+        require(closures[recorded]['sha256'] == profile['approved_closures'][approved],
+                approved + ' approved closure')
+    reference = load_manifest(root / fields['manifest_path'])
+    seed, shot = fields['manifest_seed'], profile['num_shot']
+    require(type(seed) is int, 'seed type')
+    expected = {'num_shot': shot, 'gl_seed': seed, 'split': profile['dataset']['split'],
+        'split_count': profile['dataset']['n_queries'], 'n_samples': profile['dataset']['n_queries'],
+        'conditions': profile['condition'], 'batch_size': profile['batch_size'],
+        'max_samples': profile['max_samples'], 'tf32': profile['tf32'], 'batch_canonical': True,
+        'no_tta': True, 'backbone': arm['backbone'], 'checkpoint_sha256': arm['sha256'],
+        'manifest_hash': profile['seeds'][shot].get(seed), 'e_acoustic_cols': []}
+    for key, value in expected.items():
+        require(value is not None and _equal(fields.get(key), value), key)
+    require((root / fields['checkpoint']).resolve() == (REPO / arm['checkpoint']).resolve(), 'checkpoint path/epoch')
+    require(reference['seed'] == seed and reference['num_shot'] == shot, 'reference seed/num_shot')
+    require(manifest_hash(reference) == fields['manifest_hash'], 'reference semantic hash')
+    for path_key, hash_key in (('checkpoint', 'checkpoint_sha256'), ('manifest_path', 'manifest_file_sha256')):
+        bind(root / fields[path_key], fields[hash_key])
+    identity = fields['data_identity']
+    require(identity['inventory_sha256'] == profile['dataset']['inventory_sha256'], 'dataset inventory')
+    require(identity.get('manifest_hash') == fields['manifest_hash'] and
+            identity.get('manifest_file_sha256') == fields['manifest_file_sha256'], 'dataset manifest identity')
+    for record in identity['inventory']:
+        bind(Path(identity['data_root']) / record['path'], record['sha256'])
+    for record in fields['mutable_inputs'].values():
+        bind(root / record['path'], record['sha256'])
+    run = load_run(str(directory))
+    aggregate = payloads['metrics_yaw.json']
+    require(_equal(run['meta'], aggregate['meta']), 'output meta agreement')
+    for key in ('backbone', 'checkpoint', 'manifest_hash', 'gl_seed', 'batch_size', 'max_samples',
+                'tf32', 'manifest_path', 'manifest_seed', 'yaw_cols', 'acoustic_cols',
+                'e_acoustic_cols', 'batch_canonical', 'n_samples', 'conditions', 'reviewed_commit'):
+        require(key in fields and _equal(run['meta'].get(key), fields[key]), 'meta ' + key)
+    require(run['meta'].get('eval_manifest_sha256') == digest, 'meta manifest digest')
+    require(run['meta'].get('evaluator_closure_sha256') == closures['frozen_evaluator']['sha256'],
+            'meta frozen evaluator closure')
+    queries, indices = run['query'], run['index']
+    require(queries == [e['query'] for e in reference['entries']] and
+            indices == [e['index'] for e in reference['entries']], 'query/index reference order')
+    require(len(queries) == profile['dataset']['n_queries'] and len(set(queries)) == len(queries), 'query count')
+    require(_digest(queries) == profile['dataset']['query_sha256'], 'query digest')
+    require(indices == list(range(len(queries))) and all(type(i) is int for i in indices), 'index order')
+    require(len(set(rooms_from_paths(queries))) == profile['dataset']['n_rooms'], 'room count')
+    grid = profile['run_grids'][arm['role']]
+    for key in ('yaw_cols', 'acoustic_cols'):
+        require(_equal(fields.get(key), grid), 'grid ' + key)
+    for payload in (run, aggregate):
+        require('E' not in payload, 'condition P only')
+        require(set(payload['P']) == {str(k) for k in grid}, 'grid P cells')
+    for angle, cell in run['P'].items():
+        require(set(cell) == set(aggregate['P'].get(angle, {})), 'metrics cell coverage')
+        for name in ('edt', 'c50', 't60'):
+            require(name in cell, 'metric missing ' + name)
+        for metric, values in cell.items():
+            require(isinstance(values, list) and len(values) == len(queries), 'truncated metric length ' + metric)
+            require(all(v is None or type(v) in (float, int) for v in values), 'metric type ' + metric)
+            summary = aggregate['P'][angle].get(metric, {})
+            mean = summary.get('mean')
+            require('mean' in summary and (mean is None or
+                type(mean) in (float, int) and math.isfinite(mean)), 'metric mean ' + metric)
+            require(all(type(summary.get(key)) is int for key in ('n_valid', 'n_nan')),
+                    'metric validity counts ' + metric)
+    for failure in _check_metrics_reconciliation(label, run):
+        require(False, 'reconciliation ' + failure)
+    return run
+
+
+def admit_runs(profile, runs_a, runs_b=None, exploratory=False):
+    """Finish every admission check before computing any statistic or writing files."""
+    if profile['mode'] == 'one_arm' and runs_b is not None:
+        raise ValueError('one-arm TOST refuses --runs-b')
+    if profile['mode'] == 'two_arm' and not runs_b:
+        raise ValueError('two-arm profile requires --runs-b')
+    required = list(profile['approved_closures'].items())
+    required += [(a['role'] + ' checkpoint', a['sha256']) for a in profile['arms']]
+    required += [('dataset inventory', profile['dataset']['inventory_sha256'])]
+    for key, value in required:
+        if value is None:
+            raise ValueError('profile not yet approved: ' + key)
+    deviations, inputs = [], {}
+    def check(ok, name):
+        if not ok:
+            deviations.append(name)
+    producer = producer_identity()
+    check(producer['sha256'] == profile['approved_closures']['producer'], 'producer approved closure')
+    for record in producer['files']:
+        inputs[str((REPO / record['path']).resolve())] = record['working_tree_sha256']
+    groups = []
+    for arm, directories in zip(profile['arms'], (runs_a, runs_b)):
+        runs = []
+        for directory in directories:
+            try:
+                runs.append(_admit_run(directory, arm, profile, check, inputs))
+            except (KeyError, TypeError, ValueError, OSError, IndexError) as error:
+                check(False, '{}: admission {}'.format(directory, error))
+        seeds = [r['meta'].get('manifest_seed') for r in runs]
+        check(len(runs) == 5 and all(type(s) is int for s in seeds) and
+              set(seeds) == set(profile['seeds'][profile['num_shot']]), arm['role'] + ' seed set')
+        groups.append(sorted(runs, key=lambda r: str(r['meta'].get('manifest_seed'))))
+    flat = [r for group in groups for r in group]
+    if flat:
+        check(all(r['query'] == flat[0]['query'] and r['index'] == flat[0]['index'] for r in flat),
+              'query/index order across runs')
+    if deviations and not exploratory:
+        raise ValueError('admission failed: ' + '; '.join(deviations))
+    return {'groups': groups, 'deviations': deviations, 'inputs': inputs, 'producer': producer}
+
+
