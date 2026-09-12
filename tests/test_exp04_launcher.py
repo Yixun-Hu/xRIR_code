@@ -384,3 +384,55 @@ def test_epoch_one_acceptance_is_checked_immediately(tmp_path):
     guard = launch.LogGuard(expected, 'full')
     with pytest.raises(ValueError, match='2.431'):
         guard.feed('epoch 1 done in 145.9 min; best test loss 0.1')
+
+
+@pytest.mark.parametrize('mode', ['smoke', 'probe'])
+@pytest.mark.parametrize('signum', [launch.signal.SIGTERM, launch.signal.SIGHUP])
+def test_signals_abort_and_reap_sleeping_child(tmp_path, mode, signum):
+    import sys
+    import time
+    attempt, pidfile = tmp_path / 'attempt_t', tmp_path / 'child.pid'
+    expected = dict(yaw_aug=0, train_batches_per_epoch=1)
+    child = ('import os, time; from pathlib import Path; '
+             'print(%r, flush=True); print("yaw_aug DISABLED", flush=True); '
+             'print("Train Epoch: 1 [0/1] loss 1", flush=True); '
+             'Path(%r).write_text(str(os.getpid())); time.sleep(60)' %
+             ('XRIR_RUNTIME_ARGS ' + json.dumps(expected), str(pidfile)))
+    fields = dict(effective_args=expected, command=[sys.executable, '-c', child])
+    code = ('from tools import exp04_launcher as l; '
+            'l.resource_gate=lambda *a: {}; '
+            'l.execute_attempt(%r, %r, "1", %r, lambda: %r)' %
+            (str(attempt), mode, str(tmp_path / 'train.log'), fields))
+    process = launch.subprocess.Popen([sys.executable, '-c', code], cwd=launch.REPO)
+    child_pid = None
+    try:
+        deadline = time.monotonic() + 10
+        while not pidfile.exists() and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert pidfile.exists()
+        child_pid = int(pidfile.read_text())
+        process.send_signal(signum)
+        process.wait(timeout=10)
+        aborted, = tmp_path.glob('attempt_t_ABORTED_*')
+        assert not attempt.exists() and not (aborted / 'completion.json').exists()
+        assert launch.hours_record(tmp_path)['total_hours'] > 0
+        with pytest.raises(ProcessLookupError):
+            os.kill(child_pid, 0)
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.wait()
+        if child_pid is not None:
+            try:
+                os.kill(child_pid, launch.signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+def test_termination_handlers_restore_previous_dispositions():
+    signals = (launch.signal.SIGTERM, launch.signal.SIGHUP)
+    before = [launch.signal.getsignal(s) for s in signals]
+    with pytest.raises(launch.LauncherTerminated):
+        with launch.termination_handlers():
+            os.kill(os.getpid(), launch.signal.SIGHUP)
+    assert [launch.signal.getsignal(s) for s in signals] == before

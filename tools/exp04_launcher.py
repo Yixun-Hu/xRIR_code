@@ -222,6 +222,27 @@ def build_fields(argv, gpu, reviewed_commit, mode, allow_dirty=False):
 import re
 import signal
 import time
+from contextlib import contextmanager
+
+
+class LauncherTerminated(BaseException):
+    def __init__(self, signum):
+        self.signum = signum
+        super().__init__(signal.Signals(signum).name)
+
+
+@contextmanager
+def termination_handlers():
+    def terminate(signum, frame):
+        raise LauncherTerminated(signum)
+    previous = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGHUP)}
+    try:
+        for signum in previous:
+            signal.signal(signum, terminate)
+        yield
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
 
 
 class LogGuard:
@@ -354,6 +375,7 @@ def validate_outputs(attempt, mode, expected):
     return {f.name: p.sha256_file(f) for f in epochs + [attempt / 'history.jsonl', attempt / 'args.json']}
 
 
+@termination_handlers()
 def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant=False,
                     projection=30.0, runner=run_child):
     attempt, log_path = Path(attempt), Path(log_path)
@@ -442,6 +464,7 @@ def refusal_self_test():
     return {'passed': True, 'refusals': refusals}
 
 
+@termination_handlers()
 def main(argv=None):
     import argparse
     import datetime
