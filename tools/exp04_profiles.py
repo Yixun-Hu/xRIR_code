@@ -6,7 +6,56 @@ No checkpoint, reference manifest, or source file is read while importing profil
 """
 import hashlib
 import json
+import re
+import subprocess
+from pathlib import Path
 from types import MappingProxyType as MP
+
+APPROVED_DIGESTS_PATH = Path(__file__).resolve().parents[1] / (
+    'worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/'
+    'yaw_aug_xrir_results_assets/approved_digests.json')
+
+
+def load_approved_digests(path=None):
+    """Read committed A9 pins; return a frozen view and sha256/git-blob identity.
+
+    schema_version=None is the all-null pre-approval template; approved schemas use 1.
+    """
+    path = Path(path or APPROVED_DIGESTS_PATH).resolve()
+    raw = path.read_bytes()
+    value = json.loads(raw)
+    closures = ('evaluator', 'writer', 'training_launcher',
+                'producer_paired_compare', 'producer_results_table')
+    def shape(obj, keys):
+        if type(obj) is not dict or set(obj) != set(keys):
+            raise ValueError('approved digests schema: expected ' + ', '.join(keys))
+    shape(value, ('schema_version', 'closures', 'checkpoints'))
+    shape(value['closures'], closures)
+    shape(value['checkpoints'], ('aug',))
+    aug = value['checkpoints']['aug']
+    shape(aug, ('path', 'epoch', 'sha256'))
+    checks = [(value['schema_version'], lambda v: type(v) is int and v == 1),
+              (aug['path'], lambda v: type(v) is str and bool(v)),
+              (aug['epoch'], lambda v: type(v) is int and v > 0)]
+    checks += [(v, lambda s: type(s) is str and re.fullmatch('[0-9a-f]{64}', s))
+               for v in list(value['closures'].values()) + [aug['sha256']]]
+    if any(v is not None and not valid(v) for v, valid in checks):
+        raise ValueError('approved digests schema: invalid pin type or value')
+    def git(*args):
+        return subprocess.check_output(['git', '-C', str(path.parent)] + list(args),
+                                       stderr=subprocess.PIPE)
+    try:
+        repo = Path(git('rev-parse', '--show-toplevel').decode().strip())
+        blob = git('rev-parse', 'HEAD:' + path.relative_to(repo).as_posix()).decode().strip()
+        committed = git('cat-file', 'blob', blob)
+    except subprocess.CalledProcessError as exc:
+        raise ValueError('approved digests must be committed at HEAD') from exc
+    if raw != committed:
+        raise ValueError('approved digests differ from committed HEAD bytes')
+    def freeze(obj):
+        return MP({key: freeze(item) for key, item in obj.items()}) if isinstance(obj, dict) else obj
+    return freeze(value), {'path': str(path), 'sha256': hashlib.sha256(raw).hexdigest(),
+                           'git_blob': blob}
 
 
 def json_value(value):
@@ -68,6 +117,7 @@ PROFILES = MP({
         'family': 14, 'margin': .02, 'tails': 'two_one_sided',
         'companion_alpha': 2 * .05 / 14, 'superiority_alpha': None}),
     'TABLE_V1': MP({**COMMON, 'mode': 'table', 'arms': (CONTROL, CYL, AUG), 'num_shot': (1, 8),
+        'finite_count_tolerance': 2,
         'grid': (0,), 'input_selection': 'standalone_k0',
         'run_grids': MP({'control': (0,), 'cyl': (0,), 'aug': (0,)}),
         'metrics': MP({'primary': (), 'supportive': (),

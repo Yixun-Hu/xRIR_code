@@ -1,0 +1,17 @@
+{
+  "schema_version": null,
+  "closures": {
+    "evaluator": null,
+    "writer": null,
+    "training_launcher": null,
+    "producer_paired_compare": null,
+    "producer_results_table": null
+  },
+  "checkpoints": {
+    "aug": {
+      "path": null,
+      "epoch": null,
+      "sha256": null
+    }
+  }
+}

@@ -1,6 +1,7 @@
 import hashlib
 import importlib
 import json
+import subprocess
 from pathlib import Path
 from types import MappingProxyType
 
@@ -81,7 +82,9 @@ def test_every_field_has_its_declared_type(name):
     if name.startswith('H1'):
         schema['superiority_alpha'] = float
     if name == 'TABLE_V1':
-        schema.update(num_shot=tuple, margin=type(None), companion_alpha=type(None))
+        schema.update(num_shot=tuple, margin=type(None), companion_alpha=type(None),
+                      finite_count_tolerance=int)
+        assert p['finite_count_tolerance'] == 2
     assert p.keys() == schema.keys()
     assert all(type(p[key]) is kind for key, kind in schema.items())
     for arm in p['arms']:
@@ -144,3 +147,50 @@ def test_nested_field_types_and_shared_inventory_pin():
                    for grid in p['run_grids'].values())
         assert all(type(names) is tuple and all(type(name) is str for name in names)
                    for names in p['metrics'].values())
+
+
+def approval_repo(tmp_path, value):
+    path = tmp_path / 'approved.json'
+    path.write_text(json.dumps(value))
+    for args in (['init', '-q'], ['add', path.name], ['-c', 'user.name=Test', '-c',
+                 'user.email=test@example.com', 'commit', '-qm', 'pins', '--no-gpg-sign']):
+        subprocess.check_call(['git', '-C', str(tmp_path)] + args)
+    return path
+
+
+def approval_template():
+    return {'schema_version': None, 'closures': dict.fromkeys((
+        'evaluator', 'writer', 'training_launcher', 'producer_paired_compare',
+        'producer_results_table')), 'checkpoints': {'aug': dict.fromkeys(('path', 'epoch', 'sha256'))}}
+
+
+@pytest.mark.parametrize('pinned', (False, True))
+def test_runtime_approval_pins_frozen_and_committed(tmp_path, pinned):
+    value = approval_template()
+    if pinned:
+        value.update(schema_version=1)
+        value['closures'] = dict.fromkeys(value['closures'], 'a' * 64)
+        value['checkpoints']['aug'] = {'path': 'ckpt/epoch_012.pth', 'epoch': 12, 'sha256': 'b' * 64}
+    path = approval_repo(tmp_path, value)
+    pins, identity = profiles.load_approved_digests(path)
+    assert profiles.json_value(pins) == value
+    with pytest.raises(TypeError):
+        pins['checkpoints']['aug']['epoch'] = 11
+    assert identity['path'] == str(path.resolve())
+    assert identity['sha256'] == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert identity['git_blob'] == subprocess.check_output(
+        ['git', '-C', str(tmp_path), 'rev-parse', 'HEAD:approved.json']).decode().strip()
+    path.write_text(json.dumps(value) + '\n')
+    with pytest.raises(ValueError, match='committed'):
+        profiles.load_approved_digests(path)
+
+
+@pytest.mark.parametrize('section,key,value', [('', 'extra', None), ('', 'schema_version', True),
+    ('', 'schema_version', 2), ('closures', 'evaluator', 'invalid'), ('closures', 'extra', None),
+    ('aug', 'epoch', True), ('aug', 'path', ''), ('aug', 'sha256', 12), ('aug', 'extra', None)])
+def test_approval_schema_refuses_malformed_values(tmp_path, section, key, value):
+    pins = approval_template()
+    target = pins['checkpoints']['aug'] if section == 'aug' else pins.get(section, pins)
+    target[key] = value
+    with pytest.raises(ValueError, match='schema'):
+        profiles.load_approved_digests(approval_repo(tmp_path, pins))
