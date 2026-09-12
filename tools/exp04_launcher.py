@@ -130,12 +130,12 @@ def check_budget(root, projection):
         raise ValueError('cumulative hours + projection exceeds 43 h')
 
 
-def account_hours(attempt, hours):
+def account_hours(attempt, hours, previous_name=None):
     with (attempt.parent / '.hours.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         result = hours_record(attempt.parent)
-        if any(row['attempt'] == attempt.name for row in result['attempts']):
-            return
+        result['attempts'] = [row for row in result['attempts']
+                              if row['attempt'] not in (attempt.name, previous_name)]
         result['attempts'].append({'attempt': attempt.name, 'hours': hours})
         result['total_hours'] = sum(row['hours'] for row in result['attempts'])
         p.write_completion(attempt.parent / 'cumulative_hours.json', result)
@@ -146,7 +146,7 @@ def abort_attempt(attempt, reason, hours):
     if aborted.exists():
         aborted = aborted.with_name(aborted.name + '_' + uuid.uuid4().hex)
     attempt.rename(aborted)
-    account_hours(aborted, hours)
+    account_hours(aborted, hours, previous_name=attempt.name)
     return aborted
 
 
@@ -165,6 +165,25 @@ def promote(attempt):
 TRAIN_MINIMUM = {'train_xRIR_backbone.py', 'treble_multi_room_dataset/treble_xRIR_dataset.py',
     'model/xRIR.py', 'model/xRIR_cyl.py', 'model/simple_vit.py', 'model/cylindrical_vit.py',
     'utils/spec_utils.py', 'utils/lr_scheduler.py', 'tools/yaw_aug.py', 'tools/yaw_rotation.py'}
+
+
+
+CONTROL_EXCLUSIONS = {'save_dir', 'yaw_aug', 'yaw_aug_seed', 'yaw_aug_width', 'no_save',
+                      'save_every', 'epoch_ckpt_every', 'PYTHONHASHSEED'}
+
+
+def compare_control(runtime, control, control_env):
+    treatment, baseline = normalize(runtime), normalize(dict(control, env=control_env))
+    baseline.setdefault('train_batches_per_epoch', math.ceil(296334 / baseline['batch_size']))
+    missing = object()
+    differences = {key: {'treatment': treatment.get(key), 'control': baseline.get(key)}
+        for key in treatment.keys() | baseline.keys()
+        if type(treatment.get(key, missing)) is not type(baseline.get(key, missing))
+        or treatment.get(key, missing) != baseline.get(key, missing)}
+    refused = differences.keys() - CONTROL_EXCLUSIONS
+    if refused:
+        raise ValueError('control mismatch: ' + ', '.join(sorted(refused)))
+    return differences
 
 
 def build_fields(argv, gpu, reviewed_commit, mode):
@@ -186,10 +205,17 @@ def build_fields(argv, gpu, reviewed_commit, mode):
     bpe = math.ceil(data['inventory_files'] / provisional['batch_size'])
     effective = effective_args(argv, gpu, bpe)
     check_runtime(effective, effective, mode)
-    return dict(repo=str(REPO), reviewed_commit=reviewed_commit, mode=mode,
+    fields = dict(repo=str(REPO), reviewed_commit=reviewed_commit, mode=mode,
         source_closures=closures, train_data_identity=data, effective_args=effective,
         command=argv, environment=p.environment(), git_state=p.git_state(REPO),
         env={key: child_environment(gpu)[key] for key in ENV_KEYS})
+    if mode == 'full':
+        control_path = REPO / 'ckpt/xRIR_simple_8_shot/args.json'
+        control_env = dict(XRIR_DATA_PATH=DATA_ROOT, OMP_NUM_THREADS='2', CUDA_VISIBLE_DEVICES='1')
+        fields['control_excluded_differences'] = compare_control(effective, json.loads(control_path.read_text()), control_env)
+        fields['control_env_reconstructed'] = control_env
+        fields['mutable_inputs'] = {'control_args': {'path': str(control_path), 'sha256': p.sha256_file(control_path)}}
+    return fields
 
 
 import re

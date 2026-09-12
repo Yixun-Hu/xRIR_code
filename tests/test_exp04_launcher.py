@@ -280,3 +280,59 @@ def test_cli_modes_preserve_probe_cotenant_evidence(tmp_path, monkeypatch, mode)
 def test_cli_full_forbids_cotenant():
     with pytest.raises(SystemExit):
         launch.main(['full', '--allow-cotenant'])
+
+
+@pytest.fixture
+def control_parity_inputs():
+    expected = launch.effective_args(launch.command('full', 'attempt'), '1', 9261)
+    runtime = {key: value for key, value in expected.items() if key not in launch.ENV_KEYS}
+    runtime['env'] = {key: expected[key] for key in launch.ENV_KEYS}
+    control = {key: value for key, value in runtime.items() if key not in {
+        'env', 'train_batches_per_epoch', 'yaw_aug', 'yaw_aug_seed', 'yaw_aug_width', 'no_save'}}
+    control.update(save_dir='control', save_every=500, epoch_ckpt_every=5)
+    control_env = {key: value for key, value in runtime['env'].items() if key != 'PYTHONHASHSEED'}
+    return runtime, control, control_env
+
+
+def test_control_parity_reconstructs_bpe_and_reports_exact_exclusions(control_parity_inputs):
+    runtime, control, control_env = control_parity_inputs
+    assert runtime['train_batches_per_epoch'] == (296334 + control['batch_size'] - 1) // control['batch_size']
+    differences = launch.compare_control(runtime, control, control_env)
+    assert set(differences) == {'save_dir', 'yaw_aug', 'yaw_aug_seed', 'yaw_aug_width',
+                                'no_save', 'save_every', 'epoch_ckpt_every', 'PYTHONHASHSEED'}
+    assert 'env' not in control and 'train_batches_per_epoch' not in control
+
+
+@pytest.mark.parametrize('key,value', [('lr', 0.002), ('num_workers', '12'), ('tf32', 1),
+    ('CUDA_VISIBLE_DEVICES', '0'), ('train_batches_per_epoch', 9260), ('unexpected', 1)])
+def test_control_parity_refuses_nonexcluded_type_or_value_change(control_parity_inputs, key, value):
+    runtime, control, control_env = control_parity_inputs
+    (runtime['env'] if key in launch.ENV_KEYS else runtime)[key] = value
+    with pytest.raises(ValueError, match=key):
+        launch.compare_control(runtime, control, control_env)
+
+
+def test_full_promotion_failure_accounts_elapsed_hours_once(tmp_path, monkeypatch):
+    attempt, log = tmp_path / 'attempt_t', tmp_path / 'logs/train.log'
+    argv = launch.command('full', str(attempt))
+    fields = dict(effective_args=launch.effective_args(argv, '1', 9261), command=argv)
+    clock = [100.0]
+    monkeypatch.setattr(launch.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(launch, 'resource_gate', lambda *a: {})
+    monkeypatch.setattr(launch.LogGuard, 'finish', lambda self: {})
+    monkeypatch.setattr(launch, 'validate_outputs', lambda *a: {})
+    def runner(command, path, gpu, guard, deadline):
+        path.write_text('closed training log\n')
+        clock[0] += 3600
+        return 0
+    def fail_promotion(path):
+        assert (path / 'completion.json').is_file()
+        raise OSError('promotion failed')
+    monkeypatch.setattr(launch, 'promote', fail_promotion)
+    with pytest.raises(OSError, match='promotion failed'):
+        launch.execute_attempt(attempt, 'full', '1', log, lambda: fields, runner=runner)
+    aborted, = tmp_path.glob('attempt_t_ABORTED_*')
+    assert not attempt.exists() and not (aborted / 'completion.json').exists()
+    record = launch.hours_record(tmp_path)
+    assert record['total_hours'] == 1.0
+    assert record['attempts'] == [{'attempt': aborted.name, 'hours': 1.0}]
