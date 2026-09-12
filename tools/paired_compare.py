@@ -6,6 +6,7 @@ import math
 import os
 from pathlib import Path
 import subprocess
+import tempfile
 
 from tools import provenance
 from tools.exp04_profiles import get_profile, json_value, load_approved_digests
@@ -23,8 +24,8 @@ from tools.paired_stats import (
 )
 
 
-def _quantile(samples, probability):
-    """Inverse empirical CDF: rank ceil(p*n), with ranks starting at one."""
+def _quantile(samples, probability, upper=False):
+    """Inverse empirical CDF: rank ceil(p*n); upper=True accepts the upper tail."""
     values = np.asarray(samples, dtype=np.float64)
     if values.ndim != 1 or not values.size or not np.isfinite(values).all():
         raise ValueError("quantile samples must be a nonempty finite 1-D array")
@@ -33,6 +34,7 @@ def _quantile(samples, probability):
     probability = Decimal(str(probability))
     if not probability.is_finite() or not 0 < probability < 1:
         raise ValueError("quantile probability must be in (0, 1)")
+    probability = Decimal(1) - probability if upper else probability
     rank = int((probability * values.size).to_integral_value(rounding=ROUND_CEILING)) - 1
     return float(np.partition(values, rank)[rank])
 
@@ -43,7 +45,7 @@ def one_sided_upper(samples, alpha):
     For [1, 2, 3, 4] and alpha=.25 the upper bound is 3. A bound equal
     to a practical margin fails the strict confirmatory decision rule.
     """
-    return _quantile(samples, Decimal(1) - Decimal(str(alpha)))
+    return _quantile(samples, alpha, upper=True)
 
 
 def two_sided_interval(samples, alpha):
@@ -51,7 +53,7 @@ def two_sided_interval(samples, alpha):
     if not np.isfinite(alpha) or not 0 < alpha < 1:
         raise ValueError("alpha must be in (0, 1)")
     tail = Decimal(str(alpha)) / 2
-    return (_quantile(samples, tail), _quantile(samples, Decimal(1) - tail))
+    return (_quantile(samples, tail), _quantile(samples, tail, upper=True))
 
 
 def _seed_values(values):
@@ -162,7 +164,7 @@ def tost_cell(e0, ek, margin, alpha_local, n_boot=20000, seed=0, clusters=None):
     result = equivalence_tost(e0, ek, margin, n_boot=1, alpha=alpha_local,
                               seed=seed, clusters=clusters)
     samples = _samples([(e0, ek)], n_boot, seed, clusters)[0]
-    lo, hi = two_sided_interval(samples, 2 * alpha_local)
+    lo, hi = _quantile(samples, alpha_local), _quantile(samples, alpha_local, upper=True)
     result.update(lo=lo, hi=hi, n_boot=int(n_boot), samples=samples, seed=seed,
                   equivalent=bool(-margin < lo and hi < margin))
     return result
@@ -267,6 +269,8 @@ def admit_run(run_dir, arm, num_shot, profile, approved, check=None, inputs=None
     """Admit one run. evaluator=exp04_eval; writer=exp04_eval_launch.
 
     training_launcher is recorded, not compared; its evidence is checkpoint-bound.
+    Aug evaluation launches must pass --bind-input train_manifest=<attempt>/train_manifest.json
+    and --bind-input train_completion=<attempt>/completion.json.
     approved is the loader's frozen pins mapping, without its identity receipt.
     Optional check/inputs share deviations and byte bindings across a grouped analysis.
     """
@@ -284,7 +288,6 @@ def admit_run(run_dir, arm, num_shot, profile, approved, check=None, inputs=None
         path = str(Path(path).resolve())
         actual = inputs[path] if path in inputs else provenance.sha256_file(path)
         require(expected is _UNBOUND or actual == expected, 'digest ' + path)
-        require(path not in inputs or inputs[path] == actual, 'input changed ' + path)
         inputs[path] = actual
         return actual
     files = {name: directory / name for name in
@@ -310,6 +313,8 @@ def admit_run(run_dir, arm, num_shot, profile, approved, check=None, inputs=None
         require(_equal(fields.get(key), value) and _equal(completion.get(key), value), key)
     require(set(fields['mutable_inputs']) <=
             {'control_args', 'train_manifest', 'train_completion', 'probe_receipt'}, 'mutable_inputs names')
+    if arm['role'] == 'aug':
+        require({'train_manifest', 'train_completion'} <= set(fields['mutable_inputs']), 'aug train provenance binding')
     root = Path(fields['repo'])
     declarations = dict(fields, eval_manifest={'path': str(files['eval_manifest.json']), 'sha256': digest})
     # The shared data cache below validates inventory bytes and stat identity once.
@@ -615,11 +620,16 @@ def write_outputs(result, admitted, json_path, summary_path):
     created = []
     try:
         for path, payload in zip(paths, (data, text, receipt)):
-            with path.open('xb') as stream:
+            fd, temporary = tempfile.mkstemp(prefix='.' + path.name, dir=path.parent)
+            try:
+                with os.fdopen(fd, 'wb') as stream:
+                    stream.write(payload)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.link(temporary, path)  # Atomic publication, preserving exclusive creation.
                 created.append(path)
-                stream.write(payload)
-                stream.flush()
-                os.fsync(stream.fileno())
+            finally:
+                os.unlink(temporary)
     except BaseException:
         for path in created:
             path.unlink()
@@ -652,5 +662,5 @@ def main(argv=None):
 if __name__ == '__main__':
     try:
         main()
-    except (ValueError, OSError, RuntimeError) as error:
+    except (ValueError, OSError, RuntimeError, KeyError) as error:
         raise SystemExit(str(error))

@@ -55,6 +55,7 @@ def test_table_aggregation_and_order(table_fixture):
     reverse, _ = rt.build_table(list(reversed(table_fixture.directories)))
     assert json.dumps(result, sort_keys=True) == json.dumps(reverse, sort_keys=True)
     assert len(result['rows']) == 6 and len(admitted['groups']) == 6
+    assert [row['num_shot'] for row in result['rows']] == [8, 1] * 3
     for row in result['rows']:
         assert row['protocol']['batch_size'] == 16 and row['protocol']['k'] == 0
         edt = row['metrics']['EDT']
@@ -109,6 +110,8 @@ def table_argv(fixture, tmp_path, name='table'):
 
 
 def test_cli_outputs_protocol_and_json_only_renderer(table_fixture, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    table_fixture.directories = [str(Path(d).relative_to(tmp_path)) for d in table_fixture.directories]
     argv = table_argv(table_fixture, tmp_path)
     result = rt.main(argv)
     path, md = tmp_path / 'table.json', tmp_path / 'table.md'
@@ -118,6 +121,8 @@ def test_cli_outputs_protocol_and_json_only_renderer(table_fixture, tmp_path, mo
     assert receipt['producer']['sha256'] == result['producer_closure_sha256']
     assert receipt['approved_digests']['git_blob'] and receipt['generated_at']
     assert receipt['inputs'] == result['inputs'] and len(receipt['run_flags']) == 30
+    command = receipt['generation_command']
+    assert all(Path(d).is_absolute() for d in command[command.index('--runs') + 1:command.index('--json')])
     for row in result['rows']:
         for cell in row['metrics'].values():
             assert '{:.6g} ± {:.6g}'.format(cell['mean'], cell['sd']) in md.read_text()
@@ -162,6 +167,7 @@ def test_no_partial_outputs_on_render_failure(table_fixture, tmp_path, monkeypat
 
 def test_synthetic_json_template_and_provenance(table_fixture, tmp_path):
     result, _ = rt.build_table(table_fixture.directories)
+    result['profile'].update(batch_size=7, tf32=True, max_samples=99, condition='E', grid=[32])
     for row in result['rows']:
         row['protocol']['n_queries'] = 6337
     path, output = tmp_path / 'synthetic.json', tmp_path / 'rendered.md'
@@ -172,6 +178,8 @@ def test_synthetic_json_template_and_provenance(table_fixture, tmp_path):
     for phrase in ('# Model comparison', 'sample SD', 'five evaluation seeds',
                    'reference manifest', 'Griffin-Lim', '## Protocol', '6337 queries',
                    'finite queries', 'tolerance: 2', '## Provenance', str(path),
+                   'batch 7', 'TF32 on', 'max_samples = 99', '6 significant digits; the JSON is canonical',
+                   'condition E', 'k = 32',
                    p.sha256_file(path), result['profile_digest'], 'results_table.py --profile TABLE_V1'):
         assert phrase in text
 
@@ -214,14 +222,30 @@ def test_force_md_restores_original_on_sidecar_failure(table_fixture, tmp_path, 
     assert not (tmp_path / 'table.json').exists()
 
 
-def test_manual_edit_inside_generated_block_survives(table_fixture, tmp_path):
+@pytest.mark.parametrize('mutation', ['edited', 'duplicate', 'quoted_begin', 'quoted_end', 'quoted_pair'])
+def test_generated_block_corruption_refused(table_fixture, tmp_path, mutation):
     argv = table_argv(table_fixture, tmp_path)
     rt.main(argv)
     path = tmp_path / 'table.md'
-    note = 'User-added note inside the generated block'
-    path.write_text(path.read_text().replace('## Protocol', note + '\n\n## Protocol'))
+    original = path.read_text()
+    stable = original + '\n## Manual\n\nUser note\n'
+    previous = stable
+    for _ in range(3):
+        previous = rt._preserve_manual(original, previous.encode())
+        assert previous == stable
+    changed = (original.replace('## Protocol', 'Hand edit') if mutation == 'edited' else
+               original + (original if mutation == 'duplicate' else '\nQuoted `' + {
+                   'quoted_begin': rt.BEGIN, 'quoted_end': rt.END, 'quoted_pair': rt.BEGIN + rt.END}[mutation] + '`'))
+    path.write_text(changed)
     for name in ('second', 'third'):
         argv[argv.index('--json') + 1] = str(tmp_path / (name + '.json'))
-        rt.main(argv + ['--force-md'])
-        manual = path.read_text().split('## Manual', 1)[1]
-        assert manual.count(note) == 1
+        with pytest.raises(ValueError, match='edited by hand' if mutation == 'edited' else 'generated block markers'):
+            rt.main(argv + ['--force-md'])
+        assert path.read_text() == changed and not (tmp_path / (name + '.json')).exists()
+
+
+def test_null_aug_pin_refused_before_mapping(table_fixture):
+    approved = rt.load_approved_digests()
+    approved[0]['checkpoints']['aug']['sha256'] = None
+    with pytest.raises(ValueError, match='profile not yet approved: aug checkpoint'):
+        rt.build_table(table_fixture.directories, approved=approved)

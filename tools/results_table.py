@@ -29,7 +29,15 @@ def build_table(directories, profile=None, approved=None):
     """
     profile = get_profile('TABLE_V1') if profile is None else profile
     approved = load_approved_digests() if approved is None else approved
-    groups = [(arm, shot, []) for arm in profile['arms'] for shot in sorted(profile['num_shot'])]
+    pins = [(key, approved[0]['closures'][key]) for key in ('evaluator', 'writer', 'producer_results_table')]
+    pins += [('aug checkpoint ' + key, value) for key, value in approved[0]['checkpoints']['aug'].items()]
+    pins += [(a['role'] + ' checkpoint', a['sha256']) for a in profile['arms'] if a['role'] != 'aug']
+    pins += [('approval schema_version', approved[0]['schema_version']),
+             ('dataset inventory', profile['dataset']['inventory_sha256'])]
+    for key, value in pins:
+        if value is None:
+            raise ValueError('profile not yet approved: ' + key)
+    groups = [(arm, shot, []) for arm in profile['arms'] for shot in sorted(profile['num_shot'], reverse=True)]
     for directory in sorted(str(Path(d).resolve()) for d in directories):
         fields = json.loads((Path(directory) / 'eval_manifest.json').read_text())
         matching = [(arm, shot, paths) for arm, shot, paths in groups
@@ -109,7 +117,8 @@ def render_markdown(json_path, generation_command=None):
     lines = [BEGIN, '# Model comparison', '',
         'Mean ± sample SD over five evaluation seeds (42–46). Each seed selects the K-specific '
         'reference manifest and the Griffin-Lim phase. Each seed mean uses its finite queries; '
-        'per-seed finite counts are recorded in the canonical JSON.', '']
+        'per-seed finite counts are recorded in the canonical JSON. '
+        'Values are rounded to 6 significant digits; the JSON is canonical.', '']
     columns = ('T60', 'C50', 'EDT', 'loss', 'log_mse')
     lines += ['| Model | K | T60 (%) | C50 (dB) | EDT (ms) | Loss (objective) | Log-STFT MSE | Protocol |',
              '| --- | --- | --- | --- | --- | --- | --- | --- |']
@@ -122,8 +131,10 @@ def render_markdown(json_path, generation_command=None):
             .format(len(protocol['seeds']))).format(**protocol, precision='on' if protocol['tf32'] else 'off')
         lines.append('| ' + ' | '.join([row['label'], str(row['num_shot'])] + cells + [description]) + ' |')
     lines += ['', '## Protocol', '',
-        'Rows report K, unseen split query count, five seeds, epoch, condition P, standalone k = 0, '
-        'canonical batch 16, and TF32 off. max_samples = 0; no test-time augmentation.',
+        'Rows report K, {dataset[split]} split query count, seed count, epoch, condition {condition}, '
+        'standalone k = {grid[0]}, canonical batch {batch_size}, and TF32 {precision}. '
+        'max_samples = {max_samples}; no test-time augmentation.'.format(
+            **result['profile'], precision='on' if result['profile']['tf32'] else 'off'),
         'Finite-count tolerance: {} queries between seeds in each row/metric; empty seeds are refused.'
         .format(result['profile']['finite_count_tolerance']), '', '## Provenance', '',
         'Canonical JSON: `{}`; sha256: `{}`.'.format(path, digest),
@@ -137,15 +148,15 @@ def _preserve_manual(generated, previous):
     if previous is None:
         return generated
     text = previous.decode('utf-8')
-    if text.count(BEGIN) == text.count(END) == 1 and text.index(BEGIN) < text.index(END):
-        prefix, block = text.split(BEGIN, 1)
-        block, suffix = block.split(END, 1)
-        body, separator, claimed = (BEGIN + block).rpartition(STAMP)
+    blocks = list(re.finditer(re.escape(BEGIN) + r'.*?' + re.escape(END), text, re.S))
+    if len(blocks) > 1 or text.count(BEGIN) != len(blocks) or text.count(END) != len(blocks):
+        raise ValueError('ambiguous generated block markers; keep exactly one generated block')
+    for block in blocks:
+        body, separator, claimed = block.group()[:-len(END)].rpartition(STAMP)
         expected = hashlib.sha256(body.encode()).hexdigest() + ' -->\n'
-        # An edited or older block has uncertain ownership: preserve its entire content.
-        manual = '' if separator and claimed == expected else re.sub(
-            r'<!-- results_table:sha256:[0-9a-f]{64} -->\n?', '', block)
-        text = prefix + manual + suffix
+        if not separator or claimed != expected:
+            raise ValueError('generated block was edited by hand; move your notes below the end marker and rerun')
+        text = text[:block.start()] + text[block.end():]
     text = text.strip()
     if text.startswith('## Manual\n'):
         text = text[len('## Manual\n'):].strip()
@@ -221,12 +232,14 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     args = parser.parse_args(argv)
     result, admitted = build_table(args.runs)
-    write_outputs(result, admitted, args.json, args.md, args.force_md, ['results_table.py'] + list(argv))
+    command = ['results_table.py', '--profile', args.profile, '--runs'] + [str(Path(d).resolve()) for d in args.runs]
+    command += ['--json', str(Path(args.json).absolute()), '--md', str(Path(args.md).absolute())]
+    write_outputs(result, admitted, args.json, args.md, args.force_md, command + (['--force-md'] if args.force_md else []))
     return result
 
 
 if __name__ == '__main__':
     try:
         main()
-    except (ValueError, OSError, RuntimeError) as error:
+    except (ValueError, OSError, RuntimeError, KeyError) as error:
         raise SystemExit(str(error))

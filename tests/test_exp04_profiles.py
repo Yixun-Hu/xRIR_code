@@ -194,3 +194,15 @@ def test_approval_schema_refuses_malformed_values(tmp_path, section, key, value)
     target[key] = value
     with pytest.raises(ValueError, match='schema'):
         profiles.load_approved_digests(approval_repo(tmp_path, pins))
+
+
+@pytest.mark.parametrize('key,value', [('schema_version', 1), ('evaluator', 'a' * 64), ('filled', None)])
+def test_mixed_approval_schema_refused(tmp_path, key, value):
+    pins = approval_template()
+    if key == 'filled':
+        pins['closures'] = dict.fromkeys(pins['closures'], 'a' * 64)
+        pins['checkpoints']['aug'] = dict(path='ckpt/epoch_012.pth', epoch=12, sha256='b' * 64)
+    else:
+        (pins if key == 'schema_version' else pins['closures'])[key] = value
+    with pytest.raises(ValueError, match='all-null or all-filled'):
+        profiles.load_approved_digests(approval_repo(tmp_path, pins))

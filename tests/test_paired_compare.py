@@ -45,6 +45,7 @@ def test_tails_and_families():
     assert stats.two_sided_interval(samples, .05 / 2) == (250, 19750)
     assert stats.two_sided_interval(samples, 2 * .05 / 8) == (125, 19875)
     assert stats.two_sided_interval(samples, 2 * .05 / 14) == (72, 19929)
+    assert stats._quantile(samples, .05 / 14, upper=True) == 19929
 
 
 def test_five_seed_mean_is_plain_and_propagates_any_invalid():
@@ -237,6 +238,11 @@ def admission_fixture(tmp_path, monkeypatch):
         identity = p._inventory(['query.dat'], data_root)
         profile['dataset']['inventory_sha256'] = identity['inventory_sha256']
         paths = [[], []]
+        training = {}
+        for binding in ('train_manifest', 'train_completion'):
+            path = root / (binding + '.json')
+            path.write_text('{}')
+            training[binding] = dict(path=str(path), sha256=p.sha256_file(path))
         for arm_index, arm in enumerate(profile['arms']):
             checkpoint = root / (arm['role'] + '.pth')
             checkpoint.write_bytes(('fixture checkpoint ' + arm['role']).encode())
@@ -273,7 +279,8 @@ def admission_fixture(tmp_path, monkeypatch):
                     num_shot=profile['num_shot'], backbone=arm['backbone'], batch_size=16,
                     batch_canonical=True, max_samples=0, tf32=False, conditions='P', yaw_cols=grid,
                     acoustic_cols=grid, e_acoustic_cols=[], n_samples=12, split_count=12,
-                    split='unseen', no_tta=True, data_root=str(data_root), mutable_inputs={},
+                    split='unseen', no_tta=True, data_root=str(data_root),
+                    mutable_inputs=training if arm['role'] == 'aug' else {},
                     confirmatory=True, allow_dirty_used=False,
                     data_identity=dict(identity, manifest_path=str(ref_path),
                         manifest_file_sha256=p.sha256_file(ref_path), manifest_hash=manifest_hash(reference)),
@@ -630,16 +637,50 @@ def test_shifted_noisy_fixture_through_main(admission_fixture):
             assert 0 < cell['convergence']['decision']['ratio'] <= .1
 
 
-def test_cli_runtime_error_is_concise(monkeypatch):
+@pytest.mark.parametrize('error_type', [RuntimeError, KeyError])
+@pytest.mark.parametrize('module', ['paired_compare', 'results_table'])
+def test_cli_runtime_error_is_concise(monkeypatch, error_type, module):
     import runpy
     import sys
     def fail(*args):
-        raise RuntimeError('fixture closure failure')
-    monkeypatch.setattr(p, 'source_closure', fail)
-    monkeypatch.setattr(sys, 'argv', ['paired_compare.py', '--profile', 'H1_K8',
-        '--runs-a', '/tmp/a', '--runs-b', '/tmp/b', '--json', '/tmp/x', '--summary', '/tmp/y'])
+        raise error_type('fixture closure failure')
+    monkeypatch.setattr('tools.exp04_profiles.load_approved_digests', fail)
+    argv = ['--profile', 'H1_K8', '--runs-a', '/tmp/a', '--runs-b', '/tmp/b', '--json', '/tmp/x', '--summary', '/tmp/y']
+    if module == 'results_table':
+        argv = ['--profile', 'TABLE_V1', '--runs', '/tmp/a', '--json', '/tmp/x', '--md', '/tmp/y']
+    monkeypatch.setattr(sys, 'argv', [module + '.py'] + argv)
     with pytest.raises(SystemExit, match='fixture closure failure'):
-        runpy.run_module('tools.paired_compare', run_name='__main__')
+        runpy.run_module('tools.' + module, run_name='__main__')
+
+
+@pytest.mark.parametrize('missing', ['train_manifest', 'train_completion', 'both'])
+def test_aug_training_bindings_required(admission_fixture, missing):
+    fixture = admission_fixture()
+    run = Path(fixture.paths[0][0])
+    manifest = _read(run / 'eval_manifest.json')
+    for key in list(manifest['mutable_inputs']):
+        if missing in (key, 'both'):
+            del manifest['mutable_inputs'][key]
+    _rebind(run, manifest=manifest)
+    with pytest.raises(ValueError, match='aug train provenance binding'):
+        pc.main(fixture.argv)
+    _assert_no_outputs(fixture)
+
+
+def test_atomic_publication_failure_leaves_no_partial_files(admission_fixture, monkeypatch):
+    fixture = admission_fixture()
+    original = pc.write_outputs
+    def fail(fd):
+        assert not fixture.output.exists()
+        raise OSError('interrupted before publication')
+    def write(*args):
+        monkeypatch.setattr(os, 'fsync', fail)
+        return original(*args)
+    monkeypatch.setattr(pc, 'write_outputs', write)
+    with pytest.raises(OSError, match='interrupted'):
+        pc.main(fixture.argv)
+    _assert_no_outputs(fixture)
+    assert not list(fixture.root.glob('.result.json*'))
 
 
 @pytest.mark.parametrize('mutate', (False, True))

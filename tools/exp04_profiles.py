@@ -41,6 +41,8 @@ def load_approved_digests(path=None):
                for v in list(value['closures'].values()) + [aug['sha256']]]
     if any(v is not None and not valid(v) for v, valid in checks):
         raise ValueError('approved digests schema: invalid pin type or value')
+    if any(v is None for v, _ in checks) and not all(v is None for v, _ in checks):
+        raise ValueError('approved digests schema: requires all-null or all-filled pins')
     def git(*args):
         return subprocess.check_output(['git', '-C', str(path.parent)] + list(args),
                                        stderr=subprocess.PIPE)
