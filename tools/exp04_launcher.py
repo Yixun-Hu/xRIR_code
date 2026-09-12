@@ -276,12 +276,19 @@ class LogGuard:
         self.probe = None
         self.log_created = False
 
+    def runtime_payload(self, payload):
+        try:
+            actual = json.loads(payload.read_text() if isinstance(payload, Path) else payload)
+            check_runtime(actual, self.expected, self.mode)
+            return actual
+        except (OSError, ValueError, TypeError, AttributeError) as error:
+            raise LauncherFailure('guard_runtime_args', str(error)) from error
+
     def feed(self, line):
         if line.startswith('EXP04_PROBE_RESULT '):
             self.probe = json.loads(line[len('EXP04_PROBE_RESULT '):])
         if line.startswith('XRIR_RUNTIME_ARGS '):
-            self.runtime = json.loads(line[len('XRIR_RUNTIME_ARGS '):])
-            check_runtime(self.runtime, self.expected, self.mode)
+            self.runtime = self.runtime_payload(line[len('XRIR_RUNTIME_ARGS '):])
         wanted = ('yaw_aug ENABLED W={yaw_aug_width} seed={yaw_aug_seed} '
                   'counter=(epoch-1)*{train_batches_per_epoch}+batch_idx'.format(**self.expected)
                   if self.expected['yaw_aug'] else 'yaw_aug DISABLED')
@@ -295,7 +302,7 @@ class LogGuard:
                 raise LauncherFailure('guard_banner', 'first step without banner or runtime args')
             if self.mode == 'full':
                 runtime = self.output_dir / 'args.json'
-                check_runtime(json.loads(runtime.read_text()), self.expected, self.mode)
+                self.runtime_payload(runtime)
             values = re.findall(r'(?:loss |stft |decay )([^\s,)]+)', line)
             if not values or not all(math.isfinite(float(value)) for value in values):
                 raise ValueError('non-finite training loss')

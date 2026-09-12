@@ -529,7 +529,8 @@ def test_guard_uses_repo_paths_and_expected_banner(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('failure,reason', [('args', 'guard_runtime_args'), ('banner', 'guard_banner'),
     ('epoch', 'guard_epoch_one'), ('deadline', 'deadline_43h'), ('exit', 'child_exit_3'),
-    ('nan', 'child_failed'), ('collision', 'child_failed')])
+    ('nan', 'child_failed'), ('runtime_json', 'guard_runtime_args'),
+    ('missing_args', 'guard_runtime_args'), ('collision', 'child_failed')])
 def test_abort_diagnostics_and_owned_log(tmp_path, monkeypatch, failure, reason):
     attempt, log = tmp_path / 'attempt', tmp_path / 'train.log'
     expected = launch.effective_args(launch.command('full', str(attempt)), '1', 9261)
@@ -553,6 +554,11 @@ def test_abort_diagnostics_and_owned_log(tmp_path, monkeypatch, failure, reason)
             launch.run_child([launch.PYTHON, '-c', 'import time; time.sleep(60)'], path, gpu, guard, 0)
         elif failure == 'nan':
             guard.feed('Test set (epoch 1): Average loss: nan over 2 batches')
+        elif failure == 'runtime_json':
+            guard.feed('XRIR_RUNTIME_ARGS {')
+        elif failure == 'missing_args':
+            guard.runtime, guard.banner = expected, True
+            guard.feed('Train Epoch: 1 [0/9261] loss 1')
         return 3
     with pytest.raises((ValueError, RuntimeError, FileExistsError)):
         launch.execute_attempt(attempt, 'full', '1', log,
