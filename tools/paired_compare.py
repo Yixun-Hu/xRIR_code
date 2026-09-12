@@ -101,3 +101,112 @@ def cell_mask(e0_a, ek_a=None, e0_b=None, ek_b=None, seeds=(42, 43, 44, 45, 46))
     return mask, counts
 
 
+def _samples(pairs, n_boot, seed, clusters):
+    if isinstance(n_boot, bool) or not isinstance(n_boot, numbers.Integral):
+        raise TypeError("n_boot must be an integer")
+    if n_boot < 1:
+        raise ValueError("n_boot must be positive")
+    pairs = [(np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64))
+             for a, b in pairs]
+    return _bootstrap_ratios(pairs, int(n_boot), seed, clusters)
+
+
+def _sample_metadata(result, samples, n_boot, seed):
+    for key in ("lo", "hi", "alpha"):
+        result.pop(key, None)
+    result.update(samples=samples, n_boot=int(n_boot), seed=seed)
+    return result
+
+
+def rho_bootstrap(err_a, err_b, n_boot=20000, seed=0, clusters=None):
+    """rho=(mean(a)-mean(b))/mean(b) on common query/room resamples.
+
+    The imported public primitive validates inputs and supplies the estimate
+    using one validation draw. Actual draws use its shared sampler, avoiding
+    its interpolated quantiles and a second full bootstrap computation.
+    """
+    result = relative_degradation_bootstrap(err_b, err_a, n_boot=1, seed=seed,
+                                            clusters=clusters)
+    samples = _samples([(err_b, err_a)], n_boot, seed, clusters)[0]
+    result["rho"] = result.pop("r")
+    return _sample_metadata(result, samples, n_boot, seed)
+
+
+def dk_bootstrap(e0_a, ek_a, e0_b, ek_b, n_boot=20000, seed=0, clusters=None):
+    """D_k=r_k(a)-r_k(b); exp_03's definition matches §3 exactly.
+
+    Both arm ratios share the same resample. As for rho, the public primitive
+    supplies validation/estimates; exact quantiles are computed by the caller.
+    """
+    result = diff_in_diff_bootstrap(e0_a, ek_a, e0_b, ek_b, n_boot=1,
+                                    seed=seed, clusters=clusters)
+    a, b = _samples([(e0_a, ek_a), (e0_b, ek_b)], n_boot, seed, clusters)
+    return _sample_metadata(result, a - b, n_boot, seed)
+
+
+def tost_cell(e0, ek, margin, alpha_local, n_boot=20000, seed=0, clusters=None):
+    """One-arm TOST using exact [Q_alpha_local, Q_(1-alpha_local)]."""
+    result = equivalence_tost(e0, ek, margin, n_boot=1, alpha=alpha_local,
+                              seed=seed, clusters=clusters)
+    samples = _samples([(e0, ek)], n_boot, seed, clusters)[0]
+    lo, hi = two_sided_interval(samples, 2 * alpha_local)
+    result.update(lo=lo, hi=hi, n_boot=int(n_boot), samples=samples, seed=seed,
+                  equivalent=bool(-margin < lo and hi < margin))
+    return result
+
+
+def convergence(fn, seed_a=0, seed_b=1, tol=0.10):
+    """Maximum endpoint movement / seed-a width on the specified companion.
+
+    The caller supplies the profile's decision companion (and H1 superiority
+    companion separately). Identical zero-width intervals pass; changed ones
+    fail. Non-finite or reversed intervals fail closed.
+    """
+    if not np.isfinite(tol) or tol < 0:
+        raise ValueError("convergence tolerance must be finite and nonnegative")
+    intervals = []
+    for seed in (seed_a, seed_b):
+        value = fn(seed)
+        if isinstance(value, dict):
+            value = (value["lo"], value["hi"])
+        interval = np.asarray(value, dtype=float)
+        if interval.shape != (2,):
+            raise ValueError("convergence requires two interval endpoints")
+        intervals.append(interval)
+    a, b = intervals
+    finite = np.isfinite(intervals).all() and a[0] <= a[1] and b[0] <= b[1]
+    width = float(a[1] - a[0]) if finite else float("nan")
+    movement = float(np.max(np.abs(a - b))) if finite else float("inf")
+    ratio = (movement / width if width > 0 else
+             0.0 if finite and movement == 0 else float("inf"))
+    return {"passed": bool(finite and ratio <= tol), "movement": movement,
+            "width": width, "ratio": ratio, "tolerance": tol,
+            "seed_a": {"seed": seed_a, "lo": float(a[0]), "hi": float(a[1])},
+            "seed_b": {"seed": seed_b, "lo": float(b[0]), "hi": float(b[1])}}
+
+
+def h1_verdict(edt_upper, c50_upper, margin=0.03):
+    edt = np.isfinite(edt_upper) and edt_upper < margin
+    c50 = np.isfinite(c50_upper) and c50_upper < margin
+    if edt and c50:
+        return "non-inferior"
+    if edt or c50:
+        return "non-inferior on {} only".format("EDT" if edt else "C50")
+    return "not shown"
+
+
+def superiority(upper):
+    """Use the upper endpoint of H1's adjusted two-sided companion."""
+    return bool(np.isfinite(upper) and upper < 0)
+
+
+def h2_verdict(c50_uppers):
+    if len(c50_uppers) != 4:
+        raise ValueError("H2 requires the four primary C50 cells")
+    passes = sum(np.isfinite(bound) and bound < 0 for bound in c50_uppers)
+    return "supported" if passes == 4 else "partially supported" if passes else "not supported"
+
+
+def tost_verdict(lo, hi, margin=0.02):
+    equivalent = np.isfinite([lo, hi, margin]).all() and 0 < margin and -margin < lo <= hi < margin
+    return "equivalent" if equivalent else "equivalence not established"
