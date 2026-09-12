@@ -56,7 +56,8 @@ def test_atomic_write_failure_preserves_previous(tmp_path, monkeypatch):
 def test_closure_and_dirty_state(repo):
     root, git = repo
     head = git('rev-parse', 'HEAD')
-    assert p.git_state(root) == {'HEAD': head, 'dirty': False, 'dirty_outside_worklog': False, 'diff_sha256': None}
+    assert p.git_state(root) == {'HEAD': head, 'dirty': False, 'dirty_outside_worklog': False,
+                                'diff_sha256': None, 'untracked': []}
     files = p.source_closure('entry', root)
     assert files == ['entry.py', 'helper.py']
     records, digest = p.closure_record(files, head, root)
@@ -74,6 +75,8 @@ def test_closure_and_dirty_state(repo):
     assert p.closure_record(files, head, root)[0][1]['commits_after_reviewed'] == [git('rev-parse', 'HEAD')]
     (root / 'untracked').touch()
     assert p.git_state(root)['dirty'] and p.git_state(root)['dirty_outside_worklog']
+    assert p.git_state(root)['untracked'] == ['untracked']
+    assert p.git_state(root)['diff_sha256'] == hashlib.sha256(b'').hexdigest()
 
 
 def test_worklog_only_and_rename_status(repo):

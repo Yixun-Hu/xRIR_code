@@ -2,6 +2,7 @@
 import argparse
 import json
 import math
+import statistics
 import sys
 import time
 
@@ -25,7 +26,7 @@ class TimedLoader:
             batch = next(iterator)
             yield batch
             self.cuda.synchronize()
-            elapsed = self.clock() - started
+            elapsed = float(self.clock() - started)
             if index == 9:
                 self.cuda.reset_peak_memory_stats()
             elif index >= 10:
@@ -37,6 +38,8 @@ class TimedLoader:
         if any(not math.isfinite(t) or t <= 0 for t in self.times):
             raise ValueError("probe timings must be positive finite values")
         return dict(warmup_micro_batches=10, timed_micro_batches=50,
+                    iteration_seconds=list(self.times), median_iteration_seconds=statistics.median(self.times),
+                    min_iteration_seconds=min(self.times),
                     mean_iteration_seconds=sum(self.times) / 50,
                     peak_allocated_bytes=self.cuda.max_memory_allocated(),
                     peak_reserved_bytes=self.cuda.max_memory_reserved())

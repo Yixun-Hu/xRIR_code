@@ -43,11 +43,22 @@ def test_timed_loader_covers_fetch_and_work(monkeypatch):
     result = measured.result()
     assert seen == list(range(60)) and cuda.resets == 1
     assert result == dict(warmup_micro_batches=10, timed_micro_batches=50,
-        mean_iteration_seconds=8, peak_allocated_bytes=123, peak_reserved_bytes=456)
+        iteration_seconds=[8.0] * 50, mean_iteration_seconds=8, median_iteration_seconds=8,
+        min_iteration_seconds=8, peak_allocated_bytes=123, peak_reserved_bytes=456)
     with pytest.raises(ValueError, match="60"):
         TimedLoader([1], cuda)
     with pytest.raises(ValueError, match="incomplete"):
         TimedLoader(range(60), cuda).result()
+
+
+def test_probe_retains_spread_and_uses_mean_for_gate():
+    measured = TimedLoader(range(60), FakeCuda())
+    measured.times = [1.0] * 49 + [6.0]
+    result = measured.result()
+    assert result['iteration_seconds'] == measured.times
+    assert result['median_iteration_seconds'] == result['min_iteration_seconds'] == 1
+    assert result['mean_iteration_seconds'] == 1.1
+    assert not compare_results({'mean_iteration_seconds': 1}, result)['passed']
 
 
 @pytest.mark.parametrize("on,passed", [(1.05, True), (1.050001, False)])

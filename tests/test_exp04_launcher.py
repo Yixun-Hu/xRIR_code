@@ -242,6 +242,8 @@ def test_full_output_acceptance(tmp_path, failure):
     if failure == 'nonfinite':
         history[1]['train_loss'] = float('nan')
     (tmp_path / 'history.jsonl').write_text('\n'.join(map(json.dumps, history)))
+    for name in ('best.pth', 'last.pth', 'note.txt'):
+        (tmp_path / name).write_bytes(b'extra')
     for i in range(1, 13):
         if failure != 'missing' or i != 12:
             (tmp_path / ('epoch_%03d.pth' % i)).write_bytes(b'checkpoint')
@@ -250,7 +252,8 @@ def test_full_output_acceptance(tmp_path, failure):
             launch.validate_outputs(tmp_path, 'full', expected)
     else:
         outputs = launch.validate_outputs(tmp_path, 'full', expected)
-        assert len(outputs) == 14 and outputs['epoch_012.pth'] == launch.p.sha256_file(tmp_path / 'epoch_012.pth')
+        assert len(outputs) == 17 and outputs['epoch_012.pth'] == launch.p.sha256_file(tmp_path / 'epoch_012.pth')
+        assert outputs['best.pth'] == outputs['last.pth'] == outputs['note.txt']
 
 
 def test_probe_log_result_required_and_bound_to_yaw():
@@ -288,7 +291,8 @@ def test_cli_modes_preserve_probe_cotenant_evidence(tmp_path, monkeypatch, mode)
     def execute(attempt, mode, gpu, log, factory, **kwargs):
         assert factory()['allow_dirty'] is True
         calls.append((attempt, mode, gpu, log, kwargs))
-        return {'metrics': {'probe': {'mean_iteration_seconds': 1.0, 'peak_allocated_bytes': 123}}}
+        return {'metrics': {'probe': {'mean_iteration_seconds': 1.0, 'peak_allocated_bytes': 123}},
+                'resource_before': {'compute_apps': 'arm cotenant'}}
     monkeypatch.setattr(launch, 'execute_attempt', execute)
     result = launch.main([mode, '--gpu', '1', '--reviewed-commit', 'HEAD', '--timestamp', 'test',
                           '--log-dir', str(tmp_path / 'logs'), '--allow-cotenant', '--allow-dirty'])
@@ -299,6 +303,8 @@ def test_cli_modes_preserve_probe_cotenant_evidence(tmp_path, monkeypatch, mode)
     else:
         assert result['PROBE_NOT_CLEAN'] is True and result['overhead_ratio'] == 1
         assert result['before']['compute_apps'] and result['after']['utilization_gpu'] == 90
+        assert result['arms_before'] == [{'compute_apps': 'arm cotenant'}] * 2
+        assert [row[0].name for row in calls] == ['_probe_test_off', '_probe_test_on']
         assert json.loads((tmp_path / '_probe_test.json').read_text()) == result
 
 

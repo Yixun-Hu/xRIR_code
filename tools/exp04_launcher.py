@@ -404,7 +404,16 @@ def validate_outputs(attempt, mode, expected):
     epochs = sorted(attempt.glob('epoch_*.pth'))
     if [f.name for f in epochs] != ['epoch_%03d.pth' % i for i in range(1, 13)]:
         raise ValueError('missing or unexpected epoch checkpoints')
-    return {f.name: p.sha256_file(f) for f in epochs + [attempt / 'history.jsonl', attempt / 'args.json']}
+    return directory_listing(attempt)
+
+
+def directory_listing(attempt):
+    listing = {}
+    for path in sorted(attempt.rglob('*')):
+        if path.is_symlink() or not (path.is_file() or path.is_dir()):
+            raise ValueError('unexpected attempt entry: ' + str(path))
+        listing[str(path.relative_to(attempt))] = p.sha256_file(path) if path.is_file() else None
+    return listing
 
 
 def abort_log(log_path, reason, created):
@@ -471,7 +480,8 @@ def complete_attempt(attempt, mode, log_path, fields, digest, metrics, hours):
         raise LauncherFailure('input_changed', 'mutable input mismatch: ' + ', '.join(mismatches))
     completion = dict(train_manifest_sha256=digest, source_drift_after_spawn=drift,
         log={'path': str(log_path.resolve()), 'sha256': p.sha256_file(log_path)},
-        outputs=outputs, metrics=metrics, wall_hours=hours() if callable(hours) else hours)
+        outputs=outputs, directory_listing=directory_listing(attempt), resource_before=fields.get('resource_before'),
+        metrics=metrics, wall_hours=hours() if callable(hours) else hours)
     p.write_completion(attempt / 'completion.json', completion)
     account_hours(attempt, completion['wall_hours'], mode=mode)
     if mode == 'full':
@@ -696,9 +706,9 @@ def main(argv=None):
             if output.exists():
                 raise FileExistsError(str(output))
             before = gpu_snapshot(args.gpu)
-            measurements, attempts = [], []
+            measurements, attempts, arms_before = [], [], []
             for yaw, label in ((0, 'off'), (1, 'on')):
-                attempt = ROOT / ('attempt_' + stamp + '_probe_' + label)
+                attempt = ROOT / ('_probe_' + stamp + '_' + label)
                 relative = os.path.relpath(attempt, REPO)
                 cmd = [PYTHON, '-m', 'tools.exp04_probe', '--yaw-aug', str(yaw), '--save-dir', relative]
                 def fields_factory():
@@ -709,10 +719,12 @@ def main(argv=None):
                     log_dir / ('yaw_aug_xrir_' + stamp + '_' + label + '_train_probe.log'),
                     fields_factory, allow_cotenant=args.allow_cotenant)
                 measurements.append(completed['metrics']['probe'])
+                arms_before.append(completed['resource_before'])
                 attempts.append(str(attempt))
             after = gpu_snapshot(args.gpu)
             result = dict(compare_results(*measurements), yaw_off=measurements[0], yaw_on=measurements[1],
-                before=before, after=after, PROBE_NOT_CLEAN=bool(before['compute_apps'] or after['compute_apps']),
+                before=before, after=after, arms_before=arms_before,
+                PROBE_NOT_CLEAN=any(bool(state['compute_apps']) for state in [before, *arms_before, after]),
                 attempts=attempts, reviewed_commit=commit)
             p.write_manifest(output, result)
             if result['PROBE_NOT_CLEAN']:

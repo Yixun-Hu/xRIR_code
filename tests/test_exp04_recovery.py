@@ -91,6 +91,8 @@ def test_finalize_preserved_attempt(preserved_attempt, mutation):
     else:
         result = launch.main(['finalize', str(attempt)])
         assert result['wall_hours'] == 1 and len(result['outputs']) >= 14
+        assert result['directory_listing'] == {path.name: launch.p.sha256_file(path)
+            for path in attempt.iterdir() if path.name != 'completion.json'}
         assert result['source_drift_after_spawn'] == []
         assert (attempt.parent / 'final').resolve() == attempt
         assert launch.full_hours(attempt.parent) == 1

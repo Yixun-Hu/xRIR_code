@@ -65,17 +65,20 @@ def closure_record(files, reviewed_commit, repo):
 
 
 def git_state(repo):
+    """Record untracked names separately; diff_sha256 hashes tracked changes only."""
     head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=repo, text=True).strip()
-    status = subprocess.check_output(['git', 'status', '--porcelain', '-z'], cwd=repo, text=True)
-    paths, entries = [], iter(status.split('\0'))
+    status = subprocess.check_output(['git', 'status', '--porcelain', '-z', '--untracked-files=all'], cwd=repo, text=True)
+    paths, untracked, entries = [], [], iter(status.split('\0'))
     for entry in entries:
         if entry:
             paths.append(entry[3:])
+            if entry.startswith('?? '):
+                untracked.append(entry[3:])
             if 'R' in entry[:2] or 'C' in entry[:2]:
                 paths.append(next(entries))  # Include the source path of a rename/copy.
     dirty = bool(status)
     diff = subprocess.check_output(['git', 'diff', 'HEAD'], cwd=repo) if dirty else None
-    return {'HEAD': head, 'dirty': dirty,
+    return {'HEAD': head, 'dirty': dirty, 'untracked': sorted(untracked),
             'dirty_outside_worklog': any(not path.startswith('worklog/') for path in paths),
             'diff_sha256': hashlib.sha256(diff).hexdigest() if dirty else None}
 
