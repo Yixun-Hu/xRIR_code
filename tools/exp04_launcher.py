@@ -294,3 +294,76 @@ def run_child(argv, log_path, gpu, guard, deadline=None):
                     except subprocess.TimeoutExpired:
                         os.killpg(process.pid, signal.SIGKILL)
                         process.wait()
+
+
+def validate_outputs(attempt, mode, expected):
+    if mode != 'full':
+        if {f.name for f in attempt.iterdir()} != {'effective_args.json', 'train_manifest.json'}:
+            raise ValueError('no-save run wrote unexpected outputs')
+        return {}
+    check_runtime(json.loads((attempt / 'args.json').read_text()), expected, mode)
+    history = [json.loads(line) for line in (attempt / 'history.jsonl').read_text().splitlines()]
+    if [r['epoch'] for r in history] != list(range(1, 13)) or any(
+            not math.isfinite(r[key]) for r in history for key in ('train_loss', 'test_loss', 'epoch_minutes')):
+        raise ValueError('incomplete or non-finite history')
+    if history[0]['epoch_minutes'] > 2.431 * 60:
+        raise ValueError('epoch one exceeds 2.431 h acceptance')
+    epochs = sorted(attempt.glob('epoch_*.pth'))
+    if [f.name for f in epochs] != ['epoch_%03d.pth' % i for i in range(1, 13)]:
+        raise ValueError('missing or unexpected epoch checkpoints')
+    return {f.name: p.sha256_file(f) for f in epochs + [attempt / 'history.jsonl', attempt / 'args.json']}
+
+
+def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant=False,
+                    projection=30.0, runner=run_child):
+    attempt, log_path = Path(attempt), Path(log_path)
+    if mode == 'full':
+        check_budget(attempt.parent, projection)
+    create_attempt(attempt.parent, attempt.name)  # An existing directory is never renamed.
+    started, reason = time.monotonic(), 'setup_failed'
+    try:
+        if attempt == log_path or attempt in log_path.parents:
+            raise ValueError('log must be outside attempt')
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        before = resource_gate(gpu, attempt.parent, mode, allow_cotenant)
+        fields = fields_factory()
+        expected = fields['effective_args']
+        effective_path = attempt / 'effective_args.json'
+        effective_digest = p.write_manifest(effective_path, expected)
+        fields.setdefault('mutable_inputs', {})['effective_args'] = {
+            'path': str(effective_path.resolve()), 'sha256': effective_digest}
+        fields.update(resource_before=before, allow_cotenant=allow_cotenant)
+        manifest_path = attempt / 'train_manifest.json'
+        digest = p.write_manifest(manifest_path, fields)
+        if {f.name for f in attempt.iterdir()} != {'effective_args.json', 'train_manifest.json'}:
+            raise ValueError('unexpected pre-spawn files')
+        guard = LogGuard(expected, mode)
+        reason = 'child_failed'
+        deadline = started + (43 - hours_record(attempt.parent)['total_hours']) * 3600 if mode == 'full' else None
+        if runner(fields['command'], log_path, gpu, guard, deadline):
+            raise RuntimeError('child exited nonzero')
+        metrics = guard.finish()
+        reason = 'invalid_outputs'
+        outputs = validate_outputs(attempt, mode, expected)
+        reason = 'input_changed'
+        fields['mutable_inputs']['train_manifest'] = {'path': str(manifest_path.resolve()), 'sha256': digest}
+        print('Revalidating training inputs after log close...', flush=True)
+        mismatches = p.revalidate(fields)
+        if mismatches:
+            raise ValueError('mutable input mismatch: ' + ', '.join(mismatches))
+        completion = dict(train_manifest_sha256=digest,
+            log={'path': str(log_path.resolve()), 'sha256': p.sha256_file(log_path)},
+            outputs=outputs, metrics=metrics, wall_hours=(time.monotonic() - started) / 3600)
+        reason = 'completion_failed'
+        p.write_completion(attempt / 'completion.json', completion)
+        account_hours(attempt, completion['wall_hours'])
+        if mode == 'full':
+            promote(attempt)
+        return completion
+    except BaseException:
+        completion_path = attempt / 'completion.json'
+        if completion_path.exists():
+            completion_path.unlink()
+        aborted = abort_attempt(attempt, reason, (time.monotonic() - started) / 3600)
+        print('ABORTED ' + str(aborted), flush=True)
+        raise

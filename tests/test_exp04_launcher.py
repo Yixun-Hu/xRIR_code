@@ -172,3 +172,59 @@ def test_teed_child_closed_log_and_early_abort(tmp_path):
     with pytest.raises(ValueError, match='banner|runtime'):
         launch.run_child([sys.executable, '-c', code], tmp_path / 'bad.log', '1',
                          launch.LogGuard(expected, 'smoke'))
+
+
+@pytest.mark.parametrize('failure', [None, 'child', 'source', 'manifest', 'effective', 'unexpected'])
+def test_attempt_finalization_after_closed_log(tmp_path, monkeypatch, failure):
+    attempt, log = tmp_path / 'attempt_t', tmp_path / 'logs/train.log'
+    argv = launch.command('smoke', str(attempt))
+    expected = launch.effective_args(argv, '1', 74084)
+    source = tmp_path / 'source.py'
+    source.write_text('original')
+    fields = dict(effective_args=expected, command=argv, mutable_inputs={
+        'source': {'path': str(source), 'sha256': launch.p.sha256_file(source)}})
+    monkeypatch.setattr(launch, 'resource_gate', lambda *a: {})
+    def runner(command, path, gpu, guard, deadline):
+        assert {f.name for f in attempt.iterdir()} == {'effective_args.json', 'train_manifest.json'}
+        path.write_text('\n'.join(log_lines(expected)) + '\n')
+        guard.poll(path)
+        if failure == 'source':
+            source.write_text('changed')
+        elif failure in ('manifest', 'effective'):
+            (attempt / ('train_manifest.json' if failure == 'manifest' else 'effective_args.json')).write_text('{}')
+        elif failure == 'unexpected':
+            (attempt / 'accidental.pth').write_text('x')
+        return 1 if failure == 'child' else 0
+    if failure:
+        with pytest.raises((ValueError, RuntimeError)):
+            launch.execute_attempt(attempt, 'smoke', '1', log, lambda: fields, runner=runner)
+        aborted, = tmp_path.glob('attempt_t_ABORTED_*')
+        assert not (aborted / 'completion.json').exists()
+        assert json.loads((tmp_path / 'cumulative_hours.json').read_text())['total_hours'] >= 0
+    else:
+        result = launch.execute_attempt(attempt, 'smoke', '1', log, lambda: fields, runner=runner)
+        assert {f.name for f in attempt.iterdir()} == {'effective_args.json', 'train_manifest.json', 'completion.json'}
+        assert result['log']['sha256'] == launch.p.sha256_file(log)
+        assert result['train_manifest_sha256'] == launch.p.sha256_file(attempt / 'train_manifest.json')
+        assert result['metrics']['train_losses'] == [1.25] * 3
+
+
+@pytest.mark.parametrize('failure', [None, 'missing', 'epoch_one', 'nonfinite'])
+def test_full_output_acceptance(tmp_path, failure):
+    expected = launch.effective_args(launch.command('full', str(tmp_path)), '1', 9261)
+    (tmp_path / 'args.json').write_text(json.dumps(expected))
+    history = [dict(epoch=i, train_loss=1.0, test_loss=0.5, epoch_minutes=120) for i in range(1, 13)]
+    if failure == 'epoch_one':
+        history[0]['epoch_minutes'] = 2.432 * 60
+    if failure == 'nonfinite':
+        history[1]['train_loss'] = float('nan')
+    (tmp_path / 'history.jsonl').write_text('\n'.join(map(json.dumps, history)))
+    for i in range(1, 13):
+        if failure != 'missing' or i != 12:
+            (tmp_path / ('epoch_%03d.pth' % i)).write_bytes(b'checkpoint')
+    if failure:
+        with pytest.raises(ValueError):
+            launch.validate_outputs(tmp_path, 'full', expected)
+    else:
+        outputs = launch.validate_outputs(tmp_path, 'full', expected)
+        assert len(outputs) == 14 and outputs['epoch_012.pth'] == launch.p.sha256_file(tmp_path / 'epoch_012.pth')
