@@ -517,7 +517,8 @@ def test_guard_uses_repo_paths_and_expected_banner(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('failure,reason', [('args', 'guard_runtime_args'), ('banner', 'guard_banner'),
-    ('epoch', 'guard_epoch_one'), ('deadline', 'deadline_43h'), ('exit', 'child_exit_3'), ('collision', 'child_failed')])
+    ('epoch', 'guard_epoch_one'), ('deadline', 'deadline_43h'), ('exit', 'child_exit_3'),
+    ('nan', 'child_failed'), ('collision', 'child_failed')])
 def test_abort_diagnostics_and_owned_log(tmp_path, monkeypatch, failure, reason):
     attempt, log = tmp_path / 'attempt', tmp_path / 'train.log'
     expected = launch.effective_args(launch.command('full', str(attempt)), '1', 9261)
@@ -539,6 +540,8 @@ def test_abort_diagnostics_and_owned_log(tmp_path, monkeypatch, failure, reason)
         elif failure == 'deadline':
             path.unlink()
             launch.run_child([launch.PYTHON, '-c', 'import time; time.sleep(60)'], path, gpu, guard, 0)
+        elif failure == 'nan':
+            guard.feed('Test set (epoch 1): Average loss: nan over 2 batches')
         return 3
     with pytest.raises((ValueError, RuntimeError, FileExistsError)):
         launch.execute_attempt(attempt, 'full', '1', log,
@@ -551,6 +554,22 @@ def test_abort_diagnostics_and_owned_log(tmp_path, monkeypatch, failure, reason)
         assert log.read_text() == 'foreign' and record['log']['aborted'] is None
     else:
         assert not log.exists() and Path(record['log']['aborted']).is_file()
+
+
+def test_child_records_group_and_closed_log_for_recovery(tmp_path):
+    expected = launch.effective_args(launch.command('smoke', 'unused'), '1', 74084)
+    guard = launch.LogGuard(expected, 'smoke')
+    guard.execution_path = tmp_path / 'execution.json'
+    guard.execution = {'train_manifest_sha256': 'spawn-digest'}
+    log = tmp_path / 'train.log'
+    code = 'print(%r, flush=True)' % '\n'.join(log_lines(expected))
+    assert launch.run_child([launch.PYTHON, '-c', code], log, '1', guard) == 0
+    record = json.loads(guard.execution_path.read_text())
+    assert record['train_manifest_sha256'] == 'spawn-digest'
+    assert record['child_exit_status'] == 0 and record['ended_at']
+    assert record['log_sha256'] == launch.p.sha256_file(log)
+    with pytest.raises(ProcessLookupError):
+        os.killpg(record['child_pgid'], 0)
 
 
 @pytest.mark.parametrize('key', launch.REQUIRED_INPUTS)

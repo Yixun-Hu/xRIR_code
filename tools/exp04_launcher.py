@@ -347,6 +347,9 @@ def run_child(argv, log_path, gpu, guard, deadline=None):
         try:
             child = subprocess.Popen(argv, cwd=REPO, env=child_environment(gpu),
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
+            if getattr(guard, 'execution_path', None):
+                guard.execution.update(child_pgid=child.pid, child_exit_status=None)
+                p.write_completion(guard.execution_path, guard.execution)
             sink = subprocess.Popen(['tee', '-a', str(log_path)], stdin=child.stdout, stdout=2,
                                     start_new_session=True)
             child.stdout.close()
@@ -362,6 +365,10 @@ def run_child(argv, log_path, gpu, guard, deadline=None):
             guard.poll(log_path)
             if sink.returncode:
                 raise RuntimeError('log sink failed')
+            if getattr(guard, 'execution_path', None):
+                guard.execution.update(child_exit_status=child.returncode,
+                    ended_at=datetime.datetime.now().astimezone().isoformat(), log_sha256=p.sha256_file(log_path))
+                p.write_completion(guard.execution_path, guard.execution)
             return child.returncode
         finally:
             for process in (child, sink):
@@ -375,11 +382,15 @@ def run_child(argv, log_path, gpu, guard, deadline=None):
                     except subprocess.TimeoutExpired:
                         os.killpg(process.pid, signal.SIGKILL)
                         process.wait()
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)  # Reap survivors even after their leader exits.
+                    except ProcessLookupError:
+                        pass
 
 
 def validate_outputs(attempt, mode, expected):
     if mode != 'full':
-        if {f.name for f in attempt.iterdir()} != {'effective_args.json', 'train_manifest.json'}:
+        if {f.name for f in attempt.iterdir()} - {'execution.json', 'abort.json'} != {'effective_args.json', 'train_manifest.json'}:
             raise ValueError('no-save run wrote unexpected outputs')
         return {}
     check_runtime(json.loads((attempt / 'args.json').read_text()), expected, mode)
@@ -408,6 +419,16 @@ def abort_log(log_path, reason, created):
         return None
 
 
+def diagnostic_value(value):
+    if isinstance(value, dict):
+        return {k: diagnostic_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [diagnostic_value(v) for v in value]
+    if isinstance(value, Path) or isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    return value
+
+
 @termination_handlers()
 def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant=False,
                     projection=30.0, runner=run_child):
@@ -428,12 +449,15 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
         effective_digest = p.write_manifest(effective_path, expected)
         fields.setdefault('mutable_inputs', {})['effective_args'] = {
             'path': str(effective_path.resolve()), 'sha256': effective_digest}
-        fields.update(resource_before=before, allow_cotenant=allow_cotenant)
+        fields.update(resource_before=before, allow_cotenant=allow_cotenant, mode=mode,
+                      started_at=started_at, attempt_path=str(attempt.resolve()), log_path=str(log_path.resolve()))
         manifest_path = attempt / 'train_manifest.json'
         digest = p.write_manifest(manifest_path, fields)
         if {f.name for f in attempt.iterdir()} != {'effective_args.json', 'train_manifest.json'}:
             raise ValueError('unexpected pre-spawn files')
         guard = LogGuard(expected, mode)
+        guard.execution_path = attempt / 'execution.json'
+        guard.execution = {'train_manifest_sha256': digest}
         reason = 'child_failed'
         deadline = started + (43 - full_hours(attempt.parent)) * 3600 if mode == 'full' else None
         status = runner(fields['command'], log_path, gpu, guard, deadline)
@@ -466,7 +490,7 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
         p.write_completion(attempt / 'abort.json', dict(reason=reason,
             exception_type=type(error).__name__, exception_message=str(error), started_at=started_at,
             aborted_at=datetime.datetime.now().astimezone().isoformat(), wall_hours=hours,
-            last_guard_state={k: v for k, v in vars(guard).items() if k != 'expected'} if guard else None,
+            last_guard_state=diagnostic_value({k: v for k, v in vars(guard).items() if k != 'expected'}) if guard else None,
             log={'original': str(log_path.resolve()), 'aborted': renamed}))
         completion_path = attempt / 'completion.json'
         if completion_path.exists():
