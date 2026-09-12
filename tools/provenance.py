@@ -145,6 +145,39 @@ def data_identity(manifest_path, data_root):
         manifest_file_sha256=sha256_file(manifest_path), manifest_hash=manifest_hash(manifest))
 
 
+def train_data_identity(data_root, cache_path=None, workers=8):
+    """Content-hash train IRs using the actual split, with a stat-validated cache.
+
+    A stale cache raises instead of silently reusing it. Remove that cache explicitly
+    to rebuild. The default cache is outside the dataset, keyed by root and count.
+    """
+    from treble_multi_room_dataset.treble_xRIR_dataset import xRIR_Dataset
+    root = Path(data_root).resolve()
+    dataset = xRIR_Dataset(split='train', ir_path=str(root / 'single_channel_ir'))
+    files = sorted(str(Path(f).resolve().relative_to(root)) for f in dataset.file_list)
+    key = hashlib.sha256(json.dumps([str(root), len(files)]).encode()).hexdigest()
+    cache = Path(cache_path) if cache_path else Path(tempfile.gettempdir()) / 'xrir-provenance' / (key + '.json')
+    if cache.exists():
+        try:
+            record = json.loads(cache.read_text())
+            stamps = []
+            for name in files:
+                stat = (root / name).stat()
+                stamps.append((name, stat.st_size, stat.st_mtime_ns))
+            cached = [(r['path'], r['size'], r['mtime_ns']) for r in record['inventory']]
+            if (record['data_root'] == str(root) and record['cache_key'] == key
+                    and cached == stamps and record['inventory_files'] == len(files)
+                    and _inventory_digest(record['inventory']) == record['inventory_sha256']):
+                return record
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        raise ValueError('stale training inventory cache: ' + str(cache))
+    record = dict(_inventory(files, root, workers), split='train', cache_key=key)
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    write_completion(cache, record)
+    return record
+
+
 def revalidate(manifest):
     """Rehash declared inputs completely; missing files are mismatches too.
 

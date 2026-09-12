@@ -139,3 +139,52 @@ def test_revalidate_detects_mutable_inputs(data, tmp_path, field):
     assert any(field in mismatch for mismatch in p.revalidate(fields))
     target.unlink()
     assert p.revalidate(fields)
+
+
+@pytest.mark.parametrize('change', ['bytes', 'mtime', 'name', 'missing'])
+def test_training_inventory_cache_is_checked(data, tmp_path, monkeypatch, change):
+    import os
+    from treble_multi_room_dataset.treble_xRIR_dataset import xRIR_Dataset
+    root, _, names = data
+    for category in ['Bathrooms', 'Cafe', 'LivingRoomsWithHallway', 'Office',
+                     'Auditorium', 'Bedrooms', 'ListeningRoom', 'MeetingRoom', 'Restaurants']:
+        (root / 'single_channel_ir' / category).mkdir()
+    held_out = root / 'single_channel_ir/Apartments/Apartments_idx_50'
+    held_out.mkdir()
+    (held_out / 'excluded.wav').write_bytes(b'test split')
+    cache = tmp_path / 'train_cache.json'
+    result = p.train_data_identity(root, cache_path=cache, workers=2)
+    listed = xRIR_Dataset(split='train', ir_path=str(root / 'single_channel_ir')).file_list
+    assert result['inventory_files'] == len(listed) == 2
+    assert all(r['path'].startswith('single_channel_ir/') for r in result['inventory'])
+    assert cache.is_file()
+    def no_hash(*args):
+        pytest.fail('valid cache should avoid content rereads')
+    with monkeypatch.context() as patch:
+        patch.setattr(p, 'sha256_file', no_hash)
+        assert p.train_data_identity(root, cache_path=cache) == result
+    path = root / names[0]
+    if change == 'bytes':
+        path.write_bytes(b'changed')
+    elif change == 'mtime':
+        os.utime(path, ns=(path.stat().st_atime_ns, path.stat().st_mtime_ns + 1000000000))
+    elif change == 'name':
+        path.rename(path.with_name('renamed.wav'))
+    else:
+        path.unlink()
+    with pytest.raises(ValueError, match='stale'):
+        p.train_data_identity(root, cache_path=cache)
+    cache.unlink()
+    updated = p.train_data_identity(root, cache_path=cache)
+    assert (updated['inventory_sha256'] == result['inventory_sha256']) == (change == 'mtime')
+
+
+def test_revalidate_checks_writer_and_extra_inputs(tmp_path):
+    file = tmp_path / 'writer.py'
+    file.write_bytes(b'original')
+    record = {'path': str(file), 'sha256': p.sha256_file(file)}
+    fields = {'mutable_inputs': {'training_args': record}, 'source_closures': {'writer': {
+        'files': [dict(record, working_tree_sha256=record['sha256'])]}}}
+    assert p.revalidate(fields) == []
+    file.write_bytes(b'mutated')
+    assert p.revalidate(fields) == ['training_args', 'source.writer.' + str(file)]
