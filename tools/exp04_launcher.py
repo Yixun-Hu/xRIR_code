@@ -263,8 +263,9 @@ def termination_handlers():
 
 
 class LogGuard:
-    def __init__(self, expected, mode):
+    def __init__(self, expected, mode, attempt=None):
         self.expected, self.mode = expected, mode
+        self.output_dir = Path(attempt) if attempt else REPO / expected.get('save_dir', '.')
         self.runtime = None
         self.banner = False
         self.steps, self.losses = [], []
@@ -293,7 +294,7 @@ class LogGuard:
             if not self.banner or self.runtime is None:
                 raise LauncherFailure('guard_banner', 'first step without banner or runtime args')
             if self.mode == 'full':
-                runtime = REPO / self.expected['save_dir'] / 'args.json'
+                runtime = self.output_dir / 'args.json'
                 check_runtime(json.loads(runtime.read_text()), self.expected, self.mode)
             values = re.findall(r'(?:loss |stft |decay )([^\s,)]+)', line)
             if not values or not all(math.isfinite(float(value)) for value in values):
@@ -309,7 +310,7 @@ class LogGuard:
         if line.startswith('epoch 1 done'):
             self.epoch_one_done = True
             if self.mode == 'full':
-                history = REPO / self.expected['save_dir'] / 'history.jsonl'
+                history = self.output_dir / 'history.jsonl'
                 first = json.loads(history.read_text().splitlines()[0])
                 if not math.isfinite(first['epoch_minutes']) or first['epoch_minutes'] > 2.431 * 60:
                     raise LauncherFailure('guard_epoch_one', 'epoch one exceeds 2.431 h acceptance')
@@ -479,6 +480,48 @@ def complete_attempt(attempt, mode, log_path, fields, digest, metrics, hours):
 
 
 @termination_handlers()
+def finalize_attempt(attempt):
+    attempt = Path(attempt).resolve()
+    with (attempt.parent / '.launch.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if (attempt / 'completion.json').exists():
+            raise FileExistsError('attempt already has completion')
+        execution = json.loads((attempt / 'execution.json').read_text())
+        manifest_path = attempt / 'train_manifest.json'
+        digest = execution['train_manifest_sha256']
+        if p.sha256_file(manifest_path) != digest:
+            raise ValueError('mutable input mismatch: train_manifest')
+        fields = json.loads(manifest_path.read_text())
+        log_path = Path(fields['log_path'])
+        if (attempt / 'abort.json').exists():
+            aborted_log = json.loads((attempt / 'abort.json').read_text())['log']['aborted']
+            if aborted_log:
+                log_path = Path(aborted_log)
+        assert_quiescent(execution.get('child_pgid'), log_path)
+        if type(execution.get('child_exit_status')) is not int or execution['child_exit_status'] != 0:
+            raise ValueError('recovery requires recorded successful child exit')
+        if p.sha256_file(log_path) != execution['log_sha256']:
+            raise ValueError('closed log changed')
+        original = Path(fields['attempt_path'])
+        effective = fields['mutable_inputs']['effective_args']
+        if Path(effective['path']) != original / 'effective_args.json':
+            raise ValueError('unexpected effective_args path')
+        effective['path'] = str(attempt / 'effective_args.json')
+        guard = LogGuard(fields['effective_args'], fields['mode'], attempt)
+        guard.poll(log_path)
+        hours = (datetime.datetime.fromisoformat(execution['ended_at']) -
+                 datetime.datetime.fromisoformat(fields['started_at'])).total_seconds() / 3600
+        if not math.isfinite(hours) or hours < 0:
+            raise ValueError('invalid recorded execution duration')
+        try:
+            return complete_attempt(attempt, fields['mode'], log_path, fields, digest, guard.finish(), hours)
+        except BaseException:
+            if (attempt / 'completion.json').exists():
+                (attempt / 'completion.json').unlink()
+            raise
+
+
+@termination_handlers()
 def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant=False,
                     projection=30.0, runner=run_child):
     attempt, log_path = Path(attempt), Path(log_path)
@@ -591,7 +634,8 @@ def main(argv=None):
     import datetime
     from tools.exp04_probe import trainer_command, compare_results
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=('smoke', 'probe', 'full', 'refuse-test'))
+    parser.add_argument('mode', choices=('smoke', 'probe', 'full', 'finalize', 'refuse-test'))
+    parser.add_argument('attempt_dir', nargs='?')
     parser.add_argument('--gpu', default='1')
     parser.add_argument('--reviewed-commit')
     parser.add_argument('--log-dir')
@@ -601,6 +645,14 @@ def main(argv=None):
     parser.add_argument('--projection-hours', type=float, default=30.0)
     parser.add_argument('--probe-json', help='full requires a clean passing probe receipt')
     args = parser.parse_args(argv)
+    if args.mode == 'finalize':
+        if not args.attempt_dir:
+            parser.error('finalize requires an attempt directory')
+        result = finalize_attempt(args.attempt_dir)
+        print(json.dumps(result, sort_keys=True, allow_nan=False), flush=True)
+        return result
+    if args.attempt_dir:
+        parser.error('attempt directory is only valid for finalize')
     if args.mode == 'refuse-test':
         result = refusal_self_test()
         print(json.dumps(result), flush=True)
