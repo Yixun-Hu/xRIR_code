@@ -453,3 +453,83 @@ def test_exploratory_records_deviation_and_omits_all_verdicts(admission_fixture)
     assert _read(fixture.sidecar)['exploratory'] is True
 
 
+@pytest.mark.parametrize('name,count,word', [('H1_K1', 3, 'non-inferior'),
+    ('H2_K8', 12, 'not supported'), ('TOST_K8', 21, 'equivalent')])
+def test_other_profiles_use_block_baselines_and_families(admission_fixture, name, count, word):
+    fixture = admission_fixture(name)
+    result = pc.main(fixture.argv)
+    assert len(result['cells']) == count
+    assert word in _all_strings(result)
+    for cell in result['cells']:
+        assert cell['estimate'] == 0
+        assert cell['alpha_local'] == .05 / fixture.profile['family']
+        assert len(cell['mask']) == 12
+        assert cell['room_cluster_interval'] == [0, 0]
+
+
+@pytest.mark.parametrize('digest', [None, False, '', 'f' * 64])
+def test_invalid_completion_output_digest_never_reaches_statistics(admission_fixture, monkeypatch, digest):
+    fixture = admission_fixture()
+    run = Path(fixture.paths[0][0])
+    completion = _read(run / 'completion.json')
+    completion['outputs']['per_sample_yaw.json'] = digest
+    p.write_completion(run / 'completion.json', completion)
+    monkeypatch.setattr(pc, 'analyze', lambda *a: pytest.fail('statistics before admission'))
+    with pytest.raises(ValueError, match='digest'):
+        pc.main(fixture.argv)
+    _assert_no_outputs(fixture)
+
+
+@pytest.mark.parametrize('target', [.05, .025])
+def test_h1_convergence_gate_includes_superiority(admission_fixture, monkeypatch, target):
+    fixture = admission_fixture()
+    original = pc.two_sided_interval
+    calls = []
+    def unstable(samples, alpha):
+        calls.append(alpha)
+        # compute(seed0), cluster, then convergence evaluates seed0 and seed1.
+        if alpha == target and calls.count(alpha) % (4 if target == .05 else 3) == 0:
+            return (0, 100)
+        return original(samples, alpha)
+    monkeypatch.setattr(pc, 'two_sided_interval', unstable)
+    with pytest.raises(ValueError, match='convergence'):
+        pc.main(fixture.argv)
+    _assert_no_outputs(fixture)
+
+
+def test_input_mutation_during_analysis_refuses_all_outputs(admission_fixture, monkeypatch):
+    fixture = admission_fixture()
+    original = pc.analyze
+    def changed(*args):
+        result = original(*args)
+        Path(fixture.paths[0][0], 'per_sample_yaw.json').write_text('{}')
+        return result
+    monkeypatch.setattr(pc, 'analyze', changed)
+    with pytest.raises(ValueError, match='input changed'):
+        pc.main(fixture.argv)
+    _assert_no_outputs(fixture)
+
+
+def test_nonfinite_aggregate_mean_is_not_a_reconciled_metric(admission_fixture):
+    fixture = admission_fixture()
+    run = Path(fixture.paths[0][0])
+    metrics = _read(run / 'metrics_yaw.json')
+    metrics['P']['0']['edt']['mean'] = float('nan')
+    (run / 'metrics_yaw.json').write_text(json.dumps(metrics))
+    completion = _read(run / 'completion.json')
+    completion['outputs']['metrics_yaw.json'] = p.sha256_file(run / 'metrics_yaw.json')
+    p.write_completion(run / 'completion.json', completion)
+    with pytest.raises(ValueError, match='metric|reconcil|mean'):
+        pc.main(fixture.argv)
+    _assert_no_outputs(fixture)
+
+
+def test_named_seed_means_and_descriptive_cells(admission_fixture):
+    fixture = admission_fixture()
+    result = pc.main(fixture.argv)
+    for cell in result['cells']:
+        assert cell['seed_labels'] == list(range(42, 47))
+        assert set(cell['seed_means']) == {'aug', 'control'}
+        assert cell['seed_means']['aug']['0']['sd'] == pytest.approx(np.std(np.arange(5) / 100, ddof=1))
+        if cell['metric'] == 'T60':
+            assert not cell['decision_driving'] and 'decision_bound' not in cell
