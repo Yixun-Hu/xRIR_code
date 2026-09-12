@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tools.exp04_probe import TimedLoader, compare_results, run
+from tools.exp04_probe import TimedLoader, compare_results, run, trainer_command
 
 
 class FakeCuda:
@@ -70,6 +70,7 @@ def test_child_uses_trainer_path_without_saving(monkeypatch, capsys, yaw):
             cuda.now += 1
         return 1.5
     def main():
+        assert sys.argv == trainer_command(yaw, "unused")
         assert "--no-save" in sys.argv
         for flag, value in [("--batch-size", "32"), ("--accum-steps", "2"),
                             ("--max-train-batches", "60"), ("--yaw-aug", str(yaw))]:
@@ -82,3 +83,14 @@ def test_child_uses_trainer_path_without_saving(monkeypatch, capsys, yaw):
     run(yaw, "unused")
     assert "EXP04_PROBE_RESULT " in capsys.readouterr().out
     assert fake.train_epoch is train and fake.test_epoch is None
+
+
+def test_probe_trainer_command_pins_recipe():
+    off, on = (trainer_command(yaw, "scratch") for yaw in (0, 1))
+    assert off[0] == "train_xRIR_backbone.py"
+    assert [(a, b) for a, b in zip(off, on) if a != b] == [("0", "1")]
+    for flag, value in [("--save-dir", "scratch"), ("--num-workers", "12"),
+                        ("--max-train-batches", "60"), ("--save-every", "0"),
+                        ("--epoch-ckpt-every", "0"), ("--epochs", "1")]:
+        assert off[off.index(flag) + 1] == value
+    assert "--no-save" in off and "--tf32" in off

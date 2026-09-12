@@ -207,8 +207,11 @@ class LogGuard:
         self.position = 0
         self.first_step_time = None
         self.epoch_one_done = False
+        self.probe = None
 
     def feed(self, line):
+        if line.startswith('EXP04_PROBE_RESULT '):
+            self.probe = json.loads(line[len('EXP04_PROBE_RESULT '):])
         if line.startswith('XRIR_RUNTIME_ARGS '):
             self.runtime = json.loads(line[len('XRIR_RUNTIME_ARGS '):])
             check_runtime(self.runtime, self.expected, self.mode)
@@ -257,7 +260,12 @@ class LogGuard:
             raise ValueError('missing runtime args, banner or steps')
         if self.mode == 'smoke' and (self.steps != [(1, 0), (1, 1), (1, 2)] or self.test_loss is None):
             raise ValueError('smoke requires three finite steps and test loss')
-        return dict(train_losses=self.losses, test_loss=self.test_loss, banner=self.banner)
+        if self.mode == 'probe' and (not self.probe or self.probe.get('yaw_aug') != self.expected['yaw_aug']
+                or self.probe.get('warmup_micro_batches') != 10 or self.probe.get('timed_micro_batches') != 50
+                or not math.isfinite(self.probe.get('mean_iteration_seconds', float('nan')))
+                or self.probe['mean_iteration_seconds'] <= 0):
+            raise ValueError('missing or invalid probe result')
+        return dict(train_losses=self.losses, test_loss=self.test_loss, banner=self.banner, probe=self.probe)
 
 
 def run_child(argv, log_path, gpu, guard, deadline=None):
@@ -367,3 +375,36 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
         aborted = abort_attempt(attempt, reason, (time.monotonic() - started) / 3600)
         print('ABORTED ' + str(aborted), flush=True)
         raise
+
+
+def refusal_self_test():
+    """Exercise operational refusals in scratch storage, with no trainer spawn."""
+    import tempfile
+    refusals = []
+    def refuses(name, action):
+        try:
+            action()
+        except (ValueError, FileExistsError):
+            refusals.append(name)
+        else:
+            raise AssertionError('refusal not enforced: ' + name)
+    with tempfile.TemporaryDirectory(prefix='exp04_refuse_') as temporary:
+        root = Path(temporary)
+        attempt = create_attempt(root, 'attempt_test')
+        refuses('exclusive_directory', lambda: create_attempt(root, attempt.name))
+        argv = command('full', str(attempt))
+        argv[argv.index('--lr') + 1] = '0.5'
+        refuses('golden_argv', lambda: check_golden(argv, 'full', str(attempt)))
+        expected = effective_args(command('full', str(attempt)), '1', 9261)
+        refuses('runtime_schema', lambda: check_runtime(dict(expected, lr='0.001'), expected, 'full'))
+        invalid = dict(expected, train_batches_per_epoch=9260)
+        refuses('full_bpe', lambda: check_runtime(invalid, invalid, 'full'))
+        refuses('banner', lambda: LogGuard(expected, 'full').feed('Train Epoch: 1 [0/9261] loss 1'))
+        refuses('budget', lambda: check_budget(root, 44))
+        refuses('full_cotenant', lambda: resource_gate('1', root, 'full', True))
+        with patch(__name__ + '.gpu_snapshot', return_value={'compute_apps': 'foreign', 'free_gib': 39}), \
+                patch.object(subprocess, 'check_output', return_value='Avail\n' + str(50 * 2**30)):
+            refuses('gpu', lambda: resource_gate('1', root, 'smoke'))
+        abort_attempt(attempt, 'test', 1)
+        refuses('cumulative_budget', lambda: check_budget(root, 42.1))
+    return {'passed': True, 'refusals': refusals}

@@ -50,6 +50,17 @@ def compare_results(off, on):
     return dict(overhead_ratio=ratio, overhead_fraction=ratio - 1, passed=ratio <= 1.05)
 
 
+def trainer_command(yaw_aug, save_dir):
+    """Expose the exact recipe for the launcher's pre-spawn arguments record."""
+    return ["train_xRIR_backbone.py", "--backbone", "simple", "--save-dir", str(save_dir),
+        "--num-shot", "8", "--max-len", "9600", "--lr", "1e-3", "--weight-decay", "1e-4",
+        "--decay-epochs", "3", "--lr-gamma", "0.1", "--epochs", "1", "--batch-size", "32",
+        "--accum-steps", "2", "--num-workers", "12", "--seed", "0", "--tf32",
+        "--log-interval", "50", "--save-every", "0", "--epoch-ckpt-every", "0", "--no-save",
+        "--max-train-batches", "60", "--yaw-aug", str(yaw_aug), "--yaw-aug-seed", "0",
+        "--yaw-aug-width", "512"]
+
+
 def run(yaw_aug, save_dir):
     """Run one arm in its own process; validation is outside throughput timing."""
     import train_xRIR_backbone as trainer
@@ -64,13 +75,7 @@ def run(yaw_aug, save_dir):
         return loss
     trainer.train_epoch = measured_train
     trainer.test_epoch = lambda *args: 0
-    sys.argv = ["train_xRIR_backbone.py", "--backbone", "simple", "--save-dir", str(save_dir),
-        "--num-shot", "8", "--max-len", "9600", "--lr", "1e-3", "--weight-decay", "1e-4",
-        "--decay-epochs", "3", "--lr-gamma", "0.1", "--epochs", "1", "--batch-size", "32",
-        "--accum-steps", "2", "--num-workers", "12", "--seed", "0", "--tf32",
-        "--log-interval", "50", "--save-every", "0", "--epoch-ckpt-every", "0", "--no-save",
-        "--max-train-batches", "60", "--yaw-aug", str(yaw_aug), "--yaw-aug-seed", "0",
-        "--yaw-aug-width", "512"]
+    sys.argv = trainer_command(yaw_aug, save_dir)
     try:
         trainer.main()
     finally:

@@ -228,3 +228,27 @@ def test_full_output_acceptance(tmp_path, failure):
     else:
         outputs = launch.validate_outputs(tmp_path, 'full', expected)
         assert len(outputs) == 14 and outputs['epoch_012.pth'] == launch.p.sha256_file(tmp_path / 'epoch_012.pth')
+
+
+def test_probe_log_result_required_and_bound_to_yaw():
+    expected = launch.effective_args(launch.command('full', 'attempt'), '1', 9261)
+    guard = launch.LogGuard(expected, 'probe')
+    for line in [log_lines(expected)[0], log_lines(expected)[1].replace('74084', '9261'),
+                 'Train Epoch: 1 [0/60] loss 1.0']:
+        guard.feed(line)
+    with pytest.raises(ValueError, match='probe'):
+        guard.finish()
+    result = dict(yaw_aug=1, warmup_micro_batches=10, timed_micro_batches=50,
+                  mean_iteration_seconds=1.1, peak_allocated_bytes=100, peak_reserved_bytes=200)
+    guard.feed('EXP04_PROBE_RESULT ' + json.dumps(result))
+    assert guard.finish()['probe'] == result
+    result['yaw_aug'] = 0
+    guard.feed('EXP04_PROBE_RESULT ' + json.dumps(result))
+    with pytest.raises(ValueError, match='probe'):
+        guard.finish()
+
+
+def test_refuse_mode_never_spawns_trainer(monkeypatch):
+    monkeypatch.setattr(launch.subprocess, 'Popen', lambda *a, **k: pytest.fail('spawned trainer'))
+    result = launch.refusal_self_test()
+    assert len(result['refusals']) >= 6 and result['passed']
