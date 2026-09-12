@@ -1,5 +1,6 @@
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -72,6 +73,47 @@ def test_closure_and_dirty_state(repo):
     assert p.closure_record(files, head, root)[0][1]['commits_after_reviewed'] == [git('rev-parse', 'HEAD')]
     (root / 'untracked').touch()
     assert p.git_state(root)['dirty']
+
+
+@pytest.mark.parametrize('symlink', [False, True])
+def test_closure_refuses_foreign_dependencies(repo, tmp_path, symlink):
+    root, _ = repo
+    foreign = tmp_path / 'foreign.py'
+    foreign.write_text('VALUE = 3\n')
+    if symlink:
+        (root / 'helper.py').unlink()
+        (root / 'helper.py').symlink_to(foreign)
+    else:
+        (root / 'entry.py').write_text('import sys\nsys.path.append(%r)\nimport foreign\n' % str(tmp_path))
+    with pytest.raises(RuntimeError, match=str(foreign)):
+        p.source_closure('entry', root)
+
+
+def test_closure_does_not_fall_back_to_another_checkout(tmp_path, monkeypatch):
+    original = Path(__file__).resolve().parents[1]
+    copy = tmp_path / 'copy'
+    for name in subprocess.check_output(['git', 'ls-files', '*.py'], cwd=original, text=True).splitlines():
+        if name == 'tools/provenance.py':
+            continue
+        target = copy / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(original / name, target)
+    monkeypatch.setenv('PYTHONPATH', str(original))
+    with pytest.raises(RuntimeError, match='provenance'):
+        p.source_closure('tools.exp04_eval', copy)
+
+
+def test_exp03_closure_and_reviewed_digest_are_unchanged():
+    repo = Path(__file__).resolve().parents[1]
+    expected = ['eval_unseen.py', 'eval_xRIR_backbone.py', 'eval_yaw_rotation.py',
+        'model/cylindrical_vit.py', 'model/simple_vit.py', 'model/xRIR.py', 'model/xRIR_cyl.py',
+        'tools/per_sample_metrics.py', 'tools/reference_manifest.py', 'tools/yaw_rotation.py',
+        'treble_multi_room_dataset/treble_xRIR_dataset.py', 'utils/spec_utils.py']
+    assert p.source_closure('eval_yaw_rotation', repo) == expected
+    records, digest = p.closure_record(expected, '62c9107b4150e44c4ac410ff4cab359c1e71cc10', repo)
+    assert digest == '5ba818d83eddc6e71055926ea64cb104ebb8d3a1c347ab1bc12dd95866c1be48'
+    assert all(r['working_tree_sha256'] == r['reviewed_blob_sha256'] and
+               not r['commits_after_reviewed'] for r in records)
 
 
 def test_environment():

@@ -21,18 +21,26 @@ def sha256_file(path):
 
 
 def source_closure(entry_module, repo):
-    """Import in a fresh interpreter, keeping only files under this repository."""
+    """Import hermetically; refuse files outside the repo and interpreter prefixes."""
+    repo = Path(repo).resolve()
     code = '''import importlib, json, os, sys
 repo = os.path.realpath(sys.argv[1])
-sys.path.insert(0, repo)
+sys.path = [repo] + [p for p in sys.path if p]
 importlib.import_module(sys.argv[2])
 files = {os.path.realpath(m.__file__) for m in list(sys.modules.values())
          if getattr(m, '__file__', None)}
+prefixes = [repo, os.path.realpath(sys.prefix), os.path.realpath(sys.base_prefix)]
+foreign = sorted(f for f in files if not any(f.startswith(p + os.sep) for p in prefixes))
+if foreign:
+    raise RuntimeError('FOREIGN dependencies: ' + ', '.join(foreign))
 print('CLOSURE_JSON:' + json.dumps(sorted(os.path.relpath(f, repo) for f in files
-    if f.startswith(repo + os.sep) and 'site-packages' not in f)))
+    if f.startswith(repo + os.sep))))
 '''
-    output = subprocess.check_output([sys.executable, '-c', code, str(Path(repo).resolve()),
-                                      entry_module], cwd=repo, text=True)
+    try:
+        output = subprocess.check_output([sys.executable, '-c', code, str(repo), entry_module],
+            cwd=repo, text=True, stderr=subprocess.STDOUT, env=dict(os.environ, PYTHONPATH=str(repo)))
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError('source_closure failed: ' + error.output) from error
     return json.loads(next(line[len('CLOSURE_JSON:'):] for line in reversed(output.splitlines())
                            if line.startswith('CLOSURE_JSON:')))
 

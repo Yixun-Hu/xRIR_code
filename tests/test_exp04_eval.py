@@ -10,7 +10,7 @@ from tools.reference_manifest import manifest_hash
 
 
 @pytest.fixture
-def bound_run(tmp_path, monkeypatch):
+def protocol_run(tmp_path):
     checkpoint, reference = tmp_path / "checkpoint.pth", tmp_path / "reference.json"
     checkpoint.write_bytes(b"weights")
     refs = {"seed": 42, "num_shot": 8, "entries": []}
@@ -24,8 +24,6 @@ def bound_run(tmp_path, monkeypatch):
         "--eval-manifest", str(path)])
     record = [{"path": "eval_yaw_rotation.py", "reviewed_blob_sha256": "source",
                "working_tree_sha256": "source", "commits_after_reviewed": []}]
-    monkeypatch.setattr(provenance, "source_closure", lambda *a: ["eval_yaw_rotation.py"])
-    monkeypatch.setattr(provenance, "closure_record", lambda *a: (record, "closure"))
     fields = {key: value for key, value in vars(args).items()
               if key not in ("eval_manifest", "out_dir", "manifest")}
     fields.update(checkpoint_sha256=provenance.sha256_file(checkpoint),
@@ -35,6 +33,43 @@ def bound_run(tmp_path, monkeypatch):
                   reviewed_commit="reviewed", evaluator_closure={"files": record, "sha256": "closure"})
     path.write_text(json.dumps(fields))
     return args, fields, path
+
+
+@pytest.fixture
+def bound_run(protocol_run, monkeypatch):
+    record = protocol_run[1]['evaluator_closure']['files']
+    monkeypatch.setattr(provenance, "source_closure", lambda *a: ["eval_yaw_rotation.py"])
+    monkeypatch.setattr(provenance, "closure_record", lambda *a: (record, "closure"))
+    return protocol_run
+
+
+def test_cpu_manifest_uses_real_closure_and_git(protocol_run, tmp_path, monkeypatch):
+    import subprocess
+    args, fields, path = protocol_run
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+    (repo / 'eval_yaw_rotation.py').write_text('import helper\n')
+    (repo / 'helper.py').write_text('VALUE = 1\n')
+    def git(*argv):
+        return subprocess.check_output(['git', *argv], cwd=repo, text=True).strip()
+    git('init', '-q')
+    git('add', 'eval_yaw_rotation.py', 'helper.py')
+    git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'fixture')
+    fields.update(repo=str(repo), reviewed_commit=git('rev-parse', 'HEAD'))
+    monkeypatch.setattr(subject, '__file__', str(repo / 'tools/exp04_eval.py'))
+    records, digest = provenance.closure_record(['eval_yaw_rotation.py', 'helper.py'], fields['reviewed_commit'], repo)
+    fields['evaluator_closure'] = {'files': records, 'sha256': digest}
+    path.write_text(json.dumps(fields))
+    assert subject.validate_manifest(args)[0] == fields
+    for declared in ({'files': records, 'sha256': 'tampered'},
+                     {'files': records[:1], 'sha256': digest}):
+        path.write_text(json.dumps(dict(fields, evaluator_closure=declared)))
+        with pytest.raises(ValueError, match='evaluator_closure'):
+            subject.validate_manifest(args)
+    path.write_text(json.dumps(fields))
+    (repo / 'helper.py').write_text('VALUE = 2\n')
+    with pytest.raises(ValueError, match='evaluator_closure'):
+        subject.validate_manifest(args)
 
 
 def test_manifest_roundtrip_and_digest(bound_run):
