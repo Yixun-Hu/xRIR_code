@@ -9,7 +9,7 @@ from tools.paired_compare import (one_sided_upper, two_sided_interval, five_seed
     recheck_inputs, write_outputs)
 from tools.paired_stats import equivalence_tost, bonferroni_alpha
 from tools.summarize_yaw import rooms_from_paths
-from tools.paired_compare import _digest, _equal
+from tools.paired_compare import REPO, _digest, _equal
 
 
 def matrix(runs, metric, k=0):
@@ -195,3 +195,66 @@ def run_contract(directory, arm, profile, pins):
         require(all(_equal(payload.get(key), value) for key, value in expected.items()), 'tier metadata agreement')
     waivers.append(str(directory) + ': mutable_inputs names')
     return dict(evaluator='tools.exp05_eval', sha256=digest, tier_source='bound args.json', waivers=waivers)
+
+
+def admit(directories, profile, approved=None, producer=None, exploratory=False):
+    """Use exp04 admission as a collector, waiving only independently checked differences.
+
+    Neither on-disk artifacts nor the imported producer's globals are modified.
+    Single-seed yaw is checked here; no fabricated or duplicated seed runs enter it.
+    """
+    approved = load_approved_digests() if approved is None else approved
+    pins, receipt = approved
+    deviations, groups, compatibility, waivers = [], [], {}, set()
+    def check(ok, message):
+        if not ok:
+            deviations.append(message)
+    check(type(pins['schema_version']) is int and pins['schema_version'] == 1, 'approval schema_version')
+    for key in ('evaluator', 'writer', 'training_launcher', 'producer_param_curve'):
+        check(pins['closures'][key] is not None, 'profile not yet approved: ' + key)
+    for arm in profile['arms']:
+        effective = dict(arm)
+        if arm['tier'] != 'M':
+            checkpoint = pins['checkpoints'][arm['role']]
+            check(checkpoint['path'] == arm['checkpoint'] and _equal(checkpoint['epoch'], arm['epoch']),
+                  'approved checkpoint path/epoch: ' + arm['role'])
+            effective['sha256'] = checkpoint['sha256']
+        check(effective['sha256'] is not None, 'profile not yet approved: ' + arm['role'] + ' checkpoint')
+        groups.append((effective, profile['num_shot'], []))
+    if deviations and not exploratory:
+        raise ValueError('admission failed: ' + '; '.join(deviations))
+    directories = sorted(str(Path(d).resolve()) for d in directories)
+    check(len(set(directories)) == len(directories), 'duplicate run directories')
+    for directory in directories:
+        arm = None
+        try:
+            fields = json.loads((Path(directory) / 'eval_manifest.json').read_text())
+            matches = [(a, paths) for a, shot, paths in groups if _equal(fields.get('num_shot'), shot)
+                and (Path(fields['repo']) / fields['checkpoint']).resolve() ==
+                    (REPO / a['checkpoint']).resolve()]
+            if len(matches) != 1:
+                raise ValueError('unregistered checkpoint/K')
+            arm, paths = matches[0]
+            paths.append(directory)
+            contract = run_contract(directory, arm, profile, pins)
+            compatibility[directory] = {k: v for k, v in contract.items() if k != 'waivers'}
+            waivers.update(contract['waivers'])
+        except (ValueError, TypeError, KeyError, OSError, IndexError) as exc:
+            check(False, '{}: {}{}'.format(directory, exc, '; re-evaluate M' if arm and arm['tier'] == 'M' else ''))
+    producer = producer_identity('tools.param_curve') if producer is None else producer
+    admitted = admit_runs(profile, groups, approved=approved, exploratory=True, producer=producer,
+                          producer_key='producer_param_curve')
+    for (arm, _, _), runs in zip(groups, admitted['groups']):
+        seeds = [r['meta']['manifest_seed'] for r in runs]
+        valid = (all(type(s) is int for s in seeds) and seeds == list(profile['eval_seeds']))
+        check(valid, arm['role'] + ' registered seed set' + ('; re-evaluate M' if arm['tier'] == 'M' else ''))
+        if profile['mode'] == 'yaw' and valid:
+            waivers.add(arm['role'] + ' seed set')
+    deviations.extend(d for d in admitted['deviations'] if d not in waivers)
+    if deviations and not exploratory:
+        if any(a['tier'] == 'M' and any(path in d or a['role'] in d for path in paths for d in deviations)
+               for a, _, paths in groups):
+            deviations.append('re-evaluate M')
+        raise ValueError('admission failed: ' + '; '.join(deviations))
+    admitted.update(deviations=deviations, compatibility=compatibility)
+    return admitted

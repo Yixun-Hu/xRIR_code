@@ -50,3 +50,47 @@ def test_extension_refusals(exp05_fixture, kind):
     f.replace(directory / 'eval_manifest.json', fields)
     with pytest.raises((ValueError, OSError), match='tier|args|binding|decomposition|evaluator'):
         pc.run_contract(directory, arm, f.profile, f.pins)
+
+
+@pytest.mark.parametrize('name,legacy', [('CURVE_K8', False), ('TARGETS_K1', True), ('YAW_K8_SEED42', False)])
+def test_complete_admission(exp05_fixture, name, legacy):
+    f = exp05_fixture(name, legacy)
+    admitted = pc.admit(f.directories[::-1], f.profile, f.approved, f.producer)
+    assert not admitted['deviations']
+    assert len(admitted['groups']) == 6
+    assert len(admitted['compatibility']) == len(f.directories)
+    assert all(len(g) == len(f.profile['eval_seeds']) for g in admitted['groups'])
+
+
+@pytest.mark.parametrize('kind', ['missing_seed', 'query', 'K', 'grid', 'checkpoint', 'sidecar',
+                                 'producer', 'null', 'epoch', 'M_evaluator', 'duplicate'])
+def test_fail_closed_admission(exp05_fixture, kind):
+    f = exp05_fixture()
+    path = Path(f.paths['M_simple' if kind == 'M_evaluator' else 'S_simple'][0])
+    fields = f.read(path / 'eval_manifest.json')
+    if kind == 'missing_seed':
+        f.directories.pop()
+    elif kind == 'duplicate':
+        f.directories.append(f.directories[0])
+    elif kind == 'sidecar':
+        (path / 'completion.json').unlink()
+    elif kind in ('producer', 'null'):
+        f.pins['closures']['producer_param_curve'] = None if kind == 'null' else '0'*64
+    elif kind == 'epoch':
+        f.pins['checkpoints']['S_simple']['epoch'] = 11
+    elif kind == 'query':
+        sample = f.read(path / 'per_sample_yaw.json')
+        sample['query'][0] = 'Room/different/query'
+        f.rebind(path, sample=sample)
+    else:
+        if kind == 'M_evaluator':
+            fields['source_closures']['entrypoint']['sha256'] = '0'*64
+        else:
+            key, value = {'K': ('num_shot', 1), 'grid': ('yaw_cols', [0, 32]),
+                          'checkpoint': ('checkpoint_sha256', '0'*64)}[kind]
+            fields[key] = value
+        f.rebind(path, manifest=fields)
+    with pytest.raises(ValueError, match='re-evaluate M' if kind == 'M_evaluator' else 'admission|approved'):
+        pc.admit(f.directories, f.profile, f.approved, f.producer)
+    admitted = pc.admit(f.directories, f.profile, f.approved, f.producer, exploratory=True)
+    assert admitted['deviations']
