@@ -1,0 +1,10 @@
+{
+  "schema_version": null,
+  "closures": {"evaluator": null, "writer": null, "training_launcher": null, "producer_param_curve": null, "evaluator_exp04": null},
+  "checkpoints": {
+    "S_simple": {"path": null, "epoch": null, "sha256": null},
+    "S_cyl": {"path": null, "epoch": null, "sha256": null},
+    "L_simple": {"path": null, "epoch": null, "sha256": null},
+    "L_cyl": {"path": null, "epoch": null, "sha256": null}
+  }
+}
