@@ -88,6 +88,7 @@ class _Tiny(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.weight = torch.nn.Parameter(torch.tensor(0.1))
+        self.source_network = torch.nn.Identity()
 
     def forward(self, depth, refs, src, locs, target):
         return self.weight.expand(len(src), 2, 2, 1), torch.ones(len(src), 1, 2, 2)
@@ -131,7 +132,7 @@ def test_main_saves_banner_and_eval_gate(run_main, monkeypatch, tmp_path, capsys
     assert len(records) == 1
     runtime = json.loads(records[0])
     assert text.index("XRIR_RUNTIME_ARGS ") < text.index("backbone:")
-    assert set(runtime) == set(vars(trainer.parse_args())) | {"train_batches_per_epoch", "env"}
+    assert set(runtime) == set(vars(trainer.parse_args())) | {"train_batches_per_epoch", "env", "tier", "param_counts"}
     assert (runtime["yaw_aug"], runtime["yaw_aug_seed"], runtime["yaw_aug_width"], runtime["no_save"]) == (
         enabled, seed, 512, no_save)
     assert runtime["train_batches_per_epoch"] == 1 and runtime["env"]["PYTHONHASHSEED"] == "17"

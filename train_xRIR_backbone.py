@@ -25,7 +25,8 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
 
-from model.xRIR_cyl import BACKBONES, build_xrir
+from model.xRIR_cyl import BACKBONES
+from tools.exp05_params import TIERS, build_xrir, count_parameters, tier_of
 from tools.yaw_aug import YawAug, apply_yaw_aug
 from treble_multi_room_dataset.treble_xRIR_dataset import xRIR_Dataset
 from utils.lr_scheduler import ExponentialLR
@@ -38,6 +39,8 @@ def parse_args():
     p.add_argument("--save-dir", required=True)
     p.add_argument("--num-shot", type=int, default=8)
     p.add_argument("--max-len", type=int, default=9600)
+    for key, value in TIERS['M'].items():
+        p.add_argument('--vit-' + key.replace('_', '-'), type=int, default=value)
     # Baseline hyperparameters from train_xRIR_unseen.py.
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--weight-decay", type=float, default=1e-4)
@@ -70,6 +73,17 @@ def parse_args():
     if args.yaw_aug and (args.resume is not None or args.save_every != 0):
         p.error("--yaw-aug 1 requires --resume to be None and --save-every exactly 0")
     return args
+
+
+def build_model(args):
+    model = build_xrir(args.backbone, args.num_shot,
+                       **{key: getattr(args, 'vit_' + key) for key in TIERS['M']})
+    args.param_counts = count_parameters(model)
+    try:
+        args.tier = tier_of(vars(args))
+    except ValueError:
+        args.tier = 'custom'
+    return model
 
 
 def seed_everything(seed):
@@ -205,13 +219,13 @@ def main():
         raise ValueError("--yaw-aug 1 requires epochs * train_batches_per_epoch < 2**20")
     args.env = {key: os.environ.get(key) for key in
                 ("PYTHONHASHSEED", "XRIR_DATA_PATH", "OMP_NUM_THREADS", "CUDA_VISIBLE_DEVICES")}
+    model = build_model(args).cuda()
     print("XRIR_RUNTIME_ARGS " + json.dumps(vars(args), sort_keys=True, allow_nan=False), flush=True)
     if not args.no_save:
         os.makedirs(args.save_dir, exist_ok=True)
         with open(os.path.join(args.save_dir, "args.json"), "w") as f:
             json.dump(vars(args), f, indent=2)
 
-    model = build_xrir(args.backbone, args.num_shot).cuda()
     n_params = sum(p.numel() for p in model.parameters())
     size_mb = sum(p.numel() * p.element_size() for p in model.parameters()) / 1024**2
     print(f"backbone: {args.backbone}  params: {n_params / 1e6:.2f}M  model size: {size_mb:.1f}MB", flush=True)
