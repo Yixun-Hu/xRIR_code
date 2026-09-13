@@ -76,8 +76,9 @@ def test_arm_ledger_isolation(tmp_path, monkeypatch):
     assert [launch.full_hours(root) for root in roots] == [2, 0, 0, 0]
 
 
-@pytest.mark.parametrize('mode', ['full', 'smoke', 'probe'])
-@pytest.mark.parametrize('tier,backbone,reason', [('S', 'simple', 'fit-probe'), ('M', 'cylindrical', 'simple')])
+@pytest.mark.parametrize('mode,tier,backbone,reason', [
+    (mode, 'M', 'cylindrical', 'simple') for mode in ('full', 'smoke', 'probe')] + [
+    (mode, 'S', 'simple', 'fit-probe') for mode in ('full', 'smoke')])
 def test_tier_launch_requires_its_own_probe_protocol(mode, tier, backbone, reason, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(launch, 'REPO', tmp_path)
     with pytest.raises(SystemExit):

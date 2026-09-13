@@ -8,6 +8,7 @@ import sys
 from unittest.mock import patch
 from functools import lru_cache
 from tools.exp05_params import TIERS, build_tier, count_parameters, tier_of
+from tools import exp05_probe as tier_probe
 
 PYTHON = '/home/yixunhu/miniconda3/envs/xRIR/bin/python'
 REPO = Path(__file__).resolve().parents[1]
@@ -339,6 +340,8 @@ class LogGuard:
     def feed(self, line):
         if line.startswith('EXP04_PROBE_RESULT '):
             self.probe = json.loads(line[len('EXP04_PROBE_RESULT '):])
+        if line.startswith('EXP05_PROBE_RESULT '):
+            self.probe = json.loads(line[len('EXP05_PROBE_RESULT '):])
         if line.startswith('XRIR_RUNTIME_ARGS '):
             self.runtime = self.runtime_payload(line[len('XRIR_RUNTIME_ARGS '):])
         wanted = ('yaw_aug ENABLED W={yaw_aug_width} seed={yaw_aug_seed} '
@@ -397,6 +400,10 @@ class LogGuard:
                 or not math.isfinite(self.probe.get('mean_iteration_seconds', float('nan')))
                 or self.probe['mean_iteration_seconds'] <= 0):
             raise ValueError('missing or invalid probe result')
+        if self.mode == 'probe' and self.expected.get('tier', 'M') != 'M':
+            tier_probe.projection(self.probe)
+            if any(self.probe.get(k) != self.expected[k] for k in ('tier', 'backbone')):
+                raise ValueError('probe tier/backbone mismatch')
         return dict(train_losses=self.losses, test_loss=self.test_loss, banner=self.banner, probe=self.probe)
 
 
@@ -828,9 +835,9 @@ def main(argv=None):
         return result
     if not args.reviewed_commit or not args.log_dir:
         parser.error('--reviewed-commit and --log-dir are required')
-    if args.tier != 'M':
+    if args.tier != 'M' and args.mode != 'probe':
         parser.error('exp05 launches await tier-specific fit-probe receipts and timing gates')
-    if args.backbone != 'simple':
+    if args.tier == 'M' and args.backbone != 'simple':
         parser.error('exp04 M launches require backbone simple')
     root = arm_root(args.tier, args.backbone)
     if not re.fullmatch(r'[A-Za-z0-9_-]+', args.timestamp) or '_ABORTED_' in args.timestamp:
@@ -871,12 +878,18 @@ def main(argv=None):
                 raise FileExistsError(str(output))
             before = gpu_snapshot(args.gpu)
             measurements, attempts, arms_before = [], [], []
-            for yaw, label in ((0, 'off'), (1, 'on')):
+            tiered = args.tier != 'M'
+            for yaw, label in (((0, 'arm'),) if tiered else ((0, 'off'), (1, 'on'))):
                 attempt = root / ('_probe_' + stamp + '_' + label)
                 relative = os.path.relpath(attempt, REPO)
                 cmd = [PYTHON, '-m', 'tools.exp04_probe', '--yaw-aug', str(yaw), '--save-dir', relative]
+                trainer_argv = trainer_command(yaw, relative)
+                if tiered:
+                    cmd = [PYTHON, '-m', 'tools.exp05_probe', '--tier', args.tier,
+                           '--backbone', args.backbone, '--save-dir', relative]
+                    trainer_argv = tier_probe.trainer_command(args.tier, args.backbone, relative)
                 def fields_factory():
-                    fields = build_fields([PYTHON] + trainer_command(yaw, relative), args.gpu, commit, 'probe', args.allow_dirty)
+                    fields = build_fields([PYTHON] + trainer_argv, args.gpu, commit, 'probe', args.allow_dirty)
                     fields['trainer_command'], fields['command'] = fields['command'], cmd
                     return fields
                 completed = execute_attempt(attempt, 'probe', args.gpu,
@@ -886,10 +899,14 @@ def main(argv=None):
                 arms_before.append(completed['resource_before'])
                 attempts.append(str(attempt))
             after = gpu_snapshot(args.gpu)
-            result = dict(compare_results(*measurements), yaw_off=measurements[0], yaw_on=measurements[1],
+            measured = (dict(measurements[0], schema_version=1, gpu=args.gpu) if tiered else
+                        dict(compare_results(*measurements), yaw_off=measurements[0], yaw_on=measurements[1]))
+            result = dict(measured,
                 before=before, after=after, arms_before=arms_before,
                 PROBE_NOT_CLEAN=any(bool(state['compute_apps']) for state in [before, *arms_before, after]),
                 attempts=attempts, reviewed_commit=commit)
+            if tiered and result['PROBE_NOT_CLEAN']:
+                result['passed'] = False
             p.write_manifest(output, result)
             if result['PROBE_NOT_CLEAN']:
                 print('PROBE_NOT_CLEAN: another process was present; timing gate needs Planner judgment.', flush=True)
