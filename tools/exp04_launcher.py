@@ -9,6 +9,7 @@ from unittest.mock import patch
 from functools import lru_cache
 from tools.exp05_params import TIERS, build_tier, count_parameters, tier_of
 from tools import exp05_probe as tier_probe
+from tools import exp05_gates as tier_gates
 
 PYTHON = '/home/yixunhu/miniconda3/envs/xRIR/bin/python'
 REPO = Path(__file__).resolve().parents[1]
@@ -183,11 +184,11 @@ def full_hours(root):
     return sum(row['hours'] for row in hours_record(root)['attempts'] if row['mode'] == 'full')
 
 
-def check_budget(root, projection):
+def check_budget(root, projection, ceiling=43):
     if not math.isfinite(projection) or projection <= 0:
         raise ValueError('projection must be finite and positive')
-    if full_hours(root) + projection > 43:
-        raise ValueError('cumulative hours + projection exceeds 43 h')
+    if full_hours(root) + projection > ceiling:
+        raise ValueError('cumulative hours + projection exceeds {} h'.format(ceiling))
 
 
 def account_hours(attempt, hours, previous_name=None, mode='full'):
@@ -316,7 +317,7 @@ class LauncherFailure(ValueError):
 
 
 class LogGuard:
-    def __init__(self, expected, mode, attempt=None):
+    def __init__(self, expected, mode, attempt=None, limits=None):
         self.expected, self.mode = expected, mode
         self.output_dir = Path(attempt) if attempt else REPO / expected.get('save_dir', '.')
         self.runtime = None
@@ -328,6 +329,9 @@ class LogGuard:
         self.epoch_one_done = False
         self.probe = None
         self.log_created = False
+        self.epoch_limit_seconds = limits['epoch_seconds'] if limits else 2.431 * 3600
+        self.live_epoch_limit_seconds = limits['epoch_seconds'] if limits else 2.6 * 3600
+        self.tier_limits = limits
 
     def runtime_payload(self, payload):
         try:
@@ -351,6 +355,8 @@ class LogGuard:
             if self.banner:
                 raise LauncherFailure('guard_banner', 'duplicate banner')
             self.banner = True
+            if self.tier_limits and self.mode == 'full':
+                self.first_step_time = time.monotonic()
         step = re.search(r'Train Epoch: (\d+) \[(\d+)/(\d+)\].*?loss (\S+)', line)
         if step:
             if not self.banner or self.runtime is None:
@@ -374,8 +380,9 @@ class LogGuard:
             if self.mode == 'full':
                 history = self.output_dir / 'history.jsonl'
                 first = json.loads(history.read_text().splitlines()[0])
-                if not math.isfinite(first['epoch_minutes']) or first['epoch_minutes'] > 2.431 * 60:
-                    raise LauncherFailure('guard_epoch_one', 'epoch one exceeds 2.431 h acceptance')
+                if not math.isfinite(first['epoch_minutes']) or first['epoch_minutes'] > self.epoch_limit_seconds / 60:
+                    raise LauncherFailure('guard_epoch_one', 'epoch one exceeds timing acceptance' if self.tier_limits
+                                          else 'epoch one exceeds 2.431 h acceptance')
 
     def poll(self, path):
         with path.open() as stream:
@@ -387,8 +394,9 @@ class LogGuard:
                 self.position = stream.tell()
                 self.feed(line)
         if (self.mode == 'full' and self.first_step_time and not self.epoch_one_done
-                and time.monotonic() - self.first_step_time > 2.6 * 3600):
-            raise LauncherFailure('guard_epoch_one', 'epoch one exceeds 2.6 h operational ceiling')
+                and time.monotonic() - self.first_step_time > self.live_epoch_limit_seconds):
+            raise LauncherFailure('guard_epoch_one', 'epoch one exceeds probe acceptance' if self.tier_limits
+                                  else 'epoch one exceeds 2.6 h operational ceiling')
 
     def finish(self):
         if not self.banner or not self.runtime or not self.steps:
@@ -425,7 +433,8 @@ def run_child(argv, log_path, gpu, guard, deadline=None):
             while child.poll() is None or sink.poll() is None:
                 guard.poll(log_path)
                 if deadline is not None and time.monotonic() > deadline:
-                    raise LauncherFailure('deadline_43h', '43 h cumulative ceiling reached')
+                    raise LauncherFailure('deadline_tier' if guard.tier_limits else 'deadline_43h',
+                                          'tier cumulative ceiling reached' if guard.tier_limits else '43 h cumulative ceiling reached')
                 if sink.poll() not in (None, 0):
                     raise RuntimeError('log sink failed')
                 time.sleep(0.05)
@@ -443,7 +452,7 @@ def run_child(argv, log_path, gpu, guard, deadline=None):
             p.reap_process_groups(child, sink)
 
 
-def validate_outputs(attempt, mode, expected):
+def validate_outputs(attempt, mode, expected, limits=None):
     if mode != 'full':
         if {f.name for f in attempt.iterdir()} - {'execution.json', 'abort.json', 'train_inventory.json'} != {'effective_args.json', 'train_manifest.json'}:
             raise ValueError('no-save run wrote unexpected outputs')
@@ -453,8 +462,9 @@ def validate_outputs(attempt, mode, expected):
     if [r['epoch'] for r in history] != list(range(1, 13)) or any(
             not math.isfinite(r[key]) for r in history for key in ('train_loss', 'test_loss', 'epoch_minutes')):
         raise ValueError('incomplete or non-finite history')
-    if history[0]['epoch_minutes'] > 2.431 * 60:
-        raise LauncherFailure('guard_epoch_one', 'epoch one exceeds 2.431 h acceptance')
+    if history[0]['epoch_minutes'] > (limits['epoch_seconds'] / 60 if limits else 2.431 * 60):
+        raise LauncherFailure('guard_epoch_one', 'epoch one exceeds probe acceptance' if limits
+                              else 'epoch one exceeds 2.431 h acceptance')
     epochs = sorted(attempt.glob('epoch_*.pth'))
     if [f.name for f in epochs] != ['epoch_%03d.pth' % i for i in range(1, 13)]:
         raise ValueError('missing or unexpected epoch checkpoints')
@@ -531,7 +541,8 @@ def complete_attempt(attempt, mode, log_path, fields, digest, metrics, hours, tr
 
 
 def _complete_attempt(attempt, mode, log_path, fields, digest, metrics, hours):
-    outputs = validate_outputs(attempt, mode, fields['effective_args'])
+    limits = tier_gates.timing_limits(fields, fields['effective_args']['CUDA_VISIBLE_DEVICES']) if mode == 'full' else None
+    outputs = validate_outputs(attempt, mode, fields['effective_args'], limits)
     fields['mutable_inputs']['train_manifest'] = {
         'path': str((attempt / 'train_manifest.json').resolve()), 'sha256': digest}
     required = {'effective_args', 'train_manifest'} | ({'control_args', 'probe_receipt'} if mode == 'full' else set())
@@ -667,7 +678,8 @@ def finalize_attempt(attempt, launcher_log=None):
                 if Path(record['path']) != original / 'train_inventory.json':
                     raise ValueError('unexpected train_inventory path')
                 record['path'] = str(attempt / 'train_inventory.json')
-        guard = LogGuard(fields['effective_args'], fields['mode'], attempt)
+        limits = tier_gates.timing_limits(fields, fields['effective_args']['CUDA_VISIBLE_DEVICES']) if fields['mode'] == 'full' else None
+        guard = LogGuard(fields['effective_args'], fields['mode'], attempt, limits)
         guard.poll(log_path)
         hours = (datetime.datetime.fromisoformat(execution['ended_at']) -
                  datetime.datetime.fromisoformat(fields['started_at'])).total_seconds() / 3600
@@ -688,10 +700,10 @@ def finalize_attempt(attempt, launcher_log=None):
 
 @termination_handlers()
 def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant=False,
-                    projection=30.0, runner=run_child):
+                    projection=30.0, runner=run_child, limits=None):
     attempt, log_path = Path(attempt), Path(log_path)
     if mode == 'full':
-        check_budget(attempt.parent, projection)
+        check_budget(attempt.parent, projection, limits['ceiling_hours'] if limits else 43)
     create_attempt(attempt.parent, attempt.name)  # An existing directory is never renamed.
     started, reason = time.monotonic(), 'setup_failed'
     started_at, guard = datetime.datetime.now().astimezone().isoformat(), None
@@ -703,6 +715,10 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
         before = resource_gate(gpu, attempt.parent, mode, allow_cotenant)
         fields = fields_factory()
         expected = fields['effective_args']
+        validated = tier_gates.timing_limits(fields, gpu) if mode == 'full' else None
+        if validated:
+            limits = tier_gates.set_budget(attempt.parent, validated)
+            fields['timing_limits'] = limits
         effective_path = attempt / 'effective_args.json'
         effective_digest = p.write_manifest(effective_path, expected)
         fields.setdefault('mutable_inputs', {})['effective_args'] = {
@@ -719,11 +735,12 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
         digest = p.write_manifest(manifest_path, fields)
         if {f.name for f in attempt.iterdir()} - {'train_inventory.json'} != {'effective_args.json', 'train_manifest.json'}:
             raise ValueError('unexpected pre-spawn files')
-        guard = LogGuard(expected, mode)
+        guard = LogGuard(expected, mode, limits=limits)
         guard.execution_path = attempt / 'execution.json'
         guard.execution = {'train_manifest_sha256': digest}
         reason = 'child_failed'
-        deadline = started + (43 - full_hours(attempt.parent)) * 3600 if mode == 'full' else None
+        ceiling = limits['ceiling_hours'] if limits else 43
+        deadline = started + (ceiling - full_hours(attempt.parent)) * 3600 if mode == 'full' else None
         status = runner(fields['command'], log_path, gpu, guard, deadline)
         if status:
             raise LauncherFailure('child_exit_' + str(status), 'child exited nonzero: ' + str(status))
@@ -736,7 +753,8 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
             raise
         reason = p.masked_abort_reason(error, reason)
         hours = (time.monotonic() - started) / 3600
-        renamed = abort_log(log_path, reason, guard is not None and guard.log_created)
+        suffix = 'slow' if reason == 'guard_epoch_one' and limits else reason
+        renamed = abort_log(log_path, suffix, guard is not None and guard.log_created)
         p.write_completion(attempt / 'abort.json', dict(reason=reason,
             exception_type=type(error).__name__, exception_message=str(error), started_at=started_at,
             aborted_at=datetime.datetime.now().astimezone().isoformat(), wall_hours=hours,
@@ -745,7 +763,7 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
         completion_path = attempt / 'completion.json'
         if completion_path.exists():
             completion_path.unlink()
-        aborted = abort_attempt(attempt, reason, hours, mode=mode)
+        aborted = abort_attempt(attempt, suffix, hours, mode=mode)
         print('ABORTED ' + str(aborted), flush=True)
         raise
 
@@ -835,8 +853,10 @@ def main(argv=None):
         return result
     if not args.reviewed_commit or not args.log_dir:
         parser.error('--reviewed-commit and --log-dir are required')
-    if args.tier != 'M' and args.mode != 'probe':
-        parser.error('exp05 launches await tier-specific fit-probe receipts and timing gates')
+    if args.tier != 'M' and args.mode == 'smoke':
+        parser.error('exp05 requires the fit-probe protocol before full')
+    if args.tier != 'M' and args.mode == 'full' and not args.probe_json:
+        parser.error('full requires --probe-json (clean passing fit-probe)')
     if args.tier == 'M' and args.backbone != 'simple':
         parser.error('exp04 M launches require backbone simple')
     root = arm_root(args.tier, args.backbone)
@@ -851,8 +871,10 @@ def main(argv=None):
             parser.error('full forbids --allow-cotenant')
         if not args.probe_json:
             parser.error('full requires --probe-json (clean passing probe)')
-        receipt = probe_receipt(args.probe_json, commit, args.gpu)
-        check_budget(root, args.projection_hours)
+        receipt = (probe_receipt(args.probe_json, commit, args.gpu) if args.tier == 'M' else
+                   tier_gates.validate_receipt(args.probe_json, commit, args.gpu, args.tier, args.backbone))
+        if args.tier == 'M':
+            check_budget(root, args.projection_hours)
     root.mkdir(parents=True, exist_ok=True)
     with (root / '.launch.lock').open('a') as lock, patch.dict(os.environ, child_environment(args.gpu)):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -863,6 +885,12 @@ def main(argv=None):
             relative = os.path.relpath(attempt, REPO)
             cmd = command(mode, relative, args.tier, args.backbone)
             check_golden(cmd, mode, relative)
+            limits = None
+            if mode == 'full' and args.tier != 'M':
+                limits = tier_gates.timing_limits(dict(reviewed_commit=commit,
+                    effective_args=effective_args(cmd, args.gpu, 9261), mutable_inputs=dict(probe_receipt=receipt)), args.gpu)
+                limits = tier_gates.set_budget(root, limits)
+                args.projection_hours = limits['projection_hours']
             def fields_factory():
                 fields = build_fields(cmd, args.gpu, commit, mode, args.allow_dirty)
                 if mode == 'full':
@@ -871,7 +899,8 @@ def main(argv=None):
             result = execute_attempt(attempt, mode, args.gpu,
                 log_dir / ('yaw_aug_xrir_' + stamp + '_train_' + mode + '.log'),
                 fields_factory,
-                allow_cotenant=args.allow_cotenant, projection=args.projection_hours)
+                allow_cotenant=args.allow_cotenant, projection=args.projection_hours,
+                **({'limits': limits} if limits else {}))
         else:
             output = root / ('_probe_' + stamp + '.json')
             if output.exists():
