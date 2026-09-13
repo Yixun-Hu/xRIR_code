@@ -30,6 +30,7 @@ def test_single_arm_probe_receipt(tmp_path, monkeypatch, tier, backbone, fault):
         assert cmd[cmd.index('--backbone') + 1] == backbone
         assert fields['trainer_command'][1:] == probe.trainer_command(tier, backbone, str(attempt.relative_to(tmp_path)))
         calls.append(attempt)
+        assert log == tmp_path / 'logs' / ('param_efficiency_test_train_{}_{}_probe.log'.format(tier, backbone))
         return dict(metrics=dict(probe=measured), resource_before=snapshot)
     monkeypatch.setattr(launch, 'execute_attempt', execute)
     argv = ['probe', '--tier', tier, '--backbone', backbone, '--reviewed-commit', 'HEAD',
@@ -41,7 +42,7 @@ def test_single_arm_probe_receipt(tmp_path, monkeypatch, tier, backbone, fault):
     else:
         launch.main(argv)
     root = tmp_path / 'ckpt/exp05' / (tier + '_' + backbone)
-    receipt = json.loads((root / '_probe_test.json').read_text())
+    receipt = json.loads((root / '_probe_test_{}_{}.json'.format(tier, backbone)).read_text())
     assert len(calls) == 1 and calls[0].parent == root
     assert receipt['tier'] == tier and receipt['backbone'] == backbone
     assert receipt['schema_version'] == 1 and receipt['gpu'] == '1'

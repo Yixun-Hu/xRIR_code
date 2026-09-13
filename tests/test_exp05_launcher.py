@@ -45,6 +45,47 @@ def test_default_golden_and_legacy_m_metadata():
     assert not ({'param_counts', 'tier'} | {'vit_' + key for key in TIERS['M']}) & launch.compare_control(runtime, *control(runtime)).keys()
 
 
+@pytest.mark.parametrize('tier,backbone,attempt', [
+    ('S', 'cylindrical', 'ckpt/exp05/S_simple/attempt_test'),
+    ('L', 'simple', 'ckpt/exp05/S_simple/attempt_test'),
+    ('S', 'simple', 'ckpt/xRIR_simple_yawaug_8_shot/attempt_test'),
+    ('M', 'simple', 'ckpt/exp05/S_simple/attempt_test'),
+    ('S', 'simple', 'ckpt/exp05/S_simple/attempt_../other')])
+def test_golden_refuses_wrong_arm(tier, backbone, attempt):
+    argv = launch.command('full', attempt, tier, 'simple')
+    argv[argv.index('--backbone') + 1] = backbone
+    with pytest.raises(ValueError, match='golden.*tier'):
+        launch.check_golden(argv, 'full', attempt)
+
+
+def test_missing_golden_is_value_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(launch, 'REPO', tmp_path)
+    attempt = 'ckpt/exp05/S_simple/attempt_test'
+    with pytest.raises(ValueError, match='golden file missing: argv_golden_S_simple.txt'):
+        launch.check_golden(launch.command('full', attempt, 'S'), 'full', attempt)
+
+
+def test_cli_checks_golden_before_creating_directories(tmp_path, monkeypatch):
+    monkeypatch.setattr(launch, 'REPO', tmp_path)
+    monkeypatch.setattr(launch.subprocess, 'check_output', lambda *a, **k: 'a' * 40)
+    monkeypatch.setattr(launch.tier_gates, 'validate_receipt', lambda *a: {})
+    def refuse(*args):
+        assert not list(tmp_path.iterdir())
+        raise ValueError('golden tier')
+    monkeypatch.setattr(launch, 'check_golden', refuse)
+    with pytest.raises(ValueError, match='golden tier'):
+        launch.main(['full', '--tier', 'S', '--reviewed-commit', 'HEAD', '--probe-json', '/unused'])
+
+
+def test_runtime_missing_backbone_converted_to_guard():
+    expected = launch.effective_args(launch.command('full', 'attempt'), '1', 9261)
+    payload = dict(expected)
+    del payload['backbone']
+    with pytest.raises(launch.LauncherFailure) as error:
+        launch.LogGuard(expected, 'full').runtime_payload(json.dumps(payload))
+    assert error.value.reason == 'guard_runtime_args'
+
+
 @pytest.mark.parametrize('mutation', ['float_count', 'wrong_count', 'wrong_tier'])
 def test_derived_metadata_refused(mutation):
     runtime = launch.effective_args(launch.command('full', 'attempt'), '1', 9261)

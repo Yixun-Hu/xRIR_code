@@ -87,6 +87,8 @@ def test_full_cli_uses_receipt_projection(tmp_path, monkeypatch, receipt, tier, 
     monkeypatch.setattr(launch, 'build_fields', lambda *a: dict(mutable_inputs={}))
     calls = []
     def execute(attempt, mode, gpu, log, factory, **kwargs):
+        assert log == tmp_path / ('worklog/worklog_yixun/exp_05_param_efficiency_claude/'
+            'param_efficiency_test_train_{}_{}_full.log'.format(tier, backbone))
         assert factory()['mutable_inputs']['probe_receipt']['sha256'] == launch.p.sha256_file(path)
         assert kwargs['projection'] == data['T_run'] / 3600
         assert kwargs['limits']['ceiling_hours'] == 1.5 * data['T_run'] / 3600
@@ -95,5 +97,5 @@ def test_full_cli_uses_receipt_projection(tmp_path, monkeypatch, receipt, tier, 
         return {'passed': True}
     monkeypatch.setattr(launch, 'execute_attempt', execute)
     launch.main(['full', '--tier', tier, '--backbone', backbone, '--gpu', '1', '--reviewed-commit', 'HEAD',
-                 '--probe-json', str(path), '--projection-hours', '0.1', '--log-dir', str(tmp_path / 'logs')])
+                 '--probe-json', str(path), '--projection-hours', '0.1', '--timestamp', 'test'])
     assert len(calls) == 1 and calls[0].parent == tmp_path / 'ckpt/exp05' / (tier + '_' + backbone)

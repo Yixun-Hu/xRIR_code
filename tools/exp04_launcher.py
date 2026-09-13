@@ -18,6 +18,7 @@ GOLDENS = REPO / ('worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/'
                   'yaw_aug_xrir_results_assets')
 ENV_KEYS = ('XRIR_DATA_PATH', 'PYTHONHASHSEED', 'OMP_NUM_THREADS', 'CUDA_VISIBLE_DEVICES')
 DATA_ROOT = '/home/yixunhu/data_cache/AcousticRooms'
+TIER_RECORD = 'worklog/worklog_yixun/exp_05_param_efficiency_claude'
 REQUIRED_INPUTS = ('repo', 'source_closures', 'train_data_identity', 'effective_args', 'mutable_inputs')
 
 
@@ -65,10 +66,15 @@ def check_golden(argv, mode, attempt):
         except (ValueError, IndexError) as error:
             raise ValueError('argv differs from golden tier') from error
         backbone = argv[argv.index('--backbone') + 1]
-        suffix = 'cyl' if backbone == 'cylindrical' else backbone
-        path = REPO / ('worklog/worklog_yixun/exp_05_param_efficiency_claude/'
-            'param_efficiency_results_assets/argv_golden_{}_{}.txt'.format(tier, suffix))
+        prefix = 'ckpt/exp05/{}_{}/attempt_'.format(tier, backbone)
+        if not str(attempt).startswith(prefix) or not re.fullmatch(r'[A-Za-z0-9_-]+', str(attempt)[len(prefix):]):
+            raise ValueError('argv differs from golden tier arm')
+        path = REPO / TIER_RECORD / 'param_efficiency_results_assets' / ('argv_golden_{}_{}.txt'.format(tier, backbone))
         placeholder = 'ckpt/exp05/{}_{}/attempt_<ts>'.format(tier, backbone)
+    elif (REPO / 'ckpt/exp05').resolve() in (REPO / attempt).resolve().parents:
+        raise ValueError('argv differs from golden tier arm')
+    if not path.is_file():
+        raise ValueError('golden file missing: ' + path.name)
     golden = shlex.split(path.read_text())
     expected = [part.replace(placeholder, str(attempt)) for part in golden]
     if argv != expected:
@@ -338,7 +344,7 @@ class LogGuard:
             actual = json.loads(payload.read_text() if isinstance(payload, Path) else payload)
             check_runtime(actual, self.expected, self.mode)
             return actual
-        except (OSError, ValueError, TypeError, AttributeError) as error:
+        except (OSError, ValueError, TypeError, AttributeError, KeyError) as error:
             raise LauncherFailure('guard_runtime_args', str(error)) from error
 
     def feed(self, line):
@@ -843,6 +849,9 @@ def main(argv=None):
     parser.add_argument('--projection-hours', type=float, default=30.0)
     parser.add_argument('--probe-json', help='full requires a clean passing probe receipt')
     args = parser.parse_args(argv)
+    tiered = args.tier != 'M'
+    if tiered and not args.log_dir:
+        args.log_dir = str(REPO / TIER_RECORD)
     if args.mode == 'finalize':
         if not args.attempt_dir:
             parser.error('finalize requires an attempt directory')
@@ -879,16 +888,19 @@ def main(argv=None):
                    tier_gates.validate_receipt(args.probe_json, commit, args.gpu, args.tier, args.backbone))
         if args.tier == 'M':
             check_budget(root, args.projection_hours)
+    stamp, mode = args.timestamp, args.mode
+    if mode in ('smoke', 'full'):
+        attempt = root / (('_smoke_' if mode == 'smoke' else 'attempt_') + stamp)
+        relative = os.path.relpath(attempt, REPO)
+        cmd = command(mode, relative, args.tier, args.backbone)
+        check_golden(cmd, mode, relative)
     root.mkdir(parents=True, exist_ok=True)
     with (root / '.launch.lock').open('a') as lock, patch.dict(os.environ, child_environment(args.gpu)):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        stamp, mode = args.timestamp, args.mode
         log_dir = Path(args.log_dir).resolve()
+        train_log = ('param_efficiency_{}_train_{}_{}_{}.log'.format(stamp, args.tier, args.backbone, mode)
+                     if tiered else 'yaw_aug_xrir_' + stamp + '_train_' + mode + '.log')
         if mode in ('smoke', 'full'):
-            attempt = root / (('_smoke_' if mode == 'smoke' else 'attempt_') + stamp)
-            relative = os.path.relpath(attempt, REPO)
-            cmd = command(mode, relative, args.tier, args.backbone)
-            check_golden(cmd, mode, relative)
             limits = None
             if mode == 'full' and args.tier != 'M':
                 limits = tier_gates.timing_limits(dict(reviewed_commit=commit,
@@ -901,17 +913,16 @@ def main(argv=None):
                     fields['mutable_inputs']['probe_receipt'] = receipt
                 return fields
             result = execute_attempt(attempt, mode, args.gpu,
-                log_dir / ('yaw_aug_xrir_' + stamp + '_train_' + mode + '.log'),
+                log_dir / train_log,
                 fields_factory,
                 allow_cotenant=args.allow_cotenant, projection=args.projection_hours,
                 **({'limits': limits} if limits else {}))
         else:
-            output = root / ('_probe_' + stamp + '.json')
+            output = root / ('_probe_' + stamp + ('_' + args.tier + '_' + args.backbone if tiered else '') + '.json')
             if output.exists():
                 raise FileExistsError(str(output))
             before = gpu_snapshot(args.gpu)
             measurements, attempts, arms_before = [], [], []
-            tiered = args.tier != 'M'
             for yaw, label in (((0, 'arm'),) if tiered else ((0, 'off'), (1, 'on'))):
                 attempt = root / ('_probe_' + stamp + '_' + label)
                 relative = os.path.relpath(attempt, REPO)
@@ -926,7 +937,7 @@ def main(argv=None):
                     fields['trainer_command'], fields['command'] = fields['command'], cmd
                     return fields
                 completed = execute_attempt(attempt, 'probe', args.gpu,
-                    log_dir / ('yaw_aug_xrir_' + stamp + '_' + label + '_train_probe.log'),
+                    log_dir / (train_log if tiered else 'yaw_aug_xrir_' + stamp + '_' + label + '_train_probe.log'),
                     fields_factory, allow_cotenant=args.allow_cotenant)
                 measurements.append(completed['metrics']['probe'])
                 arms_before.append(completed['resource_before'])

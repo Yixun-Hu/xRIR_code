@@ -65,24 +65,21 @@ def test_main_records_tier_counts_and_independent_yaw(monkeypatch, tmp_path, tie
 
 
 @pytest.fixture
-def real_batch():
+def real_batch(request):
     if not torch.cuda.is_available():
         pytest.skip("full xRIR steps require CUDA")
-    previous_device = torch.cuda.current_device()
-    torch.cuda.set_device(1 if torch.cuda.device_count() > 1 else 0)
     old = (torch.backends.cudnn.deterministic, torch.backends.cudnn.benchmark,
            torch.backends.cudnn.allow_tf32, torch.backends.cuda.matmul.allow_tf32)
     torch.backends.cudnn.deterministic, torch.backends.cudnn.benchmark = True, False
-    torch.backends.cudnn.allow_tf32 = torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = torch.backends.cuda.matmul.allow_tf32 = True
     trainer.seed_everything(17)
     try:
         dataset = trainer.xRIR_Dataset(split="train", max_len=9600, num_shot=8)
-        yield default_collate([dataset[0]])
+        yield default_collate([dataset[i] for i in range(getattr(request, 'param', 1))])
     finally:
         (torch.backends.cudnn.deterministic, torch.backends.cudnn.benchmark,
          torch.backends.cudnn.allow_tf32, torch.backends.cuda.matmul.allow_tf32) = old
         torch.cuda.empty_cache()
-        torch.cuda.set_device(previous_device)
 
 
 def step(builder, loss_function, batch):
@@ -108,6 +105,7 @@ def step(builder, loss_function, batch):
 
 
 @GPU
+@pytest.mark.parametrize('real_batch', [32], indirect=True)
 @pytest.mark.parametrize("backbone", ["simple", "cylindrical"])
 def test_m_step_bit_identical_to_prechange(monkeypatch, real_batch, backbone):
     source = subprocess.check_output(["git", "show", "ed5f2a1:train_xRIR_backbone.py"], cwd=str(ROOT))

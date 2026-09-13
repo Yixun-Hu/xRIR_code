@@ -25,8 +25,8 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
 
-from model.xRIR_cyl import BACKBONES
-from tools.exp05_params import TIERS, build_xrir, count_parameters, tier_of
+from model.xRIR_cyl import BACKBONES, build_xrir
+from tools.exp05_params import TIERS, count_parameters, tier_of
 from tools.yaw_aug import YawAug, apply_yaw_aug
 from treble_multi_room_dataset.treble_xRIR_dataset import xRIR_Dataset
 from utils.lr_scheduler import ExponentialLR
