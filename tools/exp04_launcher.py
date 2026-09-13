@@ -6,6 +6,8 @@ from pathlib import Path
 import shlex
 import sys
 from unittest.mock import patch
+from functools import lru_cache
+from tools.exp05_params import TIERS, build_tier, count_parameters, tier_of
 
 PYTHON = '/home/yixunhu/miniconda3/envs/xRIR/bin/python'
 REPO = Path(__file__).resolve().parents[1]
@@ -23,10 +25,16 @@ def child_environment(gpu):
                 PYTHONPATH=str(REPO), PYTHONUNBUFFERED='1')
 
 
-def command(mode, attempt):
+def arm_root(tier, backbone):
+    return ROOT if tier == 'M' else REPO / 'ckpt/exp05' / (tier + '_' + backbone)
+
+
+def command(mode, attempt, tier='M', backbone='simple'):
     if mode not in ('smoke', 'full'):
         raise ValueError('command requires smoke or full')
     smoke = mode == 'smoke'
+    if (tier == 'M' and backbone != 'simple') or (tier != 'M' and smoke):
+        raise ValueError('M uses exp04 simple; S/L currently provide full argv only')
     result = [PYTHON, 'train_xRIR_backbone.py', '--backbone', 'simple', '--save-dir',
               str(attempt) + ('/smoke' if smoke else '')]
     result += shlex.split('--num-shot 8 --max-len 9600 --lr 1e-3 --weight-decay 1e-4 '
@@ -37,12 +45,30 @@ def command(mode, attempt):
                           '--batch-size 32 --accum-steps 2 --num-workers 12')
     result += shlex.split('--seed 0 --tf32 --log-interval ' + ('1' if smoke else '50') +
                           ' --save-every 0 --epoch-ckpt-every ' + ('0 --no-save' if smoke else '1'))
+    if tier != 'M':
+        result[result.index('--backbone') + 1] = backbone
+        return result + [part for key, value in TIERS[tier].items()
+                         for part in ('--vit-' + key.replace('_', '-'), str(value))]
     return result + shlex.split('--yaw-aug 1 --yaw-aug-seed 0 --yaw-aug-width 512')
 
 
 def check_golden(argv, mode, attempt):
-    golden = shlex.split((GOLDENS / ('argv_golden_' + mode + '.txt')).read_text())
-    expected = [part.replace('<attempt>', str(attempt)) for part in golden]
+    path, placeholder = GOLDENS / ('argv_golden_' + mode + '.txt'), '<attempt>'
+    if '--vit-dim' in argv:
+        if mode != 'full':
+            raise ValueError('tier golden requires full mode')
+        try:
+            tier = tier_of({'vit_' + key: int(argv[argv.index('--vit-' + key.replace('_', '-')) + 1])
+                            for key in TIERS['M']})
+        except (ValueError, IndexError) as error:
+            raise ValueError('argv differs from golden tier') from error
+        backbone = argv[argv.index('--backbone') + 1]
+        suffix = 'cyl' if backbone == 'cylindrical' else backbone
+        path = REPO / ('worklog/worklog_yixun/exp_05_param_efficiency_claude/'
+            'param_efficiency_results_assets/argv_golden_{}_{}.txt'.format(tier, suffix))
+        placeholder = 'ckpt/exp05/{}_{}/attempt_<ts>'.format(tier, backbone)
+    golden = shlex.split(path.read_text())
+    expected = [part.replace(placeholder, str(attempt)) for part in golden]
     if argv != expected:
         raise ValueError('argv differs from golden ' + mode)
 
@@ -53,7 +79,27 @@ def effective_args(argv, gpu, batches_per_epoch):
         result = vars(trainer.parse_args())
     result.update({key: child_environment(gpu)[key] for key in ENV_KEYS})
     result['train_batches_per_epoch'] = batches_per_epoch
+    result.update(tier=tier_of(result), param_counts=dict(tier_counts(result['backbone'], tier_of(result))))
     return result
+
+
+@lru_cache(None)
+def tier_counts(backbone, tier):
+    import torch
+    with torch.random.fork_rng(devices=[]):
+        return count_parameters(build_tier(backbone, tier))
+
+
+def validate_parameters(values):
+    tier = tier_of(values)
+    if 'tier' in values and (type(values['tier']) is not str or values['tier'] != tier):
+        raise ValueError('tier disagrees with vit_* fields')
+    if 'param_counts' in values:
+        counts = values['param_counts']
+        if (type(counts) is not dict or counts != tier_counts(values['backbone'], tier)
+                or any(type(value) is not int for value in counts.values())):
+            raise ValueError('param_counts disagree with model')
+    return tier
 
 
 def normalize(runtime):
@@ -68,6 +114,8 @@ def normalize(runtime):
 
 def check_runtime(runtime, expected, mode):
     actual = normalize(runtime)
+    if 'tier' in actual or 'param_counts' in actual:
+        validate_parameters(actual)
     differences = [key for key in actual.keys() | expected.keys() if key not in actual or
                    key not in expected or type(actual[key]) is not type(expected[key]) or
                    actual[key] != expected[key]]
@@ -176,6 +224,7 @@ def promote(attempt):
 
 
 TRAIN_MINIMUM = {'train_xRIR_backbone.py', 'treble_multi_room_dataset/treble_xRIR_dataset.py',
+    'tools/exp05_params.py',
     'model/xRIR.py', 'model/xRIR_cyl.py', 'model/simple_vit.py', 'model/cylindrical_vit.py',
     'utils/spec_utils.py', 'utils/lr_scheduler.py', 'tools/yaw_aug.py', 'tools/yaw_rotation.py'}
 
@@ -187,13 +236,33 @@ CONTROL_EXCLUSIONS = {'save_dir', 'yaw_aug', 'yaw_aug_seed', 'yaw_aug_width', 'n
 
 def compare_control(runtime, control, control_env):
     treatment, baseline = normalize(runtime), normalize(dict(control, env=control_env))
-    baseline.setdefault('train_batches_per_epoch', math.ceil(296334 / baseline['batch_size']))
+    for values in (treatment, baseline):
+        for key, value in TIERS['M'].items():
+            values.setdefault('vit_' + key, value)
+        validate_parameters(values)
+        for key in ('tier', 'param_counts'):
+            values.pop(key, None)
+        bpe = values.pop('train_batches_per_epoch', math.ceil(296334 / values['batch_size']))
+        if type(bpe) is not int or bpe != math.ceil(296334 / values['batch_size']):
+            raise ValueError('invalid train_batches_per_epoch')
+    if tier_of(baseline) != 'M':
+        raise ValueError('control requires tier M')
+    exclusions = CONTROL_EXCLUSIONS
+    if tier_of(treatment) != 'M':
+        for values in (treatment, baseline):
+            for key, value in dict(yaw_aug=0, yaw_aug_seed=values['seed'], yaw_aug_width=512, no_save=False).items():
+                values.setdefault(key, value)
+            if values['yaw_aug_seed'] is None:
+                values['yaw_aug_seed'] = values['seed']
+            if type(values['yaw_aug']) is not int or values['yaw_aug'] != 0:
+                raise ValueError('exp05 requires yaw_aug=0')
+        exclusions = (exclusions - {'yaw_aug', 'yaw_aug_seed', 'yaw_aug_width', 'no_save'}) | {'vit_' + key for key in TIERS['M']}
     missing = object()
     differences = {key: {'treatment': treatment.get(key), 'control': baseline.get(key)}
         for key in treatment.keys() | baseline.keys()
         if type(treatment.get(key, missing)) is not type(baseline.get(key, missing))
         or treatment.get(key, missing) != baseline.get(key, missing)}
-    refused = differences.keys() - CONTROL_EXCLUSIONS
+    refused = differences.keys() - exclusions
     if refused:
         raise ValueError('control mismatch: ' + ', '.join(sorted(refused)))
     return differences
@@ -224,7 +293,8 @@ def build_fields(argv, gpu, reviewed_commit, mode, allow_dirty=False):
         command=argv, environment=p.environment(), git_state=state, allow_dirty=allow_dirty,
         env={key: child_environment(gpu)[key] for key in ENV_KEYS})
     if mode == 'full':
-        control_path = REPO / 'ckpt/xRIR_simple_8_shot/args.json'
+        label = 'cyl' if effective['backbone'] == 'cylindrical' else 'simple'
+        control_path = REPO / ('ckpt/xRIR_' + label + '_8_shot/args.json')
         control_env = dict(XRIR_DATA_PATH=DATA_ROOT, OMP_NUM_THREADS='2', CUDA_VISIBLE_DEVICES='1')
         fields['control_excluded_differences'] = compare_control(effective, json.loads(control_path.read_text()), control_env)
         fields['control_env_reconstructed'] = control_env
@@ -733,6 +803,8 @@ def main(argv=None):
     parser.add_argument('mode', choices=('smoke', 'probe', 'full', 'finalize', 'refuse-test'))
     parser.add_argument('attempt_dir', nargs='?')
     parser.add_argument('--gpu', default='1', choices=('0', '1'))
+    parser.add_argument('--tier', choices=tuple(TIERS), default='M')
+    parser.add_argument('--backbone', choices=('simple', 'cylindrical'), default='simple')
     parser.add_argument('--reviewed-commit')
     parser.add_argument('--log-dir')
     parser.add_argument('--launcher-log', help='finalize: external nohup setsid launcher stdout log')
@@ -756,6 +828,11 @@ def main(argv=None):
         return result
     if not args.reviewed_commit or not args.log_dir:
         parser.error('--reviewed-commit and --log-dir are required')
+    if args.tier != 'M':
+        parser.error('exp05 launches await tier-specific fit-probe receipts and timing gates')
+    if args.backbone != 'simple':
+        parser.error('exp04 M launches require backbone simple')
+    root = arm_root(args.tier, args.backbone)
     if not re.fullmatch(r'[A-Za-z0-9_-]+', args.timestamp) or '_ABORTED_' in args.timestamp:
         parser.error('timestamp must be a safe filename component')
     if Path(sys.executable).resolve() != Path(PYTHON).resolve():
@@ -768,16 +845,16 @@ def main(argv=None):
         if not args.probe_json:
             parser.error('full requires --probe-json (clean passing probe)')
         receipt = probe_receipt(args.probe_json, commit, args.gpu)
-        check_budget(ROOT, args.projection_hours)
-    ROOT.mkdir(parents=True, exist_ok=True)
-    with (ROOT / '.launch.lock').open('a') as lock, patch.dict(os.environ, child_environment(args.gpu)):
+        check_budget(root, args.projection_hours)
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / '.launch.lock').open('a') as lock, patch.dict(os.environ, child_environment(args.gpu)):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         stamp, mode = args.timestamp, args.mode
         log_dir = Path(args.log_dir).resolve()
         if mode in ('smoke', 'full'):
-            attempt = ROOT / (('_smoke_' if mode == 'smoke' else 'attempt_') + stamp)
+            attempt = root / (('_smoke_' if mode == 'smoke' else 'attempt_') + stamp)
             relative = os.path.relpath(attempt, REPO)
-            cmd = command(mode, relative)
+            cmd = command(mode, relative, args.tier, args.backbone)
             check_golden(cmd, mode, relative)
             def fields_factory():
                 fields = build_fields(cmd, args.gpu, commit, mode, args.allow_dirty)
@@ -789,13 +866,13 @@ def main(argv=None):
                 fields_factory,
                 allow_cotenant=args.allow_cotenant, projection=args.projection_hours)
         else:
-            output = ROOT / ('_probe_' + stamp + '.json')
+            output = root / ('_probe_' + stamp + '.json')
             if output.exists():
                 raise FileExistsError(str(output))
             before = gpu_snapshot(args.gpu)
             measurements, attempts, arms_before = [], [], []
             for yaw, label in ((0, 'off'), (1, 'on')):
-                attempt = ROOT / ('_probe_' + stamp + '_' + label)
+                attempt = root / ('_probe_' + stamp + '_' + label)
                 relative = os.path.relpath(attempt, REPO)
                 cmd = [PYTHON, '-m', 'tools.exp04_probe', '--yaw-aug', str(yaw), '--save-dir', relative]
                 def fields_factory():
