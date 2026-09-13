@@ -76,3 +76,13 @@ PYTHONHASHSEED=0 OMP_NUM_THREADS=2 CUDA_VISIBLE_DEVICES=1 python -m tools.yaw_au
 ```bash
 CUDA_VISIBLE_DEVICES=1 python worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results_assets/planner_bench_rotation.py
 ```
+
+## Planned launch sequence (prepared 2026-09-13 00:3x; executed when the FLAC exp_13 chain stops, expected ≈ 03:30)
+Preconditions: launch-commit certification review approved for `f19b9b6` (closure files unchanged at HEAD); working tree clean outside `worklog/`; `nvidia-smi` shows no compute process on the chosen GPU; ≥ 50 GiB free on the checkpoint volume (182 GB free at 00:30, root at 95 %).
+```bash
+# 1. rung-6 throughput probe on the launch GPU (synchronous, ≈ 10 min); receipt must say PROBE_NOT_CLEAN false, passed true (ratio ≤ 1.05)
+tools/exp04_launch.sh probe --gpu 0 --reviewed-commit f19b9b6 --log-dir ckpt/xRIR_simple_yawaug_8_shot/_logs --timestamp <TS>_probe   # log yaw_aug_xrir_<TS>_probe_launcher.log
+# 2. confirmatory training (≈ 28 h)
+nohup setsid tools/exp04_launch.sh full --gpu 0 --reviewed-commit f19b9b6 --probe-json ckpt/xRIR_simple_yawaug_8_shot/_probe_<TS>_probe.json --log-dir ckpt/xRIR_simple_yawaug_8_shot/_logs --timestamp <TS> > worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_<TS>_launcher.log 2>&1 &
+# 3. GPU 1 meanwhile: exp_05 fit probes (S_simple, S_cylindrical, L_simple, L_cylindrical), then exp_04's control/cyl evaluations (tools/exp04_eval_launch.py --gpu 1), then exp_05 S trainings
+```
