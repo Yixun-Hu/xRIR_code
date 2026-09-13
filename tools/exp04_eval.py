@@ -111,9 +111,9 @@ def evaluate_p_batch(model, batch, evaluator, cols, acoustic_cols=(), e_acoustic
     return keys, results, yaw.delay_flip_counts(src[:n_real], locations[:n_real], cols)
 
 
-def run_exp04(args):
+def run_exp04(args, model_factory=None, metadata=None, manifest_validator=None):
     """Mirror the frozen run, binding its outputs to preflight-validated inputs."""
-    fields, digest, manifest = validate_manifest(args)
+    fields, digest, manifest = (manifest_validator or validate_manifest)(args)
     if not yaw.torch.cuda.is_available():
         raise RuntimeError("exp04_eval needs a GPU: xRIR.apply_delay is .cuda()-only")
     started = time.time()
@@ -124,7 +124,7 @@ def run_exp04(args):
     dataset = yaw.build_manifest_dataset(manifest, max_samples=args.max_samples)
     loader = yaw.DataLoader(dataset, batch_size=args.batch_size, shuffle=False,
                             num_workers=args.num_workers, pin_memory=True)
-    model = yaw.build_xrir(args.backbone, manifest["num_shot"])
+    model = (model_factory or yaw.build_xrir)(args.backbone, manifest["num_shot"])
     model.load_state_dict(yaw.load_model_state(args.checkpoint), strict=True)
     model.cuda().eval()
     evaluator = yaw.Evaluator()
@@ -167,6 +167,7 @@ def run_exp04(args):
                 elapsed_min=(time.time() - started) / 60, eval_manifest_sha256=digest,
                 conditions=args.conditions, evaluator_closure_sha256=fields["evaluator_closure"]["sha256"],
                 reviewed_commit=fields["reviewed_commit"])
+    meta.update(metadata or {})
     per_sample = {"meta": meta, "query": queries, "index": [entry["index"] for entry in entries],
                   "delay_flips": {str(k): int(v) for k, v in sorted(flips.items())},
                   "decomposition": decomposition}
