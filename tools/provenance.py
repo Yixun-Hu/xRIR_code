@@ -8,8 +8,68 @@ import platform
 from pathlib import Path
 import subprocess
 import sys
+import signal
+from contextlib import contextmanager
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
+
+
+class LauncherTerminated(BaseException):
+    def __init__(self, signum):
+        self.signum = signum
+        super().__init__(signal.Signals(signum).name)
+
+
+@contextmanager
+def termination_handlers():
+    terminating = False
+    def terminate(signum, frame):
+        nonlocal terminating
+        if not terminating:
+            terminating = True
+            raise LauncherTerminated(signum)
+    previous = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)}
+    mask = signal.pthread_sigmask(signal.SIG_BLOCK, [])
+    try:
+        for signum in previous:
+            if previous[signum] != signal.SIG_IGN:
+                signal.signal(signum, terminate)
+        yield
+    finally:
+        try:
+            signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+        finally:
+            for signum, handler in previous.items():
+                signal.signal(signum, handler)
+
+
+def masked_abort_reason(error, reason):
+    """Block repeated stop signals until termination_handlers restores the mask."""
+    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGHUP, signal.SIGINT})
+    return ('terminated_' + signal.Signals(error.signum).name if isinstance(error, LauncherTerminated)
+            else 'terminated_SIGINT' if isinstance(error, KeyboardInterrupt) else getattr(error, 'reason', reason))
+
+
+def reap_process_groups(*processes):
+    mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGHUP, signal.SIGINT})
+    try:
+        for process in processes:
+            if process is not None:
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait()
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)  # Reap survivors even after their leader exits.
+                except ProcessLookupError:
+                    pass
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
 
 
 def sha256_file(path):

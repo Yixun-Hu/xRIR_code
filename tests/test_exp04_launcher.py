@@ -404,7 +404,7 @@ def test_epoch_one_acceptance_is_checked_immediately(tmp_path):
         guard.feed('epoch 1 done in 145.9 min; best test loss 0.1')
 
 
-@pytest.mark.parametrize('mode', ['smoke', 'probe'])
+@pytest.mark.parametrize('mode', ['smoke', 'probe', 'eval', 'eval_ignored'])
 @pytest.mark.parametrize('signum', [launch.signal.SIGTERM, launch.signal.SIGHUP, launch.signal.SIGINT])
 def test_signals_abort_and_reap_sleeping_child(tmp_path, mode, signum):
     import sys
@@ -426,7 +426,20 @@ def test_signals_abort_and_reap_sleeping_child(tmp_path, mode, signum):
             '(poll(self, path), Path(%r).touch() if self.steps else None); ' % str(ready) +
             'l.execute_attempt(%r, %r, "1", %r, lambda: %r)' %
             (str(attempt), mode, str(tmp_path / 'train.log'), fields))
-    process = launch.subprocess.Popen([sys.executable, '-c', code], cwd=launch.REPO)
+    if mode.startswith('eval'):
+        code = ('from tools import exp04_eval_launch as l; from pathlib import Path; '
+                'from types import SimpleNamespace; import time; '
+                'rename=Path.rename; Path.rename=lambda self, dst: '
+                '(Path(%r).touch(), time.sleep(.2), rename(self, dst))[-1]; ' % str(tmp_path / 'aborting') +
+                'l.execute_run(SimpleNamespace(out_dir=%r, log_dir=%r, run_label="eval", '
+                'data_root=%r, gpu="1"), %r, lambda: {}, %r)' %
+                (str(attempt), str(tmp_path / 'logs'), str(tmp_path), fields['command'], str(tmp_path)))
+        ready = pidfile
+    ignored = signum if mode == 'eval_ignored' else None
+    def dispositions():
+        for sig in (launch.signal.SIGTERM, launch.signal.SIGHUP, launch.signal.SIGINT):
+            launch.signal.signal(sig, launch.signal.SIG_IGN if sig == ignored else launch.signal.SIG_DFL)
+    process = launch.subprocess.Popen([sys.executable, '-c', code], cwd=launch.REPO, preexec_fn=dispositions)
     child_pid = None
     try:
         deadline = time.monotonic() + 10
@@ -434,21 +447,33 @@ def test_signals_abort_and_reap_sleeping_child(tmp_path, mode, signum):
             time.sleep(0.02)
         assert pidfile.exists() and ready.exists()
         child_pid = int(pidfile.read_text())
+        assert os.getpgid(child_pid) == child_pid
+        if ignored:
+            process.send_signal(ignored)
+            time.sleep(.1)
+            assert process.poll() is None and attempt.is_dir()
+            signum = launch.signal.SIGHUP if ignored == launch.signal.SIGTERM else launch.signal.SIGTERM
         process.send_signal(signum)
         while not (tmp_path / 'aborting').exists() and process.poll() is None and time.monotonic() < deadline:
             time.sleep(.01)
-        process.send_signal(launch.signal.SIGHUP)
+        assert (tmp_path / 'aborting').exists()
+        for sig in (launch.signal.SIGHUP, launch.signal.SIGINT, launch.signal.SIGTERM):
+            process.send_signal(sig)
         process.wait(timeout=10)
         aborted, = tmp_path.glob('attempt_t_ABORTED_*')
         assert not attempt.exists() and not (aborted / 'completion.json').exists()
-        assert launch.hours_record(tmp_path)['total_hours'] > 0
+        if not mode.startswith('eval'):
+            assert launch.hours_record(tmp_path)['total_hours'] > 0
         record = json.loads((aborted / 'abort.json').read_text())
         assert record['reason'] == 'terminated_' + launch.signal.Signals(signum).name
         assert record['exception_type'] == 'LauncherTerminated'
         assert record['wall_hours'] > 0 and record['started_at'] <= record['aborted_at']
-        assert record['last_guard_state']['banner'] is True
+        if not mode.startswith('eval'):
+            assert record['last_guard_state']['banner'] is True
         assert not (tmp_path / 'train.log').exists()
         assert Path(record['log']['aborted']).is_file()
+        assert not Path(record['log']['original']).exists()
+        assert Path(record['log']['aborted']).stem.endswith('_ABORTED_' + record['reason'])
         with pytest.raises(ProcessLookupError):
             os.kill(child_pid, 0)
     finally:

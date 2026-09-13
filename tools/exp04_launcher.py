@@ -235,42 +235,13 @@ def build_fields(argv, gpu, reviewed_commit, mode, allow_dirty=False):
 import re
 import signal
 import time
-from contextlib import contextmanager
-
-
-class LauncherTerminated(BaseException):
-    def __init__(self, signum):
-        self.signum = signum
-        super().__init__(signal.Signals(signum).name)
+from tools.provenance import LauncherTerminated, termination_handlers
 
 
 class LauncherFailure(ValueError):
     def __init__(self, reason, message):
         self.reason = reason
         super().__init__(message)
-
-
-@contextmanager
-def termination_handlers():
-    terminating = False
-    def terminate(signum, frame):
-        nonlocal terminating
-        if not terminating:
-            terminating = True
-            raise LauncherTerminated(signum)
-    previous = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)}
-    mask = signal.pthread_sigmask(signal.SIG_BLOCK, [])
-    try:
-        for signum in previous:
-            if previous[signum] != signal.SIG_IGN:
-                signal.signal(signum, terminate)
-        yield
-    finally:
-        try:
-            signal.pthread_sigmask(signal.SIG_SETMASK, mask)
-        finally:
-            for signum, handler in previous.items():
-                signal.signal(signum, handler)
 
 
 class LogGuard:
@@ -392,23 +363,7 @@ def run_child(argv, log_path, gpu, guard, deadline=None):
                 p.write_completion(guard.execution_path, guard.execution)
             return child.returncode
         finally:
-            mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGHUP, signal.SIGINT})
-            for process in (child, sink):
-                if process is not None:
-                    try:
-                        os.killpg(process.pid, signal.SIGTERM)
-                    except ProcessLookupError:
-                        pass
-                    try:
-                        process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(process.pid, signal.SIGKILL)
-                        process.wait()
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)  # Reap survivors even after their leader exits.
-                    except ProcessLookupError:
-                        pass
-            signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+            p.reap_process_groups(child, sink)
 
 
 def validate_outputs(attempt, mode, expected):
@@ -681,9 +636,7 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
         return complete_attempt(attempt, mode, log_path, fields, digest, metrics,
                                 lambda: (time.monotonic() - started) / 3600)
     except BaseException as error:
-        signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGHUP, signal.SIGINT})
-        reason = ('terminated_' + signal.Signals(error.signum).name if isinstance(error, LauncherTerminated)
-                  else 'terminated_SIGINT' if isinstance(error, KeyboardInterrupt) else getattr(error, 'reason', reason))
+        reason = p.masked_abort_reason(error, reason)
         hours = (time.monotonic() - started) / 3600
         renamed = abort_log(log_path, reason, guard is not None and guard.log_created)
         p.write_completion(attempt / 'abort.json', dict(reason=reason,

@@ -32,8 +32,9 @@ def _run_child(command, log_path, repo, data_root, gpu='1'):
     with log_path.open("ab") as log:
         try:
             child = subprocess.Popen(command, cwd=repo, env=env, stdout=subprocess.PIPE,
-                                     stderr=subprocess.STDOUT)
-            sink = subprocess.Popen(["tee", "-a", str(log_path)], stdin=child.stdout, stdout=2)
+                                     stderr=subprocess.STDOUT, start_new_session=True)
+            sink = subprocess.Popen(["tee", "-a", str(log_path)], stdin=child.stdout, stdout=2,
+                                    start_new_session=True)
             child.stdout.close()
             status = child.wait()
             if sink.wait():
@@ -42,12 +43,10 @@ def _run_child(command, log_path, repo, data_root, gpu='1'):
             os.fsync(log.fileno())
             return status
         finally:
-            for process in (child, sink):
-                if process is not None and process.poll() is None:
-                    process.terminate()
-                    process.wait()
+            p.reap_process_groups(child, sink)
 
 
+@p.termination_handlers()
 def execute_run(args, command, fields_factory, repo):
     """Own exclusive creation, spawn, digest revalidation and atomic finalisation."""
     run = Path(args.out_dir).resolve()
@@ -106,15 +105,23 @@ def execute_run(args, command, fields_factory, repo):
                       "outputs": {name: p.sha256_file(run / name) for name in OUTPUTS}}
         p.write_completion(run / "completion.json", completion)
         return completion
-    except BaseException:
+    except BaseException as error:
+        reason = p.masked_abort_reason(error, reason)
+        renamed = None
         if log_created:
             try:
                 aborted_log = log_path.with_name(log_path.stem + "_ABORTED_" + reason + ".log")
                 if aborted_log.exists():
                     aborted_log = aborted_log.with_name(aborted_log.stem + "_" + uuid.uuid4().hex + ".log")
                 log_path.rename(aborted_log)
+                renamed = str(aborted_log)
             except OSError:
                 pass  # Preserve the original failure if the log cannot be renamed.
+        ended = datetime.datetime.now().astimezone()
+        p.write_completion(run / 'abort.json', dict(reason=reason, exception_type=type(error).__name__,
+            exception_message=str(error), started_at=started.isoformat(), aborted_at=ended.isoformat(),
+            wall_hours=(ended - started).total_seconds() / 3600,
+            log={'original': str(log_path) if log_path else None, 'aborted': renamed}))
         completion_path = run / "completion.json"
         if completion_path.exists():
             completion_path.unlink()
