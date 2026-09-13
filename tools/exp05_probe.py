@@ -30,7 +30,7 @@ def projection(result):
         micro = result['t_micro']
         values = micro['values']
         valid = (len(values) == 50 and all(type(v) in (int, float) and math.isfinite(v) and v > 0
-            for v in [*values, result['t_test'], result['t_save']])
+            for v in [*values, *[micro[k] for k in ('mean', 'median', 'min')], result['t_test'], result['t_save']])
             and (micro['mean'], micro['median'], micro['min']) == (sum(values) / 50, statistics.median(values), min(values))
             and all(type(result[k]) is int and result[k] == v for k, v in dict(warmup_micro_batches=10,
                 timed_micro_batches=50, batch_size=32, accum_steps=2, train_batches_per_epoch=9261).items()))

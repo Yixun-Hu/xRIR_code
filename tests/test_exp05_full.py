@@ -22,7 +22,7 @@ def test_full_receipt_deadline_and_abort(tmp_path, monkeypatch, receipt, failure
         del fields['mutable_inputs']['probe_receipt']
     if failure == 'changed':
         path.write_text(path.read_text() + '\n')
-    monkeypatch.setattr(launch, 'resource_gate', lambda *a: {})
+    monkeypatch.setattr(launch, 'resource_gate', lambda *a: dict(gpu='1', uuid='GPU-test'))
     monkeypatch.setattr(launch.time, 'monotonic', lambda: 100.)
     def runner(argv, target, gpu, guard, deadline):
         assert deadline == 100. + limits['ceiling_hours'] * 3600

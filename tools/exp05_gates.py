@@ -52,6 +52,9 @@ def timing_limits(fields, gpu):
         if bound['sha256'] != actual['sha256'] or hashlib.sha256(raw).hexdigest() != actual['sha256']:
             raise ValueError('changed receipt')
         data = json.loads(raw)
+        if 'resource_before' in fields and (fields['resource_before'].get('uuid') != data['before']['uuid']
+                or fields['resource_before'].get('gpu') != gpu):
+            raise ValueError('launch GPU differs from probe GPU')
     except (OSError, KeyError, TypeError, ValueError) as error:
         raise ValueError('missing or changed tier probe receipt') from error
     return dict(epoch_seconds=1.05 * data['T_epoch'], projection_hours=data['T_run'] / 3600,
@@ -68,6 +71,15 @@ def set_budget(root, limits):
     with (root / '.hours.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         record = hours_record(root)
+        for attempt in root.glob('attempt_*_ABORTED_slow*'):
+            try:
+                abort = json.loads((attempt / 'abort.json').read_text())
+                fields = json.loads((attempt / 'train_manifest.json').read_text())
+                digest = fields['mutable_inputs']['probe_receipt']['sha256']
+                if abort['reason'] != 'guard_epoch_one' or digest == limits['probe_receipt_sha256']:
+                    raise ValueError('slow abort requires a new probe receipt')
+            except (OSError, KeyError, TypeError, ValueError) as error:
+                raise ValueError('slow abort requires intact evidence and a new probe receipt') from error
         used = sum(r['hours'] for r in record['attempts'] if r['mode'] == 'full')
         ceiling = limits['ceiling_hours']
         old = record.get('probe_receipt_sha256')

@@ -33,7 +33,7 @@ def test_child_selection_preserves_default(launch_args, extra, tier, entry):
         assert command[command.index("--tier") + 1] == tier
 
 
-@pytest.mark.parametrize("fault", [None, "args_mismatch", "train_args", *TIER_FIELDS])
+@pytest.mark.parametrize("fault", [None, "args_mismatch", "train_args", "float_counts", *TIER_FIELDS])
 def test_tier_binding_and_completion(launch_args, attempt, fault):
     args = select(launch_args, ["--tier", "S"])
     train_args = Path(args.checkpoint).parent / "args.json"
@@ -56,6 +56,10 @@ def test_tier_binding_and_completion(launch_args, attempt, fault):
         target = str(Path(args.out_dir) / launcher.OUTPUTS[0])
         extra = ("payload=json.loads(Path(%r).read_text()); payload['meta'][%r]='tampered'; "
                  "Path(%r).write_text(json.dumps(payload))") % (target, fault, target)
+    if fault == "float_counts":
+        target = str(Path(args.out_dir) / launcher.OUTPUTS[0])
+        extra = ("payload=json.loads(Path(%r).read_text()); payload['meta']['param_counts']['full']=float(payload['meta']['param_counts']['full']); "
+                 "Path(%r).write_text(json.dumps(payload))") % (target, target)
     command = child_code(args.out_dir, extra)
     if fault:
         with pytest.raises(ValueError):

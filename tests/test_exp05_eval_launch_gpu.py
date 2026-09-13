@@ -17,7 +17,7 @@ def test_real_launcher_32_queries_equals_direct(tmp_path, real_batch):
         "--tier", "M", "--backbone", "simple", "--checkpoint", str(checkpoint),
         "--manifest", str(reference), "--manifest-hash", expected[0]["meta"]["manifest_hash"],
         "--out-dir", str(run), "--log-dir", str(tmp_path / "logs"), "--run-label", "tier",
-        "--data-root", launcher.evaluator.BASE_DATA_PATH, "--reviewed-commit", "HEAD",
+        "--data-root", launcher.evaluator.BASE_DATA_PATH, "--reviewed-commit", expected[0]["meta"]["reviewed_commit"],
         "--gpu", "1", "--num-shot", "8", "--max-samples", "32", "--gl-seed", "42",
         "--conditions", "P", "--yaw-cols", "0", "--acoustic-cols", "0", "--e-acoustic-cols",
         "--decomposition-batches", "0", "--num-workers", "0", "--threads", "2"])

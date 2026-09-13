@@ -380,7 +380,8 @@ class LogGuard:
             if self.mode == 'full':
                 history = self.output_dir / 'history.jsonl'
                 first = json.loads(history.read_text().splitlines()[0])
-                if not math.isfinite(first['epoch_minutes']) or first['epoch_minutes'] > self.epoch_limit_seconds / 60:
+                limit = self.epoch_limit_seconds / 60 if self.tier_limits else 2.431 * 60
+                if not math.isfinite(first['epoch_minutes']) or first['epoch_minutes'] > limit:
                     raise LauncherFailure('guard_epoch_one', 'epoch one exceeds timing acceptance' if self.tier_limits
                                           else 'epoch one exceeds 2.431 h acceptance')
 
@@ -715,10 +716,13 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
         before = resource_gate(gpu, attempt.parent, mode, allow_cotenant)
         fields = fields_factory()
         expected = fields['effective_args']
+        fields['resource_before'] = before
         validated = tier_gates.timing_limits(fields, gpu) if mode == 'full' else None
         if validated:
             limits = tier_gates.set_budget(attempt.parent, validated)
             fields['timing_limits'] = limits
+        elif limits:
+            raise ValueError('tier timing limits require an S/L full run')
         effective_path = attempt / 'effective_args.json'
         effective_digest = p.write_manifest(effective_path, expected)
         fields.setdefault('mutable_inputs', {})['effective_args'] = {
@@ -934,11 +938,17 @@ def main(argv=None):
                 before=before, after=after, arms_before=arms_before,
                 PROBE_NOT_CLEAN=any(bool(state['compute_apps']) for state in [before, *arms_before, after]),
                 attempts=attempts, reviewed_commit=commit)
-            if tiered and result['PROBE_NOT_CLEAN']:
-                result['passed'] = False
+            if tiered:
+                result['PROBE_NOT_CLEAN'] |= any(state['gpu'] != args.gpu or
+                    not before['uuid'] or state['uuid'] != before['uuid'] or
+                    not math.isfinite(state['free_gib']) or state['free_gib'] < 40
+                    for state in [before, *arms_before, after])
+                if result['PROBE_NOT_CLEAN']:
+                    result['passed'] = False
             p.write_manifest(output, result)
             if result['PROBE_NOT_CLEAN']:
-                print('PROBE_NOT_CLEAN: another process was present; timing gate needs Planner judgment.', flush=True)
+                print('PROBE_NOT_CLEAN: GPU resource checks failed; re-probe on a clean GPU.' if tiered else
+                      'PROBE_NOT_CLEAN: another process was present; timing gate needs Planner judgment.', flush=True)
         print(json.dumps(result, sort_keys=True, allow_nan=False), flush=True)
         if mode == 'probe' and not result['passed']:
             raise SystemExit(1)

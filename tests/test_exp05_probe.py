@@ -90,3 +90,11 @@ def test_child_measures_full_test_and_scratch_saves(monkeypatch, tmp_path, capsy
         assert 'EXP05_PROBE_RESULT ' in capsys.readouterr().out
     assert all(not p.exists() for p in saved) and not list(tmp_path.iterdir())
     assert fake.train_epoch is train and fake.test_epoch is test
+
+
+@pytest.mark.parametrize('name', ['mean', 'median', 'min'])
+def test_projection_summary_must_be_numeric(name):
+    result = measurement()
+    result['t_micro'][name] = True
+    with pytest.raises(ValueError, match='timing'):
+        probe.projection(result)

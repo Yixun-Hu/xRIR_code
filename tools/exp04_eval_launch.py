@@ -88,7 +88,8 @@ def execute_run(args, command, fields_factory, repo):
         for name in OUTPUTS:
             payload = json.loads((run / name).read_text())
             meta = payload.get("meta", {})
-            if any(type(meta.get(key)) is not type(value) or meta.get(key) != value
+            if any(type(meta.get(key)) is not type(value) or
+                   json.dumps(meta.get(key), sort_keys=True) != json.dumps(value, sort_keys=True)
                    for key, value in expected.items()):
                 raise ValueError("output meta mismatch: " + name)
             if name == "per_sample_yaw.json" and (not isinstance(payload.get("query"), list)
