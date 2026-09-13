@@ -102,3 +102,14 @@
 ## 2026-09-13T01:05:10-04:00 — Fable round-3 close-out review: approve with changes (no blockers) → round 3 CLOSED; round-4 (post-launch polish) prompt drafted
 - `param_efficiency_fable_code_round3_close_review.md`: A6/A8 admission verified (bindings, epoch via completion outputs, launcher digest equality vs pin, type-strict full recipe; both real M `args.json` pass); numbers unchanged vs `860a334` (184 cells, 324 curve points, 8 ratios); JSON size 51 MB → 0.4 MB; 172 producer tests + 142 shared/record tests (CPU subset; GPUs busy). Should-fix: tie the bound `train_manifest` to the bound `train_completion` and to the checkpoint's attempt directory (cross-arm borrowing demonstrated) — lands before the JSON is filled. Nits 6. Fill sequence restated in the review.
 - `coder_prompts/round4_prompt.md`: launcher exp_05-path items (receipt arm binding; refuse before creating the attempt) + producer items; to run after exp_04's `full` has started (allowed drift on the running attempt per A7; exp_05's launches use the post-round-4 commit).
+
+## 2026-09-13T10:36:19-04:00 — fit/timing probes for all four new arms PASSED on a free GPU 1 (plan §7 item 5); L fits at 32 × 2
+| arm | t_micro (s) | T_epoch | T_run | peak | receipt |
+|---|---|---|---|---|---|
+| S_simple | 0.351 | 0.91 h | 11.0 h | 10.4 GiB | `ckpt/exp05/S_simple/_probe_20260913T102216_S_simple.json` |
+| S_cylindrical | 0.381 | 0.99 h | 11.9 h | 10.4 GiB | `…/S_cylindrical/_probe_20260913T102428_S_cylindrical.json` |
+| L_simple | 1.326 | 3.44 h | 41.3 h | 44.4 GiB | `…/L_simple/_probe_20260913T102644_L_simple.json` |
+| L_cylindrical | 1.477 | 3.83 h | 46.0 h | 44.4 GiB | `…/L_cylindrical/_probe_20260913T103057_L_cylindrical.json` |
+All clean (no co-tenant), `passed` true (T_run ≤ 60 h), bound to `f19b9b6` / GPU 1; the L arms fit at micro-batch 32 with 44.4 GiB peak (A4's dim-640 branch not needed). Ceilings (1.5 × T_run): S 16.5 / 17.9 h, L 62.0 / 69.0 h; epoch-1 gates 1.05 × T_epoch: S 57 / 62 min, L 3.61 / 4.02 h. Total ≈ 110 GPU-h as budgeted.
+- **Schedule** — GPU 1: S_simple from ≈ 12:40 (after exp_04's epoch-1 gate) → S_cylindrical → L_cylindrical (≈ Sep 16 10:00). GPU 0 after exp_04's training (≈ Sep 14 13:30): exp_04 evaluations (≈ 18 h) → L_simple (→ ≈ Sep 17 01:00). exp_05 evaluations (60 runs ≈ 8 h) on the first free GPU; analysis Sep 17–18.
+- Reviewed commit for the S/L launches: `f19b9b6` (launcher/trainer closure unchanged at HEAD `486a3f0`); round-4 polish (launcher exp_05 path, producer) lands between launches only if a re-review certifies it — otherwise after all four trainings.
