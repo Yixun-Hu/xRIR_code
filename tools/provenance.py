@@ -43,6 +43,27 @@ def termination_handlers():
                 signal.signal(signum, handler)
 
 
+@contextmanager
+def deferred_termination():
+    """Mask stop signals and defer Python handlers even on threaded processes."""
+    pending = []
+    previous = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)}
+    mask = signal.pthread_sigmask(signal.SIG_BLOCK, previous)
+    try:
+        for signum in previous:
+            if previous[signum] != signal.SIG_IGN:
+                signal.signal(signum, lambda signum, frame: pending.append(signum))
+        yield
+    finally:
+        try:
+            signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+        finally:
+            for signum, handler in previous.items():
+                signal.signal(signum, handler)
+        if pending:
+            os.kill(os.getpid(), pending[0])
+
+
 def masked_abort_reason(error, reason):
     """Block repeated stop signals until termination_handlers restores the mask."""
     signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGHUP, signal.SIGINT})
@@ -178,15 +199,20 @@ def write_manifest(path, fields):
     return hashlib.sha256(payload).hexdigest()
 
 
+def apply_umask(fd):
+    """Give a temporary output the same permissions as an ordinary created file."""
+    mask = os.umask(0)
+    os.umask(mask)
+    os.fchmod(fd, 0o666 & ~mask)
+
+
 def write_completion(path, fields):
     """Publish the complete record with an atomic rename on the same filesystem."""
     payload = json.dumps(fields, sort_keys=True, indent=2, allow_nan=False).encode() + b'\n'
     fd, temporary = tempfile.mkstemp(prefix='.' + Path(path).name, dir=Path(path).parent)
     try:
         with os.fdopen(fd, 'wb') as stream:
-            mask = os.umask(0)
-            os.umask(mask)
-            os.fchmod(stream.fileno(), 0o666 & ~mask)
+            apply_umask(stream.fileno())
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())

@@ -119,6 +119,8 @@ def test_finalize_preserved_attempt(preserved_attempt, mutation):
             attempt = attempt.with_name('attempt_t')
             recovery = result['recovered_from']
             assert recovery['attempt'] == previous_name and recovery['recovered_at']
+            assert recovery['log'] == str(new_log) and not new_log.exists()
+            assert result['log'] == dict(path=str(log), sha256=launch.p.sha256_file(log))
             assert recovery['abort'] == json.loads((attempt / 'abort.json').read_text())
             assert launch.hours_record(attempt.parent)['attempts'][0]['attempt'] == 'attempt_t'
         hours = 1.5 if mutation == 'renamed' else 1
@@ -190,14 +192,25 @@ def test_recovery_requires_external_log_and_pinned_python(preserved_attempt, mon
         launch.finalize_attempt(attempt, attempt.parent / 'launcher.log')
 
 
-@pytest.mark.parametrize('failure', ['occupied', 'promotion', 'after_promotion', 'replace_final'])
+@pytest.mark.parametrize('failure', ['occupied', 'occupied_log', 'log_rename', 'promotion', 'after_promotion', 'replace_final'])
 def test_recovery_rename_failure_preserves_abort(preserved_attempt, monkeypatch, failure):
     original, log = preserved_attempt
-    launch.p.write_completion(original / 'abort.json', {'log': {'aborted': str(log)}})
+    aborted_log = log.with_name('train_ABORTED_interrupted.log')
+    log.rename(aborted_log)
+    launch.p.write_completion(original / 'abort.json', {'log': {'aborted': str(aborted_log)}})
     attempt = launch.abort_attempt(original, 'interrupted', 1.5)
     if failure == 'occupied':
         original.mkdir()
         (original / 'foreign').touch()
+    elif failure == 'occupied_log':
+        log.write_text('foreign')
+    elif failure == 'log_rename':
+        rename = Path.rename
+        def fail_log(path, destination):
+            if path == aborted_log:
+                raise OSError('log rename failed')
+            return rename(path, destination)
+        monkeypatch.setattr(Path, 'rename', fail_log)
     else:
         promote = launch.promote
         if failure == 'replace_final':
@@ -210,8 +223,40 @@ def test_recovery_rename_failure_preserves_abort(preserved_attempt, monkeypatch,
     with pytest.raises(OSError):
         launch.finalize_attempt(attempt, attempt.parent / 'launcher.log')
     assert attempt.exists() and not (attempt / 'completion.json').exists()
+    assert aborted_log.exists() and (log.read_text() == 'foreign' if failure == 'occupied_log' else not log.exists())
     if failure == 'replace_final':
         assert os.readlink(attempt.parent / 'final') == 'previous'
     else:
         assert not os.path.lexists(attempt.parent / 'final')
     assert launch.hours_record(attempt.parent)['attempts'] == [dict(attempt=attempt.name, hours=1.5, mode='full')]
+
+
+def test_recovery_refuses_uppercase_reviewed_commit(preserved_attempt):
+    attempt, _ = preserved_attempt
+    fields = json.loads((attempt / 'train_manifest.json').read_text())
+    fields['reviewed_commit'] = fields['reviewed_commit'].upper()
+    execution = json.loads((attempt / 'execution.json').read_text())
+    with pytest.raises(ValueError, match='invalid reviewed_commit'):
+        launch.recovery_evidence(fields, execution, attempt, attempt.parent / 'launcher.log')
+
+
+@pytest.mark.parametrize('boundary', ['directory', 'log'])
+def test_recovery_defers_signal_through_renames(preserved_attempt, monkeypatch, boundary):
+    original, log = preserved_attempt
+    aborted_log = log.with_name('train_ABORTED_interrupted.log')
+    log.rename(aborted_log)
+    launch.p.write_completion(original / 'abort.json', {'log': {'aborted': str(aborted_log)}})
+    attempt = launch.abort_attempt(original, 'interrupted', 1.5)
+    rename = Path.rename
+    def terminate(path, destination):
+        result = rename(path, destination)
+        if path == (attempt if boundary == 'directory' else aborted_log):
+            os.kill(os.getpid(), launch.signal.SIGTERM)
+        return result
+    monkeypatch.setattr(Path, 'rename', terminate)
+    with pytest.raises(launch.LauncherTerminated):
+        launch.finalize_attempt(attempt, attempt.parent / 'launcher.log')
+    result = json.loads((original / 'completion.json').read_text())
+    assert result['recovered_from']['log'] == str(aborted_log)
+    assert log.is_file() and not aborted_log.exists() and not attempt.exists()
+    assert (original.parent / 'final').resolve() == original

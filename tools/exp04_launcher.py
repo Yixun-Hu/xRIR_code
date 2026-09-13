@@ -444,7 +444,16 @@ def assert_quiescent(pgid, log_path):
         raise ValueError('log writer still open: ' + result.stdout.strip())
 
 
-def complete_attempt(attempt, mode, log_path, fields, digest, metrics, hours):
+def complete_attempt(attempt, mode, log_path, fields, digest, metrics, hours, transaction=None):
+    """Defer stop signals through validation and commit, including the caller handoff."""
+    with p.deferred_termination():
+        result = _complete_attempt(attempt, mode, log_path, fields, digest, metrics, hours)
+        if transaction is not None:
+            transaction['committed'] = True
+        return result
+
+
+def _complete_attempt(attempt, mode, log_path, fields, digest, metrics, hours):
     outputs = validate_outputs(attempt, mode, fields['effective_args'])
     fields['mutable_inputs']['train_manifest'] = {
         'path': str((attempt / 'train_manifest.json').resolve()), 'sha256': digest}
@@ -463,29 +472,37 @@ def complete_attempt(attempt, mode, log_path, fields, digest, metrics, hours):
         resource_before=fields.get('resource_before'),
         metrics=metrics, wall_hours=hours() if callable(hours) else hours)
     preserved = attempt
+    preserved_log = log_path
+    recovered_log = Path(fields.get('log_path', str(log_path)))
     recovered = Path(fields.get('attempt_path', str(attempt)))
     if recovered != attempt:
         if recovered.parent != attempt.parent or not attempt.name.startswith(recovered.name + '_ABORTED_'):
             raise ValueError('invalid recovered attempt path')
         if os.path.lexists(recovered):
             raise FileExistsError('recovery destination already exists: ' + str(recovered))
-        completion['recovered_from'] = dict(attempt=attempt.name,
+        if recovered_log != log_path and os.path.lexists(recovered_log):
+            raise FileExistsError('recovery log destination already exists: ' + str(recovered_log))
+        completion['recovered_from'] = dict(attempt=attempt.name, log=str(log_path),
             abort=json.loads((attempt / 'abort.json').read_text()),
             recovered_at=datetime.datetime.now().astimezone().isoformat())
+        completion['log']['path'] = str(recovered_log)
     final = attempt.parent / 'final'
     previous_final = os.readlink(final) if final.is_symlink() else None
-    mask = signal.pthread_sigmask(signal.SIG_BLOCK,
-        {signal.SIGTERM, signal.SIGHUP, signal.SIGINT} if recovered != attempt else set())
     try:
         if recovered != attempt:
             attempt.rename(recovered)
             attempt = recovered
+            if recovered_log != log_path:
+                log_path.rename(recovered_log)
+                log_path = recovered_log
         p.write_completion(attempt / 'completion.json', completion)
         account_hours(attempt, completion['wall_hours'], previous_name=preserved.name, mode=mode)
         if mode == 'full':
             promote(attempt)
         return completion
     except BaseException:
+        if log_path != preserved_log:
+            log_path.rename(preserved_log)
         if attempt != preserved:
             if final.is_symlink() and os.readlink(final) == attempt.name:
                 if previous_final is None:
@@ -497,14 +514,12 @@ def complete_attempt(attempt, mode, log_path, fields, digest, metrics, hours):
             attempt.rename(preserved)
             account_hours(preserved, completion['wall_hours'], previous_name=attempt.name, mode=mode)
         raise
-    finally:
-        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
 
 
 def recovery_evidence(fields, execution, attempt, launcher_log):
     if fields.get('repo') != str(REPO) or fields.get('mode') not in ('smoke', 'probe', 'full'):
         raise ValueError('invalid recovery repo or mode')
-    if not re.fullmatch('[0-9a-fA-F]{40}', fields.get('reviewed_commit', '')):
+    if not re.fullmatch('[0-9a-f]{40}', fields.get('reviewed_commit', '')):
         raise ValueError('invalid reviewed_commit')
     closures = fields.get('source_closures', {})
     if (not TRAIN_MINIMUM <= {r['path'] for r in closures.get('training', {}).get('files', [])}
@@ -515,7 +530,7 @@ def recovery_evidence(fields, execution, attempt, launcher_log):
     mode = fields['mode']
     if mode in ('smoke', 'full'):
         save_dir = fields['effective_args']['save_dir']
-        original = save_dir[:-6] if mode == 'smoke' else save_dir
+        original = str(Path(save_dir).parent) if mode == 'smoke' else save_dir
         if (REPO / original).resolve() != Path(fields['attempt_path']):
             raise ValueError('recovery command attempt path mismatch')
         check_golden(fields['command'], mode, original)
@@ -583,9 +598,12 @@ def finalize_attempt(attempt, launcher_log=None):
             raise ValueError('invalid recorded execution duration')
         hours = max([hours] + [row['hours'] for row in hours_record(attempt.parent)['attempts']
                               if row['attempt'] == attempt.name])
+        transaction = {}
         try:
-            return complete_attempt(attempt, fields['mode'], log_path, fields, digest, guard.finish(), hours)
+            return complete_attempt(attempt, fields['mode'], log_path, fields, digest, guard.finish(), hours, transaction)
         except BaseException:
+            if transaction.get('committed'):
+                raise
             if (attempt / 'completion.json').exists():
                 (attempt / 'completion.json').unlink()
             raise
@@ -600,6 +618,7 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
     create_attempt(attempt.parent, attempt.name)  # An existing directory is never renamed.
     started, reason = time.monotonic(), 'setup_failed'
     started_at, guard = datetime.datetime.now().astimezone().isoformat(), None
+    transaction = {}
     try:
         if attempt == log_path or attempt in log_path.parents:
             raise ValueError('log must be outside attempt')
@@ -634,8 +653,10 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
         metrics = guard.finish()
         reason = 'output_invalid'
         return complete_attempt(attempt, mode, log_path, fields, digest, metrics,
-                                lambda: (time.monotonic() - started) / 3600)
+                                lambda: (time.monotonic() - started) / 3600, transaction)
     except BaseException as error:
+        if transaction.get('committed'):
+            raise
         reason = p.masked_abort_reason(error, reason)
         hours = (time.monotonic() - started) / 3600
         renamed = abort_log(log_path, reason, guard is not None and guard.log_created)

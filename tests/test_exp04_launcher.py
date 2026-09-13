@@ -347,7 +347,12 @@ def test_control_parity_refuses_nonexcluded_type_or_value_change(control_parity_
         launch.compare_control(runtime, control, control_env)
 
 
-def test_full_promotion_failure_accounts_elapsed_hours_once(tmp_path, monkeypatch):
+@pytest.mark.parametrize('boundary', [None, 'validate_outputs', 'revalidate', 'write_completion',
+                                      'account_hours', 'promote', 'complete_attempt'])
+@pytest.mark.parametrize('threaded', [False, True])
+def test_completion_transaction_and_failed_promotion(tmp_path, monkeypatch, boundary, threaded):
+    import threading
+    mask = launch.signal.pthread_sigmask(launch.signal.SIG_BLOCK, [])
     attempt, log = tmp_path / 'attempt_t', tmp_path / 'logs/train.log'
     argv = launch.command('full', str(attempt))
     fields = dict(repo=str(tmp_path), source_closures={}, train_data_identity=launch.p._inventory([], tmp_path),
@@ -366,9 +371,36 @@ def test_full_promotion_failure_accounts_elapsed_hours_once(tmp_path, monkeypatc
     def fail_promotion(path):
         assert (path / 'completion.json').is_file()
         raise OSError('promotion failed')
-    monkeypatch.setattr(launch, 'promote', fail_promotion)
-    with pytest.raises(OSError, match='promotion failed'):
+    if boundary:
+        owner = launch.p if boundary in ('revalidate', 'write_completion') else launch
+        original = getattr(owner, boundary)
+        def terminate(*args, **kwargs):
+            result = original(*args, **kwargs)
+            if boundary != 'write_completion' or Path(args[0]).name == 'completion.json':
+                def send():
+                    if threaded:
+                        launch.signal.pthread_sigmask(launch.signal.SIG_UNBLOCK, {launch.signal.SIGTERM})
+                    os.kill(os.getpid(), launch.signal.SIGTERM)
+                if threaded:
+                    worker = threading.Thread(target=send)
+                    worker.start()
+                    worker.join()
+                else:
+                    send()
+                assert launch.signal.SIGTERM in launch.signal.pthread_sigmask(launch.signal.SIG_BLOCK, [])
+            return result
+        monkeypatch.setattr(owner, boundary, terminate)
+    else:
+        monkeypatch.setattr(launch, 'promote', fail_promotion)
+    with pytest.raises(launch.LauncherTerminated if boundary else OSError):
         launch.execute_attempt(attempt, 'full', '1', log, lambda: fields, runner=runner)
+    assert launch.signal.pthread_sigmask(launch.signal.SIG_BLOCK, []) == mask
+    if boundary:
+        assert (attempt / 'completion.json').is_file() and log.is_file()
+        assert (attempt.parent / 'final').resolve() == attempt
+        assert not list(tmp_path.glob('*_ABORTED_*'))
+        assert launch.hours_record(tmp_path)['attempts'] == [dict(attempt=attempt.name, hours=1, mode='full')]
+        return
     aborted, = tmp_path.glob('attempt_t_ABORTED_*')
     assert aborted.name.endswith('_ABORTED_output_invalid')
     assert not attempt.exists() and not (aborted / 'completion.json').exists()

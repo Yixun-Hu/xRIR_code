@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+from tools.provenance import apply_umask
 from tools.exp04_profiles import get_profile, json_value, load_approved_digests
 from tools.paired_compare import admit_runs, producer_identity, recheck_inputs
 
@@ -172,6 +173,7 @@ def _publish(path, payload, overwrite=False):
     fd, temporary = tempfile.mkstemp(prefix='.' + path.name, dir=path.parent)
     try:
         with os.fdopen(fd, 'wb') as stream:
+            apply_umask(stream.fileno())
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())

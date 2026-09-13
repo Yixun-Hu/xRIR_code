@@ -623,6 +623,7 @@ def write_outputs(result, admitted, json_path, summary_path):
             fd, temporary = tempfile.mkstemp(prefix='.' + path.name, dir=path.parent)
             try:
                 with os.fdopen(fd, 'wb') as stream:
+                    provenance.apply_umask(stream.fileno())
                     stream.write(payload)
                     stream.flush()
                     os.fsync(stream.fileno())

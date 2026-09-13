@@ -156,6 +156,26 @@ def test_json_idempotence_and_force_md_only(table_fixture, tmp_path):
     assert (tmp_path / 'table.json').read_bytes() == first
 
 
+@pytest.mark.parametrize('producer', ['paired', 'table', 'table_overwrite'])
+def test_producer_output_modes(request, admission_fixture, tmp_path, producer):
+    if producer == 'paired':
+        fixture = admission_fixture()
+        argv, paths, main = fixture.argv, [fixture.output, fixture.summary, fixture.sidecar], pc.main
+    else:
+        table_fixture = request.getfixturevalue('table_fixture')
+        argv, main = table_argv(table_fixture, tmp_path), rt.main
+        paths = [tmp_path / name for name in ('table.json', 'table.md', 'table.json.provenance.json')]
+        if producer == 'table_overwrite':
+            paths[1].write_text('manual note')
+            argv += ['--force-md']
+    mask = rt.os.umask(0o027)
+    try:
+        main(argv)
+    finally:
+        rt.os.umask(mask)
+    assert [path.stat().st_mode & 0o777 for path in paths] == [0o640] * 3
+
+
 def test_no_partial_outputs_on_render_failure(table_fixture, tmp_path, monkeypatch):
     def fail(*args):
         raise RuntimeError('render failed')
