@@ -86,3 +86,11 @@ tools/exp04_launch.sh probe --gpu 0 --reviewed-commit f19b9b6 --log-dir ckpt/xRI
 nohup setsid tools/exp04_launch.sh full --gpu 0 --reviewed-commit f19b9b6 --probe-json ckpt/xRIR_simple_yawaug_8_shot/_probe_<TS>_probe.json --log-dir ckpt/xRIR_simple_yawaug_8_shot/_logs --timestamp <TS> > worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_<TS>_launcher.log 2>&1 &
 # 3. GPU 1 meanwhile: exp_05 fit probes (S_simple, S_cylindrical, L_simple, L_cylindrical), then exp_04's control/cyl evaluations (tools/exp04_eval_launch.py --gpu 1), then exp_05 S trainings
 ```
+
+## Executed launch (2026-09-13)
+```bash
+# rung-6 probe, GPU 0, 10:15 → receipt ckpt/xRIR_simple_yawaug_8_shot/_probe_20260913T101537_probe.json (ratio 1.0078, clean)
+tools/exp04_launch.sh probe --gpu 0 --reviewed-commit f19b9b6 --log-dir ckpt/xRIR_simple_yawaug_8_shot/_logs --timestamp 20260913T101537_probe
+# confirmatory training, GPU 0, 10:20:51 → attempt_20260913T102051 (launcher pid 566768, child pgid 567308)
+nohup setsid tools/exp04_launch.sh full --gpu 0 --reviewed-commit f19b9b6 --probe-json ckpt/xRIR_simple_yawaug_8_shot/_probe_20260913T101537_probe.json --log-dir ckpt/xRIR_simple_yawaug_8_shot/_logs --timestamp 20260913T102051 > worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_20260913T102051_launcher.log 2>&1 &
+```
