@@ -350,7 +350,7 @@ def test_control_parity_refuses_nonexcluded_type_or_value_change(control_parity_
 @pytest.mark.parametrize('boundary', [None, 'validate_outputs', 'revalidate', 'write_completion',
                                       'account_hours', 'promote', 'complete_attempt'])
 @pytest.mark.parametrize('threaded', [False, True])
-def test_completion_transaction_and_failed_promotion(tmp_path, monkeypatch, boundary, threaded):
+def test_completion_transaction_and_failed_promotion(tmp_path, monkeypatch, boundary, threaded, capsys):
     import threading
     mask = launch.signal.pthread_sigmask(launch.signal.SIG_BLOCK, [])
     attempt, log = tmp_path / 'attempt_t', tmp_path / 'logs/train.log'
@@ -396,6 +396,7 @@ def test_completion_transaction_and_failed_promotion(tmp_path, monkeypatch, boun
         launch.execute_attempt(attempt, 'full', '1', log, lambda: fields, runner=runner)
     assert launch.signal.pthread_sigmask(launch.signal.SIG_BLOCK, []) == mask
     if boundary:
+        assert 'CERTIFIED ' + str(attempt) in capsys.readouterr().out.splitlines()
         assert (attempt / 'completion.json').is_file() and log.is_file()
         assert (attempt.parent / 'final').resolve() == attempt
         assert not list(tmp_path.glob('*_ABORTED_*'))
@@ -520,12 +521,16 @@ def test_signals_abort_and_reap_sleeping_child(tmp_path, mode, signum):
 
 
 def test_termination_handlers_restore_previous_dispositions():
-    signals = (launch.signal.SIGTERM, launch.signal.SIGHUP)
-    before = [launch.signal.getsignal(s) for s in signals]
-    with pytest.raises(launch.LauncherTerminated):
-        with launch.termination_handlers():
-            os.kill(os.getpid(), launch.signal.SIGINT)
-    assert [launch.signal.getsignal(s) for s in signals] == before
+    previous = launch.signal.signal(launch.signal.SIGINT, launch.signal.default_int_handler)
+    try:
+        signals = (launch.signal.SIGINT, launch.signal.SIGTERM, launch.signal.SIGHUP)
+        before = [launch.signal.getsignal(s) for s in signals]
+        with pytest.raises(launch.LauncherTerminated):
+            with launch.termination_handlers():
+                os.kill(os.getpid(), launch.signal.SIGINT)
+        assert [launch.signal.getsignal(s) for s in signals] == before
+    finally:
+        launch.signal.signal(launch.signal.SIGINT, previous)
 
 
 def test_budget_refuses_legacy_rows_and_counts_explicit_modes(tmp_path):

@@ -699,6 +699,7 @@ def finalize_attempt(attempt, launcher_log=None):
             return complete_attempt(attempt, fields['mode'], log_path, fields, digest, guard.finish(), hours, transaction)
         except BaseException:
             if transaction.get('committed'):
+                print('CERTIFIED ' + str(original), flush=True)
                 raise
             if (attempt / 'completion.json').exists():
                 (attempt / 'completion.json').unlink()
@@ -760,6 +761,7 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
                                 lambda: (time.monotonic() - started) / 3600, transaction)
     except BaseException as error:
         if transaction.get('committed'):
+            print('CERTIFIED ' + str(attempt), flush=True)
             raise
         reason = p.masked_abort_reason(error, reason)
         hours = (time.monotonic() - started) / 3600

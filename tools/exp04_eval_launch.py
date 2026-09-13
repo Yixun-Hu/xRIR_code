@@ -56,6 +56,7 @@ def execute_run(args, command, fields_factory, repo):
     reason = "setup_failed"
     log_path = None
     log_created = False
+    committed = False
     started = datetime.datetime.now().astimezone()
     try:
         log_dir = Path(args.log_dir).resolve()
@@ -95,23 +96,28 @@ def execute_run(args, command, fields_factory, repo):
             if name == "per_sample_yaw.json" and (not isinstance(payload.get("query"), list)
                     or len(payload["query"]) != fields["n_samples"]):
                 raise ValueError("output query count mismatch")
-        reason = "input_changed"
-        declared = dict(fields, eval_manifest={"path": str(manifest_path), "sha256": digest})
-        mismatches = p.revalidate(declared, required=REQUIRED_INPUTS)
-        if mismatches:
-            raise ValueError("mutable input mismatch: " + ", ".join(mismatches))
-        reason = "output_invalid"
-        completion = {"schema_version": 1, "eval_manifest_sha256": digest,
-                      "confirmatory": fields['confirmatory'], "allow_dirty_used": fields['allow_dirty_used'],
-                      "directory_listing": listing, "child_exit_status": status,
-                      "started_at": started.isoformat(),
-                      "ended_at": datetime.datetime.now().astimezone().isoformat(),
-                      "log": {"path": str(log_path), "sha256": p.sha256_file(log_path)},
-                      "outputs": {name: p.sha256_file(run / name) for name in OUTPUTS}}
-        completion.update(tier_fields)
-        p.write_completion(run / "completion.json", completion)
+        with p.deferred_termination():
+            reason = "input_changed"
+            declared = dict(fields, eval_manifest={"path": str(manifest_path), "sha256": digest})
+            mismatches = p.revalidate(declared, required=REQUIRED_INPUTS)
+            if mismatches:
+                raise ValueError("mutable input mismatch: " + ", ".join(mismatches))
+            reason = "output_invalid"
+            completion = {"schema_version": 1, "eval_manifest_sha256": digest,
+                          "confirmatory": fields['confirmatory'], "allow_dirty_used": fields['allow_dirty_used'],
+                          "directory_listing": listing, "child_exit_status": status,
+                          "started_at": started.isoformat(),
+                          "ended_at": datetime.datetime.now().astimezone().isoformat(),
+                          "log": {"path": str(log_path), "sha256": p.sha256_file(log_path)},
+                          "outputs": {name: p.sha256_file(run / name) for name in OUTPUTS}}
+            completion.update(tier_fields)
+            p.write_completion(run / "completion.json", completion)
+            committed = True
         return completion
     except BaseException as error:
+        if committed:
+            print('CERTIFIED ' + str(run), flush=True)
+            raise
         reason = p.masked_abort_reason(error, reason)
         renamed = None
         if log_created:

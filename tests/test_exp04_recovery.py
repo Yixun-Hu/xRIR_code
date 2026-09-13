@@ -241,7 +241,7 @@ def test_recovery_refuses_uppercase_reviewed_commit(preserved_attempt):
 
 
 @pytest.mark.parametrize('boundary', ['directory', 'log'])
-def test_recovery_defers_signal_through_renames(preserved_attempt, monkeypatch, boundary):
+def test_recovery_defers_signal_through_renames(preserved_attempt, monkeypatch, boundary, capsys):
     original, log = preserved_attempt
     aborted_log = log.with_name('train_ABORTED_interrupted.log')
     log.rename(aborted_log)
@@ -256,6 +256,7 @@ def test_recovery_defers_signal_through_renames(preserved_attempt, monkeypatch, 
     monkeypatch.setattr(Path, 'rename', terminate)
     with pytest.raises(launch.LauncherTerminated):
         launch.finalize_attempt(attempt, attempt.parent / 'launcher.log')
+    assert 'CERTIFIED ' + str(original) in capsys.readouterr().out.splitlines()
     result = json.loads((original / 'completion.json').read_text())
     assert result['recovered_from']['log'] == str(aborted_log)
     assert log.is_file() and not aborted_log.exists() and not attempt.exists()

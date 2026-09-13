@@ -97,6 +97,30 @@ def test_completion_binds_manifest_closed_log_and_outputs(attempt, allow_dirty):
     assert datetime.datetime.fromisoformat(completion['started_at']) <= datetime.datetime.fromisoformat(completion['ended_at'])
 
 
+@pytest.mark.parametrize('boundary', ['revalidate', 'write_completion'])
+def test_signal_during_tail_certifies_then_exits_one(attempt, boundary):
+    args, _, fields = attempt
+    code = '''
+import os, signal
+from types import SimpleNamespace
+from tools import exp04_eval_launch as launch, provenance as p
+signal.signal(signal.SIGTERM, signal.SIG_DFL)
+original = getattr(p, %r)
+def terminate(*a, **kw):
+    result = original(*a, **kw)
+    os.kill(os.getpid(), signal.SIGTERM)
+    return result
+setattr(p, %r, terminate)
+launch.execute_run(SimpleNamespace(**%r), %r, lambda: %r, %r)
+''' % (boundary, boundary, vars(args), child_code(args.out_dir), fields, args.data_root)
+    result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 1 and 'LauncherTerminated: SIGTERM' in result.stderr
+    run = Path(args.out_dir)
+    assert 'CERTIFIED ' + str(run) in result.stdout.splitlines()
+    assert (run / 'completion.json').is_file() and not (run / 'abort.json').exists()
+    assert not list(run.parent.glob('*_ABORTED_*'))
+
+
 @pytest.mark.parametrize('name,fault', [(name, fault) for name in launcher.OUTPUTS
     for fault in ['extra', 'directory', 'json', 'digest', 'conditions', 'n_samples', 'query', 'meta']
     if fault != 'query' or name == 'per_sample_yaw.json'])
