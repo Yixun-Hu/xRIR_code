@@ -1,9 +1,11 @@
 """Exp_05 paired capacity inference; all numerical primitives reuse exp_04 imports."""
 import json
+import argparse
 from pathlib import Path
+from types import FunctionType
 import numpy as np
 from tools import provenance
-from tools.exp05_profiles import get_profile, json_value, load_approved_digests
+from tools.exp05_profiles import PROFILES, get_profile, json_value, load_approved_digests
 from tools.paired_compare import (one_sided_upper, two_sided_interval, five_seed_mean,
     cell_mask, rho_bootstrap, convergence, admit_run, admit_runs, producer_identity,
     recheck_inputs, write_outputs)
@@ -258,3 +260,64 @@ def admit(directories, profile, approved=None, producer=None, exploratory=False)
         raise ValueError('admission failed: ' + '; '.join(deviations))
     admitted.update(deviations=deviations, compatibility=compatibility)
     return admitted
+
+
+def render_summary(result):
+    label = 'EXPLORATORY' if result['exploratory'] else 'DESCRIPTIVE' if result['profile']['mode'] == 'yaw' else 'CONFIRMATORY'
+    lines = [label + ' ' + result['profile_name'], 'Profile sha256: ' + result['profile_digest']]
+    for point in result['curves']:
+        lines.append('{arm} {metric} k={k}: mean={mean:.8g}, seed SD={sd}, CI={interval}, '
+            'encoder={encoder}, full={full}, own cohort n={cohort[n_queries]}, rooms={cohort[n_rooms]}'.format(**point))
+        lines.append('Excluded queries per seed: ' + str({s: len(q) for s, q in point['excluded'].items()}))
+    for cell in result['cells']:
+        lines.append('{} {}: rho={:.8g}, CI={}, room CI={}, paired n={}, rooms={}'.format(
+            ' vs '.join(cell['pairing']), cell['metric'], cell['estimate'], cell['companion_interval'],
+            cell['room_cluster_interval'], cell['paired_cohort']['n_queries'], cell['paired_cohort']['n_rooms']))
+        if 'target' in cell:
+            lines.append('target on paired cohort={}; baseline own cohort mean={}, n={}, rooms={}; TOST CI={}'.format(
+                cell['target'], cell['baseline_own']['mean'], cell['baseline_own']['cohort']['n_queries'],
+                cell['baseline_own']['cohort']['n_rooms'], cell['tost_interval']))
+        if 'reaches_target' in cell:
+            lines.append('Reaches target: ' + str(cell['reaches_target']))
+    lines.extend('{}: {}'.format(m, v) for m, v in result.get('verdicts', {}).items())
+    for ratio in result.get('parameter_ratios', []):
+        lines.append('{} encoder ratio={}/{}={:.8g} (reduction {:.8g}x), {}'.format(
+            ' vs '.join(ratio['pairing']), ratio['numerator'], ratio['denominator'], ratio['ratio'],
+            ratio['reduction_factor'], ratio['scope']))
+    lines.extend('Deviation: ' + d for d in result['deviations'])
+    return '\n'.join(lines) + '\n'
+
+
+def publish(result, admitted, json_path, summary_path):
+    """Reuse the imported exclusive writer with an isolated renderer binding.
+
+    exp04's writer has no renderer argument. A private globals copy keeps its
+    exact publication/sidecar code and leaves all shared module globals intact.
+    """
+    writer = FunctionType(write_outputs.__code__, dict(write_outputs.__globals__, render_summary=render_summary),
+                          write_outputs.__name__, write_outputs.__defaults__, write_outputs.__closure__)
+    recheck_inputs(admitted)
+    writer(result, admitted, json_path, summary_path)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--profile', choices=tuple(PROFILES), required=True)
+    parser.add_argument('--runs', nargs='+', required=True)
+    parser.add_argument('--json', required=True)
+    parser.add_argument('--summary', required=True)
+    parser.add_argument('--exploratory', action='store_true')
+    args = parser.parse_args(argv)
+    profile = get_profile(args.profile)
+    admitted = admit(args.runs, profile, exploratory=args.exploratory)
+    result = analyze(profile, admitted, args.exploratory)
+    result.update(profile_name=args.profile, compatibility=admitted['compatibility'])
+    publish(result, admitted, args.json, args.summary)
+    return result
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (ValueError, OSError, RuntimeError, KeyError, TypeError) as error:
+        raise SystemExit(str(error))
