@@ -193,18 +193,30 @@ def run_contract(directory, arm, profile, pins):
     require(names <= {'control_args', 'train_args', 'train_manifest', 'train_completion', 'probe_receipt'},
             'unknown mutable binding')
     waivers = []
-    if old and not current:
+    legacy_evaluator = old and not current
+    if legacy_evaluator:
         require('train_args' not in names, 'legacy evaluator has unexpected train_args binding')
-        waivers.append(str(directory) + ': evaluator approved closure')
-        return dict(evaluator='tools.exp04_eval', sha256=digest, tier_source='pinned historical M checkpoint',
-                    waivers=waivers, inputs=inputs)
-    require('train_args' in names, 'missing train_args binding')
+    args_name = 'control_args' if legacy_evaluator else 'train_args'
+    require(args_name in names, 'missing ' + args_name + ' binding')
     root = Path(fields['repo'])
+    if arm['tier'] != 'M':
+        training = {}
+        for name in ('train_manifest', 'train_completion'):
+            require(name in names, 'missing ' + name + ' binding')
+            bound = fields['mutable_inputs'][name]
+            bound_path = (root / bound['path']).resolve()
+            training[name] = read(bound_path)
+            require(inputs[str(bound_path)] == bound['sha256'], name + ' bytes')
+        launcher = training['train_manifest']['source_closures']['launcher']['sha256']
+        require(launcher is not None and launcher == pins['closures']['training_launcher'], 'training launcher closure')
+        epoch = 'epoch_{:03d}.pth'.format(arm['epoch'])
+        require(training['train_completion']['outputs'].get(epoch) == fields['checkpoint_sha256'],
+                'train_completion checkpoint epoch/digest')
     path = (root / fields['checkpoint']).resolve().parent / 'args.json'
-    binding = fields['mutable_inputs']['train_args']
-    require((root / binding['path']).resolve() == path, 'train_args binding path')
+    binding = fields['mutable_inputs'][args_name]
+    require((root / binding['path']).resolve() == path, args_name + ' binding path')
     recorded = read(path)
-    require(inputs[str(path.resolve())] == binding['sha256'], 'train_args bytes')
+    require(inputs[str(path.resolve())] == binding['sha256'], args_name + ' bytes')
     config = {'vit_' + key: value for key, value in arm['config'].items()}
     legacy = not any(key in recorded for key in config) and 'tier' not in recorded
     require(not legacy or arm['tier'] == 'M', 'legacy args require tier M')
@@ -213,9 +225,15 @@ def run_contract(directory, arm, profile, pins):
         require(recorded.get('tier', arm['tier']) == arm['tier'], 'args tier')
         require(_equal(recorded.get('param_counts'), arm['counts']), 'args tier counts')
     require(recorded.get('backbone') == arm['backbone'], 'args backbone')
-    for key, value in dict(num_shot=8, epochs=12, batch_size=32, accum_steps=2, seed=0).items():
+    for key, value in dict(num_shot=8, max_len=9600, lr=.001, weight_decay=.0001,
+        decay_epochs=3, lr_gamma=.1, epochs=12, batch_size=32, accum_steps=2, seed=0, tf32=True).items():
         require(_equal(recorded.get(key), value), 'args ' + key)
-    require(_equal(recorded.get('yaw_aug', 0), 0) and _equal(recorded.get('no_save', False), False), 'args augmentation/save')
+    for key, value in dict(yaw_aug=0, no_save=False).items():
+        require(_equal(recorded.get(key, value if legacy else None), value), 'args ' + key)
+    if legacy_evaluator:
+        waivers.append(str(directory) + ': evaluator approved closure')
+        return dict(evaluator='tools.exp04_eval', sha256=digest, tier_source='pinned historical M checkpoint',
+                    waivers=waivers, inputs=inputs)
     expected = dict(config, tier=arm['tier'], param_counts=arm['counts'], legacy_M=legacy,
                     args_json_sha256=binding['sha256'])
     for payload in (fields, completion, sample['meta'], metrics['meta']):

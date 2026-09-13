@@ -126,3 +126,95 @@ def test_m_group_may_mix_individually_approved_evaluators(exp05_fixture):
     result = pc.admit(current.directories, current.profile, current.approved, current.producer)
     names = [v['evaluator'] for k, v in result['compatibility'].items() if '/M_simple_' in k]
     assert names.count('tools.exp04_eval') == 1 and names.count('tools.exp05_eval') == 4
+
+
+@pytest.mark.parametrize('role', ['S_simple', 'S_cyl', 'L_simple', 'L_cyl'])
+@pytest.mark.parametrize('kind', ['train_manifest', 'train_completion', 'launcher', 'epoch', 'digest', 'bytes'])
+def test_training_evidence_refusals(exp05_fixture, role, kind):
+    f = exp05_fixture()
+    directory = Path(f.paths[role][0])
+    fields = f.read(directory / 'eval_manifest.json')
+    if kind in ('train_manifest', 'train_completion'):
+        del fields['mutable_inputs'][kind]
+        message = 'missing ' + kind
+    else:
+        binding = fields['mutable_inputs']['train_manifest' if kind == 'launcher' else 'train_completion']
+        path = Path(binding['path'])
+        value = f.read(path)
+        if kind == 'launcher':
+            value['source_closures']['launcher']['sha256'] = '0'*64
+        elif kind == 'epoch':
+            value['outputs']['epoch_011.pth'] = value['outputs'].pop('epoch_012.pth')
+        else:
+            value['outputs']['epoch_012.pth'] = '0'*64
+        f.replace(path, value)
+        if kind != 'bytes':
+            binding['sha256'] = pc.provenance.sha256_file(path)
+        message = 'training launcher closure' if kind == 'launcher' else 'train_completion'
+    for path in f.paths[role]:
+        other = f.read(Path(path) / 'eval_manifest.json')
+        other['mutable_inputs'] = fields['mutable_inputs']
+        f.rebind(Path(path), manifest=other)
+    with pytest.raises(ValueError, match=message):
+        pc.admit(f.directories, f.profile, f.approved, f.producer)
+
+
+def test_equal_training_launchers_must_match_approved_pin(exp05_fixture):
+    f = exp05_fixture()
+    f.pins['closures']['training_launcher'] = '0'*64
+    with pytest.raises(ValueError, match='training launcher closure'):
+        pc.admit(f.directories, f.profile, f.approved, f.producer)
+
+
+def rebind_args(f, directory, recorded):
+    fields = f.read(directory / 'eval_manifest.json')
+    binding = fields['mutable_inputs'].get('train_args', fields['mutable_inputs'].get('control_args'))
+    path = Path(binding['path'])
+    f.replace(path, recorded)
+    binding['sha256'] = pc.provenance.sha256_file(path)
+    for name in ('eval_manifest.json', 'completion.json', 'per_sample_yaw.json', 'metrics_yaw.json'):
+        payload = fields if name == 'eval_manifest.json' else f.read(directory / name)
+        meta = payload.get('meta', payload)
+        if 'args_json_sha256' in meta:
+            meta['args_json_sha256'] = binding['sha256']
+        f.replace(directory / name, payload)
+    f.rebind(directory)
+
+
+@pytest.mark.parametrize('key', ['num_shot', 'max_len', 'lr', 'weight_decay', 'decay_epochs',
+    'lr_gamma', 'epochs', 'batch_size', 'accum_steps', 'seed', 'tf32', 'yaw_aug', 'no_save',
+    'vit_dim', 'vit_depth', 'vit_heads', 'vit_mlp_dim'])
+@pytest.mark.parametrize('change', ['missing', 'value', 'type'])
+def test_full_recipe_refusals(exp05_fixture, key, change):
+    f = exp05_fixture()
+    arm = f.profile['arms'][0]
+    directory = Path(f.paths[arm['role']][0])
+    recorded = f.read(Path(arm['checkpoint']).parent / 'args.json')
+    value = recorded.pop(key)
+    if change == 'value':
+        recorded[key] = not value if type(value) is bool else value + 1
+    elif change == 'type':
+        recorded[key] = float(value) if type(value) is int else int(value)
+    rebind_args(f, directory, recorded)
+    with pytest.raises(ValueError, match='args'):
+        pc.run_contract(directory, arm, f.profile, f.pins)
+
+
+@pytest.mark.parametrize('legacy', [False, True])
+@pytest.mark.parametrize('index', [2, 3])
+def test_historical_m_recipe_files_pass_unchanged(exp05_fixture, legacy, index):
+    f = exp05_fixture(m_exp04=legacy)
+    arm = f.profile['arms'][index]
+    original = pc.REPO / pc.PROFILES['CURVE_K8']['arms'][index]['checkpoint']
+    args_path = original.parent / 'args.json'
+    before = args_path.read_bytes()
+    directory = Path(f.paths[arm['role']][0])
+    recorded = f.read(args_path)
+    for path in f.paths[arm['role']]:
+        rebind_args(f, Path(path), recorded)
+    pc.admit(f.directories, f.profile, f.approved, f.producer)
+    recorded['lr'] = 1
+    rebind_args(f, directory, recorded)
+    with pytest.raises(ValueError, match='args lr'):
+        pc.run_contract(directory, arm, f.profile, f.pins)
+    assert args_path.read_bytes() == before
