@@ -107,3 +107,22 @@ def test_analysis_refusals_and_exploratory_has_no_decisions():
     with pytest.raises(ValueError, match='pairing'):
         pc.analyze(profile, admitted)
     assert pc.analyze(profile, admitted, exploratory=True)['cells'] == []
+
+
+def test_yaw_uses_single_seed_paired_angle_cohort_without_verdicts():
+    profile, groups = synthetic('YAW_K8_SEED42')
+    groups[0][0]['P']['32']['edt'] = [None] + [5.0]*11
+    result = pc.analyze(profile, dict(groups=groups, inputs={}, deviations=[], run_flags={}))
+    cell = next(c for c in result['cells'] if c['arm'] == 'S_simple' and c['metric'] == 'EDT' and c['k'] == 32)
+    assert cell['paired_cohort']['n_queries'] == 11
+    base = np.mean(groups[0][0]['P']['0']['edt'][1:])
+    assert cell['estimate'] == pytest.approx((5-base)/base)
+    assert len(result['cells']) == 6*3*4
+    assert not set(cell) & {'superior', 'equivalent', 'reaches_target', 'verdict'}
+
+
+@pytest.mark.parametrize('bounds,expected', [((-.03, .02), False), ((-.02, .03), False), ((-.02, .02), True)])
+def test_tost_strict_endpoints(monkeypatch, bounds, expected):
+    profile, groups = synthetic('TARGETS_K8')
+    monkeypatch.setattr(pc, 'two_sided_interval', lambda *args: bounds)
+    assert pc.comparison(profile, groups, ('S_cyl', 'M_simple'), 'EDT')['equivalent'] is expected

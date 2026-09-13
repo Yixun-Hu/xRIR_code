@@ -90,6 +90,23 @@ def comparison(profile, groups, pairing, metric):
     return cell
 
 
+def yaw_cell(profile, run, arm, metric, k):
+    """Descriptive seed-42 yaw change, paired with k=0 within one arm."""
+    base, angle = (matrix([run], metric, x)[0] for x in (0, k))
+    mask = np.isfinite(base) & np.isfinite(angle)
+    retained = cohort(run['query'], mask)
+    def compute(clusters=None):
+        return rho_bootstrap(angle[mask], base[mask], profile['n_boot'], profile['bootstrap_seeds'][0], clusters)
+    query = compute()
+    room = compute(rooms_from_paths(run['query'])[mask])
+    return dict(arm=arm['role'], metric=metric, k=k, seed=42, estimate=query['rho'],
+        pairing=['{} k={}'.format(arm['role'], k), arm['role'] + ' k=0'], paired_cohort=retained,
+        paired_means={'0': float(base[mask].mean()), str(k): float(angle[mask].mean())},
+        companion_interval=list(two_sided_interval(query['samples'], profile['curve_alpha'])),
+        room_cluster_interval=list(two_sided_interval(room['samples'], profile['curve_alpha'])),
+        excluded=np.asarray(run['query'])[~mask].tolist())
+
+
 def analyze(profile, admitted, exploratory=False):
     """Compute all registered arms/cells; convergence and admission precede verdicts."""
     result = dict(schema_version=1, profile=json_value(profile), profile_digest=_digest(profile),
@@ -114,6 +131,8 @@ def analyze(profile, admitted, exploratory=False):
             for k in profile['grid']:
                 try:
                     result['curves'].append(curve_point(profile, runs, arm, metric, k))
+                    if profile['mode'] == 'yaw' and k != 0:
+                        result['cells'].append(yaw_cell(profile, runs[0], arm, metric, k))
                 except (ValueError, KeyError, TypeError, IndexError) as exc:
                     failure('{} {} k={}: {}'.format(arm['role'], metric, k, exc))
     for pairing in profile.get('pairings', ()):
