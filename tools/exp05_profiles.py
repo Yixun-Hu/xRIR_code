@@ -45,6 +45,7 @@ CURVE_K8, CURVE_K1 = (MP({**H1, 'num_shot': k}) for k in (8, 1))
 TARGETS_K8, TARGETS_K1 = (MP({**H2, 'num_shot': k}) for k in (8, 1))
 YAW_K8_SEED42 = MP({**BASE, 'mode': 'yaw', 'num_shot': 8, 'family': 0,
     'eval_seeds': (42,), 'grid': (0, 32, 64, 448, 480), 'input_selection': 'block',
+    'verdict_scope': 'descriptive only at the tested tiers and yaw angles; no confirmatory verdict',
     'run_grids': MP({a['role']: (0, 32, 64, 448, 480) for a in ARMS})})
 PROFILES = MP(dict(CURVE_K8=CURVE_K8, CURVE_K1=CURVE_K1, TARGETS_K8=TARGETS_K8,
                    TARGETS_K1=TARGETS_K1, YAW_K8_SEED42=YAW_K8_SEED42))
@@ -78,9 +79,10 @@ def load_approved_digests(path=None):
     checks = [(value['schema_version'], lambda v: type(v) is int and v == 1)]
     digest = lambda v: type(v) is str and re.fullmatch('[0-9a-f]{64}', v)
     checks += [(value['closures'][k], digest) for k in closure_keys]
-    for arm in value['checkpoints'].values():
+    for role, arm in value['checkpoints'].items():
         shape(arm, ('path', 'epoch', 'sha256'))
-        checks += [(arm['path'], lambda v: type(v) is str and bool(v)),
+        expected = next(a['checkpoint'] for a in ARMS if a['role'] == role)
+        checks += [(arm['path'], lambda v, expected=expected: type(v) is str and v == expected),
                    (arm['epoch'], lambda v: type(v) is int and v == 12), (arm['sha256'], digest)]
     optional = value['closures'].get('evaluator_exp04')
     if any(v is not None and not valid(v) for v, valid in checks) or (optional is not None and not digest(optional)):

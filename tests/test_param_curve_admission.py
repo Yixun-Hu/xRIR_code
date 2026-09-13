@@ -218,3 +218,13 @@ def test_historical_m_recipe_files_pass_unchanged(exp05_fixture, legacy, index):
     with pytest.raises(ValueError, match='args lr'):
         pc.run_contract(directory, arm, f.profile, f.pins)
     assert args_path.read_bytes() == before
+
+
+@pytest.mark.parametrize('count', [1, 5])
+def test_missing_m_runs_are_distinguished_from_invalid_runs(exp05_fixture, count):
+    f = exp05_fixture()
+    missing = f.paths['M_simple'][:count]
+    with pytest.raises(ValueError) as error:
+        pc.admit([d for d in f.directories if d not in missing], f.profile, f.approved, f.producer)
+    assert 'M_simple missing' in str(error.value)
+    assert 're-evaluate M' not in str(error.value)

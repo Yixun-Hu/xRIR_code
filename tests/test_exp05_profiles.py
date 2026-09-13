@@ -68,13 +68,19 @@ def test_approval_commit_binding_and_types(tmp_path):
         p.load_approved_digests(path)
 
 
-def test_filled_approvals_are_frozen_and_distinct_from_template(tmp_path):
+@pytest.mark.parametrize('wrong_role', [None, 'S_simple', 'S_cyl', 'L_simple', 'L_cyl'])
+def test_filled_approvals_are_frozen_and_distinct_from_template(tmp_path, wrong_role):
     value = json.loads(p.APPROVED_DIGESTS_PATH.read_text())
     value['schema_version'] = 1
     value['closures'] = dict.fromkeys(value['closures'], 'a'*64)
     for role in value['checkpoints']:
         arm = next(a for a in p.ARMS if a['role'] == role)
         value['checkpoints'][role] = dict(path=arm['checkpoint'], epoch=12, sha256='b'*64)
+    if wrong_role:
+        value['checkpoints'][wrong_role]['path'] = 'ckpt/another/epoch_012.pth'
+        with pytest.raises(ValueError, match='schema'):
+            p.load_approved_digests(approval_repo(tmp_path, value))
+        return
     pins, receipt = p.load_approved_digests(approval_repo(tmp_path, value))
     assert p.json_value(pins) == value and len(receipt['git_blob']) == 40
     with pytest.raises(TypeError):

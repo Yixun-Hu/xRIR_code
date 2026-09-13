@@ -9,7 +9,7 @@ from tools import provenance
 from tools.exp05_profiles import PROFILES, get_profile, json_value, load_approved_digests
 from tools.paired_compare import (one_sided_upper, two_sided_interval, five_seed_mean,
     cell_mask, rho_bootstrap, convergence, admit_run, admit_runs, producer_identity,
-    recheck_inputs, write_outputs)
+    write_outputs)
 from tools.paired_stats import equivalence_tost, bonferroni_alpha
 from tools.summarize_yaw import rooms_from_paths
 from tools.paired_compare import REPO, _digest, _equal
@@ -23,7 +23,8 @@ def cohort(queries, mask):
     if not mask.any():
         raise ValueError('empty cohort')
     return dict(n_queries=int(mask.sum()), n_rooms=len(set(rooms_from_paths(queries)[mask])),
-                queries=np.asarray(queries)[mask].tolist())
+        retained_sha256=_digest(sorted(np.asarray(queries)[mask].tolist())),
+        excluded=np.asarray(queries)[~mask].tolist())
 
 
 def seed_summary(values, mask):
@@ -57,6 +58,8 @@ def comparison(profile, groups, pairing, metric):
     ia, ib = [roles.index(role) for role in pairing]
     a, b = matrix(groups[ia], metric), matrix(groups[ib], metric)
     mask, exclusions = cell_mask(a, e0_b=b, seeds=profile['eval_seeds'])
+    roles_by_key = dict(zip(('a', 'b'), pairing))
+    exclusions = {roles_by_key.get(key, key): value for key, value in exclusions.items()}
     queries = groups[ia][0]['query']
     means = [five_seed_mean(v)[mask] for v in (a, b)]
     seeds = profile['bootstrap_seeds']
@@ -100,6 +103,7 @@ def yaw_cell(profile, run, arm, metric, k):
     query = compute()
     room = compute(rooms_from_paths(run['query'])[mask])
     return dict(arm=arm['role'], metric=metric, k=k, seed=42, estimate=query['rho'],
+        descriptive=True, verdict_scope=profile['verdict_scope'],
         pairing=['{} k={}'.format(arm['role'], k), arm['role'] + ' k=0'], paired_cohort=retained,
         paired_means={'0': float(base[mask].mean()), str(k): float(angle[mask].mean())},
         companion_interval=list(two_sided_interval(query['samples'], profile['curve_alpha'])),
@@ -112,6 +116,8 @@ def analyze(profile, admitted, exploratory=False):
     result = dict(schema_version=1, profile=json_value(profile), profile_digest=_digest(profile),
         exploratory=exploratory, deviations=list(admitted['deviations']),
         inputs=admitted['inputs'], run_flags=admitted['run_flags'], cells=[], curves=[])
+    if 'verdict_scope' in profile:
+        result['verdict_scope'] = profile['verdict_scope']
     def failure(message):
         if not exploratory:
             raise ValueError(message)
@@ -156,7 +162,7 @@ def analyze(profile, admitted, exploratory=False):
         for metric in profile['metrics']['primary']:
             supported = sum(c['superior'] for c in result['cells'] if c['metric'] == metric)
             result['verdicts'][metric] = ('dominance supported on {} at the three tested tiers'.format(metric)
-                if supported == 3 else 'partial' if supported else 'not supported')
+                if supported == len(profile['pairings']) else 'partial' if supported else 'not supported')
     else:
         result['parameter_ratios'] = []
         arms = {a['role']: a for a in profile['arms']}
@@ -297,12 +303,14 @@ def admit(directories, profile, approved=None, producer=None, exploratory=False)
     for (arm, _, _), runs in zip(groups, admitted['groups']):
         seeds = [r['meta']['manifest_seed'] for r in runs]
         valid = (all(type(s) is int for s in seeds) and seeds == list(profile['eval_seeds']))
-        check(valid, arm['role'] + ' registered seed set' + ('; re-evaluate M' if arm['tier'] == 'M' else ''))
+        missing = len(seeds) < len(profile['eval_seeds'])
+        check(valid, arm['role'] + (' missing evaluation runs' if missing else ' registered seed set') +
+              ('; re-evaluate M' if arm['tier'] == 'M' and not missing else ''))
         if profile['mode'] == 'yaw' and valid:
             waivers.add(arm['role'] + ' seed set')
     deviations.extend(d for d in admitted['deviations'] if d not in waivers)
     if deviations and not exploratory:
-        if any(a['tier'] == 'M' and any(path in d or a['role'] in d for path in paths for d in deviations)
+        if any(a['tier'] == 'M' and any(path in d for path in paths for d in deviations)
                for a, _, paths in groups):
             deviations.append('re-evaluate M')
         raise ValueError('admission failed: ' + '; '.join(deviations))
@@ -342,9 +350,9 @@ def publish(result, admitted, json_path, summary_path):
     exp04's writer has no renderer argument. A private globals copy keeps its
     exact publication/sidecar code and leaves all shared module globals intact.
     """
+    assert 'render_summary' in write_outputs.__code__.co_names, 'writer must look up render_summary'
     writer = FunctionType(write_outputs.__code__, dict(write_outputs.__globals__, render_summary=render_summary),
                           write_outputs.__name__, write_outputs.__defaults__, write_outputs.__closure__)
-    recheck_inputs(admitted)
     writer(result, admitted, json_path, summary_path)
 
 

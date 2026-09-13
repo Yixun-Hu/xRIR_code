@@ -23,7 +23,14 @@ def test_cli_outputs_canonical_deterministic_and_exclusive(exp05_fixture, monkey
     f = exp05_fixture(name)
     argv = command(monkeypatch, f)
     original = shared.render_summary
+    calls, recheck = [], shared.recheck_inputs
+    def checked(admitted):
+        calls.append(admitted)
+        return recheck(admitted)
+    monkeypatch.setattr(shared, 'recheck_inputs', checked)
+    monkeypatch.setattr(pc, 'recheck_inputs', checked, raising=False)
     result = pc.main(argv)
+    assert len(calls) == 1
     assert shared.render_summary is original
     raw = (f.root / 'result.json').read_bytes()
     data = json.loads(raw)
@@ -33,6 +40,7 @@ def test_cli_outputs_canonical_deterministic_and_exclusive(exp05_fixture, monkey
     assert str(f.root / 'result.json.provenance.json') not in receipt['outputs']
     assert receipt['approved_digests']['sha256'] == f.approved[1]['sha256']
     summary = (f.root / 'summary.txt').read_text()
+    assert summary.startswith('CONFIRMATORY ' + name + '\n')
     assert 'S_simple EDT' in summary and 'encoder=2766080' in summary
     if name.startswith('TARGETS'):
         assert 'target on paired cohort' in summary and 'baseline own cohort' in summary
@@ -85,3 +93,10 @@ def test_summary_rendering_cannot_race_publication_inputs(exp05_fixture, monkeyp
     with pytest.raises(ValueError, match='input changed'):
         pc.main(argv)
     assert not any((f.root / name).exists() for name in ('result.json', 'summary.txt', 'result.json.provenance.json'))
+
+
+def test_writer_adapter_refuses_missing_renderer_hook(tmp_path, monkeypatch):
+    monkeypatch.setattr(pc, 'write_outputs', lambda *args: None)
+    with pytest.raises(AssertionError, match='render_summary'):
+        pc.publish({}, {}, tmp_path / 'result.json', tmp_path / 'summary.txt')
+    assert list(tmp_path.iterdir()) == []

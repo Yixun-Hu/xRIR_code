@@ -28,6 +28,8 @@ def test_paired_target_counterexample_and_own_cohort():
     assert cell['target'] == 3 and cell['baseline_own']['mean'] == 2
     assert cell['paired_cohort']['n_queries'] == 2
     assert cell['baseline_own']['cohort']['n_queries'] == 4
+    assert set(cell['exclusions']) == {'S_cyl', 'M_simple', 'joint'}
+    assert cell['paired_cohort']['excluded'] == groups[1][0]['query'][:2] + groups[1][0]['query'][4:]
     assert cell['estimate'] == pytest.approx(-1/6)
     assert cell['reaches_target'] and cell['convergence']['superiority']['passed']
 
@@ -40,6 +42,11 @@ def test_curve_seed_sd_uses_arm_cohort_and_intervals_are_deterministic():
     assert point['mean'] == pytest.approx(expected.mean())
     assert point['sd'] == pytest.approx(expected.std(ddof=1))
     assert point['cohort']['n_queries'] == 11
+    queries = groups[0][0]['query']
+    assert point['cohort'] == dict(n_queries=11, n_rooms=3,
+        retained_sha256=pc._digest(sorted(queries[1:])), excluded=queries[:1])
+    reversed_mask = np.array([True]*11 + [False])
+    assert pc.cohort(queries[::-1], reversed_mask)['retained_sha256'] == point['cohort']['retained_sha256']
     assert point['excluded']['42'] == [groups[0][0]['query'][0]]
     assert point == pc.curve_point(profile, groups[0], profile['arms'][0], 'EDT', 0)
     assert point['encoder'] == 2766080 and point['full'] == 15073213
@@ -118,11 +125,36 @@ def test_yaw_uses_single_seed_paired_angle_cohort_without_verdicts():
     base = np.mean(groups[0][0]['P']['0']['edt'][1:])
     assert cell['estimate'] == pytest.approx((5-base)/base)
     assert len(result['cells']) == 6*3*4
+    assert all(c['descriptive'] is True and c['verdict_scope'] == profile['verdict_scope']
+               for c in result['cells'])
+    assert result['verdict_scope'] == profile['verdict_scope'] and 'descriptive' in result['verdict_scope']
     assert not set(cell) & {'superior', 'equivalent', 'reaches_target', 'verdict'}
 
 
-@pytest.mark.parametrize('bounds,expected', [((-.03, .02), False), ((-.02, .03), False), ((-.02, .02), True)])
-def test_tost_strict_endpoints(monkeypatch, bounds, expected):
+@pytest.mark.parametrize('lo,hi', [(-.03, .03), (-.03, .0299), (-.0299, .03), (-.0299, .0299)])
+def test_tost_sample_order_statistics_at_strict_boundaries(monkeypatch, lo, hi):
     profile, groups = synthetic('TARGETS_K8')
-    monkeypatch.setattr(pc, 'two_sided_interval', lambda *args: bounds)
-    assert pc.comparison(profile, groups, ('S_cyl', 'M_simple'), 'EDT')['equivalent'] is expected
+    samples = np.r_[np.full(250, lo), np.zeros(19499), np.full(251, hi)]
+    monkeypatch.setattr(pc, 'rho_bootstrap', lambda *a, **kw: dict(rho=0., samples=samples))
+    cell = pc.comparison(profile, groups, ('S_cyl', 'M_simple'), 'EDT')
+    assert cell['tost_interval'] == [lo, hi]  # Exact ranks 250 and 19750 of 20000.
+    assert cell['equivalent'] is (-.03 < lo and hi < .03)
+
+
+@pytest.mark.parametrize('name', ['CURVE_K8', 'TARGETS_K8'])
+@pytest.mark.parametrize('upper', [0., -1e-12])
+def test_superiority_sample_order_statistics_at_zero(monkeypatch, name, upper):
+    profile, groups = synthetic(name)
+    samples = np.r_[np.full(19874, -.1), np.full(126, upper)]
+    monkeypatch.setattr(pc, 'rho_bootstrap', lambda *a, **kw: dict(rho=-.1, samples=samples))
+    cell = pc.comparison(profile, groups, profile['pairings'][0], 'EDT')
+    assert cell['companion_interval'][1] == upper
+    assert cell['superior'] is (upper < 0)
+
+
+def test_dominance_requires_every_registered_pairing():
+    profile, groups = synthetic()
+    profile['pairings'] = profile['pairings'][:2]
+    result = pc.analyze(profile, dict(groups=groups, inputs={}, deviations=[], run_flags={}))
+    assert len(result['cells']) == 4
+    assert result['verdicts']['EDT'].startswith('dominance supported')
