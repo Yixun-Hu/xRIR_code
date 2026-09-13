@@ -111,3 +111,18 @@ def test_tier_bytes_cannot_change_between_contract_and_shared_admission(exp05_fi
     monkeypatch.setattr(pc, 'admit_runs', mutate)
     with pytest.raises(ValueError, match='contract input changed'):
         pc.admit(f.directories, f.profile, f.approved, f.producer)
+
+
+def test_m_group_may_mix_individually_approved_evaluators(exp05_fixture):
+    current, old = exp05_fixture(), exp05_fixture(m_exp04=True)
+    source = Path(old.paths['M_simple'][0])
+    target = Path(current.paths['M_simple'][0])
+    fields = current.read(target / 'eval_manifest.json')
+    old_fields = old.read(source / 'eval_manifest.json')
+    fields['source_closures']['entrypoint'] = old_fields['source_closures']['entrypoint']
+    # Identical fixture closure bytes in both roots produce the same approved digest.
+    fields['mutable_inputs']['control_args'] = fields['mutable_inputs'].pop('train_args')
+    current.rebind(target, manifest=fields)
+    result = pc.admit(current.directories, current.profile, current.approved, current.producer)
+    names = [v['evaluator'] for k, v in result['compatibility'].items() if '/M_simple_' in k]
+    assert names.count('tools.exp04_eval') == 1 and names.count('tools.exp05_eval') == 4

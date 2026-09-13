@@ -66,3 +66,27 @@ def test_approval_commit_binding_and_types(tmp_path):
     path.write_text(json.dumps(value))
     with pytest.raises(ValueError, match='schema'):
         p.load_approved_digests(path)
+
+
+def test_filled_approvals_are_frozen_and_distinct_from_template(tmp_path):
+    value = json.loads(p.APPROVED_DIGESTS_PATH.read_text())
+    value['schema_version'] = 1
+    value['closures'] = dict.fromkeys(value['closures'], 'a'*64)
+    for role in value['checkpoints']:
+        arm = next(a for a in p.ARMS if a['role'] == role)
+        value['checkpoints'][role] = dict(path=arm['checkpoint'], epoch=12, sha256='b'*64)
+    pins, receipt = p.load_approved_digests(approval_repo(tmp_path, value))
+    assert p.json_value(pins) == value and len(receipt['git_blob']) == 40
+    with pytest.raises(TypeError):
+        pins['checkpoints']['S_cyl']['epoch'] = 11
+
+
+@pytest.mark.parametrize('key,value', [('schema_version', 1), ('evaluator', 'g'*64),
+    ('evaluator', 'a'*64), ('epoch', True), ('epoch', 11), ('path', ''), ('sha256', 3), ('extra', None)])
+def test_approval_partial_or_invalid_pin_refused(tmp_path, key, value):
+    pins = json.loads(p.APPROVED_DIGESTS_PATH.read_text())
+    target = (pins['closures'] if key == 'evaluator' else pins['checkpoints']['S_cyl']
+              if key in ('epoch', 'path', 'sha256') else pins)
+    target[key] = value
+    with pytest.raises(ValueError, match='schema'):
+        p.load_approved_digests(approval_repo(tmp_path, pins))

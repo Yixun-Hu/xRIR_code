@@ -11,7 +11,9 @@ def command(monkeypatch, f, exploratory=False):
     monkeypatch.setattr(pc, 'get_profile', lambda _: f.profile)
     monkeypatch.setattr(pc, 'load_approved_digests', lambda: f.approved)
     monkeypatch.setattr(pc, 'producer_identity', lambda _: f.producer)
-    return ['--profile', 'CURVE_K8' if f.profile['mode'] == 'curve' else 'TARGETS_K8',
+    name = ('YAW_K8_SEED42' if f.profile['mode'] == 'yaw' else
+            ('CURVE_K' if f.profile['mode'] == 'curve' else 'TARGETS_K') + str(f.profile['num_shot']))
+    return ['--profile', name,
         '--runs'] + f.directories + ['--json', str(f.root / 'result.json'),
         '--summary', str(f.root / 'summary.txt')] + (['--exploratory'] if exploratory else [])
 
@@ -60,3 +62,26 @@ def test_exploratory_summary_and_mutated_input_refusal(exp05_fixture, monkeypatc
 def test_cli_rejects_analytic_overrides():
     with pytest.raises(SystemExit):
         pc.main(['--profile', 'CURVE_K8', '--runs', 'fake', '--json', 'a', '--summary', 'b', '--n-boot', '2'])
+
+
+@pytest.mark.parametrize('name', ['CURVE_K1', 'TARGETS_K1', 'YAW_K8_SEED42'])
+def test_secondary_and_yaw_cli(exp05_fixture, monkeypatch, name):
+    f = exp05_fixture(name)
+    result = pc.main(command(monkeypatch, f))
+    assert result['profile_name'] == name
+    if name.startswith('YAW'):
+        assert len(result['cells']) == 72 and 'verdicts' not in result
+        assert (f.root / 'summary.txt').read_text().startswith('DESCRIPTIVE')
+
+
+def test_summary_rendering_cannot_race_publication_inputs(exp05_fixture, monkeypatch):
+    f = exp05_fixture()
+    argv = command(monkeypatch, f)
+    original = pc.render_summary
+    def mutate(result):
+        Path(f.profile['arms'][0]['checkpoint']).parent.joinpath('args.json').write_text('{}')
+        return original(result)
+    monkeypatch.setattr(pc, 'render_summary', mutate)
+    with pytest.raises(ValueError, match='input changed'):
+        pc.main(argv)
+    assert not any((f.root / name).exists() for name in ('result.json', 'summary.txt', 'result.json.provenance.json'))
