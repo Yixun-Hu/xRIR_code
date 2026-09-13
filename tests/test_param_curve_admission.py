@@ -94,3 +94,20 @@ def test_fail_closed_admission(exp05_fixture, kind):
         pc.admit(f.directories, f.profile, f.approved, f.producer)
     admitted = pc.admit(f.directories, f.profile, f.approved, f.producer, exploratory=True)
     assert admitted['deviations']
+
+
+def test_tier_bytes_cannot_change_between_contract_and_shared_admission(exp05_fixture, monkeypatch):
+    f = exp05_fixture()
+    original = pc.admit_runs
+    def mutate(*args, **kwargs):
+        directory = Path(f.paths['S_simple'][0])
+        payloads = [f.read(directory / name) for name in
+                    ('eval_manifest.json', 'completion.json', 'per_sample_yaw.json', 'metrics_yaw.json')]
+        for payload in payloads:
+            payload.get('meta', payload)['tier'] = 'L'
+        f.replace(directory / 'completion.json', payloads[1])
+        f.rebind(directory, manifest=payloads[0], sample=payloads[2], metrics=payloads[3])
+        return original(*args, **kwargs)
+    monkeypatch.setattr(pc, 'admit_runs', mutate)
+    with pytest.raises(ValueError, match='contract input changed'):
+        pc.admit(f.directories, f.profile, f.approved, f.producer)

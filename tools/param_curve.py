@@ -1,6 +1,7 @@
 """Exp_05 paired capacity inference; all numerical primitives reuse exp_04 imports."""
 import json
 import argparse
+import hashlib
 from pathlib import Path
 from types import FunctionType
 import numpy as np
@@ -153,7 +154,12 @@ def analyze(profile, admitted, exploratory=False):
 def run_contract(directory, arm, profile, pins):
     """Validate exp05 additions before waiving any exact exp04 compatibility message."""
     directory = Path(directory).resolve()
-    fields, completion, sample, metrics = [json.loads((directory / name).read_text()) for name in
+    inputs = {}
+    def read(path):
+        raw = path.read_bytes()
+        inputs[str(path.resolve())] = hashlib.sha256(raw).hexdigest()
+        return json.loads(raw)
+    fields, completion, sample, metrics = [read(directory / name) for name in
         ('eval_manifest.json', 'completion.json', 'per_sample_yaw.json', 'metrics_yaw.json')]
     def require(ok, message):
         if not ok:
@@ -171,15 +177,15 @@ def run_contract(directory, arm, profile, pins):
     if old and not current:
         require('train_args' not in names, 'legacy evaluator has unexpected train_args binding')
         waivers.append(str(directory) + ': evaluator approved closure')
-        return dict(evaluator='tools.exp04_eval', sha256=digest, tier_source='pinned historical M checkpoint', waivers=waivers)
+        return dict(evaluator='tools.exp04_eval', sha256=digest, tier_source='pinned historical M checkpoint',
+                    waivers=waivers, inputs=inputs)
     require('train_args' in names, 'missing train_args binding')
     root = Path(fields['repo'])
     path = (root / fields['checkpoint']).resolve().parent / 'args.json'
     binding = fields['mutable_inputs']['train_args']
     require((root / binding['path']).resolve() == path, 'train_args binding path')
-    raw = path.read_bytes()
-    require(provenance.sha256_file(path) == binding['sha256'], 'train_args bytes')
-    recorded = json.loads(raw)
+    recorded = read(path)
+    require(inputs[str(path.resolve())] == binding['sha256'], 'train_args bytes')
     config = {'vit_' + key: value for key, value in arm['config'].items()}
     legacy = not any(key in recorded for key in config) and 'tier' not in recorded
     require(not legacy or arm['tier'] == 'M', 'legacy args require tier M')
@@ -196,7 +202,7 @@ def run_contract(directory, arm, profile, pins):
     for payload in (fields, completion, sample['meta'], metrics['meta']):
         require(all(_equal(payload.get(key), value) for key, value in expected.items()), 'tier metadata agreement')
     waivers.append(str(directory) + ': mutable_inputs names')
-    return dict(evaluator='tools.exp05_eval', sha256=digest, tier_source='bound args.json', waivers=waivers)
+    return dict(evaluator='tools.exp05_eval', sha256=digest, tier_source='bound args.json', waivers=waivers, inputs=inputs)
 
 
 def admit(directories, profile, approved=None, producer=None, exploratory=False):
@@ -207,7 +213,7 @@ def admit(directories, profile, approved=None, producer=None, exploratory=False)
     """
     approved = load_approved_digests() if approved is None else approved
     pins, receipt = approved
-    deviations, groups, compatibility, waivers = [], [], {}, set()
+    deviations, groups, compatibility, waivers, snapshots = [], [], {}, set(), {}
     def check(ok, message):
         if not ok:
             deviations.append(message)
@@ -239,13 +245,18 @@ def admit(directories, profile, approved=None, producer=None, exploratory=False)
             arm, paths = matches[0]
             paths.append(directory)
             contract = run_contract(directory, arm, profile, pins)
-            compatibility[directory] = {k: v for k, v in contract.items() if k != 'waivers'}
+            compatibility[directory] = {k: v for k, v in contract.items() if k not in ('waivers', 'inputs')}
+            for path, digest in contract['inputs'].items():
+                check(snapshots.get(path, digest) == digest, 'contract input changed: ' + path)
+                snapshots[path] = digest
             waivers.update(contract['waivers'])
         except (ValueError, TypeError, KeyError, OSError, IndexError) as exc:
             check(False, '{}: {}{}'.format(directory, exc, '; re-evaluate M' if arm and arm['tier'] == 'M' else ''))
     producer = producer_identity('tools.param_curve') if producer is None else producer
     admitted = admit_runs(profile, groups, approved=approved, exploratory=True, producer=producer,
                           producer_key='producer_param_curve')
+    for path, digest in snapshots.items():
+        check(admitted['inputs'].get(path) == digest, 'contract input changed: ' + path)
     for (arm, _, _), runs in zip(groups, admitted['groups']):
         seeds = [r['meta']['manifest_seed'] for r in runs]
         valid = (all(type(s) is int for s in seeds) and seeds == list(profile['eval_seeds']))
