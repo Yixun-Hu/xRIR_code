@@ -16,9 +16,10 @@ def test_recipe(tier, backbone):
     cmd = probe.trainer_command(tier, backbone, 'scratch')
     fields = {'backbone': backbone, 'save-dir': 'scratch', 'batch-size': 32,
               'accum-steps': 2, 'max-train-batches': 60, 'max-test-batches': 0,
-              'num-workers': 12, 'yaw-aug': 0, 'save-every': 0, 'epoch-ckpt-every': 0}
+              'num-workers': 12, 'save-every': 0, 'epoch-ckpt-every': 0}
     fields.update({'vit-' + k.replace('_', '-'): v for k, v in TIERS[tier].items()})
     assert '--no-save' in cmd and '--tf32' in cmd
+    assert not any(flag.startswith('--yaw-') for flag in cmd)
     assert all(cmd[cmd.index('--' + k) + 1] == str(v) for k, v in fields.items())
 
 

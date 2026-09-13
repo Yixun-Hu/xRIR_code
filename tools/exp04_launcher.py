@@ -348,10 +348,11 @@ class LogGuard:
             raise LauncherFailure('guard_runtime_args', str(error)) from error
 
     def feed(self, line):
-        if line.startswith('EXP04_PROBE_RESULT '):
-            self.probe = json.loads(line[len('EXP04_PROBE_RESULT '):])
-        if line.startswith('EXP05_PROBE_RESULT '):
-            self.probe = json.loads(line[len('EXP05_PROBE_RESULT '):])
+        prefix = 'EXP04_PROBE_RESULT ' if self.expected.get('tier', 'M') == 'M' else 'EXP05_PROBE_RESULT '
+        if line.startswith(('EXP04_PROBE_RESULT ', 'EXP05_PROBE_RESULT ')):
+            if not line.startswith(prefix):
+                raise ValueError('probe result prefix differs from tier')
+            self.probe = json.loads(line[len(prefix):])
         if line.startswith('XRIR_RUNTIME_ARGS '):
             self.runtime = self.runtime_payload(line[len('XRIR_RUNTIME_ARGS '):])
         wanted = ('yaw_aug ENABLED W={yaw_aug_width} seed={yaw_aug_seed} '
@@ -708,7 +709,7 @@ def finalize_attempt(attempt, launcher_log=None):
 
 @termination_handlers()
 def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant=False,
-                    projection=30.0, runner=run_child, limits=None):
+                    projection=30.0, runner=run_child, limits=None, renew_ceiling=None):
     attempt, log_path = Path(attempt), Path(log_path)
     if mode == 'full':
         check_budget(attempt.parent, projection, limits['ceiling_hours'] if limits else 43)
@@ -726,7 +727,7 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
         fields['resource_before'] = before
         validated = tier_gates.timing_limits(fields, gpu) if mode == 'full' else None
         if validated:
-            limits = tier_gates.set_budget(attempt.parent, validated)
+            limits = tier_gates.set_budget(attempt.parent, validated, renewal=renew_ceiling)
             fields['timing_limits'] = limits
         elif limits:
             raise ValueError('tier timing limits require an S/L full run')
@@ -850,8 +851,11 @@ def main(argv=None):
     parser.add_argument('--allow-dirty', action='store_true')
     parser.add_argument('--projection-hours', type=float, default=30.0)
     parser.add_argument('--probe-json', help='full requires a clean passing probe receipt')
+    parser.add_argument('--renew-ceiling', help='S/L full only: notebook timestamp: reason')
     args = parser.parse_args(argv)
     tiered = args.tier != 'M'
+    if args.renew_ceiling is not None and (not tiered or args.mode != 'full'):
+        parser.error('--renew-ceiling requires full --tier S|L')
     if tiered and not args.log_dir:
         args.log_dir = str(REPO / TIER_RECORD)
     if args.mode == 'finalize':
@@ -907,7 +911,6 @@ def main(argv=None):
             if mode == 'full' and args.tier != 'M':
                 limits = tier_gates.timing_limits(dict(reviewed_commit=commit,
                     effective_args=effective_args(cmd, args.gpu, 9261), mutable_inputs=dict(probe_receipt=receipt)), args.gpu)
-                limits = tier_gates.set_budget(root, limits)
                 args.projection_hours = limits['projection_hours']
             def fields_factory():
                 fields = build_fields(cmd, args.gpu, commit, mode, args.allow_dirty)
@@ -918,7 +921,7 @@ def main(argv=None):
                 log_dir / train_log,
                 fields_factory,
                 allow_cotenant=args.allow_cotenant, projection=args.projection_hours,
-                **({'limits': limits} if limits else {}))
+                **({'limits': limits, 'renew_ceiling': args.renew_ceiling} if limits else {}))
         else:
             output = root / ('_probe_' + stamp + ('_' + args.tier + '_' + args.backbone if tiered else '') + '.json')
             if output.exists():
@@ -952,6 +955,10 @@ def main(argv=None):
                 PROBE_NOT_CLEAN=any(bool(state['compute_apps']) for state in [before, *arms_before, after]),
                 attempts=attempts, reviewed_commit=commit)
             if tiered:
+                result.update(probe_attempt=dict(path=str(attempt.resolve()), **{
+                    name + '_sha256': p.sha256_file(attempt / (name + '.json'))
+                    for name in ('train_manifest', 'completion')}),
+                    live_epoch_limit_seconds=1.05 * result['T_epoch'], live_epoch_limit_start='banner')
                 result['PROBE_NOT_CLEAN'] |= any(state['gpu'] != args.gpu or
                     not before['uuid'] or state['uuid'] != before['uuid'] or
                     not math.isfinite(state['free_gib']) or state['free_gib'] < 40

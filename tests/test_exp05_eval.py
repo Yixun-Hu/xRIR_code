@@ -46,6 +46,28 @@ def test_partial_or_contradictory_record_refused(checkpoint):
             subject.tier_metadata(checkpoint)
 
 
+@pytest.mark.parametrize('raw', [None, 'null', '[]', '"hello"', '{',
+    '{"backbone":"cylindrical"}', '{"param_counts":{}}'])
+def test_malformed_or_mismatched_args_refused(checkpoint, raw):
+    checkpoint.tier = 'M'
+    path = subject.args_path(checkpoint)
+    path.unlink() if raw is None else path.write_text(raw)
+    with pytest.raises(ValueError):
+        subject.tier_metadata(checkpoint)
+
+
+@pytest.mark.parametrize('counts_tier', ['L', 'float_S'])
+def test_recorded_counts_must_match_registered_tier(checkpoint, counts_tier):
+    path = subject.args_path(checkpoint)
+    record = json.loads(path.read_text())
+    counts = count_parameters(build_tier('simple', 'L' if counts_tier == 'L' else 'S'))
+    if counts_tier == 'float_S':
+        counts['encoder'] = float(counts['encoder'])
+    path.write_text(json.dumps(dict(record, backbone='simple', param_counts=counts)))
+    with pytest.raises(ValueError, match='param_counts'):
+        subject.tier_metadata(checkpoint)
+
+
 def test_tier_metadata_and_manifest(checkpoint, bound_run):
     args, fields, path = bound_run
     args.checkpoint, args.tier = checkpoint.checkpoint, 'S'

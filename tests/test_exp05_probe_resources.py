@@ -4,6 +4,7 @@ import json
 import pytest
 
 from test_exp05_probe import measurement
+from test_exp05_gates import probe_attempt
 from tools import exp04_launcher as launch, exp05_probe as probe
 
 
@@ -27,13 +28,14 @@ def test_resource_fault_writes_failed_receipt(tmp_path, monkeypatch, fault, stag
                     train_loss=1., iteration_seconds=[1.] * 50, mean_iteration_seconds=1.,
                     median_iteration_seconds=1., min_iteration_seconds=1.)
     measured.update(probe.projection(measured))
+    probe_attempt(tmp_path / 'ckpt/exp05/S_simple/_probe_resource_arm')
     monkeypatch.setattr(launch, 'execute_attempt', lambda *a, **k:
                         dict(metrics=dict(probe=measured), resource_before=states['arm']))
     with pytest.raises(SystemExit) as error:
         launch.main(['probe', '--tier', 'S', '--backbone', 'simple', '--reviewed-commit', 'HEAD',
                      '--timestamp', 'resource', '--log-dir', str(tmp_path / 'logs'), '--allow-cotenant'])
     assert error.value.code == 1
-    receipt = json.loads((tmp_path / 'ckpt/exp05/S_simple/_probe_resource.json').read_text())
+    receipt = json.loads((tmp_path / 'ckpt/exp05/S_simple/_probe_resource_S_simple.json').read_text())
     assert receipt['PROBE_NOT_CLEAN'] is True and receipt['passed'] is False
     assert receipt['before'] == states['before'] and receipt['after'] == states['after']
     assert receipt['arms_before'] == [states['arm']]

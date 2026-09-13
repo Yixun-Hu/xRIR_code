@@ -1,5 +1,6 @@
 """Tier-bound evaluation through the exp_04 numerical loop and manifest handshake."""
 import json
+import hashlib
 import sys
 from pathlib import Path
 
@@ -24,8 +25,14 @@ def args_path(args):
 
 def tier_metadata(args, model=None):
     path = args_path(args)
-    digest = p.sha256_file(path)
-    recorded = json.loads(path.read_text())
+    try:
+        raw = path.read_bytes()
+        recorded = json.loads(raw)
+        if not isinstance(recorded, dict):
+            raise ValueError('args.json must be a dictionary')
+    except (OSError, ValueError, TypeError) as error:
+        raise ValueError('unreadable args.json') from error
+    digest = hashlib.sha256(raw).hexdigest()
     config = {'vit_' + key: value for key, value in TIERS[args.tier].items()}
     legacy = not any(key in recorded for key in config) and 'tier' not in recorded
     if legacy:
@@ -36,6 +43,9 @@ def tier_metadata(args, model=None):
     if p.sha256_file(path) != digest:
         raise ValueError('args.json changed during admission')
     counts = count_parameters(model if model is not None else build_tier(args.backbone, args.tier))
+    for key, expected in (('backbone', args.backbone), ('param_counts', counts)):
+        if key in recorded and json.dumps(recorded[key], sort_keys=True) != json.dumps(expected, sort_keys=True):
+            raise ValueError('args.json ' + key + ' differs from requested model')
     return dict(config, tier=args.tier, param_counts=counts, legacy_M=legacy, args_json_sha256=digest)
 
 

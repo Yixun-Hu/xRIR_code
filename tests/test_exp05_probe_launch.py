@@ -5,6 +5,7 @@ import pytest
 
 from tools import exp04_launcher as launch, exp05_probe as probe
 from test_exp05_probe import measurement
+from test_exp05_gates import probe_attempt
 
 
 @pytest.mark.parametrize('tier,backbone', [('S', 'simple'), ('L', 'cylindrical')])
@@ -30,6 +31,7 @@ def test_single_arm_probe_receipt(tmp_path, monkeypatch, tier, backbone, fault):
         assert cmd[cmd.index('--backbone') + 1] == backbone
         assert fields['trainer_command'][1:] == probe.trainer_command(tier, backbone, str(attempt.relative_to(tmp_path)))
         calls.append(attempt)
+        probe_attempt(attempt)
         assert log == tmp_path / 'logs' / ('param_efficiency_test_train_{}_{}_probe.log'.format(tier, backbone))
         return dict(metrics=dict(probe=measured), resource_before=snapshot)
     monkeypatch.setattr(launch, 'execute_attempt', execute)
@@ -50,3 +52,8 @@ def test_single_arm_probe_receipt(tmp_path, monkeypatch, tier, backbone, fault):
     assert receipt['PROBE_NOT_CLEAN'] is (fault == 'cotenant')
     assert receipt['passed'] is (fault is None)
     assert receipt['T_epoch'] == measured['T_epoch'] and receipt['T_run'] == measured['T_run']
+    assert receipt['probe_attempt']['path'] == str(calls[0])
+    assert all(receipt['probe_attempt'][name + '_sha256'] == launch.p.sha256_file(calls[0] / (name + '.json'))
+               for name in ('train_manifest', 'completion'))
+    assert receipt['live_epoch_limit_seconds'] == 1.05 * receipt['T_epoch']
+    assert receipt['live_epoch_limit_start'] == 'banner'

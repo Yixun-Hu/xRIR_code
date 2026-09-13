@@ -1,5 +1,6 @@
 """Admission and cumulative time limits for exp_05 S/L training arms."""
 import fcntl
+import datetime
 import hashlib
 import json
 import math
@@ -17,6 +18,10 @@ def validate_receipt(path, commit, gpu, tier, backbone):
         digest = hashlib.sha256(raw).hexdigest()
         data = json.loads(raw)
         projected = projection(data)
+        attempt = data['probe_attempt']
+        if any(p.sha256_file(Path(attempt['path']) / (name + '.json')) != attempt[name + '_sha256']
+               for name in ('train_manifest', 'completion')):
+            raise ValueError('probe attempt changed')
         snapshots = [data['before'], *data['arms_before'], data['after']]
         valid = (type(data['schema_version']) is int and data['schema_version'] == 1
             and tier in ('S', 'L') and data['tier'] == tier and data['backbone'] == backbone
@@ -61,8 +66,8 @@ def timing_limits(fields, gpu):
                 ceiling_hours=1.5 * data['T_run'] / 3600, probe_receipt_sha256=actual['sha256'])
 
 
-def set_budget(root, limits):
-    """Return effective limits; a re-probe cannot raise a spent arm's ceiling."""
+def set_budget(root, limits, renewal=None):
+    """Retain the spent arm's ceiling unless a new receipt has explicit renewal."""
     from tools.exp04_launcher import hours_record
     root = Path(root)
     if any(not math.isfinite(limits[k]) or limits[k] <= 0 for k in ('ceiling_hours', 'projection_hours')):
@@ -85,10 +90,21 @@ def set_budget(root, limits):
         old = record.get('probe_receipt_sha256')
         if old == limits['probe_receipt_sha256'] and record.get('probe_projection_hours') != limits['projection_hours']:
             raise ValueError('receipt projection disagrees with cumulative ceiling')
-        if used:
+        if used or renewal is not None:
             if not old or not math.isfinite(record.get('ceiling_hours', 0)) or record.get('ceiling_hours', 0) <= 0:
                 raise ValueError('missing or invalid cumulative ceiling')
-            ceiling = min(ceiling, record['ceiling_hours'])
+            if renewal is None:
+                ceiling = min(ceiling, record['ceiling_hours'])
+        if renewal is not None:
+            timestamp, separator, reason = renewal.partition(': ')
+            if not separator or not reason.strip():
+                raise ValueError('renewal requires notebook timestamp: reason')
+            datetime.datetime.fromisoformat(timestamp)
+            if limits['probe_receipt_sha256'] in [old, *record.get('probe_receipt_history', [])]:
+                raise ValueError('renewal requires a new clean receipt')
+            record.setdefault('renewals', []).append(dict(timestamp=timestamp, reason=reason.strip(),
+                old_ceiling=record['ceiling_hours'], new_ceiling=ceiling,
+                receipt_sha256=limits['probe_receipt_sha256']))
         if used + limits['projection_hours'] > ceiling:
             raise ValueError('cumulative hours + projection exceeds tier ceiling')
         if old and old != limits['probe_receipt_sha256']:

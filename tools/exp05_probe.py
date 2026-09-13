@@ -18,6 +18,9 @@ def trainer_command(tier, backbone, save_dir):
     if tier not in ('S', 'L') or backbone not in ('simple', 'cylindrical'):
         raise ValueError('tier probe requires S/L and simple/cylindrical')
     cmd = base_command(0, save_dir)
+    for flag in ('--yaw-aug', '--yaw-aug-seed', '--yaw-aug-width'):
+        index = cmd.index(flag)
+        del cmd[index:index + 2]
     cmd[cmd.index('--backbone') + 1] = backbone
     for key, value in TIERS[tier].items():
         cmd.extend(['--vit-' + key.replace('_', '-'), str(value)])
@@ -29,6 +32,7 @@ def projection(result):
     try:
         micro = result['t_micro']
         values = micro['values']
+        # Exact sum/50 survives JSON round trips; hand-transcribed summaries are refused.
         valid = (len(values) == 50 and all(type(v) in (int, float) and math.isfinite(v) and v > 0
             for v in [*values, *[micro[k] for k in ('mean', 'median', 'min')], result['t_test'], result['t_save']])
             and (micro['mean'], micro['median'], micro['min']) == (sum(values) / 50, statistics.median(values), min(values))
