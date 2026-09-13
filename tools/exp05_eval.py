@@ -1,5 +1,6 @@
 """Tier-bound evaluation through the exp_04 numerical loop and manifest handshake."""
 import json
+import sys
 from pathlib import Path
 
 from tools import exp04_eval as base
@@ -55,6 +56,19 @@ def validate_manifest(args, metadata=None):
     if mismatches:
         raise ValueError('evaluation manifest mismatch: ' + ', '.join(mismatches))
     return fields, digest, reference
+
+
+def build_fields(args, command, repo):
+    """Extend the shared launcher's bindings without changing exp_04 manifests."""
+    from tools import exp04_eval_launch as launcher
+    metadata = tier_metadata(args)
+    fields = launcher.build_fields(args, command, repo, module=sys.modules[__name__])
+    binding = dict(path=str(args_path(args)), sha256=metadata['args_json_sha256'])
+    if fields['mutable_inputs'].get('train_args', binding) != binding:
+        raise ValueError('train_args must bind the checkpoint attempt args.json')
+    fields['mutable_inputs']['train_args'] = binding
+    fields.update(metadata)
+    return fields
 
 
 def run_exp05(args):

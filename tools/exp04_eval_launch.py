@@ -15,7 +15,9 @@ from eval_unseen import griffin_lim
 OUTPUTS = ("per_sample_yaw.json", "metrics_yaw.json")
 REQUIRED_INPUTS = ('repo', 'checkpoint', 'checkpoint_sha256', 'manifest_path', 'manifest_file_sha256',
                    'data_identity', 'evaluator_closure', 'source_closures', 'mutable_inputs', 'eval_manifest')
-MUTABLE_INPUTS = {'control_args', 'train_manifest', 'train_completion', 'probe_receipt'}
+MUTABLE_INPUTS = {'control_args', 'train_args', 'train_manifest', 'train_completion', 'probe_receipt'}
+TIER_FIELDS = ('tier', 'param_counts', 'args_json_sha256', 'legacy_M',
+               'vit_dim', 'vit_depth', 'vit_heads', 'vit_mlp_dim')
 
 
 def child_environment(repo, data_root, gpu='1'):
@@ -81,6 +83,8 @@ def execute_run(args, command, fields_factory, repo):
             raise RuntimeError(reason)
         expected = dict(eval_manifest_sha256=digest, conditions=fields["conditions"],
                         n_samples=fields["n_samples"])
+        tier_fields = {key: fields[key] for key in TIER_FIELDS} if 'tier' in fields else {}
+        expected.update(tier_fields)
         for name in OUTPUTS:
             payload = json.loads((run / name).read_text())
             meta = payload.get("meta", {})
@@ -103,6 +107,7 @@ def execute_run(args, command, fields_factory, repo):
                       "ended_at": datetime.datetime.now().astimezone().isoformat(),
                       "log": {"path": str(log_path), "sha256": p.sha256_file(log_path)},
                       "outputs": {name: p.sha256_file(run / name) for name in OUTPUTS}}
+        completion.update(tier_fields)
         p.write_completion(run / "completion.json", completion)
         return completion
     except BaseException as error:
@@ -140,7 +145,11 @@ def parse_args(argv=None):
     parser.add_argument('--gpu', default='1')
     parser.add_argument('--allow-dirty', action='store_true')
     parser.add_argument('--bind-input', action='append', default=[], metavar='NAME=PATH')
+    parser.add_argument('--tier', choices=('S', 'M', 'L'))
+    parser.add_argument('--entry', choices=('exp04', 'exp05'), default='exp04')
     args = parser.parse_args(argv)
+    args.entry = 'exp05' if args.tier is not None else args.entry
+    args.tier = args.tier or 'M'
     if args.eval_manifest is not None:
         parser.error("eval-manifest is created by the launcher")
     for key in ("out_dir", "checkpoint", "manifest", "data_root", "log_dir"):
@@ -149,10 +158,18 @@ def parse_args(argv=None):
     return args
 
 
+def entrypoint(args):
+    if getattr(args, 'entry', 'exp04') == 'exp05':
+        from tools import exp05_eval
+        return exp05_eval
+    return evaluator
+
+
 def child_command(args, repo):
     """Serialize only evaluator arguments, retaining empty grids and bool flags."""
-    command = [sys.executable, str(Path(repo) / "tools/exp04_eval.py")]
-    for action in evaluator.build_parser()._actions:
+    module = entrypoint(args)
+    command = [sys.executable, str(Path(repo) / (module.__name__.replace('.', '/') + '.py'))]
+    for action in module.build_parser()._actions:
         if action.dest == "help":
             continue
         value = getattr(args, action.dest)
@@ -172,7 +189,7 @@ def _capture_environment(repo, data_root, gpu='1'):
     return json.loads(output.splitlines()[-1])
 
 
-def build_fields(args, command, repo):
+def build_fields(args, command, repo, module=None):
     """Bind protocol, reviewed code and full referenced data before spawning.
 
     Round-4 admission: dirty_outside_worklog is admissible only when the closure
@@ -180,6 +197,10 @@ def build_fields(args, command, repo):
     code. mutable_inputs identifiers are control_args, train_manifest,
     train_completion and probe_receipt; all other identifiers are refused.
     """
+    if module is None:
+        module = entrypoint(args)
+        if module is not evaluator:
+            return module.build_fields(args, command, repo)
     commit = subprocess.check_output(['git', 'rev-parse', '--verify', args.reviewed_commit + '^{commit}'],
                                      cwd=repo, text=True).strip()
     reference = evaluator.yaw.load_checked_manifest(args.manifest, args.manifest_hash)
@@ -192,15 +213,15 @@ def build_fields(args, command, repo):
     if args.conditions == "P" and args.e_acoustic_cols:
         raise ValueError("e_acoustic_cols must be empty for P")
     closures = {}
-    for role, module in (("evaluator", "eval_yaw_rotation"), ("entrypoint", "tools.exp04_eval"),
+    for role, module_name in (("evaluator", "eval_yaw_rotation"), ("entrypoint", module.__name__),
                          ("writer", "tools.exp04_eval_launch")):
-        records, digest = p.closure_record(p.source_closure(module, repo), commit, repo)
+        records, digest = p.closure_record(p.source_closure(module_name, repo), commit, repo)
         if not records or any(record["reviewed_blob_sha256"] is None or
                 record["reviewed_blob_sha256"] != record["working_tree_sha256"] or
                 record["commits_after_reviewed"] for record in records):
             raise ValueError(role + " closure differs from reviewed_commit")
         closures[role] = {"files": records, "sha256": digest}
-    fields = vars(evaluator.parse_args(command[2:]))
+    fields = vars(module.parse_args(command[2:]))
     fields.pop("eval_manifest")
     fields.pop("out_dir")
     fields["manifest_path"] = fields.pop("manifest")
