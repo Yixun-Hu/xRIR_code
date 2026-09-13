@@ -6,6 +6,7 @@ from tools.paired_compare import (one_sided_upper, two_sided_interval, five_seed
     recheck_inputs, write_outputs)
 from tools.paired_stats import equivalence_tost, bonferroni_alpha
 from tools.summarize_yaw import rooms_from_paths
+from tools.paired_compare import _digest
 
 
 def matrix(runs, metric, k=0):
@@ -81,3 +82,64 @@ def comparison(profile, groups, pairing, metric):
         cell['convergence']['tost'] = gate(2*profile['tost_alpha'])
         cell['reaches_target'] = cell['superior'] or cell['equivalent']
     return cell
+
+
+def analyze(profile, admitted, exploratory=False):
+    """Compute all registered arms/cells; convergence and admission precede verdicts."""
+    result = dict(schema_version=1, profile=json_value(profile), profile_digest=_digest(profile),
+        exploratory=exploratory, deviations=list(admitted['deviations']),
+        inputs=admitted['inputs'], run_flags=admitted['run_flags'], cells=[], curves=[])
+    def failure(message):
+        if not exploratory:
+            raise ValueError(message)
+        result['deviations'].append(message)
+    if result['deviations'] and not exploratory:
+        failure('admission failed: ' + '; '.join(result['deviations']))
+    groups = admitted['groups']
+    flat = [r for group in groups for r in group]
+    paired = (len(groups) == len(profile['arms']) and flat and
+        all([r['meta']['manifest_seed'] for r in group] == list(profile['eval_seeds']) for group in groups) and
+        all(r['query'] == flat[0]['query'] and r['index'] == flat[0]['index'] for r in flat))
+    if not paired:
+        failure('analysis unavailable: registered seed/query pairing')
+        return result
+    for arm, runs in zip(profile['arms'], groups):
+        for metric in profile['metrics']['primary'] + profile['metrics']['descriptive']:
+            for k in profile['grid']:
+                try:
+                    result['curves'].append(curve_point(profile, runs, arm, metric, k))
+                except (ValueError, KeyError, TypeError, IndexError) as exc:
+                    failure('{} {} k={}: {}'.format(arm['role'], metric, k, exc))
+    for pairing in profile.get('pairings', ()):
+        for metric in profile['metrics']['primary']:
+            try:
+                cell = comparison(profile, groups, pairing, metric)
+            except (ValueError, KeyError, TypeError, IndexError) as exc:
+                failure('{} {}: {}'.format(pairing, metric, exc))
+                continue
+            for name, gate in cell['convergence'].items():
+                if not gate['passed']:
+                    failure('convergence failed: {} {} {}'.format(pairing, metric, name))
+            if exploratory:
+                for key in ('superior', 'equivalent', 'reaches_target'):
+                    cell.pop(key, None)
+            result['cells'].append(cell)
+    if exploratory or profile['mode'] == 'yaw':
+        return result
+    if profile['mode'] == 'curve':
+        result['verdicts'] = {}
+        for metric in profile['metrics']['primary']:
+            supported = sum(c['superior'] for c in result['cells'] if c['metric'] == metric)
+            result['verdicts'][metric] = ('dominance supported on {} at the three tested tiers'.format(metric)
+                if supported == 3 else 'partial' if supported else 'not supported')
+    else:
+        result['parameter_ratios'] = []
+        arms = {a['role']: a for a in profile['arms']}
+        for pairing in profile['pairings']:
+            cells = [c for c in result['cells'] if c['pairing'] == list(pairing)]
+            if len(cells) == 2 and all(c['reaches_target'] for c in cells):
+                a, b = [arms[role]['counts']['encoder'] for role in pairing]
+                result['parameter_ratios'].append(dict(pairing=list(pairing), numerator=a, denominator=b,
+                    ratio=a/b, reduction_factor=b/a, scope='each metric cell paired cohort',
+                    cohorts={c['metric']: c['paired_cohort'] for c in cells}))
+    return result

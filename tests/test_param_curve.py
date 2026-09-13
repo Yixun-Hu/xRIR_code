@@ -65,3 +65,45 @@ def test_empty_cohorts_refused():
         pc.comparison(profile, groups, ('S_cyl', 'S_simple'), 'EDT')
     with pytest.raises(ValueError, match='empty'):
         pc.curve_point(profile, groups[0], profile['arms'][0], 'EDT', 0)
+
+
+@pytest.mark.parametrize('name', ['CURVE_K8', 'CURVE_K1', 'TARGETS_K8', 'TARGETS_K1', 'YAW_K8_SEED42'])
+def test_six_arm_analysis_and_parameter_ratio_rule(name):
+    profile, groups = synthetic(name)
+    admitted = dict(groups=groups, inputs={}, deviations=[], run_flags={})
+    result = pc.analyze(profile, admitted)
+    assert len(result['curves']) == 18 * len(profile['grid'])
+    if profile['mode'] == 'curve':
+        assert len(result['cells']) == 6
+        assert result['verdicts']['EDT'] == 'dominance supported on EDT at the three tested tiers'
+        groups[1] = copy.deepcopy(groups[0])
+        assert pc.analyze(profile, admitted)['verdicts']['EDT'] == 'partial'
+        for i in (1, 3, 5):
+            groups[i] = copy.deepcopy(groups[i-1])
+        assert pc.analyze(profile, admitted)['verdicts']['EDT'] == 'not supported'
+    elif profile['mode'] == 'targets':
+        assert len(result['cells']) == 4 and len(result['parameter_ratios']) == 2
+        assert result['parameter_ratios'][0]['ratio'] == 2777984 / 19703296
+        for run in groups[1]:
+            run['P']['0']['c50'] = [100.0]*12
+        assert len(pc.analyze(profile, admitted)['parameter_ratios']) == 1
+    else:
+        assert 'verdict' not in result and 'verdicts' not in result
+        assert all(point['sd'] is None for point in result['curves'])
+
+
+def test_analysis_refusals_and_exploratory_has_no_decisions():
+    profile, groups = synthetic('TARGETS_K8')
+    profile['n_boot'] = 2
+    groups[3][0]['P']['0']['edt'][0] += 1
+    admitted = dict(groups=groups, inputs={}, deviations=[], run_flags={})
+    with pytest.raises(ValueError, match='convergence'):
+        pc.analyze(profile, admitted)
+    result = pc.analyze(profile, admitted, exploratory=True)
+    assert any('convergence' in d for d in result['deviations'])
+    assert not set(result) & {'verdict', 'verdicts', 'parameter_ratios'}
+    assert all(not set(c) & {'superior', 'equivalent', 'reaches_target'} for c in result['cells'])
+    groups[0].pop()
+    with pytest.raises(ValueError, match='pairing'):
+        pc.analyze(profile, admitted)
+    assert pc.analyze(profile, admitted, exploratory=True)['cells'] == []
