@@ -124,3 +124,8 @@ All clean (no co-tenant), `passed` true (T_run ≤ 60 h), bound to `f19b9b6` / G
 
 ## 2026-09-14T12:05:47-04:00 — S_cylindrical CERTIFIED (attempt_20260914T000333 → `final`, 12.00 h wall, ceiling 17.9 h; epochs 59.7–60.2 min; test loss 0.01810 → 0.01587); L_cylindrical launched
 - 12:03:22 — L_cylindrical: attempt `ckpt/exp05/L_cylindrical/attempt_20260914T120322`, child pgid 1315344, `yaw_aug DISABLED` before step one, 21.8 samples/s at start (probe 1.48 s/iter; epoch-1 gate 4.02 h; T_run 46.0 h → ≈ Sep 16 10:00), 46.3 GB on GPU 1.
+
+## 2026-09-14T13:51:23-04:00 — Codex round 4 (post-launch polish: exp_05 launcher path + producer ties) launched, CPU-only, while L_cylindrical trains on GPU 1 and exp_04 evaluates on GPU 0
+
+## 2026-09-14T14:05:00-04:00 — Codex round 4 delivered (`34a076a` launcher: receipt bound to its arm root, ledger refusals before the attempt exists, renewal timestamp format, parser error on a trailing `--backbone`; `f7b10b5` producer: `train_manifest` ↔ `train_completion` ↔ checkpoint attempt tied, `RuntimeError` guard, deviations for malformed outputs, rank-tight boundary test, wording). CPU subset 1 068 passed / 33 skipped (GPU tests deselected while both GPUs are busy). The stalled pytest Codex mentioned had already exited. Fable review launched (CPU-only).
+- Note for L_simple's launch: its `--reviewed-commit` will be the round-4 close-out commit (launcher closure changed); L_cylindrical continues on the `f19b9b6` closure with the edits recorded as drift (A7).
