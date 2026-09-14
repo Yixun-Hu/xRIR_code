@@ -79,8 +79,9 @@ def test_markdown_refusals(record_inputs, mutation):
 
 
 @pytest.mark.parametrize('mutation', [None, 'manifest', 'completion', 'output', 'train_manifest',
-                                    'train_output', 'probe', 'audit', 'approved', 'log', 'echo', 'incomplete', 'missing_digest'])
-def test_binding_roundtrip_and_refusals(tmp_path, monkeypatch, mutation):
+                                    'train_output', 'probe', 'audit', 'approved', 'log', 'echo', 'incomplete', 'missing_digest', 'resigned_json', 'summary',
+                                    'sidecar', 'extra', 'missing_file', 'producer_commit'])
+def test_binding_roundtrip_and_refusals(tmp_path, monkeypatch, mutation, record_inputs):
     binder = load_asset('bind_provenance')
     checker = load_asset('check_record')
     p = pc.provenance
@@ -115,17 +116,43 @@ def test_binding_roundtrip_and_refusals(tmp_path, monkeypatch, mutation):
         confirmatory=True, allow_dirty_used=False, outputs=outputs, log=binding(paths['log']),
         directory_listing=sorted(['eval_manifest.json'] + list(outputs)))
     p.write_manifest(run / 'completion.json', completion)
+    head = binder.subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=binder.ROOT, text=True).strip()
+    for path in record_inputs.values():
+        side = Path(str(path) + '.provenance.json')
+        value = json.loads(side.read_text())
+        value['producer']['commit'] = head
+        side.write_text(json.dumps(value))
     out = tmp_path / 'binding_report.json'
     argv = ['--runs', str(run), '--attempt', str(attempt), '--probe-receipt', str(paths['probe']),
-            '--audit', str(paths['audit']), '--approved', str(paths['approved']), '--out', str(out)]
+            '--audit', str(paths['audit']), '--approved', str(paths['approved']),
+            '--results'] + [str(path) for path in record_inputs.values()] + ['--out', str(out)]
     binder.main(argv); original = out.read_bytes()
     checker.main([str(out)])
+    assert json.loads(original)['git_HEAD'] == head
+    assert len(json.loads(original)['results']) == 5
     with pytest.raises(FileExistsError): binder.main(argv)
     assert out.read_bytes() == original
     paths.update(manifest=run / 'eval_manifest.json', completion=run / 'completion.json',
                  output=run / 'metrics_yaw.json', train_manifest=attempt / 'train_manifest.json',
                  train_output=attempt / 'epoch_012.pth')
-    if mutation in paths:
+    product = record_inputs['H1_K8']
+    sidecar = Path(str(product) + '.provenance.json')
+    side = json.loads(sidecar.read_text())
+    if mutation in ('resigned_json', 'producer_commit'):
+        if mutation == 'resigned_json':
+            value = json.loads(product.read_text())
+            value['cells'][0]['estimate'] += .01
+            product.write_text(json.dumps(value))
+            side['outputs'][str(product)] = p.sha256_file(product)
+        else:
+            side['producer']['commit'] = 'f' * 40
+        sidecar.write_text(json.dumps(side))
+    elif mutation == 'summary':
+        Path(next(path for path in side['outputs'] if path != str(product))).write_text('tamper')
+    elif mutation == 'sidecar': sidecar.write_text(sidecar.read_text() + ' ')
+    elif mutation == 'extra': (run / 'extra').write_text('unrecorded')
+    elif mutation == 'missing_file': (run / 'metrics_yaw.json').unlink()
+    elif mutation in paths:
         paths[mutation].write_text(paths[mutation].read_text() + ' ')
     elif mutation == 'echo':
         p.write_completion(paths['output'], {'meta': {'eval_manifest_sha256': 'bad'}})
@@ -232,3 +259,38 @@ assert 'exp_03_' in sys.modules['bind_provenance'].__file__
 assert str(md.REPO / 'worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results_assets') not in sys.path
 '''
     subprocess.run([sys.executable, '-c', script] + list(order), check=True)
+
+
+def test_producer_ancestry_uses_binding_head(tmp_path, monkeypatch):
+    binder = load_asset('bind_provenance')
+    def git(*args):
+        return binder.subprocess.check_output(['git'] + list(args), cwd=tmp_path, text=True).strip()
+    git('init', '-q')
+    git('config', 'user.name', 'Synthetic test')
+    git('config', 'user.email', 'test@example.invalid')
+    git('commit', '--allow-empty', '-qm', 'parent')
+    parent = git('rev-parse', 'HEAD')
+    git('commit', '--allow-empty', '-qm', 'child')
+    child = git('rev-parse', 'HEAD')
+    monkeypatch.setattr(binder, 'ROOT', tmp_path)
+    binder.check_ancestor(parent, child)
+    binder.check_ancestor(child, child)
+    with pytest.raises(ValueError, match='ancestor'):
+        binder.check_ancestor(child, parent)
+
+
+@pytest.mark.parametrize('mutation', ['summary', 'missing_summary_digest', 'output_overlap'])
+def test_summary_integrity_in_both_generators(record_inputs, tmp_path, mutation):
+    md = load_asset('make_results_md')
+    path = record_inputs['H1_K8']
+    side = Path(str(path) + '.provenance.json')
+    receipt = json.loads(side.read_text())
+    summary = Path(next(p for p in receipt['outputs'] if p != str(path)))
+    if mutation == 'summary': summary.write_text('changed')
+    if mutation == 'missing_summary_digest':
+        receipt['outputs'].pop(str(summary))
+        side.write_text(json.dumps(receipt))
+    argv = sum(([flag, str(record_inputs[name])] for flag, name in md.INPUTS), [])
+    for asset in ('make_results_md', 'make_results_html'):
+        with pytest.raises(ValueError):
+            load_asset(asset).main(argv + ['--out', str(summary if mutation == 'output_overlap' else tmp_path / 'out')])

@@ -24,6 +24,11 @@ def load(path, name=None, draft_ok=False):
     raw = path.read_bytes()
     data, side = json.loads(raw), json.loads(Path(str(path) + '.provenance.json').read_text())
     digest = sha(raw)
+    if len(side['outputs']) != 2 or str(path) not in side['outputs']:
+        raise ValueError('JSON and summary output coverage')
+    for output, expected in side['outputs'].items():
+        if sha(Path(output).read_bytes()) != expected:
+            raise ValueError('JSON or summary digest mismatch: ' + output)
     profile_digest = sha(json.dumps(data['profile'], sort_keys=True, separators=(',', ':'), allow_nan=False).encode())
     producer = side['producer']['sha256']
     key = 'producer_results_table' if data['profile_name'] == 'TABLE_V1' else 'producer_paired_compare'
@@ -58,7 +63,7 @@ def load(path, name=None, draft_ok=False):
     if draft and not draft_ok:
         raise ValueError('verdict absent')
     return data, dict(path=str(path), sha256=digest, profile_digest=profile_digest,
-                      producer_closure_sha256=producer, approved_digests=side['approved_digests']), draft
+                      producer_closure_sha256=producer, approved_digests=side['approved_digests'], outputs=side['outputs']), draft
 
 
 def tables(data):
@@ -95,7 +100,7 @@ def arguments(argv=None):
     sources = [(getattr(args, flag[2:].replace('-', '_')), name) for flag, name in INPUTS]
     sources += [(path, None) for path in args.diag]
     records = [load(path, name, args.draft_ok) for path, name in sources]
-    if Path(args.out).resolve() in {Path(p).resolve() for p, _ in sources} | {Path(str(Path(p).resolve()) + '.provenance.json') for p, _ in sources}:
+    if Path(args.out).resolve() in {Path(p).resolve() for _, receipt, _ in records for p in receipt['outputs']} | {Path(str(Path(p).resolve()) + '.provenance.json') for p, _ in sources}:
         raise ValueError('output overlaps canonical input')
     head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=REPO, text=True).strip()
     return args, records, head
