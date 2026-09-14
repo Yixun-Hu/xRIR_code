@@ -79,6 +79,72 @@ def test_markdown_refusals(record_inputs, mutation):
         assert 'DRAFT' in out.read_text()
 
 
+@pytest.mark.parametrize('mutation', [None, 'manifest', 'completion', 'output', 'train_manifest',
+                                    'train_output', 'probe', 'audit', 'approved', 'log', 'echo', 'incomplete', 'missing_digest'])
+def test_binding_roundtrip_and_refusals(tmp_path, monkeypatch, mutation):
+    binder = importlib.import_module('bind_provenance')
+    checker = importlib.import_module('check_record')
+    p = pc.provenance
+    paths = {name: tmp_path / name for name in ('probe', 'audit', 'approved', 'log', 'reference')}
+    for path in paths.values():
+        path.write_text('{}')
+    attempt, run = tmp_path / 'attempt', tmp_path / 'run'
+    attempt.mkdir(); run.mkdir()
+    binding = lambda path: dict(path=str(path), sha256=p.sha256_file(path))
+    inventory = dict(data_root=str(tmp_path), inventory=[], inventory_sha256=p._inventory_digest([]))
+    train = dict(repo=str(tmp_path), mode='full', allow_dirty=False, reviewed_commit='unused',
+                 source_closures={}, train_data_identity=inventory, effective_args={},
+                 mutable_inputs={'probe_receipt': binding(paths['probe'])})
+    p.write_manifest(attempt / 'train_manifest.json', train)
+    for name in ['history.jsonl', 'args.json', 'effective_args.json'] + ['epoch_%03d.pth' % i for i in range(1, 13)]:
+        (attempt / name).write_text('{}')
+    train_outputs = {path.name: p.sha256_file(path) for path in attempt.iterdir()}
+    p.write_manifest(attempt / 'completion.json', dict(train_manifest_sha256=train_outputs['train_manifest.json'],
+        outputs=train_outputs, directory_listing=train_outputs, log=binding(paths['log'])))
+    pins = dict(schema_version=1, checkpoints={'aug': binding(attempt / 'epoch_012.pth')}, closures={})
+    monkeypatch.setattr(binder, 'load_approved_digests', lambda path: (pins, dict(binding(paths['approved']), git_blob='pinned')))
+    fields = dict(repo=str(tmp_path), confirmatory=True, allow_dirty_used=False, schema_version=1,
+        source_closures={}, evaluator_closure={'files': []}, data_identity=inventory,
+        checkpoint=str(attempt / 'epoch_012.pth'), checkpoint_sha256=p.sha256_file(attempt / 'epoch_012.pth'),
+        manifest_path=str(paths['reference']), manifest_file_sha256=p.sha256_file(paths['reference']),
+        mutable_inputs={name: binding(attempt / filename) for name, filename in
+                        [('train_manifest', 'train_manifest.json'), ('train_completion', 'completion.json')]})
+    digest = p.write_manifest(run / 'eval_manifest.json', fields)
+    outputs = {name: p.write_manifest(run / name, {'meta': {'eval_manifest_sha256': digest}})
+               for name in ('metrics_yaw.json', 'per_sample_yaw.json')}
+    completion = dict(eval_manifest_sha256=digest, schema_version=1, child_exit_status=0,
+        confirmatory=True, allow_dirty_used=False, outputs=outputs, log=binding(paths['log']),
+        directory_listing=sorted(['eval_manifest.json'] + list(outputs)))
+    p.write_manifest(run / 'completion.json', completion)
+    out = tmp_path / 'binding_report.json'
+    argv = ['--runs', str(run), '--attempt', str(attempt), '--probe-receipt', str(paths['probe']),
+            '--audit', str(paths['audit']), '--approved', str(paths['approved']), '--out', str(out)]
+    binder.main(argv); original = out.read_bytes()
+    checker.main([str(out)])
+    with pytest.raises(FileExistsError): binder.main(argv)
+    assert out.read_bytes() == original
+    paths.update(manifest=run / 'eval_manifest.json', completion=run / 'completion.json',
+                 output=run / 'metrics_yaw.json', train_manifest=attempt / 'train_manifest.json',
+                 train_output=attempt / 'epoch_012.pth')
+    if mutation in paths:
+        paths[mutation].write_text(paths[mutation].read_text() + ' ')
+    elif mutation == 'echo':
+        p.write_completion(paths['output'], {'meta': {'eval_manifest_sha256': 'bad'}})
+        completion['outputs']['metrics_yaw.json'] = p.sha256_file(paths['output'])
+        p.write_completion(paths['completion'], completion)
+    elif mutation == 'incomplete':
+        (attempt / 'epoch_001.pth').unlink()
+    elif mutation == 'missing_digest':
+        completion['eval_manifest_sha256'] = None
+        p.write_completion(paths['completion'], completion)
+        with pytest.raises(ValueError): binder.main(argv[:-1] + [str(tmp_path / 'new_report.json')])
+    if mutation:
+        with pytest.raises((ValueError, OSError, KeyError)): checker.main([str(out)])
+    else:
+        monkeypatch.setattr(binder.subprocess, 'check_output', lambda *a, **k: pytest.fail('must retain original HEAD'))
+        checker.main([str(out)])
+
+
 @pytest.mark.parametrize('draft', [False, True])
 def test_html_structure_values_and_stability(record_inputs, tmp_path, draft):
     page = importlib.import_module('make_results_html')

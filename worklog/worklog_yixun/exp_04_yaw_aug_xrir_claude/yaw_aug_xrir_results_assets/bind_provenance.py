@@ -1,0 +1,103 @@
+"""Read execution evidence and exclusively publish the exp_04 run binding."""
+import argparse
+import json
+import subprocess
+from pathlib import Path
+from tools import provenance as p
+from tools.exp04_profiles import load_approved_digests
+
+ROOT = Path(__file__).resolve().parents[4]
+UNBOUND = object()
+
+
+def require(ok, message):
+    if not ok:
+        raise ValueError(message)
+
+
+def stamp(path, expected=UNBOUND):
+    path = Path(path).resolve()
+    digest = p.sha256_file(path)
+    require(expected is UNBOUND or expected == digest, 'digest mismatch: ' + str(path))
+    return dict(path=str(path), sha256=digest)
+
+
+def snapshot(directory, kind):
+    directory = Path(directory).resolve()
+    manifest_path, completion_path = directory / (kind + '_manifest.json'), directory / 'completion.json'
+    fields, completion = [json.loads(path.read_text()) for path in (manifest_path, completion_path)]
+    manifest = stamp(manifest_path, completion[kind + '_manifest_sha256'])
+    outputs = {}
+    for name, digest in completion['outputs'].items():
+        path = directory / name
+        path.resolve().relative_to(directory)
+        require(digest is not None or path.is_dir(), 'missing output directory: ' + name)
+        outputs[name] = stamp(path, digest) if digest is not None else None
+    required = ('repo', 'source_closures', 'mutable_inputs')
+    if kind == 'eval':
+        require(set(outputs) == {'metrics_yaw.json', 'per_sample_yaw.json'}, 'eval output coverage')
+        require(completion['directory_listing'] == sorted(['eval_manifest.json'] + list(outputs)), 'eval listing')
+        require(type(completion['child_exit_status']) is int and completion['child_exit_status'] == 0, 'eval status')
+        for value in (fields, completion):
+            require(value['schema_version'] == 1 and value['confirmatory'] is True
+                    and value['allow_dirty_used'] is False, 'non-final evaluation')
+        for name in outputs:
+            require(json.loads((directory / name).read_text())['meta']['eval_manifest_sha256'] == manifest['sha256'], 'manifest echo')
+        required += ('checkpoint', 'manifest_path', 'evaluator_closure', 'data_identity')
+    else:
+        require(fields['mode'] == 'full' and fields['allow_dirty'] is False, 'non-final training')
+        require(completion['directory_listing'] == completion['outputs'], 'training listing')
+        required += ('train_data_identity', 'effective_args')
+        require({'epoch_%03d.pth' % i for i in range(1, 13)} | {'history.jsonl', 'args.json',
+                'effective_args.json', 'train_manifest.json'} <= set(outputs), 'training output coverage')
+    require(not p.revalidate(fields, required=required, source_drift=[] if kind == 'train' else None), 'manifest input mismatch')
+    log = completion['log']
+    return dict(path=str(directory), manifest=manifest, completion=stamp(completion_path), outputs=outputs,
+                log=stamp(Path(fields['repo']) / log['path'], log['sha256'])), fields
+
+
+def collect(runs, attempt, probe_receipt, audit, approved=None, head=None):
+    pins, identity = load_approved_digests(approved)
+    require(pins['schema_version'] == 1, 'approval pins are not final')
+    approval = dict(identity, blob=json.loads(Path(identity['path']).read_text()))
+    require(stamp(identity['path'])['sha256'] == identity['sha256'], 'approval digest mismatch')
+    training, fields = snapshot(attempt, 'train')
+    receipt, audit_record = stamp(probe_receipt), stamp(audit)
+    bound_probe = fields['mutable_inputs']['probe_receipt']
+    require(stamp(Path(fields['repo']) / bound_probe['path'], bound_probe['sha256']) == receipt, 'probe receipt linkage')
+    checkpoint = pins['checkpoints']['aug']
+    selected = stamp(ROOT / checkpoint['path'], checkpoint['sha256'])
+    require(Path(selected['path']).parent == Path(training['path'])
+            and training['outputs'].get(Path(selected['path']).name) == selected, 'approved training checkpoint')
+    paths = sorted(str(Path(run).resolve()) for run in runs)
+    require(paths and len(paths) == len(set(paths)), 'empty or duplicate run set')
+    records = []
+    for path in paths:
+        record, manifest = snapshot(path, 'eval')
+        bindings = manifest['mutable_inputs']
+        if (Path(manifest['repo']) / manifest['checkpoint']).resolve() == Path(selected['path']):
+            require({'train_manifest', 'train_completion'} <= set(bindings), 'missing training linkage')
+        for key, expected in (('train_manifest', training['manifest']), ('train_completion', training['completion'])):
+            if key in bindings:
+                value = bindings[key]
+                require(stamp(Path(manifest['repo']) / value['path'], value['sha256']) == expected, 'training linkage')
+        records.append(record)
+    head = head or subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+    subprocess.check_call(['git', 'cat-file', '-e', head + '^{commit}'], cwd=ROOT)
+    return dict(schema_version=1, git_HEAD=head, runs=records, training=training, probe_receipt=receipt,
+        audit=audit_record, approved_digests=approval, inputs=dict(runs=paths, attempt=training['path'],
+        probe_receipt=receipt['path'], audit=audit_record['path'], approved=identity['path']))
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--runs', nargs='+', required=True)
+    for name in ('attempt', 'probe-receipt', 'audit', 'out', 'approved'):
+        parser.add_argument('--' + name, required=name != 'approved')
+    args = vars(parser.parse_args(argv))
+    output = args.pop('out')
+    p.write_manifest(output, collect(**args))
+
+
+if __name__ == '__main__':
+    main()
