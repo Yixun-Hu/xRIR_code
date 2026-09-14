@@ -103,9 +103,6 @@ def test_full_cli_uses_receipt_projection(tmp_path, monkeypatch, receipt, tier, 
         calls.append(attempt)
         return {'passed': True}
     monkeypatch.setattr(launch, 'execute_attempt', execute)
-    if renewal:
-        gates.set_budget(launch.arm_root(tier, backbone), dict(projection_hours=20.,
-                         ceiling_hours=30., probe_receipt_sha256='b' * 64))
     launch.main(['full', '--tier', tier, '--backbone', backbone, '--gpu', '1', '--reviewed-commit', 'HEAD',
                  '--probe-json', str(path), '--projection-hours', '0.1', '--timestamp', 'test'] +
                 (['--renew-ceiling', renewal] if renewal else []))

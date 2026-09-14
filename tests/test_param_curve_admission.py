@@ -193,6 +193,29 @@ def test_training_bindings_resolve_final_to_attempt(exp05_fixture):
     assert not pc.admit(f.directories, f.profile, f.approved, f.producer)['deviations']
 
 
+@pytest.mark.parametrize('name', ['train_manifest', 'train_completion', 'train_args', 'control_args'])
+@pytest.mark.parametrize('alias', ['copy', 'symlink'])
+def test_recorded_binding_filename_must_be_canonical(exp05_fixture, name, alias):
+    f = exp05_fixture(m_exp04=name == 'control_args')
+    role = 'M_simple' if name == 'control_args' else 'S_simple'
+    directory = Path(f.paths[role][0])
+    fields = f.read(directory / 'eval_manifest.json')
+    binding = fields['mutable_inputs'][name]
+    original = Path(binding['path'])
+    renamed = original.with_name('renamed.json')
+    if alias == 'symlink':
+        renamed.symlink_to(original.name)
+    else:
+        renamed.write_bytes(original.read_bytes())
+    binding['path'] = str(renamed)
+    f.rebind(directory, manifest=fields)
+    message = name + ' binding filename'
+    with pytest.raises(ValueError, match=message):
+        pc.admit(f.directories, f.profile, f.approved, f.producer)
+    assert any(message in d for d in pc.admit(f.directories, f.profile, f.approved, f.producer,
+                                             exploratory=True)['deviations'])
+
+
 @pytest.mark.parametrize('key,message', [('training_launcher', 'training launcher closure'), ('training', 'training closure')])
 def test_equal_training_closures_must_match_approved_pins(exp05_fixture, key, message):
     f = exp05_fixture()

@@ -14,12 +14,24 @@ from tools.exp05_probe import projection
 
 def validate_receipt(path, commit, gpu, tier, backbone):
     from tools.exp04_launcher import arm_root
+    def require(ok, cause):
+        if not ok:
+            raise ValueError(cause)
+    context = 'validation'
     try:
         path = Path(path).resolve()
         raw = path.read_bytes()
         digest = hashlib.sha256(raw).hexdigest()
         data = json.loads(raw)
+        require(data['reviewed_commit'] == commit, 'commit mismatch')
+        require(tier in ('S', 'L') and backbone in ('simple', 'cylindrical')
+                and data['tier'] == tier and data['backbone'] == backbone, 'tier/backbone mismatch')
+        require(data['gpu'] == gpu, 'GPU mismatch')
+        require(data['PROBE_NOT_CLEAN'] is False, 'NOT CLEAN')
         projected = projection(data)
+        require(data['passed'] is True and projected['passed']
+                and all(data[k] == projected[k] for k in ('T_epoch', 'T_run')), 'T_run or timing mismatch')
+        context = 'probe-attempt binding'
         attempt = data['probe_attempt']
         if any(p.sha256_file(Path(attempt['path']) / (name + '.json')) != attempt[name + '_sha256']
                for name in ('train_manifest', 'completion')):
@@ -27,23 +39,23 @@ def validate_receipt(path, commit, gpu, tier, backbone):
         attempt_path = Path(attempt['path']).resolve()
         manifest = json.loads((attempt_path / 'train_manifest.json').read_bytes())
         completion = json.loads((attempt_path / 'completion.json').read_bytes())
+        require(manifest['reviewed_commit'] == commit, 'commit mismatch')
+        require(manifest['effective_args']['tier'] == tier and manifest['effective_args']['backbone'] == backbone,
+                'tier/backbone mismatch')
         if (attempt_path.parent != arm_root(tier, backbone).resolve()
-                or manifest['mode'] != 'probe' or manifest['effective_args']['tier'] != tier
-                or manifest['effective_args']['backbone'] != backbone or manifest['reviewed_commit'] != commit
+                or manifest['mode'] != 'probe'
                 or Path(manifest['attempt_path']).resolve() != attempt_path
                 or any(completion['metrics']['probe'][k] != data[k] for k in
                        ('t_micro', 't_test', 't_save', 'iteration_seconds', 'peak_allocated_bytes',
                         'peak_reserved_bytes', 'T_epoch', 'T_run'))):
             raise ValueError('probe attempt arm or measurements differ')
+        context = 'validation'
         snapshots = [data['before'], *data['arms_before'], data['after']]
+        require(all(s['gpu'] == gpu and s['uuid'] == data['before']['uuid'] for s in snapshots), 'GPU mismatch')
+        require(len(data['arms_before']) == 1 and type(data['before']['uuid']) is str and bool(data['before']['uuid'])
+                and all(s['compute_apps'] == '' and math.isfinite(s['free_gib']) and s['free_gib'] >= 40
+                        for s in snapshots), 'NOT CLEAN')
         valid = (type(data['schema_version']) is int and data['schema_version'] == 1
-            and tier in ('S', 'L') and data['tier'] == tier and data['backbone'] == backbone
-            and backbone in ('simple', 'cylindrical') and data['reviewed_commit'] == commit
-            and data['gpu'] == gpu and data['PROBE_NOT_CLEAN'] is False and data['passed'] is True
-            and projected['passed'] and all(data[k] == projected[k] for k in ('T_epoch', 'T_run'))
-            and len(data['arms_before']) == 1 and type(data['before']['uuid']) is str and bool(data['before']['uuid'])
-            and all(s['gpu'] == gpu and s['uuid'] == data['before']['uuid'] and s['compute_apps'] == ''
-                    and math.isfinite(s['free_gib']) and s['free_gib'] >= 40 for s in snapshots)
             and data['test_timing_protocol'] == 'full_test_loader'
             and type(data['test_batches_total']) is int and data['test_batches_total'] > 0
             and type(data['test_batches_timed']) is int and data['test_batches_timed'] == data['test_batches_total']
@@ -51,10 +63,10 @@ def validate_receipt(path, commit, gpu, tier, backbone):
             and data['peak_reserved_bytes'] >= data['peak_allocated_bytes'] and data['yaw_aug'] == 0
             and math.isfinite(data['train_loss']) and data['iteration_seconds'] == data['t_micro']['values']
             and all(data[k + '_iteration_seconds'] == data['t_micro'][k] for k in ('mean', 'median', 'min')))
-        if not valid or p.sha256_file(path) != digest:
-            raise ValueError('invalid or changing receipt')
+        require(valid, 'invalid measurements or schema')
+        require(p.sha256_file(path) == digest, 'stale receipt: bytes changed during validation')
     except (OSError, KeyError, TypeError, ValueError, OverflowError) as error:
-        raise ValueError('full requires a clean passing tier receipt bound to commit and GPU') from error
+        raise ValueError('full requires a clean passing tier receipt ({}): {}'.format(context, error)) from error
     return dict(path=str(path), sha256=digest)
 
 

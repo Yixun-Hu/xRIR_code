@@ -197,6 +197,11 @@ def run_contract(directory, arm, profile, pins):
     names = set(fields['mutable_inputs'])
     require(names <= {'control_args', 'train_args', 'train_manifest', 'train_completion', 'probe_receipt'},
             'unknown mutable binding')
+    for name, filename in (('train_manifest', 'train_manifest.json'), ('train_completion', 'completion.json'),
+                           ('train_args', 'args.json'), ('control_args', 'args.json')):
+        if name in names:
+            require(Path(fields['mutable_inputs'][name]['path']).name == filename,
+                    name + ' binding filename: expected ' + filename)
     waivers = []
     legacy_evaluator = old and not current
     if legacy_evaluator:
