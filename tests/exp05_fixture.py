@@ -13,6 +13,16 @@ from tools.reference_manifest import manifest_hash
 from test_paired_compare import _canonical_digest, _read, _replace, _rebind, _summaries
 
 
+@pytest.fixture
+def exp05_approval_template():
+    """Keep template cases independent of the real approval file's fill state."""
+    return dict(schema_version=None, closures=dict.fromkeys((
+        'evaluator', 'writer', 'training_launcher', 'training',
+        'producer_param_curve', 'evaluator_exp04')), checkpoints={
+            role: dict.fromkeys(('path', 'epoch', 'sha256'))
+            for role in ('S_simple', 'S_cyl', 'L_simple', 'L_cyl')})
+
+
 def _source(root, name):
     path = root / name
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -31,13 +41,14 @@ def exp05_fixture(tmp_path):
         profile = json_value(get_profile(name))
         queries = sorted('Room/room_{}/S00{}_R001_hybrid_IR.wav'.format(i // 4, i + 1) for i in range(12))
         profile['dataset'].update(n_queries=12, n_rooms=3, query_sha256=_canonical_digest(queries))
-        frozen, entry, old_entry, writer, training = [_source(root, path) for path in (
+        frozen, entry, old_entry, writer, launcher, training = [_source(root, path) for path in (
             'eval_yaw_rotation.py', 'tools/exp05_eval.py', 'tools/exp04_eval.py',
-            'tools/exp04_eval_launch.py', 'tools/exp04_launcher.py')]
+            'tools/exp04_eval_launch.py', 'tools/exp04_launcher.py', 'train_xRIR_backbone.py')]
         producer = dict(sha256='a' * 64, files=[], commit='b' * 40)
         pins = dict(schema_version=1, closures=dict(evaluator=entry['sha256'],
             evaluator_exp04=old_entry['sha256'], writer=writer['sha256'],
-            training_launcher=training['sha256'], producer_param_curve=producer['sha256']), checkpoints={})
+            training_launcher=[launcher['sha256']], training=training['sha256'],
+            producer_param_curve=producer['sha256']), checkpoints={})
         data_root = root / 'data'
         data_root.mkdir()
         (data_root / 'query.dat').write_bytes(b'synthetic dataset bytes')
@@ -82,7 +93,8 @@ def exp05_fixture(tmp_path):
             if not legacy:
                 train_manifest = attempt / 'train_manifest.json'
                 p.write_manifest(train_manifest, dict(repo=str(root), reviewed_commit='b' * 40,
-                    mode='full', effective_args=args, source_closures=dict(launcher=training), mutable_inputs={}))
+                    mode='full', effective_args=args, source_closures=dict(launcher=launcher, training=training),
+                    mutable_inputs={}))
                 train_log = attempt / 'train.log'
                 train_log.write_text('synthetic training completed\n')
                 train_completion = attempt / 'completion.json'

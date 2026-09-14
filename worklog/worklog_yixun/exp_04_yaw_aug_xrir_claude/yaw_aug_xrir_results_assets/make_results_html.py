@@ -1,7 +1,10 @@
 """Offline exp_04 page; shared canonical admission and tables, SVG layout only."""
 import html
 from pathlib import Path
-from make_results_md import arguments, display, tables
+from tools.exp04_record import load_asset
+
+md = load_asset('make_results_md')
+arguments, display, tables = md.arguments, md.display, md.tables
 
 CSS = '''
 :root{color-scheme:light;--surface:#fcfcfb;--text:#0b0b0b;--muted:#555;--grid:#ddd;--blue:#2a78d6;--orange:#c34c20;--card:#f2f2ef}
@@ -36,28 +39,28 @@ def strip(data, equivalence=False):
     low, high = min([0, -margin] + [v for pair in intervals for v in pair]), max([0, margin] + [v for pair in intervals for v in pair])
     x = lambda v: 220 + 500 * (v - low) / (high - low or 1)
     height = 65 + 30 * len(cells)
-    title = data['profile_name'] + (' — equivalence intervals (ratio)' if equivalence else ' — D_k and one-sided bound (ratio)')
+    title = data['profile_name'] + (' — equivalence intervals (%)' if equivalence else ' — D_k and one-sided bound (%)')
     parts = ['<figure><svg viewBox="0 0 850 {}" role="img" aria-label="{}"><title>{}</title>'.format(height, esc(title), esc(title))]
     for value in ([0, -margin, margin] if equivalence else [0]):
         parts.append('<line class="{}" x1="{}" x2="{}" y1="20" y2="{}"/>'.format('axis' if value == 0 else 'bound', x(value), x(value), height - 30))
     for index, (cell, pair) in enumerate(zip(cells, intervals)):
         y = 35 + index * 30
         label = '{} / {}°'.format(cell['metric'], display(cell['degrees']))
-        tooltip = '{}; estimate {}; interval/bound {}; {}'.format(label, display(cell['estimate']), display(pair), cell.get('verdict', data.get('verdict', '')))
+        tooltip = '{}; estimate {}; interval/bound {}; {}'.format(label, md.percent(cell['estimate']), md.percent(pair), cell.get('verdict', data.get('verdict', '')))
         parts.append('<text x="10" y="{}">{}</text><g class="mark" tabindex="0"><title>{}</title>'.format(y + 4, esc(label), esc(tooltip)))
         parts.append('<line x1="{}" x2="{}" y1="{}" y2="{}" stroke-width="3"/>'.format(x(pair[0]), x(pair[1]), y, y))
         for endpoint in pair:
             parts.append('<line x1="{}" x2="{}" y1="{}" y2="{}"/>'.format(x(endpoint), x(endpoint), y - 5, y + 5))
         parts.append('<circle cx="{}" cy="{}" r="4"/></g>'.format(x(cell['estimate']), y))
     for value in (low, high):
-        parts.append('<text x="{}" y="{}" text-anchor="middle">{}</text>'.format(x(value), height - 10, esc(value)))
-    caption = 'Point = estimate; segment = companion interval; dashed lines = ±' + display(margin) if equivalence else 'Point = D_k; segment ends at the one-sided upper bound. Vertical line = zero.'
+        parts.append('<text x="{}" y="{}" text-anchor="middle">{}</text>'.format(x(value), height - 10, esc(md.percent(value))))
+    caption = 'Point = estimate; segment = companion interval; dashed lines = ±' + md.percent(margin) + '%' if equivalence else 'Point = D_k; segment ends at the one-sided upper bound. Vertical line = zero.'
     return ''.join(parts) + '</svg><figcaption>' + esc(caption) + '</figcaption></figure>'
 
 
 def curves(data):
     """Optional one-arm canonical cells; preserves their profile and seed labels."""
-    if data['profile'].get('mode') != 'one_arm':
+    if data['profile'].get('mode') != 'descriptive':
         return ''
     figures = []
     for metric in sorted({c['metric'] for c in data['cells']}):
@@ -66,16 +69,16 @@ def curves(data):
         left, right = cells[0]['degrees'], cells[-1]['degrees']
         x = lambda v: 80 + 650 * (v - left) / (right - left or 1)
         y = lambda v: 180 - 140 * (v - low) / (high - low or 1)
-        title = 'Diagnostic ' + data['profile_name'] + ' — ' + metric + ' r_k (ratio)'
+        title = 'Diagnostic ' + data['profile_name'] + ' — ' + metric + ' r_k (%)'
         parts = ['<figure><svg viewBox="0 0 850 230" role="img"><title>' + esc(title) + '</title>']
         points = ' '.join('{},{}'.format(x(c['degrees']), y(c['estimate'])) for c in cells)
         parts += ['<line class="axis" x1="80" x2="730" y1="{0}" y2="{0}"/>'.format(y(0)), '<polyline stroke="var(--blue)" fill="none" points="' + points + '"/>']
         for cell in cells:
-            label = '{}°: {}'.format(display(cell['degrees']), display(cell['estimate']))
+            label = '{}°: {}'.format(display(cell['degrees']), md.percent(cell['estimate']))
             parts += ['<circle class="mark" tabindex="0" cx="{}" cy="{}" r="4"><title>{}</title></circle>'.format(x(cell['degrees']), y(cell['estimate']), esc(label)),
                       '<text x="{}" y="210" text-anchor="middle">{}°</text>'.format(x(cell['degrees']), esc(cell['degrees']))]
         for value in (low, high):
-            parts.append('<text x="5" y="{}">{}</text>'.format(y(value), esc(value)))
+            parts.append('<text x="5" y="{}">{}</text>'.format(y(value), esc(md.percent(value))))
         figures.append(''.join(parts) + '</svg><figcaption>' + esc(title) + '</figcaption></figure>')
     return ''.join(figures)
 
@@ -85,9 +88,10 @@ def main(argv=None):
     identity = 'generated by make_results_html.py from ' + ', '.join(r[1]['sha256'] for r in records) + ' at ' + head
     parts = ['<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">',
              '<title>Yaw augmentation results</title><style>' + CSS + '</style><body><main>',
-             '<p class="identity">' + esc(identity) + '</p><h1>Yaw augmentation results</h1>']
+             '<p class="identity">' + esc(identity) + '</p><p>' + esc(md.ROUNDING) + '</p><h1>Yaw augmentation results</h1>']
     if any(r[2] for r in records):
         parts.append('<div class="draft">DRAFT — missing verdict; tests only</div>')
+    parts.extend(table_block(*block) for data, _, _ in records for block in md.summaries(data))
     for index, (data, _, _) in enumerate(records):
         parts.extend(table_block(*block) for block in tables(data))
         if data['profile_name'] in ('H2_K8', 'TOST_K8'):

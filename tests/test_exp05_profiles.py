@@ -4,6 +4,7 @@ import json
 from types import MappingProxyType as MP
 
 import pytest
+from exp05_fixture import exp05_approval_template
 from tools import exp05_profiles as p
 from tools.exp05_params import TIERS, build_tier, count_parameters
 from tests.test_exp04_profiles import approval_repo, ROOT
@@ -53,8 +54,11 @@ def test_reference_pins(shot, seed):
     assert sha256_file(ROOT / entry['path']) == entry['file_sha256']
 
 
-def test_approval_commit_binding_and_types(tmp_path):
-    value = json.loads(p.APPROVED_DIGESTS_PATH.read_text())
+@pytest.mark.parametrize('launchers', [None, []])
+def test_approval_commit_binding_and_types(tmp_path, exp05_approval_template, launchers):
+    value = exp05_approval_template
+    assert 'training' in value['closures']
+    value['closures']['training_launcher'] = launchers
     path = approval_repo(tmp_path, value)
     pins, receipt = p.load_approved_digests(path)
     assert receipt['sha256'] == hashlib.sha256(path.read_bytes()).hexdigest()
@@ -69,15 +73,19 @@ def test_approval_commit_binding_and_types(tmp_path):
 
 
 @pytest.mark.parametrize('wrong_role', [None, 'S_simple', 'S_cyl', 'L_simple', 'L_cyl'])
-def test_filled_approvals_are_frozen_and_distinct_from_template(tmp_path, wrong_role):
-    value = json.loads(p.APPROVED_DIGESTS_PATH.read_text())
+@pytest.mark.parametrize('launchers', [['a'*64], ['a'*64, 'b'*64], [], None, 'a'*64, ['g'*64], [None], [1]])
+def test_filled_approvals_are_frozen_and_distinct_from_template(
+        tmp_path, exp05_approval_template, wrong_role, launchers):
+    value = exp05_approval_template
     value['schema_version'] = 1
     value['closures'] = dict.fromkeys(value['closures'], 'a'*64)
+    value['closures']['training_launcher'] = launchers
     for role in value['checkpoints']:
         arm = next(a for a in p.ARMS if a['role'] == role)
         value['checkpoints'][role] = dict(path=arm['checkpoint'], epoch=12, sha256='b'*64)
     if wrong_role:
         value['checkpoints'][wrong_role]['path'] = 'ckpt/another/epoch_012.pth'
+    if wrong_role or launchers not in (['a'*64], ['a'*64, 'b'*64]):
         with pytest.raises(ValueError, match='schema'):
             p.load_approved_digests(approval_repo(tmp_path, value))
         return
@@ -88,11 +96,18 @@ def test_filled_approvals_are_frozen_and_distinct_from_template(tmp_path, wrong_
 
 
 @pytest.mark.parametrize('key,value', [('schema_version', 1), ('evaluator', 'g'*64),
-    ('evaluator', 'a'*64), ('epoch', True), ('epoch', 11), ('path', ''), ('sha256', 3), ('extra', None)])
-def test_approval_partial_or_invalid_pin_refused(tmp_path, key, value):
-    pins = json.loads(p.APPROVED_DIGESTS_PATH.read_text())
-    target = (pins['closures'] if key == 'evaluator' else pins['checkpoints']['S_cyl']
+    ('evaluator', 'a'*64), ('training', 'g'*64), ('training', ['a'*64]), ('training', 'a'*64),
+    ('epoch', True), ('epoch', 11), ('path', ''), ('sha256', 3), ('extra', None)])
+def test_approval_partial_or_invalid_pin_refused(tmp_path, exp05_approval_template, key, value):
+    pins = exp05_approval_template
+    target = (pins['closures'] if key in ('evaluator', 'training') else pins['checkpoints']['S_cyl']
               if key in ('epoch', 'path', 'sha256') else pins)
     target[key] = value
     with pytest.raises(ValueError, match='schema'):
         p.load_approved_digests(approval_repo(tmp_path, pins))
+
+
+def test_committed_approval_file_parses():
+    pins, receipt = p.load_approved_digests()
+    assert p.json_value(pins) == json.loads(p.APPROVED_DIGESTS_PATH.read_text())
+    assert receipt['git_blob']

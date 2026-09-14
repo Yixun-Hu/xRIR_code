@@ -73,12 +73,15 @@ def load_approved_digests(path=None):
         if type(obj) is not dict or set(obj) != set(keys):
             raise ValueError('approved digests schema: unexpected keys')
     shape(value, ('schema_version', 'closures', 'checkpoints'))
-    closure_keys = ('evaluator', 'writer', 'training_launcher', 'producer_param_curve')
+    closure_keys = ('evaluator', 'writer', 'training_launcher', 'training', 'producer_param_curve')
     shape(value['closures'], closure_keys + (('evaluator_exp04',) if 'evaluator_exp04' in value['closures'] else ()))
     shape(value['checkpoints'], ('S_simple', 'S_cyl', 'L_simple', 'L_cyl'))
     checks = [(value['schema_version'], lambda v: type(v) is int and v == 1)]
     digest = lambda v: type(v) is str and re.fullmatch('[0-9a-f]{64}', v)
-    checks += [(value['closures'][k], digest) for k in closure_keys]
+    checks += [(value['closures'][k], digest) for k in closure_keys if k != 'training_launcher']
+    launchers = value['closures']['training_launcher']
+    checks += [(None if launchers == [] else launchers,
+                lambda v: type(v) is list and len(v) >= 1 and all(digest(d) for d in v))]
     for role, arm in value['checkpoints'].items():
         shape(arm, ('path', 'epoch', 'sha256'))
         expected = next(a['checkpoint'] for a in ARMS if a['role'] == role)

@@ -13,7 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_profiles_frozen_and_typed():
-    assert set(profiles.PROFILES) == {'H1_K8', 'H1_K1', 'H2_K8', 'TOST_K8', 'TABLE_V1'}
+    assert set(profiles.PROFILES) == {'H1_K8', 'H1_K1', 'H2_K8', 'TOST_K8', 'TABLE_V1', 'GRID_SEED42', 'EPOCH9_K8'}
+    assert set(profiles.DESCRIPTIVE_NAMES) == {n for n, p in profiles.PROFILES.items() if p['mode'] == 'descriptive'}
     def check(value):
         assert type(value) in (MappingProxyType, tuple, str, int, float, bool, type(None))
         if isinstance(value, MappingProxyType):
@@ -30,7 +31,7 @@ def test_profiles_frozen_and_typed():
     for name, profile in profiles.PROFILES.items():
         assert profiles.get_profile(name) is profile
         assert type(profile['schema_version']) is int
-        assert profile['mode'] in ('two_arm', 'one_arm', 'table')
+        assert profile['mode'] in ('two_arm', 'one_arm', 'table', 'descriptive')
         assert profile['condition'] == 'P'
         assert profile['alpha'] == .05 and profile['n_boot'] == 20000
         assert profile['bootstrap_seeds'] == (0, 1)
@@ -68,7 +69,7 @@ def test_hypotheses_and_canonical_input_selection():
     assert h2['input_selection'] == tost['input_selection'] == 'block'
 
 
-@pytest.mark.parametrize('name', tuple(profiles.PROFILES))
+@pytest.mark.parametrize('name', profiles.PROFILES)
 def test_every_field_has_its_declared_type(name):
     p = profiles.get_profile(name)
     schema = {'schema_version': int, 'mode': str, 'arms': tuple, 'num_shot': int,
@@ -84,14 +85,22 @@ def test_every_field_has_its_declared_type(name):
         schema.update(num_shot=tuple, margin=type(None), companion_alpha=type(None),
                       finite_count_tolerance=int)
         assert p['finite_count_tolerance'] == 2
+    if p['mode'] == 'descriptive':
+        schema.update(acoustic_grid=tuple, margin=type(None), companion_alpha=type(None))
+        assert all(type(k) is int for k in p['acoustic_grid'])
+        if 'checkpoint_key' in p:
+            schema['checkpoint_key'] = str
     assert p.keys() == schema.keys()
     assert all(type(p[key]) is kind for key, kind in schema.items())
     for arm in p['arms']:
         assert set(arm) == {'label', 'backbone', 'role', 'epoch', 'checkpoint'} | (
             set() if arm['role'] == 'aug' else {'sha256'})
-        assert type(arm['epoch']) is int and arm['epoch'] == 12
+        assert type(arm['epoch']) is int and arm['epoch'] == (9 if p.get('checkpoint_key') == 'aug_epoch9' else 12)
         assert all(type(arm[key]) is str for key in ('label', 'backbone', 'role', 'checkpoint'))
         assert 'sha256' not in arm if arm['role'] == 'aug' else len(arm['sha256']) == 64
+    for shot, seeds in p['seeds'].items():
+        assert type(shot) is int and type(seeds) is MappingProxyType
+        assert all(type(seed) is int and type(digest) is str and len(digest) == 64 for seed, digest in seeds.items())
     detached = profiles.json_value(p)
     detached['arms'][0]['label'] = 'changed'
     assert p['arms'][0]['label'] != 'changed'
@@ -161,7 +170,13 @@ def approval_repo(tmp_path, value):
 def approval_template():
     return {'schema_version': None, 'closures': dict.fromkeys((
         'evaluator', 'writer', 'training_launcher', 'producer_paired_compare',
-        'producer_results_table')), 'checkpoints': {'aug': dict.fromkeys(('path', 'epoch', 'sha256'))}}
+        'producer_results_table', 'producer_descriptive')), 'checkpoints': {'aug_epoch9': None, 'aug': dict.fromkeys(('path', 'epoch', 'sha256'))}}
+
+
+def test_committed_approval_file_parses():
+    pins, identity = profiles.load_approved_digests()
+    assert profiles.json_value(pins) == json.loads(profiles.APPROVED_DIGESTS_PATH.read_text())
+    assert identity['git_blob']
 
 
 @pytest.mark.parametrize('pinned', (False, True))
@@ -171,6 +186,7 @@ def test_runtime_approval_pins_frozen_and_committed(tmp_path, pinned):
         value.update(schema_version=1)
         value['closures'] = dict.fromkeys(value['closures'], 'a' * 64)
         value['checkpoints']['aug'] = {'path': 'ckpt/epoch_012.pth', 'epoch': 12, 'sha256': 'b' * 64}
+        value['checkpoints']['aug_epoch9'] = 'b' * 64
     path = approval_repo(tmp_path, value)
     pins, identity = profiles.load_approved_digests(path)
     assert profiles.json_value(pins) == value
@@ -204,5 +220,19 @@ def test_mixed_approval_schema_refused(tmp_path, key, value):
         pins['checkpoints']['aug'] = dict(path='ckpt/epoch_012.pth', epoch=12, sha256='b' * 64)
     else:
         (pins if key == 'schema_version' else pins['closures'])[key] = value
+    with pytest.raises(ValueError, match='all-null or all-filled'):
+        profiles.load_approved_digests(approval_repo(tmp_path, pins))
+
+
+@pytest.mark.parametrize('section,key', [('closures', 'producer_descriptive'), ('checkpoints', 'aug_epoch9')])
+@pytest.mark.parametrize('filled', (False, True))
+def test_diagnostic_pins_share_atomic_approval(tmp_path, section, key, filled):
+    pins = approval_template()
+    if filled:
+        pins['schema_version'] = 1
+        pins['closures'] = dict.fromkeys(pins['closures'], 'a' * 64)
+        pins['checkpoints'] = dict(aug_epoch9='b' * 64,
+            aug=dict(path='ckpt/epoch_012.pth', epoch=12, sha256='b' * 64))
+    pins[section][key] = None if filled else 'a' * 64
     with pytest.raises(ValueError, match='all-null or all-filled'):
         profiles.load_approved_digests(approval_repo(tmp_path, pins))

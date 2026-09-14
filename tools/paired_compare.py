@@ -333,6 +333,8 @@ def admit_run(run_dir, arm, num_shot, profile, approved, check=None, inputs=None
     reference = load_manifest(root / fields['manifest_path'])
     seed, shot = fields['manifest_seed'], num_shot
     checkpoint = approved['checkpoints']['aug'] if arm['role'] == 'aug' else arm
+    if profile.get('checkpoint_key') == 'aug_epoch9':
+        checkpoint = dict(path=arm['checkpoint'], epoch=arm['epoch'], sha256=approved['checkpoints']['aug_epoch9'])
     if arm['role'] == 'aug':
         require(checkpoint['path'] == arm['checkpoint'] and checkpoint['epoch'] == arm['epoch'],
                 'aug checkpoint path/epoch approval')
@@ -385,14 +387,14 @@ def admit_run(run_dir, arm, num_shot, profile, approved, check=None, inputs=None
     require(len(set(rooms_from_paths(queries))) == profile['dataset']['n_rooms'], 'room count')
     grid = profile['run_grids'][arm['role']]
     for key in ('yaw_cols', 'acoustic_cols'):
-        require(_equal(fields.get(key), grid), 'grid ' + key)
+        require(_equal(fields.get(key), profile.get('acoustic_grid', grid) if key == 'acoustic_cols' else grid), 'grid ' + key)
     for payload in (run, aggregate):
         require('E' not in payload, 'condition P only')
         require(set(payload['P']) == {str(k) for k in grid}, 'grid P cells')
     for angle, cell in run['P'].items():
         require(set(cell) == set(aggregate['P'].get(angle, {})), 'metrics cell coverage')
         for name in ('edt', 'c50', 't60'):
-            require(name in cell, 'metric missing ' + name)
+            require((name in cell) == (int(angle) in profile.get('acoustic_grid', grid)), 'metric coverage ' + name)
         for metric, values in cell.items():
             require(isinstance(values, list) and len(values) == len(queries), 'truncated metric length ' + metric)
             require(all(v is None or type(v) in (float, int) for v in values), 'metric type ' + metric)
@@ -421,6 +423,8 @@ def admit_runs(profile, groups, approved=None, exploratory=False, producer=None,
     if any(arm['role'] == 'aug' for arm, _, _ in groups):
         required += [('aug checkpoint ' + key, approved['checkpoints']['aug'][key])
                      for key in ('path', 'epoch')]
+    if profile.get('checkpoint_key') == 'aug_epoch9':
+        required += [('aug_epoch9 checkpoint', approved['checkpoints']['aug_epoch9'])]
     required += [('dataset inventory', profile['dataset']['inventory_sha256']),
                  ('approval schema_version', approved['schema_version'])]
     deviations, inputs, run_flags, data_stats = [], {}, {}, {}
@@ -444,7 +448,7 @@ def admit_runs(profile, groups, approved=None, exploratory=False, producer=None,
             except (KeyError, TypeError, ValueError, OSError, IndexError) as error:
                 check(False, '{}: admission {}'.format(directory, error))
         seeds = [r['meta'].get('manifest_seed') for r in runs]
-        check(len(runs) == 5 and all(type(s) is int for s in seeds) and
+        check(len(runs) == len(profile['seeds'][shot]) and all(type(s) is int for s in seeds) and
               set(seeds) == set(profile['seeds'][shot]), arm['role'] + ' seed set')
         admitted_groups.append(sorted(runs, key=lambda r: int(r['meta']['manifest_seed'])))
     flat = [r for group in admitted_groups for r in group]
@@ -603,12 +607,12 @@ def recheck_inputs(admitted):
             raise ValueError('input changed during analysis: ' + path)
 
 
-def write_outputs(result, admitted, json_path, summary_path):
+def write_outputs(result, admitted, json_path, summary_path, renderer=None):
     """Exclusive creation; the last sidecar binds inputs and both completed outputs."""
     paths = [Path(json_path), Path(summary_path), Path(str(json_path) + '.provenance.json')]
     if len({p.resolve() for p in paths}) != 3 or any(os.path.lexists(p) for p in paths):
         raise FileExistsError('output paths must be distinct and absent')
-    text = render_summary(result).encode()
+    text = (renderer or render_summary)(result).encode()
     data = (json.dumps(_safe_json(result), sort_keys=True, indent=2, allow_nan=False) + '\n').encode()
     sidecar = {'schema_version': 1, 'exploratory': result['exploratory'], 'inputs': admitted['inputs'],
                'profile_digest': result['profile_digest'], 'producer': admitted['producer'],

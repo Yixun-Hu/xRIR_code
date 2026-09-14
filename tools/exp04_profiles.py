@@ -25,20 +25,20 @@ def load_approved_digests(path=None):
     raw = path.read_bytes()
     value = json.loads(raw)
     closures = ('evaluator', 'writer', 'training_launcher',
-                'producer_paired_compare', 'producer_results_table')
+                'producer_paired_compare', 'producer_results_table', 'producer_descriptive')
     def shape(obj, keys):
         if type(obj) is not dict or set(obj) != set(keys):
             raise ValueError('approved digests schema: expected ' + ', '.join(keys))
     shape(value, ('schema_version', 'closures', 'checkpoints'))
     shape(value['closures'], closures)
-    shape(value['checkpoints'], ('aug',))
+    shape(value['checkpoints'], ('aug', 'aug_epoch9'))
     aug = value['checkpoints']['aug']
     shape(aug, ('path', 'epoch', 'sha256'))
     checks = [(value['schema_version'], lambda v: type(v) is int and v == 1),
               (aug['path'], lambda v: type(v) is str and bool(v)),
               (aug['epoch'], lambda v: type(v) is int and v > 0)]
     checks += [(v, lambda s: type(s) is str and re.fullmatch('[0-9a-f]{64}', s))
-               for v in list(value['closures'].values()) + [aug['sha256']]]
+               for v in [value['closures'][k] for k in closures] + [aug['sha256'], value['checkpoints']['aug_epoch9']]]
     if any(v is not None and not valid(v) for v, valid in checks):
         raise ValueError('approved digests schema: invalid pin type or value')
     if any(v is None for v, _ in checks) and not all(v is None for v, _ in checks):
@@ -124,6 +124,20 @@ PROFILES = MP({
                        'descriptive': ('T60', 'C50', 'EDT', 'loss', 'log_mse')}),
         'family': 0, 'margin': None, 'tails': 'descriptive',
         'companion_alpha': None, 'superiority_alpha': None})})
+
+
+SPECTRAL_GRID = (0, 4, 8, 16, 32, 64, 96, 128, 192, 256, 320, 384, 416, 448, 480, 496, 504, 508)
+ACOUSTIC_GRID = (0, 8, 32, 64, 128, 256, 384, 448, 480, 504)
+DESCRIPTIVE = MP({**H1, 'mode': 'descriptive', 'arms': (AUG,), 'num_shot': 8, 'input_selection': 'diagnostic',
+    'metrics': MP({'primary': (), 'supportive': (), 'descriptive': ('T60', 'C50', 'EDT', 'loss', 'log_mse')}),
+    'family': 0, 'margin': None, 'tails': 'descriptive', 'companion_alpha': None, 'superiority_alpha': None})
+PROFILES = MP({**PROFILES,
+    'GRID_SEED42': MP({**DESCRIPTIVE, 'grid': SPECTRAL_GRID, 'acoustic_grid': ACOUSTIC_GRID,
+        'run_grids': MP({'aug': SPECTRAL_GRID}), 'seeds': MP({8: MP({42: REFERENCES[8][42]})})}),
+    'EPOCH9_K8': MP({**DESCRIPTIVE, 'grid': (0,), 'acoustic_grid': (0,), 'checkpoint_key': 'aug_epoch9',
+        'arms': (MP({**AUG, 'epoch': 9, 'checkpoint': 'ckpt/xRIR_simple_yawaug_8_shot/final/epoch_009.pth'}),),
+        'run_grids': MP({'aug': (0,)})})})
+DESCRIPTIVE_NAMES = tuple(name for name, profile in PROFILES.items() if profile['mode'] == 'descriptive')
 
 
 def get_profile(name):

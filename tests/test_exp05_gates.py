@@ -60,7 +60,9 @@ def test_refuses_borrowed_probe_evidence(receipt, fault):
         target.write_text(json.dumps(manifest))
         bound['train_manifest_sha256'] = p.sha256_file(target)
     path.write_text(json.dumps(data))
-    with pytest.raises(ValueError, match='receipt'):
+    message = dict(commit='commit mismatch', tier='tier/backbone mismatch',
+                   backbone='tier/backbone mismatch').get(fault, 'probe-attempt binding')
+    with pytest.raises(ValueError, match=message):
         gates.validate_receipt(path, 'a' * 40, '1', 'S', 'simple')
 
 
@@ -89,7 +91,10 @@ def test_refuses_wrong_receipt(receipt, field, value):
     path, data = receipt
     data[field] = value
     path.write_text(json.dumps(data))
-    with pytest.raises(ValueError, match='receipt'):
+    message = dict(tier='tier/backbone mismatch', backbone='tier/backbone mismatch',
+        reviewed_commit='commit mismatch', gpu='GPU mismatch', PROBE_NOT_CLEAN='NOT CLEAN',
+        passed='T_run', T_epoch='T_run', T_run='T_run').get(field, 'receipt')
+    with pytest.raises(ValueError, match=message):
         gates.validate_receipt(path, 'a' * 40, '1', 'S', 'simple')
 
 
@@ -99,7 +104,7 @@ def test_refuses_unclean_snapshots(receipt, field, value):
     path, data = receipt
     data['arms_before'][0][field] = value
     path.write_text(json.dumps(data))
-    with pytest.raises(ValueError, match='receipt'):
+    with pytest.raises(ValueError, match='GPU mismatch' if field in ('gpu', 'uuid') else 'NOT CLEAN'):
         gates.validate_receipt(path, 'a' * 40, '1', 'S', 'simple')
 
 
@@ -113,7 +118,7 @@ def test_probe_attempt_binding_required(receipt, name, remove):
     else:
         target = Path(data['probe_attempt']['path']) / (name + '.json')
         target.unlink() if remove else target.write_text('changed')
-    with pytest.raises(ValueError, match='receipt'):
+    with pytest.raises(ValueError, match='probe-attempt binding'):
         gates.validate_receipt(path, 'a' * 40, '1', 'S', 'simple')
 
 
@@ -141,7 +146,15 @@ def test_refuses_valid_projection_over_sixty_hours(receipt):
     data.update(t_test=10000.)
     data.update(projection(data), passed=True)
     path.write_text(json.dumps(data))
-    with pytest.raises(ValueError, match='receipt'):
+    with pytest.raises(ValueError, match='T_run'):
+        gates.validate_receipt(path, 'a' * 40, '1', 'S', 'simple')
+
+
+def test_receipt_change_during_validation_names_staleness(receipt, monkeypatch):
+    path, _ = receipt
+    original = p.sha256_file
+    monkeypatch.setattr(p, 'sha256_file', lambda target: '0'*64 if Path(target) == path else original(target))
+    with pytest.raises(ValueError, match='stale'):
         gates.validate_receipt(path, 'a' * 40, '1', 'S', 'simple')
 
 
