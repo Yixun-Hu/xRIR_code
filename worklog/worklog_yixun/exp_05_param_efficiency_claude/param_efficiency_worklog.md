@@ -121,3 +121,6 @@ All clean (no co-tenant), `passed` true (T_run ≤ 60 h), bound to `f19b9b6` / G
 ## 2026-09-14T00:05:20-04:00 — S_simple CERTIFIED (attempt_20260913T123905 → `ckpt/exp05/S_simple/final`); S_cylindrical launched
 - S_simple: 12 epochs, 11.41 h wall (ceiling 16.46 h), epoch-1 56.0 min (gate 57), epoch 4 68.8 min under foreign CPU load (two CERPA `eval.py` jobs, 15:29–≈16:40), otherwise 55.7–56.2 min; test loss 0.01769 → 0.01589 (epoch 11–12); `completion.json` with all 12 checkpoints hashed (`epoch_012.pth` sha256 `9f93f1ad…`), `source_drift_after_spawn` recorded, ledger row `full` 11.41 h.
 - 00:03:33 — S_cylindrical launched by the queue: attempt `ckpt/exp05/S_cylindrical/attempt_20260914T000333`, child pgid 1047645, `yaw_aug DISABLED` before step one, 84.2 samples/s (gate 62 min/epoch; projected 11.9 h → ≈ 12:10).
+
+## 2026-09-14T12:05:47-04:00 — S_cylindrical CERTIFIED (attempt_20260914T000333 → `final`, 12.00 h wall, ceiling 17.9 h; epochs 59.7–60.2 min; test loss 0.01810 → 0.01587); L_cylindrical launched
+- 12:03:22 — L_cylindrical: attempt `ckpt/exp05/L_cylindrical/attempt_20260914T120322`, child pgid 1315344, `yaw_aug DISABLED` before step one, 21.8 samples/s at start (probe 1.48 s/iter; epoch-1 gate 4.02 h; T_run 46.0 h → ≈ Sep 16 10:00), 46.3 GB on GPU 1.

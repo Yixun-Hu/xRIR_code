@@ -1,3 +1,5 @@
 2026-09-13T12:39:05-04:00 START S_simple receipt=ckpt/exp05/S_simple/_probe_20260913T102216_S_simple.json ts=20260913T123905
 2026-09-14T00:03:33-04:00 CERTIFIED S_simple -> attempt_20260913T123905
 2026-09-14T00:03:33-04:00 START S_cylindrical receipt=ckpt/exp05/S_cylindrical/_probe_20260913T102428_S_cylindrical.json ts=20260914T000333
+2026-09-14T12:03:22-04:00 CERTIFIED S_cylindrical -> attempt_20260914T000333
+2026-09-14T12:03:22-04:00 START L_cylindrical receipt=ckpt/exp05/L_cylindrical/_probe_20260913T103057_L_cylindrical.json ts=20260914T120322
