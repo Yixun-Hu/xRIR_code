@@ -90,8 +90,10 @@ def test_fail_closed_admission(exp05_fixture, kind):
                           'checkpoint': ('checkpoint_sha256', '0'*64)}[kind]
             fields[key] = value
         f.rebind(path, manifest=fields)
-    with pytest.raises(ValueError, match='re-evaluate M' if kind == 'M_evaluator' else 'admission|approved'):
+    with pytest.raises(ValueError, match='re-evaluate M' if kind == 'M_evaluator' else 'admission|approved') as error:
         pc.admit(f.directories, f.profile, f.approved, f.producer)
+    if kind == 'M_evaluator':
+        assert str(error.value).count('re-evaluate M') == 1
     admitted = pc.admit(f.directories, f.profile, f.approved, f.producer, exploratory=True)
     assert admitted['deviations']
 
@@ -129,7 +131,8 @@ def test_m_group_may_mix_individually_approved_evaluators(exp05_fixture):
 
 
 @pytest.mark.parametrize('role', ['S_simple', 'S_cyl', 'L_simple', 'L_cyl'])
-@pytest.mark.parametrize('kind', ['train_manifest', 'train_completion', 'launcher', 'epoch', 'digest', 'bytes'])
+@pytest.mark.parametrize('kind', ['train_manifest', 'train_completion', 'launcher', 'epoch', 'digest', 'bytes',
+                                 'manifest_hash', 'manifest_borrowed', 'manifest_path', 'completion_path', 'outputs'])
 def test_training_evidence_refusals(exp05_fixture, role, kind):
     f = exp05_fixture()
     directory = Path(f.paths[role][0])
@@ -138,25 +141,54 @@ def test_training_evidence_refusals(exp05_fixture, role, kind):
         del fields['mutable_inputs'][kind]
         message = 'missing ' + kind
     else:
-        binding = fields['mutable_inputs']['train_manifest' if kind == 'launcher' else 'train_completion']
+        name = 'train_manifest' if kind in ('launcher', 'manifest_borrowed', 'manifest_path') else 'train_completion'
+        binding = fields['mutable_inputs'][name]
         path = Path(binding['path'])
         value = f.read(path)
         if kind == 'launcher':
             value['source_closures']['launcher']['sha256'] = '0'*64
         elif kind == 'epoch':
             value['outputs']['epoch_011.pth'] = value['outputs'].pop('epoch_012.pth')
+        elif kind == 'manifest_hash':
+            value['train_manifest_sha256'] = '0'*64
+        elif kind == 'outputs':
+            value['outputs'] = []
+        elif kind.endswith('_path'):
+            path = f.root / path.name
+            binding['path'] = str(path)
+        elif kind == 'manifest_borrowed':
+            # Review counterexample: hide this arm's unapproved launcher behind another arm's manifest.
+            value['source_closures']['launcher']['sha256'] = '0'*64
+            f.replace(path, value)
+            donor = 'L_simple' if role != 'L_simple' else 'S_simple'
+            source = f.read(Path(f.paths[donor][0]) / 'eval_manifest.json')['mutable_inputs'][name]
+            binding.update(source)
+            path, value = Path(binding['path']), f.read(Path(binding['path']))
         else:
             value['outputs']['epoch_012.pth'] = '0'*64
         f.replace(path, value)
         if kind != 'bytes':
             binding['sha256'] = pc.provenance.sha256_file(path)
         message = 'training launcher closure' if kind == 'launcher' else 'train_completion'
+        if kind in ('manifest_borrowed', 'manifest_path', 'completion_path'):
+            message = name + ' binding path'
     for path in f.paths[role]:
         other = f.read(Path(path) / 'eval_manifest.json')
         other['mutable_inputs'] = fields['mutable_inputs']
         f.rebind(Path(path), manifest=other)
     with pytest.raises(ValueError, match=message):
         pc.admit(f.directories, f.profile, f.approved, f.producer)
+    assert any(message in d for d in pc.admit(f.directories, f.profile, f.approved, f.producer,
+                                             exploratory=True)['deviations'])
+
+
+def test_training_bindings_resolve_final_to_attempt(exp05_fixture):
+    f = exp05_fixture()
+    final = Path(f.profile['arms'][0]['checkpoint']).parent
+    attempt = final.with_name('attempt_20260914T000000')
+    final.rename(attempt)
+    final.symlink_to(attempt.name)
+    assert not pc.admit(f.directories, f.profile, f.approved, f.producer)['deviations']
 
 
 def test_equal_training_launchers_must_match_approved_pin(exp05_fixture):

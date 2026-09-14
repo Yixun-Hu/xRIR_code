@@ -97,6 +97,6 @@ def test_summary_rendering_cannot_race_publication_inputs(exp05_fixture, monkeyp
 
 def test_writer_adapter_refuses_missing_renderer_hook(tmp_path, monkeypatch):
     monkeypatch.setattr(pc, 'write_outputs', lambda *args: None)
-    with pytest.raises(AssertionError, match='render_summary'):
+    with pytest.raises(RuntimeError, match='render_summary'):
         pc.publish({}, {}, tmp_path / 'result.json', tmp_path / 'summary.txt')
     assert list(tmp_path.iterdir()) == []

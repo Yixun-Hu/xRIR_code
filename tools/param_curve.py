@@ -107,8 +107,7 @@ def yaw_cell(profile, run, arm, metric, k):
         pairing=['{} k={}'.format(arm['role'], k), arm['role'] + ' k=0'], paired_cohort=retained,
         paired_means={'0': float(base[mask].mean()), str(k): float(angle[mask].mean())},
         companion_interval=list(two_sided_interval(query['samples'], profile['curve_alpha'])),
-        room_cluster_interval=list(two_sided_interval(room['samples'], profile['curve_alpha'])),
-        excluded=np.asarray(run['query'])[~mask].tolist())
+        room_cluster_interval=list(two_sided_interval(room['samples'], profile['curve_alpha'])))
 
 
 def analyze(profile, admitted, exploratory=False):
@@ -161,7 +160,7 @@ def analyze(profile, admitted, exploratory=False):
         result['verdicts'] = {}
         for metric in profile['metrics']['primary']:
             supported = sum(c['superior'] for c in result['cells'] if c['metric'] == metric)
-            result['verdicts'][metric] = ('dominance supported on {} at the three tested tiers'.format(metric)
+            result['verdicts'][metric] = ('dominance supported on {} at the {} tested tiers'.format(metric, len(profile['pairings']))
                 if supported == len(profile['pairings']) else 'partial' if supported else 'not supported')
     else:
         result['parameter_ratios'] = []
@@ -194,7 +193,7 @@ def run_contract(directory, arm, profile, pins):
     current = digest is not None and digest == pins['closures']['evaluator']
     old = (arm['tier'] == 'M' and digest is not None and
            digest == pins['closures'].get('evaluator_exp04'))
-    require(current or old, 'unapproved evaluator; re-evaluate M' if arm['tier'] == 'M' else 'unapproved evaluator')
+    require(current or old, 'unapproved evaluator')
     names = set(fields['mutable_inputs'])
     require(names <= {'control_args', 'train_args', 'train_manifest', 'train_completion', 'probe_receipt'},
             'unknown mutable binding')
@@ -211,13 +210,17 @@ def run_contract(directory, arm, profile, pins):
             require(name in names, 'missing ' + name + ' binding')
             bound = fields['mutable_inputs'][name]
             bound_path = (root / bound['path']).resolve()
+            require(bound_path.parent == (root / fields['checkpoint']).resolve().parent, name + ' binding path')
             training[name] = read(bound_path)
             require(inputs[str(bound_path)] == bound['sha256'], name + ' bytes')
         launcher = training['train_manifest']['source_closures']['launcher']['sha256']
         require(launcher is not None and launcher == pins['closures']['training_launcher'], 'training launcher closure')
+        require(training['train_completion']['train_manifest_sha256'] == fields['mutable_inputs']['train_manifest']['sha256'],
+                'train_completion binds train_manifest')
         epoch = 'epoch_{:03d}.pth'.format(arm['epoch'])
-        require(training['train_completion']['outputs'].get(epoch) == fields['checkpoint_sha256'],
-                'train_completion checkpoint epoch/digest')
+        outputs = training['train_completion']['outputs']
+        require(isinstance(outputs, dict), 'train_completion outputs')
+        require(outputs.get(epoch) == fields['checkpoint_sha256'], 'train_completion checkpoint epoch/digest')
     path = (root / fields['checkpoint']).resolve().parent / 'args.json'
     binding = fields['mutable_inputs'][args_name]
     require((root / binding['path']).resolve() == path, args_name + ' binding path')
@@ -294,25 +297,26 @@ def admit(directories, profile, approved=None, producer=None, exploratory=False)
                 snapshots[path] = digest
             waivers.update(contract['waivers'])
         except (ValueError, TypeError, KeyError, OSError, IndexError) as exc:
-            check(False, '{}: {}{}'.format(directory, exc, '; re-evaluate M' if arm and arm['tier'] == 'M' else ''))
+            check(False, '{}: {}'.format(directory, exc))
     producer = producer_identity('tools.param_curve') if producer is None else producer
     admitted = admit_runs(profile, groups, approved=approved, exploratory=True, producer=producer,
                           producer_key='producer_param_curve')
     for path, digest in snapshots.items():
         check(admitted['inputs'].get(path) == digest, 'contract input changed: ' + path)
+    reevaluate_m = False
     for (arm, _, _), runs in zip(groups, admitted['groups']):
         seeds = [r['meta']['manifest_seed'] for r in runs]
         valid = (all(type(s) is int for s in seeds) and seeds == list(profile['eval_seeds']))
         missing = len(seeds) < len(profile['eval_seeds'])
-        check(valid, arm['role'] + (' missing evaluation runs' if missing else ' registered seed set') +
-              ('; re-evaluate M' if arm['tier'] == 'M' and not missing else ''))
+        check(valid, arm['role'] + (' missing evaluation runs' if missing else ' registered seed set'))
+        reevaluate_m |= arm['tier'] == 'M' and not valid and not missing
         if profile['mode'] == 'yaw' and valid:
             waivers.add(arm['role'] + ' seed set')
     deviations.extend(d for d in admitted['deviations'] if d not in waivers)
+    if reevaluate_m or any(a['tier'] == 'M' and any(path in d for path in paths for d in deviations)
+                           for a, _, paths in groups):
+        deviations.append('re-evaluate M')
     if deviations and not exploratory:
-        if any(a['tier'] == 'M' and any(path in d for path in paths for d in deviations)
-               for a, _, paths in groups):
-            deviations.append('re-evaluate M')
         raise ValueError('admission failed: ' + '; '.join(deviations))
     admitted.update(deviations=deviations, compatibility=compatibility)
     return admitted
@@ -350,7 +354,8 @@ def publish(result, admitted, json_path, summary_path):
     exp04's writer has no renderer argument. A private globals copy keeps its
     exact publication/sidecar code and leaves all shared module globals intact.
     """
-    assert 'render_summary' in write_outputs.__code__.co_names, 'writer must look up render_summary'
+    if 'render_summary' not in write_outputs.__code__.co_names:
+        raise RuntimeError('writer must look up render_summary')
     writer = FunctionType(write_outputs.__code__, dict(write_outputs.__globals__, render_summary=render_summary),
                           write_outputs.__name__, write_outputs.__defaults__, write_outputs.__closure__)
     writer(result, admitted, json_path, summary_path)

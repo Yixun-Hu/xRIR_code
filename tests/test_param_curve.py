@@ -82,7 +82,7 @@ def test_six_arm_analysis_and_parameter_ratio_rule(name):
     assert len(result['curves']) == 18 * len(profile['grid'])
     if profile['mode'] == 'curve':
         assert len(result['cells']) == 6
-        assert result['verdicts']['EDT'] == 'dominance supported on EDT at the three tested tiers'
+        assert result['verdicts']['EDT'] == 'dominance supported on EDT at the 3 tested tiers'
         groups[1] = copy.deepcopy(groups[0])
         assert pc.analyze(profile, admitted)['verdicts']['EDT'] == 'partial'
         for i in (1, 3, 5):
@@ -122,6 +122,8 @@ def test_yaw_uses_single_seed_paired_angle_cohort_without_verdicts():
     result = pc.analyze(profile, dict(groups=groups, inputs={}, deviations=[], run_flags={}))
     cell = next(c for c in result['cells'] if c['arm'] == 'S_simple' and c['metric'] == 'EDT' and c['k'] == 32)
     assert cell['paired_cohort']['n_queries'] == 11
+    assert cell['paired_cohort']['excluded'] == groups[0][0]['query'][:1]
+    assert all('excluded' not in c for c in result['cells'])
     base = np.mean(groups[0][0]['P']['0']['edt'][1:])
     assert cell['estimate'] == pytest.approx((5-base)/base)
     assert len(result['cells']) == 6*3*4
@@ -145,7 +147,8 @@ def test_tost_sample_order_statistics_at_strict_boundaries(monkeypatch, lo, hi):
 @pytest.mark.parametrize('upper', [0., -1e-12])
 def test_superiority_sample_order_statistics_at_zero(monkeypatch, name, upper):
     profile, groups = synthetic(name)
-    samples = np.r_[np.full(19874, -.1), np.full(126, upper)]
+    rank = 19917 if name == 'CURVE_K8' else 19875
+    samples = np.r_[np.full(rank - 1, -.1), [upper], np.full(20000 - rank, upper + 1)]
     monkeypatch.setattr(pc, 'rho_bootstrap', lambda *a, **kw: dict(rho=-.1, samples=samples))
     cell = pc.comparison(profile, groups, profile['pairings'][0], 'EDT')
     assert cell['companion_interval'][1] == upper
@@ -157,4 +160,4 @@ def test_dominance_requires_every_registered_pairing():
     profile['pairings'] = profile['pairings'][:2]
     result = pc.analyze(profile, dict(groups=groups, inputs={}, deviations=[], run_flags={}))
     assert len(result['cells']) == 4
-    assert result['verdicts']['EDT'].startswith('dominance supported')
+    assert result['verdicts']['EDT'] == 'dominance supported on EDT at the 2 tested tiers'
