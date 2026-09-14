@@ -6,7 +6,7 @@ TABLE_V1 has no verdict; TOST verdicts are per cell. Family verdict blocks prece
 
 `--diag` accepts only a descriptive producer profile and never confirmatory JSON. Its canonical JSON, sidecar and summary must stay together.
 
-`bind_provenance.py --runs DIR ... --results JSON ... --attempt FINAL --probe-receipt JSON --audit JSON [--approved JSON] --out binding_report.json` validates completion links and writes exclusively. `check_record.py binding_report.json` recomputes the evidence using the report's original git HEAD. The binder reads run evidence and never modifies run directories. It binds every canonical producer JSON, its sidecar and summary, verifies real directory listings, and requires producer commits to be ancestors of its recorded HEAD.
+`bind_provenance.py --runs DIR ... --results JSON ... --attempt FINAL --probe-receipt JSON --audit JSON [--approved JSON] --out REPORT_DIRECTORY` validates completion links and exclusively creates `binding_report_<UTC timestamp>.json` in the existing directory. `check_record.py REPORT_DIRECTORY` verifies the latest timestamped report using its original git HEAD; an invalid latest report fails without fallback. The binder reads run evidence and never modifies run directories. It binds every canonical producer JSON, sidecar and summary to the loaded approval identity and pins, checks result run inputs against bound completion evidence, verifies real directory listings, and requires producer commits to be ancestors of its recorded HEAD.
 
 Operational order:
 
@@ -14,6 +14,8 @@ Operational order:
 2. After training/evaluations complete, run the canonical producers; retain each JSON, summary and sidecar together.
 3. Bind the completed run set using `--results` with all five canonical JSONs and any diagnostics; retain the immutable report.
 4. Run `check_record.py`, generate Markdown and HTML from the bound JSONs, then run `check_record.py` again before publication.
+
+The living TABLE_V1 `.md` stays digest-bound. Regenerating it with `--force-md` requires a new table JSON/sidecar and a new bind with the current results before verification or publication. Retain earlier reports unchanged; the checker verifies only the latest report.
 
 Run `bash static_checks.sh` from this directory or invoke it by its full path. The CPU regression subset is `python -m pytest tests/test_exp04_record_tools.py tests/test_paired_compare.py tests/test_results_table.py -q -p no:cacheprovider` from the repository root. A restricted installation may need `NUMBA_CACHE_DIR=/tmp/xrir_round8_numba`.
 

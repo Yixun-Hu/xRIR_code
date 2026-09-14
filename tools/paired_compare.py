@@ -613,7 +613,7 @@ def write_outputs(result, admitted, json_path, summary_path, renderer=None):
     if len({p.resolve() for p in paths}) != 3 or any(os.path.lexists(p) for p in paths):
         raise FileExistsError('output paths must be distinct and absent')
     text = (renderer or render_summary)(result).encode()
-    data = (json.dumps(_safe_json(result) if result['exploratory'] else result, sort_keys=True, indent=2, allow_nan=False) + '\n').encode()
+    data = (json.dumps(_safe_json(result), sort_keys=True, indent=2, allow_nan=False) + '\n').encode()
     sidecar = {'schema_version': 1, 'exploratory': result['exploratory'], 'inputs': admitted['inputs'],
                'profile_digest': result['profile_digest'], 'producer': admitted['producer'],
                'approved_digests': admitted['approved_digests'], 'run_flags': admitted['run_flags'],

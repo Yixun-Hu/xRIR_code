@@ -89,7 +89,8 @@ def test_markdown_refusals(record_inputs, mutation):
 
 @pytest.mark.parametrize('mutation', [None, 'manifest', 'completion', 'output', 'train_manifest',
                                     'train_output', 'probe', 'audit', 'approved', 'log', 'echo', 'incomplete', 'missing_digest', 'resigned_json', 'summary',
-                                    'sidecar', 'extra', 'missing_file', 'producer_commit'])
+                                    'sidecar', 'extra', 'missing_file', 'producer_commit',
+                                    'pins_forged', 'approval_swapped_in_sidecar', 'foreign_run_inputs', 'foreign_run_path', 'living_table'])
 def test_binding_roundtrip_and_refusals(tmp_path, monkeypatch, mutation, record_inputs):
     binder = load_asset('bind_provenance')
     checker = load_asset('check_record')
@@ -110,7 +111,9 @@ def test_binding_roundtrip_and_refusals(tmp_path, monkeypatch, mutation, record_
     train_outputs = {path.name: p.sha256_file(path) for path in attempt.iterdir()}
     p.write_manifest(attempt / 'completion.json', dict(train_manifest_sha256=train_outputs['train_manifest.json'],
         outputs=train_outputs, directory_listing=train_outputs, log=binding(paths['log'])))
-    pins = dict(schema_version=1, checkpoints={'aug': binding(attempt / 'epoch_012.pth')}, closures={})
+    pins = dict(schema_version=1, checkpoints={'aug': binding(attempt / 'epoch_012.pth')},
+                closures=dict(producer_paired_compare='a' * 64, producer_results_table='a' * 64))
+    paths['approved'].write_text(json.dumps(pins))
     monkeypatch.setattr(binder, 'load_approved_digests', lambda path: (pins, dict(binding(paths['approved']), git_blob='pinned')))
     fields = dict(repo=str(tmp_path), confirmatory=True, allow_dirty_used=False, schema_version=1,
         source_closures={}, evaluator_closure={'files': []}, data_identity=inventory,
@@ -125,22 +128,76 @@ def test_binding_roundtrip_and_refusals(tmp_path, monkeypatch, mutation, record_
         confirmatory=True, allow_dirty_used=False, outputs=outputs, log=binding(paths['log']),
         directory_listing=sorted(['eval_manifest.json'] + list(outputs)))
     p.write_manifest(run / 'completion.json', completion)
+    import shutil
+    spare = tmp_path / 'unused_run'
+    shutil.copytree(run, spare)  # Each result may use a proper subset of bound runs.
     head = binder.subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=binder.ROOT, text=True).strip()
     for path in record_inputs.values():
         side = Path(str(path) + '.provenance.json')
         value = json.loads(side.read_text())
         value['producer']['commit'] = head
+        value['approved_digests'] = dict(binding(paths['approved']), git_blob='pinned', pins=pins)
+        value['inputs'] = {str(path): p.sha256_file(path) for path in run.iterdir()}
+        value['inputs'][str(paths['approved'])] = p.sha256_file(paths['approved'])
+        value['run_flags'] = {str(run): next(iter(value['run_flags'].values()))}
+        data = json.loads(path.read_text())
+        data.update(inputs=value['inputs'], run_flags=value['run_flags'])
+        path.write_text(json.dumps(data))
+        value['outputs'][str(path)] = p.sha256_file(path)
         side.write_text(json.dumps(value))
-    out = tmp_path / 'binding_report.json'
-    argv = ['--runs', str(run), '--attempt', str(attempt), '--probe-receipt', str(paths['probe']),
+    out = binder.report_path(tmp_path)
+    assert re.fullmatch(r'binding_report_\d{8}T\d{12}Z.json', out.name)
+    monkeypatch.setattr(binder, 'report_path', lambda directory: out)
+    argv = ['--runs', str(run), str(spare), '--attempt', str(attempt), '--probe-receipt', str(paths['probe']),
             '--audit', str(paths['audit']), '--approved', str(paths['approved']),
-            '--results'] + [str(path) for path in record_inputs.values()] + ['--out', str(out)]
+            '--results'] + [str(path) for path in record_inputs.values()] + ['--out', str(tmp_path)]
+    if mutation in ('pins_forged', 'approval_swapped_in_sidecar', 'foreign_run_inputs', 'foreign_run_path'):
+        product = record_inputs['H1_K8']
+        sidecar = Path(str(product) + '.provenance.json')
+        side, data = json.loads(sidecar.read_text()), json.loads(product.read_text())
+        if mutation == 'pins_forged':
+            side['producer']['sha256'] = side['approved_digests']['pins']['closures']['producer_paired_compare'] = 'e' * 64
+            data['producer_closure_sha256'] = 'e' * 64
+        elif mutation == 'approval_swapped_in_sidecar':
+            side['approved_digests'].update(sha256='d' * 64, git_blob='d' * 40)
+            side['inputs'][str(paths['approved'])] = 'd' * 64
+        elif mutation == 'foreign_run_inputs':
+            side['inputs'][str(run / 'metrics_yaw.json')] = 'c' * 64
+        else:
+            side['inputs'][str(tmp_path / 'foreign' / 'metrics_yaw.json')] = 'c' * 64
+        data['inputs'] = side['inputs']
+        product.write_text(json.dumps(data))
+        side['outputs'][str(product)] = p.sha256_file(product)
+        sidecar.write_text(json.dumps(side))
+        load_asset('make_results_md').load(product)  # The forgery is internally consistent.
+        with pytest.raises(ValueError, match='result (approval|inputs)'):
+            binder.main(argv)
+        assert not out.exists()
+        return
     binder.main(argv); original = out.read_bytes()
-    checker.main([str(out)])
+    checker.main([str(tmp_path)])
     assert json.loads(original)['git_HEAD'] == head
     assert len(json.loads(original)['results']) == 5
     with pytest.raises(FileExistsError): binder.main(argv)
     assert out.read_bytes() == original
+    if mutation == 'living_table':
+        table_path = record_inputs['TABLE_V1']
+        side = json.loads(Path(str(table_path) + '.provenance.json').read_text())
+        living = Path(next(path for path in side['outputs'] if path != str(table_path)))
+        living.write_text('regenerated living table\n')
+        with pytest.raises(ValueError): checker.main([str(tmp_path)])
+        replacement = tmp_path / 'table_v2.json'
+        replacement.write_bytes(table_path.read_bytes())
+        side['outputs'] = {str(path): p.sha256_file(path) for path in (replacement, living)}
+        p.write_manifest(str(replacement) + '.provenance.json', side)
+        argv[argv.index(str(table_path))] = str(replacement)
+        previous, out = out, tmp_path / 'binding_report_99990101T000000000000Z.json'
+        binder.main(argv)
+        checker.main([str(tmp_path)])  # Only the latest report can verify the new table.
+        assert previous.read_bytes() == original
+        out.write_text('{}')
+        with pytest.raises((ValueError, KeyError)): checker.main([str(tmp_path)])
+        return
     paths.update(manifest=run / 'eval_manifest.json', completion=run / 'completion.json',
                  output=run / 'metrics_yaw.json', train_manifest=attempt / 'train_manifest.json',
                  train_output=attempt / 'epoch_012.pth')
@@ -172,12 +229,14 @@ def test_binding_roundtrip_and_refusals(tmp_path, monkeypatch, mutation, record_
     elif mutation == 'missing_digest':
         completion['eval_manifest_sha256'] = None
         p.write_completion(paths['completion'], completion)
-        with pytest.raises(ValueError): binder.main(argv[:-1] + [str(tmp_path / 'new_report.json')])
+        with pytest.raises(ValueError): binder.main(argv)
     if mutation:
-        with pytest.raises((ValueError, OSError, KeyError)): checker.main([str(out)])
+        with pytest.raises((ValueError, OSError, KeyError)): checker.main([str(tmp_path)])
     else:
         monkeypatch.setattr(binder.subprocess, 'check_output', lambda *a, **k: pytest.fail('must retain original HEAD'))
-        checker.main([str(out)])
+        checker.main([str(tmp_path)])
+        (tmp_path / 'binding_report_99990101T000000000000Z.json').write_text('{}')
+        with pytest.raises((ValueError, KeyError)): checker.main([str(tmp_path)])
 
 
 @pytest.mark.parametrize('draft', [False, True])

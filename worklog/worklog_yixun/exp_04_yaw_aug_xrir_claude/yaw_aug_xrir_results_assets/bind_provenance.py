@@ -2,6 +2,7 @@
 import argparse
 import json
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from tools import provenance as p
 from tools.exp04_profiles import load_approved_digests
@@ -67,14 +68,25 @@ def check_ancestor(commit, head):
             'producer commit is not an ancestor of binding HEAD')
 
 
-def bind_results(paths, head):
+def bind_results(paths, head, approval, runs, training):
     records = []
     md = load_asset('make_results_md')
+    bound = {f['path']: f['sha256'] for r in runs for f in
+             [r['manifest'], r['completion']] + [o for o in r['outputs'].values() if o]}
     for path in sorted(str(Path(path).resolve()) for path in paths):
         data, _, draft = md.load(path)
         require(not draft, 'draft result refused')
         sidecar = Path(path + '.provenance.json')
         side = json.loads(sidecar.read_text())
+        require(all(side['approved_digests'][key] == approval[key] for key in ('sha256', 'git_blob'))
+                and side['approved_digests']['pins'] == approval['blob'], 'result approval identity or pins')
+        inputs = {path: digest for path, digest in side['inputs'].items()
+                  if Path(path).name in ('eval_manifest.json', 'completion.json', 'metrics_yaw.json', 'per_sample_yaw.json')
+                  and path != training['completion']['path']}
+        require(inputs and inputs.items() <= bound.items() and side['run_flags']
+                and set(side['run_flags']) <= {r['path'] for r in runs}
+                and all(side['inputs'].get(path) == digest for path, digest in bound.items()
+                        if str(Path(path).parent) in side['run_flags']), 'result inputs are not the bound runs')
         check_ancestor(side['producer']['commit'], head)
         records.append(dict(profile=data['profile_name'], producer_commit=side['producer']['commit'],
                             sidecar=stamp(sidecar), outputs=[stamp(p, d) for p, d in sorted(side['outputs'].items())]))
@@ -112,10 +124,14 @@ def collect(runs, attempt, probe_receipt, audit, results, approved=None, head=No
         records.append(record)
     head = head or subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     subprocess.check_call(['git', 'cat-file', '-e', head + '^{commit}'], cwd=ROOT)
-    return dict(schema_version=1, git_HEAD=head, results=bind_results(results, head), runs=records, training=training, probe_receipt=receipt,
+    return dict(schema_version=1, git_HEAD=head, results=bind_results(results, head, approval, records, training), runs=records, training=training, probe_receipt=receipt,
         audit=audit_record, approved_digests=approval, inputs=dict(runs=paths, attempt=training['path'],
         probe_receipt=receipt['path'], audit=audit_record['path'], approved=identity['path'],
         results=sorted(str(Path(path).resolve()) for path in results)))
+
+
+def report_path(directory):
+    return Path(directory) / ('binding_report_' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ') + '.json')
 
 
 def main(argv=None):
@@ -125,7 +141,7 @@ def main(argv=None):
     for name in ('attempt', 'probe-receipt', 'audit', 'out', 'approved'):
         parser.add_argument('--' + name, required=name != 'approved')
     args = vars(parser.parse_args(argv))
-    output = args.pop('out')
+    output = report_path(args.pop('out'))
     p.write_manifest(output, collect(**args))
 
 
