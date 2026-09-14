@@ -1,7 +1,10 @@
 """Offline exp_04 page; shared canonical admission and tables, SVG layout only."""
 import html
 from pathlib import Path
-from make_results_md import arguments, display, tables
+from tools.exp04_record import load_asset
+
+md = load_asset('make_results_md')
+arguments, display, tables = md.arguments, md.display, md.tables
 
 CSS = '''
 :root{color-scheme:light;--surface:#fcfcfb;--text:#0b0b0b;--muted:#555;--grid:#ddd;--blue:#2a78d6;--orange:#c34c20;--card:#f2f2ef}

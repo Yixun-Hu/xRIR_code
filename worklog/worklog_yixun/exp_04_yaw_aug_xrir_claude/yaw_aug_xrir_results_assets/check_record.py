@@ -2,7 +2,10 @@
 import argparse
 import json
 from pathlib import Path
-from bind_provenance import collect, require
+from tools.exp04_record import load_asset
+
+binder = load_asset('bind_provenance')
+collect, require = binder.collect, binder.require
 
 
 def main(argv=None):

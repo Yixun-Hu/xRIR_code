@@ -1,5 +1,5 @@
 """Record presentation uses real producer functions on synthetic CPU data."""
-import importlib
+from tools.exp04_record import load_asset
 import json
 import re
 import sys
@@ -12,7 +12,6 @@ from tools import paired_compare as pc, results_table as rt
 from tools.exp04_profiles import get_profile, json_value
 
 ASSETS = Path(__file__).resolve().parents[1] / 'worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results_assets'
-sys.path.insert(0, str(ASSETS))
 
 
 @pytest.fixture
@@ -39,7 +38,7 @@ def record_inputs(table_fixture, tmp_path):
 
 
 def test_markdown_canonical_and_stable(record_inputs, tmp_path):
-    md = importlib.import_module('make_results_md')
+    md = load_asset('make_results_md')
     argv = sum(([flag, str(record_inputs[name])] for flag, name in md.INPUTS), [])
     output = tmp_path / 'results.md'
     md.main(argv + ['--out', str(output)])
@@ -54,7 +53,7 @@ def test_markdown_canonical_and_stable(record_inputs, tmp_path):
 
 @pytest.mark.parametrize('mutation', ['missing', 'tamper', 'exploratory', 'verdict', 'profile', 'closure', 'coverage', 'gate'])
 def test_markdown_refusals(record_inputs, mutation):
-    md = importlib.import_module('make_results_md')
+    md = load_asset('make_results_md')
     path = record_inputs['H1_K8']
     side = Path(str(path) + '.provenance.json')
     data, receipt = json.loads(path.read_text()), json.loads(side.read_text())
@@ -82,8 +81,8 @@ def test_markdown_refusals(record_inputs, mutation):
 @pytest.mark.parametrize('mutation', [None, 'manifest', 'completion', 'output', 'train_manifest',
                                     'train_output', 'probe', 'audit', 'approved', 'log', 'echo', 'incomplete', 'missing_digest'])
 def test_binding_roundtrip_and_refusals(tmp_path, monkeypatch, mutation):
-    binder = importlib.import_module('bind_provenance')
-    checker = importlib.import_module('check_record')
+    binder = load_asset('bind_provenance')
+    checker = load_asset('check_record')
     p = pc.provenance
     paths = {name: tmp_path / name for name in ('probe', 'audit', 'approved', 'log', 'reference')}
     for path in paths.values():
@@ -147,7 +146,7 @@ def test_binding_roundtrip_and_refusals(tmp_path, monkeypatch, mutation):
 
 @pytest.mark.parametrize('draft', [False, True])
 def test_html_structure_values_and_stability(record_inputs, tmp_path, draft):
-    page = importlib.import_module('make_results_html')
+    page = load_asset('make_results_html')
     from html.parser import HTMLParser
     class Cells(HTMLParser):
         def __init__(self):
@@ -160,7 +159,7 @@ def test_html_structure_values_and_stability(record_inputs, tmp_path, draft):
             if tag == 'td': self.inside = False
         def handle_data(self, value):
             if self.inside: self.values.append(value)
-    md = importlib.import_module('make_results_md')
+    md = load_asset('make_results_md')
     argv = sum(([flag, str(record_inputs[name])] for flag, name in md.INPUTS), [])
     if draft:
         path = record_inputs['H1_K8']
@@ -186,7 +185,7 @@ def test_html_structure_values_and_stability(record_inputs, tmp_path, draft):
 
 @pytest.mark.parametrize('mutation', ['missing', 'tamper', 'exploratory', 'verdict'])
 def test_html_refusals(record_inputs, tmp_path, mutation):
-    md, page = importlib.import_module('make_results_md'), importlib.import_module('make_results_html')
+    md, page = load_asset('make_results_md'), load_asset('make_results_html')
     path, out = record_inputs['H1_K8'], tmp_path / 'refused.html'
     side = Path(str(path) + '.provenance.json')
     data, receipt = json.loads(path.read_text()), json.loads(side.read_text())
@@ -203,9 +202,33 @@ def test_html_refusals(record_inputs, tmp_path, mutation):
 
 
 def test_aggregate_verdict_is_not_assigned_to_individual_cells(record_inputs):
-    md = importlib.import_module('make_results_md')
+    md = load_asset('make_results_md')
     for name in ('H1_K8', 'H1_K1', 'H2_K8'):
         data = json.loads(record_inputs[name].read_text())
         title, _, rows = next(md.tables(data))
         assert data['verdict'] in title
         assert all(row[9] == '—' for row in rows)
+
+
+@pytest.mark.parametrize('order', [('03', '04'), ('04', '03')])
+def test_record_module_isolation(order):
+    import subprocess
+    script = '''
+import importlib.util, sys
+from pathlib import Path
+sys.path.insert(0, str(Path('tests').resolve()))
+for number in sys.argv[1:]:
+    spec = importlib.util.spec_from_file_location('record_test_' + number, 'tests/test_exp' + number + '_record_tools.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+from tools.exp04_record import load_asset
+binder, checker = load_asset('bind_provenance'), load_asset('check_record')
+md, page = load_asset('make_results_md'), load_asset('make_results_html')
+assert checker.collect is binder.collect
+assert page.arguments is md.arguments
+assert binder is sys.modules['exp04_record_bind_provenance']
+assert binder is not sys.modules['bind_provenance']
+assert 'exp_03_' in sys.modules['bind_provenance'].__file__
+assert str(md.REPO / 'worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results_assets') not in sys.path
+'''
+    subprocess.run([sys.executable, '-c', script] + list(order), check=True)

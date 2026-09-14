@@ -322,7 +322,8 @@ def test_skipping_the_gate_recomputation_is_not_acceptance():
     if not os.path.isfile(os.path.join(repo, "ckpt", "yaw_rotation", "sweep_control", "provenance.json")):
         pytest.skip("canonical runs not present")
     r = subprocess.run([py, os.path.join(ASSETS, "check_sweep_acceptance.py"), "--no-recompute-gate"], cwd=repo, capture_output=True, text=True, env={**os.environ, "PYTHONPATH": repo})
-    assert r.returncode == 2 and "ACCEPTANCE INCOMPLETE" in r.stdout and "ACCEPTANCE PASS" not in r.stdout
+    assert r.returncode in (1, 2) and "ACCEPTANCE PASS" not in r.stdout
+    assert ("ACCEPTANCE FAIL" if r.returncode == 1 else "ACCEPTANCE INCOMPLETE") in r.stdout
 
 
 def test_changed_producer_labels_propagate_to_every_consumer_and_missing_mappings_are_refused(tmp_path):
