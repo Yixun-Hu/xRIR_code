@@ -5,6 +5,7 @@ import pytest
 from exp05_fixture import exp05_fixture
 from tools import param_curve as pc
 from tools import paired_compare as shared
+from tools.exp05_profiles import APPROVED_DIGESTS_PATH
 
 
 def command(monkeypatch, f, exploratory=False):
@@ -70,6 +71,21 @@ def test_exploratory_summary_and_mutated_input_refusal(exp05_fixture, monkeypatc
 def test_cli_rejects_analytic_overrides():
     with pytest.raises(SystemExit):
         pc.main(['--profile', 'CURVE_K8', '--runs', 'fake', '--json', 'a', '--summary', 'b', '--n-boot', '2'])
+
+
+@pytest.mark.parametrize('launchers', [None, []])
+def test_null_template_refused_or_reported_by_cli(exp05_fixture, monkeypatch, launchers):
+    f = exp05_fixture('YAW_K8_SEED42')
+    f.pins.update(json.loads(APPROVED_DIGESTS_PATH.read_text()))
+    f.pins['closures']['training_launcher'] = launchers
+    argv = command(monkeypatch, f)
+    with pytest.raises(ValueError, match='profile not yet approved: training'):
+        pc.main(argv)
+    assert not (f.root / 'result.json').exists()
+    data = pc.main(argv + ['--exploratory'])
+    assert data['exploratory'] and 'verdicts' not in data
+    for key in ('training_launcher', 'training'):
+        assert 'profile not yet approved: ' + key in data['deviations']
 
 
 @pytest.mark.parametrize('name', ['CURVE_K1', 'TARGETS_K1', 'YAW_K8_SEED42'])

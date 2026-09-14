@@ -214,7 +214,11 @@ def run_contract(directory, arm, profile, pins):
             training[name] = read(bound_path)
             require(inputs[str(bound_path)] == bound['sha256'], name + ' bytes')
         launcher = training['train_manifest']['source_closures']['launcher']['sha256']
-        require(launcher is not None and launcher == pins['closures']['training_launcher'], 'training launcher closure')
+        require(launcher is not None and launcher in (pins['closures']['training_launcher'] or ()),
+                'training launcher closure')
+        trainer = training['train_manifest']['source_closures']['training']['sha256']
+        # Every arm matching one pin also enforces equality across all four new arms.
+        require(trainer is not None and trainer == pins['closures']['training'], 'training closure')
         require(training['train_completion']['train_manifest_sha256'] == fields['mutable_inputs']['train_manifest']['sha256'],
                 'train_completion binds train_manifest')
         epoch = 'epoch_{:03d}.pth'.format(arm['epoch'])
@@ -264,8 +268,8 @@ def admit(directories, profile, approved=None, producer=None, exploratory=False)
         if not ok:
             deviations.append(message)
     check(type(pins['schema_version']) is int and pins['schema_version'] == 1, 'approval schema_version')
-    for key in ('evaluator', 'writer', 'training_launcher', 'producer_param_curve'):
-        check(pins['closures'][key] is not None, 'profile not yet approved: ' + key)
+    for key in ('evaluator', 'writer', 'training_launcher', 'training', 'producer_param_curve'):
+        check(bool(pins['closures'][key]), 'profile not yet approved: ' + key)
     for arm in profile['arms']:
         effective = dict(arm)
         if arm['tier'] != 'M':

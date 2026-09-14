@@ -131,7 +131,7 @@ def test_m_group_may_mix_individually_approved_evaluators(exp05_fixture):
 
 
 @pytest.mark.parametrize('role', ['S_simple', 'S_cyl', 'L_simple', 'L_cyl'])
-@pytest.mark.parametrize('kind', ['train_manifest', 'train_completion', 'launcher', 'epoch', 'digest', 'bytes',
+@pytest.mark.parametrize('kind', ['train_manifest', 'train_completion', 'launcher', 'training', 'epoch', 'digest', 'bytes',
                                  'manifest_hash', 'manifest_borrowed', 'manifest_path', 'completion_path', 'outputs'])
 def test_training_evidence_refusals(exp05_fixture, role, kind):
     f = exp05_fixture()
@@ -141,12 +141,12 @@ def test_training_evidence_refusals(exp05_fixture, role, kind):
         del fields['mutable_inputs'][kind]
         message = 'missing ' + kind
     else:
-        name = 'train_manifest' if kind in ('launcher', 'manifest_borrowed', 'manifest_path') else 'train_completion'
+        name = 'train_manifest' if kind in ('launcher', 'training', 'manifest_borrowed', 'manifest_path') else 'train_completion'
         binding = fields['mutable_inputs'][name]
         path = Path(binding['path'])
         value = f.read(path)
-        if kind == 'launcher':
-            value['source_closures']['launcher']['sha256'] = '0'*64
+        if kind in ('launcher', 'training'):
+            value['source_closures'][kind]['sha256'] = '0'*64
         elif kind == 'epoch':
             value['outputs']['epoch_011.pth'] = value['outputs'].pop('epoch_012.pth')
         elif kind == 'manifest_hash':
@@ -170,6 +170,8 @@ def test_training_evidence_refusals(exp05_fixture, role, kind):
         if kind != 'bytes':
             binding['sha256'] = pc.provenance.sha256_file(path)
         message = 'training launcher closure' if kind == 'launcher' else 'train_completion'
+        if kind == 'training':
+            message = 'training closure'
         if kind in ('manifest_borrowed', 'manifest_path', 'completion_path'):
             message = name + ' binding path'
     for path in f.paths[role]:
@@ -191,11 +193,34 @@ def test_training_bindings_resolve_final_to_attempt(exp05_fixture):
     assert not pc.admit(f.directories, f.profile, f.approved, f.producer)['deviations']
 
 
-def test_equal_training_launchers_must_match_approved_pin(exp05_fixture):
+@pytest.mark.parametrize('key,message', [('training_launcher', 'training launcher closure'), ('training', 'training closure')])
+def test_equal_training_closures_must_match_approved_pins(exp05_fixture, key, message):
     f = exp05_fixture()
-    f.pins['closures']['training_launcher'] = '0'*64
-    with pytest.raises(ValueError, match='training launcher closure'):
+    f.pins['closures'][key] = ['0'*64] if key == 'training_launcher' else '0'*64
+    with pytest.raises(ValueError, match=message):
         pc.admit(f.directories, f.profile, f.approved, f.producer)
+
+
+def test_two_approved_launchers_with_identical_training_are_admitted(exp05_fixture):
+    f = exp05_fixture(m_exp04=True)
+    f.pins['closures']['training_launcher'].append('0'*64)
+    directory = Path(f.paths['L_simple'][0])
+    bindings = f.read(directory / 'eval_manifest.json')['mutable_inputs']
+    manifest = Path(bindings['train_manifest']['path'])
+    value = f.read(manifest)
+    value['source_closures']['launcher']['sha256'] = '0'*64
+    f.replace(manifest, value)
+    bindings['train_manifest']['sha256'] = pc.provenance.sha256_file(manifest)
+    completion = Path(bindings['train_completion']['path'])
+    value = f.read(completion)
+    value['train_manifest_sha256'] = bindings['train_manifest']['sha256']
+    f.replace(completion, value)
+    bindings['train_completion']['sha256'] = pc.provenance.sha256_file(completion)
+    for path in f.paths['L_simple']:
+        fields = f.read(Path(path) / 'eval_manifest.json')
+        fields['mutable_inputs'] = bindings
+        f.rebind(Path(path), manifest=fields)
+    assert not pc.admit(f.directories, f.profile, f.approved, f.producer)['deviations']
 
 
 def rebind_args(f, directory, recorded):
