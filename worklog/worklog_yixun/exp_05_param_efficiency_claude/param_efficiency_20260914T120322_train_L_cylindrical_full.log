@@ -198,3 +198,60 @@ Train Epoch: 1 [8050/9261]  loss 0.0131 (stft 0.0042, decay 0.0089)  21.2 samp/s
 Train Epoch: 1 [8100/9261]  loss 0.0122 (stft 0.0041, decay 0.0081)  21.6 samp/s  eta 28.6 min  lr 1.00e-03
 Train Epoch: 1 [8150/9261]  loss 0.0139 (stft 0.0042, decay 0.0097)  21.6 samp/s  eta 27.4 min  lr 1.00e-03
 Train Epoch: 1 [8200/9261]  loss 0.0147 (stft 0.0044, decay 0.0104)  21.6 samp/s  eta 26.1 min  lr 1.00e-03
+Train Epoch: 1 [8250/9261]  loss 0.0142 (stft 0.0049, decay 0.0093)  21.6 samp/s  eta 24.9 min  lr 1.00e-03
+Train Epoch: 1 [8300/9261]  loss 0.0143 (stft 0.0044, decay 0.0099)  21.4 samp/s  eta 23.7 min  lr 1.00e-03
+Train Epoch: 1 [8350/9261]  loss 0.0131 (stft 0.0048, decay 0.0083)  21.2 samp/s  eta 22.4 min  lr 1.00e-03
+Train Epoch: 1 [8400/9261]  loss 0.0123 (stft 0.0044, decay 0.0079)  21.6 samp/s  eta 21.2 min  lr 1.00e-03
+Train Epoch: 1 [8450/9261]  loss 0.0145 (stft 0.0050, decay 0.0095)  21.7 samp/s  eta 20.0 min  lr 1.00e-03
+Train Epoch: 1 [8500/9261]  loss 0.0158 (stft 0.0045, decay 0.0113)  21.7 samp/s  eta 18.7 min  lr 1.00e-03
+Train Epoch: 1 [8550/9261]  loss 0.0125 (stft 0.0040, decay 0.0086)  21.7 samp/s  eta 17.5 min  lr 1.00e-03
+Train Epoch: 1 [8600/9261]  loss 0.0128 (stft 0.0034, decay 0.0094)  21.7 samp/s  eta 16.3 min  lr 1.00e-03
+Train Epoch: 1 [8650/9261]  loss 0.0154 (stft 0.0046, decay 0.0107)  21.7 samp/s  eta 15.0 min  lr 1.00e-03
+Train Epoch: 1 [8700/9261]  loss 0.0109 (stft 0.0041, decay 0.0068)  21.7 samp/s  eta 13.8 min  lr 1.00e-03
+Train Epoch: 1 [8750/9261]  loss 0.0107 (stft 0.0045, decay 0.0061)  21.8 samp/s  eta 12.6 min  lr 1.00e-03
+Train Epoch: 1 [8800/9261]  loss 0.0148 (stft 0.0050, decay 0.0098)  21.8 samp/s  eta 11.3 min  lr 1.00e-03
+Train Epoch: 1 [8850/9261]  loss 0.0131 (stft 0.0047, decay 0.0085)  21.8 samp/s  eta 10.1 min  lr 1.00e-03
+Train Epoch: 1 [8900/9261]  loss 0.0130 (stft 0.0042, decay 0.0088)  21.8 samp/s  eta 8.9 min  lr 1.00e-03
+Train Epoch: 1 [8950/9261]  loss 0.0170 (stft 0.0047, decay 0.0123)  21.7 samp/s  eta 7.6 min  lr 1.00e-03
+Train Epoch: 1 [9000/9261]  loss 0.0129 (stft 0.0042, decay 0.0086)  21.7 samp/s  eta 6.4 min  lr 1.00e-03
+Train Epoch: 1 [9050/9261]  loss 0.0161 (stft 0.0047, decay 0.0114)  21.7 samp/s  eta 5.2 min  lr 1.00e-03
+Train Epoch: 1 [9100/9261]  loss 0.0122 (stft 0.0041, decay 0.0081)  21.7 samp/s  eta 3.9 min  lr 1.00e-03
+Train Epoch: 1 [9150/9261]  loss 0.0133 (stft 0.0038, decay 0.0095)  21.6 samp/s  eta 2.7 min  lr 1.00e-03
+Train Epoch: 1 [9200/9261]  loss 0.0150 (stft 0.0040, decay 0.0110)  21.7 samp/s  eta 1.5 min  lr 1.00e-03
+Train Epoch: 1 [9250/9261]  loss 0.0136 (stft 0.0039, decay 0.0097)  21.6 samp/s  eta 0.2 min  lr 1.00e-03
+Train Epoch: 1, Avg Train Loss: 0.01596 (stft 0.00484, decay 0.01112), 228.2 min
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+Test set (epoch 1): Average loss: 0.01778 over 199 batches
+epoch 1 done in 230.1 min; best test loss 0.01778 (new best)
+Train Epoch: 2 [0/9261]  loss 0.0135 (stft 0.0048, decay 0.0087)  nan samp/s  eta 326.9 min  lr 4.64e-04
+Train Epoch: 2 [50/9261]  loss 0.0150 (stft 0.0040, decay 0.0110)  21.6 samp/s  eta 229.4 min  lr 4.64e-04
+Train Epoch: 2 [100/9261]  loss 0.0123 (stft 0.0042, decay 0.0081)  21.6 samp/s  eta 227.3 min  lr 4.64e-04
+Train Epoch: 2 [150/9261]  loss 0.0158 (stft 0.0040, decay 0.0118)  21.6 samp/s  eta 225.7 min  lr 4.64e-04
+Train Epoch: 2 [200/9261]  loss 0.0153 (stft 0.0043, decay 0.0111)  21.6 samp/s  eta 224.2 min  lr 4.64e-04
+Train Epoch: 2 [250/9261]  loss 0.0147 (stft 0.0044, decay 0.0103)  21.6 samp/s  eta 222.8 min  lr 4.64e-04
+Train Epoch: 2 [300/9261]  loss 0.0159 (stft 0.0037, decay 0.0122)  21.7 samp/s  eta 221.4 min  lr 4.64e-04
+Train Epoch: 2 [350/9261]  loss 0.0121 (stft 0.0046, decay 0.0076)  21.7 samp/s  eta 220.0 min  lr 4.64e-04
+Train Epoch: 2 [400/9261]  loss 0.0134 (stft 0.0051, decay 0.0083)  21.4 samp/s  eta 219.0 min  lr 4.64e-04
