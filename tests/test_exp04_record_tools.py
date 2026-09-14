@@ -77,3 +77,69 @@ def test_markdown_refusals(record_inputs, mutation):
         out = path.parent / 'draft.md'
         md.main(sum(([f, str(record_inputs[n])] for f, n in md.INPUTS), []) + ['--draft-ok', '--out', str(out)])
         assert 'DRAFT' in out.read_text()
+
+
+@pytest.mark.parametrize('draft', [False, True])
+def test_html_structure_values_and_stability(record_inputs, tmp_path, draft):
+    page = importlib.import_module('make_results_html')
+    from html.parser import HTMLParser
+    class Cells(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.values, self.inside = [], False
+        def handle_starttag(self, tag, attrs):
+            if tag == 'td': self.inside = True
+            assert not any(k in ('src', 'href') and v.startswith(('http', '//')) for k, v in attrs)
+        def handle_endtag(self, tag):
+            if tag == 'td': self.inside = False
+        def handle_data(self, value):
+            if self.inside: self.values.append(value)
+    md = importlib.import_module('make_results_md')
+    argv = sum(([flag, str(record_inputs[name])] for flag, name in md.INPUTS), [])
+    if draft:
+        path = record_inputs['H1_K8']
+        data, side = json.loads(path.read_text()), Path(str(path) + '.provenance.json')
+        data.pop('verdict')
+        path.write_text(json.dumps(data))
+        receipt = json.loads(side.read_text())
+        receipt['outputs'][str(path)] = md.sha(path.read_bytes())
+        side.write_text(json.dumps(receipt))
+        argv += ['--draft-ok']
+    out = tmp_path / 'yaw_aug_xrir_01_results.html'
+    argv += ['--out', str(out), '--diag', str(record_inputs['TOST_K8'])]
+    page.main(argv)
+    first = out.read_text()
+    page.main(argv)
+    assert out.read_text() == first and ('DRAFT' in first) == draft
+    assert 'prefers-color-scheme' in first and '<svg' in first and 'Provenance' in first and 'r_k' in first
+    parser = Cells()
+    parser.feed(first)
+    expected = [md.display(v) for p in record_inputs.values() for _, _, rows in md.tables(json.loads(p.read_text())) for row in rows for v in row]
+    assert all(value in parser.values for value in expected)
+
+
+@pytest.mark.parametrize('mutation', ['missing', 'tamper', 'exploratory', 'verdict'])
+def test_html_refusals(record_inputs, tmp_path, mutation):
+    md, page = importlib.import_module('make_results_md'), importlib.import_module('make_results_html')
+    path, out = record_inputs['H1_K8'], tmp_path / 'refused.html'
+    side = Path(str(path) + '.provenance.json')
+    data, receipt = json.loads(path.read_text()), json.loads(side.read_text())
+    if mutation == 'missing': side.unlink()
+    else:
+        if mutation == 'exploratory': data['exploratory'] = True
+        if mutation == 'verdict': data.pop('verdict')
+        path.write_text(json.dumps(data))
+        if mutation != 'tamper': receipt['outputs'][str(path)] = md.sha(path.read_bytes())
+        side.write_text(json.dumps(receipt))
+    with pytest.raises((ValueError, OSError)):
+        page.main(sum(([f, str(record_inputs[n])] for f, n in md.INPUTS), []) + ['--out', str(out)])
+    assert not out.exists()
+
+
+def test_aggregate_verdict_is_not_assigned_to_individual_cells(record_inputs):
+    md = importlib.import_module('make_results_md')
+    for name in ('H1_K8', 'H1_K1', 'H2_K8'):
+        data = json.loads(record_inputs[name].read_text())
+        title, _, rows = next(md.tables(data))
+        assert data['verdict'] in title
+        assert all(row[9] == '—' for row in rows)

@@ -76,9 +76,9 @@ def tables(data):
                    'Room-cluster interval', 'Queries', 'Rooms', 'Verdict', 'superiority', 'Superiority interval']
         rows = [[c['metric'], 'primary' if c['primary'] else 'supportive' if c['decision_driving'] else 'descriptive',
                  c['degrees'], c['estimate'], c.get('decision_bound'), c['companion_interval'], c['room_cluster_interval'],
-                 c['exclusions']['joint']['valid'], c['n_rooms_retained'], c.get('verdict', data.get('verdict', '—')),
+                 c['exclusions']['joint']['valid'], c['n_rooms_retained'], c.get('verdict', '—'),
                  c.get('superiority'), c.get('superiority_interval')] for c in data['cells']]
-        yield name, headers, rows
+        yield name + (' — aggregate verdict: ' + data['verdict'] if 'verdict' in data else ''), headers, rows
         for field in ('exclusions', 'seed_means', 'convergence'):
             yield name + ' — ' + field, ['Metric', 'k', field], [[c['metric'], c['k'], c[field]] for c in data['cells']]
     yield name + ' — protocol / margins', ['Field', 'Value'], list(data['profile'].items())
