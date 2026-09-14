@@ -9,3 +9,10 @@ backbone: simple  checkpoint: /home/yixunhu/codespace/xRIR_code/ckpt/xRIR_simple
 [640/6337] 15.98 samples/s, eta 5.9 min
 [800/6337] 16.66 samples/s, eta 5.5 min
 [960/6337] 17.14 samples/s, eta 5.2 min
+[1120/6337] 17.44 samples/s, eta 5.0 min
+[1280/6337] 17.54 samples/s, eta 4.8 min
+[1440/6337] 17.52 samples/s, eta 4.7 min
+[1600/6337] 17.73 samples/s, eta 4.5 min
+[1760/6337] 17.90 samples/s, eta 4.3 min
+[1920/6337] 18.07 samples/s, eta 4.1 min
+[2080/6337] 18.18 samples/s, eta 3.9 min
