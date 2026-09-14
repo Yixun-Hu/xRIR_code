@@ -1,4 +1,4 @@
-"""Canonical-only exp_04 tables. Ratios retain producer units; no statistics here."""
+"""Canonical-only exp_04 tables; rounding and unit display, no statistics here."""
 import argparse
 import hashlib
 import html
@@ -9,14 +9,39 @@ from pathlib import Path
 INPUTS = tuple(zip(('--h1-k8', '--h1-k1', '--h2-k8', '--tost-k8', '--table'),
                    ('H1_K8', 'H1_K1', 'H2_K8', 'TOST_K8', 'TABLE_V1')))
 REPO = Path(__file__).resolve().parents[4]
+ROUNDING = 'Display rounding: EDT ms 1 decimal; C50 dB 3; T60 %, ratios and bounds % 2; other values 6 significant figures. JSON remains canonical.'
+VERDICTS = {'H1': {'non-inferior', 'non-inferior on EDT only', 'non-inferior on C50 only', 'not shown'},
+            'H2': {'supported', 'partially supported', 'not supported'},
+            'TOST': {'equivalent', 'equivalence not established'}}
 
 
 def sha(raw):
     return hashlib.sha256(raw).hexdigest()
 
 
-def display(value):
-    return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True, allow_nan=False)
+def display(value, metric=None, scale=1):
+    if value is None: return '—'
+    if isinstance(value, bool): return 'yes' if value else 'no'
+    if isinstance(value, dict):
+        return '; '.join(str(k) + ': ' + display(v, metric, scale) for k, v in value.items()) or '—'
+    if isinstance(value, (tuple, list)):
+        return ', '.join(display(v, metric, scale) for v in value) or '—'
+    if isinstance(value, float):
+        return format(value * scale, '.' + str({'EDT': 1, 'C50': 3, 'T60': 2, 'ratio': 2}[metric]) + 'f') if metric else format(value, '.6g')
+    return str(value)
+
+
+def percent(value):
+    return display(float(value) if type(value) is int else value, 'ratio', 100)
+
+
+def summaries(data):
+    name = data['profile_name']
+    if name.startswith(('H1', 'H2')):
+        yield name + ' verdict', ['Family', 'Verdict'], [[name, data.get('verdict', '—')]]
+    elif name == 'TOST_K8':
+        yield name + ' verdicts', ['Metric', 'Degrees', 'Verdict'], [
+            [c['metric'], c['degrees'], c.get('verdict', '—')] for c in data['cells'] if c['decision_driving']]
 
 
 def load(path, name=None, draft_ok=False):
@@ -53,6 +78,9 @@ def load(path, name=None, draft_ok=False):
         driving = [c for c in data['cells'] if c['decision_driving']]
         verdicts = [c.get('verdict') for c in driving] if profile['mode'] == 'one_arm' else [data.get('verdict')]
         draft = not verdicts or any(not isinstance(v, str) or not v for v in verdicts)
+        family = data['profile_name'].split('_')[0]
+        if family not in VERDICTS or any(v and v not in VERDICTS[family] for v in verdicts):
+            raise ValueError('unregistered verdict wording')
         for cell in driving:
             gates = cell['convergence']
             required = {'decision', 'superiority'} if profile['input_selection'] == 'standalone_k0' else {'decision'}
@@ -72,21 +100,23 @@ def tables(data):
     if name == 'TABLE_V1':
         metrics = ('T60', 'C50', 'EDT', 'loss', 'log_mse')
         rows = [[r['label'], r['num_shot']] + ['{} ± {} {}'.format(
-            display(r['metrics'][m]['mean']), display(r['metrics'][m]['sd']), r['metrics'][m]['unit'])
+            display(r['metrics'][m]['mean'], m if m in ('EDT', 'C50', 'T60') else None), display(r['metrics'][m]['sd'], m if m in ('EDT', 'C50', 'T60') else None), r['metrics'][m]['unit'])
             for m in metrics] + [r['protocol']] for r in data['rows']]
         yield name + ' — mean ± seed SD', ['Arm', 'K'] + list(metrics) + ['Protocol'], rows
     else:
         estimate = 'ρ' if name.startswith('H1') else 'D_k' if name.startswith('H2') else 'r_k'
-        headers = ['Metric', 'Role', 'Degrees', estimate + ' (ratio)', 'One-sided upper', 'Companion interval',
-                   'Room-cluster interval', 'Queries', 'Rooms', 'Verdict', 'superiority', 'Superiority interval']
+        headers = ['Metric', 'Role', 'Degrees', estimate + ' (%)', 'One-sided upper (%)', 'Companion interval (%)',
+                   'Room-cluster interval (%)', 'Queries', 'Rooms', 'Verdict', 'superiority', 'Superiority interval (%)']
         rows = [[c['metric'], 'primary' if c['primary'] else 'supportive' if c['decision_driving'] else 'descriptive',
-                 c['degrees'], c['estimate'], c.get('decision_bound'), c['companion_interval'], c['room_cluster_interval'],
+                 c['degrees'], percent(c['estimate']), percent(c.get('decision_bound')), percent(c['companion_interval']), percent(c['room_cluster_interval']),
                  c['exclusions']['joint']['valid'], c['n_rooms_retained'], c.get('verdict', '—'),
-                 c.get('superiority'), c.get('superiority_interval')] for c in data['cells']]
+                 c.get('superiority'), percent(c.get('superiority_interval'))] for c in data['cells']]
         yield name + (' — aggregate verdict: ' + data['verdict'] if 'verdict' in data else ''), headers, rows
         for field in ('exclusions', 'seed_means', 'convergence'):
-            yield name + ' — ' + field, ['Metric', 'k', field], [[c['metric'], c['k'], c[field]] for c in data['cells']]
-    yield name + ' — protocol / margins', ['Field', 'Value'], list(data['profile'].items())
+            yield name + ' — ' + field + (' (%, except seeds)' if field == 'convergence' else ''), ['Metric', 'k', field], [[c['metric'], c['k'],
+                display(c[field], c['metric'], 1000 if c['metric'] == 'EDT' else 1) + (' ms' if c['metric'] == 'EDT' else ' dB' if c['metric'] == 'C50' else ' %')
+                if field == 'seed_means' else percent(c[field]) if field == 'convergence' else c[field]] for c in data['cells']]
+    yield name + ' — protocol / margins', ['Field', 'Value'], [(k + ' (%)', percent(v)) if k in ('margin', 'convergence_tolerance') else (k, v) for k, v in data['profile'].items()]
 
 
 def arguments(argv=None):
@@ -99,7 +129,11 @@ def arguments(argv=None):
     args = parser.parse_args(argv)
     sources = [(getattr(args, flag[2:].replace('-', '_')), name) for flag, name in INPUTS]
     sources += [(path, None) for path in args.diag]
+    if len({Path(p).resolve() for p, _ in sources}) != len(sources):
+        raise ValueError('duplicate canonical input or diagnostic')
     records = [load(path, name, args.draft_ok) for path, name in sources]
+    if any(data['profile'].get('mode') != 'descriptive' for data, _, _ in records[5:]):
+        raise ValueError('diagnostic requires a descriptive producer profile')
     if Path(args.out).resolve() in {Path(p).resolve() for _, receipt, _ in records for p in receipt['outputs']} | {Path(str(Path(p).resolve()) + '.provenance.json') for p, _ in sources}:
         raise ValueError('output overlaps canonical input')
     head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=REPO, text=True).strip()
@@ -108,10 +142,11 @@ def arguments(argv=None):
 
 def main(argv=None):
     args, records, head = arguments(argv)
-    lines = ['generated by make_results_md.py from ' + ', '.join(r[1]['sha256'] for r in records) + ' at ' + head, '']
+    lines = ['generated by make_results_md.py from ' + ', '.join(r[1]['sha256'] for r in records) + ' at ' + head, ROUNDING, '']
     if any(r[2] for r in records):
         lines += ['DRAFT — missing verdict; tests only', '']
-    blocks = [block for data, _, _ in records for block in tables(data)]
+    blocks = [block for data, _, _ in records for block in summaries(data)]
+    blocks += [block for data, _, _ in records for block in tables(data)]
     blocks.append(('Provenance', ['Input JSON', 'sha256', 'Profile digest', 'Producer closure digest', 'Approval'],
                    [[p['path'], p['sha256'], p['profile_digest'], p['producer_closure_sha256'], p['approved_digests']] for _, p, _ in records]))
     for title, headers, rows in blocks:
