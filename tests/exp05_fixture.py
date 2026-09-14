@@ -13,6 +13,16 @@ from tools.reference_manifest import manifest_hash
 from test_paired_compare import _canonical_digest, _read, _replace, _rebind, _summaries
 
 
+@pytest.fixture
+def exp05_approval_template():
+    """Keep template cases independent of the real approval file's fill state."""
+    return dict(schema_version=None, closures=dict.fromkeys((
+        'evaluator', 'writer', 'training_launcher', 'training',
+        'producer_param_curve', 'evaluator_exp04')), checkpoints={
+            role: dict.fromkeys(('path', 'epoch', 'sha256'))
+            for role in ('S_simple', 'S_cyl', 'L_simple', 'L_cyl')})
+
+
 def _source(root, name):
     path = root / name
     path.parent.mkdir(parents=True, exist_ok=True)

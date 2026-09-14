@@ -2,10 +2,11 @@ import hashlib
 import json
 from pathlib import Path
 import pytest
-from exp05_fixture import exp05_fixture
+from exp05_fixture import exp05_approval_template, exp05_fixture
+from tests.test_exp04_profiles import approval_repo
 from tools import param_curve as pc
 from tools import paired_compare as shared
-from tools.exp05_profiles import APPROVED_DIGESTS_PATH
+from tools.exp05_profiles import load_approved_digests
 
 
 def command(monkeypatch, f, exploratory=False):
@@ -74,10 +75,11 @@ def test_cli_rejects_analytic_overrides():
 
 
 @pytest.mark.parametrize('launchers', [None, []])
-def test_null_template_refused_or_reported_by_cli(exp05_fixture, monkeypatch, launchers):
+def test_null_template_refused_or_reported_by_cli(
+        tmp_path, exp05_fixture, exp05_approval_template, monkeypatch, launchers):
     f = exp05_fixture('YAW_K8_SEED42')
-    f.pins.update(json.loads(APPROVED_DIGESTS_PATH.read_text()))
-    f.pins['closures']['training_launcher'] = launchers
+    exp05_approval_template['closures']['training_launcher'] = launchers
+    f.approved = load_approved_digests(approval_repo(tmp_path, exp05_approval_template))
     argv = command(monkeypatch, f)
     with pytest.raises(ValueError, match='profile not yet approved: training'):
         pc.main(argv)

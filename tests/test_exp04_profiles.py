@@ -173,6 +173,12 @@ def approval_template():
         'producer_results_table', 'producer_descriptive')), 'checkpoints': {'aug_epoch9': None, 'aug': dict.fromkeys(('path', 'epoch', 'sha256'))}}
 
 
+def test_committed_approval_file_parses():
+    pins, identity = profiles.load_approved_digests()
+    assert profiles.json_value(pins) == json.loads(profiles.APPROVED_DIGESTS_PATH.read_text())
+    assert identity['git_blob']
+
+
 @pytest.mark.parametrize('pinned', (False, True))
 def test_runtime_approval_pins_frozen_and_committed(tmp_path, pinned):
     value = approval_template()
