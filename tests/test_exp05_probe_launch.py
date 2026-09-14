@@ -18,7 +18,9 @@ def test_single_arm_probe_receipt(tmp_path, monkeypatch, tier, backbone, fault):
     monkeypatch.setattr(launch, 'build_fields', lambda cmd, *a: dict(command=cmd))
     measured = dict(measurement(), tier=tier, backbone=backbone, yaw_aug=0,
                     test_timing_protocol='full_test_loader', test_batches_timed=199, test_batches_total=199,
-                    peak_allocated_bytes=123, peak_reserved_bytes=456)
+                    peak_allocated_bytes=123, peak_reserved_bytes=456, train_loss=1.,
+                    iteration_seconds=[1.] * 50, mean_iteration_seconds=1.,
+                    median_iteration_seconds=1., min_iteration_seconds=1.)
     if fault == 'slow':
         measured['t_micro'] = dict(mean=2., median=2., min=2., values=[2.] * 50)
     measured.update(probe.projection(measured))
@@ -31,7 +33,7 @@ def test_single_arm_probe_receipt(tmp_path, monkeypatch, tier, backbone, fault):
         assert cmd[cmd.index('--backbone') + 1] == backbone
         assert fields['trainer_command'][1:] == probe.trainer_command(tier, backbone, str(attempt.relative_to(tmp_path)))
         calls.append(attempt)
-        probe_attempt(attempt)
+        probe_attempt(attempt, dict(measured, reviewed_commit='a' * 40))
         assert log == tmp_path / 'logs' / ('param_efficiency_test_train_{}_{}_probe.log'.format(tier, backbone))
         return dict(metrics=dict(probe=measured), resource_before=snapshot)
     monkeypatch.setattr(launch, 'execute_attempt', execute)
@@ -57,3 +59,6 @@ def test_single_arm_probe_receipt(tmp_path, monkeypatch, tier, backbone, fault):
                for name in ('train_manifest', 'completion'))
     assert receipt['live_epoch_limit_seconds'] == 1.05 * receipt['T_epoch']
     assert receipt['live_epoch_limit_start'] == 'banner'
+    if fault is None:
+        launch.tier_gates.validate_receipt(root / '_probe_test_{}_{}.json'.format(tier, backbone),
+                                           'a' * 40, '1', tier, backbone)

@@ -4,7 +4,7 @@ import json
 import pytest
 
 from tools import exp04_launcher as launch, exp05_gates as gates
-from test_exp05_gates import receipt
+from test_exp05_gates import receipt, probe_attempt
 
 
 @pytest.mark.parametrize('failure', [None, 'slow', 'missing', 'changed', 'renew'])
@@ -85,6 +85,7 @@ def test_live_epoch_limit_and_saved_output_limit(tmp_path, monkeypatch):
 def test_full_cli_uses_receipt_projection(tmp_path, monkeypatch, receipt, tier, backbone, renewal):
     path, data = receipt
     data.update(tier=tier, backbone=backbone)
+    data['probe_attempt'] = probe_attempt(launch.arm_root(tier, backbone) / '_probe_new_arm', data)
     path.write_text(json.dumps(data))
     monkeypatch.setattr(launch, 'REPO', tmp_path)
     monkeypatch.setattr(launch.subprocess, 'check_output', lambda *a, **k: 'a' * 40 + '\n')
@@ -102,6 +103,9 @@ def test_full_cli_uses_receipt_projection(tmp_path, monkeypatch, receipt, tier, 
         calls.append(attempt)
         return {'passed': True}
     monkeypatch.setattr(launch, 'execute_attempt', execute)
+    if renewal:
+        gates.set_budget(launch.arm_root(tier, backbone), dict(projection_hours=20.,
+                         ceiling_hours=30., probe_receipt_sha256='b' * 64))
     launch.main(['full', '--tier', tier, '--backbone', backbone, '--gpu', '1', '--reviewed-commit', 'HEAD',
                  '--probe-json', str(path), '--projection-hours', '0.1', '--timestamp', 'test'] +
                 (['--renew-ceiling', renewal] if renewal else []))
@@ -129,6 +133,31 @@ def test_refused_launch_keeps_receipt_history(receipt, tmp_path, monkeypatch, fa
     record = launch.hours_record(root)
     assert record['probe_receipt_sha256'] == 'b' * 64
     assert not record.get('probe_receipt_history') and not record.get('renewals')
+
+
+@pytest.mark.parametrize('fault', ['slow', 'ceiling', 'reuse', 'historical'])
+def test_ledger_refusal_creates_no_attempt(receipt, tmp_path, monkeypatch, fault):
+    path, data = receipt
+    root = launch.arm_root('S', 'simple')
+    limits = dict(projection_hours=data['T_run'] / 3600, ceiling_hours=1.5 * data['T_run'] / 3600,
+                  probe_receipt_sha256=launch.p.sha256_file(path))
+    gates.set_budget(root, limits)
+    if fault == 'historical':
+        gates.set_budget(root, dict(limits, probe_receipt_sha256='b' * 64))
+    if fault in ('slow', 'ceiling'):
+        old = launch.create_attempt(root, 'attempt_old_ABORTED_' + fault)
+        (old / 'abort.json').write_text(json.dumps(dict(reason='guard_epoch_one')))
+        (old / 'train_manifest.json').write_text(json.dumps(dict(mutable_inputs=dict(probe_receipt=dict(
+            sha256=limits['probe_receipt_sha256'])))))
+        launch.account_hours(old, 1. if fault == 'slow' else limits['projection_hours'], mode='full')
+    before = (root / 'cumulative_hours.json').read_bytes(), sorted(root.glob('attempt_*'))
+    monkeypatch.setattr(launch.subprocess, 'check_output', lambda *a, **k: 'a' * 40)
+    monkeypatch.setattr(launch, 'check_golden', lambda *a: None)
+    monkeypatch.setattr(launch, 'resource_gate', lambda *a: pytest.fail('resource gate before ledger refusal'))
+    with pytest.raises(ValueError, match='slow|ceiling|new clean receipt'):
+        launch.main(['full', '--tier', 'S', '--reviewed-commit', 'HEAD', '--probe-json', str(path)] +
+                    (['--renew-ceiling', '2026-09-13T00:05:00-04:00: reason'] if fault in ('reuse', 'historical') else []))
+    assert before == ((root / 'cumulative_hours.json').read_bytes(), sorted(root.glob('attempt_*')))
 
 
 @pytest.mark.parametrize('tier', ['M', 'S', 'L'])

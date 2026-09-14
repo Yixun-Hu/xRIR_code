@@ -4,6 +4,7 @@ import datetime
 import hashlib
 import json
 import math
+from contextlib import nullcontext
 from pathlib import Path
 
 from tools import provenance as p
@@ -12,6 +13,7 @@ from tools.exp05_probe import projection
 
 
 def validate_receipt(path, commit, gpu, tier, backbone):
+    from tools.exp04_launcher import arm_root
     try:
         path = Path(path).resolve()
         raw = path.read_bytes()
@@ -22,6 +24,17 @@ def validate_receipt(path, commit, gpu, tier, backbone):
         if any(p.sha256_file(Path(attempt['path']) / (name + '.json')) != attempt[name + '_sha256']
                for name in ('train_manifest', 'completion')):
             raise ValueError('probe attempt changed')
+        attempt_path = Path(attempt['path']).resolve()
+        manifest = json.loads((attempt_path / 'train_manifest.json').read_bytes())
+        completion = json.loads((attempt_path / 'completion.json').read_bytes())
+        if (attempt_path.parent != arm_root(tier, backbone).resolve()
+                or manifest['mode'] != 'probe' or manifest['effective_args']['tier'] != tier
+                or manifest['effective_args']['backbone'] != backbone or manifest['reviewed_commit'] != commit
+                or Path(manifest['attempt_path']).resolve() != attempt_path
+                or any(completion['metrics']['probe'][k] != data[k] for k in
+                       ('t_micro', 't_test', 't_save', 'iteration_seconds', 'peak_allocated_bytes',
+                        'peak_reserved_bytes', 'T_epoch', 'T_run'))):
+            raise ValueError('probe attempt arm or measurements differ')
         snapshots = [data['before'], *data['arms_before'], data['after']]
         valid = (type(data['schema_version']) is int and data['schema_version'] == 1
             and tier in ('S', 'L') and data['tier'] == tier and data['backbone'] == backbone
@@ -66,15 +79,17 @@ def timing_limits(fields, gpu):
                 ceiling_hours=1.5 * data['T_run'] / 3600, probe_receipt_sha256=actual['sha256'])
 
 
-def set_budget(root, limits, renewal=None):
-    """Retain the spent arm's ceiling unless a new receipt has explicit renewal."""
+def set_budget(root, limits, renewal=None, commit=True):
+    """Validate the arm ceiling; commit=False performs a read-only preflight."""
     from tools.exp04_launcher import hours_record
     root = Path(root)
     if any(not math.isfinite(limits[k]) or limits[k] <= 0 for k in ('ceiling_hours', 'projection_hours')):
         raise ValueError('invalid cumulative ceiling or projection')
-    root.mkdir(parents=True, exist_ok=True)
-    with (root / '.hours.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    if commit:
+        root.mkdir(parents=True, exist_ok=True)
+    with (root / '.hours.lock').open('a') if commit else nullcontext() as lock:
+        if commit:
+            fcntl.flock(lock, fcntl.LOCK_EX)
         record = hours_record(root)
         for attempt in root.glob('attempt_*_ABORTED_slow*'):
             try:
@@ -99,7 +114,9 @@ def set_budget(root, limits, renewal=None):
             timestamp, separator, reason = renewal.partition(': ')
             if not separator or not reason.strip():
                 raise ValueError('renewal requires notebook timestamp: reason')
-            datetime.datetime.fromisoformat(timestamp)
+            parsed = datetime.datetime.fromisoformat(timestamp)
+            if parsed.tzinfo is None or timestamp != parsed.isoformat():
+                raise ValueError('renewal requires ISO-8601 notebook timestamp')
             if limits['probe_receipt_sha256'] in [old, *record.get('probe_receipt_history', [])]:
                 raise ValueError('renewal requires a new clean receipt')
             record.setdefault('renewals', []).append(dict(timestamp=timestamp, reason=reason.strip(),
@@ -111,5 +128,6 @@ def set_budget(root, limits, renewal=None):
             record.setdefault('probe_receipt_history', []).append(old)
         record.update(ceiling_hours=ceiling, probe_receipt_sha256=limits['probe_receipt_sha256'],
                       probe_projection_hours=limits['projection_hours'])
-        p.write_completion(root / 'cumulative_hours.json', record)
+        if commit:
+            p.write_completion(root / 'cumulative_hours.json', record)
     return dict(limits, ceiling_hours=ceiling)

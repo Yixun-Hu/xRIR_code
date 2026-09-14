@@ -65,6 +65,18 @@ def test_missing_golden_is_value_error(tmp_path, monkeypatch):
         launch.check_golden(launch.command('full', attempt, 'S'), 'full', attempt)
 
 
+def test_trailing_backbone_is_parser_error(capsys):
+    attempt = 'ckpt/exp05/S_simple/attempt_test'
+    argv = launch.command('full', attempt, 'S')
+    index = argv.index('--backbone')
+    del argv[index:index + 2]
+    with pytest.raises(ValueError, match='golden tier'):
+        launch.check_golden(argv + ['--backbone'], 'full', attempt)
+    with pytest.raises(SystemExit) as error:
+        launch.main(['full', '--tier', 'S', '--backbone'])
+    assert error.value.code == 2 and 'expected one argument' in capsys.readouterr().err
+
+
 def test_cli_checks_golden_before_creating_directories(tmp_path, monkeypatch):
     monkeypatch.setattr(launch, 'REPO', tmp_path)
     monkeypatch.setattr(launch.subprocess, 'check_output', lambda *a, **k: 'a' * 40)

@@ -6,19 +6,25 @@ from pathlib import Path
 import pytest
 
 from tools import exp05_gates as gates
-from tools import provenance as p
+from tools import provenance as p, exp04_launcher as launch
 from tools.exp05_params import TIERS
 from tools.exp05_probe import projection
 
 
-def probe_attempt(path):
+def probe_attempt(path, data=None):
     path.mkdir(parents=True, exist_ok=True)
-    return dict(path=str(path), **{name + '_sha256': p.write_manifest(path / (name + '.json'), dict(kind=name))
-                                  for name in ('train_manifest', 'completion')})
+    data = data or dict(tier='S', backbone='simple', reviewed_commit='a' * 40)
+    manifest = dict(mode='probe', effective_args={k: data[k] for k in ('tier', 'backbone')},
+                    reviewed_commit=data['reviewed_commit'], attempt_path=str(path))
+    digest = p.write_manifest(path / 'train_manifest.json', manifest)
+    completion = dict(train_manifest_sha256=digest, attempt_path=str(path), metrics=dict(probe=data))
+    return dict(path=str(path), train_manifest_sha256=digest,
+                completion_sha256=p.write_manifest(path / 'completion.json', completion))
 
 
 @pytest.fixture
-def receipt(tmp_path):
+def receipt(tmp_path, monkeypatch):
+    monkeypatch.setattr(launch, 'REPO', tmp_path)
     state = dict(gpu='1', uuid='GPU-test', compute_apps='', free_gib=45.)
     data = dict(schema_version=1, tier='S', backbone='simple', reviewed_commit='a' * 40, gpu='1',
         before=state, after=copy.deepcopy(state), arms_before=[copy.deepcopy(state)],
@@ -27,12 +33,51 @@ def receipt(tmp_path):
         t_micro=dict(mean=1., median=1., min=1., values=[1.] * 50), t_test=2., t_save=3.,
         test_timing_protocol='full_test_loader', test_batches_timed=199, test_batches_total=199,
         peak_allocated_bytes=123, peak_reserved_bytes=456, iteration_seconds=[1.] * 50,
-        mean_iteration_seconds=1., median_iteration_seconds=1., min_iteration_seconds=1.,
-        probe_attempt=probe_attempt(tmp_path / 'certified_probe'))
+        mean_iteration_seconds=1., median_iteration_seconds=1., min_iteration_seconds=1.)
     data.update(projection(data))
+    data['probe_attempt'] = probe_attempt(launch.arm_root('S', 'simple') / '_probe_test_arm', data)
     path = tmp_path / 'probe.json'
     path.write_text(json.dumps(data))
     return path, data
+
+
+@pytest.mark.parametrize('fault', ['other_arm', 'mode', 'tier', 'backbone', 'commit', 'path', 'timing'])
+def test_refuses_borrowed_probe_evidence(receipt, fault):
+    path, data = receipt
+    bound = data['probe_attempt']
+    if fault == 'other_arm':
+        data['probe_attempt'] = probe_attempt(launch.arm_root('L', 'cylindrical') / '_probe_other_arm', data)
+    else:
+        target = Path(bound['path']) / 'train_manifest.json'
+        manifest = json.loads(target.read_text())
+        if fault in ('tier', 'backbone'):
+            manifest['effective_args'][fault] = 'L' if fault == 'tier' else 'cylindrical'
+        elif fault == 'timing':
+            data['t_test'] += 1
+            data.update(projection(data))
+        else:
+            manifest[dict(mode='mode', commit='reviewed_commit', path='attempt_path')[fault]] = 'wrong'
+        target.write_text(json.dumps(manifest))
+        bound['train_manifest_sha256'] = p.sha256_file(target)
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match='receipt'):
+        gates.validate_receipt(path, 'a' * 40, '1', 'S', 'simple')
+
+
+@pytest.mark.parametrize('timestamp', ['2026-09-13 00:05', '2026-09-13T00:05:00',
+                                     '2026-09-13 00:05:00-04:00', '2026-09-13T00:05-04:00'])
+def test_renewal_requires_notebook_timestamp(tmp_path, timestamp):
+    limits = dict(projection_hours=20., ceiling_hours=30., probe_receipt_sha256='a' * 64)
+    gates.set_budget(tmp_path, limits)
+    with pytest.raises(ValueError, match='timestamp'):
+        gates.set_budget(tmp_path, dict(limits, probe_receipt_sha256='b' * 64), timestamp + ': reason')
+
+
+def test_budget_preflight_does_not_create_root(tmp_path):
+    root = tmp_path / 'missing'
+    limits = dict(projection_hours=20., ceiling_hours=30., probe_receipt_sha256='a' * 64)
+    assert gates.set_budget(root, limits, commit=False) == limits
+    assert not root.exists()
 
 
 @pytest.mark.parametrize('field,value', [('tier', 'L'), ('backbone', 'cylindrical'),

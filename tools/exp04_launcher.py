@@ -63,9 +63,9 @@ def check_golden(argv, mode, attempt):
         try:
             tier = tier_of({'vit_' + key: int(argv[argv.index('--vit-' + key.replace('_', '-')) + 1])
                             for key in TIERS['M']})
+            backbone = argv[argv.index('--backbone') + 1]
         except (ValueError, IndexError) as error:
             raise ValueError('argv differs from golden tier') from error
-        backbone = argv[argv.index('--backbone') + 1]
         prefix = 'ckpt/exp05/{}_{}/attempt_'.format(tier, backbone)
         if not str(attempt).startswith(prefix) or not re.fullmatch(r'[A-Za-z0-9_-]+', str(attempt)[len(prefix):]):
             raise ValueError('argv differs from golden tier arm')
@@ -712,6 +712,8 @@ def execute_attempt(attempt, mode, gpu, log_path, fields_factory, allow_cotenant
                     projection=30.0, runner=run_child, limits=None, renew_ceiling=None):
     attempt, log_path = Path(attempt), Path(log_path)
     if mode == 'full':
+        if limits:
+            limits = tier_gates.set_budget(attempt.parent, limits, renewal=renew_ceiling, commit=False)
         check_budget(attempt.parent, projection, limits['ceiling_hours'] if limits else 43)
     create_attempt(attempt.parent, attempt.name)  # An existing directory is never renamed.
     started, reason = time.monotonic(), 'setup_failed'

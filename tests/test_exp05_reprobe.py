@@ -4,7 +4,7 @@ import json
 import pytest
 
 from tools import exp04_launcher as launch, exp05_gates as gates
-from test_exp05_gates import receipt
+from test_exp05_gates import receipt, probe_attempt
 
 
 def bound_fields(path, attempt):
@@ -32,6 +32,7 @@ def test_slow_abort_requires_new_receipt(receipt, tmp_path, evidence):
     if evidence == 'new':
         data['t_test'] += 1
         data.update(launch.tier_probe.projection(data))
+        data['probe_attempt'] = probe_attempt(launch.arm_root('S', 'simple') / '_probe_new_arm', data)
         path.write_text(json.dumps(data))
         newer = gates.timing_limits(bound_fields(path, old), '1')
         assert gates.set_budget(root, newer)['probe_receipt_sha256'] != limits['probe_receipt_sha256']
