@@ -1,0 +1,20 @@
+Traceback (most recent call last):
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/runpy.py", line 194, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/runpy.py", line 87, in _run_code
+    exec(code, run_globals)
+  File "/home/yixunhu/codespace/xRIR_code/tools/exp04_eval_launch.py", line 269, in <module>
+    main()
+  File "/home/yixunhu/codespace/xRIR_code/tools/exp04_eval_launch.py", line 265, in main
+    return execute_run(args, command, lambda: build_fields(args, command, repo), repo)
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/contextlib.py", line 75, in inner
+    return func(*args, **kwds)
+  File "/home/yixunhu/codespace/xRIR_code/tools/exp04_eval_launch.py", line 71, in execute_run
+    fields = dict(fields_factory(), schema_version=1)
+  File "/home/yixunhu/codespace/xRIR_code/tools/exp04_eval_launch.py", line 265, in <lambda>
+    return execute_run(args, command, lambda: build_fields(args, command, repo), repo)
+  File "/home/yixunhu/codespace/xRIR_code/tools/exp04_eval_launch.py", line 216, in build_fields
+    state = p.checked_git_state(repo, n_samples == count, args.allow_dirty)
+  File "/home/yixunhu/codespace/xRIR_code/tools/provenance.py", line 172, in checked_git_state
+    raise ValueError('dirty_outside_worklog requires --allow-dirty')
+ValueError: dirty_outside_worklog requires --allow-dirty
