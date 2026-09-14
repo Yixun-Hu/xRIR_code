@@ -5,9 +5,11 @@
     "writer": null,
     "training_launcher": null,
     "producer_paired_compare": null,
-    "producer_results_table": null
+    "producer_results_table": null,
+    "producer_descriptive": null
   },
   "checkpoints": {
+    "aug_epoch9": null,
     "aug": {
       "path": null,
       "epoch": null,

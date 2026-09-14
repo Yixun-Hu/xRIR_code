@@ -60,7 +60,7 @@ def strip(data, equivalence=False):
 
 def curves(data):
     """Optional one-arm canonical cells; preserves their profile and seed labels."""
-    if data['profile'].get('mode') != 'one_arm':
+    if data['profile'].get('mode') != 'descriptive':
         return ''
     figures = []
     for metric in sorted({c['metric'] for c in data['cells']}):

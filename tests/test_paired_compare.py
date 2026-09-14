@@ -231,7 +231,8 @@ def admission_fixture(tmp_path, monkeypatch):
         producer = {'sha256': 'a' * 64, 'files': [], 'commit': 'b' * 40}
         approved = dict(schema_version=1, closures=dict(evaluator=entry['sha256'],
             writer=writer['sha256'], training_launcher=None,
-            producer_paired_compare=producer['sha256'], producer_results_table=None), checkpoints={})
+            producer_paired_compare=producer['sha256'], producer_results_table=None,
+            producer_descriptive=producer['sha256']), checkpoints={})
         data_root = root / 'data'
         data_root.mkdir()
         (data_root / 'query.dat').write_bytes(b'fixture dataset bytes')
@@ -249,13 +250,14 @@ def admission_fixture(tmp_path, monkeypatch):
             arm.update(checkpoint=str(checkpoint), sha256=p.sha256_file(checkpoint))
         approved['checkpoints']['aug'] = dict(path=profile['arms'][0]['checkpoint'],
             epoch=12, sha256=profile['arms'][0]['sha256'])
+        approved['checkpoints']['aug_epoch9'] = profile['arms'][0]['sha256']
         approval_path = root / 'approved.json'
         def approval():
             _replace(approval_path, approved)
             return approved, dict(path=str(approval_path), sha256=p.sha256_file(approval_path), git_blob='c' * 40)
         monkeypatch.setattr(pc, 'load_approved_digests', approval)
         references = {}
-        for seed in range(42, 47):
+        for seed in profile['seeds'][profile['num_shot']]:
             reference = {'seed': seed, 'num_shot': profile['num_shot'], 'ir_root': str(data_root),
                          'entries': [{'index': i, 'query': query,
                                       'refs': [query.rsplit('/', 1)[0] + '/S099_R001_hybrid_IR.wav']
@@ -266,7 +268,7 @@ def admission_fixture(tmp_path, monkeypatch):
             profile['seeds'][profile['num_shot']][seed] = manifest_hash(reference)
             references[seed] = (path, reference)
         for arm_index, arm in enumerate(profile['arms']):
-            for seed in range(42, 47):
+            for seed in profile['seeds'][profile['num_shot']]:
                 run = root / '{}_{}'.format(arm['role'], seed)
                 run.mkdir()
                 paths[arm_index].append(str(run))
@@ -278,7 +280,7 @@ def admission_fixture(tmp_path, monkeypatch):
                     manifest_hash=manifest_hash(reference), manifest_seed=seed, gl_seed=seed,
                     num_shot=profile['num_shot'], backbone=arm['backbone'], batch_size=16,
                     batch_canonical=True, max_samples=0, tf32=False, conditions='P', yaw_cols=grid,
-                    acoustic_cols=grid, e_acoustic_cols=[], n_samples=12, split_count=12,
+                    acoustic_cols=profile.get('acoustic_grid', grid), e_acoustic_cols=[], n_samples=12, split_count=12,
                     split='unseen', no_tta=True, data_root=str(data_root),
                     mutable_inputs=training if arm['role'] == 'aug' else {},
                     confirmatory=True, allow_dirty_used=False,
@@ -293,9 +295,13 @@ def admission_fixture(tmp_path, monkeypatch):
                 meta = {key: manifest[key] for key in keys}
                 meta.update(eval_manifest_sha256=digest, evaluator_closure_sha256=frozen['sha256'],
                             elapsed_min=0.1, torch_version='fixture')
-                cells = {str(k): {metric: [1 + i / 16 + (seed - 42) / 100 for i in range(12)]
+                cells = {str(k): {metric: [(1 + i / 16 + (seed - 42) / 100) * (1 + k / 512 if name == 'GRID_SEED42' else 1) for i in range(12)]
                                   for metric in ('edt', 'c50', 't60', 'loss', 'log_mse')}
                          for k in grid}
+                for k, cell in cells.items():
+                    if int(k) not in profile.get('acoustic_grid', grid):
+                        for metric in ('edt', 'c50', 't60'):
+                            cell.pop(metric)
                 if shifted and arm['role'] == 'aug':
                     rng = np.random.default_rng(seed)
                     for cell in cells.values():
@@ -318,7 +324,7 @@ def admission_fixture(tmp_path, monkeypatch):
                     outputs={item: p.sha256_file(run / item)
                              for item in ('per_sample_yaw.json', 'metrics_yaw.json')}))
         monkeypatch.setattr(pc, 'get_profile', lambda _: profile)
-        monkeypatch.setattr(pc, 'producer_identity', lambda: producer)
+        monkeypatch.setattr(pc, 'producer_identity', lambda *args: producer)
         output, summary = root / 'result.json', root / 'summary.txt'
         argv = ['--profile', name, '--runs-a'] + paths[0]
         if len(profile['arms']) == 2:

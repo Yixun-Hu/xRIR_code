@@ -16,3 +16,5 @@ Operational order:
 4. Run `check_record.py`, generate Markdown and HTML from the bound JSONs, then run `check_record.py` again before publication.
 
 Run `bash static_checks.sh` from this directory or invoke it by its full path. The CPU regression subset is `python -m pytest tests/test_exp04_record_tools.py tests/test_paired_compare.py tests/test_results_table.py -q -p no:cacheprovider` from the repository root. A restricted installation may need `NUMBA_CACHE_DIR=/tmp/xrir_round8_numba`.
+
+Produce diagnostics with `python tools/exp04_descriptive.py --profile {GRID_SEED42,EPOCH9_K8} --runs DIR [DIR ...] --json PATH --summary PATH`. Approve `closures.producer_descriptive` and (for epoch 9) `checkpoints.aug_epoch9` first; both start null. GRID uses seed 42, 18 spectral and 10 acoustic angles; EPOCH9 uses five seeds at k = 0. Both are P-only descriptions with query bootstrap intervals and no verdict.

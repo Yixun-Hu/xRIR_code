@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_profiles_frozen_and_typed():
-    assert set(profiles.PROFILES) == {'H1_K8', 'H1_K1', 'H2_K8', 'TOST_K8', 'TABLE_V1'}
+    assert set(profiles.PROFILES) == {'H1_K8', 'H1_K1', 'H2_K8', 'TOST_K8', 'TABLE_V1', 'GRID_SEED42', 'EPOCH9_K8'}
     def check(value):
         assert type(value) in (MappingProxyType, tuple, str, int, float, bool, type(None))
         if isinstance(value, MappingProxyType):
@@ -30,7 +30,7 @@ def test_profiles_frozen_and_typed():
     for name, profile in profiles.PROFILES.items():
         assert profiles.get_profile(name) is profile
         assert type(profile['schema_version']) is int
-        assert profile['mode'] in ('two_arm', 'one_arm', 'table')
+        assert profile['mode'] in ('two_arm', 'one_arm', 'table', 'descriptive')
         assert profile['condition'] == 'P'
         assert profile['alpha'] == .05 and profile['n_boot'] == 20000
         assert profile['bootstrap_seeds'] == (0, 1)
@@ -68,7 +68,7 @@ def test_hypotheses_and_canonical_input_selection():
     assert h2['input_selection'] == tost['input_selection'] == 'block'
 
 
-@pytest.mark.parametrize('name', tuple(profiles.PROFILES))
+@pytest.mark.parametrize('name', [n for n in profiles.PROFILES if profiles.PROFILES[n]['mode'] != 'descriptive'])
 def test_every_field_has_its_declared_type(name):
     p = profiles.get_profile(name)
     schema = {'schema_version': int, 'mode': str, 'arms': tuple, 'num_shot': int,
@@ -161,7 +161,7 @@ def approval_repo(tmp_path, value):
 def approval_template():
     return {'schema_version': None, 'closures': dict.fromkeys((
         'evaluator', 'writer', 'training_launcher', 'producer_paired_compare',
-        'producer_results_table')), 'checkpoints': {'aug': dict.fromkeys(('path', 'epoch', 'sha256'))}}
+        'producer_results_table', 'producer_descriptive')), 'checkpoints': {'aug_epoch9': None, 'aug': dict.fromkeys(('path', 'epoch', 'sha256'))}}
 
 
 @pytest.mark.parametrize('pinned', (False, True))

@@ -57,6 +57,10 @@ def load(path, name=None, draft_ok=False):
     profile_digest = sha(json.dumps(data['profile'], sort_keys=True, separators=(',', ':'), allow_nan=False).encode())
     producer = side['producer']['sha256']
     key = 'producer_results_table' if data['profile_name'] == 'TABLE_V1' else 'producer_paired_compare'
+    descriptive = data['profile_name'] in ('GRID_SEED42', 'EPOCH9_K8')
+    if descriptive != (data['profile']['mode'] == 'descriptive'):
+        raise ValueError('descriptive producer profile required')
+    if descriptive: key = 'producer_descriptive'
     if (side['outputs'].get(str(path)) != digest or side['profile_digest'] != profile_digest
             or data['profile_digest'] != profile_digest or side['inputs'] != data['inputs']
             or side['approved_digests']['sha256'] != data['inputs'].get(side['approved_digests']['path'])
@@ -73,14 +77,17 @@ def load(path, name=None, draft_ok=False):
         expected = {(a['role'], k) for a in profile['arms'] for k in profile['num_shot']}
         actual = [(r['role'], r['num_shot']) for r in data['rows']]
     else:
-        expected = {(m, k) for group in profile['metrics'].values() for m in group for k in profile['grid']}
+        expected = {(m, k) for group in profile['metrics'].values() for m in group
+                    for k in (profile.get('acoustic_grid', profile['grid']) if m in ('EDT', 'C50', 'T60') else profile['grid'])}
         actual = [(c['metric'], c['k']) for c in data['cells']]
         driving = [c for c in data['cells'] if c['decision_driving']]
         verdicts = [c.get('verdict') for c in driving] if profile['mode'] == 'one_arm' else [data.get('verdict')]
-        draft = not verdicts or any(not isinstance(v, str) or not v for v in verdicts)
+        draft = not descriptive and (not verdicts or any(not isinstance(v, str) or not v for v in verdicts))
         family = data['profile_name'].split('_')[0]
-        if family not in VERDICTS or any(v and v not in VERDICTS[family] for v in verdicts):
+        if not descriptive and (family not in VERDICTS or any(v and v not in VERDICTS[family] for v in verdicts)):
             raise ValueError('unregistered verdict wording')
+        if descriptive and (data.get('decision_driving') is not False or driving or 'verdict' in data or any('verdict' in c for c in data['cells'])):
+            raise ValueError('descriptive diagnostics cannot drive decisions or verdicts')
         for cell in driving:
             gates = cell['convergence']
             required = {'decision', 'superiority'} if profile['input_selection'] == 'standalone_k0' else {'decision'}
@@ -97,7 +104,11 @@ def load(path, name=None, draft_ok=False):
 def tables(data):
     """Shared presentation model: titles, headers and producer-valued cells."""
     name = data['profile_name']
-    if name == 'TABLE_V1':
+    if data['profile']['mode'] == 'descriptive':
+        yield 'Descriptive diagnostics — ' + name, ['Metric', 'Degrees', 'Mean', 'Seed SD', 'Unit', 'r_k (%)', '95% query bootstrap interval (%)', 'Queries'], [
+            [c['metric'], c['degrees']] + [display(c[f], c['metric'] if c['metric'] in ('EDT', 'C50', 'T60') else None) for f in ('mean', 'sd')] +
+            [c['unit'], percent(c['estimate']), percent(c['companion_interval']), c['n_finite']] for c in data['cells']]
+    elif name == 'TABLE_V1':
         metrics = ('T60', 'C50', 'EDT', 'loss', 'log_mse')
         rows = [[r['label'], r['num_shot']] + ['{} ± {} {}'.format(
             display(r['metrics'][m]['mean'], m if m in ('EDT', 'C50', 'T60') else None), display(r['metrics'][m]['sd'], m if m in ('EDT', 'C50', 'T60') else None), r['metrics'][m]['unit'])
