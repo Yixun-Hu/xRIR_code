@@ -5,7 +5,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from tools import provenance as p
-from tools.exp04_profiles import load_approved_digests
+from tools.exp04_profiles import DESCRIPTIVE_NAMES, load_approved_digests
 from tools.exp04_record import load_asset
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -92,7 +92,7 @@ def bind_results(paths, head, approval, runs, training):
                             sidecar=stamp(sidecar), outputs=[stamp(p, d) for p, d in sorted(side['outputs'].items())]))
     require(len({r['sidecar']['path'] for r in records}) == len(records), 'duplicate results')
     names, required = [r['profile'] for r in records], {name for _, name in md.INPUTS}
-    require(len(names) == len(set(names)) and required <= set(names) <= required | {'GRID_SEED42', 'EPOCH9_K8'}, 'result profile coverage')
+    require(len(names) == len(set(names)) and required <= set(names) <= required | set(DESCRIPTIVE_NAMES), 'result profile coverage')
     return records
 
 
@@ -123,7 +123,8 @@ def collect(runs, attempt, probe_receipt, audit, results, approved=None, head=No
                 require(stamp(Path(manifest['repo']) / value['path'], value['sha256']) == expected, 'training linkage')
         records.append(record)
     head = head or subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
-    subprocess.check_call(['git', 'cat-file', '-e', head + '^{commit}'], cwd=ROOT)
+    require(subprocess.run(['git', 'cat-file', '-e', head + '^{commit}'], cwd=ROOT,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode == 0, 'invalid binding HEAD')
     return dict(schema_version=1, git_HEAD=head, results=bind_results(results, head, approval, records, training), runs=records, training=training, probe_receipt=receipt,
         audit=audit_record, approved_digests=approval, inputs=dict(runs=paths, attempt=training['path'],
         probe_receipt=receipt['path'], audit=audit_record['path'], approved=identity['path'],

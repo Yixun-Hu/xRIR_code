@@ -3,6 +3,7 @@ import argparse
 import numpy as np
 from tools import paired_compare as pc
 from tools.results_table import METRICS
+from tools.exp04_profiles import DESCRIPTIVE_NAMES
 
 
 def build_diagnostics(name, directories):
@@ -50,7 +51,7 @@ def render_summary(result):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--profile', choices=('GRID_SEED42', 'EPOCH9_K8'), required=True)
+    parser.add_argument('--profile', choices=DESCRIPTIVE_NAMES, required=True)
     parser.add_argument('--runs', nargs='+', required=True)
     parser.add_argument('--json', required=True)
     parser.add_argument('--summary', required=True)

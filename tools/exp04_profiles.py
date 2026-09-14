@@ -38,14 +38,11 @@ def load_approved_digests(path=None):
               (aug['path'], lambda v: type(v) is str and bool(v)),
               (aug['epoch'], lambda v: type(v) is int and v > 0)]
     checks += [(v, lambda s: type(s) is str and re.fullmatch('[0-9a-f]{64}', s))
-               for v in [value['closures'][k] for k in closures if k != 'producer_descriptive'] + [aug['sha256']]]
+               for v in [value['closures'][k] for k in closures] + [aug['sha256'], value['checkpoints']['aug_epoch9']]]
     if any(v is not None and not valid(v) for v, valid in checks):
         raise ValueError('approved digests schema: invalid pin type or value')
     if any(v is None for v, _ in checks) and not all(v is None for v, _ in checks):
         raise ValueError('approved digests schema: requires all-null or all-filled pins')
-    for pin in (value['closures']['producer_descriptive'], value['checkpoints']['aug_epoch9']):
-        if pin is not None and (type(pin) is not str or not re.fullmatch('[0-9a-f]{64}', pin)):
-            raise ValueError('approved digests schema: invalid diagnostic pin')
     def git(*args):
         return subprocess.check_output(['git', '-C', str(path.parent)] + list(args),
                                        stderr=subprocess.PIPE)
@@ -140,6 +137,7 @@ PROFILES = MP({**PROFILES,
     'EPOCH9_K8': MP({**DESCRIPTIVE, 'grid': (0,), 'acoustic_grid': (0,), 'checkpoint_key': 'aug_epoch9',
         'arms': (MP({**AUG, 'epoch': 9, 'checkpoint': 'ckpt/xRIR_simple_yawaug_8_shot/final/epoch_009.pth'}),),
         'run_grids': MP({'aug': (0,)})})})
+DESCRIPTIVE_NAMES = tuple(name for name, profile in PROFILES.items() if profile['mode'] == 'descriptive')
 
 
 def get_profile(name):

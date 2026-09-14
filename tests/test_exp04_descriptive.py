@@ -20,6 +20,8 @@ def test_descriptive_outputs_and_generators(admission_fixture, record_inputs, tm
     assert edt['sd'] == (pytest.approx(np.std(np.arange(5) * 10, ddof=1)) if name == 'EPOCH9_K8' else None)
     assert all(c['estimate'] == pytest.approx(c['k'] / 512) and c['companion_interval'] == pytest.approx((c['k'] / 512,) * 2) and not c['decision_driving'] for c in result['cells'])
     assert 'Descriptive diagnostics' in fixture.summary.read_text() and fixture.sidecar.exists()
+    rows = next(load_asset('make_results_md').tables(result))[2]
+    assert all((row[5:7] == ['—', '—']) == (len(result['profile']['grid']) == 1) for row in rows)
     for asset in ('make_results_md', 'make_results_html'):
         module, output = load_asset(asset), tmp_path / (asset + '.out')
         required = sum(([flag, str(record_inputs[profile])] for flag, profile in load_asset('make_results_md').INPUTS), [])

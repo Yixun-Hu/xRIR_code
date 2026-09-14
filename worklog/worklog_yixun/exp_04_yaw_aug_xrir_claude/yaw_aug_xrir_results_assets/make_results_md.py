@@ -5,6 +5,7 @@ import html
 import json
 import subprocess
 from pathlib import Path
+from tools.exp04_profiles import DESCRIPTIVE_NAMES
 
 INPUTS = tuple(zip(('--h1-k8', '--h1-k1', '--h2-k8', '--tost-k8', '--table'),
                    ('H1_K8', 'H1_K1', 'H2_K8', 'TOST_K8', 'TABLE_V1')))
@@ -57,7 +58,7 @@ def load(path, name=None, draft_ok=False):
     profile_digest = sha(json.dumps(data['profile'], sort_keys=True, separators=(',', ':'), allow_nan=False).encode())
     producer = side['producer']['sha256']
     key = 'producer_results_table' if data['profile_name'] == 'TABLE_V1' else 'producer_paired_compare'
-    descriptive = data['profile_name'] in ('GRID_SEED42', 'EPOCH9_K8')
+    descriptive = data['profile_name'] in DESCRIPTIVE_NAMES
     if descriptive != (data['profile']['mode'] == 'descriptive'):
         raise ValueError('descriptive producer profile required')
     if descriptive: key = 'producer_descriptive'
@@ -107,7 +108,8 @@ def tables(data):
     if data['profile']['mode'] == 'descriptive':
         yield 'Descriptive diagnostics — ' + name, ['Metric', 'Degrees', 'Mean', 'Seed SD', 'Unit', 'r_k (%)', '95% query bootstrap interval (%)', 'Queries'], [
             [c['metric'], c['degrees']] + [display(c[f], c['metric'] if c['metric'] in ('EDT', 'C50', 'T60') else None) for f in ('mean', 'sd')] +
-            [c['unit'], percent(c['estimate']), percent(c['companion_interval']), c['n_finite']] for c in data['cells']]
+            [c['unit']] + (['—', '—'] if len(data['profile']['grid']) == 1 else
+            [percent(c['estimate']), percent(c['companion_interval'])]) + [c['n_finite']] for c in data['cells']]
     elif name == 'TABLE_V1':
         metrics = ('T60', 'C50', 'EDT', 'loss', 'log_mse')
         rows = [[r['label'], r['num_shot']] + ['{} ± {} {}'.format(
@@ -124,8 +126,8 @@ def tables(data):
                  c.get('superiority'), percent(c.get('superiority_interval'))] for c in data['cells']]
         yield name + (' — aggregate verdict: ' + data['verdict'] if 'verdict' in data else ''), headers, rows
         for field in ('exclusions', 'seed_means', 'convergence'):
-            yield name + ' — ' + field + (' (%, except seeds)' if field == 'convergence' else ''), ['Metric', 'k', field], [[c['metric'], c['k'],
-                display(c[field], c['metric'], 1000 if c['metric'] == 'EDT' else 1) + (' ms' if c['metric'] == 'EDT' else ' dB' if c['metric'] == 'C50' else ' %')
+            yield name + ' — ' + field + (' (%, except seeds)' if field == 'convergence' else ''), ['Metric', 'k', field + (' (EDT ms; C50 dB; T60 %)' if field == 'seed_means' else '')], [[c['metric'], c['k'],
+                display(c[field], c['metric'], 1000 if c['metric'] == 'EDT' else 1)
                 if field == 'seed_means' else percent(c[field]) if field == 'convergence' else c[field]] for c in data['cells']]
     yield name + ' — protocol / margins', ['Field', 'Value'], [(k + ' (%)', percent(v)) if k in ('margin', 'convergence_tolerance') else (k, v) for k, v in data['profile'].items()]
 

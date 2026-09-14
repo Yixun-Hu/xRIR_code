@@ -90,7 +90,7 @@ def test_markdown_refusals(record_inputs, mutation):
 @pytest.mark.parametrize('mutation', [None, 'manifest', 'completion', 'output', 'train_manifest',
                                     'train_output', 'probe', 'audit', 'approved', 'log', 'echo', 'incomplete', 'missing_digest', 'resigned_json', 'summary',
                                     'sidecar', 'extra', 'missing_file', 'producer_commit',
-                                    'pins_forged', 'approval_swapped_in_sidecar', 'foreign_run_inputs', 'foreign_run_path', 'living_table'])
+                                    'pins_forged', 'approval_swapped_in_sidecar', 'foreign_run_inputs', 'foreign_run_path', 'living_table', 'binding_head'])
 def test_binding_roundtrip_and_refusals(tmp_path, monkeypatch, mutation, record_inputs):
     binder = load_asset('bind_provenance')
     checker = load_asset('check_record')
@@ -216,6 +216,10 @@ def test_binding_roundtrip_and_refusals(tmp_path, monkeypatch, mutation, record_
     elif mutation == 'summary':
         Path(next(path for path in side['outputs'] if path != str(product))).write_text('tamper')
     elif mutation == 'sidecar': sidecar.write_text(sidecar.read_text() + ' ')
+    elif mutation == 'binding_head':
+        report = json.loads(out.read_text())
+        report['git_HEAD'] = 'f' * 40
+        out.write_text(json.dumps(report))
     elif mutation == 'extra': (run / 'extra').write_text('unrecorded')
     elif mutation == 'missing_file': (run / 'metrics_yaw.json').unlink()
     elif mutation in paths:
@@ -311,6 +315,8 @@ def test_rounding_and_registered_verdict_vocabulary(record_inputs, tmp_path):
     md = load_asset('make_results_md')
     assert [md.display(1.23456, m) for m in ('EDT', 'C50', 'T60')] == ['1.2', '1.235', '1.23']
     assert md.percent([-.012345, .023456]) == '-1.23, 2.35'
+    assert any(headers[-1] == 'seed_means (EDT ms; C50 dB; T60 %)'
+               for _, headers, _ in md.tables(json.loads(record_inputs['H1_K8'].read_text())))
     assert md.display({'passed': True, 'nested': {'flag': False}}) == 'passed: yes; nested: flag: no'
     assert md.VERDICTS == {'H1': {'non-inferior', 'non-inferior on EDT only', 'non-inferior on C50 only', 'not shown'},
                            'H2': {'supported', 'partially supported', 'not supported'},
@@ -341,8 +347,9 @@ def test_rounding_and_registered_verdict_vocabulary(record_inputs, tmp_path):
 
 
 @pytest.mark.parametrize('order', [('03', '04'), ('04', '03')])
-def test_record_module_isolation(order):
+def test_record_module_isolation(order, tmp_path, monkeypatch):
     import subprocess
+    monkeypatch.chdir(tmp_path)
     script = '''
 import importlib.util, sys
 from pathlib import Path
@@ -361,7 +368,7 @@ assert binder is not sys.modules['bind_provenance']
 assert 'exp_03_' in sys.modules['bind_provenance'].__file__
 assert str(md.REPO / 'worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results_assets') not in sys.path
 '''
-    subprocess.run([sys.executable, '-c', script] + list(order), check=True)
+    subprocess.run([sys.executable, '-c', script] + list(order), check=True, cwd=ASSETS.parents[3])
 
 
 def test_producer_ancestry_uses_binding_head(tmp_path, monkeypatch):

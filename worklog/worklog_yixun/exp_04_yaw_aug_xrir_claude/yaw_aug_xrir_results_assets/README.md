@@ -10,7 +10,7 @@ TABLE_V1 has no verdict; TOST verdicts are per cell. Family verdict blocks prece
 
 Operational order:
 
-1. Finish and review code changes, then commit the code. Compute producer closures from that committed code, fill the approved checkpoint/closure digests, and commit the pins in a second reviewed commit before running producers.
+1. Finish and review code changes, then commit the code. Compute producer closures from that committed code, fill all closure and checkpoint pins together (including diagnostics), and commit the pins in a second reviewed commit before running producers. The approval schema permits only all-null or all-filled pins.
 2. After training/evaluations complete, run the canonical producers; retain each JSON, summary and sidecar together.
 3. Bind the completed run set using `--results` with all five canonical JSONs and any diagnostics; retain the immutable report.
 4. Run `check_record.py`, generate Markdown and HTML from the bound JSONs, then run `check_record.py` again before publication.
@@ -19,4 +19,6 @@ The living TABLE_V1 `.md` stays digest-bound. Regenerating it with `--force-md` 
 
 Run `bash static_checks.sh` from this directory or invoke it by its full path. The CPU regression subset is `python -m pytest tests/test_exp04_record_tools.py tests/test_paired_compare.py tests/test_results_table.py -q -p no:cacheprovider` from the repository root. A restricted installation may need `NUMBA_CACHE_DIR=/tmp/xrir_round8_numba`.
 
-Produce diagnostics with `python tools/exp04_descriptive.py --profile {GRID_SEED42,EPOCH9_K8} --runs DIR [DIR ...] --json PATH --summary PATH`. Approve `closures.producer_descriptive` and (for epoch 9) `checkpoints.aug_epoch9` first; both start null. GRID uses seed 42, 18 spectral and 10 acoustic angles; EPOCH9 uses five seeds at k = 0. Both are P-only descriptions with query bootstrap intervals and no verdict.
+Produce diagnostics with `python tools/exp04_descriptive.py --profile {GRID_SEED42,EPOCH9_K8} --runs DIR [DIR ...] --json PATH --summary PATH`. Fill `closures.producer_descriptive` and `checkpoints.aug_epoch9` with all other pins in the same approval commit; both start null. GRID uses seed 42, 18 spectral and 10 acoustic angles; EPOCH9 uses five seeds at k = 0. Both are P-only descriptions with query bootstrap intervals and no verdict.
+
+The pinned exp_03 acceptance test is byte-identical to `165fa36`; the suite skips it externally when fewer than two GPUs are visible because its live environment must match the two-GPU record. Its expected rc 2 / `ACCEPTANCE INCOMPLETE` remains deferred to that host. Binding HEAD ancestry is checked, but detecting a forged descendant HEAD in an edited report still requires an independent trusted report anchor.
