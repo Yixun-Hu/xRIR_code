@@ -263,3 +263,57 @@ def test_param_counts_must_be_native_integers():
     assert deviations and all('param_counts' in d for d in deviations)
     args['param_counts'] = {key: True for key in args['param_counts']}
     assert any('param_counts' in d for d in check_derived(args, 'cylindrical_oriented'))
+
+
+OPERATIONAL_CASES = [
+    ({'epoch_ckpt_every': 2}, 'epoch_ckpt_every'),      # the four Codex full_train reproductions
+    ({'epoch_ckpt_every': True}, 'epoch_ckpt_every'),
+    ({'save_every': None}, 'save_every'),
+    ({'num_workers': 'twelve'}, 'num_workers'),
+    ({'epoch_ckpt_every': 1.0}, 'epoch_ckpt_every'),
+    ({'epoch_ckpt_every': 0}, 'epoch_ckpt_every'),
+    ({'save_every': -1}, 'save_every'),
+    ({'save_every': True}, 'save_every'),
+    ({'num_workers': -1}, 'num_workers'),
+    ({'log_interval': 0}, 'log_interval'),
+    ({'log_interval': True}, 'log_interval'),
+    ({'backbone': 'invented'}, 'backbone'),
+    ({'save_dir': 3}, 'save_dir'),
+    ({'save_dir': ''}, 'save_dir'),
+    ({'env': ['PYTHONHASHSEED=0']}, 'env'),
+    ({'env': {'PYTHONHASHSEED': 0}}, 'env'),
+    ({'env': {'OMP_NUM_THREADS': True}}, 'env'),
+]
+
+
+@pytest.mark.parametrize('overrides,named', OPERATIONAL_CASES)
+def test_operational_values_are_type_strict_and_bounded(overrides, named):
+    """Finding 4: agreement between the three argument copies never validates a value."""
+    from tools.exp06_recipe import check_operational
+    deviations = check_operational(full_args(**overrides))
+    assert deviations and all(named in deviation for deviation in deviations)
+    assert any(named in deviation for deviation in
+               check_all(full_args(**overrides), history_rows=history(), last_meta=LAST))
+
+
+def test_the_registered_operational_arguments_pass():
+    from tools.exp06_recipe import check_operational
+    assert check_operational(full_args()) == []
+    assert check_operational(full_args(env={'CUDA_VISIBLE_DEVICES': None})) == []
+    assert check_operational(full_args(save_every=0, num_workers=0)) == []
+
+
+@pytest.mark.parametrize('field', ['backbone', 'save_dir', 'num_workers', 'log_interval',
+                                   'save_every', 'epoch_ckpt_every', 'env'])
+def test_a_missing_operational_field_is_named_by_the_value_check_too(field):
+    from tools.exp06_recipe import check_operational
+    partial = {key: value for key, value in full_args().items() if key != field}
+    assert any(field in deviation for deviation in check_operational(partial))
+
+
+def test_historical_runs_keep_the_narrower_operational_path():
+    """exp_01 wrote epoch_ckpt_every 5 and no env; the historical path must still admit it."""
+    historical = full_args(epoch_ckpt_every=5, num_workers=16, log_interval=20)
+    assert any('epoch_ckpt_every' in deviation for deviation in check_all(historical))
+    assert not any('epoch_ckpt_every' in deviation
+                   for deviation in check_all(historical, historical=True))
