@@ -486,11 +486,36 @@ REAL_LEGACY = Path(__file__).resolve().parents[1] / 'ckpt/sim2real'
 CANONICAL_STATS = REAL_LEGACY / 'stats.json'
 
 
+def synthetic_arm(arm, offset, invalid=(), invalid_job='seed1'):
+    """An admitted arm's shape without admission: what the statistics of 7 actually read.
+
+    Admission is exercised against real finalised children (below); the tables are
+    exercised against these dicts, so a table test never has to forge provenance.
+    """
+    cfg = subject.ARMS[arm]
+    per = {}
+    for job in subject.JOBS:
+        number = int(job[len('seed'):]) if job in subject.SEEDS else 5
+        rooms = {}
+        for room in ROOMS:
+            item = per_sample(room, cfg['backbone'], 'best.pth', offset + 0.01 * number,
+                              invalid if job == invalid_job else ())
+            item['meta'].update(frame=cfg['frame'], room=room,
+                                heading=HEADING if cfg['frame'] == 'heading' else None)
+            item['side_label'] = [1 if index % 2 else -1 for index in item['index']]
+            rooms[room] = item
+        per[job] = rooms
+    return {'arm': arm, 'branch': 'new', 'per': per, 'jobs': {}, 'inputs': {},
+            'root': 'ckpt/exp06/sim2real/' + arm,
+            'closure': {'haa_train': TRAIN_CLOSURE, 'haa_eval': EVAL_CLOSURE},
+            'heading': {room: HEADING[room]['sha256'] for room in ROOMS}}
+
+
 @pytest.fixture
-def arms(legacy_root, new_root):
+def arms(legacy_root):
     data, _ = subject.load_legacy(legacy_root)
     for arm in subject.NEW_ARMS:
-        data[arm] = subject.load_new_arm(new_root, arm)
+        data[arm] = synthetic_arm(arm, NEW_OFFSETS[arm])
     return data
 
 
@@ -508,18 +533,11 @@ def test_the_pairing_assertions_are_exp02s(arms):
             subject.assert_pairing(broken, b, 'broken')
 
 
-def test_the_cohort_is_the_queries_finite_in_every_compared_run(tmp_path, monkeypatch):
-    build_cache(tmp_path / 'HAA_xrir')
-    monkeypatch.setattr(legacy, 'HAA_ROOT', str(tmp_path / 'HAA_xrir'))
-    build_legacy_root(tmp_path / 'sim2real')
-    root = tmp_path / 'new'
+def test_the_cohort_is_the_queries_finite_in_every_compared_run(legacy_root):
+    data, _ = subject.load_legacy(legacy_root)
     for arm in subject.NEW_ARMS:
-        for job in subject.JOBS:
-            invalid = (0, 1) if (arm == 'cyl_or' and job == 'seed1') else ()
-            new_job(root / arm, job, arm, 0.02, invalid=invalid)
-    data, _ = subject.load_legacy(tmp_path / 'sim2real')
-    for arm in subject.NEW_ARMS:
-        data[arm] = subject.load_new_arm(root, arm)
+        data[arm] = synthetic_arm(arm, NEW_OFFSETS[arm],
+                                  invalid=(0, 1) if arm == 'cyl_or' else ())
     rows = subject.cell_rows(data, 'cyl_or', 'control', 'hallway', 'c50')
     assert rows['n_test'] == SIZE['hallway'] and rows['cohort'] == SIZE['hallway'] - 2
     assert rows['excluded']['cyl_or']['queries'] == 2
@@ -684,10 +702,9 @@ def test_the_analysis_binds_its_inputs_and_suppresses_draft_verdicts(arms, tmp_p
     assert result['margin_db'] == 0.23 and result['n_boot'] == 200
     assert len(result['H2']) == 11 and len(result['D']) == 33
     assert result['bootstrap_seeds'] == [0, 1] and result['heading_k'] == 128
-    assert all(path.endswith('completion.json') for path in result['inputs'])
-    assert len(result['inputs']) == 3 * 4 * (1 + 9) - 3 * 5  # three arms, four jobs
     assert result['rows']['control|fine-tuned|hallway|c50']['std'] is not None
-    assert result['arms']['cyl_or']['closure'] == CLOSURE
+    assert result['arms']['cyl_or']['closure'] == {'haa_train': TRAIN_CLOSURE,
+                                                   'haa_eval': EVAL_CLOSURE}
 
 
 def test_the_outputs_are_written_once_and_the_json_binds_the_summary(arms, tmp_path):
