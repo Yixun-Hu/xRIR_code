@@ -1,0 +1,14 @@
+Reading additional input from stdin...
+OpenAI Codex v0.154.0
+--------
+workdir: /home/yixunhu/codespace/xRIR_code
+model: gpt-6-astra
+provider: openai
+approval: on-request
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 01a0a55d-4431-73b2-9828-3992346b1a1f
+--------
+user
+You are the plan Reviewer (OpenAI Codex, read-only) for experiment exp_07 "seen_protocol" in /home/yixunhu/codespace/xRIR_code. Read worklog/experiment_SOP.md, CLAUDE.md, the plan worklog/worklog_yixun/exp_07_seen_protocol_claude/plan_seen_protocol.md, its query file, and for context: exp_04's plan (worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/plan_yaw_aug_xrir.md, esp. §2–§4, §11 amendments A1–A10) and analysis, exp_05's plan (§10a amendments), the dataset modules treble_multi_room_dataset/treble_xRIR_dataset.py and treble_xRIR_seen_dataset.py (pinned by exp_03; never edited), tools/exp04_launcher.py, tools/exp04_eval_launch.py, tools/exp04_eval.py, tools/results_table.py, tools/paired_compare.py, tools/exp04_profiles.py. Review the plan for: (1) correctness of the seen-protocol description against the dataset code (training set = all files minus the seen-test list; sizes 296 454 / 6 217; the 5 124 / 1 093 overlap statement); (2) whether the single-delta contract (protocol only) is sound and how the yaw-aug counter change (9 265 vs 9 261 micro-batches) should be recorded; (3) whether the evaluation tooling can be reused unchanged for the seen split (manifest building with the seen dataset — check `tools/reference_manifest.build_manifest`'s assumptions about the dataset object and file paths; `ManifestDataset`; data identity; the profile/approval design) and what must be new; (4) the estimand/reporting (five seeds, descriptive pairs, the released checkpoint's reference row — is comparing it to our seen-protocol runs meaningful? state the caveats); (5) budget and the two GPU orderings; (6) anything the plan omits that the SOP requires (pre-registration where claims are made, provenance, acceptance criteria, deliverables). Output: numbered findings with severity (blocker / should-fix / nit), a verdict "approve" / "approve with changes" / "request changes", and the exact list of changes required before approval. Do not modify any file.
