@@ -335,6 +335,21 @@ def _heading_rolls(heading, label):
 
 
 PROTOCOL = dict(legacy.PROTOCOL)      # K = 8, eval_seed 0, the DiffRIR test split
+# Finding 3: plan 6.2's registered recipe. The finalizer checks that a history completes
+# the budget the run *declared*; only this table says what the experiment requires, so a
+# shortened training or an S1 seeded-phase evaluation cannot enter the primary
+# comparison against exp_02's historical arms. They are admissible only under
+# ``--sensitivity``, which labels every output it produces.
+S1_ROOMS = ('class_room', 'complex_room', 'hallway')   # dampened excluded, as in exp_02
+STAGES = {'stage1': {'epochs': 1000, 'val_every': 10},
+          'stage2': {'epochs': 200, 'val_every': 2}}
+TRAIN_RECIPE = {'lr': 1e-4, 'weight_decay': 1e-4, 'decay_epochs': 50, 'lr_gamma': 0.1,
+                'batch_size': 0, 'accum_steps': 1, 'tf32': True, 'max_len': 9600,
+                'depth_variant': 'default', 'num_shot': 8, 'eval_seed': 0}
+# The primary phase policy is unseeded Griffin-Lim, exactly as exp_02 evaluated.
+EVAL_RECIPE = {'split': 'test', 'num_shot': 8, 'eval_seed': 0, 'max_len': 9600,
+               'depth_variant': 'default', 'max_samples': 0, 'gl_seed_per_query': False,
+               'tag': ''}
 # Finding 1: the finalizer records the executed entry point's closure, and the two entry
 # points are different modules with different closures. Consistency is per role, and the
 # approved identity each role must match is its own.
@@ -397,6 +412,39 @@ def child_protocol(args, name, role):
                      name, field, args.get(field), PROTOCOL[field]))
 
 
+def child_recipe(args, name, role):
+    """Plan 6.2's recipe, read from the arguments the child really ran.
+
+    Returns the deviations rather than raising: a confirmatory admission refuses them
+    all, and a ``--sensitivity`` analysis reports them beside the numbers they produced.
+    """
+    deviations = []
+
+    def check(field, expected):
+        if not finalizer.exp06_recipe.strict_equal(args.get(field), expected):
+            deviations.append('child {} records {} {!r}, not the registered {!r}'.format(
+                name, field, args.get(field), expected))
+
+    if role == 'haa_train':
+        stage = 'stage1' if name == 'stage1' else 'stage2'
+        for field, value in sorted(dict(TRAIN_RECIPE, **STAGES[stage]).items()):
+            check(field, value)
+        rooms = sorted(args.get('rooms') or [])
+        expected = (sorted(S1_ROOMS) if stage == 'stage1'
+                    else [name[len('stage2_'):]])
+        if rooms != expected:
+            deviations.append('child {} trains on the rooms {}, not the registered '
+                              '{}'.format(name, rooms, expected))
+        return deviations
+    for field, value in sorted(EVAL_RECIPE.items()):
+        check(field, value)
+    room = name.rsplit('/', 1)[-1]
+    if args.get('rooms') != [room]:
+        deviations.append('child {} evaluates the rooms {!r}, not the registered '
+                          '[{!r}]'.format(name, args.get('rooms'), room))
+    return deviations
+
+
 def check_test_indices(name, room, index):
     """Exactly the DiffRIR test split of the room, in the order exp_02 registered."""
     expected = legacy._test_indices(room)
@@ -432,7 +480,7 @@ def child_per_sample(job_dir, name, record, arm):
     return per
 
 
-def verify_job(job_dir, job, arm, repo=REPO):
+def verify_job(job_dir, job, arm, repo=REPO, sensitivity=False):
     """Finding 2: the finalizer's own verifiers, re-run over every child of one job.
 
     Nothing here is taken from the completion: the job specification it bound is re-read
@@ -445,6 +493,7 @@ def verify_job(job_dir, job, arm, repo=REPO):
     job_dir, expect = Path(job_dir), EXPECT_OF[job]
     record = job_completion(job_dir, expect, arm)
     owner = job_owner(job_dir, record)
+    recipe = []
     spec_path = Path(record['job_spec']['path'])
     _require(spec_path.is_file(), 'missing job spec {}'.format(spec_path))
     _require(provenance.sha256_file(spec_path) == record['job_spec']['sha256'],
@@ -464,6 +513,7 @@ def verify_job(job_dir, job, arm, repo=REPO):
                  'child {} is not an admissible arm'.format(name))
         args = _read_json(path / 'args.json', name + '/args.json')
         child_protocol(args, name, role)
+        recipe.extend(child_recipe(args, name, role))
         if role == 'haa_eval':
             per = child_per_sample(job_dir, name, bound, arm)
             check_test_indices(name, evidence['room'], per['index'])
@@ -480,20 +530,26 @@ def verify_job(job_dir, job, arm, repo=REPO):
                      job_dir, field, record.get(field), lineage[field]))
     _require(set(rooms) == set(ROOMS),
              'the job {} evaluated {}'.format(job_dir, sorted(rooms)))
+    _require(sensitivity or not recipe,
+             'job {} did not run the registered recipe of plan 6.2: {}'.format(
+                 job_dir, '; '.join(recipe)))
     return {'record': record, 'spec': spec, 'children': children, 'per': rooms,
             'owner': owner, 'closure': arm_closures(children),
-            'heading': arm_headings(children)}
+            'heading': arm_headings(children), 'recipe_deviations': recipe}
 
 
-def load_new_arm(root, arm, init_sha256=None, repo=REPO, approved=None):
+def load_new_arm(root, arm, init_sha256=None, repo=REPO, approved=None,
+                 sensitivity=False):
     """One exp_06 arm: four verified jobs, one closure per role, one heading per room."""
     base = Path(root) / Path(ARMS[arm]['root']).name
     _require(base.is_dir(), 'missing arm directory {}'.format(base))
-    jobs, records, children, inputs = {}, {}, {}, {}
+    jobs, records, children, inputs, recipe = {}, {}, {}, {}, []
     for job in JOBS:
         job_dir = base / job
         _require(job_dir.is_dir(), 'the arm {} has no job {}'.format(arm, job))
-        verified = verify_job(job_dir, job, arm, repo)
+        verified = verify_job(job_dir, job, arm, repo, sensitivity)
+        recipe.extend('{} {}: {}'.format(arm, job, item)
+                      for item in verified['recipe_deviations'])
         record = verified['record']
         _require(init_sha256 is None or record['init_sha256'] == init_sha256,
                  'the arm {} job {} did not start from the registered initialisation '
@@ -511,7 +567,8 @@ def load_new_arm(root, arm, init_sha256=None, repo=REPO, approved=None):
     closures, headings = arm_closures(children), arm_headings(children)
     check_arm_identities(arm, closures, headings, approved)
     return {'arm': arm, 'branch': 'new', 'per': jobs, 'closure': closures, 'jobs': records,
-            'heading': headings, 'root': str(base), 'inputs': inputs}
+            'heading': headings, 'root': str(base), 'inputs': inputs,
+            'recipe_deviations': recipe}
 
 
 # --- pairing, the finite cohort and the invalidity policy of section 7 -------------------
@@ -846,10 +903,12 @@ def approvals(exploratory, path=None, producer='summarize_haa', commit=None, rep
 
 def analyse(arms, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, cache_root=None,
             exploratory=False, receipt=None, receipt_path=None, approved=None,
-            deviations=(), approvals_receipt=None, producer=None, extra_inputs=()):
+            deviations=(), approvals_receipt=None, producer=None, extra_inputs=(),
+            sensitivity=False):
     """Every displayed number, and the evidence each rests on."""
     cache_inputs = {}
     result = {'schema_version': 1, 'exploratory': bool(exploratory),
+              'mode': 'sensitivity' if sensitivity else 'primary',
               'deviations': list(deviations), 'arms': {name: {
                   'branch': arms[name]['branch'], 'root': arms[name]['root'],
                   'closure': arms[name]['closure'], 'backbone': ARMS[name]['backbone'],
@@ -872,6 +931,9 @@ def analyse(arms, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, cache_root=Non
     if exploratory:
         for name in ('H1', 'H1b'):
             result[name]['verdict'] = 'suppressed (draft)'
+    if sensitivity:      # finding 3: a relaxed admission never reads as the primary one
+        for name in ('H1', 'H1b'):
+            result[name]['verdict'] = 'sensitivity: ' + result[name]['verdict']
     return result
 
 
@@ -904,8 +966,11 @@ def _bounds(interval):
 def render(result):
     """The printed summary: exp_02's arm table, then the paired tables and the verdicts."""
     lines = []
+    if result.get('mode') == 'sensitivity':
+        lines.append('SENSITIVITY - relaxed admission; not the primary comparison of 6.2')
     if result['exploratory']:
         lines.append('DRAFT - exploratory run; verdicts are suppressed')
+    if result['exploratory'] or result.get('mode') == 'sensitivity':
         lines.extend('Deviation: ' + item for item in result['deviations'])
     lines.append('{:22s}'.format('model') + ''.join('| {:39s}'.format(r) for r in ROOMS))
     lines.append('{:22s}'.format('') + ''.join(
@@ -1006,6 +1071,8 @@ def build_parser():
     parser.add_argument('--n-boot', type=int, default=N_BOOT)
     parser.add_argument('--n-boot-adjusted', type=int, default=N_BOOT_ADJUSTED)
     parser.add_argument('--exploratory', action='store_true')
+    parser.add_argument('--sensitivity', action='store_true',
+                        help='admit runs outside 6.2 recipe and label every output')
     return parser
 
 
@@ -1034,10 +1101,11 @@ def main(argv=None):
     inits = {} if args.exploratory else expected_inits(approved)
     for arm in NEW_ARMS:
         arms[arm] = load_new_arm(args.new_root, arm, inits.get(arm), REPO,
-                                 None if args.exploratory else approved)
+                                 None if args.exploratory else approved, args.sensitivity)
+        deviations = deviations + list(arms[arm].get('recipe_deviations') or ())
     result = analyse(arms, args.n_boot, args.n_boot_adjusted, args.cache_root,
                      args.exploratory, receipt, args.legacy_receipt, approved, deviations,
-                     approvals_receipt, identity, extra)
+                     approvals_receipt, identity, extra, args.sensitivity)
     record, digest, text = write_outputs(result, args.json, args.summary)
     print(text)
     print(json.dumps({'json': args.json, 'sha256': digest,

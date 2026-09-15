@@ -292,7 +292,7 @@ def test_a_real_job_is_verified_through_the_finalizers_own_validators(real_job, 
     """Findings 1-2: every child re-verified, two real closures, one heading per room."""
     root, repo = real_job
     monkeypatch.setattr(legacy, 'HAA_ROOT', cache['root'])
-    job = subject.verify_job(root, 'seed0', 'cyl_or', repo=repo)
+    job = subject.verify_job(root, 'seed0', 'cyl_or', repo=repo, sensitivity=True)
     assert set(job['children']) == set(subject.finalizer.expected_children('finetune'))
     assert sorted(job['closure']) == ['haa_eval', 'haa_train']
     assert job['closure']['haa_train'] != job['closure']['haa_eval']
@@ -314,7 +314,7 @@ def test_a_job_whose_bound_evidence_changed_is_refused(real_job, cache, monkeypa
     target.write_bytes(original + b' ')
     try:
         with pytest.raises(ValueError, match='is not the (bytes|completion) '):
-            subject.verify_job(root, 'seed0', 'cyl_or', repo=repo)
+            subject.verify_job(root, 'seed0', 'cyl_or', repo=repo, sensitivity=True)
     finally:
         target.write_bytes(original)
 
@@ -829,20 +829,20 @@ def test_the_job_owner_is_bound_to_the_root_launch_pid(real_job, cache, monkeypa
     monkeypatch.setattr(legacy, 'HAA_ROOT', cache['root'])
     marker = Path(root) / 'launch.pid'
     recorded = json.loads((Path(root) / 'completion.json').read_text())['owner_pid']
-    job = subject.verify_job(root, 'seed0', 'cyl_or', repo=repo)
+    job = subject.verify_job(root, 'seed0', 'cyl_or', repo=repo, sensitivity=True)
     assert job['owner'] == {'path': str(marker.resolve()), 'pid': recorded,
                             'sha256': sha(marker)}
     original = marker.read_text()
     try:
         marker.unlink()
         with pytest.raises(ValueError, match='no launch.pid'):
-            subject.verify_job(root, 'seed0', 'cyl_or', repo=repo)
+            subject.verify_job(root, 'seed0', 'cyl_or', repo=repo, sensitivity=True)
         marker.write_text(str(recorded + 1) + '\n')
         with pytest.raises(ValueError, match='not the owner_pid'):
-            subject.verify_job(root, 'seed0', 'cyl_or', repo=repo)
+            subject.verify_job(root, 'seed0', 'cyl_or', repo=repo, sensitivity=True)
         marker.write_text('not a pid\n')
         with pytest.raises(ValueError, match='unreadable launch.pid'):
-            subject.verify_job(root, 'seed0', 'cyl_or', repo=repo)
+            subject.verify_job(root, 'seed0', 'cyl_or', repo=repo, sensitivity=True)
     finally:
         marker.write_text(original)
 
@@ -902,9 +902,9 @@ def test_a_shortened_training_never_enters_the_primary_comparison(real_job, cach
     """The diagnostic nine-child fixture trains four epochs: not section 6.2's budget."""
     root, repo = real_job
     monkeypatch.setattr(legacy, 'HAA_ROOT', cache['root'])
-    with pytest.raises(ValueError, match='not the registered'):
-        subject.verify_job(root, 'seed0', 'cyl_or', repo=repo, sensitivity=False)
-    job = subject.verify_job(root, 'seed0', 'cyl_or', repo=repo)
+    with pytest.raises(ValueError, match='the registered recipe of plan 6.2'):
+        subject.verify_job(root, 'seed0', 'cyl_or', repo=repo)
+    job = subject.verify_job(root, 'seed0', 'cyl_or', repo=repo, sensitivity=True)
     assert any('epochs' in item for item in job['recipe_deviations'])
 
 
