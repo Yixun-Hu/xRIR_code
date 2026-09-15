@@ -368,7 +368,8 @@ def haa_provenance(repo, run_type, args, data_root):
     return dict(repo=str(repo), reviewed_commit=state['HEAD'], run_type=run_type,
                 source_closures={'child': {'entry_module': entry, 'files': files,
                                            'sha256': digest}},
-                registry_sha256='a' * 64, git_state=state, environment={'python': '3.8.0'},
+                registry_sha256=exp06_finalize.registry_sha256(), git_state=state,
+                environment={'python': '3.8.0'},
                 command=['--backbone', args['backbone']], effective_args=args,
                 data_identity=inventory_of(data_root))
 
@@ -1619,3 +1620,52 @@ def test_the_job_owner_may_finalize_once_every_child_is_dead(job_run, closed_log
                                      children=children, expect='finetune', job_spec=spec,
                                      owner_pid=os.getpid())
     assert fields['admissible_arm'] is True
+
+
+@pytest.mark.parametrize('damage,cause', [
+    ('receipt_redirected', 'child_exit_receipt'), ('receipt_pid', 'child_exit_receipt'),
+    ('exit_time', 'child_exit_time'), ('closure_digest', 'source_closure_sha256'),
+    ('closure_absent', 'source_closure_sha256')])
+def test_a_child_completion_must_bind_what_the_job_validated(job_run, closed_log_file,
+                                                             damage, cause):
+    """Finding 2: the receipt hashed must be the receipt validated, field for field."""
+    def mutate(job, names):
+        record = json.loads((job / 'stage1/completion.json').read_text())
+        if damage == 'receipt_redirected':  # a correct hash of the wrong file
+            record['child_exit_receipt'] = dict(
+                record['child_exit_receipt'], path=str(job / 'stage1/args.json'),
+                sha256=provenance.sha256_file(job / 'stage1/args.json'))
+            receipt = json.loads((job / 'stage1/child_exit.json').read_text())
+            receipt['child_pid'] += 1
+            (job / 'stage1/child_exit.json').write_text(json.dumps(receipt, sort_keys=True))
+        elif damage == 'receipt_pid':
+            record['child_exit_receipt']['child_pid'] += 1
+        elif damage == 'exit_time':
+            record['child_exit_time'] = 'never'
+        elif damage == 'closure_digest':
+            record['source_closure_sha256'] = 'e' * 64
+        else:
+            record.pop('source_closure_sha256')
+        (job / 'stage1/completion.json').write_text(json.dumps(record, sort_keys=True, indent=2))
+        return names
+
+    job, children, spec, repo = job_run(mutate=mutate)
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                children=children, expect='finetune', job_spec=spec)
+    assert not (job / 'completion.json').exists()
+
+
+def test_haa_children_bind_the_registry_and_head_they_ran_under(haa_eval_run, haa_repo):
+    """Finding 2: the child evidence a job compares includes its execution identity."""
+    run, log, args, checkpoint = haa_eval_run
+    fields = exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)
+    record = json.loads((run / 'provenance.json').read_text())
+    assert fields['registry_sha256'] == exp06_finalize.registry_sha256()
+    assert fields['git_head'] == record['git_state']['HEAD']
+    record['registry_sha256'] = 'a' * 64
+    (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    (run / 'completion.json').unlink()
+    with pytest.raises(ValueError, match='registry_sha256'):
+        exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)
+    assert not (run / 'completion.json').exists()
