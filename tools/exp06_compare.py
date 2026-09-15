@@ -384,6 +384,11 @@ def check_exp05_tier(fields, run, completion, digest, spec, require, bind):
     file, its digest in both declarations, the registered tier configuration and the
     registered parameter counts of the arm those weights are -- and the same block must
     appear, unchanged, in the manifest, the completion and both outputs.
+
+    Close review 2, finding 5: the file is read **once**. The record parsed and the digest
+    published both come from that one buffer, which is then reconciled with any binding
+    the run already carries and with both declarations, so the tier interpretation always
+    describes the bytes its hash identifies.
     """
     from tools import exp05_params
     require(isinstance(spec, dict), 'this role has no registered exp_05 tier arm')
@@ -393,15 +398,18 @@ def check_exp05_tier(fields, run, completion, digest, spec, require, bind):
             'tier is not the registered {}'.format((spec or {}).get('tier')))
     path = Path(fields['checkpoint']).resolve().parent / 'args.json'
     require(path.is_file(), 'the exp_05 checkpoint has no adjacent args.json: ' + str(path))
-    actual = bind(path)
-    require(fields.get('args_json_sha256') == actual,
+    raw = path.read_bytes()
+    parsed = hashlib.sha256(raw).hexdigest()
+    actual = bind(path, parsed)      # a binding this run already made must be these bytes
+    require(actual == parsed, 'the checkpoint args.json changed while it was read')
+    require(fields.get('args_json_sha256') == parsed,
             'args_json_sha256 is not the digest of the checkpoint args.json')
     binding = (fields.get('mutable_inputs') or {}).get('train_args') or {}
     declared = Path(fields['repo']) / str(binding.get('path', ''))
     require(declared.resolve() == path, 'train_args binds {}, which is not the checkpoint '
             'args.json {}'.format(binding.get('path'), path))
-    require(binding.get('sha256') == actual, 'the train_args digest is not the args.json')
-    recorded = json.loads(path.read_text())
+    require(binding.get('sha256') == parsed, 'the train_args digest is not the args.json')
+    recorded = json.loads(raw)
     require(isinstance(recorded, dict), 'the checkpoint args.json is not a record')
     config = {'vit_' + key: value for key, value in exp05_params.TIERS['M'].items()}
     legacy = not any(key in recorded for key in config) and 'tier' not in recorded
@@ -428,7 +436,7 @@ def check_exp05_tier(fields, run, completion, digest, spec, require, bind):
         require(_equal(completion.get(key), fields.get(key)), 'completion ' + key)
     return {'tier': (spec or {}).get('tier'), 'legacy_M': legacy, 'param_counts': counts,
             'arm': (spec or {}).get('role'),
-            'args_json': {'path': str(path), 'sha256': actual}}
+            'args_json': {'path': str(path), 'sha256': parsed}}
 
 
 def admit_runs(groups, approved, exploratory=False, split=SPLIT, roles=ROLES):
