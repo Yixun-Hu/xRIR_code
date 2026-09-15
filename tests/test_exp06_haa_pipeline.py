@@ -286,7 +286,7 @@ from sim_to_real.haa_dataset import NO_T60_ROOMS
 from tools import exp06_finalize
 from tools import exp06_haa_eval as evaluator
 from tools import exp06_haa_finetune as trainer
-from test_exp06_finalize import pipeline_history, state_keys
+from test_exp06_finalize import DEAD_PID, pipeline_history, state_keys
 from test_exp06_haa import MAX_LEN, cache  # noqa: F401  (session fixture)
 
 PRETRAIN = 'pretrain_epoch_012'
@@ -323,9 +323,15 @@ def tiny_state(tag=0.0):
 
 
 def close_child(run_dir, log, text='child output\n'):
+    """What the launcher leaves behind once its child is gone.
+
+    The receipt names the child, and the finalizer refuses one whose pid is still alive,
+    so the fixture records a pid that can never be running -- never the test process's
+    own. Only the job root's ``launch.pid`` (the launcher, still draining) may be live.
+    """
     Path(log).write_text(text)
     assert exp06_finalize.child_exit_main([
-        '--run-dir', str(run_dir), '--log', str(log), '--child-pid', str(os.getpid()),
+        '--run-dir', str(run_dir), '--log', str(log), '--child-pid', str(DEAD_PID),
         '--status', '0', '--started-at', '2026-09-15T00:00:00+00:00']) == 0
 
 
