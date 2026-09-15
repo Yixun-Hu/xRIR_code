@@ -28,6 +28,7 @@ from pathlib import Path
 import numpy as np
 
 from sim_to_real import summarize_haa as legacy
+from tools.exp04_profiles import CONTROL as EXP01_CONTROL, CYL as EXP01_CYL
 from tools import exp06_approvals_api as approvals_api
 from tools import exp06_bootstrap as bootstrap
 from tools import exp06_finalize as finalizer
@@ -64,13 +65,13 @@ ARMS = OrderedDict([
              'backbone': 'cylindrical', 'frame': 'room', 'legacy_init': 'cyl'}),
     ('cyl_or', {'label': 'C', 'branch': 'new', 'root': 'ckpt/exp06/sim2real/cyl_or',
                 'backbone': 'cylindrical_oriented', 'frame': 'heading',
-                'init_approval': 'artifacts.epoch_012.sha256'}),
+                'init_sha256': None}),      # the approved epoch_012 artifact
     ('control_hf', {'label': 'D', 'branch': 'new', 'root': 'ckpt/exp06/sim2real/control_hf',
                     'backbone': 'simple', 'frame': 'heading',
-                    'init_checkpoint': 'ckpt/xRIR_simple_8_shot/epoch_12.pth'}),
+                    'init_sha256': EXP01_CONTROL['sha256']}),
     ('cyl_hf', {'label': 'F', 'branch': 'new', 'root': 'ckpt/exp06/sim2real/cyl_hf',
                 'backbone': 'cylindrical', 'frame': 'heading',
-                'init_checkpoint': 'ckpt/xRIR_cyl_8_shot/epoch_12.pth'})])
+                'init_sha256': EXP01_CYL['sha256']})])
 LEGACY_ARMS = tuple(name for name, arm in ARMS.items() if arm['branch'] == 'legacy')
 NEW_ARMS = tuple(name for name, arm in ARMS.items() if arm['branch'] == 'new')
 LEGACY_ROOT = 'ckpt/sim2real'
@@ -294,14 +295,25 @@ def job_completion(job_dir, expect, arm):
 
 
 def _heading_rolls(heading, label):
-    """Every bound room rolls by the registered heading column."""
+    """Every bound room rolls by the registered column and names the JSON it came from."""
     _require(isinstance(heading, dict) and heading, '{} binds no heading'.format(label))
     for room in sorted(heading):
         entry = heading[room]
         _require(isinstance(entry, dict) and entry.get('k') == HEADING_K,
                  '{} rolls {} by {!r}, not the registered {}'.format(
                      label, room, (entry or {}).get('k'), HEADING_K))
+        _require(_is_sha256(entry.get('sha256')) and isinstance(entry.get('path'), str)
+                 and entry['path'], '{} records no json identity for {}: the finalizer '
+                 'binds the heading record a child read'.format(label, room))
     return {room: heading[room]['k'] for room in heading}
+
+
+def expected_inits(approved):
+    """What each new arm must have started from: exp_01's weights, or the approved epoch."""
+    inits = {arm: ARMS[arm]['init_sha256'] for arm in NEW_ARMS}
+    if approved:
+        inits['cyl_or'] = approved.get('artifacts', {}).get('epoch_012', {}).get('sha256')
+    return inits
 
 
 def child_record(job_dir, name, arm, job):
@@ -356,7 +368,7 @@ def child_per_sample(job_dir, name, record, arm):
     return per
 
 
-def load_new_arm(root, arm):
+def load_new_arm(root, arm, init_sha256=None):
     """One exp_06 arm: four complete jobs, one execution closure, every room evaluated."""
     base = Path(root) / Path(ARMS[arm]['root']).name
     _require(base.is_dir(), 'missing arm directory {}'.format(base))
@@ -366,6 +378,10 @@ def load_new_arm(root, arm):
         _require(job_dir.is_dir(), 'the arm {} has no job {}'.format(arm, job))
         expect = EXPECT_OF[job]
         job_records[job] = job_completion(job_dir, expect, arm)
+        _require(init_sha256 is None
+                 or job_records[job]['init_sha256'] == init_sha256,
+                 'the arm {} job {} did not start from the registered initialisation '
+                 '{}'.format(arm, job, init_sha256))
         rooms = {}
         for name in finalizer.expected_children(expect):
             record, role = child_record(job_dir, name, arm, job)
@@ -762,8 +778,9 @@ def main(argv=None):
     if binding is not None and binding.get('sha256') is None:
         binding = None
     arms, receipt = load_legacy(args.legacy_root, args.legacy_receipt, binding)
+    inits = {} if args.exploratory else expected_inits(approved)
     for arm in NEW_ARMS:
-        arms[arm] = load_new_arm(args.new_root, arm)
+        arms[arm] = load_new_arm(args.new_root, arm, inits.get(arm))
     result = analyse(arms, args.n_boot, args.n_boot_adjusted, args.cache_root,
                      args.exploratory, receipt, args.legacy_receipt, approved, deviations,
                      approvals_receipt)
