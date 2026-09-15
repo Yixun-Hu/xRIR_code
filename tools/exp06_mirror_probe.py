@@ -11,6 +11,8 @@ would allocate on a GPU comes from tools.exp06_probe_align.
 """
 import argparse
 import datetime
+import hashlib
+import io
 import json
 import numbers
 from pathlib import Path
@@ -22,8 +24,9 @@ import torch.nn.functional as F
 from eval_xRIR_backbone import load_model_state
 from model.xRIR_cyl_oriented import build_xrir_exp06
 from sim_to_real.haa_dataset import DEFAULT_ROOT, HAADataset
-from tools.exp06_heading import GIT_FIELDS, HeadingFrameDataset, read_heading_json
+from tools.exp06_heading import GIT_FIELDS, HeadingFrameDataset
 from tools.exp06_heading import _closure_digest as closure_digest
+from tools.exp06_heading import _validate_heading_record as validate_heading_record
 from tools.exp06_probe_align import (SAMPLE_RATE, SPEED_OF_SOUND,  # noqa: F401  (re-export)
                                      shift_and_align_device)
 from tools.provenance import (closure_record, environment, git_state, sha256_file,
@@ -340,9 +343,15 @@ def mirror_stats(model, dataset, room, query_ids, frame_k, side_of_query,
     return stats
 
 
-def _load(model_factory, backbone, num_shot, checkpoint, device):
+def _load(model_factory, backbone, num_shot, checkpoint, device, states=None):
     model = model_factory(backbone, num_shot)
-    model.load_state_dict(load_model_state(checkpoint), strict=True)
+    if states is None:
+        state = load_model_state(checkpoint)
+    elif str(checkpoint) in states:
+        state = states[str(checkpoint)]       # the very bytes build_record hashed
+    else:
+        raise ValueError('no captured bytes for checkpoint ' + str(checkpoint))
+    model.load_state_dict(state, strict=True)
     return model.to(torch.device(device)).eval()
 
 
@@ -357,7 +366,7 @@ def _single_room_positions(dataset, room):
 def legacy_reproduction(root=DEFAULT_ROOT, room=HALLWAY, device='cpu', batch=8, num_shot=8,
                         max_len=9600, cohort_size=LEGACY_COHORT_N, checkpoints=None,
                         model_factory=build_xrir_exp06, anchors=ANCHORS_LEGACY,
-                        tolerance=ANCHOR_TOLERANCE, verify_frozen_cohort=True):
+                        tolerance=ANCHOR_TOLERANCE, verify_frozen_cohort=True, states=None):
     """Re-run the 2026-09-14 diagnostic on its frozen cohort and report the deviation."""
     checkpoints = dict(LEGACY_CHECKPOINTS if checkpoints is None else checkpoints)
     dataset = HAADataset([room], 'test', root=root, num_shot=num_shot, max_len=max_len,
@@ -369,7 +378,8 @@ def legacy_reproduction(root=DEFAULT_ROOT, room=HALLWAY, device='cpu', batch=8, 
         raise ValueError('the cohort rule no longer selects the frozen 2026-09-14 microphones')
     models, deviations = {}, []
     for name in sorted(checkpoints):
-        model = _load(model_factory, BACKBONE_OF[name], num_shot, checkpoints[name], device)
+        model = _load(model_factory, BACKBONE_OF[name], num_shot, checkpoints[name],
+                      device, states)
         with torch.no_grad():
             models[name] = mirror_stats(model, dataset, room, cohort['positions'], 0, 1,
                                         device=device, batch=batch)
@@ -388,7 +398,7 @@ def legacy_reproduction(root=DEFAULT_ROOT, room=HALLWAY, device='cpu', batch=8, 
 
 def full_gate(cylor_checkpoint, heading_k, root=DEFAULT_ROOT, room=HALLWAY, device=None,
               batch=8, num_shot=8, max_len=9600, side_of_query=1, checkpoints=None,
-              model_factory=build_xrir_exp06):
+              model_factory=build_xrir_exp06, states=None):
     """Every test microphone of one side through the four arms of 6.1, and the verdict."""
     device = ('cuda' if torch.cuda.is_available() else 'cpu') if device is None else device
     checkpoints = dict(LEGACY_CHECKPOINTS if checkpoints is None else checkpoints)
@@ -409,7 +419,8 @@ def full_gate(cylor_checkpoint, heading_k, root=DEFAULT_ROOT, room=HALLWAY, devi
     stats = {}
     for name in GATE_ARMS:
         frame = FRAME_OF[name]
-        model = _load(model_factory, BACKBONE_OF[name], num_shot, paths[name], device)
+        model = _load(model_factory, BACKBONE_OF[name], num_shot, paths[name], device,
+                      states)
         with torch.no_grad():
             stats[name] = mirror_stats(model, frames[frame], room, positions,
                                        int(heading_k) if frame == 'heading' else 0,
@@ -445,15 +456,101 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
-def _verified_heading(path, room_dir):
-    """The record, re-verified against the cache it was estimated from, or a refusal."""
+def _verified_heading(captured):
+    """The record parsed from the captured bytes, admissible and still hashing the cache.
+
+    Nit 4: cache consistency is not admission. A `diagnostic` record - one whose closure
+    did not match HEAD, or whose tree was dirty outside worklog/ - never binds a run.
+    """
     try:
-        record = read_heading_json(path, room_dir=str(room_dir))
-    except (OSError, ValueError) as error:
+        record = validate_heading_record(json.loads(captured['heading_blob'].decode()))
+    except (UnicodeDecodeError, ValueError) as error:
         raise SystemExit('refusing: ' + str(error))
     if record['decision'] not in ('estimated', 'override') or type(record['k']) is not int:
         raise SystemExit('refusing: the heading record declares no usable roll')
+    if record['admissibility'] != 'confirmatory':
+        raise SystemExit('refusing: a {} heading record never binds a run'.format(
+            record['admissibility']))
+    for name, digest in sorted(record['input_sha256'].items()):
+        if captured['cache_sha256'].get(name) != digest:
+            raise SystemExit('refusing: heading input changed since estimation: ' + name)
     return record
+
+
+PROBE_CACHE_FILES = ('depth.npy', 'meta.json', 'rirs.npy', 'speaker_xyz.npy', 'xyzs.npy')
+
+
+def _read_bytes(path):
+    try:
+        return Path(path).read_bytes()
+    except OSError as error:
+        raise SystemExit('refusing: unreadable input: ' + str(error))
+
+
+def _digest(path):
+    """The file's digest, or None when it cannot be read: either way, comparable."""
+    try:
+        return sha256_file(path)
+    except OSError:
+        return None
+
+
+def state_from_blob(blob):
+    """The pinned loader, applied to the exact bytes that were hashed."""
+    return load_model_state(io.BytesIO(blob))
+
+
+def capture_inputs(args):
+    """Identify every input of G1 before one tensor is computed (round-3a finding 1).
+
+    The checkpoints and the heading record are read here and the probes are handed those
+    exact bytes, so no later rewrite can slip other weights or another roll past the
+    recorded hash. What a library opens for itself - the five HAA cache files, the
+    panorama depth.npy among them (finding 2) - is hashed instead, and revalidate_inputs
+    re-checks every one of these identities before the record is published.
+    """
+    checkpoints = {'cyl_or': args.cylor_checkpoint, 'cyl': args.cyl_checkpoint,
+                   'control': args.control_checkpoint}
+    room_dir = Path(args.haa_root) / args.room
+    blobs = {str(path): _read_bytes(path) for path in sorted(checkpoints.values())}
+    heading = _read_bytes(args.heading_json)
+    cache = {name: _digest(room_dir / name) for name in PROBE_CACHE_FILES}
+    missing = sorted(name for name, digest in cache.items() if digest is None)
+    if missing:
+        raise SystemExit('refusing: unreadable cache input: ' + ', '.join(missing))
+    return {'checkpoints': {name: str(path) for name, path in checkpoints.items()},
+            'checkpoint_sha256': {path: hashlib.sha256(blob).hexdigest()
+                                  for path, blob in blobs.items()},
+            'blobs': blobs, 'heading_path': str(args.heading_json),
+            'heading_blob': heading,
+            'heading_sha256': hashlib.sha256(heading).hexdigest(),
+            'room_dir': str(room_dir), 'cache_sha256': cache,
+            'source_closure': _source_record()}
+
+
+def revalidate_inputs(captured):
+    """Re-hash every captured identity; publication is refused if one of them moved.
+
+    The source closure is re-checked by re-hashing the files it names and re-reading the
+    git identity - exactly what `_source_record` binds, without a second hermetic import.
+    """
+    room = Path(captured['room_dir'])
+    changed = [path for path, digest in sorted(captured['checkpoint_sha256'].items())
+               if _digest(path) != digest]
+    if _digest(captured['heading_path']) != captured['heading_sha256']:
+        changed.append(captured['heading_path'])
+    changed += [str(room / name) for name, digest in sorted(captured['cache_sha256'].items())
+                if _digest(room / name) != digest]
+    source = captured['source_closure']
+    changed += [item['path'] for item in source['files']
+                if _digest(REPO / item['path']) != item['sha256']]
+    state = git_state(REPO)
+    if {key: state[key] for key in GIT_FIELDS} != source['git']:
+        changed.append('the git identity of ' + str(REPO))
+    if changed:
+        raise SystemExit('refusing: these inputs changed while the probe ran: '
+                         + ', '.join(sorted(set(changed))))
+    return captured
 
 
 def _source_record():
@@ -468,20 +565,21 @@ def _source_record():
                 git={key: state[key] for key in GIT_FIELDS}, basis='working_tree')
 
 
-def build_record(args):
-    """Run both parts of 6.1 and bind every input the verdict rests on."""
-    room_dir = Path(args.haa_root) / args.room
-    heading = _verified_heading(args.heading_json, room_dir)
-    checkpoints = {'cyl_or': args.cylor_checkpoint, 'cyl': args.cyl_checkpoint,
-                   'control': args.control_checkpoint}
+def build_record(args, captured=None):
+    """Run both parts of 6.1 between one capture of every input and its re-check."""
+    captured = capture_inputs(args) if captured is None else captured
+    heading = _verified_heading(captured)
+    states = {path: state_from_blob(blob)
+              for path, blob in sorted(captured.pop('blobs').items())}
+    checkpoints = captured['checkpoints']
     # Part 1 of 6.1 is specified on CPU, so --device steers only the full-cohort gate.
     legacy = legacy_reproduction(root=args.haa_root, room=args.room, device='cpu',
-                                 batch=args.batch, num_shot=args.num_shot,
+                                 batch=args.batch, num_shot=args.num_shot, states=states,
                                  checkpoints={'cyl': args.cyl_checkpoint,
                                               'control': args.control_checkpoint})
     gate = None if args.legacy_only else full_gate(
         args.cylor_checkpoint, heading['k'], root=args.haa_root, room=args.room,
-        device=args.device, batch=args.batch, num_shot=args.num_shot,
+        device=args.device, batch=args.batch, num_shot=args.num_shot, states=states,
         checkpoints={'cyl': args.cyl_checkpoint, 'control': args.control_checkpoint})
     if gate is None:
         decision = {'outcome': 'inconclusive', 'thresholds': dict(G1_THRESHOLDS), 'values': {},
@@ -494,22 +592,27 @@ def build_record(args):
         decision = dict(decision, outcome='inconclusive', reasons=(
             ['the legacy reproduction did not match the 2026-09-14 anchors']
             + list(legacy['deviations']) + list(decision['reasons'])))
-    return {'schema_version': 1, 'room': args.room, 'haa_root': str(args.haa_root),
+    revalidate_inputs(captured)   # no record stands on inputs that moved under it
+    return {'schema_version': 2, 'room': args.room, 'haa_root': str(args.haa_root),
             'num_shot': int(args.num_shot), 'batch': int(args.batch),
             'legacy_only': bool(args.legacy_only),
             'device': (gate or {}).get('device', 'cpu'),
-            'checkpoints': {name: {'path': str(path), 'sha256': sha256_file(path)}
+            'checkpoints': {name: {'path': path,
+                                   'sha256': captured['checkpoint_sha256'][path]}
                             for name, path in sorted(checkpoints.items())},
-            'heading': {'path': str(args.heading_json),
-                        'sha256': sha256_file(args.heading_json), 'room': heading['room'],
+            'heading': {'path': captured['heading_path'],
+                        'sha256': captured['heading_sha256'], 'room': heading['room'],
                         'k': heading['k'], 'phi_deg': heading['phi_deg'],
                         'decision': heading['decision'],
+                        'admissibility': heading['admissibility'],
                         'input_sha256': heading['input_sha256']},
+            'cache': {'room_dir': captured['room_dir'],
+                      'sha256': captured['cache_sha256']},
             'cohort': {'legacy': HALLWAY_LEGACY_COHORT,
                        'full': (gate or {}).get('cohort')},
             'anchors': ANCHORS_LEGACY, 'anchor_tolerance': ANCHOR_TOLERANCE,
             'legacy_reproduction': legacy, 'stats': (gate or {}).get('stats'),
-            'decision': decision, 'source_closure': _source_record(),
+            'decision': decision, 'source_closure': captured['source_closure'],
             'environment': environment(),
             'timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat()}
 
