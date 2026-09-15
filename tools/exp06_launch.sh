@@ -30,8 +30,53 @@ preflight() {
         --reviewed-commit "$COMMIT" --attempt-root "$ATTEMPT_ROOT"
 }
 
-finalize() {  # finalize <attempt> <log> <child-exit> <run-type>
-    run "$PYTHON" tools/exp06_finalize.py --run-dir "$1" --run-type "$4" --log "$2" --child-exit "$3"
+finalize() {  # finalize <attempt> <log> <child-exit> <run-type> [receipt]
+    if [ $# -ge 5 ]; then
+        run "$PYTHON" tools/exp06_finalize.py --run-dir "$1" --run-type "$4" --log "$2" \
+            --child-exit "$3" --receipt "$5"
+    else
+        run "$PYTHON" tools/exp06_finalize.py --run-dir "$1" --run-type "$4" --log "$2" \
+            --child-exit "$3"
+    fi
+}
+
+promote() {  # promote <attempt basename>
+    say "PROMOTE $ATTEMPT_ROOT/final -> $1"
+    if [ "${DRY:-0}" -eq 0 ]; then
+        ln -s -- "$1" "$ATTEMPT_ROOT/.final.$$"
+        mv -Tf -- "$ATTEMPT_ROOT/.final.$$" "$ATTEMPT_ROOT/final"
+    fi
+}
+
+abort() {  # abort <run dir> <log> <reason>: the SOP's _ABORTED_<reason> on both
+    say "ABORT ${1}_ABORTED_$3"
+    if [ "${DRY:-0}" -eq 0 ]; then
+        [ ! -e "$1" ] || mv -- "$1" "${1}_ABORTED_$3"
+        [ ! -e "$2" ] || mv -- "$2" "${2}_ABORTED_$3"
+    fi
+}
+
+# diagnostic <run-type> <run dir> <log> <receipt> <smoke argv...>: a smoke or probe runs
+# through the same lifecycle as the confirmatory child -- pid file, drained pipe, end
+# marker, child_exit.json -- and is finalized as a never-admissible diagnostic.
+diagnostic() {
+    local kind="$1" dir="$2" log="$3" receipt="$4"
+    shift 4
+    local cmd=("$PYTHON" tools/exp06_smoke.py "$@")
+    say "MKDIR $dir"
+    say "SINK cat >> $log"
+    say "PIDFILE $dir/launch.pid"
+    say "RUN nohup setsid ${cmd[*]}"
+    if [ "$DRY" -eq 1 ]; then
+        say "MARKER EXP06_CHILD_EXIT <code> <iso> >> $log"
+        finalize "$dir" "$log" '<code>' "$kind" "$receipt"
+        return 0
+    fi
+    mkdir -p -- "$dir" "$RECORD"
+    : > "$log"
+    run_child "$dir" "$log" "${cmd[@]}"
+    close_child "$dir" "$log"
+    finalize "$dir" "$log" "$CHILD_STATUS" "$kind" "$receipt"
 }
 
 # run_child <attempt> <log> <command...>: every byte the child or any descendant writes
@@ -111,9 +156,9 @@ full)
     say "RUN nohup setsid ${child[*]}"
     if [ "$DRY" -eq 1 ]; then
         say "MARKER EXP06_CHILD_EXIT <code> <iso> >> $log"
-        say "ABORT ${attempt}_ABORTED_<reason>"
+        abort "$attempt" "$log" '<reason>'
         finalize "$attempt" "$log" '<code>' full
-        say "PROMOTE $ATTEMPT_ROOT/final -> attempt_$STAMP"
+        promote "attempt_$STAMP"
         exit 0
     fi
     mkdir -p -- "$ATTEMPT_ROOT"
@@ -125,55 +170,60 @@ full)
     close_child "$attempt" "$log"
     status="$CHILD_STATUS"
     if [ "$status" -ne 0 ]; then
-        aborted="${attempt}_ABORTED_child_exit_$status"
-        say "ABORT $aborted"
-        mv -- "$attempt" "$aborted"
+        abort "$attempt" "$log" "child_exit_$status"
         exit "$status"
     fi
     if ! finalize "$attempt" "$log" "$status" full; then
-        aborted="${attempt}_ABORTED_finalize_refused"
-        say "ABORT $aborted"
-        mv -- "$attempt" "$aborted"
+        abort "$attempt" "$log" finalize_refused
         exit 2
     fi
-    ln -s -- "attempt_$STAMP" "$ATTEMPT_ROOT/.final.$$"
-    mv -Tf -- "$ATTEMPT_ROOT/.final.$$" "$ATTEMPT_ROOT/final"
-    say "PROMOTE $ATTEMPT_ROOT/final -> attempt_$STAMP"
+    promote "attempt_$STAMP"
     ;;
 probe)
     preflight
     # Bounded fit/timing probe (ladder rung 5): the full recipe for 200 batches, nothing saved.
     # The rung-4 ceilings (3 GB / 300 s) do not apply here -- this probe measures the real
     # 32 x 2 footprint on a card the preflight has just found empty.
-    [ "$DRY" -eq 0 ] && mkdir -p -- "$ATTEMPT_ROOT"
-    CUDA_VISIBLE_DEVICES="$GPU" PYTHONHASHSEED=0 OMP_NUM_THREADS=8 \
-    run "$PYTHON" tools/exp06_smoke.py --entry exp06_train \
-        --receipt "$ATTEMPT_ROOT/probe_$STAMP.json" --alarm-seconds 2400 --max-gb 46 -- \
+    export CUDA_VISIBLE_DEVICES="$GPU" PYTHONHASHSEED=0 OMP_NUM_THREADS=8
+    diagnostic probe "$ATTEMPT_ROOT/probe_$STAMP" "$RECORD/oriented_cyl_${STAMP}_probe.log" \
+        "$ATTEMPT_ROOT/probe_$STAMP.json" \
+        --entry exp06_train --receipt "$ATTEMPT_ROOT/probe_$STAMP.json" \
+        --alarm-seconds 2400 --max-gb 46 -- \
         --backbone cylindrical_oriented --save-dir "$ATTEMPT_ROOT/probe_$STAMP" \
         --epochs 1 --max-train-batches 200 --max-test-batches 20 --no-save --run-type probe \
         --batch-size 32 --accum-steps 2 --tf32 --num-workers 12
     ;;
 smoke)
     preflight
-    [ "$DRY" -eq 0 ] && mkdir -p -- "$SMOKE_DIR"
+    export CUDA_VISIBLE_DEVICES="$GPU" PYTHONHASHSEED=0 OMP_NUM_THREADS=8
     # Plan section 9 (a): the trainer and the exp_06 entry on the same bounded argv, TF32 off.
     for entry in trainer exp06_train; do
         name="$entry"
         [ "$entry" = exp06_train ] && name=exp06_train_t0
-        CUDA_VISIBLE_DEVICES="$GPU" PYTHONHASHSEED=0 OMP_NUM_THREADS=8 \
-        run "$PYTHON" tools/exp06_smoke.py --entry "$entry" \
-            --receipt "$SMOKE_DIR/receipt_${name}_$STAMP.json" --alarm-seconds 300 --max-gb 3 -- \
+        diagnostic smoke "$SMOKE_DIR/${name}_$STAMP" \
+            "$RECORD/oriented_cyl_${STAMP}_smoke_${name}.log" \
+            "$SMOKE_DIR/receipt_${name}_$STAMP.json" \
+            --entry "$entry" --receipt "$SMOKE_DIR/receipt_${name}_$STAMP.json" \
+            --alarm-seconds 300 --max-gb 3 -- \
             --backbone simple --save-dir "$SMOKE_DIR/t0" $SMOKE_FLAGS
     done
     # (b) the oriented backbone on the same budget.
-    CUDA_VISIBLE_DEVICES="$GPU" PYTHONHASHSEED=0 OMP_NUM_THREADS=8 \
-    run "$PYTHON" tools/exp06_smoke.py --entry exp06_train \
-        --receipt "$SMOKE_DIR/receipt_exp06_train_t1_$STAMP.json" --alarm-seconds 300 --max-gb 3 -- \
+    diagnostic smoke "$SMOKE_DIR/exp06_train_t1_$STAMP" \
+        "$RECORD/oriented_cyl_${STAMP}_smoke_exp06_train_t1.log" \
+        "$SMOKE_DIR/receipt_exp06_train_t1_$STAMP.json" \
+        --entry exp06_train --receipt "$SMOKE_DIR/receipt_exp06_train_t1_$STAMP.json" \
+        --alarm-seconds 300 --max-gb 3 -- \
         --backbone cylindrical_oriented --save-dir "$SMOKE_DIR/t1" $SMOKE_FLAGS
-    # (c) the CPU fixture the round-2b HAA smokes load.
+    # (c) the CPU fixture the round-2b HAA smokes load (no child, no log, no completion).
     run "$PYTHON" tools/exp06_smoke.py --make-fixture "$SMOKE_DIR/fixture_cylor.pth"
     ;;
 finalize)
-    finalize "$ATTEMPT" "$LOG" "$CHILD_EXIT" full
+    preflight  # recovery is gated by the same reviewed commit, clean tree and live-pid checks
+    [ "$DRY" -eq 0 ] || abort "$ATTEMPT" "$LOG" '<reason>'
+    if ! finalize "$ATTEMPT" "$LOG" "$CHILD_EXIT" full; then
+        abort "$ATTEMPT" "$LOG" '<reason>'
+        exit 2
+    fi
+    promote "$(basename -- "$ATTEMPT")"
     ;;
 esac

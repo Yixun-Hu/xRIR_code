@@ -156,7 +156,7 @@ def test_probe_dry_run_uses_the_bounded_recipe():
     lines = dry_run('probe')
     probe = [line for line in lines if 'exp06_smoke.py' in line]
     assert len(probe) == 1
-    assert probe[0] == ('RUN ' + PYTHON + ' tools/exp06_smoke.py --entry exp06_train --receipt '
+    assert probe[0] == ('RUN nohup setsid ' + PYTHON + ' tools/exp06_smoke.py --entry exp06_train --receipt '
                         + ROOT + '/probe_<UTC>.json --alarm-seconds 2400 --max-gb 46 --'
                         ' --backbone cylindrical_oriented --save-dir ' + ROOT + '/probe_<UTC>'
                         ' --epochs 1 --max-train-batches 200 --max-test-batches 20 --no-save'
@@ -250,3 +250,41 @@ def test_preflight_supports_the_recovery_mode_without_a_gpu_query(repo, fake_nvi
     assert record['mode'] == 'finalize' and record['gpu_compute_apps'] is None
     with pytest.raises(ValueError, match='reviewed commit'):
         exp06_finalize.preflight('finalize', 1, 'a' * 40, repo=root)
+
+
+def test_diagnostic_modes_run_the_same_child_lifecycle():
+    """Should-fix 5: smoke and probe get a pid file, a closed log and a completion."""
+    for mode, kind in (('smoke', 'smoke'), ('probe', 'probe')):
+        lines = dry_run(mode)
+        assert any(line.startswith('MKDIR ') for line in lines), mode
+        assert any(line.startswith('SINK cat >> ') for line in lines), mode
+        assert any(line.endswith('/launch.pid') and line.startswith('PIDFILE ') for line in lines)
+        assert any(line.startswith('MARKER EXP06_CHILD_EXIT <code> <iso> >> ') for line in lines)
+        assert all('nohup setsid' in line for line in lines
+                   if line.startswith('RUN ') and '--entry' in line), mode
+        finals = [line for line in lines if '--run-type ' + kind in line]
+        assert finals and all('--receipt ' in line for line in finals), mode
+
+
+def test_recovery_finalize_gates_promotes_and_aborts():
+    lines = dry_run('finalize', '--attempt', ATTEMPT, '--log', 'some.log', '--child-exit', '0')
+    assert ('RUN ' + PYTHON + ' tools/exp06_finalize.py preflight --mode finalize --gpu 1'
+            ' --reviewed-commit ' + COMMIT + ' --attempt-root ' + ROOT) in lines
+    assert ('RUN ' + PYTHON + ' tools/exp06_finalize.py --run-dir ' + ATTEMPT
+            + ' --run-type full --log some.log --child-exit 0') in lines
+    assert 'PROMOTE ' + ROOT + '/final -> attempt_<UTC>' in lines
+    assert 'ABORT ' + ATTEMPT + '_ABORTED_<reason>' in lines
+
+
+def test_abort_renames_the_attempt_and_its_log(tmp_path):
+    attempt = tmp_path / 'attempt_20260916T130000'
+    attempt.mkdir()
+    log = tmp_path / 'train.log'
+    log.write_text('output\n')
+    script = ('set -euo pipefail\nexport EXP06_LAUNCH_LIB=1\nsource tools/exp06_launch.sh\n'
+              'DRY=0\nabort {a} {l} child_exit_7\n'.format(a=attempt, l=log))
+    completed = subprocess.run(['bash', '-c', script], cwd=REPO, capture_output=True, text=True)
+    assert completed.returncode == 0, completed.stderr
+    assert (tmp_path / 'attempt_20260916T130000_ABORTED_child_exit_7').is_dir()
+    assert (tmp_path / 'train.log_ABORTED_child_exit_7').is_file()
+    assert not attempt.exists() and not log.exists()
