@@ -18,11 +18,18 @@ QUERIES = ['{}/{}/S00{}_R00{}_hybrid_IR.wav'.format(ROOMS[i % 3].split('_')[0], 
                                                     i % 7, i) for i in range(N)]
 
 
+SOURCES = {}          # every closure file the manifests name, with its real bytes
+DATA = {'hallway/meta.json': b'{"test": [0, 1]}', 'hallway/rirs.npy': b'rirs' * 8}
+
+
 def closure(name, tag):
-    files = [{'path': 'tools/{}.py'.format(part),
-              'reviewed_blob_sha256': hashlib.sha256((tag + part).encode()).hexdigest(),
-              'working_tree_sha256': hashlib.sha256((tag + part).encode()).hexdigest(),
-              'commits_after_reviewed': []} for part in sorted({name, 'provenance'})]
+    files = []
+    for part in ('{}.py'.format(name), '{}_support.py'.format(name)):
+        content, path = (tag + part).encode(), 'tools/' + part
+        SOURCES[path] = content
+        digest = hashlib.sha256(content).hexdigest()
+        files.append({'path': path, 'reviewed_blob_sha256': digest,
+                      'working_tree_sha256': digest, 'commits_after_reviewed': []})
     digest = hashlib.sha256(json.dumps(
         [[item['path'], item['reviewed_blob_sha256']] for item in files],
         sort_keys=True).encode()).hexdigest()
@@ -65,17 +72,50 @@ def values(seed, role, metric, bad=()):
             for i in range(N)]
 
 
+def reference_manifest(path, seed, split=SPLIT, queries=None):
+    """A real reference manifest: the entries the per-sample order must reproduce."""
+    queries = QUERIES[:split['n_queries']] if queries is None else queries
+    manifest = {'seed': seed, 'num_shot': subject.NUM_SHOT, 'ir_root': '/ir',
+                'entries': [{'index': index, 'query': query, 'refs': ['r/{}'.format(index)]}
+                            for index, query in enumerate(queries)]}
+    path.write_text(json.dumps(manifest))
+    return manifest
+
+
+def data_identity(repo, reference, manifest, digest):
+    records = [{'path': name, 'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data)}
+               for name, data in sorted(DATA.items())]
+    return {'data_root': str(Path(repo) / 'data'), 'inventory': records,
+            'inventory_files': len(records),
+            'inventory_bytes': sum(len(data) for data in DATA.values()),
+            'inventory_sha256': provenance._inventory_digest(records),
+            'manifest_path': str(reference), 'manifest_file_sha256': digest,
+            'manifest_hash': reference_hash(manifest)}
+
+
+def reference_hash(manifest):
+    from tools.reference_manifest import manifest_hash
+    return manifest_hash(manifest)
+
+
 def write_run(directory, role, seed, checkpoints, split=SPLIT, manifest_hash=None,
-              manifest=None, per_sample=None, completion=None, bad=()):
+              manifest=None, per_sample=None, completion=None, bad=(), repo=None,
+              queries=None):
     """One admissible evaluation run of arm `role`, before the caller's mutations."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     exp06 = ROLES[role]['exp06'] is not False
     checkpoint = checkpoints['C' if role == 'C' else role]
+    repo = checkpoints['repo'] if repo is None else Path(repo)
     reference = directory.parent / 'reference_manifest_seed{}.json'.format(seed)
     if not reference.exists():
-        reference.write_text(json.dumps({'seed': seed}))
+        reference_manifest(reference, seed, split, queries)
+    declared = json.loads(reference.read_text())
+    log = directory.parent / '{}_seed{}.log'.format(role, seed)
+    log.write_text('evaluation output\n')
     fields = {'schema_version': 1, 'confirmatory': True, 'allow_dirty_used': False,
+              'repo': str(repo), 'num_shot': subject.NUM_SHOT, 'mutable_inputs': {},
+              'reviewed_commit': 'a' * 40,
               'gl_seed': seed, 'manifest_seed': seed, 'batch_size': 16,
               'batch_canonical': True, 'tf32': False, 'conditions': 'P', 'yaw_cols': [0],
               'acoustic_cols': [0], 'e_acoustic_cols': [], 'split': split['split'],
@@ -86,7 +126,7 @@ def write_run(directory, role, seed, checkpoints, split=SPLIT, manifest_hash=Non
               provenance.sha256_file(checkpoint),
               'manifest_path': str(reference),
               'manifest_file_sha256': provenance.sha256_file(reference),
-              'manifest_hash': manifest_hash or ('b' * 63 + str(seed - 42)),
+              'manifest_hash': manifest_hash or reference_hash(declared),
               'evaluator_closure': copy.deepcopy(CLOSURES['eval_yaw_rotation']),
               'source_closures': {
                   'entrypoint': copy.deepcopy(CLOSURES['exp06_eval' if exp06 else 'exp04_eval']),
@@ -96,6 +136,12 @@ def write_run(directory, role, seed, checkpoints, split=SPLIT, manifest_hash=Non
         fields.update(registry_sha256='c' * 64, checkpoint_role=ROLES[role]['role'],
                       checkpoint_epoch=12, frame='room', heading=None,
                       model_class='xRIR_CylOriented')
+    fields['data_identity'] = data_identity(repo, reference, declared,
+                                            fields['manifest_file_sha256'])
+    if exp06:
+        fields['mutable_inputs'] = {
+            name: {'path': str(log), 'sha256': provenance.sha256_file(log)}
+            for name in ('train_manifest', 'train_completion')}
     fields.update(manifest or {})
     meta = {key: fields[key] for key in ('backbone', 'checkpoint', 'manifest_hash', 'gl_seed',
                                          'batch_size', 'tf32', 'manifest_seed', 'yaw_cols',
@@ -111,8 +157,12 @@ def write_run(directory, role, seed, checkpoints, split=SPLIT, manifest_hash=Non
     meta_sha = provenance.sha256_file(directory / 'eval_manifest.json')
     per['meta']['eval_manifest_sha256'] = meta_sha
     (directory / 'per_sample_yaw.json').write_text(json.dumps(per))
-    (directory / 'metrics_yaw.json').write_text(json.dumps({'meta': per['meta'], 'P': {'0': {}}}))
+    (directory / 'metrics_yaw.json').write_text(json.dumps(
+        {'meta': per['meta'], 'P': {'0': {metric: summarise(values)
+                                          for metric, values in per['P']['0'].items()}}}))
     record = {'schema_version': 1, 'child_exit_status': 0, 'eval_manifest_sha256': meta_sha,
+              'confirmatory': True, 'allow_dirty_used': False,
+              'log': {'path': str(log), 'sha256': provenance.sha256_file(log)},
               'directory_listing': sorted(n for n in subject.FILES if n != 'completion.json'),
               'outputs': {name: provenance.sha256_file(directory / name)
                           for name in subject.OUTPUTS}}
@@ -121,10 +171,22 @@ def write_run(directory, role, seed, checkpoints, split=SPLIT, manifest_hash=Non
     return directory
 
 
+def summarise(values):
+    finite = [value for value in values if value is not None]
+    return {'mean': sum(finite) / len(finite) if finite else None,
+            'n_valid': len(finite), 'n_nan': len(values) - len(finite)}
+
+
 @pytest.fixture(scope='module')
 def checkpoints(tmp_path_factory):
     base = tmp_path_factory.mktemp('ckpt')
-    paths = {}
+    for name, content in sorted(SOURCES.items()):
+        (base / name).parent.mkdir(parents=True, exist_ok=True)
+        (base / name).write_bytes(content)
+    for name, content in sorted(DATA.items()):
+        (base / 'data' / name).parent.mkdir(parents=True, exist_ok=True)
+        (base / 'data' / name).write_bytes(content)
+    paths = {'repo': base}
     for role, name in (('C', 'epoch_012.pth'), ('A', 'simple.pth'), ('B', 'cyl.pth')):
         path = base / name
         path.write_bytes(name.encode() * 8)

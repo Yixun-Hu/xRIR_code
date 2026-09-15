@@ -31,6 +31,7 @@ ENTRY_MODULE = 'tools.exp06_compare'
 REPO = Path(__file__).resolve().parents[1]
 SEEDS = (42, 43, 44, 45, 46)
 METRICS = ('EDT', 'C50')
+NUM_SHOT = 8                       # the registered K of 6.3's simulated evaluations
 MARGIN = 0.03                      # exp_04's H1 rule, inherited by section 7's H3
 SUPERIORITY_ALPHA = 0.025          # one-sided 97.5 % upper bound of rho
 COMPANION_ALPHA = 0.05
