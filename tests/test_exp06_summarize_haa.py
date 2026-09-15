@@ -260,92 +260,15 @@ def sha(path):
     return subject.provenance.sha256_file(path)
 
 
-def new_child(job_dir, name, arm, seed, offset, closure=CLOSURE, invalid=(), heading=None,
-              overrides=None):
-    """One exp_06 child, finalised through the finalizer's own writer and schema."""
-    cfg = subject.ARMS[arm]
-    heading = (HEADING if cfg['frame'] == 'heading' else None) if heading is None else heading
-    role = subject.finalizer.child_role(name)
-    path = Path(job_dir) / name
-    path.mkdir(parents=True, exist_ok=True)
-    rooms = [name.rsplit('/', 1)[-1]] if role == 'haa_eval' or name.startswith('stage2_') \
-        else list(ROOMS)
-    if name.startswith('stage2_'):
-        rooms = [name[len('stage2_'):]]
-    args = {'backbone': cfg['backbone'], 'frame': cfg['frame'], 'seed': seed, 'rooms': rooms,
-            'num_shot': 8, 'eval_seed': 0, 'heading': heading, 'haa_root': str(job_dir),
-            'init': 'ckpt/exp06/init.pth', 'split': 'test'}
-    (path / 'args.json').write_text(json.dumps(args))
-    artifacts = {'args.json': sha(path / 'args.json')}
-    if role == 'haa_eval':
-        room = rooms[0]
-        per = per_sample(room, cfg['backbone'], 'best.pth', offset, invalid)
-        per['meta'].update(frame=cfg['frame'], heading=heading, room=room)
-        per['side_label'] = [1 if i % 2 else -1 for i in per['index']]
-        (path / 'per_sample_{}.json'.format(room)).write_text(json.dumps(per))
-        (path / 'metrics_{}.json'.format(room)).write_text(
-            json.dumps(metrics_file(room, cfg['backbone'], 'best.pth', per)))
-        for item in ('per_sample_{}.json'.format(room), 'metrics_{}.json'.format(room)):
-            artifacts[item] = sha(path / item)
-        extra = {'room': room, 'checkpoint_sha256': 'd' * 64, 'samples': len(per['index']),
-                 'seed': seed}
-    else:
-        (path / 'history.jsonl').write_text('{"epoch": 1}\n')
-        artifacts['history.jsonl'] = sha(path / 'history.jsonl')
-        extra = {'rooms': rooms, 'init_sha256': 'e' * 64, 'best_epoch': 2, 'seed': seed}
-    record = dict({'schema_version': 1, 'run_type': role, 'run_dir': str(path.resolve()),
-                   'child_exit': 0, 'child_exit_time': STAMP, 'diagnostic': False,
-                   'log': {'path': str(path / 'child.log'), 'sha256': 'a' * 64},
-                   'child_exit_receipt': {'path': str(path / 'child_exit.json'),
-                                          'sha256': 'a' * 64, 'child_pid': 999999999},
-                   'admissible_arm': True, 'artifacts': artifacts,
-                   'backbone': cfg['backbone'], 'frame': cfg['frame'], 'heading': heading,
-                   'source_closure_sha256': closure}, **extra)
-    record.update(overrides or {})
-    subject.finalizer.write_completion(path / 'completion.json', record)
-    return record
-
-
-def new_job(base, job, arm, offset, closure=CLOSURE, invalid=(), job_overrides=None, **kwargs):
-    cfg = subject.ARMS[arm]
-    expect = subject.EXPECT_OF[job]
-    job_dir = Path(base) / job
-    job_dir.mkdir(parents=True, exist_ok=True)
-    seed = int(job[len('seed'):]) if job in subject.SEEDS else 0
-    children = {}
-    for name in subject.finalizer.expected_children(expect):
-        new_child(job_dir, name, arm, seed, offset, closure, invalid, **kwargs)
-        children[name] = sha(job_dir / name / 'completion.json')
-    record = {'schema_version': 1, 'run_type': 'haa_job', 'run_dir': str(job_dir.resolve()),
-              'expect': expect, 'children': children, 'job_spec_sha256': 'f' * 64,
-              'owner': {'pid': 4242, 'path': str(job_dir / 'launch.pid'), 'sha256': 'a' * 64},
-              'backbone': cfg['backbone'], 'frame': cfg['frame'],
-              'heading': HEADING if cfg['frame'] == 'heading' else None, 'seed': seed,
-              'init_sha256': 'e' * 64, 'diagnostic': False, 'admissible_arm': True}
-    record.update(job_overrides or {})
-    subject.provenance.write_completion(job_dir / 'completion.json', record)
-    return record
-
-
 NEW_OFFSETS = {'cyl_or': 0.02, 'control_hf': 0.04, 'cyl_hf': 0.06}
 
 
-def build_new_root(root, offsets=None, arms=None, mutate=None, **kwargs):
-    """`mutate` names the one job built with `kwargs`, so the job seals what it built."""
-    offsets = NEW_OFFSETS if offsets is None else offsets
-    root = Path(root)
-    for arm in (arms or subject.NEW_ARMS):
-        base = root / arm
-        for job in subject.JOBS:
-            number = int(job[len('seed'):]) if job in subject.SEEDS else 5
-            extra = kwargs if job == mutate else {}
-            new_job(base, job, arm, offsets[arm] + 0.01 * number, **extra)
-    return root
-
-
 @pytest.fixture
-def new_root(tmp_path):
-    return build_new_root(tmp_path / 'exp06_sim2real')
+def stub_new_arms(monkeypatch):
+    """The CLI's own tests: admission has its own, over children the finalizer wrote."""
+    monkeypatch.setattr(subject, 'load_new_arm',
+                        lambda root, arm, init_sha256=None, repo=subject.REPO,
+                        approved=None: synthetic_arm(arm, NEW_OFFSETS[arm]))
 
 
 def test_the_legacy_branch_admits_the_complete_historical_root(legacy_root, tmp_path):
@@ -362,50 +285,6 @@ def test_an_incomplete_historical_root_is_refused(legacy_root, tmp_path):
     (Path(legacy_root) / 'released/seed2/eval/per_sample_hallway.json').unlink()
     with pytest.raises(ValueError, match='root is incomplete'):
         subject.load_legacy(legacy_root)
-
-
-def test_a_new_arm_is_admitted_with_one_closure_and_every_room(new_root):
-    arm = subject.load_new_arm(new_root, 'cyl_or')
-    assert arm['closure'] == CLOSURE and arm['branch'] == 'new'
-    assert sorted(arm['per']) == ['seed0', 'seed1', 'seed2', 'zeroshot']
-    assert sorted(arm['per']['zeroshot']) == sorted(ROOMS)
-    assert arm['per']['seed0']['hallway']['meta']['heading']['hallway']['k'] == 128
-    assert len(arm['jobs']['seed0']['children']) == 9
-
-
-NEW_REFUSALS = {
-    'missing_seed': lambda root: (root / 'cyl_or/seed2').rename(root / 'cyl_or/_seed2'),
-    'missing_completion': lambda root: (root / 'cyl_or/seed0/completion.json').unlink(),
-    'missing_child': lambda root: (root / 'cyl_or/seed1/eval/hallway/completion.json').unlink(),
-    'job_receipt': lambda root: (root / 'cyl_or/seed0/child_exit.json').write_text('{}'),
-    'changed_child': lambda root: (
-        root / 'cyl_or/seed0/eval/hallway/per_sample_hallway.json').write_text('{}'),
-}
-
-
-@pytest.mark.parametrize('case', sorted(NEW_REFUSALS))
-def test_a_new_arm_missing_or_changed_evidence_is_refused(new_root, case):
-    NEW_REFUSALS[case](Path(new_root))
-    with pytest.raises(ValueError):
-        subject.load_new_arm(new_root, 'cyl_or')
-
-
-ARM_REFUSALS = {
-    'backbone': ({'overrides': {'backbone': 'simple'}}, 'records backbone'),
-    'frame': ({'overrides': {'frame': 'room'}}, 'records frame'),
-    'roll': ({'heading': {room: dict(HEADING[room], k=0) for room in ROOMS}}, 'rolls '),
-    'closure': ({'closure': 'a' * 64}, 'do not share one execution closure'),
-    'heading_identity': ({'heading': {room: {'k': subject.HEADING_K} for room in ROOMS}},
-                         'records no json identity'),
-}
-
-
-@pytest.mark.parametrize('case', sorted(ARM_REFUSALS))
-def test_a_child_outside_the_arm_table_is_refused(tmp_path, case):
-    kwargs, message = ARM_REFUSALS[case]
-    root = build_new_root(tmp_path / case, arms=('cyl_or',), mutate='seed1', **kwargs)
-    with pytest.raises(ValueError, match=message):
-        subject.load_new_arm(root, 'cyl_or')
 
 
 # --- the arm's execution identities and the frozen protocol -------------------------------
@@ -719,14 +598,14 @@ def test_the_outputs_are_written_once_and_the_json_binds_the_summary(arms, tmp_p
         subject.write_outputs(result, out, summary)
 
 
-def test_the_cli_writes_a_draft_and_the_legacy_receipt(legacy_root, new_root, tmp_path,
-                                                       monkeypatch):
+def test_the_cli_writes_a_draft_and_the_legacy_receipt(legacy_root, stub_new_arms,
+                                                       tmp_path, monkeypatch):
     receipt = tmp_path / 'legacy_receipt.json'
     assert subject.main(['--legacy-root', str(legacy_root), '--exploratory',
                          '--write-legacy-receipt', str(receipt)]) == 0
     assert json.loads(receipt.read_text())['label'] == 'reconstructed'
     out, summary = tmp_path / 'stats.json', tmp_path / 'summary.txt'
-    assert subject.main(['--legacy-root', str(legacy_root), '--new-root', str(new_root),
+    assert subject.main(['--legacy-root', str(legacy_root), '--new-root', 'unused',
                          '--legacy-receipt', str(receipt), '--json', str(out),
                          '--summary', str(summary), '--n-boot', '200',
                          '--n-boot-adjusted', '200', '--exploratory']) == 0
@@ -737,23 +616,17 @@ def test_the_cli_writes_a_draft_and_the_legacy_receipt(legacy_root, new_root, tm
     assert record['legacy_receipt']['sha256'] == sha(receipt)
 
 
-def test_the_cli_refuses_a_production_run_on_this_branch(legacy_root, new_root, tmp_path):
+def test_the_cli_refuses_a_production_run_on_this_branch(legacy_root, stub_new_arms,
+                                                        tmp_path):
     receipt = tmp_path / 'r.json'
     subject.write_legacy_receipt(receipt, legacy_root, strict=False)
     with pytest.raises(ValueError, match='approvals incomplete'):
-        subject.main(['--legacy-root', str(legacy_root), '--new-root', str(new_root),
+        subject.main(['--legacy-root', str(legacy_root), '--new-root', 'unused',
                       '--legacy-receipt', str(receipt), '--json', str(tmp_path / 'j.json'),
                       '--summary', str(tmp_path / 's.txt')])
 
 
-def test_a_new_arm_binds_the_initialisation_it_started_from(new_root):
-    arm = subject.load_new_arm(new_root, 'cyl_or', init_sha256='e' * 64)
-    assert arm['jobs']['seed0']['init_sha256'] == 'e' * 64
-    with pytest.raises(ValueError, match='did not start from the registered'):
-        subject.load_new_arm(new_root, 'cyl_or', init_sha256='d' * 64)
-
-
-def test_the_registered_initialisations_are_exp01s_and_the_approved_epoch(new_root):
+def test_the_registered_initialisations_are_exp01s_and_the_approved_epoch():
     assert subject.ARMS['control_hf']['init_sha256'] == \
         subject.EXP01_CONTROL['sha256'] is not None
     assert subject.ARMS['cyl_hf']['init_sha256'] == subject.EXP01_CYL['sha256'] is not None
