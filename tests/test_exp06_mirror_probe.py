@@ -649,3 +649,53 @@ def test_the_legacy_reproduction_matches_the_published_anchors():
     report = subject.legacy_reproduction(device='cpu')
     assert report['cohort']['mic_ids'] == subject.HALLWAY_LEGACY_COHORT['+y']['mic_ids']
     assert report['reproduced'] is True, report['deviations']
+
+
+# --- round-3a close review, nits 5 and 6 ------------------------------------------------
+
+
+def test_an_input_that_moves_while_the_environment_is_collected_is_refused(
+        probe_cache, tmp_path, monkeypatch):
+    """Nit 5: environment discovery imports and forks, so it runs before the last check."""
+    cache = mutable_cache(probe_cache, tmp_path)
+    canned(monkeypatch)
+    real = subject.environment
+    def moving():
+        MUTATIONS['checkpoint'](cache)
+        return real()
+    monkeypatch.setattr(subject, 'environment', moving)
+    out = tmp_path / 'env.json'
+    with pytest.raises(SystemExit):
+        subject.main(cli(cache, out))
+    assert not out.exists()
+
+
+def test_the_output_parent_exists_before_the_record_is_assembled(probe_cache, tmp_path,
+                                                                 monkeypatch):
+    """Nit 5: the directory preparation that followed the last check now precedes it."""
+    cache = mutable_cache(probe_cache, tmp_path)
+    canned(monkeypatch)
+    out = tmp_path / 'nested' / 'deeper' / 'gate.json'
+    seen = []
+    real = subject.revalidate_inputs
+    def watching(captured):
+        seen.append(out.parent.is_dir())
+        return real(captured)
+    monkeypatch.setattr(subject, 'revalidate_inputs', watching)
+    assert subject.main(cli(cache, out)) == 0
+    assert seen == [True]
+
+
+def test_a_handled_input_refusal_exits_one_and_says_so(probe_cache, tmp_path, monkeypatch):
+    """Nit 6: textual SystemExit is status 1; only argparse usage errors are status 2."""
+    assert '1 for input refusals' in subject.main.__doc__
+    assert '2 for argparse usage errors' in subject.main.__doc__
+    canned(monkeypatch)
+    cache = mutable_cache(probe_cache, tmp_path)
+    Path(cache['heading']).write_text('not json')
+    with pytest.raises(SystemExit) as error:
+        subject.main(cli(cache, tmp_path / 'refused.json'))
+    assert error.value.code == 1
+    with pytest.raises(SystemExit) as usage:
+        subject.main(['--not-a-flag'])
+    assert usage.value.code == 2
