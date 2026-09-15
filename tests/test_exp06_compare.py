@@ -256,3 +256,95 @@ def test_null_approvals_refuse_in_production_and_list_deviations(runs):
         subject.admit_runs(runs, null, split=SPLIT, roles=ROLES)
     admitted = subject.admit_runs(runs, null, exploratory=True, split=SPLIT, roles=ROLES)
     assert any('approved' in item or 'pinned' in item for item in admitted['deviations'])
+
+
+# --- the statistics, the verdict boundary and the published outputs -----------------------
+
+
+def analysis(runs, approved, n_boot=400):
+    admitted = subject.admit_runs(runs, approved, split=SPLIT, roles=ROLES)
+    return subject.analyse(admitted, subject.MARGIN, n_boot)
+
+
+def test_h3_is_c_against_b_with_c_against_a_descriptive(runs, approved):
+    result = analysis(runs, approved)
+    assert [cell['contrast'] for cell in result['cells']] == [
+        'C - B', 'C - B', 'C - A', 'C - A']
+    assert [cell['metric'] for cell in result['cells']] == ['EDT', 'C50'] * 2
+    assert result['verdicts']['C - B']['descriptive'] is False
+    assert result['verdicts']['C - A']['descriptive'] is True
+    for cell in result['cells']:
+        assert cell['n'] == N and cell['n_rooms_retained'] == 3
+        assert len(cell['room_cluster_interval']) == 2 and cell['n_boot'] == 400
+        assert len(cell['seed_means'][cell['contrast'][0]]) == 5
+        assert cell['companion_interval'][0] <= cell['upper']
+    assert result['verdicts']['C - B']['verdict'] in (
+        'non-inferior', 'non-inferior on EDT only', 'non-inferior on C50 only', 'not shown',
+        'not converged')
+
+
+def test_the_verdict_boundary_is_strict():
+    assert subject.paired_compare.h1_verdict(0.0299, 0.0299, subject.MARGIN) == 'non-inferior'
+    assert subject.paired_compare.h1_verdict(0.03, 0.0299, subject.MARGIN) == \
+        'non-inferior on C50 only'
+    assert subject.paired_compare.h1_verdict(0.03, 0.03, subject.MARGIN) == 'not shown'
+    assert subject.paired_compare.h1_verdict(float('nan'), 0.0, subject.MARGIN) == \
+        'non-inferior on C50 only'
+
+
+def test_the_cohort_is_the_queries_finite_in_every_run(tmp_path, checkpoints, approved):
+    groups = {}
+    for role in ('C', 'A', 'B'):
+        groups[role] = [str(write_run(tmp_path / role / str(seed), role, seed, checkpoints,
+                                      SPLIT, bad=(3,) if (role == 'C' and seed == 44) else ()))
+                        for seed in subject.SEEDS]
+    result = analysis(groups, approved)
+    for cell in result['cells']:
+        assert cell['n'] == N - 1
+    exclusions = result['cells'][0]['exclusions']
+    assert exclusions['joint']['excluded'] == 1 and exclusions['a']['total']['excluded'] == 1
+
+
+def test_the_analysis_is_deterministic_and_binds_its_inputs(runs, approved, tmp_path):
+    first, second = analysis(runs, approved), analysis(runs, approved)
+    assert json.dumps(subject._safe(first), sort_keys=True) == \
+        json.dumps(subject._safe(second), sort_keys=True)
+    assert first['inputs'] and all(len(value) == 64 for value in first['inputs'].values())
+    out, summary = tmp_path / 'h3.json', tmp_path / 'h3_summary.txt'
+    record, digest, text = subject.write_outputs(first, out, summary)
+    assert digest == provenance.sha256_file(out) and summary.read_text() == text
+    assert record['summary_sha256'] == hashlib.sha256(text.encode()).hexdigest()
+    assert 'C - B' in text and 'rho=' in text
+    assert 'timestamp' not in json.loads(out.read_text())
+    with pytest.raises(FileExistsError):
+        subject.write_outputs(first, out, summary)
+
+
+def test_the_cli_refuses_a_production_run_on_this_branch(runs, tmp_path):
+    with pytest.raises(approvals_api.ApprovalsUnavailable):
+        subject.main(['--runs-c'] + runs['C'] + ['--runs-a'] + runs['A'] +
+                     ['--json', str(tmp_path / 'j.json'), '--summary', str(tmp_path / 's.txt')])
+
+
+REAL_A = Path(__file__).resolve().parents[1] / 'ckpt/yaw_aug/eval'
+REAL_RUNS = [REAL_A / 'control_k8_seed{}_k0'.format(seed) for seed in subject.SEEDS]
+
+
+@pytest.mark.skipif(not all(path.is_dir() for path in REAL_RUNS),
+                    reason="needs exp_04's control evaluations")
+def test_the_real_exp04_control_runs_are_admitted_as_arm_a():
+    fields = json.loads((REAL_RUNS[0] / 'eval_manifest.json').read_text())
+    approved = approvals_api.validate({
+        'schema_version': 1,
+        'code': dict({key: 'a' * 64 for key in approvals_api.CODE_KEYS},
+                     evaluator_exp03=fields['evaluator_closure']['sha256']),
+        'reused': dict({key: 'a' * 64 for key in approvals_api.REUSED_DIGESTS},
+                       exp04_evaluator_closure=fields['source_closures']['entrypoint']['sha256'],
+                       exp04_writer_closure=fields['source_closures']['writer']['sha256'],
+                       legacy_receipt={'path': 'r.json', 'sha256': 'a' * 64}),
+        'artifacts': {'epoch_012': {'path': 'p', 'epoch': 12, 'sha256': 'a' * 64},
+                      'heading': {room: 'a' * 64 for room in approvals_api.ROOMS},
+                      'gate_g1_sha256': 'a' * 64}})
+    admitted = subject.admit_runs({'A': [str(path) for path in REAL_RUNS]}, approved)
+    assert [run['seed'] for run in admitted['groups']['A']] == list(subject.SEEDS)
+    assert len(admitted['groups']['A'][0]['query']) == 6337
