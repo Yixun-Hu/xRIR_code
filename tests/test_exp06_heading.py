@@ -2,6 +2,8 @@
 import json
 import hashlib
 import copy
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -306,3 +308,22 @@ def test_refusal_record_and_override_rescue(heading_cache, tmp_path):
     override['override_reason'] = ''
     with pytest.raises(ValueError):
         write_heading_json(path, override)
+
+
+@pytest.mark.parametrize('mode', ['estimate', 'override', 'refuse'])
+def test_cli(heading_cache, tmp_path, mode):
+    path = tmp_path / 'cli.json'
+    repo = Path(__file__).resolve().parents[1]
+    args = [sys.executable, 'tools/exp06_heading.py', '--room-dir', str(heading_cache), '--out', str(path)]
+    if mode == 'override':
+        args += ['--heading-deg', '90', '--override-reason', 'documented orientation']
+    elif mode == 'refuse':
+        rirs = np.load(heading_cache / 'rirs.npy')
+        rirs[:4] /= 10 ** (9 / 20)
+        np.save(heading_cache / 'rirs.npy', rirs)
+    completed = subprocess.run(args, cwd=repo, capture_output=True, text=True)
+    assert completed.returncode == (2 if mode == 'refuse' else 0), completed.stderr
+    assert path.exists()
+    record = read_heading_json(path)
+    assert record['decision'] == {'estimate': 'estimated', 'override': 'override', 'refuse': 'refused'}[mode]
+    assert record['k'] == {'estimate': 128, 'override': 384, 'refuse': None}[mode]

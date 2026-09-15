@@ -1,6 +1,7 @@
 """Training-only acoustic heading inference and heading-frame HAA geometry."""
 import math
 import numbers
+import argparse
 import datetime
 import hashlib
 import json
@@ -342,3 +343,24 @@ def write_heading_json(path, record):
 def read_heading_json(path):
     """Read and validate a heading record before its rotation can be used."""
     return _validate_heading_record(json.loads(Path(path).read_text()))
+
+
+def main(argv=None):
+    """Write the inferred acoustic axis; refusal writes evidence and exits with status 2."""
+    parser = argparse.ArgumentParser(description='Infer an acoustic axis from HAA training RIRs.')
+    parser.add_argument('--room-dir', required=True)
+    parser.add_argument('--out', required=True)
+    parser.add_argument('--heading-deg', type=float)
+    parser.add_argument('--override-reason')
+    args = parser.parse_args(argv)
+    try:
+        record = estimate_room_heading(args.room_dir, args.heading_deg, args.override_reason)
+        write_heading_json(args.out, record)
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
+    print(json.dumps({key: record[key] for key in ['room', 'decision', 'phi_deg', 'k', 'reason']}))
+    return 2 if record['decision'] == 'refused' else 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
