@@ -195,7 +195,7 @@ def test_probe_dry_run_uses_the_bounded_recipe():
                         ' --backbone cylindrical_oriented --save-dir ' + ROOT + '/probe_<UTC>'
                         ' --epochs 1 --max-train-batches 200 --max-test-batches 20 --no-save'
                         ' --run-type probe --batch-size 32 --accum-steps 2 --tf32'
-                        ' --num-workers 12').replace(' -- ', ' -- ')
+                        ' --num-workers 12 --decay-epochs 3 --log-interval 50')
     assert ENV_LINE in lines
 
 
