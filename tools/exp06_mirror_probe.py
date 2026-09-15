@@ -420,3 +420,112 @@ def full_gate(cylor_checkpoint, heading_k, root=DEFAULT_ROOT, room=HALLWAY, devi
     return {'room': room, 'device': str(device), 'batch': int(batch), 'cohort': cohort,
             'heading_k': int(heading_k), 'stats': stats, 'decision': g1_decision(stats),
             'checkpoints': {name: str(path) for name, path in paths.items()}}
+
+
+# --- the hash-bound record --------------------------------------------------------------
+
+REPO = Path(__file__).resolve().parents[1]
+EXIT_PASS, EXIT_INPUT, EXIT_FAIL, EXIT_INCONCLUSIVE = 0, 2, 3, 4
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description='Gate G1: the hallway mirror probe and its decision.')
+    parser.add_argument('--cylor-checkpoint', required=True)
+    parser.add_argument('--heading-json', required=True)
+    parser.add_argument('--out', required=True)
+    parser.add_argument('--device', choices=('cuda', 'cpu'))
+    parser.add_argument('--legacy-only', action='store_true')
+    parser.add_argument('--haa-root', default=DEFAULT_ROOT)
+    parser.add_argument('--room', default=HALLWAY)
+    parser.add_argument('--batch', type=int, default=8)
+    parser.add_argument('--num-shot', type=int, default=8)
+    parser.add_argument('--cyl-checkpoint', default=LEGACY_CHECKPOINTS['cyl'])
+    parser.add_argument('--control-checkpoint', default=LEGACY_CHECKPOINTS['control'])
+    return parser.parse_args(argv)
+
+
+def _verified_heading(path, room_dir):
+    """The record, re-verified against the cache it was estimated from, or a refusal."""
+    try:
+        record = read_heading_json(path, room_dir=str(room_dir))
+    except (OSError, ValueError) as error:
+        raise SystemExit('refusing: ' + str(error))
+    if record['decision'] not in ('estimated', 'override') or type(record['k']) is not int:
+        raise SystemExit('refusing: the heading record declares no usable roll')
+    return record
+
+
+def _source_record():
+    state = git_state(REPO)
+    records, head_digest = closure_record(source_closure(ENTRY_MODULE, REPO),
+                                          state['HEAD'], REPO)
+    files = [dict(path=item['path'], sha256=item['working_tree_sha256'],
+                  head_blob_sha256=item['reviewed_blob_sha256']) for item in records]
+    return dict(entry_module=ENTRY_MODULE, repo=str(REPO), files=files,
+                sha256=closure_digest(files, 'sha256'),
+                head_sha256=closure_digest(files, 'head_blob_sha256'),
+                git={key: state[key] for key in GIT_FIELDS}, basis='working_tree')
+
+
+def build_record(args):
+    """Run both parts of 6.1 and bind every input the verdict rests on."""
+    room_dir = Path(args.haa_root) / args.room
+    heading = _verified_heading(args.heading_json, room_dir)
+    checkpoints = {'cyl_or': args.cylor_checkpoint, 'cyl': args.cyl_checkpoint,
+                   'control': args.control_checkpoint}
+    legacy = legacy_reproduction(root=args.haa_root, room=args.room, device='cpu',
+                                 batch=args.batch, num_shot=args.num_shot,
+                                 checkpoints={'cyl': args.cyl_checkpoint,
+                                              'control': args.control_checkpoint})
+    gate = None if args.legacy_only else full_gate(
+        args.cylor_checkpoint, heading['k'], root=args.haa_root, room=args.room,
+        device=args.device, batch=args.batch, num_shot=args.num_shot,
+        checkpoints={'cyl': args.cyl_checkpoint, 'control': args.control_checkpoint})
+    if gate is None:
+        decision = {'outcome': 'inconclusive', 'thresholds': dict(G1_THRESHOLDS), 'values': {},
+                    'reasons': ['legacy-only run: the full-cohort gate did not run']}
+    else:
+        decision = dict(gate['decision'])
+    # The legacy reproduction is what validates the probe's numerics, so a verdict that
+    # rests on unvalidated numerics is withheld rather than reported (plan v4 6.1 part 1).
+    if not legacy['reproduced']:
+        decision = dict(decision, outcome='inconclusive', reasons=(
+            ['the legacy reproduction did not match the 2026-09-14 anchors']
+            + list(legacy['deviations']) + list(decision['reasons'])))
+    return {'schema_version': 1, 'room': args.room, 'haa_root': str(args.haa_root),
+            'num_shot': int(args.num_shot), 'batch': int(args.batch),
+            'legacy_only': bool(args.legacy_only),
+            'device': (gate or {}).get('device', 'cpu'),
+            'checkpoints': {name: {'path': str(path), 'sha256': sha256_file(path)}
+                            for name, path in sorted(checkpoints.items())},
+            'heading': {'path': str(args.heading_json),
+                        'sha256': sha256_file(args.heading_json), 'room': heading['room'],
+                        'k': heading['k'], 'phi_deg': heading['phi_deg'],
+                        'decision': heading['decision'],
+                        'input_sha256': heading['input_sha256']},
+            'cohort': {'legacy': HALLWAY_LEGACY_COHORT,
+                       'full': (gate or {}).get('cohort')},
+            'anchors': ANCHORS_LEGACY, 'anchor_tolerance': ANCHOR_TOLERANCE,
+            'legacy_reproduction': legacy, 'stats': (gate or {}).get('stats'),
+            'decision': decision, 'source_closure': _source_record(),
+            'environment': environment(),
+            'timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat()}
+
+
+def main(argv=None):
+    """0 when G1 passes, 3 when it fails, 4 when it is inconclusive, 2 for input errors."""
+    args = parse_args(argv)
+    record = build_record(args)
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    digest = write_manifest(out, record)          # exclusive create: never an overwrite
+    outcome = record['decision']['outcome']
+    print(json.dumps({'outcome': outcome, 'out': str(out), 'sha256': digest,
+                      'legacy_reproduced': record['legacy_reproduction']['reproduced'],
+                      'reasons': record['decision']['reasons']}))
+    return {'pass': EXIT_PASS, 'fail': EXIT_FAIL}.get(outcome, EXIT_INCONCLUSIVE)
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
