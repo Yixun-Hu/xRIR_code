@@ -622,7 +622,7 @@ def haa_eval_args(heading_jsons, checkpoint, frame='heading', room='hallway', **
     return args
 
 
-PER_SAMPLE = {'index': [0, 1, 2], 'ir_path': ['x/0', 'x/1', 'x/2'],
+PER_SAMPLE = {'index': [0, 1, 2],  # ir_path is the writer's '<room>/<index>', per room
               'edt': [0.05, 0.06, 0.07], 'c50': [1.1, 1.3, float('nan')],
               't60': [4.0, 5.0, 6.0], 'stft_mse': [0.2, 0.3, 0.4],
               'loss': [0.03, 0.04, 0.05], 'env': [1.0, 2.0, 3.0], 'side_label': [1, -1, 1]}
@@ -663,6 +663,8 @@ def write_haa_eval(run, args, log, repo, data_root, meta=None, per_sample=None, 
     room = args['rooms'][0]
     body = dict(PER_SAMPLE, meta=meta)
     body.update(per_sample or {})
+    if isinstance(body.get('index'), list) and 'ir_path' not in (per_sample or {}):
+        body['ir_path'] = ['{}/{}'.format(room, index) for index in body['index']]
     summary = eval_metrics(args, room, body) if metrics is None else metrics
     (run / 'metrics_{}.json'.format(room)).write_text(json.dumps(summary))
     (run / 'per_sample_{}.json'.format(room)).write_text(json.dumps(body))
@@ -671,7 +673,8 @@ def write_haa_eval(run, args, log, repo, data_root, meta=None, per_sample=None, 
 
 def eval_meta(args, checkpoint_sha256, **overrides):
     meta = {'backbone': args['backbone'], 'checkpoint_sha256': checkpoint_sha256,
-            'frame': args['frame']}
+            'frame': args['frame'], 'split': args['split'], 'num_shot': args['num_shot'],
+            'eval_seed': args['eval_seed']}
     if args['frame'] == 'heading':
         meta['heading'] = json.loads(json.dumps(args['heading']))
     meta.update(overrides)
@@ -1669,3 +1672,59 @@ def test_haa_children_bind_the_registry_and_head_they_ran_under(haa_eval_run, ha
     with pytest.raises(ValueError, match='registry_sha256'):
         exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)
     assert not (run / 'completion.json').exists()
+
+
+def alter_per_sample(path, damage):
+    """The review's reproduction: a per-sample file from another room or protocol."""
+    body = json.loads(Path(path).read_text())
+    if damage == 'ir_path_room':
+        body['ir_path'] = ['class_room/{}'.format(index) for index in body['index']]
+    elif damage == 'ir_path_index':
+        body['ir_path'] = ['hallway/{}'.format(index + 1) for index in body['index']]
+    elif damage == 'ir_path_missing':
+        body.pop('ir_path')
+    elif damage == 'index_float':
+        body['index'] = [float(index) for index in body['index']]
+    elif damage == 'meta_room':
+        body['meta']['room'] = 'class_room'
+    else:
+        body['meta'][damage] = {'split': 'val', 'num_shot': 1, 'eval_seed': 777}[damage]
+    Path(path).write_text(json.dumps(body))
+
+
+PROTOCOL_DAMAGE = [('ir_path_room', 'ir_path'), ('ir_path_index', 'ir_path'),
+                   ('ir_path_missing', 'ir_path'), ('index_float', 'index'),
+                   ('meta_room', 'room'), ('split', 'split'), ('num_shot', 'num_shot'),
+                   ('eval_seed', 'eval_seed')]
+
+
+@pytest.mark.parametrize('damage,cause', PROTOCOL_DAMAGE)
+def test_per_sample_results_are_bound_to_the_room_and_protocol(haa_eval_run, haa_repo,
+                                                               damage, cause):
+    """Finding 3: wrong-room or differently sampled observations must never be admitted."""
+    run, log, args, checkpoint = haa_eval_run
+    alter_per_sample(run / 'per_sample_hallway.json', damage)
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)
+    assert not (run / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('damage,cause', [('ir_path_room', 'ir_path'), ('split', 'split'),
+                                          ('num_shot', 'num_shot')])
+def test_a_job_refuses_a_child_evaluated_under_another_protocol(job_run, closed_log_file,
+                                                                damage, cause):
+    """Finding 3 on the job path: the completion carries the altered file's correct hash."""
+    def mutate(job, names):
+        path = job / 'eval/hallway/per_sample_hallway.json'
+        alter_per_sample(path, damage)
+        record = json.loads((job / 'eval/hallway/completion.json').read_text())
+        record['artifacts']['per_sample_hallway.json'] = provenance.sha256_file(path)
+        (job / 'eval/hallway/completion.json').write_text(
+            json.dumps(record, sort_keys=True, indent=2))
+        return names
+
+    job, children, spec, repo = job_run(mutate=mutate)
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                children=children, expect='finetune', job_spec=spec)
+    assert not (job / 'completion.json').exists()
