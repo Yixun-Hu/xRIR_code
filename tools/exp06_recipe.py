@@ -14,6 +14,12 @@ exactly one class, and the five ``exp06_*`` provenance keys written by
 Comparisons are type-strict (``type(value) is int/float/bool``), so a recorded ``1``
 never passes for ``True`` and ``12.0`` never passes for ``12``. Every check returns a
 list of deviation strings naming the offending field; an empty list is a pass.
+
+A current run must record every operational and ``exp06`` field (``check_presence``);
+only the deliberately narrower historical path (``check_all(..., historical=True)``,
+for exp_01's files after ``normalize_historical``) skips that requirement. The startup,
+retained and checkpoint copies of the arguments are compared with ``compare_sources``,
+which is recursively type-strict.
 """
 import functools
 import math
@@ -67,6 +73,45 @@ def _compare(label, actual, expected):
     if type(actual) is not type(expected) or actual != expected:
         return '{}: {!r} is not {!r}'.format(label, actual, expected)
     return None
+
+
+def strict_equal(left, right):
+    """Recursive equality that never conflates bool with int, or int with float."""
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return set(left) == set(right) and all(strict_equal(left[key], right[key]) for key in left)
+    if isinstance(left, (list, tuple)):
+        return len(left) == len(right) and all(strict_equal(a, b) for a, b in zip(left, right))
+    return left == right
+
+
+def _diff(left, right, left_name, right_name):
+    deviations = []
+    for field in sorted(set(left) | set(right)):
+        if field not in left:
+            deviations.append('{}: recorded by {} but not by {}'.format(field, right_name, left_name))
+        elif field not in right:
+            deviations.append('{}: recorded by {} but not by {}'.format(field, left_name, right_name))
+        elif not strict_equal(left[field], right[field]):
+            deviations.append('{}: {} has {!r} but {} has {!r}'.format(
+                field, left_name, left[field], right_name, right[field]))
+    return deviations
+
+
+def compare_sources(sources):
+    """Every recorded copy of the arguments must agree field by field, type-strictly."""
+    names = sorted(sources)
+    reference = names[0]
+    return [deviation for other in names[1:]
+            for deviation in _diff(sources[reference], sources[other], reference, other)]
+
+
+def check_presence(args_dict):
+    """A current run records every operational and exp_06 provenance field."""
+    return ['{}.{}: not recorded'.format(name, field)
+            for name, group in (('operational', OPERATIONAL), ('exp06', EXP06))
+            for field in group if field not in args_dict]
 
 
 def _integer(label, value):
@@ -143,7 +188,11 @@ def check_derived(args_dict, backbone):
         deviations.append('derived.param_counts: unknown backbone {!r}'.format(backbone))
     elif counts is MISSING:
         deviations.append('derived.param_counts: not recorded')
-    elif type(counts) is not dict or counts != dict(expected_param_counts(backbone)):
+    elif type(counts) is not dict:
+        deviations.append('derived.param_counts: {!r} is not a mapping'.format(counts))
+    elif any(type(value) is not int for value in counts.values()):
+        deviations.append('derived.param_counts: values must be native integers: {!r}'.format(counts))
+    elif counts != dict(expected_param_counts(backbone)):
         deviations.append('derived.param_counts: {!r} is not {!r}'.format(
             counts, dict(expected_param_counts(backbone))))
     return deviations
@@ -179,13 +228,20 @@ def check_budget(history_rows, last_meta, epochs=EXP01_RECIPE['epochs']):
     return deviations
 
 
-def check_all(args_dict, backbone=None, history_rows=None, last_meta=None, expected=EXP01_RECIPE):
-    """Every schema deviation of one run; budget checks run when history is supplied."""
+def check_all(args_dict, backbone=None, history_rows=None, last_meta=None, expected=EXP01_RECIPE,
+              historical=False):
+    """Every schema deviation of one run; budget checks run when history is supplied.
+
+    ``historical=True`` is the narrower path for exp_01's files, which never recorded the
+    operational, derived or exp_06 fields; a current run must record all of them.
+    """
     deviations = []
     try:
         classify(args_dict)
     except ValueError as error:
         deviations.append('schema: ' + str(error))
+    if not historical:
+        deviations += check_presence(args_dict)
     deviations += check_recipe(args_dict, expected)
     deviations += check_production(args_dict)
     deviations += check_derived(args_dict, args_dict.get('backbone') if backbone is None else backbone)

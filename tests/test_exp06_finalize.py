@@ -441,3 +441,62 @@ def test_cli_exits_two_on_a_malformed_checkpoint(full_run):
     assert completed.returncode == 2 and 'last.pth' in completed.stderr
     assert 'EXP06_FINALIZE_REFUSED' in completed.stderr
     assert not (run / 'completion.json').exists()
+
+
+def rewrite_sources(run, mutate_json=None, mutate_checkpoint=None, mutate_provenance=None):
+    """Rewrite the three recorded copies of the arguments independently."""
+    args = full_args()
+    json_args = mutate_json(dict(args)) if mutate_json else dict(args)
+    ckpt_args = mutate_checkpoint(dict(args)) if mutate_checkpoint else dict(json_args)
+    prov_args = mutate_provenance(dict(args)) if mutate_provenance else dict(json_args)
+    (run / 'args.json').write_text(json.dumps(json_args, indent=2))
+    torch.save({'model': STATE, 'optimizer': {}, 'scheduler': {}, 'epoch': 12, 'batch_idx': 0,
+                'best_test_loss': 0.1, 'args': ckpt_args}, run / 'last.pth')
+    record = json.loads((run / 'provenance.json').read_text())
+    record['effective_args'] = prov_args
+    (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+
+
+def test_three_argument_sources_must_agree(full_run):
+    """Blocker 2: startup, retained and checkpoint arguments are compared type-strictly."""
+    run, log = full_run
+    rewrite_sources(run)
+    assert exp06_finalize.finalize(run, 'full', log, 0, repo=REPO)['admissible_arm'] is True
+
+
+@pytest.mark.parametrize('damage,cause', [
+    ('provenance_truncated', 'max_train_batches'),
+    ('checkpoint_tf32_int', 'tf32'),
+    ('checkpoint_no_save_int', 'no_save'),
+    ('float_param_counts', 'param_counts'),
+    ('missing_operational', 'num_workers'),
+    ('missing_exp06', 'exp06_git_head'),
+    ('provenance_without_effective_args', 'effective_args'),
+    ('checkpoint_without_args', 'args'),
+])
+def test_argument_source_refusals_are_named(full_run, damage, cause):
+    run, log = full_run
+    if damage == 'provenance_truncated':
+        rewrite_sources(run, mutate_provenance=lambda a: dict(a, max_train_batches=3))
+    elif damage == 'checkpoint_tf32_int':
+        rewrite_sources(run, mutate_checkpoint=lambda a: dict(a, tf32=1))
+    elif damage == 'checkpoint_no_save_int':
+        rewrite_sources(run, mutate_checkpoint=lambda a: dict(a, no_save=0))
+    elif damage == 'float_param_counts':
+        floats = {key: float(value) for key, value in full_args()['param_counts'].items()}
+        rewrite_sources(run, mutate_json=lambda a: dict(a, param_counts=floats))
+    elif damage == 'missing_operational':
+        drop = lambda a: {k: v for k, v in a.items() if k != 'num_workers'}
+        rewrite_sources(run, mutate_json=drop)
+    elif damage == 'missing_exp06':
+        drop = lambda a: {k: v for k, v in a.items() if k != 'exp06_git_head'}
+        rewrite_sources(run, mutate_json=drop)
+    elif damage == 'provenance_without_effective_args':
+        record = json.loads((run / 'provenance.json').read_text())
+        record.pop('effective_args')
+        (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    else:
+        torch.save({'model': STATE, 'epoch': 12, 'batch_idx': 0}, run / 'last.pth')
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=REPO)
+    assert not (run / 'completion.json').exists()

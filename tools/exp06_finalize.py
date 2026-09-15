@@ -147,6 +147,30 @@ def artifacts(run_dir, names):
     return hashes
 
 
+def check_argument_sources(record, args, last, rows, meta):
+    """Blocker 2: the startup, retained and checkpoint arguments must all agree.
+
+    Each of the three copies is validated on its own against the current-run schema
+    (operational and ``exp06`` fields required), then compared field by field with
+    ``exp06_recipe.compare_sources``, which never conflates ``True`` with ``1``.
+    """
+    effective = record.get('effective_args')
+    _require(isinstance(effective, dict),
+             'provenance.json records no effective_args mapping (startup arguments)')
+    checkpoint = last.get('args')
+    _require(isinstance(checkpoint, dict), 'last.pth records no args mapping')
+    sources = {'args.json': args, 'last.pth[args]': checkpoint,
+               'provenance.effective_args': effective}
+    for name in sorted(sources):
+        deviations = exp06_recipe.check_all(sources[name])
+        _require(not deviations, '{} schema deviations: {}'.format(name, '; '.join(deviations)))
+    budget = exp06_recipe.check_budget(rows, meta)
+    _require(not budget, 'budget deviations: ' + '; '.join(budget))
+    disagreements = exp06_recipe.compare_sources(sources)
+    _require(not disagreements, 'recorded arguments disagree: ' + '; '.join(disagreements))
+    return sources
+
+
 def full_evidence(run_dir, repo):
     """Verify the twelve-epoch pretraining contract of plan section 5."""
     run_dir = Path(run_dir)
@@ -168,9 +192,7 @@ def full_evidence(run_dir, repo):
     rows = _history_rows(run_dir / 'history.jsonl', 'history.jsonl')
     last = _load_torch(run_dir / 'last.pth', 'last.pth')
     meta = {key: last[key] for key in ('epoch', 'batch_idx') if key in last}
-    deviations = exp06_recipe.check_all(args, history_rows=rows, last_meta=meta)
-    _require(not deviations, 'schema deviations: ' + '; '.join(deviations))
-    _require(last.get('args') == args, 'the args recorded in last.pth differ from args.json')
+    check_argument_sources(record, args, last, rows, meta)
     _require('model' in last, 'last.pth records no "model" state dict')
     state = _state_dict(_load_torch(run_dir / EPOCH_CHECKPOINT, EPOCH_CHECKPOINT), EPOCH_CHECKPOINT)
     model = _state_dict(last['model'], 'last.pth["model"]')

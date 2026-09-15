@@ -41,7 +41,10 @@ def full_args(backbone='cylindrical_oriented', **overrides):
                      'OMP_NUM_THREADS': '8', 'CUDA_VISIBLE_DEVICES': '1'},
                 max_train_batches=0, max_test_batches=0, test_subset=0, resume=None,
                 no_save=False, yaw_aug=0, yaw_aug_seed=0, yaw_aug_width=512,
-                train_batches_per_epoch=9261, tier='M', param_counts=dict(counts(backbone)))
+                train_batches_per_epoch=9261, tier='M', param_counts=dict(counts(backbone)),
+                exp06_run_type='full', exp06_registry_sha256='a' * 64,
+                exp06_source_closure_sha256='b' * 64, exp06_git_head='c' * 40,
+                exp06_provenance_path='ckpt/exp06/attempt/provenance.json')
     args.update(overrides)
     return args
 
@@ -211,3 +214,52 @@ def test_param_count_validation_leaves_the_global_rng_untouched():
     warm = exp06_recipe.expected_param_counts('cylindrical_oriented')
     assert dict(warm) == dict(cold)
     assert torch.equal(torch.randn(3), draw), 'counting changed the subsequent random stream'
+
+
+@pytest.mark.parametrize('left,right', [
+    (True, 1), (1, True), (False, 0), (0, False), (12, 12.0), (1e-3, 1),
+    ({'a': True}, {'a': 1}), ({'a': 1}, {'a': 1, 'b': 2}), ([1, 2], [1, True]),
+    ([1, 2], (1, 2)), (None, 0), ('1', 1), ({'a': [1]}, {'a': [1.0]})])
+def test_strict_equality_separates_types_recursively(left, right):
+    from tools.exp06_recipe import strict_equal
+    assert not strict_equal(left, right) and not strict_equal(right, left)
+
+
+@pytest.mark.parametrize('value', [True, 1, 0, 12.5, None, 'x', {'a': [1, {'b': False}]}, [], {}])
+def test_strict_equality_accepts_identical_structures(value):
+    from tools.exp06_recipe import strict_equal
+    assert strict_equal(value, json.loads(json.dumps(value)) if value != {} else {})
+
+
+def test_compare_sources_names_the_disagreeing_field_and_sources():
+    from tools.exp06_recipe import compare_sources
+    base = full_args()
+    assert compare_sources({'args.json': base, 'last.pth': dict(base)}) == []
+    deviations = compare_sources({'args.json': base,
+                                  'last.pth': dict(base, tf32=1),
+                                  'provenance': dict(base, max_train_batches=3)})
+    assert any('tf32' in d for d in deviations) and any('max_train_batches' in d for d in deviations)
+    missing = compare_sources({'args.json': base,
+                               'last.pth': {k: v for k, v in base.items() if k != 'seed'}})
+    assert missing and all('seed' in d for d in missing)
+
+
+def test_current_runs_require_every_operational_and_exp06_field():
+    from tools.exp06_recipe import EXP06, OPERATIONAL, check_presence
+    complete = full_args(**{field: 'x' for field in EXP06})
+    assert check_presence(complete) == [] and check_all(complete) == []
+    for field in list(OPERATIONAL) + list(EXP06):
+        partial = {key: value for key, value in complete.items() if key != field}
+        assert any(field in d for d in check_presence(partial)), field
+        assert any(field in d for d in check_all(partial)), field
+        if field != 'backbone':  # check_derived names a missing backbone on every path
+            assert not any(field in d for d in check_all(partial, historical=True)), field
+
+
+def test_param_counts_must_be_native_integers():
+    args = full_args()
+    args['param_counts'] = {key: float(value) for key, value in args['param_counts'].items()}
+    deviations = check_derived(args, 'cylindrical_oriented')
+    assert deviations and all('param_counts' in d for d in deviations)
+    args['param_counts'] = {key: True for key in args['param_counts']}
+    assert any('param_counts' in d for d in check_derived(args, 'cylindrical_oriented'))
