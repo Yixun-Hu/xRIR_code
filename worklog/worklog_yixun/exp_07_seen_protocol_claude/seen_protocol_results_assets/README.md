@@ -34,12 +34,32 @@ pairing remains non-final and no generator will publish it.
 
 `--evidence gpu_parity=PATH --evidence calibration=PATH` (both required; equivalently
 `--evidence gpu_parity=PATH calibration=PATH`, since repeated flags accumulate) bind the
-GPU parity receipt and the released-checkpoint calibration. The calibration JSON must state
-`role: released_seen`, `protocol: seen`, `num_shot: 8`, `passed: true` and, for each of
-EDT (s), C50 (dB) and T60 (%), `mean`, `sd`, `historical` and `passed`; the binder
-recomputes the pre-registered rule
-`|mean - historical| <= 3 * sd + 0.02 * |historical|` against the plan's historical values
-(0.0389 / 1.029 / 7.27) and refuses anything outside it.
+GPU parity receipt and the released-checkpoint calibration. **Both are producer receipts,
+not logs**, and the binder refuses a bare log.
+
+`tools/exp07_calibration.py --reviewed-commit SHA --runs DIR ... --json OUT` is the
+pre-registered gate of plan section 2. It admits the five released-checkpoint K = 8 seen
+evaluations through exactly the checks the table producer applies to that role, derives the
+five-seed means and sample SDs (ddof 1) of EDT (s), C50 (dB) and T60 (%) from the runs
+themselves, applies the registered rule `|mean - historical| <= 3 * sd + 0.02 * |historical|`
+against the registered historical values (0.0389 / 1.029 / 7.27, `tools.exp07_profiles.CALIBRATION`)
+and writes a canonical JSON plus sidecar binding the run digests, manifest hashes, the
+released checkpoint digest, the reviewed commit and its own producer closure. It runs
+BEFORE the trainings finish, so the approval file is still all-null: the evaluator and
+writer closure pins it needs are computed from the reviewed code at `--reviewed-commit`
+(the identity the launcher itself checked at spawn), and the released row needs no training
+pin. The binder re-derives the means and SDs from the bound runs and refuses a summary that
+does not equal them, so a fabricated finite summary is not evidence. A failing calibration
+still writes its JSON (exit 1) for the investigation the plan requires; the binder refuses it.
+
+`tools/exp07_parity.py --log PATH --reviewed-commit SHA --gpu N` runs the nine registered
+deferred GPU node ids under one pytest with a JUnit XML and writes `<log>.receipt.json`
+naming each case with its outcome, the pytest exit, the reviewed commit (which must be
+HEAD), the CUDA device and the digests of the log and the XML. It refuses a run that is
+missing a case, skipped one, failed one, collected an unregistered one or exited nonzero.
+The binder requires the receipt to cover exactly those nine ids, all passed, exit 0, a
+clean checkout, `git_head == reviewed_commit` and an ancestor of the binding HEAD, and
+re-hashes the log and the XML.
 
 `make_results_md.py` writes `seen_protocol_results.md`, `make_results_html.py` writes
 `seen_protocol_01_results.html`, and `make_latex.py` writes `table_seen_unseen.tex`. All
@@ -55,19 +75,50 @@ marker or superiority claim appears in any rendered cell.
 [--approved JSON] --out REPORT_DIRECTORY` validates the completion links and exclusively
 creates `binding_report_<UTC timestamp>.json` in that existing directory. It binds the
 three certified attempts with their inventory sidecar, probe receipt and hours ledger
-(at most one retry per arm) AND every other attempt each ledger lists -- aborted full runs
-with their `abort.json` and the probe attempts with their receipts -- so a later change to
-any of those files changes the report; the released checkpoint at its pinned digest; the
-forty seen runs with their `seen_split` bindings and training linkage; the seen alignment
-audit (protocol `seen`, passed, with its cohort digest and arguments); the required
-`--evidence` artefacts (`gpu_parity`, `calibration`); the four producer outputs, revalidated
-through the same canonical checks the generators apply, with their sidecars and companions;
-the rendered documents (each must cite every canonical digest); the exp_04 table, sidecar
-and binding report; the approval blob and git HEAD.
+(at most one retry per arm) AND every other attempt each ledger lists -- each must end
+certified (a completion naming its log) or aborted (an `abort.json` with a reason and the
+logs it references, which the launcher keeps OUTSIDE the attempt directory), and every probe
+attempt must correspond to exactly one receipt that records its manifest and completion
+digests -- so a later change to any of those files, logs included, changes the report. The
+one abort without a log on disk is the documented setup failure: `execute_attempt` raised
+before the child was spawned, so `abort.json` carries a null renamed log and the attempt
+holds no `execution.json`; that form is bound with the log recorded absent, and any other
+logless abort is refused. It also binds the released checkpoint at its pinned digest; the
+forty seen runs with their `seen_split` bindings, training linkage and agreeing split
+identity in both output metas; the seen alignment audit (protocol `seen`, passed, with its
+cohort digest and arguments); the required `--evidence` receipts (`gpu_parity`,
+`calibration`); the four producer outputs, revalidated through the same canonical checks the
+generators apply, each covering EXACTLY its registered run set (the table all forty runs, a
+pairing its two arms' twenty), declaring each trained arm's `args.json`,
+`train_manifest.json`, `train_inventory.json` and `completion.json`, and with every declared
+input validated against the artefact this report binds -- an unknown or differing input is
+refused; the rendered documents (each must cite every canonical digest); the exp_04 table,
+sidecar and binding report; the approval blob and git HEAD.
 `check_record.py REPORT_DIRECTORY` recomputes the latest report under its own recorded HEAD;
 an invalid latest report fails with no fallback.
 
-Order of operations:
+Order of operations (the Planner launch sequence; only the steps this directory owns):
+
+0. After merging and before any launch, produce the parity receipt and then the
+   calibration, on a free GPU from the merged checkout:
+
+   ```
+   PARITY="$REC/gpu_parity_${MERGE}.log"
+   "$PY" tools/exp07_parity.py --log "$PARITY" --reviewed-commit "$MERGE" --gpu "$GPU"
+   PARITY_RECEIPT="${PARITY%.log}.receipt.json"
+
+   for seed in 42 43 44 45 46; do
+     eval07 released_seen simple checkpoints/xRIR_seen.pth 8 "$seed"
+   done
+   "$PY" tools/exp07_calibration.py --reviewed-commit "$MERGE" \
+       --runs ckpt/exp07/eval/released_seen_k8_seed{42..46}_k0 \
+       --json ckpt/exp07/results/CALIBRATION_SEEN_V1.json
+   ```
+
+   Both artefacts are bound later as
+   `--evidence gpu_parity=$PARITY_RECEIPT calibration=ckpt/exp07/results/CALIBRATION_SEEN_V1.json`.
+   If the calibration fails, follow the plan's investigation procedure before admitting
+   any seen-arm evaluation.
 
 1. Finish and review the code, then commit it. Compute the producer closures from that
    committed code, fill every closure and checkpoint pin together, and commit the approval
