@@ -18,3 +18,8 @@ codex exec -s read-only -C /home/yixunhu/codespace/xRIR_code_wt07 --skip-git-rep
 ```bash
 cd /home/yixunhu/codespace/xRIR_code_wt07 && PYTHONPATH=$(pwd) CUDA_VISIBLE_DEVICES='' python -c "from tools import provenance as p; p.train_data_identity('/home/yixunhu/data_cache/AcousticRooms', protocol='seen', cache_path='ckpt/exp07/train_inventory_seen.json')"
 ```
+
+## Seen reference manifests (Planner, 2026-09-15 13:22, worktree code at 7b3ad6c)
+```bash
+cd /home/yixunhu/codespace/xRIR_code_wt07 && PYTHONPATH=$(pwd) XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms CUDA_VISIBLE_DEVICES='' PYTHONHASHSEED=0 python -m tools.exp07_manifests --data-root $XRIR_DATA_PATH --out-dir ckpt/exp07 --seeds 42 43 44 45 46 --num-shots 8 1   # log seen_protocol_2026-09-15_13:22:*_manifests.log
+```
