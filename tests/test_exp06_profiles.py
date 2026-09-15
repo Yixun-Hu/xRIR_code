@@ -85,6 +85,12 @@ def computed():
     return profiles.compute_code_digests(REPO, HEAD, notes=notes), notes
 
 
+def key_files(key):
+    """The files one approval key is taken over, named without importing anything."""
+    module, extra = profiles.CODE_SPECS[key]
+    return ([module.replace('.', '/') + '.py'] if module else []) + list(extra)
+
+
 def test_every_present_key_gets_a_digest_and_absent_modules_are_noted(computed):
     digests, notes = computed
     assert set(digests) == set(profiles.PRESENT_KEYS_NOW)
@@ -92,7 +98,14 @@ def test_every_present_key_gets_a_digest_and_absent_modules_are_noted(computed):
                for value in digests.values())
     skipped = {note.split(':')[0] for note in notes}
     assert skipped == set(profiles.CODE_KEYS) - set(digests)
-    assert 'haa_finetune' in skipped and 'haa_pipeline_sh' in skipped
+    # A key is skipped only because its files are really absent -- re-derived here rather
+    # than read back from the module's own constant. Naming the keys of a round that has
+    # not landed would go stale the moment it does, as round 2b's did on this merge, so
+    # what is pinned instead is that the merged round's keys are digested now.
+    absent = {key for key in profiles.CODE_KEYS
+              if any(not (REPO / name).is_file() for name in key_files(key))}
+    assert skipped == absent
+    assert {'haa_finetune', 'haa_eval', 'haa_pipeline_sh'} <= set(digests)
 
 
 def test_the_shell_launcher_is_bound_as_a_file(computed):
