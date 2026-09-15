@@ -12,14 +12,38 @@ from tools import exp06_compare as subject
 from tools import provenance
 
 N = 24                                  # the synthetic split; production uses 6337
-SPLIT = {'split': 'unseen', 'n_queries': N}
 ROOMS = ('Cafe_idx_1', 'Hall_idx_2', 'Office_idx_3')
 QUERIES = ['{}/{}/S00{}_R00{}_hybrid_IR.wav'.format(ROOMS[i % 3].split('_')[0], ROOMS[i % 3],
                                                     i % 7, i) for i in range(N)]
 
 
+def reference_hash(manifest):
+    from tools.reference_manifest import manifest_hash
+    return manifest_hash(manifest)
+
+
 SOURCES = {}          # every closure file the manifests name, with its real bytes
 DATA = {'hallway/meta.json': b'{"test": [0, 1]}', 'hallway/rirs.npy': b'rirs' * 8}
+INVENTORY = [{'path': name, 'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data)}
+             for name, data in sorted(DATA.items())]
+
+
+def manifest_of(seed, queries=None, n_queries=N, num_shot=None):
+    """The manifest of one seed: the registered K = 8 draw for every query, in order."""
+    shots = subject.NUM_SHOT if num_shot is None else num_shot
+    chosen = QUERIES[:n_queries] if queries is None else queries
+    return {'seed': seed, 'num_shot': shots, 'ir_root': '/ir',
+            'entries': [{'index': index, 'query': query,
+                         'refs': ['r/{}/{}'.format(index, k) for k in range(shots)]}
+                        for index, query in enumerate(chosen)]}
+
+
+# The synthetic registration: exactly the fields tools.exp04_profiles pins for the real
+# unseen split, so admission compares a run against a registry rather than against itself.
+SPLIT = {'split': 'unseen', 'n_queries': N, 'n_rooms': len(ROOMS),
+         'query_sha256': subject.paired_compare._digest(QUERIES[:N]),
+         'inventory_sha256': provenance._inventory_digest(INVENTORY),
+         'references': {seed: reference_hash(manifest_of(seed)) for seed in subject.SEEDS}}
 
 
 def closure(name, tag):
@@ -79,10 +103,7 @@ def values(seed, role, metric, bad=()):
 
 def reference_manifest(path, seed, split=SPLIT, queries=None):
     """A real reference manifest: the entries the per-sample order must reproduce."""
-    queries = QUERIES[:split['n_queries']] if queries is None else queries
-    manifest = {'seed': seed, 'num_shot': subject.NUM_SHOT, 'ir_root': '/ir',
-                'entries': [{'index': index, 'query': query, 'refs': ['r/{}'.format(index)]}
-                            for index, query in enumerate(queries)]}
+    manifest = manifest_of(seed, queries, split['n_queries'])
     path.write_text(json.dumps(manifest))
     return manifest
 
@@ -96,11 +117,6 @@ def data_identity(repo, reference, manifest, digest):
             'inventory_sha256': provenance._inventory_digest(records),
             'manifest_path': str(reference), 'manifest_file_sha256': digest,
             'manifest_hash': reference_hash(manifest)}
-
-
-def reference_hash(manifest):
-    from tools.reference_manifest import manifest_hash
-    return manifest_hash(manifest)
 
 
 def write_run(directory, role, seed, checkpoints, split=SPLIT, manifest_hash=None,
@@ -227,7 +243,13 @@ def runs(tmp_path, checkpoints):
 
 def test_the_registered_protocol_is_section_6_3s():
     assert subject.SEEDS == (42, 43, 44, 45, 46) and subject.MARGIN == 0.03
-    assert subject.SPLIT == {'split': 'unseen', 'n_queries': 6337}
+    assert subject.SPLIT['split'] == 'unseen' and subject.SPLIT['n_queries'] == 6337
+    dataset = subject.exp04_profiles.COMMON['dataset']
+    assert subject.SPLIT['n_rooms'] == dataset['n_rooms'] == 17
+    assert subject.SPLIT['query_sha256'] == dataset['query_sha256']
+    assert subject.SPLIT['inventory_sha256'] == dataset['inventory_sha256']
+    assert subject.SPLIT['references'] == dict(
+        subject.exp04_profiles.REFERENCES[subject.NUM_SHOT])
     assert subject.BATCH_SIZE == 16 and subject.CONDITIONS == 'P'
     assert subject.YAW_COLS == [0] and subject.SUPERIORITY_ALPHA == 0.025
     assert subject.CONTRASTS == (('C', 'B'), ('C', 'A'))
@@ -653,3 +675,68 @@ def test_the_real_exp04_control_runs_are_admitted_as_arm_a():
     admitted = subject.admit_runs({'A': [str(path) for path in REAL_RUNS]}, approved)
     assert [run['seed'] for run in admitted['groups']['A']] == list(subject.SEEDS)
     assert len(admitted['groups']['A'][0]['query']) == 6337
+
+
+# --- finding 1: the registered experiment, not a self-consistent one ----------------------
+
+
+def test_an_unregistered_data_inventory_is_refused(tmp_path, checkpoints, approved):
+    """An empty inventory with its own correct digest is not the registered split."""
+    directory = write_run(tmp_path / 'inventory', 'C', 42, checkpoints, SPLIT)
+    fields = json.loads((directory / 'eval_manifest.json').read_text())
+    fields['data_identity'] = dict(fields['data_identity'], inventory=[], inventory_files=0,
+                                   inventory_bytes=0,
+                                   inventory_sha256=provenance._inventory_digest([]))
+    rewrite(directory, fields)
+    with pytest.raises(ValueError, match='registered data inventory'):
+        subject.admit_run(directory, 'C', approved, SPLIT, roles=ROLES)
+
+
+def test_a_reference_manifest_that_is_not_the_registered_one_is_refused(tmp_path, checkpoints,
+                                                                        approved):
+    """A different, internally consistent K = 8 draw is not this seed's registered one."""
+    directory = write_run(tmp_path / 'reference', 'C', 42, checkpoints, SPLIT)
+    fields = json.loads((directory / 'eval_manifest.json').read_text())
+    declared = manifest_of(42)
+    declared['entries'][0]['refs'] = list(reversed(declared['entries'][0]['refs']))
+    reference = Path(fields['manifest_path'])
+    reference.write_text(json.dumps(declared))
+    fields['manifest_file_sha256'] = provenance.sha256_file(reference)
+    fields['manifest_hash'] = reference_hash(declared)
+    rewrite(directory, fields)
+    with pytest.raises(ValueError, match='registered reference manifest'):
+        subject.admit_run(directory, 'C', approved, SPLIT, roles=ROLES)
+
+
+def test_invented_query_names_are_refused_even_when_consistent(tmp_path, checkpoints,
+                                                               approved):
+    """Every query renamed, consistently in the reference and the outputs, is refused."""
+    queries = ['Cafe/Cafe_idx_1/S000_R{:03d}_invented.wav'.format(i) for i in range(N)]
+    directory = write_run(tmp_path / 'names', 'C', 42, checkpoints, SPLIT, queries=queries,
+                          per_sample={'query': list(queries)})
+    with pytest.raises(ValueError, match='canonical query digest'):
+        subject.admit_run(directory, 'C', approved, SPLIT, roles=ROLES)
+
+
+def test_a_reference_entry_without_eight_references_is_refused(tmp_path, checkpoints,
+                                                               approved):
+    """K = 8 is the registered conditioning; an entry that draws none is not this split."""
+    directory = write_run(tmp_path / 'refs', 'C', 42, checkpoints, SPLIT)
+    fields = json.loads((directory / 'eval_manifest.json').read_text())
+    reference = Path(fields['manifest_path'])
+    declared = json.loads(reference.read_text())
+    for entry in declared['entries']:
+        entry['refs'] = []
+    reference.write_text(json.dumps(declared))
+    fields['manifest_file_sha256'] = provenance.sha256_file(reference)
+    fields['manifest_hash'] = reference_hash(declared)
+    rewrite(directory, fields)
+    with pytest.raises(ValueError, match='eight references'):
+        subject.admit_run(directory, 'C', approved, SPLIT, roles=ROLES)
+
+
+def test_the_registered_room_population_is_enforced(tmp_path, checkpoints, approved):
+    """The unseen split is seventeen rooms; a run of one room is a different experiment."""
+    with pytest.raises(ValueError, match='room count'):
+        subject.admit_run(write_run(tmp_path / 'rooms', 'C', 42, checkpoints, SPLIT), 'C',
+                          approved, dict(SPLIT, n_rooms=len(ROOMS) + 1), roles=ROLES)
