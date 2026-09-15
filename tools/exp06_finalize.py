@@ -67,7 +67,7 @@ import tempfile
 import torch
 
 from model.xRIR_cyl_oriented import BACKBONES_EXP06, build_xrir_exp06
-from sim_to_real.haa_dataset import ROOMS
+from sim_to_real.haa_dataset import NO_T60_ROOMS, ROOMS
 from tools import exp06_heading, exp06_recipe, provenance
 
 REPO = Path(__file__).resolve().parents[1]
@@ -82,6 +82,11 @@ FULL_ARTIFACTS = ('provenance.json', 'args.json', 'history.jsonl', 'last.pth', '
 HAA_TRAIN_ARTIFACTS = ('provenance.json', 'args.json', 'history.jsonl', 'summary.json',
                        'best.pth', 'last.pth')
 HAA_SUMMARY = ('best_val_loss', 'best_epoch', 'init_val_loss', 'epochs')
+METRIC_SOURCE = {'edt_error_s': 'edt', 'c50_error_db': 'c50', 't60_error_pct': 't60',
+                 'env_error': 'env', 'stft_log_mse': 'stft_mse', 'test_loss': 'loss'}
+METRICS_REQUIRED = (('backbone', 'checkpoint', 'room', 'split', 'num_shot', 'eval_seed',
+                     'n_samples', 'c50_outliers', 't60_invalid', 'edt_invalid')
+                    + tuple(sorted(METRIC_SOURCE)))
 HEADING_DECISIONS = ('estimated', 'override')
 FRAMES = ('room', 'heading')
 GIT_STATE = ('HEAD', 'dirty', 'untracked', 'dirty_outside_worklog', 'diff_sha256')
@@ -719,12 +724,52 @@ def haa_train_evidence(run_dir, repo):
                 source_closure_sha256=list(record['source_closures'].values())[0]['sha256'])
 
 
+def haa_metrics(run_dir, name, room, args, per_sample):
+    """Blocker 3b: the summary is parsed and cross-checked, never merely hashed."""
+    metrics = _read_json(Path(run_dir) / name, name)
+    missing = [key for key in METRICS_REQUIRED if key not in metrics]
+    _require(not missing, '{} is incomplete: missing {}'.format(name, ', '.join(missing)))
+    _require(metrics['room'] == room,
+             '{} records room {!r}, not the {!r} it evaluated'.format(name, metrics['room'], room))
+    for field in ('backbone', 'checkpoint', 'num_shot', 'eval_seed', 'split'):
+        _require(exp06_recipe.strict_equal(metrics[field], args.get(field)),
+                 '{} records {} {!r}, not the {!r} of args.json'.format(
+                     name, field, metrics[field], args.get(field)))
+    index = per_sample['index']
+    _require(metrics['n_samples'] == len(index), '{} records n_samples {!r}, not the {} per-sample '
+             'entries'.format(name, metrics['n_samples'], len(index)))
+    for key, field in sorted(METRIC_SOURCE.items()):
+        summary = metrics[key]
+        if key == 't60_error_pct' and room in NO_T60_ROOMS:
+            _require(summary is None, '{}: {} is recorded for a room the paper omits'.format(
+                name, key))
+            continue
+        _require(isinstance(summary, dict) and set(('mean', 'median', 'n')) <= set(summary),
+                 '{}: {} is not a mean/median/n summary'.format(name, key))
+        values = per_sample.get(field)
+        _require(isinstance(values, list) and len(values) == len(index),
+                 '{}: per-sample {} needs one value per index'.format(name, field))
+        finite = [value for value in values if type(value) in (int, float)
+                  and not isinstance(value, bool) and math.isfinite(value)]
+        _require(summary['n'] == len(finite), '{}: {} counts {!r} of {} finite per-sample '
+                 'values'.format(name, key, summary['n'], len(finite)))
+        mean = sum(finite) / len(finite) if finite else None
+        _require(mean is None and summary['mean'] is None or mean is not None
+                 and type(summary['mean']) in (int, float)
+                 and math.isclose(summary['mean'], mean, rel_tol=1e-9, abs_tol=1e-9),
+                 '{}: {} mean {!r} is not the {!r} of the per-sample values'.format(
+                     name, key, summary['mean'], mean))
+    return metrics
+
+
 def haa_eval_evidence(run_dir, repo):
     """One evaluation child: exactly one room, bound to the checkpoint it actually ran."""
     record, args = haa_child_arguments(run_dir, 'haa_eval', repo)
     rooms, frame = _rooms_and_frame(args)
     _require(len(rooms) == 1, 'an evaluation child covers exactly one room, not {}'.format(rooms))
     room, tag = rooms[0], args.get('tag', '')
+    _require(Path(run_dir).resolve().name == room, 'an evaluation child of {} may not claim the '
+             'room {!r}'.format(Path(run_dir).resolve().name, room))
     names = ('provenance.json', 'args.json', 'metrics_{}{}.json'.format(room, tag),
              'per_sample_{}{}.json'.format(room, tag))
     hashes = artifacts(run_dir, names)
@@ -759,6 +804,7 @@ def haa_eval_evidence(run_dir, repo):
                  len(side) if isinstance(side, list) else side, len(index)))
     bad = [value for value in side if isinstance(value, bool) or value not in (-1, 1)]
     _require(not bad, 'side_label values must be -1 or 1, not {}'.format(sorted(set(map(repr, bad)))))
+    haa_metrics(run_dir, names[2], room, args, per_sample)
     return dict(artifacts=hashes, room=room, frame=frame, heading=heading,
                 backbone=args['backbone'], checkpoint_sha256=digest, samples=len(index),
                 source_closure_sha256=list(record['source_closures'].values())[0]['sha256'])
