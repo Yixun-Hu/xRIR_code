@@ -3,6 +3,7 @@ import copy
 import functools
 import hashlib
 import json
+import math
 import os
 import subprocess
 import sys
@@ -11,7 +12,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from sim_to_real.haa_dataset import ROOMS
+from sim_to_real.haa_dataset import NO_T60_ROOMS, ROOMS
 from tools import exp06_finalize, exp06_recipe, exp06_train, provenance
 
 REPO = Path(__file__).resolve().parents[1]
@@ -619,16 +620,49 @@ def haa_eval_args(heading_jsons, checkpoint, frame='heading', room='hallway', **
     return args
 
 
-def write_haa_eval(run, args, log, repo, data_root, meta=None, per_sample=None):
+PER_SAMPLE = {'index': [0, 1, 2], 'ir_path': ['x/0', 'x/1', 'x/2'],
+              'edt': [0.05, 0.06, 0.07], 'c50': [1.1, 1.3, float('nan')],
+              't60': [4.0, 5.0, 6.0], 'stft_mse': [0.2, 0.3, 0.4],
+              'loss': [0.03, 0.04, 0.05], 'env': [1.0, 2.0, 3.0], 'side_label': [1, -1, 1]}
+
+
+def summarize(values):
+    """eval_xRIR_backbone.summarize over the finite values, as sim_to_real/eval_haa.py calls it."""
+    finite = [value for value in values if math.isfinite(value)]
+    if not finite:
+        return {'mean': None, 'median': None, 'n': 0}
+    return {'mean': sum(finite) / len(finite), 'median': sorted(finite)[len(finite) // 2],
+            'n': len(finite)}
+
+
+def eval_metrics(args, room, per_sample, **overrides):
+    """The summary dict sim_to_real/eval_haa.py writes beside the per-sample file."""
+    metrics = {'backbone': args['backbone'], 'checkpoint': args['checkpoint'], 'room': room,
+               'split': args['split'], 'num_shot': args['num_shot'],
+               'eval_seed': args['eval_seed'], 'depth_variant': 'default',
+               'n_samples': len(per_sample['index'] or []),
+               'edt_error_s': summarize(per_sample['edt']),
+               'c50_error_db': summarize(per_sample['c50']),
+               't60_error_pct': None if room in NO_T60_ROOMS else summarize(per_sample['t60']),
+               'env_error': summarize(per_sample['env']),
+               'stft_log_mse': summarize(per_sample['stft_mse']),
+               'test_loss': summarize(per_sample['loss']),
+               'c50_outliers': 1, 't60_invalid': 0, 'edt_invalid': 0, 'elapsed_min': 2.5}
+    metrics.update(overrides)
+    return metrics
+
+
+def write_haa_eval(run, args, log, repo, data_root, meta=None, per_sample=None, metrics=None):
     run.mkdir(parents=True, exist_ok=True)
     seal(run, log, text='eval output\n')
     (run / 'args.json').write_text(json.dumps(args))
     record = haa_provenance(repo, 'haa_eval', args, data_root)
     (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
     room = args['rooms'][0]
-    (run / 'metrics_{}.json'.format(room)).write_text(json.dumps({'edt': 0.05, 'c50': 1.1}))
-    body = {'meta': meta, 'index': [0, 1, 2], 'side_label': [1, -1, 1], 'edt': [0.05, 0.06, 0.07]}
+    body = dict(PER_SAMPLE, meta=meta)
     body.update(per_sample or {})
+    summary = eval_metrics(args, room, body) if metrics is None else metrics
+    (run / 'metrics_{}.json'.format(room)).write_text(json.dumps(summary))
     (run / 'per_sample_{}.json'.format(room)).write_text(json.dumps(body))
     return run
 
@@ -731,6 +765,65 @@ def test_haa_eval_refusals_are_named(tmp_path, haa_repo, heading_jsons, data_roo
         record['run_type'] = 'haa_train'
         (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
     with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)
+    assert not (run / 'completion.json').exists()
+
+
+def test_the_dampened_room_records_no_t60(tmp_path, haa_repo, heading_jsons, data_root):
+    """Blocker 3b: the paper omits T60 there, so the summary must record null."""
+    checkpoint = haa_repo / 'stage2_best.pth'
+    torch.save(tiny_state(), checkpoint)
+    args = haa_eval_args(heading_jsons, checkpoint, room='dampened_room')
+    run, log = tmp_path / 'eval' / 'dampened_room', tmp_path / 'child.log'
+    write_haa_eval(run, args, log, haa_repo, data_root,
+                   meta=eval_meta(args, provenance.sha256_file(checkpoint)))
+    assert exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)['room'] == 'dampened_room'
+
+
+METRIC_DAMAGE = {
+    'metrics_not_json': ('not JSON', 'metrics_hallway.json'),
+    'metrics_key': (lambda m: {k: v for k, v in m.items() if k != 'c50_error_db'},
+                    'c50_error_db'),
+    'metrics_samples': (lambda m: dict(m, n_samples=2), 'n_samples'),
+    'metrics_mean': (lambda m: dict(m, edt_error_s=dict(m['edt_error_s'], mean=0.5)), 'mean'),
+    'metrics_n': (lambda m: dict(m, c50_error_db=dict(m['c50_error_db'], n=3)), 'c50_error_db'),
+    'metrics_room': (lambda m: dict(m, room='class_room'), 'room'),
+    'metrics_backbone': (lambda m: dict(m, backbone='cylindrical'), 'backbone'),
+    'metrics_seed': (lambda m: dict(m, eval_seed=7), 'eval_seed'),
+    'metrics_checkpoint': (lambda m: dict(m, checkpoint='/elsewhere.pth'), 'checkpoint'),
+    'metrics_t60': (lambda m: dict(m, t60_error_pct=None), 't60_error_pct'),
+}
+
+
+@pytest.mark.parametrize('damage', sorted(METRIC_DAMAGE))
+def test_the_metrics_summary_is_parsed_and_cross_checked(tmp_path, haa_repo, heading_jsons,
+                                                         data_root, damage):
+    """Blocker 3b: metrics were hashed without being read; now they must agree."""
+    mutate, cause = METRIC_DAMAGE[damage]
+    checkpoint = haa_repo / 'stage2_best.pth'
+    torch.save(tiny_state(), checkpoint)
+    args = haa_eval_args(heading_jsons, checkpoint)
+    run, log = tmp_path / 'eval' / 'hallway', tmp_path / 'child.log'
+    write_haa_eval(run, args, log, haa_repo, data_root,
+                   meta=eval_meta(args, provenance.sha256_file(checkpoint)))
+    metrics = json.loads((run / 'metrics_hallway.json').read_text())
+    (run / 'metrics_hallway.json').write_text(
+        mutate if isinstance(mutate, str) else json.dumps(mutate(metrics)))
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)
+    assert not (run / 'completion.json').exists()
+
+
+def test_an_evaluation_child_must_sit_in_its_own_room_directory(tmp_path, haa_repo,
+                                                                heading_jsons, data_root):
+    """Blocker 3c: a child may not claim a room other than the directory it ran in."""
+    checkpoint = haa_repo / 'stage2_best.pth'
+    torch.save(tiny_state(), checkpoint)
+    args = haa_eval_args(heading_jsons, checkpoint, room='class_room')
+    run, log = tmp_path / 'eval' / 'hallway', tmp_path / 'child.log'
+    write_haa_eval(run, args, log, haa_repo, data_root,
+                   meta=eval_meta(args, provenance.sha256_file(checkpoint)))
+    with pytest.raises(ValueError, match='room'):
         exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)
     assert not (run / 'completion.json').exists()
 
