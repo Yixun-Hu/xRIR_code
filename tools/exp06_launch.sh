@@ -6,7 +6,10 @@
 #       --attempt <dir> --log <child.log> --child-exit <code>
 # --dry-run prints every command and path (timestamps as <UTC>) and executes nothing.
 # EXP06_LAUNCH_LIB=1 source tools/exp06_launch.sh defines the functions and returns, so the
-# child lifecycle (run_child / close_child) is exercised by tests without a mode.
+# child lifecycle (own_launch / run_child / close_child) is exercised by tests without a
+# mode. The launcher owns <run dir>/launch.pid and stays alive through draining and
+# finalisation; the child gets child.pid. A failed log sink aborts the launch (status 3)
+# before any end marker, receipt or completion can exist.
 set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 export PYTHONPATH="$PWD"
