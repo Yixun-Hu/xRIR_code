@@ -312,7 +312,8 @@ def train_data_identity(data_root, protocol='unseen', cache_path=None, workers=8
             if (not wrong_protocol and record['data_root'] == str(root) and record['cache_key'] == key
                     and cached == stamps and record['inventory_files'] == len(files)
                     and _inventory_digest(record['inventory']) == record['inventory_sha256']):
-                return record
+                # Normalise a legacy (protocol-less) hit in memory; the file stays as written.
+                return record if 'protocol' in record else dict(record, protocol='unseen')
         except (OSError, ValueError, KeyError, TypeError):
             pass
         raise ValueError(('training inventory cache holds another protocol: ' if wrong_protocol

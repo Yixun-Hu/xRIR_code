@@ -336,7 +336,11 @@ def test_train_data_identity_is_protocol_isolated(protocol_root, tmp_path):
     legacy = json.loads(caches['unseen'].read_text())  # exp_04/exp_05 caches predate the field
     del legacy['protocol']
     caches['unseen'].write_text(json.dumps(legacy))
-    assert p.train_data_identity(protocol_root, 'unseen', cache_path=caches['unseen']) == legacy
+    stored = caches['unseen'].read_bytes()
+    # A legacy hit is normalised in memory only: the caller always sees 'protocol'.
+    assert (p.train_data_identity(protocol_root, 'unseen', cache_path=caches['unseen']) ==
+            dict(legacy, protocol='unseen') == records['unseen'])
+    assert caches['unseen'].read_bytes() == stored and 'protocol' not in json.loads(stored)
     with pytest.raises(ValueError, match='protocol'):
         p.train_data_identity(protocol_root, 'seen', cache_path=caches['unseen'])
     (protocol_root / 'single_channel_ir/Apartments/room/S003_R002_hybrid_IR.wav').write_bytes(b'x')
