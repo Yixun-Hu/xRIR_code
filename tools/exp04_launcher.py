@@ -351,11 +351,16 @@ def build_fields(argv, gpu, reviewed_commit, mode, allow_dirty=False):
                 r['commits_after_reviewed'] for r in records):
             raise ValueError(role + ' closure differs from reviewed commit')
         closures[role] = {'files': records, 'sha256': digest}
+    # The split file selects the training inventory: capture its identity BEFORE the
+    # inventory is built, re-verify it afterwards and bind the one it was selected under.
+    split = p.seen_split_identity(REPO) if protocol == 'seen' else None
     print('Hashing training data identity...', flush=True)
     data = (p.train_data_identity(DATA_ROOT, protocol='seen',
                                   cache_path=REPO / 'ckpt/exp07/train_inventory_seen.json')
             if protocol == 'seen' else
             p.train_data_identity(DATA_ROOT, cache_path=REPO / 'ckpt/yaw_aug/train_inventory.json'))
+    if split is not None and p.seen_split_identity(REPO) != split:
+        raise ValueError('seen split changed during training inventory construction')
     bpe = math.ceil(data['inventory_files'] / provisional['batch_size'])
     effective = effective_args(argv, gpu, bpe)
     check_runtime(effective, effective, mode)
@@ -364,7 +369,7 @@ def build_fields(argv, gpu, reviewed_commit, mode, allow_dirty=False):
         command=argv, environment=p.environment(), git_state=state, allow_dirty=allow_dirty,
         env={key: child_environment(gpu)[key] for key in ENV_KEYS})
     if protocol == 'seen':  # the authors' split file is a first-class revalidated input
-        fields.update(protocol=protocol, mutable_inputs={'seen_split': p.seen_split_identity(REPO)})
+        fields.update(protocol=protocol, mutable_inputs={'seen_split': split})
     if mode == 'full':
         label = 'cyl' if effective['backbone'] == 'cylindrical' else 'simple'
         control_path = REPO / (SEEN_CONTROL if protocol == 'seen' and effective['yaw_aug']

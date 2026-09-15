@@ -196,6 +196,27 @@ def test_unseen_fields_keep_the_exp04_inventory_and_no_seen_binding(stub_inputs)
     assert 'seen_split' not in fields.get('mutable_inputs', {})
 
 
+@pytest.mark.parametrize('mutated', [False, True])
+def test_seen_split_is_captured_before_the_inventory(stub_inputs, monkeypatch, mutated):
+    """The bound split is the one the inventory was selected under; a change refuses."""
+    order, real = [], p.seen_split_identity(launch.REPO)
+    def identity(repo):
+        order.append('split')
+        return dict(real, sha256='b' * 64) if mutated and len(order) > 1 else dict(real)
+    def inventory(root, protocol='unseen', cache_path=None):
+        order.append('inventory')
+        return {'inventory_files': launch.TRAIN_FILES[protocol]}
+    monkeypatch.setattr(launch.p, 'seen_split_identity', identity)
+    monkeypatch.setattr(launch.p, 'train_data_identity', inventory)
+    if mutated:
+        with pytest.raises(ValueError, match='seen split changed'):
+            launch.build_fields(argv_of('seen_simple'), '1', 'commit', 'full')
+    else:
+        assert launch.build_fields(argv_of('seen_simple'), '1', 'commit',
+                                   'full')['mutable_inputs']['seen_split'] == real
+    assert order == ['split', 'inventory', 'split']
+
+
 def test_bound_seen_split_is_revalidated(tmp_path):
     record = p.seen_split_identity(launch.REPO)
     fields = {'repo': str(launch.REPO), 'mutable_inputs': {'seen_split': record}}
