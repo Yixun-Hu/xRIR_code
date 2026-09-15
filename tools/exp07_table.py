@@ -33,10 +33,15 @@ BINDING_FILES = {'train_args': 'args.json', 'train_manifest': 'train_manifest.js
 CHECKPOINT_NAME = 'epoch_012.pth'
 
 
-def run_contract(directory, arm, profile, pins):
-    """Validate the exp_07 additions; raise on the first named failure."""
+def run_contract(directory, arm, profile, pins, cache=None):
+    """Validate the exp_07 additions; raise on the first named failure.
+
+    ``cache`` memoises the training inventory sidecars, which the thirty new-arm runs
+    bind to the same three files; the bytes are still bound per run and rehashed by
+    :func:`tools.results_table.write_outputs` before anything is published.
+    """
     directory = Path(directory).resolve()
-    inputs = {}
+    cache, inputs = {} if cache is None else cache, {}
     def read(path):
         raw = Path(path).read_bytes()
         inputs[str(Path(path).resolve())] = hashlib.sha256(raw).hexdigest()
@@ -103,6 +108,26 @@ def run_contract(directory, arm, profile, pins):
     trained_split = manifest.get('mutable_inputs', {}).get('seen_split')
     require(trained_split is not None and trained_split['path'] == provenance.SEEN_SPLIT and
             trained_split['sha256'] == dataset['seen_split_sha256'], 'training seen_split binding')
+    require(_equal(manifest.get('mode'), 'full') and _equal(manifest.get('allow_dirty'), False),
+            'training full-run mode')
+    identity = manifest.get('train_data_identity', {})
+    sidecar = identity.get('inventory_file') or {}
+    inventory = (root / sidecar.get('path', 'absent')).resolve()
+    require(inventory.name == 'train_inventory.json' and inventory.parent == attempt,
+            'training inventory sidecar path')
+    if cache.get(str(inventory)) is None:
+        records = read(inventory)['inventory']
+        cache[str(inventory)] = (inputs[str(inventory)], len(records),
+                                 provenance._inventory_digest(records))
+    bytes_sha256, files, digest = cache[str(inventory)]
+    inputs[str(inventory)] = bytes_sha256
+    require(bytes_sha256 == sidecar.get('sha256'), 'training inventory sidecar bytes')
+    require(_equal(identity.get('inventory_files'), profile['train_inventory_files']) and
+            files == profile['train_inventory_files'], 'training inventory file count')
+    require(digest == identity.get('inventory_sha256'), 'training inventory digest')
+    ledger = read(attempt.parent / 'cumulative_hours.json')
+    require(any(_equal(row.get('attempt'), attempt.name) and _equal(row.get('mode'), 'full')
+                for row in ledger.get('attempts', ())), 'training hours ledger')
     recorded = {}
     for name in ('training', 'launcher'):
         # A7: the approval pins the REVIEWED source identity, so recompute it here from the
@@ -142,6 +167,7 @@ def admit(directories, profile, approved=None, producer=None, exploratory=False,
     pins, receipt = load_approved_digests() if approved is None else approved
     approved = (pins, receipt)
     deviations, groups, contracts, waivers, snapshots = [], [], {}, set(), {}
+    sidecars = {}  # shared across the runs of one arm; see run_contract
     def check(ok, message):
         if not ok:
             deviations.append(message)
@@ -176,7 +202,7 @@ def admit(directories, profile, approved=None, producer=None, exploratory=False,
                 raise ValueError('unregistered checkpoint/K')
             arm, paths = matches[0]
             paths.append(directory)
-            contract = run_contract(directory, arm, profile, pins)
+            contract = run_contract(directory, arm, profile, pins, sidecars)
             contracts[directory] = {key: value for key, value in contract.items()
                                     if key not in ('waivers', 'inputs')}
             for path, digest in contract['inputs'].items():
@@ -192,7 +218,10 @@ def admit(directories, profile, approved=None, producer=None, exploratory=False,
     admitted = admit_runs(profile, groups, approved=approved, exploratory=True,
                           producer=producer, producer_key=producer_key)
     for path, digest in snapshots.items():
-        check(admitted['inputs'].get(path) == digest, 'contract input changed: ' + path)
+        # Evidence only this contract reads -- the training inventory sidecar, the probe
+        # receipt, the hours ledger -- is bound here; what exp_04 also binds must agree.
+        check(admitted['inputs'].setdefault(path, digest) == digest,
+              'contract input changed: ' + path)
     deviations.extend(item for item in admitted['deviations'] if item not in waivers)
     if deviations and not exploratory:
         raise ValueError('admission failed: ' + '; '.join(deviations))

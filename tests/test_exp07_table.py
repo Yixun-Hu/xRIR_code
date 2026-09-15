@@ -220,6 +220,55 @@ def a_training_closure_label_that_is_not_its_records(built):
     return 'training closure digest training'
 
 
+def a_training_run_that_was_not_the_full_recipe(built):
+    manifest = built.read(built.attempts['seen_simple'] / 'train_manifest.json')
+    manifest['mode'] = 'smoke'
+    rebind_training(built, 'seen_simple', manifest=manifest)
+    return 'training full-run mode'
+
+
+def a_training_run_that_allowed_a_dirty_tree(built):
+    manifest = built.read(built.attempts['seen_cyl'] / 'train_manifest.json')
+    manifest['allow_dirty'] = True
+    rebind_training(built, 'seen_cyl', manifest=manifest)
+    return 'training full-run mode'
+
+
+def an_inventory_sidecar_outside_the_attempt(built):
+    manifest = built.read(built.attempts['seen_aug'] / 'train_manifest.json')
+    manifest['train_data_identity']['inventory_file']['path'] = str(built.root / 'elsewhere.json')
+    rebind_training(built, 'seen_aug', manifest=manifest)
+    return 'training inventory sidecar path'
+
+
+def an_inventory_sidecar_rewritten_after_the_run(built):
+    sidecar = built.attempts['seen_simple'] / 'train_inventory.json'
+    built.replace(sidecar, dict(inventory=[]))
+    return 'training inventory sidecar bytes'
+
+
+def an_inventory_count_that_is_not_the_seen_training_split(built):
+    manifest = built.read(built.attempts['seen_cyl'] / 'train_manifest.json')
+    manifest['train_data_identity']['inventory_files'] = 1
+    rebind_training(built, 'seen_cyl', manifest=manifest)
+    return 'training inventory file count'
+
+
+def a_substituted_training_inventory_digest(built):
+    manifest = built.read(built.attempts['seen_aug'] / 'train_manifest.json')
+    manifest['train_data_identity']['inventory_sha256'] = 'd' * 64
+    rebind_training(built, 'seen_aug', manifest=manifest)
+    return 'training inventory digest'
+
+
+def an_hours_ledger_without_this_full_attempt(built):
+    attempt = built.attempts['seen_simple']
+    ledger = built.read(attempt.parent / 'cumulative_hours.json')
+    ledger['attempts'][0]['mode'] = 'probe'
+    built.replace(attempt.parent / 'cumulative_hours.json', ledger)
+    return 'training hours ledger'
+
+
 def a_training_closure_that_is_not_the_pin(built):
     built.pins['closures']['training'] = 'f' * 64
     return 'training closure'
@@ -284,6 +333,10 @@ REFUSALS = [an_evaluated_split_that_is_not_seen, an_output_meta_from_another_spl
             a_training_manifest_of_the_unseen_protocol, a_training_closure_that_is_not_the_pin,
             a_training_closure_with_no_file_records, a_training_closure_label_that_is_not_its_records,
             a_launcher_closure_record_that_was_never_reviewed,
+            a_training_run_that_was_not_the_full_recipe, a_training_run_that_allowed_a_dirty_tree,
+            an_inventory_sidecar_outside_the_attempt, an_inventory_sidecar_rewritten_after_the_run,
+            an_inventory_count_that_is_not_the_seen_training_split,
+            a_substituted_training_inventory_digest, an_hours_ledger_without_this_full_attempt,
             a_launcher_outside_the_approved_list, an_args_file_with_another_epoch_budget,
             an_args_file_with_the_wrong_yaw_flag, an_args_file_with_the_unseen_batch_count,
             an_args_file_from_another_capacity_tier,
@@ -299,6 +352,14 @@ def test_admission_refuses_and_names_the_deviation(built, mutation):
         admit(built)
     _, admitted = admit(built, exploratory=True)
     assert any(expected in item for item in admitted['deviations']), admitted['deviations']
+
+
+def test_the_validated_training_evidence_is_bound_into_the_producer_inputs(built):
+    _, admitted = admit(built)
+    for role in ('seen_simple', 'seen_cyl', 'seen_aug'):
+        attempt = built.attempts[role]
+        for path in (attempt / 'train_inventory.json', attempt.parent / 'cumulative_hours.json'):
+            assert admitted['inputs'][str(path)] == p.sha256_file(path)
 
 
 def test_source_drift_recorded_after_the_spawn_is_still_admitted(built):

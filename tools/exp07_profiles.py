@@ -60,6 +60,7 @@ COMMON = MP({'schema_version': 1, 'protocol': 'seen', 'tier': 'M', 'condition': 
              'convergence_tolerance': .10, 'seeds': SEEDS, 'eval_seeds': EVAL_SEEDS,
              'gl_seed_rule': 'gl_seed == eval seed', 'dataset': DATASET, 'arms': ARMS,
              'recipe': RECIPE, 'full_run': FULL_RUN, 'train_batches_per_epoch': 9265,
+             'train_inventory_files': 296454,  # the seen training split (plan section 2)
              'grid': (0,), 'input_selection': 'standalone_k0', 'max_samples': 0,
              'batch_size': 16, 'tf32': False,
              'run_grids': MP({arm['role']: (0,) for arm in ARMS})})
