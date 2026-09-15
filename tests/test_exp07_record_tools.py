@@ -2,6 +2,7 @@
 import json
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,6 +10,7 @@ from exp07_fixture import exp07_fixture  # noqa: F401  (fixture)
 from test_paired_compare import admission_fixture  # noqa: F401  (table_fixture needs it)
 from test_results_table import table_fixture  # noqa: F401  (exp_04's unseen table)
 from tools import exp07_pairs as pairs_producer, exp07_table as table_producer
+from tools import provenance as p
 from tools import results_table as rt
 from tools.exp07_profiles import get_profile, json_value
 from tools.exp07_record import load_asset
@@ -59,6 +61,7 @@ def record_inputs(exp07_fixture, table_fixture, tmp_path):  # noqa: F811
              outputs=[dict(path=path, sha256=digest)
                       for path, digest in sorted(published.items())])]), indent=1))
     paths['out'] = tmp_path / 'seen_protocol_results.md'
+    paths['built'] = built
     return paths
 
 
@@ -184,6 +187,115 @@ def test_the_html_page_refuses_the_same_input_the_markdown_refuses(record_inputs
     with pytest.raises(ValueError, match='not final'):
         html.main(argv(record_inputs, out=out))
     assert not out.exists()
+
+
+@pytest.fixture
+def bound(record_inputs, tmp_path, monkeypatch):
+    """The whole record: forty runs, three attempts, four producer outputs, three documents."""
+    binder = load_asset('bind_provenance')
+    built = record_inputs['built']
+    monkeypatch.setattr(binder, 'load_approved_digests',
+                        lambda path=None: (built.pins, built.approved[1]))
+    released = next(arm for arm in built.profile['arms'] if arm['reference'])
+    monkeypatch.setattr(binder, 'RELEASED', released['checkpoint'])
+    monkeypatch.setattr(binder, 'RELEASED_SHA256', released['sha256'])
+    audit = tmp_path / 'alignment_audit_seen.json'
+    audit.write_text('{"protocol": "seen"}')
+    documents = [record_inputs['out']]
+    load_asset('make_results_md').main(argv(record_inputs))
+    for suffix, module in (('.html', 'make_results_html'), ('.tex', 'make_latex')):
+        documents.append(record_inputs['out'].with_suffix(suffix))
+        load_asset(module).main(argv(record_inputs, out=documents[-1]))
+    reports = tmp_path / 'reports'
+    reports.mkdir()
+    return SimpleNamespace(binder=binder, built=built, paths=record_inputs, reports=reports,
+        arguments=dict(runs=list(built.directories), audit=str(audit),
+                       attempt=[str(built.attempts[role]) for role in built.pins['checkpoints']],
+                       results=[str(record_inputs['table'])] + [str(item) for item in
+                                                                record_inputs['pairs']],
+                       rendered=[str(item) for item in documents],
+                       unseen_table=str(record_inputs['unseen']),
+                       unseen_binding=str(record_inputs['binding'])))
+
+
+def test_the_binding_report_covers_the_whole_seen_record(bound):
+    report = bound.binder.collect(**bound.arguments)
+    assert len(report['runs']) == 40 and len(report['attempts']) == 3
+    assert sorted(item['role'] for item in report['attempts']) == ['seen_aug', 'seen_cyl',
+                                                                   'seen_simple']
+    assert all(item['full_attempts'] == 1 for item in report['attempts'])
+    assert all(item['inventory']['sha256'] and item['probe_receipt']['sha256'] and
+               item['ledger']['sha256'] and item['seen_split']['sha256']
+               for item in report['attempts'])
+    assert sum(item['role'] == 'released_seen' for item in report['runs']) == 10
+    assert [item['profile'] for item in report['results']].count('PAIRS_SEEN_V1') == 3
+    assert [item['profile'] for item in report['results']].count('TABLE_SEEN_V1') == 1
+    assert len(report['documents']) == 3 and len(report['released_checkpoint']['sha256']) == 64
+    assert report['unseen']['binding_report']['path'] == str(bound.paths['binding'])
+    assert report['audit']['sha256'] and len(report['git_HEAD']) == 40
+
+
+def test_the_report_is_written_exclusively_and_verified_by_check_record(bound):
+    checker = load_asset('check_record')
+    arguments = sum(([('--' + key.replace('_', '-')), *([value] if isinstance(value, str)
+                                                        else value)]
+                     for key, value in bound.arguments.items()), [])
+    bound.binder.main(arguments + ['--out', str(bound.reports)])
+    reports = list(bound.reports.glob('binding_report_*.json'))
+    assert len(reports) == 1
+    checker.main([str(bound.reports)])
+    modified = Path(bound.built.paths[('seen_cyl', 8)][0]) / 'metrics_yaw.json'
+    modified.write_text(modified.read_text() + '\n')
+    with pytest.raises((ValueError, OSError)):
+        checker.main([str(bound.reports)])
+
+
+def replace_ledger(bound, role, rows):
+    path = bound.built.attempts[role].parent / 'cumulative_hours.json'
+    ledger = json.loads(path.read_text())
+    ledger['attempts'] = [dict(ledger['attempts'][0], attempt='attempt_%d' % index, hours=1.)
+                          for index in range(rows)]
+    ledger['total_hours'] = float(rows)
+    path.unlink()
+    path.write_text(json.dumps(ledger))
+
+
+def bind_released(bound):
+    run = Path(bound.built.paths[('released_seen', 8)][0])
+    fields = bound.built.read(run / 'eval_manifest.json')
+    donor = Path(bound.built.paths[('seen_simple', 8)][0])
+    fields['mutable_inputs']['train_manifest'] = bound.built.read(
+        donor / 'eval_manifest.json')['mutable_inputs']['train_manifest']
+    bound.built.rebind(run, manifest=fields)
+
+
+def relink(bound):
+    run = Path(bound.built.paths[('seen_cyl', 8)][0])
+    fields = bound.built.read(run / 'eval_manifest.json')
+    other = bound.built.attempts['seen_aug'] / 'train_manifest.json'
+    fields['mutable_inputs']['train_manifest'] = dict(
+        path=str(other), sha256=p.sha256_file(other))
+    bound.built.rebind(run, manifest=fields)
+
+
+FORGERIES = {
+    'retried_twice': (lambda b: replace_ledger(b, 'seen_simple', 3),
+                      'more than one retry recorded'),
+    'released_training_binding': (bind_released, 'released row has no training provenance'),
+    'foreign_training_linkage': (relink, 'training linkage'),
+    'missing_run': (lambda b: b.arguments.__setitem__('runs', b.arguments['runs'][:39]),
+                    'the forty evaluation runs'),
+    'uncited_document': (lambda b: Path(b.arguments['rendered'][0]).write_text('nothing'),
+                         'does not cite every canonical digest'),
+}
+
+
+@pytest.mark.parametrize('forgery', sorted(FORGERIES))
+def test_the_binder_refuses_a_forged_record(bound, forgery):
+    mutate, message = FORGERIES[forgery]
+    mutate(bound)
+    with pytest.raises(ValueError, match=message):
+        bound.binder.collect(**bound.arguments)
 
 
 def table_rows(text):
