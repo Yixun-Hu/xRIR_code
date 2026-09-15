@@ -218,8 +218,11 @@ def test_probe_dry_run_uses_the_bounded_recipe():
     lines = dry_run('probe')
     probe = [line for line in lines if 'exp06_smoke.py' in line]
     assert len(probe) == 1
-    assert probe[0] == ('RUN nohup setsid ' + PYTHON + ' tools/exp06_smoke.py --entry exp06_train --receipt '
-                        + ROOT + '/probe_<UTC>.json --alarm-seconds 2400 --max-gb 46 --'
+    assert probe[0] == ('RUN nohup setsid ' + PYTHON + ' tools/exp06_smoke.py --receipt '
+                        + ROOT + '/probe_<UTC>.json --run-type probe --provenance-out '
+                        + ROOT + '/probe_<UTC>/provenance.json --approved ' + APPROVED
+                        + ' --reviewed-commit ' + COMMIT
+                        + ' --entry exp06_train --alarm-seconds 2400 --max-gb 46 --'
                         ' --backbone cylindrical_oriented --save-dir ' + ROOT + '/probe_<UTC>'
                         ' --epochs 1 --max-train-batches 200 --max-test-batches 20 --no-save'
                         ' --run-type probe --batch-size 32 --accum-steps 2 --tf32'
@@ -231,15 +234,16 @@ def test_smoke_dry_run_lists_the_section_nine_commands():
     lines = dry_run('smoke')
     smokes = [line for line in lines if line.startswith('RUN ') and 'exp06_smoke.py' in line]
     assert len(smokes) == 4
-    assert smokes[0].endswith('--entry trainer --receipt ckpt/exp06/_smoke/receipt_trainer_<UTC>.json'
-                              ' --alarm-seconds 300 --max-gb 3 -- --backbone simple --save-dir'
-                              ' ckpt/exp06/_smoke/t0 ' + SMOKE_FLAGS)
-    assert smokes[1].endswith('--entry exp06_train --receipt ckpt/exp06/_smoke/receipt_exp06_train_t0_<UTC>.json'
-                              ' --alarm-seconds 300 --max-gb 3 -- --backbone simple --save-dir'
-                              ' ckpt/exp06/_smoke/t0 ' + SMOKE_FLAGS)
-    assert smokes[2].endswith('--entry exp06_train --receipt ckpt/exp06/_smoke/receipt_exp06_train_t1_<UTC>.json'
-                              ' --alarm-seconds 300 --max-gb 3 -- --backbone cylindrical_oriented'
-                              ' --save-dir ckpt/exp06/_smoke/t1 ' + SMOKE_FLAGS)
+    for index, (entry, name, backbone, target) in enumerate([
+            ('trainer', 'trainer', 'simple', 't0'),
+            ('exp06_train', 'exp06_train_t0', 'simple', 't0'),
+            ('exp06_train', 'exp06_train_t1', 'cylindrical_oriented', 't1')]):
+        assert smokes[index].endswith(
+            '--receipt ckpt/exp06/_smoke/receipt_{}_<UTC>.json --run-type smoke'
+            ' --provenance-out ckpt/exp06/_smoke/{}_<UTC>/provenance.json --approved {}'
+            ' --reviewed-commit {} --entry {} --alarm-seconds 300 --max-gb 3 --'
+            ' --backbone {} --save-dir ckpt/exp06/_smoke/{} {}'.format(
+                name, name, APPROVED, COMMIT, entry, backbone, target, SMOKE_FLAGS)), smokes[index]
     assert smokes[3].endswith('--make-fixture ckpt/exp06/_smoke/fixture_cylor.pth')
     assert all('--tf32' not in line for line in smokes)
 
@@ -461,3 +465,64 @@ def test_the_preflight_cli_takes_the_approvals_path(repo, fake_nvidia_smi, tmp_p
     assert diagnostic.returncode == 0, diagnostic.stderr
     record = json.loads(diagnostic.stdout.split('EXP06_PREFLIGHT_OK ')[1])
     assert record['exploratory'] is True and record['approval_deviations']
+
+
+STUB = '''#!/usr/bin/env bash
+case "$1" in
+  tools/exp06_smoke.py) echo "smoke output"; exit "${SMOKE_STATUS:-0}" ;;
+  tools/exp06_finalize.py)
+    if [ "$2" = child-exit ]; then exec "$REAL_PYTHON" "$@"; fi
+    echo "FINALIZE $*"; exit "${FINALIZE_STATUS:-0}" ;;
+esac
+exit 0
+'''
+
+DIAGNOSTIC_HARNESS = ('set -euo pipefail\n'
+                      'export EXP06_LAUNCH_LIB=1\n'
+                      'source tools/exp06_launch.sh\n'
+                      'DRY=0\nPYTHON={stub}\nAPPROVED=a.json\nCOMMIT={commit}\nOWNER=$$\n'
+                      'EXPLORATORY=0\n'
+                      'diagnostic smoke {dir} {log} {receipt} --entry exp06_train'
+                      ' --alarm-seconds 300 --max-gb 3 -- --no-save\n'
+                      'echo LAUNCHER_CONTINUED\n')
+
+
+def run_diagnostic(tmp_path, **env):
+    stub = tmp_path / 'stub.sh'
+    stub.write_text(STUB)
+    stub.chmod(0o755)
+    run = tmp_path / 'smoke_20260916T130000'
+    log = tmp_path / 'smoke.log'
+    script = DIAGNOSTIC_HARNESS.format(stub=stub, commit=COMMIT, dir=run, log=log,
+                                       receipt=tmp_path / 'receipt.json')
+    completed = subprocess.run(['bash', '-c', script], cwd=REPO, capture_output=True, text=True,
+                               env={**os.environ, 'PYTHONPATH': str(REPO),
+                                    'REAL_PYTHON': sys.executable, **env})
+    return run, log, completed
+
+
+def test_a_failed_diagnostic_child_aborts_and_propagates(tmp_path):
+    """Finding 5: the launcher returned the finalizer's status, so a failed rung passed."""
+    run, log, completed = run_diagnostic(tmp_path, SMOKE_STATUS='3')
+    assert completed.returncode == 3, completed.stdout + completed.stderr
+    assert 'LAUNCHER_CONTINUED' not in completed.stdout
+    assert '--child-exit 3' in completed.stdout, 'the failure is still recorded'
+    assert Path(str(run) + '_ABORTED_child_failed_3').is_dir()
+    assert Path(str(log) + '_ABORTED_child_failed_3').is_file()
+    assert not run.exists() and not log.exists()
+
+
+def test_a_refused_diagnostic_finalisation_aborts_with_two(tmp_path):
+    run, log, completed = run_diagnostic(tmp_path, FINALIZE_STATUS='2')
+    assert completed.returncode == 2, completed.stdout + completed.stderr
+    assert 'LAUNCHER_CONTINUED' not in completed.stdout
+    assert Path(str(run) + '_ABORTED_finalize_refused').is_dir()
+    assert Path(str(log) + '_ABORTED_finalize_refused').is_file()
+
+
+def test_a_passing_diagnostic_leaves_the_launcher_running(tmp_path):
+    run, log, completed = run_diagnostic(tmp_path)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert 'LAUNCHER_CONTINUED' in completed.stdout
+    assert run.is_dir() and log.is_file()
+    assert log.read_text().splitlines()[-1].startswith('EXP06_CHILD_EXIT 0 ')
