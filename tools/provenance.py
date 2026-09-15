@@ -264,73 +264,37 @@ def data_identity(manifest_path, data_root):
         manifest_file_sha256=sha256_file(manifest_path), manifest_hash=manifest_hash(manifest))
 
 
-PROTOCOLS = ('unseen', 'seen')
-SEEN_SPLIT = 'treble_multi_room_dataset/seen_test_split.pkl'
+def train_data_identity(data_root, cache_path=None, workers=8):
+    """Content-hash train IRs using the actual split, with a stat-validated cache.
 
-
-def _train_files(data_root, protocol):
-    """List the training WAVs of the authors' split convention, relative to the root."""
-    if protocol not in PROTOCOLS:
-        raise ValueError('unknown protocol: ' + str(protocol))
-    if protocol == 'seen':  # Opens SEEN_SPLIT relative to the cwd: run from the repository root.
-        from treble_multi_room_dataset.treble_xRIR_seen_dataset import xRIR_Dataset
-    else:
-        from treble_multi_room_dataset.treble_xRIR_dataset import xRIR_Dataset
+    A stale cache raises instead of silently reusing it. Remove that cache explicitly
+    to rebuild. The default cache is outside the dataset, keyed by root and count.
+    """
+    from treble_multi_room_dataset.treble_xRIR_dataset import xRIR_Dataset
     root = Path(data_root).resolve()
     dataset = xRIR_Dataset(split='train', ir_path=str(root / 'single_channel_ir'))
-    return root, sorted(str(Path(f).resolve().relative_to(root)) for f in dataset.file_list)
-
-
-def train_data_identity(data_root, protocol='unseen', cache_path=None, workers=8):
-    """Content-hash train IRs of one protocol's split, with a stat-validated cache.
-
-    Only the training WAVs are hashed: the metadata and depth-map files of the training
-    rooms are NOT part of the inventory (disclosed limitation inherited from exp_04/05).
-    ``protocol`` selects the authors' split convention ('unseen' = the held-out rooms,
-    'seen' = SEEN_SPLIT); the cache key and the record both carry it, so a cache of one
-    protocol can never satisfy the other. A stale cache raises instead of silently being
-    reused. Remove that cache explicitly to rebuild. The default cache is outside the
-    dataset, keyed by root, protocol and count.
-    """
-    root, files = _train_files(data_root, protocol)
-    # The unseen key keeps its pre-exp_07 encoding so exp_04/exp_05 caches stay valid.
-    payload = [str(root), len(files)] if protocol == 'unseen' else [str(root), protocol, len(files)]
-    key = hashlib.sha256(json.dumps(payload).encode()).hexdigest()
+    files = sorted(str(Path(f).resolve().relative_to(root)) for f in dataset.file_list)
+    key = hashlib.sha256(json.dumps([str(root), len(files)]).encode()).hexdigest()
     cache = Path(cache_path) if cache_path else Path(tempfile.gettempdir()) / 'xrir-provenance' / (key + '.json')
     if cache.exists():
-        wrong_protocol = False
         try:
             record = json.loads(cache.read_text())
-            # Records written before exp_07 carry no protocol and are unseen inventories;
-            # the key, count and per-file stamps below bind them to the split regardless.
-            wrong_protocol = record.get('protocol', 'unseen') != protocol
             stamps = []
             for name in files:
                 stat = (root / name).stat()
                 stamps.append((name, stat.st_size, stat.st_mtime_ns))
             cached = [(r['path'], r['size'], r['mtime_ns']) for r in record['inventory']]
-            if (not wrong_protocol and record['data_root'] == str(root) and record['cache_key'] == key
+            if (record['data_root'] == str(root) and record['cache_key'] == key
                     and cached == stamps and record['inventory_files'] == len(files)
                     and _inventory_digest(record['inventory']) == record['inventory_sha256']):
-                # Normalise a legacy (protocol-less) hit in memory; the file stays as written.
-                return record if 'protocol' in record else dict(record, protocol='unseen')
+                return record
         except (OSError, ValueError, KeyError, TypeError):
             pass
-        raise ValueError(('training inventory cache holds another protocol: ' if wrong_protocol
-                          else 'stale training inventory cache: ') + str(cache))
-    record = dict(_inventory(files, root, workers), split='train', protocol=protocol, cache_key=key)
+        raise ValueError('stale training inventory cache: ' + str(cache))
+    record = dict(_inventory(files, root, workers), split='train', cache_key=key)
     cache.parent.mkdir(parents=True, exist_ok=True)
     write_completion(cache, record)
     return record
-
-
-def seen_split_identity(repo):
-    """Bind the authors' seen-split pickle as mutable_inputs['seen_split'] (path + sha256).
-
-    'seen_split' is an accepted binding name in tools/exp04_eval_launch.MUTABLE_INPUTS and
-    in tools/exp04_launcher.SEEN_INPUTS, which requires it on every --protocol seen run.
-    """
-    return {'path': SEEN_SPLIT, 'sha256': sha256_file(Path(repo) / SEEN_SPLIT)}
 
 
 def revalidate(manifest, required=(), source_drift=None):

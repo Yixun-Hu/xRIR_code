@@ -10,10 +10,6 @@ import pytest
 
 from tools import provenance as p
 
-ROOT = Path(__file__).resolve().parents[1]
-REAL_DATA_ROOT = os.environ.get('XRIR_DATA_PATH', '')
-REAL_COUNTS = {'unseen': 296334, 'seen': 296454}
-
 
 @pytest.fixture
 def repo(tmp_path):
@@ -260,25 +256,17 @@ def test_revalidate_detects_mutable_inputs(data, tmp_path, field):
     assert p.revalidate(fields)
 
 
-@pytest.fixture
-def protocol_root(data, monkeypatch):
-    """The synthetic root with every category and one room the unseen split holds out."""
-    monkeypatch.chdir(ROOT)  # the frozen seen module opens its pickle relative to the cwd
-    root = data[0]
+@pytest.mark.parametrize('change', ['bytes', 'mtime', 'name', 'missing'])
+def test_training_inventory_cache_is_checked(data, tmp_path, monkeypatch, change):
+    import os
+    from treble_multi_room_dataset.treble_xRIR_dataset import xRIR_Dataset
+    root, _, names = data
     for category in ['Bathrooms', 'Cafe', 'LivingRoomsWithHallway', 'Office',
                      'Auditorium', 'Bedrooms', 'ListeningRoom', 'MeetingRoom', 'Restaurants']:
         (root / 'single_channel_ir' / category).mkdir()
     held_out = root / 'single_channel_ir/Apartments/Apartments_idx_50'
     held_out.mkdir()
     (held_out / 'excluded.wav').write_bytes(b'test split')
-    return root
-
-
-@pytest.mark.parametrize('change', ['bytes', 'mtime', 'name', 'missing'])
-def test_training_inventory_cache_is_checked(data, protocol_root, tmp_path, monkeypatch, change):
-    import os
-    from treble_multi_room_dataset.treble_xRIR_dataset import xRIR_Dataset
-    root, _, names = data
     cache = tmp_path / 'train_cache.json'
     result = p.train_data_identity(root, cache_path=cache, workers=2)
     listed = xRIR_Dataset(split='train', ir_path=str(root / 'single_channel_ir')).file_list
@@ -316,69 +304,3 @@ def test_revalidate_checks_writer_and_extra_inputs(tmp_path):
     assert p.revalidate(fields) == []
     file.write_bytes(b'mutated')
     assert p.revalidate(fields) == ['training_args', 'source.writer.' + str(file)]
-
-
-def test_train_data_identity_is_protocol_isolated(protocol_root, tmp_path):
-    caches = {name: tmp_path / (name + '.json') for name in REAL_COUNTS}
-    records = {name: p.train_data_identity(protocol_root, name, cache_path=path, workers=2)
-               for name, path in caches.items()}
-    # The seen protocol also trains on the room the unseen protocol holds out.
-    assert [records[name]['inventory_files'] for name in ('unseen', 'seen')] == [2, 3]
-    assert all(records[name]['protocol'] == name and records[name]['split'] == 'train'
-               for name in records)
-    assert records['unseen']['cache_key'] != records['seen']['cache_key']
-    assert records['unseen']['inventory_sha256'] != records['seen']['inventory_sha256']
-    for name, other in (('unseen', 'seen'), ('seen', 'unseen')):
-        with pytest.raises(ValueError, match='protocol'):
-            p.train_data_identity(protocol_root, name, cache_path=caches[other])
-    with pytest.raises(ValueError, match='unknown protocol'):
-        p.train_data_identity(protocol_root, 'Seen', cache_path=caches['unseen'])
-    legacy = json.loads(caches['unseen'].read_text())  # exp_04/exp_05 caches predate the field
-    del legacy['protocol']
-    caches['unseen'].write_text(json.dumps(legacy))
-    stored = caches['unseen'].read_bytes()
-    # A legacy hit is normalised in memory only: the caller always sees 'protocol'.
-    assert (p.train_data_identity(protocol_root, 'unseen', cache_path=caches['unseen']) ==
-            dict(legacy, protocol='unseen') == records['unseen'])
-    assert caches['unseen'].read_bytes() == stored and 'protocol' not in json.loads(stored)
-    with pytest.raises(ValueError, match='protocol'):
-        p.train_data_identity(protocol_root, 'seen', cache_path=caches['unseen'])
-    (protocol_root / 'single_channel_ir/Apartments/room/S003_R002_hybrid_IR.wav').write_bytes(b'x')
-    for name, cache in caches.items():
-        with pytest.raises(ValueError, match='stale'):
-            p.train_data_identity(protocol_root, name, cache_path=cache)
-
-
-@pytest.mark.skipif(not os.path.isdir(REAL_DATA_ROOT), reason='needs the AcousticRooms cache')
-def test_train_data_identity_counts_the_real_protocol_splits(tmp_path, monkeypatch):
-    """Real file selection; hashing is stubbed so the suite never rereads 33 GB twice."""
-    monkeypatch.chdir(ROOT)
-    monkeypatch.setattr(p, 'sha256_file', lambda path: hashlib.sha256(str(path).encode()).hexdigest())
-    listed = {}
-    for protocol, expected in REAL_COUNTS.items():
-        cache = tmp_path / (protocol + '.json')
-        record = p.train_data_identity(REAL_DATA_ROOT, protocol, cache_path=cache)
-        assert (record['inventory_files'], record['protocol']) == (expected, protocol)
-        assert all(r['path'].startswith('single_channel_ir/') for r in record['inventory'])
-        listed[protocol] = {r['path'] for r in record['inventory']}
-        cache.unlink()  # a stubbed-digest inventory must never outlive the test
-    assert len(listed['seen'] - listed['unseen']) == 5244  # unseen test rooms minus 1093 seen-test pairs
-    assert len(listed['unseen'] - listed['seen']) == 5124  # seen-test pairs inside the unseen train rooms
-
-
-def test_seen_split_identity_binds_the_authors_pickle(tmp_path):
-    record = p.seen_split_identity(ROOT)
-    assert record == {'path': 'treble_multi_room_dataset/seen_test_split.pkl',
-                      'sha256': p.sha256_file(ROOT / record['path'])}
-    assert record['sha256'] == subprocess.check_output(
-        ['sha256sum', record['path']], cwd=str(ROOT), text=True).split()[0]
-    copy = tmp_path / record['path']
-    copy.parent.mkdir(parents=True)
-    copy.write_bytes((ROOT / record['path']).read_bytes())
-    assert p.seen_split_identity(tmp_path) == record
-    fields = {'repo': str(tmp_path), 'mutable_inputs': {'seen_split': record}}
-    assert p.revalidate(fields) == []
-    copy.write_bytes(b'tampered split')
-    assert p.revalidate(fields) == ['seen_split']
-    copy.unlink()
-    assert p.revalidate(fields) == ['seen_split']
