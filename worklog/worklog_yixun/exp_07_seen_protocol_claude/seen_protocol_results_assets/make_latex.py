@@ -67,10 +67,15 @@ def body(record):
 
 SD_DECIMALS = {'EDT': 3, 'C50': 4, 'T60': 3}
 SD_MAX_DECIMALS = 12
+SD_SCIENTIFIC = 3
 
 
 def sd_number(value, decimals):
-    """Never print a positive SD as zero; a genuine zero keeps the table's precision."""
+    """Never print a positive SD as zero; a genuine zero keeps the table's precision.
+
+    Below the fixed-decimal cap even the widest fixed form rounds to zero, so such a
+    value is printed in scientific notation rather than contradicting the invariant.
+    """
     if value is None:
         return '--'
     if value == 0:
@@ -78,7 +83,8 @@ def sd_number(value, decimals):
     places = decimals
     while places < SD_MAX_DECIMALS and float(format(value, '.' + str(places) + 'f')) == 0:
         places += 1
-    return format(value, '.' + str(places) + 'f')
+    text = format(value, '.' + str(places) + 'f')
+    return text if float(text) != 0 else format(value, '.' + str(SD_SCIENTIFIC) + 'e')
 
 
 def note(name, shot, rows):

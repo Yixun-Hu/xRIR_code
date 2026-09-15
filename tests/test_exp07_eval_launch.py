@@ -35,7 +35,9 @@ def seen_args(launch_args):
 
 def test_the_launcher_spawns_the_exp07_entry_point():
     args = launcher.parse_args(cli('--split', 'seen'))
-    assert (args.entry, args.split) == ('exp07', 'seen')
+    # Nit 9: this launcher has no --entry at all; it spawns tools/exp07_eval.py and nothing else.
+    assert args.split == 'seen' and not hasattr(args, 'entry')
+    assert '--entry' not in Path(launcher.__file__).read_text()
     command = launcher.child_command(args, REPO)
     assert command[1] == str(REPO / launcher.ENTRY)
     assert command[command.index('--split') + 1] == 'seen'
@@ -43,7 +45,7 @@ def test_the_launcher_spawns_the_exp07_entry_point():
 
 
 @pytest.mark.parametrize('extra', [[], ['--split', 'held-out'], ['--tier', 'S'],
-                                   ['--entry', 'exp04'], ['--entry', 'exp05']])
+                                   ['--entry', 'exp07'], ['--entry', 'exp04']])
 def test_missing_or_foreign_arguments_are_refused(extra):
     with pytest.raises(SystemExit):
         launcher.parse_args(cli(*extra))

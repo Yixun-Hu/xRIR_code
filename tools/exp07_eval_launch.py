@@ -33,7 +33,7 @@ WRITER = 'tools.exp07_eval_launch'
 
 
 def parse_args(argv=None):
-    """exp_04's evaluation CLI plus ``--split``; ``--entry`` names this launcher only."""
+    """exp_04's evaluation CLI plus ``--split``; there is no entry-point choice here."""
     parser = evaluator.build_parser(require_eval_manifest=False)
     for name in ('run-label', 'reviewed-commit', 'data-root', 'log-dir'):
         parser.add_argument('--' + name, required=True)
@@ -41,7 +41,6 @@ def parse_args(argv=None):
     parser.add_argument('--gpu', default='1')
     parser.add_argument('--allow-dirty', action='store_true')
     parser.add_argument('--bind-input', action='append', default=[], metavar='NAME=PATH')
-    parser.add_argument('--entry', choices=('exp07',), default='exp07')
     args = parser.parse_args(argv)
     if args.eval_manifest is not None:
         parser.error('eval-manifest is created by the launcher')

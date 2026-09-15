@@ -553,7 +553,9 @@ def test_every_sd_footnote_names_its_k_and_its_row(record_inputs):
 
 @pytest.mark.parametrize('value,decimals,expected', [
     (0.0, 3, '0.000'), (0.000001, 3, '0.000001'), (1.2e-9, 4, '0.000000001'),
-    (12.3456, 3, '12.346'), (0.00049, 3, '0.0005'), (None, 3, '--')])
+    (12.3456, 3, '12.346'), (0.00049, 3, '0.0005'), (None, 3, '--'),
+    # Nit 8: below the fixed-decimal cap the widest fixed form is still zero.
+    (1e-13, 3, '1.000e-13'), (4.56e-15, 4, '4.560e-15')])
 def test_a_positive_sd_never_prints_as_zero(value, decimals, expected):
     """A genuine zero keeps the table's precision; a positive SD gains digits until visible."""
     latex = load_asset('make_latex')
