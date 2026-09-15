@@ -1,12 +1,12 @@
 """Literal exp_07 (seen protocol) analysis specification; unbuilt identities stay None.
 
-The seen reference manifests and the query list they fix do not exist until the Planner
-builds them with tools/exp07_manifests.py, and the three seen checkpoints do not exist
-until the trainings finish.  ``dataset.query_sha256``, ``dataset.inventory_sha256``, the
-ten manifest hashes of ``seeds`` and the new arms' ``sha256`` are therefore documented
-placeholders, filled in the plan's pin-finalisation step (plan section 3) and checked
-against the artefacts by tests/test_exp07_profiles.py as soon as those exist.  The
-released checkpoint is external and pinned here and now.
+The seen reference manifests, the query list they fix and the evaluation data identity
+they select exist (built 2026-09-15) and are pinned here, each checked against its
+artefact by tests/test_exp07_profiles.py.  The three seen checkpoints do not exist until
+the trainings finish: the new arms' ``sha256`` stays a documented placeholder and the
+runtime approval file (``checkpoints.<role>.sha256``, plan section 3's pin-finalisation
+step) is what tools/exp07_table.py substitutes for it.  The released checkpoint is
+external and pinned here and now.
 
 Digests use the shared canonical JSON encoding.  No checkpoint, reference manifest or
 source file is read while importing profiles.
@@ -57,9 +57,29 @@ RECIPE = freeze(dict(num_shot=8, max_len=9600, lr=.001, weight_decay=.0001, deca
                      protocol='seen'))
 FULL_RUN = freeze(dict(no_save=False, resume=None, max_train_batches=0, max_test_batches=0,
                        test_subset=0))
-DATASET = freeze(dict(split='seen', n_queries=6217, n_rooms=131, query_sha256=None,
-                      inventory_sha256=None, seen_split_sha256=SEEN_SPLIT_SHA256))
-SEEDS = MP({shot: MP({seed: None for seed in EVAL_SEEDS}) for shot in (8, 1)})
+# query_sha256: the canonical digest of the 6 217 ordered queries of every manifest.
+# inventory_sha256: the evaluation data identity of those queries (13 064 files), which
+# is the same set at K = 8 and K = 1 because every reference is itself a seen query.
+DATASET = freeze(dict(
+    split='seen', n_queries=6217, n_rooms=131,
+    query_sha256='be5095a8501211be43cbab6b0f11658b261c54376743ed36fa617a6b1d0e1266',
+    inventory_sha256='251b7d7b3ec7b4462ca9c99ef18f088f338596047d637513d9ec3a2a9814a9e1',
+    seen_split_sha256=SEEN_SPLIT_SHA256))
+# Semantic hashes of ckpt/exp07/reference_manifest_seen_k{K}_seed{s}.json, built and
+# indexed by tools/exp07_manifests.py on 2026-09-15; the index and the manifests
+# themselves are checked against these literals by tests/test_exp07_profiles.py.
+SEEDS = MP({
+    8: MP({42: '2aaa459f52369bb8eb4a2092b7c6ecb65b95164d54d87d32a7703fa082a884e5',
+           43: '92c7eee3fa86ae6ec64a6cb2d043ff38978bf01d800d70ba1d5e82d00046d0f4',
+           44: '1b1f9860ce553266fb8c2d866fa4b2628243113b584a8dd21b502c13387838c8',
+           45: 'cc1e71c300fb75eb17becb6dd586e81401f7b75f3eda9f1a8a71193ac82ae3fd',
+           46: 'e0f33d8565c98f23c1d19e00c541013a471b71de0ba4af45e6675d51551871a9'}),
+    1: MP({42: '939163752323ca225216c2106ce69cc60f4a94f876bb66706b773491a8b3f059',
+           43: 'd552a5d63f7b1ea9d5bc3106f4ddda9bb0549cc3ce29a33993b2fdf3d604a5b4',
+           44: 'b199203a1c502b6e10c9ff7a1fdaa351822ee46c4e6729e224b37d846c014020',
+           45: '5fc6cdc59acac960d7dd520ae941642d32829efc14b9c60a165bf8c6c5734dc1',
+           46: '91ac1117b395ac585e2550554c314d04b54500d197166d770fe79784169bffea'}),
+})
 COMMON = MP({'schema_version': 1, 'protocol': 'seen', 'tier': 'M', 'condition': 'P',
              'alpha': .05, 'n_boot': 20000, 'bootstrap_seeds': (0, 1), 'seed_sd_ddof': 1,
              'convergence_tolerance': .10, 'seeds': SEEDS, 'eval_seeds': EVAL_SEEDS,

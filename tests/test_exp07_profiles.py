@@ -2,6 +2,7 @@
 import hashlib
 import importlib
 import json
+import os
 import re
 import shlex
 from pathlib import Path
@@ -140,7 +141,7 @@ def test_the_pairs_profile_is_descriptive_with_absolute_and_relative_statistics(
 
 
 def test_identities_that_do_not_exist_yet_are_placeholders_or_digests():
-    """None = built at pin finalisation; the agreement tests below check filled values."""
+    """None = supplied at pin finalisation; the agreement tests below check filled values."""
     table = profiles.get_profile('TABLE_SEEN_V1')
     pinned = [table['dataset']['query_sha256'], table['dataset']['inventory_sha256']]
     pinned += [arm['sha256'] for arm in table['arms'] if arm['role'] != 'released_seen']
@@ -196,12 +197,57 @@ def filled(value):
     return value
 
 
-def test_the_committed_approval_file_is_the_all_null_template(template):
+def test_the_all_null_template_loads_and_pins_nothing(tmp_path, template):
+    """The unfinalised state, read from an isolated copy of the committed schema."""
+    pins, _ = profiles.load_approved_digests(approval_repo(tmp_path, template))
+    assert profiles.json_value(pins) == template
+    assert all(pins['closures'][key] in (None, ()) for key in profiles.CLOSURES)
+    assert all(value is None for arm in pins['checkpoints'].values() for value in arm.values())
+
+
+def test_the_committed_approval_file_is_a_valid_lifecycle_state(template):
+    """Before finalisation the committed file is the template; afterwards it is filled.
+
+    The loader refuses every half-filled state, so both are complete; which one is
+    committed is a fact about the experiment's progress, not about the schema.
+    """
     pins, receipt = profiles.load_approved_digests()
     raw = profiles.APPROVED_DIGESTS_PATH.read_bytes()
-    assert profiles.json_value(pins) == json.loads(raw) == template
+    value = json.loads(raw)
+    assert profiles.json_value(pins) == value
     assert receipt['sha256'] == hashlib.sha256(raw).hexdigest() and len(receipt['git_blob']) == 40
     assert receipt['path'] == str(profiles.APPROVED_DIGESTS_PATH.resolve())
+    assert set(value) == set(template) and set(value['closures']) == set(template['closures'])
+    assert set(value['checkpoints']) == set(template['checkpoints'])
+    pinned = [value['schema_version']] + [value['closures'][key] for key in template['closures']]
+    pinned += [item for arm in value['checkpoints'].values() for item in arm.values()]
+    assert value == template or all(item not in (None, [], '') for item in pinned)
+
+
+@pytest.mark.parametrize('role,backbone,yaw', NEW_ARMS)
+def test_the_new_arm_checkpoint_digests_come_from_the_runtime_approval(role, backbone, yaw):
+    """The profile placeholder documents the path and epoch only.
+
+    tools.exp07_table.admit replaces it with approved_digests.json's digest before any
+    run is matched, so a trained arm is pinned by the approval file and by nothing else.
+    """
+    arm = next(item for item in profiles.ARMS if item['role'] == role)
+    path = ROOT / arm['checkpoint']
+    if arm['sha256'] is None:
+        assert not path.exists() or prov.sha256_file(path)  # the approval pins it
+    else:
+        assert path.exists() and arm['sha256'] == prov.sha256_file(path)
+
+
+def test_the_evaluation_inventory_pin_is_the_manifests_data_identity():
+    """The pinned identity is what tools/exp04_eval_launch.py records for every run."""
+    path, root = MANIFESTS / manifest_name(8, 42), os.environ.get('XRIR_DATA_PATH')
+    if not path.exists() or not root or not Path(root).is_dir():
+        pytest.skip('the seen manifests or the AcousticRooms root are not present')
+    table = profiles.get_profile('TABLE_SEEN_V1')
+    identity = prov.data_identity(path, root)
+    assert identity['inventory_sha256'] == table['dataset']['inventory_sha256']
+    assert prov._inventory_digest(identity['inventory']) == identity['inventory_sha256']
 
 
 def test_a_filled_approval_is_accepted_and_frozen(tmp_path, template):
