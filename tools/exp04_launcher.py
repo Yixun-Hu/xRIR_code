@@ -278,15 +278,14 @@ def promote(attempt):
             temporary.unlink()
 
 
-def train_minimum(protocol):
-    return TRAIN_MINIMUM | ({SEEN_MODULE} if protocol == 'seen' else set())
-
-
 TRAIN_MINIMUM = {'train_xRIR_backbone.py', 'treble_multi_room_dataset/treble_xRIR_dataset.py',
     'tools/exp05_params.py',
     'model/xRIR.py', 'model/xRIR_cyl.py', 'model/simple_vit.py', 'model/cylindrical_vit.py',
     'utils/spec_utils.py', 'utils/lr_scheduler.py', 'tools/yaw_aug.py', 'tools/yaw_rotation.py'}
 
+
+def train_minimum(protocol):
+    return TRAIN_MINIMUM | ({SEEN_MODULE} if protocol == 'seen' else set())
 
 
 CONTROL_EXCLUSIONS = {'save_dir', 'yaw_aug', 'yaw_aug_seed', 'yaw_aug_width', 'no_save',
