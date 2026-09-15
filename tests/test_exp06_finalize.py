@@ -80,8 +80,8 @@ def provenance_record(repo=None):
     return copy.deepcopy(_base_record(str(repo if repo is not None else REPO)))
 
 
-def full_args():
-    return dict(exp06_recipe.EXP01_RECIPE, backbone='cylindrical_oriented',
+def full_args(**overrides):
+    args = dict(exp06_recipe.EXP01_RECIPE, backbone='cylindrical_oriented',
                 save_dir='ckpt/exp06/pretrain/attempt_x', num_workers=12, log_interval=50,
                 save_every=500, epoch_ckpt_every=1,
                 env={'PYTHONHASHSEED': '0', 'XRIR_DATA_PATH': '/data',
@@ -93,6 +93,16 @@ def full_args():
                 exp06_run_type='full', exp06_registry_sha256='a' * 64,
                 exp06_source_closure_sha256='b' * 64, exp06_git_head='c' * 40,
                 exp06_provenance_path='provenance.json')
+    args.update(overrides)
+    return args
+
+
+def bound_args(run, record, **overrides):
+    """The arguments a real run records: every exp06_* field bound to its own record."""
+    return full_args(exp06_git_head=record['git_state']['HEAD'],
+                     exp06_registry_sha256=exp06_train.registry_sha256(),
+                     exp06_source_closure_sha256=record['source_closures']['training']['sha256'],
+                     exp06_provenance_path=str(Path(run) / 'provenance.json'), **overrides)
 
 
 def history_rows(epochs=range(1, 13)):
@@ -109,7 +119,7 @@ def full_run(tmp_path, clone, data_root):
     record = provenance_record(clone)
     record['data_root'] = str(Path(data_root).resolve())
     record['train_data_identity'] = inventory_of(data_root)
-    args = full_args()
+    args = bound_args(run, record)
     record['effective_args'] = args
     (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
     (run / 'args.json').write_text(json.dumps(args, indent=2))
@@ -869,7 +879,7 @@ def test_cli_exits_two_on_a_malformed_checkpoint(full_run, clone):
 
 def rewrite_sources(run, mutate_json=None, mutate_checkpoint=None, mutate_provenance=None):
     """Rewrite the three recorded copies of the arguments independently."""
-    args = full_args()
+    args = json.loads((run / 'args.json').read_text())
     json_args = mutate_json(dict(args)) if mutate_json else dict(args)
     ckpt_args = mutate_checkpoint(dict(args)) if mutate_checkpoint else dict(json_args)
     prov_args = mutate_provenance(dict(args)) if mutate_provenance else dict(json_args)
@@ -907,7 +917,8 @@ def test_argument_source_refusals_are_named(full_run, clone, damage, cause):
     elif damage == 'checkpoint_no_save_int':
         rewrite_sources(run, mutate_checkpoint=lambda a: dict(a, no_save=0))
     elif damage == 'float_param_counts':
-        floats = {key: float(value) for key, value in full_args()['param_counts'].items()}
+        floats = {key: float(value)
+                  for key, value in json.loads((run / 'args.json').read_text())['param_counts'].items()}
         rewrite_sources(run, mutate_json=lambda a: dict(a, param_counts=floats))
     elif damage == 'missing_operational':
         drop = lambda a: {k: v for k, v in a.items() if k != 'num_workers'}
@@ -924,6 +935,44 @@ def test_argument_source_refusals_are_named(full_run, clone, damage, cause):
     with pytest.raises(ValueError, match=cause):
         exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
     assert not (run / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('field,value', [
+    ('exp06_run_type', 'probe'), ('exp06_git_head', 'c' * 40),
+    ('exp06_registry_sha256', 'a' * 64), ('exp06_source_closure_sha256', 'b' * 64),
+    ('exp06_provenance_path', '/wrong/provenance.json')])
+def test_false_exp06_bindings_are_refused_even_when_all_copies_agree(full_run, clone, field, value):
+    """Blocker 2: the exp06_* fields bind the execution record, not each other."""
+    run, log = full_run
+    rewrite_sources(run, mutate_json=lambda a: dict(a, **{field: value}))
+    with pytest.raises(ValueError, match=field):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert not (run / 'completion.json').exists()
+
+
+def test_the_registry_digest_is_recomputed_at_finalisation(full_run, clone):
+    """Blocker 2: provenance may not declare a registry other than the one on disk."""
+    run, log = full_run
+    record = json.loads((run / 'provenance.json').read_text())
+    assert record['registry_sha256'] == exp06_train.registry_sha256()
+    record['registry_sha256'] = 'a' * 64
+    (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    with pytest.raises(ValueError, match='registry_sha256'):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert not (run / 'completion.json').exists()
+
+
+def test_the_provenance_path_must_be_the_validated_record(full_run, clone):
+    """Blocker 2: a binding to some other provenance file is not this run's record."""
+    run, log = full_run
+    other = run.parent / 'provenance.json'
+    other.write_text((run / 'provenance.json').read_text())
+    rewrite_sources(run, mutate_json=lambda a: dict(a, exp06_provenance_path=str(other)))
+    with pytest.raises(ValueError, match='exp06_provenance_path'):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    rewrite_sources(run, mutate_json=lambda a: dict(
+        a, exp06_provenance_path=os.path.relpath(str(run / 'provenance.json'), str(clone))))
+    assert exp06_finalize.finalize(run, 'full', log, 0, repo=clone)['admissible_arm'] is True
 
 
 def test_a_modified_closure_file_is_refused_after_provenance_was_written(full_run, clone):
