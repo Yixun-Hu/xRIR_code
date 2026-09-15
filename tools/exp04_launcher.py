@@ -19,7 +19,14 @@ GOLDENS = REPO / ('worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/'
 ENV_KEYS = ('XRIR_DATA_PATH', 'PYTHONHASHSEED', 'OMP_NUM_THREADS', 'CUDA_VISIBLE_DEVICES')
 DATA_ROOT = '/home/yixunhu/data_cache/AcousticRooms'
 TIER_RECORD = 'worklog/worklog_yixun/exp_05_param_efficiency_claude'
+EXP07_RECORD = 'worklog/worklog_yixun/exp_07_seen_protocol_claude'
 REQUIRED_INPUTS = ('repo', 'source_closures', 'train_data_identity', 'effective_args', 'mutable_inputs')
+SEEN_MODULE = 'treble_multi_room_dataset/treble_xRIR_seen_dataset.py'
+SEEN_INPUTS = {'seen_split'}  # mutable inputs a --protocol seen run must bind and revalidate
+SEEN_ARMS = {('simple', 0): 'seen_simple', ('cylindrical', 0): 'seen_cyl', ('simple', 1): 'seen_aug'}
+SEEN_CONTROL = 'ckpt/xRIR_simple_yawaug_8_shot/final/args.json'  # seen_aug's unseen twin (exp_04)
+TRAIN_FILES = {'unseen': 296334, 'seen': 296454}
+TRAIN_BATCHES = {'unseen': 9261, 'seen': 9265}
 
 
 def child_environment(gpu):
@@ -28,15 +35,38 @@ def child_environment(gpu):
                 PYTHONPATH=str(REPO), PYTHONUNBUFFERED='1')
 
 
-def arm_root(tier, backbone):
+def flag_value(argv, flag, default=None):
+    index = argv.index(flag) if flag in argv else -1
+    return argv[index + 1] if 0 <= index < len(argv) - 1 else default
+
+
+def seen_arm(backbone, yaw_aug=0):
+    """Name the exp_07 arm of a backbone/yaw pair; the flag may be an int or its argv string."""
+    key = (backbone, {None: 0, 0: 0, 1: 1, '0': 0, '1': 1}.get(yaw_aug, -1))
+    if key not in SEEN_ARMS:
+        raise ValueError('no seen arm for backbone/yaw: {}/{}'.format(backbone, yaw_aug))
+    return SEEN_ARMS[key]
+
+
+def protocol_of(fields):
+    return fields.get('protocol') or fields.get('effective_args', {}).get('protocol') or 'unseen'
+
+
+def arm_root(tier, backbone, protocol='unseen', yaw_aug=0):
+    if protocol == 'seen':
+        return REPO / 'ckpt/exp07' / seen_arm(backbone, yaw_aug)
     return ROOT if tier == 'M' else REPO / 'ckpt/exp05' / (tier + '_' + backbone)
 
 
-def command(mode, attempt, tier='M', backbone='simple'):
+def command(mode, attempt, tier='M', backbone='simple', protocol='unseen', yaw_aug=0):
     if mode not in ('smoke', 'full'):
         raise ValueError('command requires smoke or full')
-    smoke = mode == 'smoke'
-    if (tier == 'M' and backbone != 'simple') or (tier != 'M' and smoke):
+    smoke, seen = mode == 'smoke', protocol == 'seen'
+    if seen and tier != 'M':
+        raise ValueError('the seen protocol runs at tier M only')
+    if seen:
+        seen_arm(backbone, yaw_aug)
+    elif (tier == 'M' and backbone != 'simple') or (tier != 'M' and smoke):
         raise ValueError('M uses exp04 simple; S/L currently provide full argv only')
     result = [PYTHON, 'train_xRIR_backbone.py', '--backbone', 'simple', '--save-dir',
               str(attempt) + ('/smoke' if smoke else '')]
@@ -48,11 +78,15 @@ def command(mode, attempt, tier='M', backbone='simple'):
                           '--batch-size 32 --accum-steps 2 --num-workers 12')
     result += shlex.split('--seed 0 --tf32 --log-interval ' + ('1' if smoke else '50') +
                           ' --save-every 0 --epoch-ckpt-every ' + ('0 --no-save' if smoke else '1'))
+    yaw_flags = shlex.split('--yaw-aug 1 --yaw-aug-seed 0 --yaw-aug-width 512')
+    if seen:
+        result[result.index('--backbone') + 1] = backbone
+        return result + ['--protocol', 'seen'] + (yaw_flags if yaw_aug else [])
     if tier != 'M':
         result[result.index('--backbone') + 1] = backbone
         return result + [part for key, value in TIERS[tier].items()
                          for part in ('--vit-' + key.replace('_', '-'), str(value))]
-    return result + shlex.split('--yaw-aug 1 --yaw-aug-seed 0 --yaw-aug-width 512')
+    return result + yaw_flags
 
 
 def check_golden(argv, mode, attempt):
@@ -71,7 +105,19 @@ def check_golden(argv, mode, attempt):
             raise ValueError('argv differs from golden tier arm')
         path = REPO / TIER_RECORD / 'param_efficiency_results_assets' / ('argv_golden_{}_{}.txt'.format(tier, backbone))
         placeholder = 'ckpt/exp05/{}_{}/attempt_<ts>'.format(tier, backbone)
-    elif (REPO / 'ckpt/exp05').resolve() in (REPO / attempt).resolve().parents:
+    elif flag_value(argv, '--protocol') == 'seen':
+        try:
+            arm = seen_arm(flag_value(argv, '--backbone'), flag_value(argv, '--yaw-aug', 0))
+        except ValueError as error:
+            raise ValueError('argv differs from golden seen arm') from error
+        placeholder = 'ckpt/exp07/{}/{}<ts>'.format(arm, 'attempt_' if mode == 'full' else '_smoke_')
+        prefix = placeholder[:-len('<ts>')]
+        if not str(attempt).startswith(prefix) or not re.fullmatch(r'[A-Za-z0-9_-]+', str(attempt)[len(prefix):]):
+            raise ValueError('argv differs from golden seen arm')
+        path = REPO / EXP07_RECORD / 'seen_protocol_results_assets' / (
+            'argv_golden_{}{}.txt'.format(arm, '' if mode == 'full' else '_smoke'))
+    elif any((REPO / name).resolve() in (REPO / attempt).resolve().parents
+             for name in ('ckpt/exp05', 'ckpt/exp07')):
         raise ValueError('argv differs from golden tier arm')
     if not path.is_file():
         raise ValueError('golden file missing: ' + path.name)
@@ -129,8 +175,9 @@ def check_runtime(runtime, expected, mode):
                    actual[key] != expected[key]]
     if differences:
         raise LauncherFailure('guard_runtime_args', 'runtime args mismatch: ' + ', '.join(sorted(differences)))
-    if mode == 'full' and actual['train_batches_per_epoch'] != 9261:
-        raise ValueError('full requires train_batches_per_epoch == 9261')
+    expected_batches = TRAIN_BATCHES[actual.get('protocol', 'unseen')]
+    if mode == 'full' and actual['train_batches_per_epoch'] != expected_batches:
+        raise ValueError('full requires train_batches_per_epoch == ' + str(expected_batches))
 
 
 import fcntl
@@ -250,6 +297,7 @@ def compare_control(runtime, control, control_env):
         validate_parameters(values)
         for key in ('tier', 'param_counts'):
             values.pop(key, None)
+        values.setdefault('protocol', 'unseen')  # the historical comparators predate exp_07
         bpe = values.pop('train_batches_per_epoch', math.ceil(296334 / values['batch_size']))
         if type(bpe) is not int or bpe != math.ceil(296334 / values['batch_size']):
             raise ValueError('invalid train_batches_per_epoch')
