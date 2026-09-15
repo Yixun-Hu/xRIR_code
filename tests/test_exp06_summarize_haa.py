@@ -794,3 +794,27 @@ def test_the_registered_initialisations_are_exp01s_and_the_approved_epoch():
     assert inits['cyl_or'] is None and inits['cyl_hf'] == subject.EXP01_CYL['sha256']
     approved = {'artifacts': {'epoch_012': {'sha256': 'c' * 64}}}
     assert subject.expected_inits(approved)['cyl_or'] == 'c' * 64
+
+
+# --- finding 7: production approvals are the committed, reviewed bytes --------------------
+
+
+def test_production_approvals_are_bound_to_the_reviewed_commit(tmp_path):
+    """Plan 6.4 approves a commit, not a file: an uncommitted record never admits a run."""
+    template = Path(subject.approvals_api.approvals_module().TEMPLATE_PATH)
+    outside = tmp_path / 'approved_digests.json'
+    outside.write_text(template.read_text())
+    with pytest.raises(ValueError, match='outside the repository'):
+        subject.approvals(False, str(outside))
+    approved, receipt, deviations = subject.approvals(True, str(outside))
+    assert approved is not None and deviations and 'committed_at' not in receipt
+    with pytest.raises(ValueError, match='approvals incomplete'):
+        subject.approvals(False)              # the committed template, still all null
+
+
+def test_approvals_that_were_not_tracked_at_the_reviewed_commit_are_refused():
+    import subprocess
+    first = subprocess.check_output(['git', 'rev-list', '--max-parents=0', 'HEAD'],
+                                    cwd=str(subject.REPO), text=True).split()[0]
+    with pytest.raises(ValueError, match='not tracked at'):
+        subject.approvals(False, commit=first)

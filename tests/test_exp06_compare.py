@@ -916,3 +916,56 @@ def test_an_args_json_that_declares_another_tier_is_refused(tmp_path, checkpoint
             subject.admit_run(directory, 'B', approved, SPLIT, roles=ROLES)
     finally:
         args.write_text(original)
+
+
+# --- finding 7: production approvals are the committed, reviewed bytes --------------------
+
+
+def repo_head():
+    return provenance.git_state(subject.REPO)['HEAD']
+
+
+def first_commit():
+    import subprocess
+    return subprocess.check_output(['git', 'rev-list', '--max-parents=0', 'HEAD'],
+                                   cwd=str(subject.REPO), text=True).split()[0]
+
+
+def test_production_approvals_are_bound_to_the_reviewed_commit():
+    """A well-formed record is not an approval unless a reviewer committed those bytes."""
+    approved, receipt, deviations = subject.approvals(True)
+    assert approved is not None and 'committed_at' not in receipt
+    with pytest.raises(ValueError, match='approvals incomplete'):
+        subject.approvals(False)                      # the null template, but committed
+    _, receipt, _ = subject.approvals(True, commit=repo_head())
+    assert 'committed_at' not in receipt
+
+
+def test_an_uncommitted_approvals_file_is_refused_in_production(tmp_path):
+    outside = tmp_path / 'approved_digests.json'
+    outside.write_text(Path(subject.approvals_api.approvals_module()
+                            .TEMPLATE_PATH).read_text())
+    with pytest.raises(ValueError, match='outside the repository'):
+        subject.approvals(False, str(outside))
+    assert subject.approvals(True, str(outside))[0] is not None
+
+
+def test_approvals_that_were_not_tracked_at_the_reviewed_commit_are_refused():
+    with pytest.raises(ValueError, match='not tracked at'):
+        subject.approvals(False, commit=first_commit())
+
+
+def test_the_comparer_records_the_identity_of_the_approvals_it_used(runs, approved,
+                                                                    tmp_path, monkeypatch):
+    receipt = {'path': str(subject.REPO / 'tools/exp06_approved_digests_template.json'),
+               'sha256': 'a' * 64, 'repo_relative': 'tools/exp06_approved_digests_template.json',
+               'committed_at': repo_head()}
+    monkeypatch.setattr(subject, 'approvals',
+                        lambda exploratory, path=None, commit=None: (approved, receipt, []))
+    out, summary = tmp_path / 'h3.json', tmp_path / 'h3.txt'
+    subject.main(['--runs-c'] + runs['C'] + ['--runs-a'] + runs['A'] + ['--runs-b']
+                 + runs['B'] + ['--json', str(out), '--summary', str(summary),
+                                '--n-boot', '200', '--exploratory'])
+    record = json.loads(out.read_text())
+    assert record['approved_digests']['committed_at'] == repo_head()
+    assert record['inputs'][str(Path(receipt['path']).resolve())] == 'a' * 64
