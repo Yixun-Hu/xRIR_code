@@ -114,3 +114,36 @@ def test_cli_requires_the_data_root(capsys):
     with pytest.raises(SystemExit):
         subject.main(['--out-dir', 'unused'])
     assert 'data-root' in capsys.readouterr().err
+
+
+@pytest.fixture
+def repo(tmp_path, monkeypatch):
+    """A throwaway repository root whose split pickle can be replaced mid-build."""
+    root = tmp_path / 'repo'
+    (root / 'treble_multi_room_dataset').mkdir(parents=True)
+    (root / p.SEEN_SPLIT).write_bytes(b'the split the datasets are built from')
+    monkeypatch.setattr(subject, 'REPO', root)
+    return root
+
+
+def test_the_split_identity_is_captured_before_any_dataset_and_rechecked(tmp_path, tree, factory,
+                                                                        repo, monkeypatch):
+    """Otherwise a replacement during construction would be attributed the old manifests."""
+    order, identity = [], p.seen_split_identity
+    monkeypatch.setattr(subject.p, 'seen_split_identity',
+                        lambda root: order.append('split') or identity(root))
+    index = subject.build(tmp_path / 'exp07', seeds=(42,), num_shots=(3, 1),
+                          entries=len(tree[1]),
+                          factory=lambda num_shot: order.append('dataset') or factory(num_shot))
+    assert order == ['split', 'dataset', 'dataset', 'split']
+    assert index['seen_split'] == identity(repo)
+
+
+def test_a_split_replaced_between_the_shot_counts_refuses_the_index(tmp_path, tree, factory, repo):
+    out = tmp_path / 'exp07'
+    def mutating(num_shot):
+        (repo / p.SEEN_SPLIT).write_bytes(b'a different split file')
+        return factory(num_shot)
+    with pytest.raises(ValueError, match='seen_test_split'):
+        subject.build(out, seeds=(42,), num_shots=(3, 1), entries=len(tree[1]), factory=mutating)
+    assert not (out / subject.INDEX).exists()  # the manifests written so far block a silent re-run

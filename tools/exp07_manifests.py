@@ -44,13 +44,20 @@ def seen_dataset(num_shot, data_root=None, max_len=MAX_LEN):
 
 
 def build(out_dir, seeds=SEEDS, num_shots=NUM_SHOTS, entries=None, factory=seen_dataset):
-    """Write one manifest per (K, seed) and the index binding them; never overwrite."""
+    """Write one manifest per (K, seed) and the index binding them; never overwrite.
+
+    The split identity is captured BEFORE any dataset is constructed and re-checked
+    before the index is published: a pickle replaced while the grid is being built would
+    otherwise be recorded as the source of manifests drawn from the old split (or of a
+    mixed grid).  The captured binding is the one stored.
+    """
     expected = ENTRIES if entries is None else entries
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     index_path = out / INDEX
     if index_path.exists():
         raise FileExistsError(str(index_path))
+    split = p.seen_split_identity(REPO)  # before the first dataset reads the pickle
     manifests = {}
     for num_shot in num_shots:
         dataset = factory(num_shot)  # one dataset per K, reused across the seeds
@@ -68,9 +75,10 @@ def build(out_dir, seeds=SEEDS, num_shots=NUM_SHOTS, entries=None, factory=seen_
                                         entries=len(manifest['entries']),
                                         manifest_hash=manifest_hash(manifest),
                                         file_sha256=p.sha256_file(path))
+    if p.seen_split_identity(REPO) != split:
+        raise ValueError('seen_test_split.pkl changed while the manifests were built')
     index = dict(schema_version=1, entries=expected, num_shots=list(num_shots),
-                 seeds=list(seeds), seen_split=p.seen_split_identity(REPO),
-                 manifests=manifests)
+                 seeds=list(seeds), seen_split=split, manifests=manifests)
     p.write_manifest(index_path, index)
     return index
 
