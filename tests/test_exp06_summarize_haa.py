@@ -625,6 +625,52 @@ def test_the_side_split_covers_every_arm_room_and_metric(arms):
     assert entry['minus_y'] is not None and entry['plus_y'] is not None
 
 
+def filled_approvals():
+    """A complete, well-formed approvals record -- every digest plausible, none correct."""
+    api = subject.approvals_api
+    return api.validate({
+        'schema_version': 1,
+        'code': {key: 'a' * 64 for key in api.CODE_KEYS},
+        'reused': dict({key: 'b' * 64 for key in api.REUSED_DIGESTS},
+                       legacy_receipt={'path': 'r.json', 'sha256': 'c' * 64}),
+        'artifacts': {'epoch_012': {'path': 'e.pth', 'epoch': 12, 'sha256': 'd' * 64},
+                      'heading': {room: 'e' * 64 for room in api.ROOMS},
+                      'gate_g1_sha256': 'f' * 64}})
+
+
+def test_the_producer_closure_must_be_the_approved_one():
+    """Finding 3: a populated digest is not an approval of what actually ran."""
+    identity = subject.source_identity(strict=False)
+    approved = filled_approvals()
+    approved['code']['summarize_haa'] = identity['sha256']
+    subject.check_producer_identity(approved, 'summarize_haa', identity)
+    subject.check_producer_identity(approved, 'legacy_receipt', identity)
+    subject.check_producer_identity(None, 'summarize_haa', identity)
+    with pytest.raises(ValueError, match=r'not the approved code\.summarize_haa'):
+        subject.check_producer_identity(filled_approvals(), 'summarize_haa', identity)
+
+
+def test_the_exp02_record_and_the_g1_artifact_must_be_the_approved_ones(legacy_root,
+                                                                       tmp_path):
+    out = tmp_path / 'receipt.json'
+    record, _ = subject.write_legacy_receipt(out, legacy_root, strict=False)
+    canonical = {item['path']: item['sha256'] for item in record['files']}
+    gate = tmp_path / 'gate_g1.json'
+    gate.write_text('{"decision": "pass"}')
+    approved = filled_approvals()
+    approved['reused']['exp02_stats_sha256'] = canonical['stats.json']
+    approved['reused']['exp02_summary_sha256'] = canonical['summary.txt']
+    approved['artifacts']['gate_g1_sha256'] = sha(gate)
+    assert subject.check_reused_identities(approved, record, str(gate)) == {
+        str(gate.resolve()): sha(gate)}
+    assert subject.check_reused_identities(None, record, None) == {}
+    with pytest.raises(ValueError, match='requires --gate-g1'):
+        subject.check_reused_identities(approved, record, None)
+    approved['reused']['exp02_stats_sha256'] = '9' * 64
+    with pytest.raises(ValueError, match=r'not the approved reused\.exp02_stats_sha256'):
+        subject.check_reused_identities(approved, record, str(gate))
+
+
 def test_production_refuses_the_null_approvals_template():
     with pytest.raises(ValueError, match='approvals incomplete'):
         subject.approvals(False)
