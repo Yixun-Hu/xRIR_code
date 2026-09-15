@@ -9,12 +9,17 @@ Where the split identity lives: the evaluation manifest carries ``split`` and
 ``seen_split_sha256`` and is hash-bound by the completion (``eval_manifest_sha256``);
 both output metas carry the same two fields, are verified by the child itself before it
 exits (``exp07_eval.check_outputs``) and are hash-bound by the completion's ``outputs``.
-The reviewed ``execute_run`` therefore needs no split-specific branch.
+Binding them is not the same as requiring them to AGREE, and the child's own check is
+the child's: :func:`check_split_agreement` therefore compares both output metas with the
+manifest the launcher wrote, here, after the child exits and before the reviewed
+``execute_run`` can certify anything.  A disagreement aborts the run like any other
+failure -- no completion, the directory renamed ``_ABORTED_``.
 
     python tools/exp07_eval_launch.py --split seen --backbone simple \
         --checkpoint <ckpt> --num-shot 8 --manifest <seen manifest> \
         --manifest-hash <hash> --gl-seed 42 --conditions P --yaw-cols 0 ...
 """
+import json
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -106,11 +111,41 @@ def build_fields(args, command, repo):
     return fields
 
 
+def check_split_agreement(out_dir):
+    """Both output metas must declare the split identity the evaluation manifest does.
+
+    The reviewed run owner compares the manifest digest, the conditions and the sample
+    count; ``split`` and ``seen_split_sha256`` are exp_07's fields, so they are compared
+    by exp_07's own code.  The manifest is read from the run directory -- the bytes the
+    completion hash-binds -- not from the in-memory fields.
+    """
+    run = Path(out_dir)
+    declared = json.loads((run / 'eval_manifest.json').read_text())
+    expected = {key: declared.get(key) for key in SPLIT_FIELDS}
+    if any(value is None for value in expected.values()):
+        raise ValueError('the evaluation manifest declares no split identity')
+    for name in OUTPUTS:
+        meta = json.loads((run / name).read_text()).get('meta') or {}
+        if any(meta.get(key) != value for key, value in expected.items()):
+            raise ValueError('output split metadata mismatch: ' + name)
+
+
+def checked_child(runner, args):
+    """``exp04_eval_launch._run_child`` plus the split comparison of a successful child."""
+    def run_child(command, log_path, repo, data_root, gpu='1'):
+        status = runner(command, log_path, repo, data_root, gpu)
+        if status == 0:
+            check_split_agreement(args.out_dir)
+        return status
+    return run_child
+
+
 def main(argv=None):
     args = parse_args(argv)
     repo = Path(__file__).resolve().parents[1]
     command = child_command(args, repo)
-    return base.execute_run(args, command, lambda: build_fields(args, command, repo), repo)
+    with patch.object(base, '_run_child', checked_child(base._run_child, args)):
+        return base.execute_run(args, command, lambda: build_fields(args, command, repo), repo)
 
 
 if __name__ == '__main__':

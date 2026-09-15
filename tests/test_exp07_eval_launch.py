@@ -5,6 +5,7 @@ CPU-only, with the tiny stub children of tests/test_exp04_eval_launch.py.
 import json
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -160,3 +161,52 @@ def test_the_completion_hash_binds_the_split_through_the_eval_manifest(attempt):
     assert completion['eval_manifest_sha256'] == p.sha256_file(run / 'eval_manifest.json')
     assert completion['outputs'] == {name: p.sha256_file(run / name) for name in launcher.OUTPUTS}
     assert json.loads((run / 'completion.json').read_text()) == completion
+
+
+SPLIT_IDENTITY = dict(split='seen', seen_split_sha256='a' * 64)
+REWRITE = ("Path({path!r}).write_text(json.dumps(dict("
+           "meta=dict(meta, **{{{field!r}: {value!r}}}), query=['q'])))")
+
+
+@pytest.fixture
+def stub_run(attempt, monkeypatch):  # noqa: F811  (exp_04's tiny CPU child)
+    """A real child through the shared run owner, launched by exp07_eval_launch.main."""
+    args, _, fields = attempt
+    fields.update(SPLIT_IDENTITY)
+    monkeypatch.setattr(launcher, 'parse_args', lambda argv: args)
+    monkeypatch.setattr(launcher, 'build_fields', lambda *rest: fields)
+    def spawn(extra=''):
+        monkeypatch.setattr(launcher, 'child_command',
+                            lambda args, repo: child_code(args.out_dir, extra))
+        return launcher.main([])
+    return SimpleNamespace(args=args, fields=fields, spawn=spawn)
+
+
+def test_a_child_that_evaluated_the_declared_split_is_finalized(stub_run):
+    completion = stub_run.spawn()
+    run = Path(stub_run.args.out_dir)
+    assert completion['confirmatory'] and (run / 'completion.json').is_file()
+    for name in launcher.OUTPUTS:
+        meta = json.loads((run / name).read_text())['meta']
+        assert {key: meta[key] for key in launcher.SPLIT_FIELDS} == SPLIT_IDENTITY
+
+
+@pytest.mark.parametrize('name', launcher.OUTPUTS)
+@pytest.mark.parametrize('field', launcher.SPLIT_FIELDS)
+def test_a_child_that_evaluated_another_split_is_not_finalized(stub_run, name, field):
+    """Blocker 4: the split identity of BOTH output metas is compared before certification."""
+    value = 'unseen' if field == 'split' else 'b' * 64
+    extra = REWRITE.format(path=str(Path(stub_run.args.out_dir) / name), field=field, value=value)
+    with pytest.raises(ValueError, match='split metadata mismatch'):
+        stub_run.spawn(extra)
+    assert not Path(stub_run.args.out_dir).exists()
+    aborted, = Path(stub_run.args.data_root).glob('run_ABORTED_*')
+    assert not (aborted / 'completion.json').exists()
+    assert (aborted / 'abort.json').is_file()
+
+
+def test_a_manifest_without_a_split_identity_is_not_finalized(stub_run):
+    stub_run.fields.pop('seen_split_sha256')
+    with pytest.raises(ValueError, match='no split identity'):
+        stub_run.spawn()
+    assert not Path(stub_run.args.out_dir).exists()
