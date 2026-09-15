@@ -382,11 +382,15 @@ def run_record(run, attempts, released):
     return dict(record, role=owner['role'], **identity)
 
 
-def known_digests(runs, attempts, approval, released):
-    """Every artefact this report binds, by absolute path, with the digest it was bound at."""
+def known_digests(declarations, approval, released):
+    """Every artefact this report binds, by absolute path, with the digest it was bound at.
+
+    These maps are working evidence, not report content: one run declares its whole data
+    inventory, so they are merged here and never serialized into the binding report.
+    """
     known = {approval['path']: approval['sha256'], released['path']: released['sha256']}
-    for record in list(runs) + list(attempts):
-        known.update(record['bound'])
+    for item in declarations:
+        known.update(item)
     return known
 
 
@@ -416,9 +420,9 @@ def run_coverage(runs):
     return coverage
 
 
-def bind_results(paths, head, approval, runs, attempts, released):
+def bind_results(paths, head, approval, runs, attempts, released, declarations):
     """Every canonical producer output, revalidated, with exact coverage of its inputs."""
-    known = known_digests(runs, attempts, approval, released)
+    known = known_digests(declarations, approval, released)
     coverage = run_coverage(runs)
     by_role, trained = {}, {item['role']: item for item in attempts}
     for run in runs:
@@ -482,10 +486,12 @@ def collect(runs, attempt, audit, evidence, results, rendered, unseen_table, uns
     attempts = sorted((attempt_record(item, pins) for item in attempt), key=lambda a: a['role'])
     require(sorted(a['role'] for a in attempts) == sorted(pins['checkpoints']),
             'every approved arm must be bound exactly once')
+    declarations = [item.pop('bound') for item in attempts]
     paths = sorted(str(Path(item).resolve()) for item in runs)
     require(len(paths) == len(set(paths)) and len(paths) == len(IDENTITIES),
             'the forty evaluation runs')
     records = [run_record(item, attempts, released) for item in paths]
+    declarations += [item.pop('bound') for item in records]
     require({(item['role'], item['num_shot'], item['seed']) for item in records} == IDENTITIES,
             'the forty evaluation runs are the registered role/K/seed set')
     head = head or binder.subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT,
@@ -494,7 +500,7 @@ def collect(runs, attempt, audit, evidence, results, rendered, unseen_table, uns
                                   stdout=binder.subprocess.PIPE,
                                   stderr=binder.subprocess.PIPE).returncode == 0,
             'invalid binding HEAD')
-    published = bind_results(results, head, approval, records, attempts, released)
+    published = bind_results(results, head, approval, records, attempts, released, declarations)
     audited = audit_record(audit, head)
     evidenced = evidence_record(evidence, records, head)
     unseen, unseen_receipt = md.load_unseen(unseen_table, unseen_binding)

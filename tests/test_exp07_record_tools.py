@@ -299,6 +299,13 @@ def test_every_probe_attempt_is_linked_to_exactly_one_receipt(bound):
             assert Path(path).name == '_probe_t_arm' and Path(receipt).name.startswith('_probe_')
 
 
+def test_the_report_does_not_serialize_the_working_dependency_maps(bound):
+    """One real run declares its whole data inventory: those maps stay out of the report."""
+    report = bound.binder.collect(**bound.arguments)
+    assert all('bound' not in item for item in report['runs'] + report['attempts'])
+    assert json.dumps(report, allow_nan=False)
+
+
 def test_the_binding_report_covers_the_whole_seen_record(bound):
     report = bound.binder.collect(**bound.arguments)
     assert len(report['runs']) == 40 and len(report['attempts']) == 3
