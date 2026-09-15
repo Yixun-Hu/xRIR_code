@@ -325,6 +325,12 @@ def _validate_heading_record(record):
             raise ValueError('descriptive results required for both windows')
         for result in record['descriptive'].values():
             fit = result['continuous_fit']
+            values = ([fit[key] for key in ['phi_deg', 'a', 'b', 'mse']]
+                      + result['loo_phi_deg'] + result['loo_range_deg'])
+            if result['mean_direction_deg'] is not None:
+                values.append(result['mean_direction_deg'])
+            if any(type(value) not in (int, float) or not math.isfinite(value) for value in values):
+                raise ValueError('descriptive fields must be finite numbers')
             if (not {'phi_deg', 'a', 'b', 'mse'} <= fit.keys() or fit['b'] < 0 or fit['mse'] < 0
                     or len(result['loo_phi_deg']) != 12 or len(result['loo_range_deg']) != 2
                     or 'mean_direction_deg' not in result):

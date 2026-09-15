@@ -290,6 +290,18 @@ def test_json_roundtrip_and_missing_fields(heading_cache, tmp_path):
             write_heading_json(path, broken)
 
 
+def test_json_rejects_malformed_descriptive_numbers(heading_cache, tmp_path):
+    record = estimate_room_heading(heading_cache)
+    for key, value in [('continuous_fit', dict(phi_deg='bad', a=0, b=1, mse=0)),
+                       ('continuous_fit', dict(phi_deg=0, a=None, b=1, mse=0)),
+                       ('loo_phi_deg', ['bad'] * 12), ('loo_range_deg', [False, 0]),
+                       ('mean_direction_deg', 'bad')]:
+        broken = copy.deepcopy(record)
+        broken['descriptive']['5ms'][key] = value
+        with pytest.raises(ValueError):
+            write_heading_json(tmp_path / 'bad.json', broken)
+
+
 def test_refusal_record_and_override_rescue(heading_cache, tmp_path):
     # Equal compensated energies erase directional evidence in both windows.
     rirs = np.load(heading_cache / 'rirs.npy')
