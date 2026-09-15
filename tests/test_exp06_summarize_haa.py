@@ -249,8 +249,6 @@ def test_a_receipt_of_an_incomplete_arm_is_never_written(legacy_root, tmp_path):
 
 # --- exp_06's own arms ------------------------------------------------------------------
 
-STAMP = '2026-09-15T00:00:00+00:00'
-CLOSURE = 'c' * 64
 HEADING = {room: {'k': subject.HEADING_K, 'phi_deg': -90.0, 'decision': 'estimated',
                   'path': '/heading/{}.json'.format(room), 'sha256': 'b' * 64}
            for room in ROOMS}
@@ -258,6 +256,67 @@ HEADING = {room: {'k': subject.HEADING_K, 'phi_deg': -90.0, 'decision': 'estimat
 
 def sha(path):
     return subject.provenance.sha256_file(path)
+
+
+import os                                              # noqa: E402  (fixture imports)
+
+from test_exp06_haa import cache                        # noqa: F401,E402  (session fixture)
+from test_exp06_haa_pipeline import clone, finetune_seed  # noqa: F401,E402
+
+
+@pytest.fixture(scope='module')
+def real_job(finetune_seed, clone):
+    """One seed of nine children, certified exactly as tools/exp06_haa_pipeline.sh does."""
+    root, children, spec, joblog = finetune_seed
+    if not (Path(root) / 'completion.json').is_file():
+        subject.finalizer.finalize(root, 'haa_job', joblog, 0, repo=clone, children=children,
+                                   expect='finetune', job_spec=spec, owner_pid=os.getpid())
+    return root, clone
+
+
+def test_the_job_completion_schema_is_the_merged_finalizers(real_job):
+    """Amendment A3, reconciled: the finalizer's field names are the authoritative ones."""
+    root, _ = real_job
+    record = json.loads((Path(root) / 'completion.json').read_text())
+    assert set(subject.JOB_FIELDS) <= set(record)
+    assert subject.FORBIDDEN_JOB_FIELDS == ('child_exit_time', 'child_exit_receipt')
+    assert not set(subject.FORBIDDEN_JOB_FIELDS) & set(record)
+    assert type(record['owner_pid']) is int and record['owner_pid'] > 0
+    assert set(record['job_spec']) == {'path', 'sha256'}
+    assert record['run_type'] == 'haa_job' and record['expect'] == 'finetune'
+    assert set(record['children']) == set(subject.finalizer.expected_children('finetune'))
+
+
+def test_a_real_job_is_verified_through_the_finalizers_own_validators(real_job, cache,
+                                                                     monkeypatch):
+    """Findings 1-2: every child re-verified, two real closures, one heading per room."""
+    root, repo = real_job
+    monkeypatch.setattr(legacy, 'HAA_ROOT', cache['root'])
+    job = subject.verify_job(root, 'seed0', 'cyl_or', repo=repo)
+    assert set(job['children']) == set(subject.finalizer.expected_children('finetune'))
+    assert sorted(job['closure']) == ['haa_eval', 'haa_train']
+    assert job['closure']['haa_train'] != job['closure']['haa_eval']
+    assert all(len(value) == 64 for value in job['closure'].values())
+    assert set(job['heading']) == set(ROOMS) and len(set(job['heading'].values())) == 4
+    assert sorted(job['per']) == sorted(ROOMS)
+    assert job['record']['init_sha256'] == job['spec']['init_sha256']
+    assert job['record']['heading'] == {room: subject.HEADING_K for room in ROOMS}
+
+
+@pytest.mark.parametrize('case', ['spec_bytes', 'child_bytes'])
+def test_a_job_whose_bound_evidence_changed_is_refused(real_job, cache, monkeypatch, case):
+    root, repo = real_job
+    monkeypatch.setattr(legacy, 'HAA_ROOT', cache['root'])
+    record = json.loads((Path(root) / 'completion.json').read_text())
+    target = Path(record['job_spec']['path']) if case == 'spec_bytes' else \
+        Path(root) / 'stage1' / 'completion.json'
+    original = target.read_bytes()
+    target.write_bytes(original + b' ')
+    try:
+        with pytest.raises(ValueError, match='is not the (bytes|completion) '):
+            subject.verify_job(root, 'seed0', 'cyl_or', repo=repo)
+    finally:
+        target.write_bytes(original)
 
 
 NEW_OFFSETS = {'cyl_or': 0.02, 'control_hf': 0.04, 'cyl_hf': 0.06}
