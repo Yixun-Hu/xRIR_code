@@ -91,10 +91,32 @@ def _require(ok, cause):
         raise ValueError(cause)
 
 
-def _read_json(path, label):
+def bind(inputs, path, digest=None):
+    """Finding 2: record the bytes of one path, and refuse a contradictory second one.
+
+    Every reader binds what it actually read. Two readers of one path must agree, so a
+    file that changed between two reads of an analysis is a contradiction here rather
+    than a silent overwrite that publication would never notice.
+    """
+    path = str(Path(path).resolve())
+    digest = provenance.sha256_file(path) if digest is None else digest
+    recorded = inputs.setdefault(path, digest)
+    _require(recorded == digest, 'contradictory bindings for {}: {} and {}'.format(
+        path, recorded, digest))
+    return digest
+
+
+def _read_json(path, label, inputs=None):
+    """Parse one JSON file, binding the exact bytes that were parsed."""
     try:
-        return json.loads(Path(path).read_text())
-    except (OSError, ValueError) as error:
+        raw = Path(path).read_bytes()
+    except OSError as error:
+        raise ValueError('unreadable {}: {}'.format(label, error))
+    if inputs is not None:
+        bind(inputs, path, hashlib.sha256(raw).hexdigest())
+    try:
+        return json.loads(raw)
+    except ValueError as error:
         raise ValueError('unreadable {}: {}'.format(label, error))
 
 
@@ -222,11 +244,13 @@ def load_legacy(root, receipt_path=None, approved=None):
     repo-relative ``ckpt/sim2real`` -- because that checker compares each stage-2 ``init``
     string against ``<root>/stage1/best.pth``.
     """
+    # Finding 2: the receipt is verified first, so a changed historical artifact is
+    # refused before any of them is read into the tables.
+    receipt = None if receipt_path is None else verify_legacy_receipt(
+        receipt_path, root, approved)
     runs = legacy.load_runs(str(root))
     complete, problems = legacy.completeness(runs)
     _require(complete, 'the historical exp_02 root is incomplete: ' + '; '.join(problems))
-    receipt = None if receipt_path is None else verify_legacy_receipt(
-        receipt_path, root, approved)
     data = {}
     for arm in LEGACY_ARMS:
         init, jobs = ARMS[arm]['legacy_init'], {}
@@ -756,7 +780,7 @@ def cache_side_labels(room, cache_root=None, inputs=None):
     root = Path(cache_root or legacy.HAA_ROOT) / room
     if inputs is not None:      # finding 10: the side split rests on these bytes too
         for name in CACHE_GEOMETRY:
-            inputs[str((root / name).resolve())] = provenance.sha256_file(root / name)
+            bind(inputs, root / name)
     meta = _read_json(root / 'meta.json', '{}/meta.json'.format(room))
     xyz = np.load(str(root / 'xyzs.npy')).astype(float)
     speaker = np.load(str(root / 'speaker_xyz.npy')).astype(float).reshape(-1)
@@ -826,11 +850,22 @@ def arm_inputs(arms, receipt=None, receipt_path=None):
     """
     inputs = {}
     if receipt is not None:
-        inputs.update(receipt.get('inputs') or {})
+        for path, digest in sorted((receipt.get('inputs') or {}).items()):
+            bind(inputs, path, digest)
         if receipt_path is not None:
-            inputs[str(Path(receipt_path).resolve())] = receipt['sha256']
+            bind(inputs, receipt_path, receipt['sha256'])
     for arm in sorted(arms):
-        inputs.update(arms[arm].get('inputs') or {})
+        for path, digest in sorted((arms[arm].get('inputs') or {}).items()):
+            bind(inputs, path, digest)
+    return inputs
+
+
+def producer_inputs(inputs, producer=None, approvals_receipt=None):
+    """Finding 2: the producer closure and the approvals record this run published."""
+    for record in (producer or {}).get('files', ()):
+        bind(inputs, REPO / record['path'], record['working_tree_sha256'])
+    if approvals_receipt is not None:
+        bind(inputs, approvals_receipt['path'], approvals_receipt['sha256'])
     return inputs
 
 
@@ -922,8 +957,10 @@ def analyse(arms, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, cache_root=Non
                   'label': receipt['label'], 'files': len(receipt['files'])},
               'approved_digests': approvals_receipt, 'producer': producer,
               'side_split': side_split(arms, cache_root, inputs=cache_inputs)}
-    result['inputs'] = dict(arm_inputs(arms, receipt, receipt_path),
-                            **dict(cache_inputs, **dict(extra_inputs)))
+    result['inputs'] = arm_inputs(arms, receipt, receipt_path)
+    for path, digest in sorted(dict(cache_inputs, **dict(extra_inputs)).items()):
+        bind(result['inputs'], path, digest)
+    producer_inputs(result['inputs'], producer, approvals_receipt)
     result['H1'] = decision_cell(arms, H1, H1_ROOM, H1_METRIC, H1_MARGIN_DB, n_boot)
     result['H1b'] = decision_cell(arms, H1B, H1_ROOM, H1_METRIC, 0.0, n_boot)
     result['H2'] = screen_cells(arms, H1, n_boot, adjusted_n_boot)

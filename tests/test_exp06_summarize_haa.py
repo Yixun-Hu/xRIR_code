@@ -327,7 +327,8 @@ def stub_new_arms(monkeypatch):
     """The CLI's own tests: admission has its own, over children the finalizer wrote."""
     monkeypatch.setattr(subject, 'load_new_arm',
                         lambda root, arm, init_sha256=None, repo=subject.REPO,
-                        approved=None: synthetic_arm(arm, NEW_OFFSETS[arm]))
+                        approved=None, sensitivity=False:
+                        synthetic_arm(arm, NEW_OFFSETS[arm]))
 
 
 def test_the_legacy_branch_admits_the_complete_historical_root(legacy_root, tmp_path):
