@@ -381,16 +381,38 @@ def haa_train_args(heading_jsons, init_sha256, frame='heading', **overrides):
     return args
 
 
+def pipeline_history(epochs, val_every, lr=1e-4, val=lambda epoch: 1.0 / (epoch + 2)):
+    """Exactly the rows sim_to_real/finetune_haa.py lines 95-140 write.
+
+    Epoch 0 carries the initial validation and no train loss; every later epoch carries a
+    train loss, and a validation loss on the cadence and on the final epoch; ``is_best``
+    marks a strict improvement only.
+    """
+    rows = [{'epoch': 0, 'train_loss': None, 'val_loss': val(0), 'lr': lr}]
+    best, best_epoch = val(0), 0
+    for epoch in range(1, epochs + 1):
+        row = {'epoch': epoch, 'train_loss': 0.5 / epoch, 'lr': lr * 0.9 ** epoch}
+        if epoch % val_every == 0 or epoch == epochs:
+            row['val_loss'] = val(epoch)
+            if row['val_loss'] < best:
+                best, best_epoch = row['val_loss'], epoch
+                row['is_best'] = True
+        rows.append(row)
+    summary = {'best_epoch': best_epoch, 'best_val_loss': best, 'init_val_loss': val(0),
+               'epochs': epochs, 'minutes': 3.5, 'seed': 0}
+    return rows, summary
+
+
 def write_haa_train(run, args, log, repo, data_root, rows=None, summary=None, state=None):
     run.mkdir(parents=True, exist_ok=True)
     seal(run, log, text='stage output\n')
     (run / 'args.json').write_text(json.dumps(args))
     record = haa_provenance(repo, 'haa_train', args, data_root)
     (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
-    rows = [{'epoch': 10, 'val_loss': 0.7}, {'epoch': 20, 'val_loss': 0.5}] if rows is None else rows
+    written, computed = pipeline_history(args['epochs'], args['val_every'])
+    rows = written if rows is None else rows
     (run / 'history.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))
-    (run / 'summary.json').write_text(json.dumps(
-        {'best_val_loss': 0.5, 'best_epoch': 20} if summary is None else summary))
+    (run / 'summary.json').write_text(json.dumps(computed if summary is None else summary))
     for name in ('best.pth', 'last.pth'):
         torch.save(tiny_state() if state is None else state, run / name)
     return run
@@ -431,6 +453,76 @@ def test_haa_train_in_the_room_frame_needs_no_heading(tmp_path, haa_repo, headin
     assert fields['frame'] == 'room' and fields['heading'] is None
 
 
+def test_an_off_cadence_final_epoch_is_the_pipeline_format(tmp_path, haa_repo, heading_jsons,
+                                                           data_root):
+    """Blocker 3a: epochs 7 with val_every 2 validates 0, 2, 4, 6 and the final 7."""
+    init = haa_repo / 'init.pth'
+    torch.save(tiny_state(), init)
+    args = haa_train_args(heading_jsons, provenance.sha256_file(init), epochs=7, val_every=2)
+    run, log = tmp_path / 'stage1', tmp_path / 'child.log'
+    write_haa_train(run, args, log, haa_repo, data_root)
+    fields = exp06_finalize.finalize(run, 'haa_train', log, 0, repo=haa_repo)
+    assert fields['epochs'] == [0, 2, 4, 6, 7] and fields['best_epoch'] == 7
+
+
+def test_an_unimproved_initialisation_may_remain_the_best_checkpoint(tmp_path, haa_repo,
+                                                                     heading_jsons, data_root):
+    """Blocker 3a: best_epoch 0 is valid -- fine-tuning need not improve on the init."""
+    init = haa_repo / 'init.pth'
+    torch.save(tiny_state(), init)
+    args = haa_train_args(heading_jsons, provenance.sha256_file(init), epochs=4, val_every=2)
+    rows, summary = pipeline_history(4, 2, val=lambda epoch: 0.1 + epoch / 100.0)
+    run, log = tmp_path / 'stage1', tmp_path / 'child.log'
+    write_haa_train(run, args, log, haa_repo, data_root, rows=rows, summary=summary)
+    fields = exp06_finalize.finalize(run, 'haa_train', log, 0, repo=haa_repo)
+    assert fields['best_epoch'] == 0 and summary['best_val_loss'] == rows[0]['val_loss']
+
+
+EXP02_STAGE1 = REPO / 'ckpt/sim2real/control/seed0/stage1'
+
+
+@pytest.mark.skipif(not (EXP02_STAGE1 / 'history.jsonl').is_file(),
+                    reason='the retained exp_02 stage-1 record is not present')
+def test_the_retained_exp02_history_is_accepted(tmp_path):
+    """Blocker 3a: the frozen pipeline's own output must pass the validator."""
+    run = tmp_path / 'stage1'
+    run.mkdir()
+    for name in ('history.jsonl', 'summary.json'):
+        (run / name).write_text((EXP02_STAGE1 / name).read_text())
+    args = json.loads((EXP02_STAGE1 / 'args.json').read_text())
+    epochs, summary = exp06_finalize.haa_history(run, args)
+    assert epochs[0] == 0 and epochs[-1] == args['epochs'] and len(epochs) == 101
+    assert summary['best_epoch'] == 930 and summary['best_epoch'] in epochs
+
+
+def _drop(rows, epoch):
+    return [row for row in rows if row['epoch'] != epoch]
+
+
+HISTORY_DAMAGE = {
+    'history_epochs': lambda rows, summary: (rows[:3], summary),
+    'history_loss': lambda rows, summary: (
+        [dict(row, val_loss=float('inf')) if 'val_loss' in row else row for row in rows], summary),
+    'no_epoch_zero': lambda rows, summary: (rows[1:], summary),
+    'epoch_zero_trained': lambda rows, summary: ([dict(rows[0], train_loss=0.4)] + rows[1:],
+                                                 summary),
+    'missing_epoch': lambda rows, summary: (_drop(rows, 7), summary),
+    'off_cadence_val': lambda rows, summary: (
+        [dict(row, val_loss=9.0) if row['epoch'] == 7 else row for row in rows], summary),
+    'off_cadence_best': lambda rows, summary: (
+        [dict(row, is_best=True) if row['epoch'] == 7 else row for row in rows], summary),
+    'train_loss_nan': lambda rows, summary: (
+        [dict(row, train_loss=float('nan')) if row['epoch'] == 3 else row for row in rows], summary),
+    'no_lr': lambda rows, summary: (
+        [{key: value for key, value in row.items() if key != 'lr'} if row['epoch'] == 5 else row
+         for row in rows], summary),
+    'summary_best_val': lambda rows, summary: (rows, dict(summary, best_val_loss=-999.0)),
+    'summary_best_epoch': lambda rows, summary: (rows, dict(summary, best_epoch=7)),
+    'summary_init_val': lambda rows, summary: (rows, dict(summary, init_val_loss=0.123)),
+    'summary_epochs': lambda rows, summary: (rows, dict(summary, epochs=summary['epochs'] + 1)),
+}
+
+
 @pytest.mark.parametrize('damage,cause', [
     ('frame', 'frame'), ('no_heading', 'heading'), ('partial_heading', 'heading'),
     ('bad_k', 'roll'), ('bad_phi', 'phi_deg'), ('no_decision', 'estimated'),
@@ -440,7 +532,12 @@ def test_haa_train_in_the_room_frame_needs_no_heading(tmp_path, haa_repo, headin
     ('best_keys', 'best.pth'), ('rooms', 'rooms'), ('no_provenance', 'provenance.json'),
     ('wrong_run_type', 'run_type'), ('closure_drift', 'drift'), ('absent_entry', 'closure'),
     ('history_epochs', 'history.jsonl'), ('history_loss', 'history.jsonl'),
-    ('args_disagree', 'disagree')])
+    ('args_disagree', 'disagree'), ('no_epoch_zero', 'epoch 0'),
+    ('epoch_zero_trained', 'epoch 0'), ('missing_epoch', 'history.jsonl'),
+    ('off_cadence_val', 'val_loss'), ('off_cadence_best', 'is_best'),
+    ('train_loss_nan', 'train_loss'), ('no_lr', 'lr'),
+    ('summary_best_val', 'best_val_loss'), ('summary_best_epoch', 'best_epoch'),
+    ('summary_init_val', 'init_val_loss'), ('summary_epochs', 'epochs')])
 def test_haa_train_refusals_are_named(tmp_path, haa_repo, heading_jsons, data_root, damage, cause):
     init = haa_repo / 'init.pth'
     torch.save(tiny_state(), init)
@@ -475,11 +572,9 @@ def test_haa_train_refusals_are_named(tmp_path, haa_repo, heading_jsons, data_ro
         kwargs['summary'] = {'best_val_loss': 0.5}
     elif damage == 'best_keys':
         kwargs['state'] = {'source_network.weight': torch.zeros(1)}
-    elif damage == 'history_epochs':
-        kwargs['rows'] = [{'epoch': 10, 'val_loss': 0.5}]
-    elif damage == 'history_loss':
-        kwargs['rows'] = [{'epoch': 10, 'val_loss': 0.7},
-                          {'epoch': 20, 'val_loss': float('inf')}]
+    elif damage in HISTORY_DAMAGE:
+        rows, summary = pipeline_history(args['epochs'], args['val_every'])
+        kwargs['rows'], kwargs['summary'] = HISTORY_DAMAGE[damage](rows, summary)
     run, log = tmp_path / 'stage1', tmp_path / 'child.log'
     write_haa_train(run, args, log, haa_repo, data_root, **kwargs)
     if damage == 'changed_json':
