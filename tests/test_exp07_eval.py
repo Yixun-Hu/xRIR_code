@@ -107,3 +107,54 @@ def test_the_dataset_of_each_split_is_built_from_its_own_class(split_classes, sp
 def test_a_manifest_of_the_other_split_is_refused(split_classes, split, queries):
     with pytest.raises(ValueError, match='do not match dataset.file_list'):
         subject.build_split_dataset(args_for(split), manifest_of(queries))
+@pytest.mark.parametrize('split,queries', [('seen', SEEN), ('unseen', UNSEEN)])
+def test_max_samples_keeps_the_frozen_subset_behaviour(split_classes, split, queries):
+    dataset = subject.build_split_dataset(args_for(split), manifest_of(queries), max_samples=1)
+    assert isinstance(dataset, base.yaw.SubsetManifestDataset) and len(dataset) == 1
+    assert dataset.entries == manifest_of(queries)['entries'][:1]
+
+
+def test_num_shot_comes_from_the_manifest(split_classes):
+    subject.build_split_dataset(args_for('seen'), manifest_of(SEEN, num_shot=8))
+    assert split_classes == [('seen', 'test', subject.MAX_LEN, 8)]
+
+
+def test_run_exp07_binds_the_metadata_validator_and_factory(split_run, split_classes, monkeypatch):
+    args, fields = split_run('seen')
+    captured = {}
+    monkeypatch.setattr(subject.base, 'run_exp04',
+                        lambda a, **kwargs: captured.update(kwargs, args=a) or {'ok': True})
+    assert subject.run_exp07(args) == {'ok': True}
+    assert captured['args'] is args and captured['metadata'] == subject.split_metadata(args)
+    assert captured['manifest_validator'](args)[0] == fields
+    dataset = captured['dataset_factory'](manifest_of(SEEN), max_samples=0)
+    assert split_classes == [('seen', 'test', subject.MAX_LEN, 1)] and len(dataset) == 2
+
+
+def test_a_split_file_changed_during_evaluation_is_refused(split_run, monkeypatch):
+    args, _ = split_run('seen')
+    monkeypatch.setattr(subject.base, 'run_exp04', lambda a, **kwargs: {'ok': True})
+    digests = iter(['a' * 64, 'b' * 64])
+    monkeypatch.setattr(subject.p, 'sha256_file', lambda path: next(digests))
+    with pytest.raises(ValueError, match='seen_test_split'):
+        subject.run_exp07(args)
+
+
+class Stop(Exception):
+    pass
+
+
+@pytest.mark.parametrize('factory', [None, 'custom'])
+def test_run_exp04_keeps_the_frozen_unseen_builder_as_its_default(bound_run, monkeypatch, factory):
+    args, _, _ = bound_run
+    calls = []
+    def builder(manifest, max_samples=0):
+        calls.append(max_samples)
+        raise Stop()
+    monkeypatch.setattr(base.yaw.torch.cuda, 'is_available', lambda: True)
+    monkeypatch.setattr(base.yaw, 'build_manifest_dataset',
+                        builder if factory is None else
+                        lambda *a, **k: pytest.fail('frozen builder used despite a factory'))
+    with pytest.raises(Stop):
+        base.run_exp04(args, **({} if factory is None else {'dataset_factory': builder}))
+    assert calls == [args.max_samples]
