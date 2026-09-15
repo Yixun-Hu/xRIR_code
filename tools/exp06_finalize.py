@@ -83,6 +83,7 @@ HAA_TRAIN_ARTIFACTS = ('provenance.json', 'args.json', 'history.jsonl', 'summary
 HAA_SUMMARY = ('best_val_loss', 'best_epoch')
 HEADING_DECISIONS = ('estimated', 'override')
 FRAMES = ('room', 'heading')
+GIT_STATE = ('HEAD', 'dirty', 'untracked', 'dirty_outside_worklog', 'diff_sha256')
 REQUIRED_PROVENANCE = ('run_type', 'repo', 'reviewed_commit', 'source_closures',
                        'registry_sha256', 'git_state', 'environment', 'command',
                        'effective_args')
@@ -122,12 +123,20 @@ def _load_torch(path, label):
     return loaded
 
 
+def _mapping(value, label):
+    """Every nested container is typed before anything traverses or sorts it."""
+    _require(isinstance(value, dict), '{} is not a JSON object'.format(label))
+    bad = sorted(repr(key) for key in value if not isinstance(key, str))
+    _require(not bad, '{} has non-string keys: {}'.format(label, ', '.join(bad[:4])))
+    return value
+
+
 def _state_dict(mapping, label):
     """Require a parameter mapping of names to tensors before anything compares it."""
     _require(isinstance(mapping, dict) and mapping, '{} is not a parameter mapping'.format(label))
-    bad = sorted(key for key, value in mapping.items()
+    bad = sorted(repr(key) for key, value in mapping.items()
                  if not isinstance(key, str) or not torch.is_tensor(value))
-    _require(not bad, '{} has non-tensor entries: {}'.format(label, bad[:4]))
+    _require(not bad, '{} has non-tensor entries: {}'.format(label, ', '.join(bad[:4])))
     return mapping
 
 
@@ -313,6 +322,18 @@ def load_provenance(run_dir, run_type):
     _require(not missing, 'provenance.json is incomplete: missing ' + ', '.join(missing))
     _require(record['run_type'] == run_type,
              'provenance run_type is {!r}, not {}'.format(record['run_type'], run_type))
+    _mapping(record['environment'], 'provenance.json environment')
+    state = _mapping(record['git_state'], 'provenance.json git_state')
+    missing = [key for key in GIT_STATE if key not in state]
+    _require(not missing, 'provenance.json git_state is incomplete: missing '
+             + ', '.join(missing))
+    for name, entry in sorted(_mapping(record.get('mutable_inputs', {}),
+                                       'provenance.json mutable_inputs').items()):
+        _require(isinstance(entry, dict) and isinstance(entry.get('path'), str),
+                 'provenance.json mutable_inputs[{}] records no path'.format(name))
+    for key in IDENTITY_KEYS:
+        if key in record:
+            _mapping(record[key], 'provenance.json ' + key)
     present = [key for key in IDENTITY_KEYS if isinstance(record.get(key), dict)]
     _require(present, 'provenance.json records no train_data_identity/data_identity')
     for key in present:
