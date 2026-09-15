@@ -94,17 +94,40 @@ def inventory_of(root):
                                           cache_path=str(Path(root).parent / 'inventory.json'))
 
 
+def commit_clone(root, message):
+    """Add a reviewed commit to the throwaway clone and return its sha."""
+    subprocess.run(['git', 'add', '-A'], cwd=root, check=True)
+    subprocess.run(['git', '-c', 'user.email=a@b', '-c', 'user.name=t', 'commit', '-q',
+                    '-m', message], cwd=root, check=True)
+    return provenance.git_state(root)['HEAD']
+
+
 @pytest.fixture(scope='session')
-def approvals(clone, tmp_path_factory):
-    """Finding 1: the filled code approvals a confirmatory run is admitted under."""
+def approvals(clone):
+    """Findings 1 and 2: the filled approvals, committed as a reviewed commit will.
+
+    They live at the registered record path inside the clone, because a confirmatory run
+    may be admitted only by bytes a reviewer committed there. The null template beside
+    them is committed too, so a "nothing is approved yet" case can be read at all.
+    """
     from tools import exp06_profiles
-    head = provenance.git_state(clone)['HEAD']
-    value = exp06_profiles.json_value(exp06_profiles.load_approved_digests()[0])
+    path = Path(clone) / exp06_profiles.APPROVED_RELATIVE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    for name in (path, path.parent / 'approved_digests_null.json'):
+        name.write_bytes(exp06_profiles.TEMPLATE_PATH.read_bytes())
+    head = commit_clone(clone, 'exp06: approvals placeholder')
+    value = exp06_profiles.json_value(exp06_profiles.load_approved_digests(path)[0])
     value['code'].update(exp06_profiles.compute_code_digests(
         clone, head, keys=exp06_profiles.TRAINING_KEYS))
-    path = tmp_path_factory.mktemp('approvals') / 'approved_digests.json'
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
+    commit_clone(clone, 'exp06: approvals filled')
     return path
+
+
+@pytest.fixture(scope='session')
+def null_approvals(clone, approvals):
+    """The committed template: readable, reviewed, and approving nothing."""
+    return Path(approvals).parent / 'approved_digests_null.json'
 
 
 @functools.lru_cache(maxsize=None)

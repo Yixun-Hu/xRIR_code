@@ -13,7 +13,7 @@ import torch
 
 from test_exp06_finalize import (DEAD_PID, STATE, approvals, bound_args, clone,  # noqa: F401
                                  data_root, dead_pid, full_args, full_run, history_rows,
-                                 provenance_record, seal)
+                                 null_approvals, provenance_record, seal, smoke_receipt)
 from tools import exp06_finalize, provenance
 
 
@@ -69,12 +69,10 @@ def test_a_full_completion_records_the_approvals_it_matched(full_run, clone, app
     assert set(fields['code_digests']) == set(exp06_profiles.TRAINING_KEYS)
 
 
-def test_null_approvals_refuse_a_full_finalisation(full_run, clone, tmp_path):
+def test_null_approvals_refuse_a_full_finalisation(full_run, clone, null_approvals):
     """Finding 1: nothing is admissible before the second reviewed commit fills them."""
-    from tools import exp06_profiles
     run, log = full_run
-    empty = tmp_path / 'approved_digests.json'
-    empty.write_bytes(exp06_profiles.TEMPLATE_PATH.read_bytes())
+    empty = null_approvals
     record = json.loads((run / 'provenance.json').read_text())
     record['approvals'] = {'path': str(empty), 'schema_version': 1,
                            'sha256': provenance.sha256_file(empty)}
@@ -261,3 +259,65 @@ def test_a_diagnostic_receipt_must_agree_with_its_provenance(tmp_path, clone, ap
     Path(receipt).write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
     with pytest.raises(ValueError, match=cause):
         exp06_finalize.finalize(run, 'smoke', log, 0, repo=clone, receipt=receipt)
+
+
+def rewrite_approvals(run, **overrides):
+    """Point the record's approvals binding somewhere else, keeping everything else."""
+    record = json.loads((Path(run) / 'provenance.json').read_text())
+    record['approvals'] = dict(record['approvals'], **overrides)
+    (Path(run) / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    return record
+
+
+def test_full_approvals_must_be_the_blob_of_the_reviewed_commit(full_run, clone, tmp_path):
+    """Finding 2: the review accepted a retained fixture outside the clean repository."""
+    run, log = full_run
+    tracked = Path(json.loads((run / 'provenance.json').read_text())['approvals']['path'])
+    outside = tmp_path / 'approved_digests.json'
+    outside.write_bytes(tracked.read_bytes())
+    rewrite_approvals(run, path=str(outside))
+    with pytest.raises(ValueError, match='outside'):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert not (run / 'completion.json').exists()
+    untracked = tracked.parent / 'approved_digests_variant.json'
+    untracked.write_bytes(tracked.read_bytes())
+    try:
+        rewrite_approvals(run, path=str(untracked))
+        with pytest.raises(ValueError, match='not tracked'):
+            exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+        assert not (run / 'completion.json').exists()
+    finally:
+        untracked.unlink()
+
+
+def test_approvals_edited_after_the_reviewed_commit_are_refused(full_run, clone):
+    """Finding 2: preflight's cleanliness check expressly excludes worklog/."""
+    run, log = full_run
+    tracked = Path(json.loads((run / 'provenance.json').read_text())['approvals']['path'])
+    original = tracked.read_bytes()
+    tracked.write_bytes(original + b'\n')
+    try:
+        rewrite_approvals(run, sha256=provenance.sha256_file(tracked))
+        with pytest.raises(ValueError, match='committed'):
+            exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+        assert not (run / 'completion.json').exists()
+    finally:
+        tracked.write_bytes(original)
+
+
+def test_an_exploratory_diagnostic_may_read_approvals_from_anywhere(tmp_path, clone, approvals):
+    """Finding 2: external approvals stay available where nothing can become an arm."""
+    from tools import exp06_smoke
+    run = tmp_path / 'smoke'
+    run.mkdir()
+    log = seal(run, tmp_path / 'smoke.log')
+    outside = tmp_path / 'approved_digests.json'
+    outside.write_bytes(Path(approvals).read_bytes())
+    record = exp06_smoke.diagnostic_provenance(
+        'exp06_train', ['--backbone', 'simple', '--no-save'], 'smoke', Path(clone),
+        str(outside), exploratory=True)
+    (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    receipt = smoke_receipt(tmp_path / 'smoke.json', record=record)
+    fields = exp06_finalize.finalize(run, 'smoke', log, 0, repo=clone, receipt=receipt)
+    assert fields['exploratory'] is True and fields['admissible_arm'] is False
+    assert fields['approvals']['committed_at'] is None and fields['passed'] is True
