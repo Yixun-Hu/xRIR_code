@@ -918,6 +918,30 @@ def test_an_args_json_that_declares_another_tier_is_refused(tmp_path, checkpoint
         args.write_text(original)
 
 
+def test_the_tier_is_read_from_the_bytes_the_bound_digest_identifies(tmp_path, checkpoints,
+                                                                     approved, exp05,
+                                                                     monkeypatch):
+    """Close review 2, finding 5: hashing one snapshot and parsing another admitted a tier
+    the identified file does not support -- a transient substitution during the parsing
+    read described M-tier weights that hash as the legacy record beside them."""
+    directory = write_run(tmp_path / 'transient', 'B', 42, checkpoints, SPLIT, route='exp05',
+                          manifest={'legacy_M': False})
+    args = Path(checkpoints['B']).resolve().parent / 'args.json'
+    original = args.read_bytes()
+    substituted = json.dumps({'backbone': 'cylindrical', 'num_shot': subject.NUM_SHOT,
+                              'tier': 'M', 'vit_dim': 512, 'vit_depth': 12, 'vit_heads': 8,
+                              'vit_mlp_dim': 512})
+    real = Path.read_text
+
+    def read(self, *arguments, **named):
+        return substituted if str(self) == str(args) else real(self, *arguments, **named)
+
+    monkeypatch.setattr(Path, 'read_text', read)
+    with pytest.raises(ValueError, match='legacy_M'):
+        subject.admit_run(directory, 'B', approved, SPLIT, roles=ROLES)
+    assert args.read_bytes() == original
+
+
 # --- finding 7: production approvals are the committed, reviewed bytes --------------------
 
 
