@@ -532,7 +532,7 @@ HISTORY_DAMAGE = {
     ('best_keys', 'best.pth'), ('rooms', 'rooms'), ('no_provenance', 'provenance.json'),
     ('wrong_run_type', 'run_type'), ('closure_drift', 'drift'), ('absent_entry', 'closure'),
     ('history_epochs', 'history.jsonl'), ('history_loss', 'history.jsonl'),
-    ('args_disagree', 'disagree'), ('no_epoch_zero', 'epoch 0'),
+    ('args_disagree', 'disagree'), ('no_epoch_zero', 'epochs 0'),
     ('epoch_zero_trained', 'epoch 0'), ('missing_epoch', 'history.jsonl'),
     ('off_cadence_val', 'val_loss'), ('off_cadence_best', 'is_best'),
     ('train_loss_nan', 'train_loss'), ('no_lr', 'lr'),

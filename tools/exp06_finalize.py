@@ -81,7 +81,7 @@ EXCLUSIVE_GPU_MODES = ('probe', 'full')
 FULL_ARTIFACTS = ('provenance.json', 'args.json', 'history.jsonl', 'last.pth', 'epoch_012.pth')
 HAA_TRAIN_ARTIFACTS = ('provenance.json', 'args.json', 'history.jsonl', 'summary.json',
                        'best.pth', 'last.pth')
-HAA_SUMMARY = ('best_val_loss', 'best_epoch')
+HAA_SUMMARY = ('best_val_loss', 'best_epoch', 'init_val_loss', 'epochs')
 HEADING_DECISIONS = ('estimated', 'override')
 FRAMES = ('room', 'heading')
 GIT_STATE = ('HEAD', 'dirty', 'untracked', 'dirty_outside_worklog', 'diff_sha256')
@@ -644,28 +644,56 @@ def haa_child_arguments(run_dir, run_type, repo):
 
 
 def haa_history(run_dir, args):
-    """The validation cadence the arguments declare, with finite losses, and nothing else."""
+    """Exactly the rows ``sim_to_real/finetune_haa.py`` writes (blocker 3a).
+
+    Epoch 0 records the initialisation's validation loss and no train loss; every epoch
+    ``1..epochs`` records a finite train loss and lr, and a validation loss precisely on
+    ``epoch % val_every == 0`` and on the final epoch. ``is_best`` may mark only a
+    validated row, and ``summary.json`` must agree with the history it summarises --
+    including a ``best_epoch`` of 0 when fine-tuning never improved on the init.
+    """
     rows = _history_rows(Path(run_dir) / 'history.jsonl', 'history.jsonl')
     every, total = args.get('val_every'), args.get('epochs')
     for label, value in (('val_every', every), ('epochs', total)):
         _require(type(value) is int and value > 0,
                  'args.json records no positive integer {}'.format(label))
-    expected = list(range(every, total + 1, every))
-    epochs = []
-    for number, row in enumerate(rows, 1):
-        epoch = row.get('epoch')
-        _require(type(epoch) is int, 'history.jsonl line {} records epoch {!r}'.format(number, epoch))
-        _finite('history.jsonl line {} val_loss'.format(number), row.get('val_loss'))
-        epochs.append(epoch)
-    _require(epochs == expected, 'history.jsonl epochs {} are not the declared validation '
-             'cadence {}'.format(epochs, expected))
+    _require(len(rows) == total + 1, 'history.jsonl records {} rows, not the epochs 0..{} the '
+             'pipeline writes'.format(len(rows), total))
+    _require(rows and rows[0].get('epoch') == 0,
+             'history.jsonl does not start with the epoch 0 initialisation row')
+    _require(rows[0].get('train_loss') is None,
+             'history.jsonl epoch 0 records train_loss {!r}; the pipeline writes null'.format(
+                 rows[0].get('train_loss')))
+    validated, losses = [], {}
+    for epoch, row in enumerate(rows):
+        label = 'history.jsonl epoch {}'.format(epoch)
+        _require(row.get('epoch') == epoch and type(row.get('epoch')) is int,
+                 '{} is out of order: the row records epoch {!r}'.format(label, row.get('epoch')))
+        _finite(label + ' lr', row.get('lr'))
+        if epoch:
+            _finite(label + ' train_loss', row.get('train_loss'))
+        if epoch == 0 or epoch % every == 0 or epoch == total:
+            losses[epoch] = _finite(label + ' val_loss', row.get('val_loss'))
+            validated.append(epoch)
+        else:
+            _require('val_loss' not in row, '{} records a val_loss outside the every-{} '
+                     'validation cadence'.format(label, every))
+            _require('is_best' not in row, '{} records is_best without a validation'.format(label))
+        _require(row.get('is_best', True) is True, label + ' records is_best false')
     summary = _read_json(Path(run_dir) / 'summary.json', 'summary.json')
     missing = [key for key in HAA_SUMMARY if key not in summary]
     _require(not missing, 'summary.json is incomplete: missing ' + ', '.join(missing))
-    _finite('summary.json best_val_loss', summary['best_val_loss'])
-    _require(summary['best_epoch'] in epochs,
-             'summary.json best_epoch {!r} is not a validated epoch'.format(summary['best_epoch']))
-    return epochs, summary
+    best = min(losses.values())
+    _require(summary['best_val_loss'] == best, 'summary.json best_val_loss {!r} is not the {!r} '
+             'of the history'.format(summary['best_val_loss'], best))
+    _require(summary['best_epoch'] in validated and losses[summary['best_epoch']] == best,
+             'summary.json best_epoch {!r} did not achieve the best validation loss'.format(
+                 summary['best_epoch']))
+    _require(summary['init_val_loss'] == losses[0], 'summary.json init_val_loss {!r} is not the '
+             '{!r} of epoch 0'.format(summary['init_val_loss'], losses[0]))
+    _require(summary['epochs'] == total,
+             'summary.json epochs {!r} is not the {} of args.json'.format(summary['epochs'], total))
+    return validated, summary
 
 
 def haa_train_evidence(run_dir, repo):
