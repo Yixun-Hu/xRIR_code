@@ -645,6 +645,7 @@ def haa_child_arguments(run_dir, run_type, repo):
     _require(backbone in BACKBONES, 'args.json records backbone {!r}'.format(backbone))
     _require(type(args.get('num_shot')) is int and args['num_shot'] > 0,
              'args.json records no positive integer num_shot')
+    _require(type(args.get('seed')) is int, 'args.json records no integer seed')
     return record, args
 
 
@@ -719,7 +720,7 @@ def haa_train_evidence(run_dir, repo):
     _require(provenance.sha256_file(resolved) == args['init_sha256'],
              'init checkpoint {} does not hash to the recorded init_sha256'.format(resolved))
     return dict(artifacts=hashes, rooms=rooms, frame=frame, heading=heading,
-                backbone=args['backbone'], init_sha256=args['init_sha256'],
+                backbone=args['backbone'], init_sha256=args['init_sha256'], seed=args['seed'],
                 best_epoch=summary['best_epoch'], epochs=epochs,
                 source_closure_sha256=list(record['source_closures'].values())[0]['sha256'])
 
@@ -805,7 +806,7 @@ def haa_eval_evidence(run_dir, repo):
     bad = [value for value in side if isinstance(value, bool) or value not in (-1, 1)]
     _require(not bad, 'side_label values must be -1 or 1, not {}'.format(sorted(set(map(repr, bad)))))
     haa_metrics(run_dir, names[2], room, args, per_sample)
-    return dict(artifacts=hashes, room=room, frame=frame, heading=heading,
+    return dict(artifacts=hashes, room=room, frame=frame, heading=heading, seed=args['seed'],
                 backbone=args['backbone'], checkpoint_sha256=digest, samples=len(index),
                 source_closure_sha256=list(record['source_closures'].values())[0]['sha256'])
 
@@ -822,10 +823,10 @@ def expected_children(expect):
 CHILD_COMPLETION = ('schema_version', 'run_type', 'run_dir', 'child_exit', 'child_exit_time',
                     'log', 'child_exit_receipt', 'diagnostic', 'admissible_arm', 'artifacts',
                     'backbone', 'frame', 'heading')
-CHILD_EXTRA = {'haa_train': ('rooms', 'init_sha256', 'best_epoch'),
-               'haa_eval': ('room', 'checkpoint_sha256', 'samples')}
-CHILD_ARTIFACTS = {'haa_train': ('args.json', 'best.pth', 'last.pth'),
-                   'haa_eval': ('args.json',)}
+CHILD_EXTRA = {'haa_train': ('rooms', 'init_sha256', 'best_epoch', 'seed'),
+               'haa_eval': ('room', 'checkpoint_sha256', 'samples', 'seed')}
+CHILD_EVIDENCE = ('backbone', 'frame', 'heading')
+JOB_SPEC = ('init', 'backbone', 'frame', 'init_sha256', 'seed', 'rooms', 'expect')
 
 
 def child_role(name):
@@ -838,54 +839,122 @@ def child_role(name):
     raise ValueError('unexpected child path: ' + name)
 
 
-def child_completion(path, name):
-    """Schema, role and artefact hashes of one child, never its own admission claim."""
+def child_completion(path, name, role):
+    """Schema and role of one child's record, never its own admission claim."""
     completion = Path(path) / 'completion.json'
     _require(completion.is_file(), 'child {} has no completion.json'.format(name))
-    record = _read_json(completion, name + '/completion.json')
-    role = child_role(name)
+    record = _mapping(_read_json(completion, name + '/completion.json'),
+                      name + '/completion.json')
     missing = [key for key in CHILD_COMPLETION + CHILD_EXTRA[role] if key not in record]
     _require(not missing, 'child {} completion is incomplete: missing {}'.format(
         name, ', '.join(missing)))
+    _require(record['schema_version'] == 1,
+             'child {} records schema_version {!r}'.format(name, record['schema_version']))
     _require(record['run_type'] == role,
              'child {} has run type {!r}, not the {!r} its path requires'.format(
                  name, record['run_type'], role))
+    _require(Path(record['run_dir']).resolve() == Path(path).resolve(),
+             'child {} claims the run_dir {}'.format(name, record['run_dir']))
     _require(record['diagnostic'] is False, 'child {} is a diagnostic run'.format(name))
     _require(type(record['child_exit']) is int and record['child_exit'] == 0,
              'child {} records child_exit {!r}'.format(name, record['child_exit']))
-    hashes = record['artifacts']
-    _require(isinstance(hashes, dict) and hashes, 'child {} records no artefacts'.format(name))
-    absent = [artefact for artefact in CHILD_ARTIFACTS[role] if artefact not in hashes]
-    _require(not absent, 'child {} records no artefact {}'.format(name, ', '.join(absent)))
-    for artefact, digest in sorted(hashes.items()):
-        file = Path(path) / artefact
-        _require(file.is_file(), 'child {} artefact {} is gone'.format(name, artefact))
-        _require(provenance.sha256_file(file) == digest,
-                 'child {} artefact {} no longer hashes to its recorded digest'.format(
-                     name, artefact))
     return record
 
 
-def job_identity(records, expect):
-    """Backbone, frame, heading rolls and the init/checkpoint lineage across one seed."""
-    backbones = {record['backbone'] for record in records.values()}
-    _require(len(backbones) == 1, 'children disagree on the backbone: ' + repr(sorted(backbones)))
-    frames = {record['frame'] for record in records.values()}
-    _require(len(frames) == 1, 'children disagree on the frame: ' + repr(sorted(frames)))
-    heading = {}
-    for name, record in sorted(records.items()):
-        for room, binding in (record['heading'] or {}).items():
-            previous = heading.setdefault(room, binding)
-            _require(previous.get('k') == binding.get('k'),
-                     'children disagree on the heading roll of {}: {} at {}'.format(
-                         room, binding.get('k'), name))
-    fields = dict(backbone=sorted(backbones)[0], frame=sorted(frames)[0], heading=heading or None)
+def rehash_bound_evidence(record, name, repo):
+    """The log and the child-exit receipt the child bound must still be those bytes."""
+    for key in ('log', 'child_exit_receipt'):
+        bound = record[key]
+        _require(isinstance(bound, dict) and isinstance(bound.get('path'), str)
+                 and _is_sha256(bound.get('sha256')),
+                 'child {} records no {} evidence: {!r}'.format(name, key, bound))
+        file = _resolve(bound['path'], repo)
+        _require(file.is_file(), 'child {} {} {} is gone'.format(name, key, bound['path']))
+        _require(provenance.sha256_file(file) == bound['sha256'],
+                 'child {} {} no longer hashes to its recorded digest'.format(name, key))
+
+
+def verify_child(path, name, repo, spec):
+    """Blocker 3c: re-run the child's own validator and bind its record to that result.
+
+    Nothing here trusts the child: its role validator runs again over the directory, and
+    every field of its completion -- artefact hashes, identity, lineage -- must equal what
+    the re-run produced. The log and receipt it bound are rehashed, and the whole child is
+    then checked against the job the pipeline declared.
+    """
+    role = child_role(name)
+    evidence = (haa_train_evidence(path, repo) if role == 'haa_train'
+                else haa_eval_evidence(path, repo))
+    record = child_completion(path, name, role)
+    recorded = _mapping(record['artifacts'], 'child {} artifacts'.format(name))
+    for artefact in sorted(set(recorded) | set(evidence['artifacts'])):
+        _require(recorded.get(artefact) == evidence['artifacts'].get(artefact),
+                 'child {} artefact {} is not the one the re-run hashed'.format(name, artefact))
+    for field in CHILD_EVIDENCE + CHILD_EXTRA[role]:
+        _require(exp06_recipe.strict_equal(record[field], evidence[field]),
+                 'child {} completion {} {!r} is not the {!r} of the re-run'.format(
+                     name, field, record[field], evidence[field]))
+    rehash_bound_evidence(record, name, repo)
+    check_job_spec(name, role, evidence, spec)
+    return evidence
+
+
+def check_job_spec(name, role, evidence, spec):
+    """Every child must have run the job the pipeline declared, not one of its own."""
+    for field in ('backbone', 'frame', 'seed'):
+        _require(evidence[field] == spec[field], 'child {} ran {} {!r}, not the {!r} of the '
+                 'job spec'.format(name, field, evidence[field], spec[field]))
+    rooms = evidence['rooms'] if role == 'haa_train' else [evidence['room']]
+    outside = sorted(set(rooms) - set(spec['rooms']))
+    _require(not outside, 'child {} covers rooms outside the job: {}'.format(name, outside))
+    room = name.split('/')[-1] if role == 'haa_eval' else name[len('stage2_'):]
+    _require(not name.startswith(('stage2_', 'eval/', 'zeroshot/')) or rooms == [room],
+             'child {} records rooms {}, not the {!r} of its path'.format(name, rooms, room))
+    if spec['frame'] == 'heading':
+        for bound, binding in sorted((evidence['heading'] or {}).items()):
+            _require(binding.get('k') == spec['heading'].get(bound),
+                     'child {} rolls {} to {!r}, not the {!r} of the job spec'.format(
+                         name, bound, binding.get('k'), spec['heading'].get(bound)))
+    else:
+        _require(not evidence['heading'], 'child {} records a heading in the room frame'.format(name))
+
+
+def load_job_spec(path, expect):
+    """The pipeline's declaration of one seed: what every child of it must agree with."""
+    _require(path, 'a job needs the pipeline --job-spec it was run from')
+    spec = _mapping(_read_json(path, 'job spec'), 'job spec')
+    missing = [key for key in JOB_SPEC if key not in spec]
+    _require(not missing, 'job spec is incomplete: missing ' + ', '.join(missing))
+    _require(spec['expect'] == expect,
+             'job spec declares {!r}, not the --expect {!r}'.format(spec['expect'], expect))
+    _require(spec['backbone'] in BACKBONES, 'job spec backbone {!r}'.format(spec['backbone']))
+    _require(spec['frame'] in FRAMES, 'job spec frame {!r}'.format(spec['frame']))
+    _require(_is_sha256(spec['init_sha256']),
+             'job spec init_sha256 {!r} is not a sha256'.format(spec['init_sha256']))
+    _require(type(spec['seed']) is int, 'job spec seed {!r} is not an integer'.format(spec['seed']))
+    _require(isinstance(spec['rooms'], list) and sorted(spec['rooms']) == sorted(ROOMS),
+             'job spec rooms {!r} are not the pipeline rooms'.format(spec['rooms']))
+    if spec['frame'] == 'heading':
+        heading = _mapping(spec.get('heading'), 'job spec heading')
+        absent = [room for room in spec['rooms'] if type(heading.get(room)) is not int]
+        _require(not absent, 'job spec records no heading roll for ' + ', '.join(absent))
+    else:
+        _require(not spec.get('heading'), 'a room-frame job spec declares no heading')
+    return spec
+
+
+def job_lineage(records, expect, spec):
+    """The init -> stage1 -> stage2 -> evaluation chain the job spec declares."""
+    fields = dict(backbone=spec['backbone'], frame=spec['frame'], seed=spec['seed'],
+                  heading=spec['heading'] if spec['frame'] == 'heading' else None,
+                  init=spec['init'], init_sha256=spec['init_sha256'])
     if expect == 'zeroshot':
-        digests = {record['checkpoint_sha256'] for record in records.values()}
-        _require(len(digests) == 1,
-                 'zero-shot lineage: the evaluations used {} different checkpoints'.format(
-                     len(digests)))
-        return dict(fields, checkpoint_sha256=sorted(digests)[0])
+        for name, record in sorted(records.items()):
+            _require(record['checkpoint_sha256'] == spec['init_sha256'],
+                     'lineage: {} did not evaluate the job initialisation'.format(name))
+        return dict(fields, checkpoint_sha256=spec['init_sha256'])
+    _require(records['stage1']['init_sha256'] == spec['init_sha256'],
+             'lineage: stage1 did not start from the job initialisation')
     stage1 = records['stage1']['artifacts']['best.pth']
     for name, record in sorted(records.items()):
         if name.startswith('stage2_'):
@@ -895,12 +964,13 @@ def job_identity(records, expect):
             room = name[len('eval/'):]
             _require(record['checkpoint_sha256'] == records['stage2_' + room]['artifacts']['best.pth'],
                      'lineage: {} did not evaluate stage2_{}/best.pth'.format(name, room))
-    return dict(fields, init_sha256=records['stage1']['init_sha256'])
+    return fields
 
 
-def haa_job_evidence(run_dir, children, expect):
-    """Bind one seed's children: every expected directory, each with its own completion."""
+def haa_job_evidence(run_dir, children, expect, repo, job_spec):
+    """Bind one seed: every expected child, re-validated in the role its path requires."""
     expected, job = set(expected_children(expect)), Path(run_dir).resolve()
+    spec = load_job_spec(job_spec, expect)
     seen, records = {}, {}
     for child in children:
         path = Path(child).resolve()
@@ -910,13 +980,14 @@ def haa_job_evidence(run_dir, children, expect):
             raise ValueError('child {} lies outside the job directory'.format(child)) from error
         if expect == 'zeroshot' and name.startswith('zeroshot/'):
             name = name[len('zeroshot/'):]  # <init>/zeroshot/eval/<room> and <init>/zeroshot alike
-        records[name] = child_completion(path, name)
+        _require(name in expected, 'unexpected child: ' + name)
+        records[name] = verify_child(path, name, repo, spec)
         seen[name] = provenance.sha256_file(path / 'completion.json')
     missing = sorted(expected - set(seen))
     _require(not missing, 'job is missing children: ' + ', '.join(missing))
-    unexpected = sorted(set(seen) - expected)
-    _require(not unexpected, 'unexpected children: ' + ', '.join(unexpected))
-    return dict(job_identity(records, expect), artifacts={}, children=seen, expect=expect)
+    return dict(job_lineage(records, expect, spec), artifacts={}, children=seen, expect=expect,
+                job_spec={'path': str(Path(job_spec).resolve()),
+                          'sha256': provenance.sha256_file(job_spec)})
 
 
 def write_completion(path, fields):
@@ -931,7 +1002,7 @@ def write_completion(path, fields):
 
 
 def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None,
-             children=(), expect=None, owner_pid=None):
+             children=(), expect=None, owner_pid=None, job_spec=None):
     """Verify one child's evidence for its run type and write completion.json."""
     run_dir = Path(run_dir)
     _require(run_type in RUN_TYPES, 'unknown run type: {!r}'.format(run_type))
@@ -952,7 +1023,7 @@ def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None,
                   else full_evidence(run_dir, repo) if run_type == 'full'
                   else haa_train_evidence(run_dir, repo) if run_type == 'haa_train'
                   else haa_eval_evidence(run_dir, repo) if run_type == 'haa_eval'
-                  else haa_job_evidence(run_dir, children, expect))
+                  else haa_job_evidence(run_dir, children, expect, repo, job_spec))
     _require(provenance.sha256_file(log) == log_digest,
              'stale log: {} changed while its completion was being validated'.format(log))
     return write_completion(run_dir / 'completion.json', fields)
@@ -1070,6 +1141,7 @@ def build_parser():
     parser.add_argument('--receipt', help='smoke/probe receipt to bind')
     parser.add_argument('--children', nargs='+', default=(), help='haa_job: the child directories')
     parser.add_argument('--expect', choices=EXPECTATIONS, help='haa_job: which child set is required')
+    parser.add_argument('--job-spec', help='haa_job: the spec the pipeline ran this seed from')
     parser.add_argument('--owner-pid', type=int,
                         help='the live launcher that owns this run dir (its launch.pid)')
     return parser
@@ -1088,7 +1160,7 @@ def main(argv=None):
     try:
         fields = finalize(args.run_dir, args.run_type, args.log, args.child_exit, repo=args.repo,
                           receipt=args.receipt, children=args.children, expect=args.expect,
-                          owner_pid=args.owner_pid)
+                          owner_pid=args.owner_pid, job_spec=args.job_spec)
     except (OSError, ValueError) as error:
         print('EXP06_FINALIZE_REFUSED ' + str(error), file=sys.stderr, flush=True)
         return 2

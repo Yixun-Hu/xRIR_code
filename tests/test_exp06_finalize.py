@@ -976,8 +976,9 @@ def test_job_refusals_are_named(job_run, closed_log_file, tmp_path, haa_repo, he
             names.append('../elsewhere')
             make_train_child(job.parent, 'elsewhere', haa_repo, heading_jsons, data_root,
                              ['hallway'], tmp_path / 'pretrain.pth', 9)
-        elif damage == 'stale_hash':
-            (job / 'stage1/best.pth').write_bytes(b'rewritten after completion')
+        elif damage == 'stale_hash':  # a valid checkpoint, but not the one that was certified
+            torch.save(tiny_state(**{state_keys()[0]: torch.full((1,), 42.0)}),
+                       job / 'stage1/best.pth')
         elif damage == 'missing_artefact':
             (job / 'stage1/last.pth').unlink()
         elif damage == 'eval_artefacts_removed':
@@ -991,10 +992,13 @@ def test_job_refusals_are_named(job_run, closed_log_file, tmp_path, haa_repo, he
                 stream.write('appended after the completion\n')
         elif damage == 'stale_receipt':
             (job / 'stage1/child_exit.json').write_text('{"child_pid": 1}')
-        elif damage == 'lineage_init':
+        elif damage == 'lineage_init':  # a valid child, but not started from stage1/best.pth
             rebuild(job, 'stage2_hallway')
+            rebuild(job, 'eval/hallway')
             make_train_child(job, 'stage2_hallway', haa_repo, heading_jsons, data_root,
                              ['hallway'], tmp_path / 'pretrain.pth', 7)
+            make_eval_child(job, 'eval/hallway', haa_repo, heading_jsons, data_root, 'hallway',
+                            job / 'stage2_hallway/best.pth')
         elif damage == 'lineage_checkpoint':
             rebuild(job, 'eval/hallway')
             make_eval_child(job, 'eval/hallway', haa_repo, heading_jsons, data_root, 'hallway',
@@ -1045,7 +1049,7 @@ def test_job_refusals_are_named(job_run, closed_log_file, tmp_path, haa_repo, he
 
 
 @pytest.mark.parametrize('damage,cause', [
-    ('absent', 'job_spec'), ('not_json', 'job spec'), ('no_field', 'incomplete'),
+    ('absent', 'job-spec'), ('not_json', 'job spec'), ('no_field', 'incomplete'),
     ('expect', 'expect'), ('backbone', 'backbone'), ('frame', 'frame'),
     ('init_sha256', 'init_sha256'), ('seed', 'seed'), ('rooms', 'rooms'),
     ('heading_room', 'heading'), ('heading_in_room_frame', 'heading')])
