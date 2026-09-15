@@ -271,6 +271,32 @@ def test_seen_smoke_writes_the_pre_spawn_files(seen_repo, monkeypatch):
     assert json.loads((attempt / 'completion.json').read_text())['log']['path'] == str(log)
 
 
+def test_finalize_runs_the_shared_recovery_under_the_seen_overrides(tmp_path, monkeypatch):
+    """The shared finaliser is reused as it is; exp_07 only supplies its collaborators."""
+    seen = {}
+
+    def finalize(attempt, launcher_log=None):
+        seen.update(attempt=attempt, log=launcher_log, golden=base.check_golden,
+                    guard=base.LogGuard, gates=base.tier_gates,
+                    recovery=base.recovery_evidence)
+        return {'ok': True}
+
+    monkeypatch.setattr(base, 'finalize_attempt', finalize)
+    attempt = tmp_path / 'ckpt/exp07/seen_simple/attempt_test'
+    result = launch.main(['finalize', str(attempt), '--launcher-log', str(tmp_path / 'l.log')])
+    assert result == {'ok': True} and seen['attempt'] == str(attempt)
+    assert seen['log'] == str(tmp_path / 'l.log')
+    assert seen['golden'] is launch.check_golden and seen['guard'] is launch.LogGuard
+    assert seen['gates'] is launch.gates and seen['recovery'] is launch.recovery_evidence
+    assert base.check_golden is not launch.check_golden  # restored on the way out
+
+
+def test_finalize_without_an_attempt_directory_is_refused(tmp_path, capsys):
+    with pytest.raises(SystemExit):
+        launch.main(['finalize', '--launcher-log', str(tmp_path / 'l.log')])
+    assert 'attempt directory' in capsys.readouterr().err
+
+
 @pytest.mark.parametrize('argv,message', [
     (['full', '--backbone', 'cylindrical'], 'probe-json'),
     (['probe', '--backbone', 'simple', '--renew-ceiling', '2026-09-15T00:00:00-04:00: r'],
