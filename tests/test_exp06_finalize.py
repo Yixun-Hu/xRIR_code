@@ -23,11 +23,22 @@ STARTED = '2026-09-15T03:00:00+00:00'
 MARKER = 'EXP06_CHILD_EXIT 0 ' + STAMP
 
 
+def dead_pid(offset=0):
+    """Finding 3: a pid that can never be live -- pids are strictly below ``pid_max``."""
+    try:
+        return int(Path('/proc/sys/kernel/pid_max').read_text()) + offset
+    except (OSError, ValueError):  # not Linux: a pid far beyond any plausible allocation
+        return 999999999 + offset
+
+
+DEAD_PID = dead_pid()
+
+
 def seal(run, log, status=0, text='', stamp=STAMP, **overrides):
     """What the launcher leaves behind: the end marker and the child-exit receipt."""
     Path(log).write_text(text + 'EXP06_CHILD_EXIT {} {}\n'.format(status, stamp))
     Path(run).mkdir(parents=True, exist_ok=True)
-    receipt = {'child_pid': 424242, 'status': status, 'started_at': STARTED, 'ended_at': stamp,
+    receipt = {'child_pid': DEAD_PID, 'status': status, 'started_at': STARTED, 'ended_at': stamp,
                'log_sha256_after_marker': provenance.sha256_file(log)}
     receipt.update(overrides)
     (Path(run) / 'child_exit.json').write_text(json.dumps(receipt, sort_keys=True, indent=2) + '\n')
