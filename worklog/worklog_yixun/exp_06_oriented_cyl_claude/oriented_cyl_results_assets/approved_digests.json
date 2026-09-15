@@ -16,23 +16,34 @@
   "code": {
     "bootstrap": null,
     "compare": null,
-    "encoder": null,
-    "eval": null,
-    "eval_launch": null,
+    "encoder": "c75bb603ff0670918e0b9a68b8f68a279c91779bc2bad1056d93e8d2ec6c476f",
+    "eval": "42975b3acb4e73ab10f0cde7ed15fd438874595dd972c3f33d3e8fa4aae78316",
+    "eval_launch": "1fa4d4c77e621e293dfd0689225b03a3de2eb218e5d706d2ca8551b20072be28",
     "evaluator_exp03": "5ba818d83eddc6e71055926ea64cb104ebb8d3a1c347ab1bc12dd95866c1be48",
-    "factory": null,
-    "finalize": null,
-    "haa_eval": null,
-    "haa_finetune": null,
-    "haa_pipeline_sh": null,
-    "heading": null,
-    "launch_sh": null,
+    "factory": "41ad2ee7e4d4948b37d8100b629bdc6fea4ee32bf6aaa1a6caee0de4af289830",
+    "finalize": "b6a9ce86da4e14d2be84937d19f61e20f34afe0221766ff524da753821993f7a",
+    "haa_eval": "1f20e36bfb29b557de020321c30ba083d5631ae6e2f1b3fbfd94ecb0e77f1134",
+    "haa_finetune": "9288884b4034d4510c16ee081e95855e1229aa19a23b94f22e46ce90e6b0458b",
+    "haa_pipeline_sh": "d962e959218a7ea90c5d241d5f90236bb938c9cf110b3717b5e8dec4c467e97b",
+    "heading": "69e395d0ba0bcfbe28d803553904c5fdd26bbda3dcd75ea700944802497102ae",
+    "launch_sh": "157e2435ba717eb97e9046cf0120ddbaa0ea03860daaf55e303c2396164eb3a8",
     "mirror_probe": null,
-    "profiles": null,
-    "recipe": null,
-    "smoke": null,
+    "profiles": "61d7857cc4a59ee2ccfbaed542f07aaceec881aab4d9d019e51ccae60a6a0ae2",
+    "recipe": "c8303ebc792f84f95921723657d0bb35005ed002b112514a2605c56643c467e4",
+    "smoke": "55a355ba5ec6397fe688776b46020d47e6b076f1fe32d43ed9774a003fdbf951",
     "summarize_haa": null,
-    "trainer": null
+    "trainer": "5a2c6df0989905a1b7377ac0ee9d02a370d6b2fa77a47b4152c1c50a4b5b678c"
+  },
+  "fill_note": {
+    "code_filled_at_commit": "4d7a6cb2261c654cc369dfa18a1b1d9cc551ea2b",
+    "date": "2026-09-15",
+    "filled_by": "Planner (Claude Fable 5.1) via tools.exp06_profiles.compute_code_digests",
+    "null_keys": [
+      "bootstrap",
+      "compare",
+      "mirror_probe",
+      "summarize_haa"
+    ]
   },
   "reused": {
     "approved_digests_exp04": null,
