@@ -123,12 +123,27 @@ def test_a_malformed_leaf_or_section_is_refused(case):
 # --- the lazy import -------------------------------------------------------------------
 
 
-def test_the_absent_approvals_module_is_a_named_refusal():
+def test_the_absent_approvals_module_is_a_named_refusal(monkeypatch):
+    """The merge brought the module; a checkout without it still refuses by name."""
+    monkeypatch.setattr(subject, 'MODULE', 'tools.exp06_profiles_absent_here')
     with pytest.raises(subject.ApprovalsUnavailable, match='not available on this branch'):
         subject.approvals_module()
     with pytest.raises(subject.ApprovalsUnavailable):
         subject.load_approved_digests()
     assert issubclass(subject.ApprovalsUnavailable, ValueError)
+
+
+def test_the_merged_module_is_the_approvals_this_round_reads():
+    """The real committed template loads through the adapter's own schema."""
+    from tools import exp06_profiles, provenance
+    approved, receipt = subject.load_approved_digests()
+    assert set(approved['code']) == set(subject.CODE_KEYS) | {'profiles'}
+    assert approved['code']['evaluator_exp03'] == exp06_profiles.EVALUATOR_EXP03
+    assert set(approved['reused']) == set(subject.REUSED_KEYS)
+    assert set(approved['artifacts']) == set(subject.ARTIFACT_KEYS)
+    assert receipt['sha256'] == provenance.sha256_file(exp06_profiles.TEMPLATE_PATH)
+    with pytest.raises(ValueError, match='approvals incomplete'):
+        subject.require_producer(approved, 'summarize_haa')
 
 
 def test_a_stub_module_is_delegated_to_and_revalidated(tmp_path):

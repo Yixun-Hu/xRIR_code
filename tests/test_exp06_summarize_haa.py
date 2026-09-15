@@ -516,12 +516,12 @@ def test_the_side_split_covers_every_arm_room_and_metric(arms):
     assert entry['minus_y'] is not None and entry['plus_y'] is not None
 
 
-def test_production_refuses_without_the_approvals_module():
-    with pytest.raises(subject.approvals_api.ApprovalsUnavailable):
+def test_production_refuses_the_null_approvals_template():
+    with pytest.raises(ValueError, match='approvals incomplete'):
         subject.approvals(False)
     approved, receipt, deviations = subject.approvals(True)
-    assert approved is None and receipt is None
-    assert deviations and 'not available on this branch' in deviations[0]
+    assert approved is not None and receipt['sha256']
+    assert deviations and deviations[0].startswith('not approved: ')
 
 
 def test_the_analysis_binds_its_inputs_and_suppresses_draft_verdicts(arms, tmp_path):
@@ -570,7 +570,7 @@ def test_the_cli_writes_a_draft_and_the_legacy_receipt(legacy_root, new_root, tm
 def test_the_cli_refuses_a_production_run_on_this_branch(legacy_root, new_root, tmp_path):
     receipt = tmp_path / 'r.json'
     subject.write_legacy_receipt(receipt, legacy_root, strict=False)
-    with pytest.raises(subject.approvals_api.ApprovalsUnavailable):
+    with pytest.raises(ValueError, match='approvals incomplete'):
         subject.main(['--legacy-root', str(legacy_root), '--new-root', str(new_root),
                       '--legacy-receipt', str(receipt), '--json', str(tmp_path / 'j.json'),
                       '--summary', str(tmp_path / 's.txt')])

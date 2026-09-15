@@ -321,7 +321,7 @@ def test_the_analysis_is_deterministic_and_binds_its_inputs(runs, approved, tmp_
 
 
 def test_the_cli_refuses_a_production_run_on_this_branch(runs, tmp_path):
-    with pytest.raises(approvals_api.ApprovalsUnavailable):
+    with pytest.raises(ValueError, match='approvals incomplete'):
         subject.main(['--runs-c'] + runs['C'] + ['--runs-a'] + runs['A'] +
                      ['--json', str(tmp_path / 'j.json'), '--summary', str(tmp_path / 's.txt')])
 

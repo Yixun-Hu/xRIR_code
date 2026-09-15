@@ -28,6 +28,7 @@
     "heading": null,
     "launch_sh": null,
     "mirror_probe": null,
+    "probe_align": null,
     "profiles": null,
     "recipe": null,
     "smoke": null,

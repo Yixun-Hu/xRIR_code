@@ -19,6 +19,7 @@ and one ``artifacts`` key differently. The spellings are accepted through the al
 tables below and normalised, so no committed key has to be renamed; the missing
 ``probe_align`` key is a real gap and is refused.
 """
+from collections.abc import Mapping
 import functools
 import importlib
 import re
@@ -182,13 +183,18 @@ def validate(value):
             'artifacts': artifacts}
 
 
-def load_approved_digests(path=None, module=None):
+def detach(value):
+    """A plain, mutable copy: the approvals module returns frozen nested mappings."""
+    if isinstance(value, Mapping):
+        return {key: detach(item) for key, item in value.items()}
+    return value
+
+
+def load_approved_digests(path=None, module=None, **kwargs):
     """Delegate to the approvals module, then apply round 3b's own schema."""
     module = approvals_module() if module is None else module
-    approved, receipt = module.load_approved_digests(path)
-    return validate({key: {name: item for name, item in value.items()}
-                     if isinstance(value, dict) else value
-                     for key, value in dict(approved).items()}), receipt
+    approved, receipt = module.load_approved_digests(path, **kwargs)
+    return validate(detach(approved)), receipt
 
 
 def leaf_paths(sections):
