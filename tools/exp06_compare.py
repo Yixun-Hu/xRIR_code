@@ -71,12 +71,18 @@ FILES = ('eval_manifest.json', 'completion.json') + OUTPUTS
 # evaluation of the exp_01 cylindrical checkpoint.
 ROUTES = ('exp04', 'exp05', 'exp06')
 EPOCH = 12                         # every arm of 6.3 evaluates the twelfth-epoch weights
+M_CYL = next(arm for arm in exp05_profiles.ARMS if arm['role'] == 'M_cyl')
+# Finding 5: arm B's exp_05 route evaluates one registered tier arm, and that
+# registration -- not the run's own declaration -- says which counts it must record.
+EXP05_M = {'role': M_CYL['role'], 'tier': M_CYL['tier'], 'backbone': M_CYL['backbone'],
+           'sha256': M_CYL['sha256'],
+           'counts': exp05_profiles.json_value(M_CYL['counts'])}
 ROLES = {'C': {'arm': 'cyl_or', 'checkpoint': None, 'route': 'exp06', 'role': 'arm',
                'backbone': 'cylindrical_oriented', 'epoch': EPOCH},
          'A': {'arm': 'control', 'checkpoint': CONTROL, 'route': 'exp04', 'role': 'arm',
                'backbone': CONTROL['backbone'], 'epoch': CONTROL['epoch']},
          'B': {'arm': 'cyl', 'checkpoint': CYL, 'route': None, 'role': 'baseline',
-               'backbone': CYL['backbone'], 'epoch': CYL['epoch']}}
+               'backbone': CYL['backbone'], 'epoch': CYL['epoch'], 'exp05': EXP05_M}}
 CONTRASTS = (('C', 'B'), ('C', 'A'))
 
 
@@ -92,6 +98,13 @@ def exp06_registry():
     return (exp06_eval.registry_sha256(),
             {name: cls.__name__ for name, cls in BACKBONES_EXP06.items()},
             tuple(exp06_eval.METADATA_FIELDS))
+
+
+@functools.lru_cache(maxsize=None)
+def tier_fields():
+    """The tier block exp_04's launcher copies into the completion and both outputs."""
+    from tools.exp04_eval_launch import TIER_FIELDS
+    return tuple(TIER_FIELDS)
 
 
 def _equal(actual, expected):
@@ -148,12 +161,7 @@ def check_route(route, fields, closures, approved, require):
                 'approved exp_05 evaluator closure')
         require(closures['writer']['sha256'] == pins.get('writer'),
                 'approved exp_05 writer closure')
-        require(fields.get('tier') == 'M' and fields.get('legacy_M') is True,
-                'the exp_05 baseline is the legacy M tier')
-        require('train_args' in (fields.get('mutable_inputs') or {}),
-                "the exp_05 tier binds its checkpoint's args.json")
-        require(_is_sha256(fields.get('args_json_sha256')), 'exp_05 args_json_sha256')
-        return
+        return                     # the tier itself is established by check_exp05_tier
     require(exp04_approvals()['sha256'] == reused.get('exp04_approved_digests_sha256'),
             'exp_04 approvals record is not the approved one')
     require(closures['entrypoint']['sha256'] == reused.get('exp04_evaluator_closure'),
@@ -285,6 +293,9 @@ def admit_run(run_dir, role, approved, split=SPLIT, check=None, inputs=None,
         require(False, 'reconciliation ' + failure)
     check_evidence(fields, directory, digest, require, bind, stats, route, split)
     check_reference(fields, run, split, require, bind)
+    if route == 'exp05':
+        run['tier'] = check_exp05_tier(fields, run, completion, actual,
+                                       roles[role].get('exp05'), require, bind)
     run['role'], run['seed'], run['manifest_hash'] = role, seed, fields.get('manifest_hash')
     # Finding 5: the weights each role really evaluated, hashed here and published.
     run['checkpoint'] = {'sha256': actual, 'path': fields['checkpoint'], 'route': route,
@@ -363,6 +374,61 @@ def check_reference(fields, run, split, require, bind):
             'the canonical query digest of the registered split')
     require(len(set(rooms_from_paths(run['query']))) == split['n_rooms'], 'room count')
     return path
+
+
+def check_exp05_tier(fields, run, completion, digest, spec, require, bind):
+    """Finding 5: the M-tier declaration must describe the checkpoint's own args.json.
+
+    exp_05's evaluator derives its tier block from the ``args.json`` beside the weights
+    it loads, so the block is re-derived here with exp_05's own rules -- the adjacent
+    file, its digest in both declarations, the registered tier configuration and the
+    registered parameter counts of the arm those weights are -- and the same block must
+    appear, unchanged, in the manifest, the completion and both outputs.
+    """
+    from tools import exp05_params
+    require(isinstance(spec, dict), 'this role has no registered exp_05 tier arm')
+    require(digest == (spec or {}).get('sha256'),
+            'the checkpoint is not the registered exp_05 {}'.format((spec or {}).get('role')))
+    require(_equal(fields.get('tier'), (spec or {}).get('tier')),
+            'tier is not the registered {}'.format((spec or {}).get('tier')))
+    path = Path(fields['checkpoint']).resolve().parent / 'args.json'
+    require(path.is_file(), 'the exp_05 checkpoint has no adjacent args.json: ' + str(path))
+    actual = bind(path)
+    require(fields.get('args_json_sha256') == actual,
+            'args_json_sha256 is not the digest of the checkpoint args.json')
+    binding = (fields.get('mutable_inputs') or {}).get('train_args') or {}
+    declared = Path(fields['repo']) / str(binding.get('path', ''))
+    require(declared.resolve() == path, 'train_args binds {}, which is not the checkpoint '
+            'args.json {}'.format(binding.get('path'), path))
+    require(binding.get('sha256') == actual, 'the train_args digest is not the args.json')
+    recorded = json.loads(path.read_text())
+    require(isinstance(recorded, dict), 'the checkpoint args.json is not a record')
+    config = {'vit_' + key: value for key, value in exp05_params.TIERS['M'].items()}
+    legacy = not any(key in recorded for key in config) and 'tier' not in recorded
+    require(fields.get('legacy_M') is legacy,
+            'legacy_M {!r} is not the {!r} of the checkpoint args.json'.format(
+                fields.get('legacy_M'), legacy))
+    if not legacy:
+        require(exp05_params.tier_of(recorded) == 'M'
+                and recorded.get('tier', 'M') == 'M',
+                'the checkpoint args.json is not an M-tier record')
+    for key, value in sorted(config.items()):
+        require(_equal(fields.get(key), value), key)
+    for key in ('backbone', 'param_counts'):
+        require(key not in recorded or _equal(recorded[key], fields.get(key)),
+                'the checkpoint args.json {} differs from the evaluated model'.format(key))
+    counts = (spec or {}).get('counts')
+    require(_equal(fields.get('param_counts'), counts),
+            'param_counts are not the registered counts of {}'.format(
+                (spec or {}).get('role')))
+    require(fields.get('backbone') == (spec or {}).get('backbone'), 'tier backbone')
+    for key in tier_fields():
+        require(key in fields, 'the exp_05 route records no ' + key)
+        require(_equal(run['meta'].get(key), fields.get(key)), 'meta ' + key)
+        require(_equal(completion.get(key), fields.get(key)), 'completion ' + key)
+    return {'tier': (spec or {}).get('tier'), 'legacy_M': legacy, 'param_counts': counts,
+            'arm': (spec or {}).get('role'),
+            'args_json': {'path': str(path), 'sha256': actual}}
 
 
 def admit_runs(groups, approved, exploratory=False, split=SPLIT, roles=ROLES):

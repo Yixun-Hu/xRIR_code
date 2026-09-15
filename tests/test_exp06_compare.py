@@ -66,6 +66,10 @@ def closure(name, tag):
 CLOSURES = {name: closure(name, name) for name in
             ('exp06_eval', 'exp06_eval_launch', 'exp04_eval', 'exp04_eval_launch',
              'exp05_eval', 'eval_yaw_rotation')}
+M_CYL = next(arm for arm in exp05_profiles.ARMS if arm['role'] == 'M_cyl')
+M_COUNTS = exp05_profiles.json_value(M_CYL['counts'])
+TIER_KEYS = ('tier', 'param_counts', 'args_json_sha256', 'legacy_M',
+             'vit_dim', 'vit_depth', 'vit_heads', 'vit_mlp_dim')
 EPOCH = 12                              # the pretraining epoch every arm of 6.3 evaluates
 REGISTRY = exp06_eval.registry_sha256()
 MODEL_CLASSES = {name: cls.__name__ for name, cls in BACKBONES_EXP06.items()}
@@ -77,14 +81,12 @@ ROLES = {'C': {'arm': 'cyl_or', 'checkpoint': None, 'route': 'exp06', 'role': 'a
                'route': 'exp04', 'role': 'arm', 'backbone': 'simple', 'epoch': 12},
          'B': {'arm': 'cyl', 'checkpoint': {'sha256': None, 'checkpoint': 'cyl.pth',
                                             'backbone': 'cylindrical', 'epoch': 12},
-               'route': None, 'role': 'baseline', 'backbone': 'cylindrical', 'epoch': 12}}
+               'route': None, 'role': 'baseline', 'backbone': 'cylindrical', 'epoch': 12,
+               'exp05': {'role': 'M_cyl', 'tier': 'M', 'backbone': 'cylindrical',
+                         'sha256': None, 'counts': dict(M_COUNTS)}}}
 EXP04_DIGEST = provenance.sha256_file(
     __import__('tools.exp04_profiles', fromlist=['x']).APPROVED_DIGESTS_PATH)
 EXP05_DIGEST = 'a5' * 32
-M_CYL = next(arm for arm in exp05_profiles.ARMS if arm['role'] == 'M_cyl')
-M_COUNTS = exp05_profiles.json_value(M_CYL['counts'])
-TIER_KEYS = ('tier', 'param_counts', 'args_json_sha256', 'legacy_M',
-             'vit_dim', 'vit_depth', 'vit_heads', 'vit_mlp_dim')
 
 
 def approved_digests(epoch_012_sha):
@@ -244,6 +246,8 @@ def checkpoints(tmp_path_factory):
         paths[role] = path
         if role != 'C':
             ROLES[role]['checkpoint']['sha256'] = provenance.sha256_file(path)
+        if role == 'B':
+            ROLES[role]['exp05']['sha256'] = provenance.sha256_file(path)
     return paths
 
 
