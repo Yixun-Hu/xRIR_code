@@ -316,24 +316,73 @@ def edit_json(path, mutate):
     Path(path).write_text(json.dumps(data))
 
 
-def restamp(bound):
+def restamp(bound, product='table'):
     """Repair the sidecar's digest of the canonical JSON after editing both of them."""
     md = load_asset('make_results_md')
-    path = Path(bound.paths['table'])
+    path = Path(bound.paths[product] if product != 'pairs' else bound.paths['pairs'][0])
     side = json.loads(sidecar(path).read_text())
     side['outputs'][str(path.resolve())] = md.sha(path.read_bytes())
     sidecar(path).write_text(json.dumps(side))
 
 
-def edit_both(bound, mutate):
-    """Edit the seen table's inputs in the JSON and its sidecar, keeping them consistent."""
-    path = Path(bound.paths['table'])
+def edit_both(bound, mutate, product='table'):
+    """Edit a product's inputs in the JSON and its sidecar, keeping them consistent."""
+    path = Path(bound.paths[product] if product != 'pairs' else bound.paths['pairs'][0])
     data, side = json.loads(path.read_text()), json.loads(sidecar(path).read_text())
     mutate(data, side)
     side['inputs'] = data['inputs']
+    if 'run_flags' in data:
+        data['run_flags'] = {key: value for key, value in data['run_flags'].items()
+                             if key in side['run_flags']}
+        side['run_flags'] = data['run_flags']
     path.write_text(json.dumps(data))
     sidecar(path).write_text(json.dumps(side))
-    restamp(bound)
+    restamp(bound, product)
+
+
+def repair_run_digests(bound, run):
+    """After a run's bytes change, restate the digests every product declares for it."""
+    for product in ('table', 'pairs'):
+        def mutate(data, side):
+            for key in list(data['inputs']):
+                if Path(key).parent == Path(run):
+                    data['inputs'][key] = p.sha256_file(key)
+        edit_both(bound, mutate, product)
+
+
+def drop_run(bound):
+    """Remove one whole evaluation run from the table's declared provenance."""
+    run = Path(bound.arguments['runs'][0])
+    def mutate(data, side):
+        side['run_flags'].pop(str(run))
+        data.get('run_flags', {}).pop(str(run), None)
+        data.get('contracts', {}).pop(str(run), None)
+        for key in list(data['inputs']):
+            if Path(key).parent == run:
+                data['inputs'].pop(key)
+    edit_both(bound, mutate)
+
+
+def add_dependency(bound):
+    edit_both(bound, lambda data, side: data['inputs'].__setitem__(
+        '/nonexistent/exp07_review_dependency.json', 'f' * 64))
+
+
+def substitute_reference_manifest(bound):
+    """Restate the digest of the reference manifest the first run was evaluated under."""
+    run = Path(bound.arguments['runs'][0])
+    reference = bound.built.read(run / 'eval_manifest.json')['manifest_path']
+    edit_both(bound, lambda data, side: data['inputs'].__setitem__(reference, 'f' * 64))
+
+
+def unseen_output_metas(bound):
+    """Both output metas say unseen while the manifest they echo says seen."""
+    run = Path(bound.arguments['runs'][0])
+    sample, metrics = (bound.built.read(run / name) for name in
+                       ('per_sample_yaw.json', 'metrics_yaw.json'))
+    sample['meta']['split'] = metrics['meta']['split'] = 'unseen'
+    bound.built.rebind(run, sample=sample, metrics=metrics)
+    repair_run_digests(bound, run)
 
 
 def drop_input(bound, name):
@@ -421,6 +470,17 @@ FORGERIES = {
     'calibration_not_the_released_row': (lambda b: edit_json(
         b.evidence['calibration'], lambda d: d.update(role='seen_simple')),
         'calibration identity'),
+    # Blocker 1: whole-run omissions, missing training dependencies and inputs that are
+    # not the artefacts this report binds (the round-6 reviewer's four reproductions).
+    'whole_run_removed_from_a_product': (drop_run, 'does not declare exactly its runs'),
+    'required_training_inventory_removed': (
+        lambda b: drop_input(b, 'train_inventory.json'), 'missing training dependency'),
+    'reference_manifest_digest_substituted': (substitute_reference_manifest,
+                                              'input differs from the bound artefact'),
+    'nonexistent_dependency_added': (add_dependency,
+                                     'names an artefact this report does not bind'),
+    # Blocker 4: the binder's own split-agreement check.
+    'unseen_output_metas_under_a_seen_manifest': (unseen_output_metas, 'output split identity'),
 }
 
 

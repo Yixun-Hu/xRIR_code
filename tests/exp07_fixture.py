@@ -17,6 +17,7 @@ from tools import exp07_provenance as e7p
 from tools import provenance as p
 from tools.exp07_profiles import get_profile, json_value
 from tools.reference_manifest import manifest_hash
+from tools.paired_compare import _closure_digest
 from test_paired_compare import _canonical_digest, _read, _replace, _rebind, _summaries
 
 METRICS = ('edt', 'c50', 't60', 'loss', 'log_mse')
@@ -79,8 +80,16 @@ def exp07_fixture(tmp_path):
                  'tools/exp07_train.py', 'eval_yaw_rotation.py')
         entry, writer, launcher, training, frozen = [_source(root, name) for name in names]
         commit = _commit_sources(root, names)
-        producer = dict(sha256='a' * 64, files=[],
-                        commit=_git(Path(__file__).resolve().parents[1], 'rev-parse', 'HEAD'))
+        # A producer closure of one REAL repository file: the producers declare their own
+        # source as an input and the record binder validates it against this pin, so the
+        # records must be self-consistent and the bytes must be the ones on disk.
+        repo = Path(__file__).resolve().parents[1]
+        own = 'tools/exp07_table.py'
+        digest = p.sha256_file(repo / own)
+        files = [dict(path=own, reviewed_blob_sha256=digest, working_tree_sha256=digest,
+                      commits_after_reviewed=[], mtime='2026-09-15T00:00:00+00:00')]
+        producer = dict(sha256=_closure_digest(dict(files=files)), files=files,
+                        commit=_git(repo, 'rev-parse', 'HEAD'))
         pins = dict(schema_version=1, closures=dict(
             evaluator=entry['sha256'], writer=writer['sha256'],
             training_launcher=[launcher['sha256']], training=training['sha256'],

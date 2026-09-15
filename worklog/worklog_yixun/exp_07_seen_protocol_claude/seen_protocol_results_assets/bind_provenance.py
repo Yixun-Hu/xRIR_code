@@ -21,8 +21,11 @@ from tools import exp07_launcher as launcher
 from tools import exp07_provenance as e7p
 from tools import provenance as p
 from tools.exp04_record import load_asset as exp04_asset
-from tools.exp07_profiles import ARMS, RELEASED_SHA256, load_approved_digests
+from tools.exp07_eval_launch import OUTPUTS as EVAL_OUTPUTS, SPLIT_FIELDS
+from tools.exp07_profiles import (ARMS, EVAL_SEEDS, RELEASED_SHA256, get_profile,
+                                  load_approved_digests)
 from tools.exp07_record import load_asset
+from tools.paired_compare import _closure_digest
 
 binder = exp04_asset('bind_provenance')
 md = load_asset('make_results_md')
@@ -31,6 +34,13 @@ check_ancestor, report_path = binder.check_ancestor, binder.report_path
 TRAINING = ('train_args', 'train_manifest', 'train_completion')
 RUN_FILES = ('eval_manifest.json', 'completion.json', 'metrics_yaw.json', 'per_sample_yaw.json')
 RELEASED = next(arm['checkpoint'] for arm in ARMS if arm['reference'])
+ROLES = tuple(arm['role'] for arm in ARMS)
+NUM_SHOT = tuple(get_profile('TABLE_SEEN_V1')['num_shot'])
+# The complete evaluation set the plan registers: four roles x two K x five seeds.
+IDENTITIES = frozenset((role, shot, seed) for role in ROLES
+                       for shot in NUM_SHOT for seed in EVAL_SEEDS)
+# Every product that used a trained role must declare that arm's training evidence.
+TRAINING_DEPENDENCIES = ('args.json', 'train_manifest.json', 'train_inventory.json')
 EVIDENCE = ('gpu_parity', 'calibration')  # --evidence NAME=PATH, both required
 CALIBRATION_METRICS = ('EDT', 'C50', 'T60')
 # The historical full-split reproduction the released row is calibrated against
@@ -140,25 +150,84 @@ def attempt_record(attempt, pins):
     require(len(full) <= 2, 'more than one retry recorded: ' + role)
     require(any(row['attempt'] == directory.name for row in full),
             'the ledger does not hold this attempt: ' + role)
-    return dict(record, role=role, checkpoint=checkpoint, ledger=stamp(ledger_path),
-                full_attempts=len(full),
-                other_attempts=other_attempts(directory, ledger, role),
-                probe_receipts=[stamp(item) for item in
-                                sorted(directory.parent.glob('_probe_*.json'))],
-                inventory=stamp(identity['path'], identity['sha256']),
-                probe_receipt=stamp(Path(fields['repo']) / bound['probe_receipt']['path'],
-                                    bound['probe_receipt']['sha256']),
-                seen_split=stamp(Path(fields['repo']) / bound['seen_split']['path'],
-                                 bound['seen_split']['sha256']))
+    record = dict(record, role=role, checkpoint=checkpoint, ledger=stamp(ledger_path),
+                  full_attempts=len(full),
+                  other_attempts=other_attempts(directory, ledger, role),
+                  probe_receipts=[stamp(item) for item in
+                                  sorted(directory.parent.glob('_probe_*.json'))],
+                  inventory=stamp(identity['path'], identity['sha256']),
+                  probe_receipt=stamp(Path(fields['repo']) / bound['probe_receipt']['path'],
+                                      bound['probe_receipt']['sha256']),
+                  seen_split=stamp(Path(fields['repo']) / bound['seen_split']['path'],
+                                   bound['seen_split']['sha256']))
+    return dict(record, bound=attempt_declarations(record))
+
+
+def attempt_declarations(record):
+    """Every artefact this attempt binds, by absolute path and bound digest."""
+    items = [record[key] for key in ('manifest', 'completion', 'log', 'checkpoint', 'ledger',
+                                     'inventory', 'probe_receipt', 'seen_split')]
+    items += list(record['probe_receipts'])
+    items += [item for item in record['outputs'].values() if item]
+    for other in record['other_attempts']:
+        items += list(other['files'])
+    return {item['path']: item['sha256'] for item in items if item}
+
+
+def split_agreement(record, fields):
+    """Both output metas must declare the split identity the evaluation manifest does.
+
+    The completion hash-binds the manifest and both outputs, which makes them immutable,
+    not consistent.  The launcher compares them before it certifies a run; this is the
+    same comparison, made again over the bytes the report binds.
+    """
+    identity = {key: fields.get(key) for key in SPLIT_FIELDS}
+    require(all(value is not None for value in identity.values()),
+            'the evaluation manifest declares no split identity: ' + record['path'])
+    for name in EVAL_OUTPUTS:
+        meta = json.loads(Path(record['path']).joinpath(name).read_text()).get('meta') or {}
+        require(all(meta.get(key) == value for key, value in identity.items()),
+                'output split identity: {} in {}'.format(name, record['path']))
+
+
+def run_declarations(record, fields):
+    """Every artefact this run may declare, at the digest its hash-bound records give it.
+
+    Data and source files are bound by the digests the evaluation manifest records -- the
+    manifest itself is bound by the completion -- so nothing here is re-hashed off disk.
+    """
+    root = Path(fields['repo'])
+    bound = {item['path']: item['sha256'] for item in
+             [record['manifest'], record['completion'], record['log']] +
+             [item for item in record['outputs'].values() if item]}
+    for path_key, digest_key in (('checkpoint', 'checkpoint_sha256'),
+                                 ('manifest_path', 'manifest_file_sha256')):
+        bound[str((root / fields[path_key]).resolve())] = fields[digest_key]
+    identity = fields['data_identity']
+    if 'manifest_path' in identity:
+        bound[str(Path(identity['manifest_path']).resolve())] = identity['manifest_file_sha256']
+    for item in identity['inventory']:
+        bound[str((Path(identity['data_root']) / item['path']).resolve())] = item['sha256']
+    for closure in [fields['evaluator_closure']] + list(fields['source_closures'].values()):
+        for item in closure['files']:
+            bound[str((root / item['path']).resolve())] = item['working_tree_sha256']
+    for item in fields['mutable_inputs'].values():
+        bound[str((root / item['path']).resolve())] = item['sha256']
+    return bound
 
 
 def run_record(run, attempts, released):
     """One evaluation run: the seen split it used and the training it is bound to."""
     record, fields = snapshot(run, 'eval')
     require(fields.get('split') == 'seen', 'not a seen evaluation: ' + str(run))
+    split_agreement(record, fields)
     split = fields['mutable_inputs']['seen_split']
     require(split['path'] == e7p.SEEN_SPLIT, 'seen_split binding path: ' + str(run))
     split = stamp(Path(fields['repo']) / split['path'], split['sha256'])
+    seed, shot = fields.get('manifest_seed'), fields.get('num_shot')
+    require(type(seed) is int and type(shot) is int, 'run K/seed identity: ' + str(run))
+    identity = dict(seen_split=split, num_shot=shot, seed=seed,
+                    bound=run_declarations(record, fields))
     checkpoint = (Path(fields['repo']) / fields['checkpoint']).resolve()
     owners = [item for item in attempts if Path(item['checkpoint']['path']) == checkpoint]
     if not owners:
@@ -166,7 +235,7 @@ def run_record(run, attempts, released):
                 fields['checkpoint_sha256'] == released['sha256'], 'unregistered checkpoint')
         require(not set(TRAINING) & set(fields['mutable_inputs']),
                 'the released row has no training provenance')
-        return dict(record, role='released_seen', seen_split=split)
+        return dict(record, role='released_seen', **identity)
     owner, bound = owners[0], fields['mutable_inputs']
     require(set(TRAINING) <= set(bound), 'missing training linkage: ' + str(run))
     for key, expected in (('train_manifest', owner['manifest']),
@@ -175,24 +244,32 @@ def run_record(run, attempts, released):
                 'training linkage: ' + str(run))
     require(Path(bound['train_args']['path']).resolve().parent == Path(owner['path']),
             'train_args linkage: ' + str(run))
-    return dict(record, role=owner['role'], seen_split=split)
+    return dict(record, role=owner['role'], **identity)
 
 
 def known_digests(runs, attempts, approval, released):
     """Every artefact this report binds, by absolute path, with the digest it was bound at."""
     known = {approval['path']: approval['sha256'], released['path']: released['sha256']}
-    for run in runs:
-        for item in [run['manifest'], run['completion']] + list(run['outputs'].values()):
-            if item:
-                known[item['path']] = item['sha256']
-    for attempt in attempts:
-        items = [attempt[key] for key in
-                 ('manifest', 'completion', 'checkpoint', 'ledger', 'inventory',
-                  'probe_receipt', 'seen_split')]
-        items += [item for item in attempt['outputs'].values() if item]
-        for item in items:
-            known[item['path']] = item['sha256']
+    for record in list(runs) + list(attempts):
+        known.update(record['bound'])
     return known
+
+
+def producer_declarations(producer):
+    """The producer's own source files; the approved closure digest pins the list."""
+    require(_closure_digest(producer) == producer['sha256'], 'producer closure records')
+    return {str((ROOT / item['path']).resolve()): item['working_tree_sha256']
+            for item in producer['files']}
+
+
+def training_dependencies(attempt):
+    """The training evidence any product that used this arm must declare for itself."""
+    required = dict(attempt['outputs'])
+    missing = [name for name in TRAINING_DEPENDENCIES if not required.get(name)]
+    require(not missing, 'the attempt has no ' + ', '.join(missing) + ': ' + attempt['role'])
+    items = {name: required[name] for name in TRAINING_DEPENDENCIES}
+    items['completion.json'] = attempt['completion']
+    return items
 
 
 def run_coverage(runs):
@@ -208,7 +285,9 @@ def bind_results(paths, head, approval, runs, attempts, released):
     """Every canonical producer output, revalidated, with exact coverage of its inputs."""
     known = known_digests(runs, attempts, approval, released)
     coverage = run_coverage(runs)
-    run_paths = set(coverage)
+    by_role, trained = {}, {item['role']: item for item in attempts}
+    for run in runs:
+        by_role.setdefault(run['role'], set()).add(run['path'])
     records = []
     for path in sorted(str(Path(item).resolve()) for item in paths):
         name = json.loads(Path(path).read_bytes()).get('profile_name')
@@ -222,19 +301,28 @@ def bind_results(paths, head, approval, runs, attempts, released):
                 'result approval identity or pins')
         require(side['producer']['sha256'] == approval['blob']['closures'][md.KEYS[name]],
                 'result producer closure is not the approved one: ' + path)
+        # The expected run set is derived from the bound identities, not from the product:
+        # the table is every role, a pairing is its two arms, and both are exact.
+        roles = set(ROLES) if name == 'TABLE_SEEN_V1' else set(data.get('pairing') or ())
+        require(roles and roles <= set(by_role), 'unregistered product roles: ' + path)
+        expected = set().union(*(by_role[role] for role in sorted(roles)))
         flags = set(side['run_flags'])
-        require(flags and flags <= run_paths, 'result inputs are not the bound runs')
+        require(flags == expected,
+                'the product does not declare exactly its runs: ' + path)
         for run_path in sorted(flags):  # exact coverage: no subset of a used run's files
             for item, digest in sorted(coverage[run_path].items()):
                 require(side['inputs'].get(item) == digest,
                         'incomplete run coverage: {} in {}'.format(item, path))
+        declared = dict(known, **producer_declarations(side['producer']))
         for item, digest in sorted(side['inputs'].items()):
-            if item in known:
-                require(known[item] == digest,
-                        'input differs from the bound artefact: {} in {}'.format(item, path))
-            else:
-                require(Path(item).name not in RUN_FILES or str(Path(item).parent) in flags,
-                        'input names a run this report does not bind: {} in {}'.format(item, path))
+            require(item in declared,
+                    'input names an artefact this report does not bind: {} in {}'.format(item, path))
+            require(declared[item] == digest,
+                    'input differs from the bound artefact: {} in {}'.format(item, path))
+        for role in sorted(roles & set(trained)):
+            for required, item in sorted(training_dependencies(trained[role]).items()):
+                require(side['inputs'].get(item['path']) == item['sha256'],
+                        'missing training dependency: {} of {} in {}'.format(required, role, path))
         check_ancestor(side['producer']['commit'], head)
         records.append(dict(profile=name, pairing=data.get('pairing'), sha256=receipt['sha256'],
                             producer_commit=side['producer']['commit'],
@@ -260,8 +348,11 @@ def collect(runs, attempt, audit, evidence, results, rendered, unseen_table, uns
     require(sorted(a['role'] for a in attempts) == sorted(pins['checkpoints']),
             'every approved arm must be bound exactly once')
     paths = sorted(str(Path(item).resolve()) for item in runs)
-    require(len(paths) == len(set(paths)) and len(paths) == 40, 'the forty evaluation runs')
+    require(len(paths) == len(set(paths)) and len(paths) == len(IDENTITIES),
+            'the forty evaluation runs')
     records = [run_record(item, attempts, released) for item in paths]
+    require({(item['role'], item['num_shot'], item['seed']) for item in records} == IDENTITIES,
+            'the forty evaluation runs are the registered role/K/seed set')
     head = head or binder.subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT,
                                                   text=True).strip()
     require(binder.subprocess.run(['git', 'cat-file', '-e', head + '^{commit}'], cwd=ROOT,
