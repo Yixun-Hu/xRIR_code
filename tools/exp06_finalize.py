@@ -628,6 +628,22 @@ def _rooms_and_frame(args):
     return rooms, frame
 
 
+def _validation_rooms(args, rooms):
+    """The rooms whose validation loss selects ``best.pth``: --val-rooms, else the rooms.
+
+    Round 2b finding 4: the wrapper's default is the training rooms, and a declared
+    ``val_rooms`` must be a nonempty list of room names -- anything else is unusable and
+    is refused before it can select a checkpoint.
+    """
+    declared = args.get('val_rooms')
+    if declared is None:
+        return list(rooms)
+    _require(isinstance(declared, list) and declared
+             and all(isinstance(room, str) for room in declared),
+             'args.json records val_rooms {!r}, not a nonempty list of rooms'.format(declared))
+    return declared
+
+
 def _heading_binding(args, rooms, frame, repo):
     """Every room's binding names a heading JSON, and must agree with it in full.
 
@@ -636,13 +652,19 @@ def _heading_binding(args, rooms, frame, repo):
     four inputs the estimate was derived from -- a cache edited afterwards is refused
     here -- and only a ``confirmatory`` record, one of a clean tree whose closure equals
     its HEAD blobs, may bind a child.
+
+    Round 2b finding 4: the rooms re-verified are the union of the training rooms and the
+    effective validation rooms, because validation is what selects the checkpoint the next
+    stage starts from. Training-room membership stays checked by ``_rooms_and_frame``.
     """
     if frame != 'heading':
         _require(not args.get('heading'), 'the room frame must not record a heading')
         return None
     heading = args.get('heading')
+    rooms = sorted(set(rooms) | set(_validation_rooms(args, rooms)))
     _require(isinstance(heading, dict) and set(rooms) <= set(heading),
-             'the heading frame requires a heading record for every room')
+             'the heading frame requires a heading record for every room it trains or '
+             'validates on: {}'.format(', '.join(sorted(set(rooms) - set(heading or ())))))
     root = args.get('haa_root')
     _require(isinstance(root, str) and root, 'the heading frame requires the resolved '
              'haa_root the run read, not {!r}'.format(root))
