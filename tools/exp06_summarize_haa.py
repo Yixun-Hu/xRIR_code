@@ -525,14 +525,53 @@ def child_per_sample(job_dir, name, record, arm, inputs=None):
     return per
 
 
+def _dependency(inputs, path, digest, label):
+    """One validated dependency, refused rather than bound without an identity."""
+    _require(_is_sha256(digest),
+             '{} records no validated digest for {}'.format(label, path))
+    bind(inputs, path, digest)
+
+
+def child_dependencies(inputs, path, evidence, repo):
+    """Finding 2a: the inputs the child's provenance declares and its validators verified.
+
+    ``verify_child`` re-runs the child's own role validator, which rehashes the data
+    inventory (the HAA cache files it read), every file of its source closure and every
+    mutable input it recorded. Those bytes are what the certification rests on, so they
+    are retained here with the digests that validation confirmed -- publication
+    revalidates the whole map, and a second, different digest for any of these paths is
+    a contradiction rather than an update.
+    """
+    label = 'child {}'.format(Path(path).name)
+    record = _read_json(Path(path) / 'provenance.json', label + '/provenance.json', inputs,
+                        (evidence.get('artifacts') or {}).get('provenance.json'))
+    for key in ('data_identity', 'train_data_identity'):
+        identity = record.get(key)
+        if not isinstance(identity, dict):
+            continue
+        root = Path(identity['data_root'])
+        for entry in identity.get('inventory') or ():
+            _dependency(inputs, root / entry['path'], entry.get('sha256'), label)
+    for name in sorted(record.get('source_closures') or {}):
+        for item in (record['source_closures'][name] or {}).get('files') or ():
+            _dependency(inputs, finalizer._resolve(item['path'], repo),
+                        item.get('working_tree_sha256'), label)
+    for name in sorted(record.get('mutable_inputs') or {}):
+        entry = record['mutable_inputs'][name]
+        _dependency(inputs, finalizer._resolve(entry['path'], repo), entry.get('sha256'),
+                    label)
+
+
 def bind_child(inputs, path, evidence, bound, args, repo):
     """Finding 2: every file one child's certification rests on, with the bytes the
     finalizer's own validators just re-hashed -- artefacts, log, exit receipt, the
-    heading records it read and the weights it started from or evaluated."""
+    heading records it read, the weights it started from or evaluated, and (finding 2a)
+    the data, source and mutable inputs its provenance declares."""
     if inputs is None:
         return
     for name, digest in sorted((evidence.get('artifacts') or {}).items()):
         bind(inputs, Path(path) / name, digest)
+    child_dependencies(inputs, path, evidence, repo)
     for key in ('log', 'child_exit_receipt'):
         binding = bound.get(key) or {}
         bind(inputs, finalizer._resolve(binding['path'], repo), binding['sha256'])
