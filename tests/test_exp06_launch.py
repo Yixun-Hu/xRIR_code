@@ -105,6 +105,9 @@ def test_preflight_cli_exits_two_on_refusal(repo, fake_nvidia_smi):
 
 
 LAUNCHER = 'tools/exp06_launch.sh'
+DATA_ROOT = '/home/yixunhu/data_cache/AcousticRooms'
+ENV_LINE = ('ENV CUDA_VISIBLE_DEVICES=1 PYTHONHASHSEED=0 OMP_NUM_THREADS=8'
+            ' XRIR_DATA_PATH=' + DATA_ROOT)
 PYTHON = '/home/yixunhu/miniconda3/envs/xRIR/bin/python'
 ROOT = 'ckpt/exp06/pretrain/xRIR_cylor_8_shot'
 ATTEMPT = ROOT + '/attempt_<UTC>'
@@ -121,7 +124,8 @@ SMOKE_FLAGS = ('--epochs 1 --max-train-batches 3 --max-test-batches 2 --batch-si
 def dry_run(mode, *extra):
     command = ['bash', LAUNCHER, mode, '--gpu', '1', '--reviewed-commit', COMMIT, '--dry-run']
     completed = subprocess.run(command + list(extra), cwd=REPO, capture_output=True, text=True,
-                               env={**os.environ, 'PYTHONPATH': str(REPO)})
+                               env={**os.environ, 'PYTHONPATH': str(REPO),
+                                    'XRIR_DATA_PATH': DATA_ROOT})
     assert completed.returncode == 0, completed.stderr
     return completed.stdout.splitlines()
 
@@ -136,7 +140,7 @@ def test_full_dry_run_matches_the_plan_argv():
     assert ('RUN ' + PYTHON + ' tools/exp06_finalize.py preflight --mode full --gpu 1'
             ' --reviewed-commit ' + COMMIT + ' --attempt-root ' + ROOT) in lines
     assert 'MKDIR ' + ATTEMPT in lines
-    assert 'ENV CUDA_VISIBLE_DEVICES=1 PYTHONHASHSEED=0 OMP_NUM_THREADS=8' in lines
+    assert ENV_LINE in lines
     assert 'RUN nohup setsid ' + TRAIN_ARGV in lines
     log = 'worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_<UTC>_train_full.log'
     assert 'SINK cat >> ' + log in lines and 'PIDFILE ' + ATTEMPT + '/launch.pid' in lines
@@ -158,7 +162,7 @@ def test_probe_dry_run_uses_the_bounded_recipe():
                         ' --epochs 1 --max-train-batches 200 --max-test-batches 20 --no-save'
                         ' --run-type probe --batch-size 32 --accum-steps 2 --tf32'
                         ' --num-workers 12').replace(' -- ', ' -- ')
-    assert 'ENV CUDA_VISIBLE_DEVICES=1 PYTHONHASHSEED=0 OMP_NUM_THREADS=8' in lines
+    assert ENV_LINE in lines
 
 
 def test_smoke_dry_run_lists_the_section_nine_commands():

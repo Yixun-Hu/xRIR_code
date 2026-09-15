@@ -36,12 +36,12 @@ from model.xRIR_cyl_oriented import BACKBONES_EXP06, build_xrir_exp06
 from tools import exp06_recipe
 from tools import provenance
 from tools.exp05_params import TIERS, count_parameters, tier_of
-from treble_multi_room_dataset.treble_xRIR_dataset import xRIR_Dataset
+from treble_multi_room_dataset.treble_xRIR_dataset import BASE_DATA_PATH, xRIR_Dataset
 from utils.lr_scheduler import ExponentialLR
 
 RUN_TYPES = ('full', 'smoke', 'probe')
 REPO = Path(__file__).resolve().parents[1]
-DATA_ROOT = os.environ.get('XRIR_DATA_PATH', '/home/yixunhu/data_cache/AcousticRooms')
+DATA_ROOT = BASE_DATA_PATH  # exactly what the dataset module resolved; never a second fallback
 TRAIN_INVENTORY = REPO / 'ckpt/yaw_aug/train_inventory.json'
 ENV_KEYS = ('PYTHONHASHSEED', 'XRIR_DATA_PATH', 'OMP_NUM_THREADS', 'CUDA_VISIBLE_DEVICES')
 
@@ -126,6 +126,14 @@ def prepare_args(args, model, fields, destination):
     return args
 
 
+def resolve_data_root():
+    """The one root the dataset will actually read; a missing one is refused up front."""
+    root = os.path.realpath(DATA_ROOT)
+    if not os.path.isdir(root):
+        raise ValueError('data root does not exist: {} (set XRIR_DATA_PATH)'.format(root))
+    return root
+
+
 def registry_sha256():
     """Digest of the backbone registry as a sorted name -> class path mapping."""
     mapping = {name: cls.__module__ + '.' + cls.__qualname__ for name, cls in BACKBONES_EXP06.items()}
@@ -147,6 +155,7 @@ def provenance_fields(argv, run_type, identity=None, repo=REPO):
     records, digest = provenance.closure_record(
         provenance.source_closure('tools.exp06_train', repo), state['HEAD'], repo)
     return dict(repo=str(repo), reviewed_commit=state['HEAD'], run_type=run_type,
+                data_root=resolve_data_root(),
                 source_closures={'training': {'entry_module': 'tools.exp06_train',
                                               'files': records, 'sha256': digest}},
                 registry_sha256=registry_sha256(), git_state=state,
@@ -184,7 +193,7 @@ def main(argv=None):
 
     destination = provenance_destination(args)
     fields = provenance_fields(command, args.run_type,
-                               identity=data_identity(DATA_ROOT) if destination else None)
+                               identity=data_identity(resolve_data_root()) if destination else None)
     prepare_args(args, model, fields, destination)
     fields['effective_args'] = vars(args)
     if destination:

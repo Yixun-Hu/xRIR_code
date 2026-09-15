@@ -11,6 +11,7 @@ set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 export PYTHONPATH="$PWD"
 PYTHON=/home/yixunhu/miniconda3/envs/xRIR/bin/python
+DATA_ROOT="${XRIR_DATA_PATH:-/home/yixunhu/data_cache/AcousticRooms}"  # the registered mirror
 RECORD=worklog/worklog_yixun/exp_06_oriented_cyl_claude
 SMOKE_DIR=ckpt/exp06/_smoke
 SMOKE_FLAGS="--epochs 1 --max-train-batches 3 --max-test-batches 2 --batch-size 4 --num-workers 4 --save-every 0 --no-save"
@@ -87,7 +88,12 @@ done
 if [ "$DRY" -eq 1 ]; then STAMP='<UTC>'; else STAMP="$(date -u +%Y%m%dT%H%M%S)"; fi
 
 say "EXP06_LAUNCH mode=$MODE gpu=$GPU commit=$COMMIT root=$ATTEMPT_ROOT stamp=$STAMP dry_run=$DRY"
-say "ENV CUDA_VISIBLE_DEVICES=$GPU PYTHONHASHSEED=0 OMP_NUM_THREADS=8"
+say "ENV CUDA_VISIBLE_DEVICES=$GPU PYTHONHASHSEED=0 OMP_NUM_THREADS=8 XRIR_DATA_PATH=$DATA_ROOT"
+if [ "$DRY" -eq 0 ] && [ ! -d "$DATA_ROOT" ]; then
+    echo "refusing: XRIR_DATA_PATH $DATA_ROOT is not a directory" >&2
+    exit 2
+fi
+export XRIR_DATA_PATH="$DATA_ROOT"
 
 case "$MODE" in
 full)

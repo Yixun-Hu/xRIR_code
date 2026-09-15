@@ -186,3 +186,21 @@ def test_provenance_records_the_closure_entry_module():
     """Blocker 1/3: the finalizer recomputes the closure of the module named here."""
     fields = exp06_train.provenance_fields(RECIPE, 'full')
     assert fields['source_closures']['training']['entry_module'] == 'tools.exp06_train'
+
+
+def test_the_data_root_is_the_dataset_modules_own_resolution():
+    """Should-fix 6: the trainer and the provenance helper had different fallbacks."""
+    from treble_multi_room_dataset import treble_xRIR_dataset as dataset
+    assert exp06_train.DATA_ROOT == dataset.BASE_DATA_PATH
+    assert exp06_train.resolve_data_root() == os.path.realpath(dataset.BASE_DATA_PATH)
+
+
+def test_an_absent_data_root_is_refused(monkeypatch):
+    monkeypatch.setattr(exp06_train, 'DATA_ROOT', '/nonexistent/acoustic/rooms')
+    with pytest.raises(ValueError, match='data root'):
+        exp06_train.resolve_data_root()
+
+
+def test_provenance_records_the_resolved_data_root():
+    fields = exp06_train.provenance_fields(RECIPE, 'full')
+    assert fields['data_root'] == exp06_train.resolve_data_root()
