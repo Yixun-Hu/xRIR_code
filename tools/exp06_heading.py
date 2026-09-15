@@ -91,3 +91,61 @@ def mean_direction(theta_deg, weights):
     if abs(resultant) <= 1e-12 * max(1, weights.sum()):
         return None
     return float(np.rad2deg(np.angle(resultant)))
+
+
+CANDIDATES = {'+x': 0, '+y': 90, '-x': 180, '-y': -90}
+
+
+def candidate_contrasts(theta_deg, levels, candidates=CANDIDATES,
+                        half_width_deg=45, min_in=3, min_out=3):
+    """Mean inside minus outside each inclusive circular sector; None if undersampled."""
+    theta, levels = _paired(theta_deg, levels)
+    result = {}
+    for name, phi in candidates.items():
+        inside = np.abs((theta - phi + 180) % 360 - 180) <= half_width_deg
+        result[name] = (float(levels[inside].mean() - levels[~inside].mean())
+                        if inside.sum() >= min_in and (~inside).sum() >= min_out else None)
+    return result
+
+
+def decide_heading(theta_deg, levels_by_window):
+    """Apply both-window agreement, 3 dB contrast, and 3 dB competitor margins.
+
+    Leave-one-out stability is a separate gate, applied by estimate_room_heading.
+    The table retains raw winners even when a decision threshold refuses them.
+    """
+    if len(levels_by_window) != 2:
+        raise ValueError('exactly two energy windows are required')
+    table = {}
+    for window, levels in levels_by_window.items():
+        contrasts = candidate_contrasts(theta_deg, levels)
+        ranked = sorted(((v, k) for k, v in contrasts.items() if v is not None), reverse=True)
+        table[window] = dict(contrasts_db=contrasts, winner=ranked[0][1] if ranked else None,
+                             competitor_count=max(0, len(ranked) - 1),
+                             runner_up_margin_db=ranked[0][0] - ranked[1][0] if len(ranked) > 1 else None)
+    rows = list(table.values())
+    winners = [row['winner'] for row in rows]
+    if None in winners:
+        return None, table, 'insufficient microphones inside/outside candidate sectors'
+    if winners[0] != winners[1]:
+        return None, table, 'windows disagree'
+    winner = winners[0]
+    if any(row['contrasts_db'][winner] < 3 for row in rows):
+        return None, table, 'contrast below 3 dB'
+    if any(row['runner_up_margin_db'] is not None and row['runner_up_margin_db'] < 3 for row in rows):
+        return None, table, 'runner-up margin below 3 dB'
+    return winner, table, 'accepted'
+
+
+def _leave_one_out_winners(theta_deg, levels_by_window):
+    return [decide_heading(np.delete(theta_deg, i),
+            {w: np.delete(level, i) for w, level in levels_by_window.items()})[0]
+            for i in range(len(theta_deg))]
+
+
+def leave_one_out_stable(theta_deg, levels_by_window):
+    """Require every refit to pass all decision thresholds with the original winner."""
+    winner = decide_heading(theta_deg, levels_by_window)[0]
+    if winner is None or len(theta_deg) < 2:
+        return False
+    return all(refit == winner for refit in _leave_one_out_winners(theta_deg, levels_by_window))

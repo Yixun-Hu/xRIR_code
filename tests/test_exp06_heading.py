@@ -4,6 +4,7 @@ import pytest
 
 from tools.exp06_heading import (canonical_heading_deg, compensated_levels, continuous_fit,
                                 early_level, heading_roll_k, mean_direction)
+from tools.exp06_heading import candidate_contrasts, decide_heading, leave_one_out_stable
 
 
 @pytest.mark.parametrize('window,n', [(0.005, 110), (0.05, 1102)])
@@ -65,3 +66,71 @@ def test_descriptive_fit_and_mean():
 def test_invalid_energy_inputs(rir, sr, w):
     with pytest.raises(ValueError):
         early_level(rir, sr, w)
+
+
+def windows(level):
+    return {'5ms': np.asarray(level), '50ms': np.asarray(level)}
+
+
+@pytest.mark.parametrize('phi,axis', [(0, '+x'), (90, '+y'), (180, '-x'), (-90, '-y')])
+def test_uniform_cardioid_axes(phi, axis):
+    theta = np.arange(-180, 180, 15)
+    amplitude = 1 + .8 * np.cos(np.deg2rad(theta - phi))
+    level = 20 * np.log10(amplitude)
+    assert decide_heading(theta, windows(level))[0] == axis
+    assert leave_one_out_stable(theta, windows(level))
+
+
+def test_hallway_axis_despite_biased_weighted_mean_and_exact_threshold():
+    theta = np.array([-90] * 4 + [90] * 8)
+    # These two sampled gains come from a cardioid with front/back ratio 10**(3/20).
+    level = np.array([3.] * 4 + [0.] * 8)
+    assert mean_direction(theta, 10 ** (level / 10)) == pytest.approx(90)
+    winner, table, reason = decide_heading(theta, windows(level))
+    assert winner == '-y' and reason == 'accepted'
+    assert table['5ms']['runner_up_margin_db'] == 6
+    assert leave_one_out_stable(theta, windows(level))
+
+
+def test_singleton_and_inclusive_wrapped_sectors():
+    theta = [-90] * 6 + [0, 0, 90, 90, 180, 180]
+    winner, table, _ = decide_heading(theta, windows([9] * 6 + [0] * 6))
+    assert winner == '-y'
+    assert table['5ms']['competitor_count'] == 0
+    assert table['5ms']['runner_up_margin_db'] is None
+    contrast = candidate_contrasts([135, 180, -135, 0, 10, -10], [3, 3, 3, 0, 0, 0])
+    assert contrast['-x'] == 3
+
+
+@pytest.mark.parametrize('kind,reason', [('weak', 'contrast'), ('disagree', 'disagree'),
+                                      ('margin', 'margin'), ('few', 'microphones')])
+def test_decision_refusals(kind, reason):
+    theta = np.repeat([0, 90, 180, -90], 3)
+    level = np.repeat([0., 0., 0., 8.], 3)
+    values = windows(level)
+    if kind == 'weak':
+        values = windows(level * .2)
+    elif kind == 'disagree':
+        values['50ms'] = -level
+    elif kind == 'margin':
+        values = windows(np.repeat([7., 0., 0., 8.], 3))
+    else:
+        theta, values = [0, 0, 90, 90], windows([0, 0, 8, 8])
+    winner, _, why = decide_heading(theta, values)
+    assert winner is None and reason in why
+
+
+def test_loo_reapplies_counts_contrast_margin_and_winner():
+    theta = np.repeat([0, 90, 180, -90], 3)
+    level = np.array([6] * 3 + [0] * 6 + [30, 0, 0])
+    assert decide_heading(theta, windows(level))[0] == '-y'
+    assert decide_heading(np.delete(theta, 9), windows(np.delete(level, 9)))[0] == '+x'
+    assert not leave_one_out_stable(theta, windows(level))
+    theta = [-90] * 4 + [90] * 8
+    assert not leave_one_out_stable(theta, windows([12, 0, 0, 0] + [0] * 8))
+    theta = np.repeat([0, 90, 180, -90], 4)
+    level = [4] * 4 + [0] * 8 + [14, 6, 6, 6]
+    assert decide_heading(theta, windows(level))[0] == '-y'
+    assert not leave_one_out_stable(theta, windows(level))  # margin collapses below 3
+    with pytest.raises(ValueError):
+        decide_heading(theta, {'5ms': level})
