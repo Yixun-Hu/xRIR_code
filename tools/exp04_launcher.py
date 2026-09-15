@@ -888,6 +888,16 @@ def refusal_self_test():
         with patch(__name__ + '.gpu_snapshot', return_value={'compute_apps': 'foreign', 'free_gib': 39}), \
                 patch.object(subprocess, 'check_output', return_value='Avail\n' + str(50 * 2**30)):
             refuses('gpu', lambda: resource_gate('1', root, 'smoke'))
+        seen = command('full', 'ckpt/exp07/seen_aug/attempt_test', 'M', 'simple', 'seen', 1)
+        refuses('seen_other_arm', lambda: check_golden(seen, 'full', 'ckpt/exp07/seen_simple/attempt_test'))
+        refuses('seen_unseen_argv', lambda: check_golden(command('full', 'ckpt/exp07/seen_aug/attempt_test'),
+                                                         'full', 'ckpt/exp07/seen_aug/attempt_test'))
+        refuses('seen_arm', lambda: seen_arm('cylindrical', 1))
+        seen_args = effective_args(seen, '1', 9261)
+        refuses('seen_bpe', lambda: check_runtime(seen_args, seen_args, 'full'))
+        control = json.loads((REPO / 'ckpt/xRIR_simple_8_shot/args.json').read_text())
+        refuses('seen_control', lambda: compare_control(effective_args(seen, '1', 9265), control,
+            dict(XRIR_DATA_PATH=DATA_ROOT, OMP_NUM_THREADS='2', CUDA_VISIBLE_DEVICES='1')))
         abort_attempt(attempt, 'test', 1)
         refuses('cumulative_budget', lambda: check_budget(root, 42.1))
     return {'passed': True, 'refusals': refusals}

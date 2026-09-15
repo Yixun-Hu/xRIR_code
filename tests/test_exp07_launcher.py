@@ -5,6 +5,8 @@ outside ``tmp_path``.  The historical comparators are the REAL ``ckpt/...args.js
 files of exp_01 and exp_04 (read-only), so a recipe drift would be caught here.
 """
 import json
+import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -237,3 +239,75 @@ def test_recovery_validates_the_seen_inputs(fault, message):
     # A clean seen manifest reaches the launcher-log check that follows these gates.
     with pytest.raises(ValueError, match=message):
         launch.recovery_evidence(fields, {}, launch.REPO / attempt_of('seen_simple'), None)
+
+
+def test_refuse_test_covers_the_seen_refusals(monkeypatch):
+    monkeypatch.setattr(launch.subprocess, 'Popen', lambda *a, **k: pytest.fail('spawned trainer'))
+    refusals = launch.refusal_self_test()['refusals']
+    assert {'seen_other_arm', 'seen_unseen_argv', 'seen_arm', 'seen_bpe', 'seen_control'} <= set(refusals)
+
+
+def test_launch_script_passes_every_argument_through():
+    script = launch.REPO / 'tools/exp04_launch.sh'
+    assert subprocess.run(['bash', '-n', str(script)]).returncode == 0
+    text = script.read_text()
+    assert text.strip().endswith('-m tools.exp04_launcher "$@"')
+    assert '--protocol seen' in text  # the documented seen invocations
+
+
+@pytest.fixture
+def seen_repo(tmp_path, monkeypatch):
+    """A throwaway repository with the launcher's inputs; no GPU and no trainer."""
+    real = Path(__file__).resolve().parents[1]
+    monkeypatch.setattr(launch, 'REPO', tmp_path)
+    for name in sorted(launch.TRAIN_MINIMUM | {launch.SEEN_MODULE, p.SEEN_SPLIT,
+                       'tools/exp04_launcher.py', 'tools/exp04_probe.py', 'tools/exp04_launch.sh'}):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text('# fixture ' + name + '\n')
+    assets = 'seen_protocol_results_assets/argv_golden_seen_simple_smoke.txt'
+    (tmp_path / launch.EXP07_RECORD / assets).parent.mkdir(parents=True)
+    (tmp_path / launch.EXP07_RECORD / assets).write_text(
+        (real / launch.EXP07_RECORD / assets).read_text())
+    for argv in (['init', '-q'], ['add', '-A'], ['-c', 'user.name=T', '-c', 'user.email=t@e',
+                                                 'commit', '-qm', 'fixture']):
+        subprocess.run(['git'] + argv, cwd=str(tmp_path), check=True)
+    monkeypatch.setattr(launch.p, 'source_closure', lambda module, repo:
+                        sorted(launch.TRAIN_MINIMUM | {launch.SEEN_MODULE})
+                        if module == 'train_xRIR_backbone' else ['tools/exp04_launcher.py'])
+    monkeypatch.setattr(launch.p, 'environment', lambda: {'executable': launch.PYTHON})
+    monkeypatch.setattr(launch.p, 'train_data_identity', lambda root, protocol='unseen', cache_path=None:
+                        dict(p._inventory([p.SEEN_SPLIT], tmp_path), protocol=protocol, split='train',
+                             cache_key=str(cache_path)))
+    monkeypatch.setattr(launch, 'resource_gate', lambda *a: {'gpu': '1'})
+    return tmp_path
+
+
+def test_seen_smoke_writes_the_pre_spawn_files(seen_repo, monkeypatch):
+    attempt = seen_repo / 'ckpt/exp07/seen_simple/_smoke_test'
+    def runner(argv, path, gpu, guard, deadline=None):
+        assert argv[:2] == [launch.PYTHON, 'train_xRIR_backbone.py']
+        assert {f.name for f in attempt.iterdir()} == {'effective_args.json', 'train_manifest.json',
+                                                       'train_inventory.json'}
+        expected = json.loads((attempt / 'effective_args.json').read_text())
+        path.write_text('XRIR_RUNTIME_ARGS ' + json.dumps(expected) + '\nyaw_aug DISABLED\n' +
+                        ''.join('Train Epoch: 1 [{}/3] loss 1.25\n'.format(i) for i in range(3)) +
+                        'Test set (epoch 1): Average loss: 0.25 over 2 batches\n')
+        guard.log_created = True
+        guard.poll(path)
+        return 0
+    execute = launch.execute_attempt
+    monkeypatch.setattr(launch, 'execute_attempt', lambda *a, **k: execute(*a, runner=runner, **k))
+    launch.main(['smoke', '--protocol', 'seen', '--backbone', 'simple', '--reviewed-commit', 'HEAD',
+                 '--timestamp', 'test', '--log-dir', str(seen_repo / 'logs')])
+    manifest = json.loads((attempt / 'train_manifest.json').read_text())
+    assert manifest['protocol'] == 'seen' and manifest['effective_args']['protocol'] == 'seen'
+    assert manifest['command'] == launch.command('smoke', 'ckpt/exp07/seen_simple/_smoke_test',
+                                                 'M', 'simple', 'seen', 0)
+    assert manifest['mutable_inputs']['seen_split'] == p.seen_split_identity(seen_repo)
+    assert manifest['train_data_identity']['protocol'] == 'seen'
+    assert 'inventory' not in manifest['train_data_identity']
+    assert (manifest['train_data_identity']['inventory_file']['sha256'] ==
+            p.sha256_file(attempt / 'train_inventory.json'))
+    assert launch.SEEN_MODULE in {r['path'] for r in manifest['source_closures']['training']['files']}
+    assert json.loads((attempt / 'effective_args.json').read_text()) == manifest['effective_args']
+    assert (attempt / 'completion.json').is_file() and not list(seen_repo.glob('ckpt/exp07/*/*_ABORTED_*'))
