@@ -285,14 +285,14 @@ def _is_sha256(value):
         character in '0123456789abcdef' for character in value)
 
 
-def job_completion(job_dir, expect, arm):
+def job_completion(job_dir, expect, arm, inputs=None):
     """One job's A3 record: no receipt, a bound job spec, an owner and its children."""
     job_dir = Path(job_dir)
     path = job_dir / 'completion.json'
     _require(path.is_file(), 'job {} has no completion.json'.format(job_dir))
     _require(not (job_dir / 'child_exit.json').exists(),
              'amendment A3: the job root {} carries a child_exit.json'.format(job_dir))
-    record = _read_json(path, 'job completion.json')
+    record = _read_json(path, 'job completion.json', inputs)
     present = [key for key in FORBIDDEN_JOB_FIELDS if key in record]
     _require(not present,
              'amendment A3: a job completion carries no ' + ', '.join(present))
@@ -326,7 +326,7 @@ def job_completion(job_dir, expect, arm):
     return record
 
 
-def job_owner(job_dir, record):
+def job_owner(job_dir, record, inputs=None):
     """Finding 6: amendment A3 binds the launcher that owned the job, so the job root's
     own ``launch.pid`` is read and required to be the ``owner_pid`` the completion
     recorded. Liveness is deliberately not checked: a retrospective analysis runs long
@@ -341,7 +341,10 @@ def job_owner(job_dir, record):
         raise ValueError('job {} has an unreadable launch.pid: {}'.format(job_dir, error))
     _require(pid == record['owner_pid'], 'job {} holds launch.pid {}, not the owner_pid {} '
              'its completion bound'.format(job_dir, pid, record['owner_pid']))
-    return {'path': str(path.resolve()), 'pid': pid, 'sha256': provenance.sha256_file(path)}
+    digest = provenance.sha256_file(path)
+    if inputs is not None:
+        bind(inputs, path, digest)
+    return {'path': str(path.resolve()), 'pid': pid, 'sha256': digest}
 
 
 def _heading_rolls(heading, label):
@@ -485,12 +488,12 @@ def expected_inits(approved):
     return inits
 
 
-def child_per_sample(job_dir, name, record, arm):
+def child_per_sample(job_dir, name, record, arm, inputs=None):
     """One evaluation child's per-sample file, with the fields the summariser reads."""
     path = Path(job_dir) / name
     names = sorted(key for key in record['artifacts'] if key.startswith('per_sample_'))
     _require(len(names) == 1, 'child {} bound {} per-sample files'.format(name, len(names)))
-    per = _read_json(path / names[0], names[0])
+    per = _read_json(path / names[0], names[0], inputs)
     meta = per.get('meta')
     _require(isinstance(meta, dict), 'child {} per-sample records no meta'.format(name))
     _require('heading' in meta, 'child {} per-sample meta records no heading'.format(name))
@@ -504,7 +507,25 @@ def child_per_sample(job_dir, name, record, arm):
     return per
 
 
-def verify_job(job_dir, job, arm, repo=REPO, sensitivity=False):
+def bind_child(inputs, path, evidence, bound, args, repo):
+    """Finding 2: every file one child's certification rests on, with the bytes the
+    finalizer's own validators just re-hashed -- artefacts, log, exit receipt, the
+    heading records it read and the weights it started from or evaluated."""
+    if inputs is None:
+        return
+    for name, digest in sorted((evidence.get('artifacts') or {}).items()):
+        bind(inputs, Path(path) / name, digest)
+    for key in ('log', 'child_exit_receipt'):
+        binding = bound.get(key) or {}
+        bind(inputs, finalizer._resolve(binding['path'], repo), binding['sha256'])
+    for room, entry in sorted((evidence.get('heading') or {}).items()):
+        bind(inputs, finalizer._resolve(entry['path'], repo), entry['sha256'])
+    for field, key in (('init', 'init_sha256'), ('checkpoint', 'checkpoint_sha256')):
+        if key in evidence and args.get(field):
+            bind(inputs, finalizer._resolve(args[field], repo), evidence[key])
+
+
+def verify_job(job_dir, job, arm, repo=REPO, sensitivity=False, inputs=None):
     """Finding 2: the finalizer's own verifiers, re-run over every child of one job.
 
     Nothing here is taken from the completion: the job specification it bound is re-read
@@ -515,14 +536,18 @@ def verify_job(job_dir, job, arm, repo=REPO, sensitivity=False):
     checked on top, because the finalizer knows nothing about exp_02's protocol.
     """
     job_dir, expect = Path(job_dir), EXPECT_OF[job]
-    record = job_completion(job_dir, expect, arm)
-    owner = job_owner(job_dir, record)
+    record = job_completion(job_dir, expect, arm, inputs)
+    owner = job_owner(job_dir, record, inputs)
     recipe = []
+    if inputs is not None and isinstance(record.get('log'), dict):
+        bind(inputs, record['log']['path'], record['log']['sha256'])
     spec_path = Path(record['job_spec']['path'])
     _require(spec_path.is_file(), 'missing job spec {}'.format(spec_path))
     _require(provenance.sha256_file(spec_path) == record['job_spec']['sha256'],
              'the job spec {} is not the bytes job {} bound'.format(spec_path, job_dir))
     spec = finalizer.load_job_spec(str(spec_path), expect)
+    if inputs is not None:      # re-hashed, so a spec edited during the load contradicts
+        bind(inputs, spec_path)
     children, rooms = {}, {}
     for name in sorted(finalizer.expected_children(expect)):
         path, role = job_dir / name, finalizer.child_role(name)
@@ -532,14 +557,15 @@ def verify_job(job_dir, job, arm, repo=REPO, sensitivity=False):
         _require(provenance.sha256_file(completion) == record['children'][name],
                  'job {} child {} is not the completion it bound'.format(job_dir, name))
         evidence = dict(finalizer.verify_child(path, name, repo, spec), role=role)
-        bound = _read_json(completion, name + '/completion.json')
+        bound = _read_json(completion, name + '/completion.json', inputs)
         _require(bound.get('admissible_arm') is True,
                  'child {} is not an admissible arm'.format(name))
-        args = _read_json(path / 'args.json', name + '/args.json')
+        args = _read_json(path / 'args.json', name + '/args.json', inputs)
         child_protocol(args, name, role)
         recipe.extend(child_recipe(args, name, role))
+        bind_child(inputs, path, evidence, bound, args, repo)
         if role == 'haa_eval':
-            per = child_per_sample(job_dir, name, bound, arm)
+            per = child_per_sample(job_dir, name, bound, arm, inputs)
             check_test_indices(name, evidence['room'], per['index'])
             _require(finalizer.exp06_recipe.strict_equal(per['meta'].get('heading'),
                                                          args.get('heading')),
@@ -571,7 +597,7 @@ def load_new_arm(root, arm, init_sha256=None, repo=REPO, approved=None,
     for job in JOBS:
         job_dir = base / job
         _require(job_dir.is_dir(), 'the arm {} has no job {}'.format(arm, job))
-        verified = verify_job(job_dir, job, arm, repo, sensitivity)
+        verified = verify_job(job_dir, job, arm, repo, sensitivity, inputs)
         recipe.extend('{} {}: {}'.format(arm, job, item)
                       for item in verified['recipe_deviations'])
         record = verified['record']
@@ -581,12 +607,7 @@ def load_new_arm(root, arm, init_sha256=None, repo=REPO, approved=None,
         _require(job not in SEEDS or record['seed'] == int(job[len('seed'):]),
                  'the arm {} job {} records seed {!r}'.format(arm, job, record['seed']))
         jobs[job], records[job] = verified['per'], record
-        inputs[verified['owner']['path']] = verified['owner']['sha256']
-        completion = job_dir / 'completion.json'
-        inputs[str(completion.resolve())] = provenance.sha256_file(completion)
-        inputs[str(Path(record['job_spec']['path']).resolve())] = record['job_spec']['sha256']
-        for name, digest in sorted(record['children'].items()):
-            inputs[str((job_dir / name / 'completion.json').resolve())] = digest
+        for name in sorted(record['children']):
             children['{}/{}'.format(job, name)] = verified['children'][name]
     closures, headings = arm_closures(children), arm_headings(children)
     check_arm_identities(arm, closures, headings, approved)

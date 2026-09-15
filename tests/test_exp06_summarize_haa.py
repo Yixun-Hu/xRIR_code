@@ -988,9 +988,11 @@ def test_every_child_artifact_of_a_job_is_bound(real_job, cache, monkeypatch):
                  'eval/hallway/metrics_hallway.json', 'eval/hallway/child_exit.json'):
         path = Path(root) / name
         assert inputs.get(str(path.resolve())) == sha(path), name
-    heading = json.loads((Path(root) / 'eval/hallway/args.json').read_text())['heading']
-    for room in ROOMS:
-        assert inputs[str(Path(heading[room]['path']).resolve())] == heading[room]['sha256']
+    for child in ('stage1', 'eval/hallway'):
+        heading = json.loads((Path(root) / child / 'args.json').read_text())['heading']
+        assert heading
+        for entry in heading.values():
+            assert inputs[str(Path(entry['path']).resolve())] == entry['sha256']
 
 
 def test_a_child_artifact_changed_during_analysis_is_refused_at_publication(
