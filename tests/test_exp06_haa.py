@@ -194,3 +194,74 @@ def test_a_missing_cache_root_is_refused(cache, tmp_path):
     args.root = str(tmp_path / 'absent')
     with pytest.raises(ValueError, match='root'):
         trainer.prepare(args)
+
+
+def eval_argv(cache, *extra, backbone=ORIENTED, rooms=('hallway',)):
+    return ['--backbone', backbone, '--checkpoint', cache['init'], '--rooms', *rooms,
+            '--save-dir', str(Path(cache['root']).parent / 'eval' / rooms[0]),
+            '--root', cache['root'], '--max-len', str(MAX_LEN), *extra]
+
+
+def test_eval_shared_flag_defaults_equal_the_pinned_evaluator(monkeypatch):
+    from sim_to_real import eval_haa
+    from tools import exp06_haa_eval as evaluator
+    monkeypatch.setattr(sys, 'argv', ['eval_haa.py', '--backbone', 'simple',
+                                      '--checkpoint', 'c', '--save-dir', 'd'])
+    pinned = vars(eval_haa.parse_args())
+    mine = vars(evaluator.build_parser().parse_args(
+        ['--backbone', 'simple', '--checkpoint', 'c', '--save-dir', 'd']))
+    assert set(pinned) <= set(mine)
+    for key, value in pinned.items():
+        assert type(mine[key]) is type(value) and mine[key] == value, key
+    assert set(mine) - set(pinned) == {'root', 'heading_json_dir', 'seed', 'run_type',
+                                       'gl_seed_per_query'}
+    assert mine['run_type'] == 'haa_eval' and mine['gl_seed_per_query'] is False
+    assert mine['seed'] == 0 and mine['eval_seed'] == 0
+
+
+def test_eval_refuses_the_oriented_backbone_without_a_heading(cache):
+    from tools import exp06_haa_eval as evaluator
+    args = evaluator.build_parser().parse_args(eval_argv(cache))
+    with pytest.raises(ValueError, match='heading'):
+        evaluator.prepare(args)
+
+
+def test_eval_preserves_the_pinned_item_order_and_reference_draw(cache):
+    from tools import exp06_haa_eval as evaluator
+    args = evaluator.build_parser().parse_args(eval_argv(cache, backbone='simple'))
+    context = evaluator.prepare(args)
+    dataset = context.datasets['hallway']
+    pinned = HAADataset(['hallway'], 'test', root=cache['root'], num_shot=args.num_shot,
+                        max_len=MAX_LEN, eval_seed=args.eval_seed)
+    assert type(dataset) is HAADataset and dataset.items == pinned.items
+    assert [item[1] for item in dataset.items] == [12, 13]
+    for index, (room, idx) in enumerate(pinned.items):
+        np.testing.assert_array_equal(dataset._pick_refs(room, idx), pinned._pick_refs(room, idx))
+        assert all(torch.equal(left, right) for left, right in zip(pinned[index], dataset[index]))
+
+
+def test_eval_records_every_field_the_finalizer_binds(cache):
+    from tools import exp06_haa_eval as evaluator
+    args = evaluator.build_parser().parse_args(
+        eval_argv(cache, '--heading-json-dir', cache['heading'], '--gl-seed-per-query'))
+    context = evaluator.prepare(args, command=['--backbone', ORIENTED])
+    record = context.args_record
+    assert record['frame'] == 'heading' and record['rooms'] == ['hallway']
+    assert record['seed'] == 0 and record['run_type'] == 'haa_eval'
+    assert record['heading']['hallway']['k'] == 128
+    assert record['checkpoint_sha256'] == provenance.sha256_file(cache['init'])
+    assert record['haa_root'] == str(Path(cache['root']).resolve())
+    assert context.fields['run_type'] == 'haa_eval'
+    assert context.fields['source_closures']['child']['entry_module'] == 'tools.exp06_haa_eval'
+    assert type(context.datasets['hallway']) is exp06_heading.HeadingFrameDataset
+    meta = evaluator.per_sample_meta(args, context, 'hallway')
+    assert meta['frame'] == 'heading' and meta['room'] == 'hallway'
+    assert meta['checkpoint_sha256'] == record['checkpoint_sha256']
+    assert meta['gl_seed_per_query'] is True and meta['run_type'] == 'haa_eval'
+    assert meta['heading'] == record['heading']
+    for key in ('backbone', 'checkpoint', 'split', 'num_shot', 'eval_seed'):
+        assert meta[key] == record[key]
+    assert meta['registry_sha256'] == context.fields['registry_sha256']
+    assert meta['git_head'] == context.fields['git_state']['HEAD']
+    assert meta['exp06_source_closure_sha256'] == \
+        context.fields['source_closures']['child']['sha256']
