@@ -164,13 +164,12 @@ def resolve_root(args):
     return root
 
 
-def select_frame(args, root):
+def select_frame(args, root, rooms):
     """Fail-closed: the oriented backbone is meaningless without a declared heading."""
     if args.heading_json_dir is None:
         if args.backbone == ORIENTED:
             raise ValueError('--heading-json-dir is required for the {} backbone'.format(ORIENTED))
         return 'room', None, None
-    rooms = list(args.rooms) + list(args.val_rooms or args.rooms)
     k_by_room, heading = load_headings(args.heading_json_dir, rooms, root)
     return 'heading', k_by_room, heading
 
@@ -190,8 +189,8 @@ def build_dataset(rooms, split, args, root, k_by_room, eval_seed):
 def prepare(args, command=()):
     """Datasets, model and records, without touching a GPU or writing a file."""
     root = resolve_root(args)
-    frame, k_by_room, heading = select_frame(args, root)
     val_rooms = args.val_rooms or list(args.rooms)
+    frame, k_by_room, heading = select_frame(args, root, list(args.rooms) + list(val_rooms))
     if not os.path.isfile(args.init):
         raise ValueError('missing init checkpoint: {}'.format(args.init))
     init_sha256 = provenance.sha256_file(args.init)
