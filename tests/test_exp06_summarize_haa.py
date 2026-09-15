@@ -27,7 +27,10 @@ def per_sample(room, backbone, checkpoint, offset=0.0, invalid=()):
     """One exp_02 per-sample file: the writer's arrays, plus this arm's offset."""
     idx = indices(room)
     def column(base):
-        return [None if False else float('nan') if i in invalid else base + offset + 0.05 * i
+        # The per-query jitter depends on the arm's offset, so a paired difference varies
+        # across queries and the bootstrap interval is never degenerate.
+        return [float('nan') if i in invalid else
+                base + offset + 0.05 * i + 0.2 * math.sin(3.0 * i + 17.0 * offset)
                 for i in idx]
     t60 = [float('nan')] * len(idx) if room == 'dampened_room' else column(3.0)
     return {'index': idx, 'ir_path': ['{}/{}'.format(room, i) for i in idx],
@@ -463,8 +466,11 @@ def test_the_descriptive_contrasts_are_the_three_of_section_7(arms):
 @pytest.mark.parametrize('room,key', [(c['room'], c['metric']) for c in
                                       json.loads(CANONICAL_STATS.read_text())['paired']]
                          if CANONICAL_STATS.is_file() else [])
-def test_the_legacy_rows_reproduce_the_canonical_exp02_cells(room, key):
-    data, _ = subject.load_legacy(REAL_LEGACY)
+def test_the_legacy_rows_reproduce_the_canonical_exp02_cells(room, key, monkeypatch):
+    # exp_02 compared stage-2 `init` strings against `<root>/stage1/best.pth`, so the
+    # historical root is given exactly as that run gave it: repo-relative.
+    monkeypatch.chdir(REAL_LEGACY.parents[1])
+    data, _ = subject.load_legacy('ckpt/sim2real')
     rows = subject.cell_rows(data, 'cyl', 'control', room, key)
     got = subject.intervals(rows, subject.ALPHA, subject.N_BOOT)
     want = next(c for c in json.loads(CANONICAL_STATS.read_text())['paired']

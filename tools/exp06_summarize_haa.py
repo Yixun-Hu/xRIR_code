@@ -26,6 +26,7 @@ from pathlib import Path
 import numpy as np
 
 from sim_to_real import summarize_haa as legacy
+from tools import exp06_bootstrap as bootstrap
 from tools import exp06_finalize as finalizer
 from tools import provenance
 
@@ -199,7 +200,9 @@ def load_legacy(root, receipt_path=None, approved=None):
 
     The inherited checker expects exp_02's full run set (``released``,
     ``released_repomaps``, ``control``, ``cyl``), so it is given the whole root before
-    arms A and B are extracted from it.
+    arms A and B are extracted from it. The root is given exactly as exp_02 gave it --
+    repo-relative ``ckpt/sim2real`` -- because that checker compares each stage-2 ``init``
+    string against ``<root>/stage1/best.pth``.
     """
     runs = legacy.load_runs(str(root))
     complete, problems = legacy.completeness(runs)
@@ -373,3 +376,156 @@ def load_new_arm(root, arm):
              '{}'.format(arm, sorted(closures)))
     return {'arm': arm, 'branch': 'new', 'per': jobs, 'closure': closures.pop(),
             'root': str(base), 'jobs': job_records}
+
+
+# --- pairing, the finite cohort and the invalidity policy of section 7 -------------------
+
+PAIR_META = ('eval_seed', 'num_shot')
+
+
+def assert_pairing(a, b, label):
+    """exp_02's own pairing assertions: the same queries, measured the same way."""
+    _require(a['index'] == b['index'], 'pair {}: the query indices differ'.format(label))
+    _require(a['ir_path'] == b['ir_path'], 'pair {}: the ir_path entries differ'.format(label))
+    for key in PAIR_META:
+        _require(a['meta'].get(key) == b['meta'].get(key) is not None,
+                 'pair {}: {} {!r} != {!r}'.format(label, key, a['meta'].get(key),
+                                                   b['meta'].get(key)))
+
+
+def cell_rows(arms, x, y, room, metric):
+    """Paired rows pooled over the three fine-tuning seeds, on the shared finite cohort."""
+    columns, index = {x: [], y: []}, None
+    for seed in SEEDS:
+        for arm in (x, y):
+            _require(seed in arms[arm]['per'] and room in arms[arm]['per'][seed],
+                     'arm {} has no {} of {}'.format(arm, room, seed))
+        a, b = arms[x]['per'][seed][room], arms[y]['per'][seed][room]
+        assert_pairing(a, b, '{}-{} {} {}'.format(x, y, room, seed))
+        index = list(a['index']) if index is None else index
+        _require(list(a['index']) == index,
+                 'the seeds of {}/{} do not share one query order'.format(room, metric))
+        for arm, per in ((x, a), (y, b)):
+            columns[arm].append(np.asarray(per[metric], dtype=float))
+    stacked = {arm: np.stack(columns[arm]) for arm in (x, y)}
+    finite = {arm: np.isfinite(stacked[arm]).all(axis=0) for arm in (x, y)}
+    cohort = finite[x] & finite[y]
+    _require(cohort.any(), 'the cohort of {}/{} for {} - {} is empty'.format(room, metric, x, y))
+    rows = {arm: np.concatenate([stacked[arm][i][cohort] for i in range(len(SEEDS))])
+            for arm in (x, y)}
+    queries = np.asarray(index)[cohort]
+    return {'a': rows[x], 'b': rows[y],
+            'clusters': np.concatenate([queries] * len(SEEDS)),
+            'seeds': np.concatenate([np.full(int(cohort.sum()), seed) for seed in SEEDS]),
+            'cohort': int(cohort.sum()), 'n_test': len(index),
+            'per_seed_diff': {seed: float((stacked[x][i][cohort] - stacked[y][i][cohort]).mean())
+                              for i, seed in enumerate(SEEDS)},
+            'excluded': {arm: {'queries': int((~finite[arm]).sum()),
+                               'seeds': {seed: int((~np.isfinite(stacked[arm][i])).sum())
+                                         for i, seed in enumerate(SEEDS)}}
+                         for arm in (x, y)}}
+
+
+def void_reasons(rows, treatment, comparator):
+    """Section 7's invalidity policy; a void verdict is never replaced by a subset."""
+    excess = rows['excluded'][treatment]['queries'] - rows['excluded'][comparator]['queries']
+    reasons = []
+    if excess > VOID_EXCESS_FRACTION * rows['n_test']:
+        reasons.append('{} has {} more invalid queries than {}, above the {:.0%} of {} the '
+                       'policy allows'.format(treatment, excess, comparator,
+                                              VOID_EXCESS_FRACTION, rows['n_test']))
+    if rows['cohort'] < VOID_COHORT_FRACTION * rows['n_test']:
+        reasons.append('the cohort of {} queries is below {:.0%} of the {} in the test '
+                       'split'.format(rows['cohort'], VOID_COHORT_FRACTION, rows['n_test']))
+    return reasons
+
+
+# --- the intervals and the verdicts ------------------------------------------------------
+
+
+def intervals(rows, alpha, n_boot, seed=BOOT_SEEDS[0]):
+    return bootstrap.paired_intervals(rows['a'], rows['b'], rows['clusters'], rows['seeds'],
+                                      alpha=alpha, n_boot=n_boot, seed=seed)
+
+
+def converged_two_way(rows, alpha, n_boot):
+    """The verdict-bearing interval, checked and quadrupled once by exp_06's bootstrap."""
+    def factory(size):
+        def interval(seed):
+            return intervals(rows, alpha, size, seed)['two_way']
+        return interval
+    return bootstrap.converged_interval(factory, n_boot=n_boot, seed_a=BOOT_SEEDS[0],
+                                        seed_b=BOOT_SEEDS[1], tol=CONVERGENCE_TOL)
+
+
+def verdict_of(convergence, void, margin):
+    """pass / fail / void / not_converged, in that order of precedence."""
+    if void:
+        return 'void'
+    if convergence['status'] != 'converged':
+        return 'not_converged'
+    return 'pass' if convergence['interval'][1] < margin else 'fail'
+
+
+def h2_label(interval):
+    """A screen, never a parity claim: harm, improvement, or no detected difference."""
+    low, high = interval
+    if low > 0:
+        return 'detected harm'
+    if high < 0:
+        return 'detected improvement'
+    return 'no detected difference'
+
+
+def decision_cell(arms, pair, room, metric, margin, n_boot=N_BOOT, alpha=ALPHA):
+    """H1 or H1b: one two-way interval, the invalidity policy and the convergence gate."""
+    treatment, comparator = pair
+    rows = cell_rows(arms, treatment, comparator, room, metric)
+    void = void_reasons(rows, treatment, comparator)
+    convergence = converged_two_way(rows, alpha, n_boot)
+    nominal = intervals(rows, alpha, convergence['n_boot'] or n_boot)
+    return {'contrast': '{} - {}'.format(treatment, comparator), 'room': room,
+            'metric': metric, 'margin': margin, 'alpha': alpha,
+            'diff': nominal['diff'], 'query': nominal['query'], 'two_way': nominal['two_way'],
+            'cohort': rows['cohort'], 'n_test': rows['n_test'], 'excluded': rows['excluded'],
+            'per_seed_diff': rows['per_seed_diff'], 'void_reasons': void,
+            'convergence': convergence, 'bootstrap_seeds': list(BOOT_SEEDS),
+            'verdict': verdict_of(convergence, void, margin)}
+
+
+def screen_cells(arms, pair, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, alpha=ALPHA):
+    """H2: the eleven room x metric cells, nominal and Bonferroni adjusted."""
+    treatment, comparator = pair
+    adjusted_alpha = bootstrap.bonferroni_alpha(alpha, H2_FAMILY)
+    cells = []
+    for room, metric in CELLS:
+        rows = cell_rows(arms, treatment, comparator, room, metric)
+        nominal = intervals(rows, alpha, n_boot)
+        convergence = converged_two_way(rows, adjusted_alpha, adjusted_n_boot)
+        interval = convergence['interval']
+        cells.append({'contrast': '{} - {}'.format(treatment, comparator), 'room': room,
+                      'metric': metric, 'diff': nominal['diff'], 'alpha': alpha,
+                      'adjusted_alpha': adjusted_alpha, 'family': H2_FAMILY,
+                      'nominal_two_way': nominal['two_way'], 'query': nominal['query'],
+                      'adjusted_two_way': interval, 'convergence': convergence,
+                      'cohort': rows['cohort'], 'n_test': rows['n_test'],
+                      'excluded': rows['excluded'], 'per_seed_diff': rows['per_seed_diff'],
+                      'label': 'not converged' if interval is None else h2_label(interval)})
+    return cells
+
+
+def descriptive_cells(arms, pairs=DESCRIPTIVE, n_boot=N_BOOT, alpha=ALPHA):
+    """D: the same cells for the three descriptive contrasts, nominal intervals only."""
+    cells = []
+    for treatment, comparator in pairs:
+        if treatment not in arms or comparator not in arms:
+            continue
+        for room, metric in CELLS:
+            rows = cell_rows(arms, treatment, comparator, room, metric)
+            nominal = intervals(rows, alpha, n_boot)
+            cells.append({'contrast': '{} - {}'.format(treatment, comparator), 'room': room,
+                          'metric': metric, 'diff': nominal['diff'],
+                          'nominal_two_way': nominal['two_way'], 'query': nominal['query'],
+                          'cohort': rows['cohort'], 'n_test': rows['n_test'],
+                          'per_seed_diff': rows['per_seed_diff']})
+    return cells
