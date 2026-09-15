@@ -90,7 +90,7 @@ import torch
 
 from model.xRIR_cyl_oriented import BACKBONES_EXP06, build_xrir_exp06
 from sim_to_real.haa_dataset import NO_T60_ROOMS, ROOMS
-from tools import exp06_heading, exp06_recipe, provenance
+from tools import exp06_heading, exp06_profiles, exp06_recipe, provenance
 
 REPO = Path(__file__).resolve().parents[1]
 MARKER = 'EXP06_CHILD_EXIT'
@@ -473,6 +473,87 @@ def verify_source_closure(record, run_type, repo):
     return name, closure
 
 
+def _closure_files(files, label):
+    """Every recorded file must carry both hashes before anything compares them."""
+    _require(isinstance(files, list) and files, 'the recorded {} closure is empty'.format(label))
+    for item in files:
+        _require(isinstance(item, dict) and isinstance(item.get('path'), str)
+                 and _is_sha256(item.get('working_tree_sha256'))
+                 and _is_sha256(item.get('reviewed_blob_sha256')),
+                 'incomplete {} closure file record: {!r}'.format(label, item))
+    return files
+
+
+def verify_orchestration(record, repo, commit, recorded_digests):
+    """Finding 1: the launcher shell and the finalizer that decide this run, bound as files.
+
+    A later round may edit either while a 31-hour training run is going, so their bytes are
+    compared three ways -- the working tree now, what was recorded at spawn, and the
+    reviewed blobs -- exactly as the training closure is.
+    """
+    closures = _mapping(record.get('orchestration_closures') or {},
+                        'provenance.json orchestration_closures')
+    _require(set(closures) == {'launcher', 'finalizer'},
+             'provenance.json orchestration_closures must bind the launcher and the finalizer')
+    for role, key in (('launcher', 'launch_sh'), ('finalizer', 'finalize')):
+        closure = _mapping(closures[role], 'orchestration_closures.' + role)
+        files = _closure_files(closure.get('files'), role)
+        _require(closure.get('sha256') == closure_digest(files),
+                 'recorded {} digest does not match its own file list'.format(role))
+        _require(closure['sha256'] == recorded_digests.get(key),
+                 'recorded {} digest is not the code_digests {}'.format(role, key))
+        fresh, _ = exp06_profiles.closure_of(key, str(Path(repo).resolve()), commit)
+        now = {item['path']: item for item in fresh}
+        _require(sorted(now) == sorted(item['path'] for item in files),
+                 '{} closure membership changed: {}'.format(role, ', '.join(sorted(
+                     set(now) ^ {item['path'] for item in files}))))
+        for item in files:
+            seen = now[item['path']]
+            agreed = {seen['working_tree_sha256'], item['working_tree_sha256'],
+                      item['reviewed_blob_sha256'], seen['reviewed_blob_sha256']}
+            _require(len(agreed) == 1, 'orchestration drift at {}: working tree {}, recorded '
+                     '{}, reviewed {}'.format(item['path'], seen['working_tree_sha256'],
+                                              item['working_tree_sha256'],
+                                              item['reviewed_blob_sha256']))
+    return {role: closures[role]['sha256'] for role in closures}
+
+
+def verify_approvals(record, repo, run_type):
+    """Finding 1: the training-critical code identities, three ways.
+
+    Recomputed here, equal to what the run recorded at spawn, and equal to the approvals
+    file re-read now -- whose own bytes the run bound, so a mid-run edit is a refusal.
+    An exploratory diagnostic records its deviations instead, and is never an arm.
+    """
+    exploratory = bool(record.get('exploratory'))
+    _require(not exploratory or run_type in DIAGNOSTIC,
+             'an exploratory run is never admissible as an arm')
+    recorded = record.get('code_digests')
+    _require(isinstance(recorded, dict)
+             and set(recorded) == set(exp06_profiles.TRAINING_KEYS),
+             'provenance.json records no code_digests for the training-critical keys')
+    commit = record['reviewed_commit']
+    current = exp06_profiles.compute_code_digests(repo, commit,
+                                                  keys=exp06_profiles.TRAINING_KEYS)
+    drift = sorted(key for key in exp06_profiles.TRAINING_KEYS
+                   if current.get(key) != recorded.get(key))
+    _require(not drift, 'code drift since the run started: ' + ', '.join(drift))
+    orchestration = verify_orchestration(record, repo, commit, recorded)
+    approvals = record.get('approvals')
+    _require(isinstance(approvals, dict) and isinstance(approvals.get('path'), str),
+             'provenance.json records no approvals binding')
+    path = _resolve(approvals['path'], repo)
+    _require(path.is_file(), 'missing approvals file: {}'.format(path))
+    _require(provenance.sha256_file(path) == approvals.get('sha256'),
+             'the approvals file {} changed since the run started'.format(path))
+    approved, identity = exp06_profiles.load_approved_digests(path)
+    deviations = exp06_profiles.require(approved, exp06_profiles.TRAINING_KEYS, repo=repo,
+                                        commit=commit, exploratory=exploratory, current=current)
+    return {'approvals': dict(approvals, git_free_sha256=identity['sha256']),
+            'code_digests': dict(recorded), 'orchestration_digests': orchestration,
+            'approval_deviations': deviations, 'exploratory': exploratory}
+
+
 def revalidate_inputs(record, repo, required=('train_data_identity', 'source_closures')):
     """Rehash the declared data inventory and mutable inputs through tools.provenance."""
     manifest = dict(record, repo=str(Path(repo).resolve()))
@@ -551,6 +632,7 @@ def full_evidence(run_dir, repo):
     hashes = artifacts(run_dir, FULL_ARTIFACTS)  # every file must exist before it is parsed
     record = load_provenance(run_dir, 'full')
     _, closure = verify_source_closure(record, 'full', repo)
+    admission = verify_approvals(record, repo, 'full')
     verify_train_identity(record)
     revalidate_inputs(record, repo)
     args = _read_json(run_dir / 'args.json', 'args.json')
@@ -574,7 +656,7 @@ def full_evidence(run_dir, repo):
                      EPOCH_CHECKPOINT, tuple(state[key].shape), key, tuple(model[key].shape)))
     _require(all(torch.equal(state[key], model[key]) for key in state),
              EPOCH_CHECKPOINT + ' differs tensor-wise from last.pth["model"]')
-    return dict(artifacts=hashes, epochs=len(rows),
+    return dict(artifacts=hashes, epochs=len(rows), **admission,
                 backbone=args['backbone'], source_closure_sha256=closure['sha256'],
                 registry_sha256=record.get('registry_sha256'),
                 git_head=record.get('git_state', {}).get('HEAD'),

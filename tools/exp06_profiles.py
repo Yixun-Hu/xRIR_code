@@ -149,15 +149,30 @@ def file_digest(files, repo, commit):
 
 
 @functools.lru_cache(maxsize=None)
-def _closure_of(name, repo, commit):
+def _closure_of(name, repo, commit, stamp):
     return provenance.closure_record(list(_paths_of(name, repo)), commit, repo)
+
+
+def _stamp(files, repo):
+    """Stat validation of the cache, as ``provenance.train_data_identity`` uses for data.
+
+    The records carry working-tree hashes, so a cached answer must be invalidated when a
+    file is edited; size and mtime do that. A producer process computes each key once.
+    """
+    stamps = []
+    for name in files:
+        status = (Path(repo) / name).stat()
+        stamps.append((name, status.st_size, status.st_mtime_ns))
+    return tuple(stamps)
 
 
 def closure_of(name, repo, commit):
     """``(file records, digest)`` for one code key: what a producer records at spawn."""
     if name not in CODE_SPECS:
         raise ValueError('unknown approval key: {!r}'.format(name))
-    records, digest = _closure_of(name, str(Path(repo).resolve()), commit)
+    repo = str(Path(repo).resolve())
+    files = _paths_of(name, repo)
+    records, digest = _closure_of(name, repo, commit, _stamp(files, repo))
     return [dict(record) for record in records], digest
 
 
