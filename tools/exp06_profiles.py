@@ -26,6 +26,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import subprocess
 from types import MappingProxyType as MP
 
 from tools import provenance
@@ -110,12 +111,38 @@ def _digest_or_null(value, label):
             label, value))
 
 
-def load_approved_digests(path=None):
+def committed_bytes(path, repo, commit):
+    """Finding 2 of full_train review 2: the blob a reviewer committed, or a refusal.
+
+    Hashing whatever file ``--approved`` names establishes that it did not change during
+    the run; it never establishes that anybody reviewed it. Plan section 6.4 fills the
+    approvals in a *second reviewed commit*, so a confirmatory run's approvals must be a
+    tracked path of this repository whose blob at the reviewed commit is byte-identical
+    to the file being read. Untracked, edited or foreign files are refused here.
+    """
+    root = Path(repo).resolve()
+    try:
+        relative = Path(path).resolve().relative_to(root).as_posix()
+    except ValueError as error:
+        raise ValueError('approvals {} lie outside the repository {}'.format(path, root)) from error
+    blob = subprocess.run(['git', 'cat-file', '-p', '{}:{}'.format(commit, relative)],
+                          cwd=str(root), capture_output=True)
+    if blob.returncode != 0:
+        raise ValueError('approvals {} are not tracked at {}: {}'.format(
+            relative, commit, blob.stderr.decode('utf-8', 'replace').strip()))
+    return relative, blob.stdout
+
+
+def load_approved_digests(path=None, repo=None, commit=None):
     """Read the approvals; unknown or missing keys and malformed values are refused.
 
     Returns ``(frozen approvals, {'path', 'sha256'})``. The hash is what a producer
     records so the finalizer can re-read the file and prove it did not change mid-run.
+    With ``repo`` and ``commit`` the bytes must also equal the blob committed there, and
+    the identity names the tracked path and the commit it was bound to.
     """
+    if (repo is None) != (commit is None):
+        raise ValueError('binding approvals needs both the repository and the commit')
     path = Path(TEMPLATE_PATH if path is None else path).resolve()
     try:
         raw = path.read_bytes()
@@ -141,7 +168,14 @@ def load_approved_digests(path=None):
     _digest_or_null(value['artifacts']['gate_g1'], 'artifacts.gate_g1')
     for room in HEADING_ROOMS:
         _digest_or_null(value['artifacts']['heading'][room], 'artifacts.heading.' + room)
-    return _freeze(value), {'path': str(path), 'sha256': hashlib.sha256(raw).hexdigest()}
+    identity = {'path': str(path), 'sha256': hashlib.sha256(raw).hexdigest()}
+    if repo is not None:
+        relative, blob = committed_bytes(path, repo, commit)
+        if blob != raw:
+            raise ValueError('approvals {} differ from the bytes committed at {}'.format(
+                relative, commit))
+        identity.update(repo_relative=relative, committed_at=commit)
+    return _freeze(value), identity
 
 
 def file_digest(files, repo, commit):

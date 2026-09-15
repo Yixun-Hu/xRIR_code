@@ -1457,12 +1457,18 @@ def approval_gate(mode, reviewed_commit, approved, exploratory, repo):
 
     Null approvals refuse every mode; only a diagnostic may proceed ``--exploratory``,
     and then its deviations are recorded in the preflight record and in its receipt.
+
+    Review 2 finding 2: every launch this gate admits reads its approvals from the blob
+    committed at the reviewed commit. Only a smoke or probe declared ``--exploratory``
+    may read an external or uncommitted file, and it is never admissible as an arm.
     """
     _require(not (exploratory and mode == 'full'),
              'an exploratory launch is a diagnostic; mode full must match the approvals')
+    bind = not (exploratory and mode in DIAGNOSTIC)
     path = _resolve(exp06_profiles.APPROVED_RELATIVE if approved is None else approved, repo)
     _require(path.is_file(), 'missing approvals file: {}'.format(path))
-    value, identity = exp06_profiles.load_approved_digests(path)
+    value, identity = exp06_profiles.load_approved_digests(
+        path, repo=repo if bind else None, commit=reviewed_commit if bind else None)
     deviations = exp06_profiles.require(value, exp06_profiles.TRAINING_KEYS, repo=repo,
                                         commit=reviewed_commit, exploratory=exploratory)
     return {'approved': identity, 'approval_deviations': deviations,
