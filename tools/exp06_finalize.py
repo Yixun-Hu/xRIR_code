@@ -20,7 +20,13 @@ type recorded on the command line (and, for ``full``, in ``provenance.json``):
         --log <log> --child-exit 0 [--repo <path>] [--receipt <json>] \
         [--children <dir>...] [--expect finetune|zeroshot]
 
-The command exits 0 after writing ``completion.json`` and 2 on any refusal.
+The command exits 0 after writing ``completion.json`` and 2 on any refusal. The
+``preflight`` subcommand is the launcher's gate before it starts a child: HEAD at the
+reviewed commit, a tree clean outside ``worklog/``, no live exp_06 launch, and (for
+``full``/``probe``) a GPU with no compute apps.
+
+    python tools/exp06_finalize.py preflight --mode full --gpu 1 \
+        --reviewed-commit <sha> [--attempt-root <dir>] [--repo <path>]
 
 Every failure raises ``ValueError`` naming its cause and writes nothing; a re-run
 produces byte-identical bytes, and an existing completion that differs is refused.
@@ -29,7 +35,9 @@ import argparse
 import datetime
 import hashlib
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 
 import torch
@@ -42,6 +50,8 @@ MARKER = 'EXP06_CHILD_EXIT'
 DIAGNOSTIC = ('smoke', 'probe')
 RUN_TYPES = ('full', 'smoke', 'probe', 'haa_train', 'haa_eval', 'haa_job')
 EXPECTATIONS = ('finetune', 'zeroshot')
+LAUNCH_MODES = ('smoke', 'probe', 'full')
+EXCLUSIVE_GPU_MODES = ('probe', 'full')
 FULL_ARTIFACTS = ('provenance.json', 'args.json', 'history.jsonl', 'last.pth', 'epoch_012.pth')
 HAA_TRAIN_ARTIFACTS = ('args.json', 'history.jsonl', 'summary.json', 'best.pth', 'last.pth')
 FRAMES = ('room', 'heading')
@@ -280,6 +290,70 @@ def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None,
     return write_completion(run_dir / 'completion.json', fields)
 
 
+def gpu_compute_apps(gpu):
+    """The pids nvidia-smi reports on one card; an unqueryable card is refused."""
+    try:
+        output = subprocess.check_output(
+            ['nvidia-smi', '--query-compute-apps=pid', '--format=csv,noheader', '-i', str(gpu)],
+            text=True, stderr=subprocess.STDOUT)
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ValueError('cannot query GPU {}: {}'.format(gpu, error)) from error
+    return [line.strip() for line in output.splitlines() if line.strip()]
+
+
+def live_launches(attempt_root):
+    """Refuse a second launch while any attempt's launch.pid still names a live process."""
+    live = []
+    for pid_file in sorted(Path(attempt_root).glob('*/launch.pid')):
+        text = pid_file.read_text().split()
+        try:
+            pid = int(text[0])
+        except (IndexError, ValueError) as error:
+            raise ValueError('unreadable launch.pid at {}: {}'.format(pid_file, error)) from error
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            pass  # A live process owned by somebody else is still a live process.
+        live.append({'path': str(pid_file), 'pid': pid})
+    return live
+
+
+def preflight(mode, gpu, reviewed_commit, attempt_root=None, repo=REPO):
+    """Gate a launch: reviewed commit, clean tree, no live launch, and a free card."""
+    _require(mode in LAUNCH_MODES, 'unknown launch mode: {!r}'.format(mode))
+    state = provenance.checked_git_state(repo, confirmatory=True)
+    _require(state['HEAD'] == reviewed_commit,
+             'HEAD {} is not the reviewed commit {!r} (full 40-hex sha required)'.format(
+                 state['HEAD'], reviewed_commit))
+    running = live_launches(attempt_root) if attempt_root and Path(attempt_root).is_dir() else []
+    _require(not running, 'another exp_06 launch is alive: {}'.format(running))
+    apps = gpu_compute_apps(gpu) if mode in EXCLUSIVE_GPU_MODES else None
+    _require(not apps, 'GPU {} is busy with compute apps {}'.format(gpu, apps))
+    return dict(mode=mode, gpu=gpu, reviewed_commit=reviewed_commit, git_state=state,
+                attempt_root=str(attempt_root) if attempt_root else None,
+                gpu_compute_apps=apps, live_launches=running)
+
+
+def preflight_main(argv):
+    """Exit 0 with the record on stdout, 2 with the named cause on stderr."""
+    parser = argparse.ArgumentParser(description='Gate one exp_06 launch.')
+    parser.add_argument('--mode', choices=LAUNCH_MODES, required=True)
+    parser.add_argument('--gpu', type=int, required=True)
+    parser.add_argument('--reviewed-commit', required=True)
+    parser.add_argument('--attempt-root')
+    parser.add_argument('--repo', default=str(REPO))
+    args = parser.parse_args(argv)
+    try:
+        record = preflight(args.mode, args.gpu, args.reviewed_commit, args.attempt_root, args.repo)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print('EXP06_PREFLIGHT_REFUSED ' + str(error), file=sys.stderr, flush=True)
+        return 2
+    print('EXP06_PREFLIGHT_OK ' + json.dumps(record, sort_keys=True), flush=True)
+    return 0
+
+
 def build_parser():
     """One finalization of one child or job; the launcher supplies the child's status."""
     parser = argparse.ArgumentParser(description='Write exp_06 completion evidence.')
@@ -297,6 +371,8 @@ def build_parser():
 def main(argv=None):
     """Exit 0 after writing completion.json, 2 on any refusal (nothing written)."""
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ['preflight']:
+        return preflight_main(argv[1:])
     if argv[:1] == ['finalize']:
         argv = argv[1:]
     args = build_parser().parse_args(argv)
