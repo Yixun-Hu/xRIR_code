@@ -138,3 +138,75 @@ def test_a_stub_module_is_delegated_to_and_revalidated(tmp_path):
     assert approved == subject.validate(filled()) and receipt['sha256'] == HEX
     with pytest.raises(ValueError):
         subject.load_approved_digests(path, module=StubApprovals({'schema_version': 1}))
+
+
+# --- the per-producer matrix and the digests that fill the code section ------------------
+
+
+def test_require_lists_every_unapproved_leaf_and_raises_in_production():
+    null = subject.validate(template())
+    deviations = subject.require(null, ('code',), exploratory=True)
+    assert deviations == ['not approved: code.' + key for key in subject.CODE_KEYS]
+    with pytest.raises(ValueError, match='approvals incomplete'):
+        subject.require(null, ('code',))
+    assert subject.require(subject.validate(filled()), subject.SECTIONS) == []
+    with pytest.raises(ValueError, match='unknown approvals section'):
+        subject.require(null, ('checkpoints',))
+
+
+def test_require_reaches_the_leaves_of_a_named_subsection():
+    value = subject.validate(filled())
+    value['artifacts']['heading']['hallway'] = None
+    assert subject.require(value, ('artifacts.epoch_012',)) == []
+    assert subject.require(value, ('artifacts.heading',), exploratory=True) == [
+        'not approved: artifacts.heading.hallway']
+    assert subject.require(value, ('artifacts.heading.class_room',)) == []
+
+
+@pytest.mark.parametrize('producer', sorted(subject.PRODUCER_REQUIREMENTS))
+def test_no_producer_requires_its_own_outputs(producer):
+    required = set(subject.leaf_paths(subject.producer_sections(producer)))
+    for output in subject.PRODUCER_OUTPUTS[producer]:
+        assert not any(path == output or path.startswith(output + '.') for path in required)
+
+
+def test_the_matrix_is_the_one_section_6_4_registers():
+    assert subject.producer_sections('mirror_probe') == (
+        'code', 'artifacts.epoch_012', 'artifacts.heading')
+    assert subject.producer_sections('summarize_haa') == ('code', 'reused', 'artifacts')
+    assert subject.producer_sections('sim_eval') == ('code', 'artifacts.epoch_012')
+    assert subject.producer_sections('compare') == ('code', 'reused')
+    assert subject.producer_sections('heading') == ('code',)
+    with pytest.raises(ValueError, match='unknown producer'):
+        subject.producer_sections('nobody')
+    assert set(subject.PRODUCER_OUTPUTS) == set(subject.PRODUCER_REQUIREMENTS)
+    assert set(subject.PRODUCER_EVIDENCE) <= set(subject.PRODUCER_REQUIREMENTS)
+
+
+def test_require_producer_refuses_the_null_template_for_every_producer():
+    null = subject.validate(template())
+    for producer in sorted(subject.PRODUCER_REQUIREMENTS):
+        if subject.producer_sections(producer):
+            with pytest.raises(ValueError):
+                subject.require_producer(null, producer)
+        assert subject.require_producer(subject.validate(filled()), producer) == []
+
+
+def test_every_code_key_hashes_to_a_closure_digest_of_this_worktree():
+    """The helper the fill commit runs: one 64-hex digest per registered code key."""
+    import subprocess
+    repo = subject.__file__.rsplit('/tools/', 1)[0]
+    commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=repo,
+                                     text=True).strip()
+    digests = subject.compute_code_digests(repo, commit, keys=('probe_align', 'launch_sh'))
+    assert set(digests) == {'probe_align', 'launch_sh'}
+    assert all(re.fullmatch('[0-9a-f]{64}', value) for value in digests.values())
+    assert digests['probe_align'] != digests['launch_sh']
+    with pytest.raises(ValueError, match='unknown code key'):
+        subject.code_digest('mystery', repo, commit)
+
+
+def test_a_shell_key_binds_its_own_file_and_no_python_closure():
+    assert subject.CODE_SOURCES['launch_sh'] == (None, ('tools/exp06_launch.sh',))
+    assert subject.CODE_SOURCES['haa_pipeline_sh'] == (None, ('tools/exp06_haa_pipeline.sh',))
+    assert subject.CODE_SOURCES['evaluator_exp03'][0] == 'eval_yaw_rotation'
