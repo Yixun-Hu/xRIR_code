@@ -297,12 +297,15 @@ def collect(runs, attempt, audit, evidence, results, rendered, unseen_table, uns
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ('runs', 'attempt', 'results', 'rendered', 'evidence'):
-        parser.add_argument('--' + name, nargs='+', required=True,
-                            metavar='NAME=PATH' if name == 'evidence' else None)
+    for name in ('runs', 'attempt', 'results', 'rendered'):
+        parser.add_argument('--' + name, nargs='+', required=True)
+    # Both documented spellings: one flag with several values, or the flag repeated.
+    parser.add_argument('--evidence', action='append', nargs='+', required=True,
+                        metavar='NAME=PATH')
     for name in ('audit', 'unseen-table', 'unseen-binding', 'out', 'approved'):
         parser.add_argument('--' + name, required=name != 'approved')
     args = vars(parser.parse_args(argv))
+    args['evidence'] = [item for group in args['evidence'] for item in group]
     output = report_path(args.pop('out'))
     p.write_manifest(output, collect(**args))
 

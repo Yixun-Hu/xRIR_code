@@ -9,6 +9,7 @@ needs a larger n_boot, and an unseen table the exp_04 record does not bind are r
 import argparse
 import html
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -197,11 +198,31 @@ def arguments(argv=None):
     published |= {str(Path(receipt['approved_digests']['path']).resolve())
                   for receipt in receipts if receipt.get('approved_digests')}
     published |= {str(Path(unseen_receipt['binding_report']['path']).resolve())}
-    if str(Path(args.out).resolve()) in published:
+    if str(Path(args.out).resolve()) in published or same_file(args.out, published):
         raise ValueError('output overlaps canonical input')
     head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=REPO, text=True).strip()
     record = dict(table=table, pairs=[data for data, _ in pairs], unseen=unseen, receipts=receipts)
     return args, record, head
+
+
+def same_file(target, published):
+    """Filesystem identity: ``resolve()`` sees through symlinks but not hardlinks.
+
+    A destination that is a second name for an input's inode would be truncated open,
+    so an existing output is compared with every protected input by device and inode.
+    """
+    try:
+        identity = os.stat(str(target))
+    except OSError:
+        return False
+    for item in published:
+        try:
+            other = os.stat(item)
+        except OSError:
+            continue
+        if (other.st_dev, other.st_ino) == (identity.st_dev, identity.st_ino):
+            return True
+    return False
 
 
 def native(metric, value):

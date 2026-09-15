@@ -1,5 +1,6 @@
 """The exp_07 record generators run on real producer outputs over synthetic runs."""
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -669,6 +670,20 @@ def protected_outputs(paths):
 
 
 @pytest.mark.parametrize('module', ['make_results_md', 'make_results_html', 'make_latex'])
+def test_no_generator_can_overwrite_an_input_through_a_hardlink(record_inputs, module):
+    """Should-fix 6: resolve() sees through symlinks, not hardlinks; the inode does."""
+    generator = load_asset(module)
+    for name in ('binding', 'table'):
+        original = record_inputs[name]
+        before = original.read_bytes()
+        alias = original.parent / ('alias_{}_{}.out'.format(module, name))
+        os.link(str(original), str(alias))
+        with pytest.raises(ValueError, match='output overlaps canonical input'):
+            generator.main(argv(record_inputs, out=alias))
+        assert original.read_bytes() == before and alias.read_bytes() == before
+
+
+@pytest.mark.parametrize('module', ['make_results_md', 'make_results_html', 'make_latex'])
 def test_no_generator_can_overwrite_any_input(record_inputs, module):
     generator = load_asset(module)
     for target in protected_outputs(record_inputs):
@@ -690,3 +705,18 @@ def test_only_one_pairing_of_a_missing_one_is_refused(record_inputs):
     md = load_asset('make_results_md')
     with pytest.raises(ValueError, match='incomplete pairing coverage'):
         md.arguments(argv(record_inputs, pairs=record_inputs['pairs'][:2]))
+
+
+@pytest.mark.parametrize('spelling', [
+    ['--evidence', 'gpu_parity=g.log', 'calibration=c.json'],
+    ['--evidence', 'gpu_parity=g.log', '--evidence', 'calibration=c.json']])
+def test_both_documented_evidence_syntaxes_reach_the_binder(monkeypatch, tmp_path, spelling):
+    """Should-fix 7: repeating the flag must accumulate, not replace."""
+    binder = load_asset('bind_provenance')
+    parsed = {}
+    monkeypatch.setattr(binder, 'collect', lambda **kwargs: parsed.update(kwargs) or {})
+    monkeypatch.setattr(binder.p, 'write_manifest', lambda *rest: None)
+    binder.main(['--runs', 'r', '--attempt', 'a', '--results', 'j', '--rendered', 'doc',
+                 '--audit', 'audit', '--unseen-table', 'u', '--unseen-binding', 'ub',
+                 '--out', str(tmp_path)] + spelling)
+    assert parsed['evidence'] == ['gpu_parity=g.log', 'calibration=c.json']
