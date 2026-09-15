@@ -544,6 +544,72 @@ def test_the_analysis_is_deterministic_and_binds_its_inputs(runs, approved, tmp_
         subject.write_outputs(first, out, summary)
 
 
+def test_h3_is_unavailable_without_its_comparator(runs, approved):
+    """Finding 9: the primary contrast has arm B, or the report carries no H3."""
+    admitted = subject.admit_runs({role: runs[role] for role in ('C', 'A')}, approved,
+                                  split=SPLIT, roles=ROLES)
+    result = subject.analyse(admitted, subject.MARGIN, 400)
+    assert result['H3'] == 'unavailable' and 'C - B' not in result['verdicts']
+    assert result['verdicts']['C - A']['verdict'] == 'suppressed (no H3 comparator)'
+    assert 'H3 unavailable' in subject.render(result)
+
+
+def test_an_exploratory_admission_suppresses_every_decision_verdict(runs, approved):
+    admitted = subject.admit_runs(runs, approved, exploratory=True, split=SPLIT, roles=ROLES)
+    admitted['deviations'].append('not approved: code.compare')
+    result = subject.analyse(admitted, subject.MARGIN, 400, exploratory=True)
+    assert result['H3'] == 'exploratory'
+    assert {entry['verdict'] for entry in result['verdicts'].values()} == {
+        'suppressed (draft)'}
+    assert 'EXPLORATORY' in subject.render(result)
+
+
+def test_the_comparers_producer_closure_must_be_the_approved_one(approved):
+    """Finding 3: the comparer recorded its identity without ever comparing it."""
+    identity = subject.producer_identity(strict=False)
+    filled = copy.deepcopy(approved)
+    filled['code']['compare'] = identity['sha256']
+    assert subject.check_producer_identity(filled, identity) == []
+    assert subject.check_producer_identity(None, identity) == []
+    with pytest.raises(ValueError, match=r'not the approved code\.compare'):
+        subject.check_producer_identity(approved, identity)
+    assert len(subject.check_producer_identity(approved, identity, True)) == 1
+
+
+def test_an_input_changed_during_analysis_is_refused(runs, approved, tmp_path):
+    """Finding 10: the inputs are rechecked after the bootstrap, before publication."""
+    admitted = subject.admit_runs(runs, approved, split=SPLIT, roles=ROLES)
+    result = subject.analyse(admitted, subject.MARGIN, 400)
+    log = next(Path(path) for path in sorted(result['inputs']) if path.endswith('.log'))
+    log.write_text(log.read_text() + 'appended after admission\n')
+    with pytest.raises(ValueError, match='input changed during analysis'):
+        subject.write_outputs(result, tmp_path / 'j.json', tmp_path / 's.txt')
+    assert not (tmp_path / 'j.json').exists() and not (tmp_path / 's.txt').exists()
+
+
+def test_a_failed_publication_leaves_neither_h3_output_behind(runs, approved, tmp_path,
+                                                              monkeypatch):
+    """Finding 12: the output pair is staged, so a failure publishes nothing."""
+    admitted = subject.admit_runs(runs, approved, split=SPLIT, roles=ROLES)
+    result = subject.analyse(admitted, subject.MARGIN, 400)
+    out, summary = tmp_path / 'pair' / 'h3.json', tmp_path / 'pair' / 'h3.txt'
+    real, calls = subject.os.link, []
+
+    def failing(source, target):
+        calls.append(target)
+        if len(calls) == 2:
+            raise OSError('no space left on device')
+        return real(source, target)
+
+    monkeypatch.setattr(subject.os, 'link', failing)
+    with pytest.raises(OSError):
+        subject.write_outputs(result, out, summary)
+    assert not out.exists() and not summary.exists()
+    monkeypatch.undo()
+    subject.write_outputs(result, out, summary)
+    assert out.is_file() and summary.is_file()
+
+
 def test_the_cli_refuses_a_production_run_on_this_branch(runs, tmp_path):
     with pytest.raises(ValueError, match='approvals incomplete'):
         subject.main(['--runs-c'] + runs['C'] + ['--runs-a'] + runs['A'] +
