@@ -283,7 +283,7 @@ import shutil
 import torch
 
 from sim_to_real.haa_dataset import NO_T60_ROOMS
-from tools import exp06_finalize
+from tools import exp06_finalize, provenance
 from tools import exp06_haa_eval as evaluator
 from tools import exp06_haa_finetune as trainer
 from test_exp06_finalize import DEAD_PID, pipeline_history, state_keys
@@ -415,7 +415,7 @@ def finetune_seed(clone, cache, tmp_path_factory):
         make_eval_child(clone, cache, root, room, root / ('stage2_' + room) / 'best.pth')
         children += ['stage2_' + room, 'eval/' + room]
     joblog = root / 'job.log'
-    close_child(root, joblog, text='job output\n')
+    joblog.write_text('job output\n')  # A3: a job closes no log and writes no receipt
     (root / 'launch.pid').write_text(str(os.getpid()) + '\n')
     return root, [str(root / name) for name in children], str(spec), joblog
 
@@ -487,33 +487,41 @@ def test_a_live_pid_in_a_child_refuses_the_job(finetune_seed, clone):
         marker.unlink()
 
 
-@pytest.mark.xfail(strict=True, reason='merge conflict, product decision pending: the gate '
-                   'fix (56dc945) refuses a receipt whose own child_pid is alive, and '
-                   'finalize_job writes the launcher\'s own still-running "$$" there')
-def test_the_job_receipt_the_pipeline_really_writes_is_admissible(finetune_seed, clone):
-    """A job root's receipt is the launcher's own, and the launcher has not exited.
+def test_the_job_the_pipeline_really_writes_is_admissible(finetune_seed, clone):
+    """A3: the pipeline shell that finalizes a job is alive and leaves no receipt of its own.
 
-    ``tools/exp06_haa_pipeline.sh::finalize_job`` closes the job log with
-    ``--child-pid "$$"`` and then, in that same process, runs the ``haa_job`` finalizer.
-    ``refuse_live_launch`` forgives the matching ``<root>/launch.pid`` for the
-    ``--owner-pid`` it is given, but ``child_exit_receipt`` grants no owner exception, so
-    every job the real pipeline finalizes is refused. Tests only: which side gives -- the
-    receipt's owner exception or the wrapper's self-named receipt -- is not the Coder's
-    call, so this pins the conflict instead of hiding it. The nine children below it are
-    honest: their pids really are dead by the time the launcher finalizes them.
+    ``tools/exp06_haa_pipeline.sh::finalize_job`` runs in the very shell whose pid the job
+    root's ``launch.pid`` names, so the owner exception is the only way any job is ever
+    admitted. It no longer closes the job log, and the job root carries no
+    ``child_exit.json``: the nine children below it hold the exit evidence, and their pids
+    really are dead by the time the launcher finalizes them.
     """
     root, children, spec, joblog = finetune_seed
-    completion, path = Path(root) / 'completion.json', Path(root) / 'child_exit.json'
-    original = path.read_text()
+    completion = Path(root) / 'completion.json'
     if completion.exists():
         completion.unlink()
-    path.write_text(json.dumps(dict(json.loads(original), child_pid=os.getpid()),
-                               sort_keys=True, indent=2) + '\n')
+    assert not (Path(root) / 'child_exit.json').exists()
+    assert (Path(root) / 'launch.pid').read_text().strip() == str(os.getpid())
+    fields = exp06_finalize.finalize(root, 'haa_job', joblog, 0, repo=clone, children=children,
+                                     expect='finetune', job_spec=spec, owner_pid=os.getpid())
+    assert fields['admissible_arm'] is True and fields['owner_pid'] == os.getpid()
+    assert fields['log'] == {'path': str(Path(joblog).resolve()),
+                             'sha256': provenance.sha256_file(joblog)}
+    assert 'child_exit_receipt' not in fields and 'child_exit_time' not in fields
+    assert completion.is_file()
+
+
+def test_a_receipt_at_the_job_root_is_refused(finetune_seed, clone):
+    """A3: the job root carries no child exit receipt, so one found there is refused."""
+    root, children, spec, joblog = finetune_seed
+    completion, receipt = Path(root) / 'completion.json', Path(root) / 'child_exit.json'
+    if completion.exists():
+        completion.unlink()
+    receipt.write_text(json.dumps({'child_pid': os.getpid(), 'status': 0}))
     try:
-        assert exp06_finalize.finalize(root, 'haa_job', joblog, 0, repo=clone,
-                                       children=children, expect='finetune', job_spec=spec,
-                                       owner_pid=os.getpid())['admissible_arm'] is True
+        with pytest.raises(ValueError, match='no child exit receipt'):
+            exp06_finalize.finalize(root, 'haa_job', joblog, 0, repo=clone, children=children,
+                                    expect='finetune', job_spec=spec, owner_pid=os.getpid())
+        assert not completion.exists()
     finally:
-        path.write_text(original)
-        if completion.exists():
-            completion.unlink()
+        receipt.unlink()

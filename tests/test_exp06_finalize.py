@@ -1011,6 +1011,18 @@ def make_eval_child(job, name, haa_repo, heading_jsons, data_root, room, checkpo
     return run
 
 
+def open_job(job, log, text='pipeline output\n'):
+    """What the pipeline leaves at a job root: a queue log, and no receipt of its own.
+
+    Plan amendment A3: the shell that orchestrates a job is still alive when it finalizes
+    it, so a job closes no log and writes no ``child_exit.json``; the queue log is
+    informational and the owner is the job root's ``launch.pid``.
+    """
+    Path(job).mkdir(parents=True, exist_ok=True)
+    Path(log).write_text(text)
+    return log
+
+
 def write_job(tmp_path, haa_repo, heading_jsons, data_root, expect='finetune', log=None,
               mutate=None):
     """A complete pipeline seed whose children carry their real evidence, not claims."""
@@ -1020,7 +1032,7 @@ def write_job(tmp_path, haa_repo, heading_jsons, data_root, expect='finetune', l
     torch.save(tiny_state(**{state_keys()[0]: torch.full((1,), 99.0)}), init)
     spec, _ = job_spec_file(job, init, heading_jsons, expect=expect)  # before the first child
     if log is not None:
-        seal(job, log, text='pipeline output\n')
+        open_job(job, log)
     names = []
     if expect == 'finetune':
         make_train_child(job, 'stage1', haa_repo, heading_jsons, data_root,
@@ -1074,7 +1086,7 @@ def test_zeroshot_job_shares_one_checkpoint(job_run, closed_log_file):
 def test_a_job_of_bare_admissible_claims_is_refused(tmp_path, closed_log_file):
     """The review's third counterexample: nine children asserting their own admission."""
     job = tmp_path / 'seed0'
-    seal(job, closed_log_file, text='pipeline output\n')
+    open_job(job, closed_log_file)
     names = list(exp06_finalize.expected_children('finetune'))
     for name in names:
         (job / name).mkdir(parents=True)
@@ -1744,11 +1756,14 @@ def test_a_live_child_is_never_certified_by_a_job(job_run, closed_log_file, name
         return names
 
     job, children, spec, repo = job_run(mutate=mutate)
-    for owner in (None, os.getpid()):
-        with pytest.raises(ValueError, match='alive'):
-            exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
-                                    children=children, expect='finetune', job_spec=spec,
-                                    owner_pid=owner)
+    with pytest.raises(ValueError, match='alive'):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                children=children, expect='finetune', job_spec=spec)
+    (job / 'launch.pid').write_text('{}\n'.format(os.getpid()))  # A3: the live orchestrator
+    with pytest.raises(ValueError, match='alive'):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                children=children, expect='finetune', job_spec=spec,
+                                owner_pid=os.getpid())
     assert not (job / 'completion.json').exists()
 
 
@@ -1764,6 +1779,43 @@ def test_the_job_owner_may_finalize_once_every_child_is_dead(job_run, closed_log
                                      children=children, expect='finetune', job_spec=spec,
                                      owner_pid=os.getpid())
     assert fields['admissible_arm'] is True
+
+
+def test_a_job_carries_no_child_exit_receipt_of_its_own(job_run, closed_log_file):
+    """A3: the orchestrating shell is still alive, so a receipt there is ambiguous."""
+    job, children, spec, repo = job_run()
+    (job / 'child_exit.json').write_text(json.dumps({'child_pid': os.getpid(), 'status': 0}))
+    with pytest.raises(ValueError, match='no child exit receipt'):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                children=children, expect='finetune', job_spec=spec)
+    assert not (job / 'completion.json').exists()
+
+
+def test_a_job_records_its_queue_log_as_information(job_run, closed_log_file):
+    """A3: the queue log is bound by path and hash, and carries no end marker."""
+    job, children, spec, repo = job_run()
+    fields = exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                     children=children, expect='finetune', job_spec=spec)
+    assert fields['log'] == {'path': str(Path(closed_log_file).resolve()),
+                             'sha256': provenance.sha256_file(closed_log_file)}
+    assert 'child_exit_receipt' not in fields and 'child_exit_time' not in fields
+    assert 'EXP06_CHILD_EXIT' not in Path(closed_log_file).read_text()
+
+
+@pytest.mark.parametrize('present', [True, False])
+def test_a_declared_job_owner_must_be_the_launch_pid_at_the_job_root(job_run, closed_log_file,
+                                                                     present):
+    """A3: the completion binds the owner, so a job root that names another is refused."""
+    def mutate(job, names):
+        if present:
+            (job / 'launch.pid').write_text('{}\n'.format(DEAD_PID))
+        return names
+
+    job, children, spec, repo = job_run(mutate=mutate)
+    with pytest.raises(ValueError, match='owner'):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo, children=children,
+                                expect='finetune', job_spec=spec, owner_pid=os.getpid())
+    assert not (job / 'completion.json').exists()
 
 
 @pytest.mark.parametrize('damage,cause', [
