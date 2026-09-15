@@ -845,3 +845,76 @@ def test_the_job_owner_is_bound_to_the_root_launch_pid(real_job, cache, monkeypa
             subject.verify_job(root, 'seed0', 'cyl_or', repo=repo)
     finally:
         marker.write_text(original)
+
+
+# --- finding 3: the registered recipe of plan 6.2, and the sensitivity escape hatch -------
+
+
+def test_the_registered_haa_recipe_is_the_one_section_6_2_froze():
+    assert subject.S1_ROOMS == ('class_room', 'complex_room', 'hallway')
+    assert subject.STAGES['stage1'] == {'epochs': 1000, 'val_every': 10}
+    assert subject.STAGES['stage2'] == {'epochs': 200, 'val_every': 2}
+    assert subject.TRAIN_RECIPE == {'lr': 1e-4, 'weight_decay': 1e-4, 'decay_epochs': 50,
+                                    'lr_gamma': 0.1, 'batch_size': 0, 'accum_steps': 1,
+                                    'tf32': True, 'max_len': 9600,
+                                    'depth_variant': 'default', 'num_shot': 8,
+                                    'eval_seed': 0}
+    assert subject.EVAL_RECIPE == {'split': 'test', 'num_shot': 8, 'eval_seed': 0,
+                                   'max_len': 9600, 'depth_variant': 'default',
+                                   'max_samples': 0, 'gl_seed_per_query': False, 'tag': ''}
+
+
+def recipe_args():
+    """One admissible stage-1 argument record and one admissible evaluation record."""
+    return (dict(subject.TRAIN_RECIPE, epochs=1000, val_every=10,
+                 rooms=list(subject.S1_ROOMS)),
+            dict(subject.EVAL_RECIPE, rooms=['hallway']))
+
+
+def test_the_recipe_admits_exactly_section_6_2s_arguments():
+    TRAIN_ARGS, EVAL_ARGS = recipe_args()
+    assert subject.child_recipe(TRAIN_ARGS, 'stage1', 'haa_train') == []
+    assert subject.child_recipe(dict(TRAIN_ARGS, epochs=200, val_every=2,
+                                     rooms=['hallway']), 'stage2_hallway', 'haa_train') == []
+    assert subject.child_recipe(EVAL_ARGS, 'eval/hallway', 'haa_eval') == []
+    cases = [(dict(TRAIN_ARGS, epochs=4), 'stage1', 'haa_train', 'epochs'),
+             (dict(TRAIN_ARGS, val_every=2), 'stage1', 'haa_train', 'val_every'),
+             (dict(TRAIN_ARGS, lr=1e-3), 'stage1', 'haa_train', 'lr'),
+             (dict(TRAIN_ARGS, tf32=False), 'stage1', 'haa_train', 'tf32'),
+             (dict(TRAIN_ARGS, batch_size=32), 'stage1', 'haa_train', 'batch_size'),
+             (dict(TRAIN_ARGS, depth_variant='repo'), 'stage1', 'haa_train',
+              'depth_variant'),
+             (dict(TRAIN_ARGS, rooms=['hallway']), 'stage1', 'haa_train', 'rooms'),
+             (dict(TRAIN_ARGS, epochs=200, val_every=2, rooms=ROOMS), 'stage2_hallway',
+              'haa_train', 'rooms'),
+             (dict(EVAL_ARGS, gl_seed_per_query=True), 'eval/hallway', 'haa_eval',
+              'gl_seed_per_query'),
+             (dict(EVAL_ARGS, split='val'), 'eval/hallway', 'haa_eval', 'split'),
+             (dict(EVAL_ARGS, tag='_val'), 'eval/hallway', 'haa_eval', 'tag'),
+             (dict(EVAL_ARGS, rooms=['class_room']), 'eval/hallway', 'haa_eval', 'rooms')]
+    for args, name, role, cause in cases:
+        deviations = subject.child_recipe(args, name, role)
+        assert any(cause in item for item in deviations), (name, cause, deviations)
+
+
+def test_a_shortened_training_never_enters_the_primary_comparison(real_job, cache,
+                                                                  monkeypatch):
+    """The diagnostic nine-child fixture trains four epochs: not section 6.2's budget."""
+    root, repo = real_job
+    monkeypatch.setattr(legacy, 'HAA_ROOT', cache['root'])
+    with pytest.raises(ValueError, match='not the registered'):
+        subject.verify_job(root, 'seed0', 'cyl_or', repo=repo, sensitivity=False)
+    job = subject.verify_job(root, 'seed0', 'cyl_or', repo=repo)
+    assert any('epochs' in item for item in job['recipe_deviations'])
+
+
+def test_a_sensitivity_analysis_labels_every_output_it_produces(arms, tmp_path):
+    result = subject.analyse(arms, n_boot=200, adjusted_n_boot=200, exploratory=True,
+                             sensitivity=True, deviations=['stage1 records epochs 4'])
+    assert result['mode'] == 'sensitivity'
+    assert result['H1']['verdict'].startswith('sensitivity: ')
+    assert result['H1b']['verdict'].startswith('sensitivity: ')
+    text = subject.render(result)
+    assert 'SENSITIVITY' in text
+    assert subject.analyse(arms, n_boot=200, adjusted_n_boot=200,
+                           exploratory=True)['mode'] == 'primary'
