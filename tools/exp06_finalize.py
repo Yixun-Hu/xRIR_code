@@ -32,8 +32,11 @@ data inventory and mutable inputs.
 ``haa_eval``  one evaluation child: provenance and closure, one room equal to its own
               directory, ``meta`` whose frame, backbone and heading equal the arguments and
               whose ``checkpoint_sha256`` is the hash of the checkpoint the arguments name,
-              a ``side_label`` array of -1/1 with one entry per index, and a parsed
-              ``metrics_<room>.json`` whose n and means are the per-sample values.
+              per-sample observations bound to that room and protocol (every ``ir_path`` the
+              ``<room>/<index>`` the writer records, and ``meta``'s split, num_shot and
+              eval_seed the arguments'), a ``side_label`` array of -1/1 with one entry per
+              index, and a parsed ``metrics_<room>.json`` whose n and means are the
+              per-sample values.
 ``haa_job``   one seed of the pipeline: every expected child directory, each re-validated by
               running its own role validator again, its completion bound to that result,
               its log and receipt re-validated and rehashed, and every child checked against
@@ -99,6 +102,7 @@ METRICS_REQUIRED = (('backbone', 'checkpoint', 'room', 'split', 'num_shot', 'eva
                      'n_samples', 'c50_outliers', 't60_invalid', 'edt_invalid')
                     + tuple(sorted(METRIC_SOURCE)))
 HEADING_DECISIONS = ('estimated', 'override')
+EVAL_PROTOCOL = ('split', 'num_shot', 'eval_seed')  # the writer's own per-sample meta keys
 FRAMES = ('room', 'heading')
 GIT_STATE = ('HEAD', 'dirty', 'untracked', 'dirty_outside_worklog', 'diff_sha256')
 REQUIRED_PROVENANCE = ('run_type', 'repo', 'reviewed_commit', 'source_closures',
@@ -798,13 +802,20 @@ def haa_eval_evidence(run_dir, repo):
     per_sample = _read_json(Path(run_dir) / names[3], names[3])
     meta = per_sample.get('meta')
     _require(isinstance(meta, dict), 'per-sample meta must be a record')
-    required = ('backbone', 'checkpoint_sha256', 'frame') + (('heading',) if heading else ())
+    required = (('backbone', 'checkpoint_sha256', 'frame') + EVAL_PROTOCOL
+                + (('heading',) if heading else ()))
     missing = [key for key in required if key not in meta]
     _require(not missing, 'per-sample meta must record ' + ', '.join(missing))
     _require(meta['frame'] == frame and frame in FRAMES,
              'per-sample meta frame {!r} is not the {!r} of args.json'.format(meta['frame'], frame))
     _require(meta['backbone'] == args['backbone'],
              'per-sample meta backbone {!r} differs from args.json'.format(meta['backbone']))
+    for field in EVAL_PROTOCOL:  # finding 3: observations of another protocol are not this arm's
+        _require(exp06_recipe.strict_equal(meta[field], args.get(field)),
+                 'per-sample meta {} {!r} is not the {!r} of args.json'.format(
+                     field, meta[field], args.get(field)))
+    _require(meta.get('room', room) == room, 'per-sample meta room {!r} is not the {!r} this '
+             'child evaluated'.format(meta.get('room'), room))
     if heading:
         _require(exp06_recipe.strict_equal(meta['heading'], args['heading']),
                  'per-sample meta heading differs from the heading bound in args.json')
@@ -820,6 +831,16 @@ def haa_eval_evidence(run_dir, repo):
              'the hash {} of {}'.format(meta['checkpoint_sha256'], digest, resolved))
     index, side = per_sample.get('index'), per_sample.get('side_label')
     _require(isinstance(index, list) and index, 'the per-sample file records no index')
+    bad = [value for value in index if type(value) is not int or value < 0]
+    _require(not bad, 'per-sample index entries must be the writer\'s non-negative integers, '
+             'not {}'.format(sorted(map(repr, bad))[:4]))
+    paths = per_sample.get('ir_path')
+    _require(isinstance(paths, list) and len(paths) == len(index),
+             'per-sample ir_path must record one <room>/<index> path per index, not {!r}'.format(
+                 paths if not isinstance(paths, list) else len(paths)))
+    wrong = [path for path, value in zip(paths, index) if path != '{}/{}'.format(room, value)]
+    _require(not wrong, 'per-sample ir_path entries are not the {}/<index> this child '
+             'evaluated: {}'.format(room, sorted(map(repr, wrong))[:4]))
     _require(isinstance(side, list) and len(side) == len(index),
              'side_label must carry one room-frame label per index ({} for {} samples)'.format(
                  len(side) if isinstance(side, list) else side, len(index)))
