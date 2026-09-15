@@ -1,6 +1,7 @@
 """Frozen training-only heading rule, records, and heading-frame dataset."""
 import json
 import hashlib
+import copy
 from pathlib import Path
 
 import numpy as np
@@ -14,6 +15,7 @@ from tools.exp06_heading import (canonical_heading_deg, compensated_levels, cont
 from tools.exp06_heading import candidate_contrasts, decide_heading, leave_one_out_stable
 from tools.exp06_heading import HeadingFrameDataset
 from tools.exp06_heading import estimate_room_heading
+from tools.exp06_heading import read_heading_json, write_heading_json
 from tools.provenance import sha256_file, source_closure
 
 
@@ -263,3 +265,44 @@ def test_real_training_readback(room, contrasts, margins):
             assert row['competitor_count'] == 0 and row['runner_up_margin_db'] is None
         else:
             assert row['runner_up_margin_db'] == pytest.approx(margins[i], abs=.2)
+
+
+def test_json_roundtrip_and_missing_fields(heading_cache, tmp_path):
+    record = estimate_room_heading(heading_cache)
+    path = tmp_path / 'heading.json'
+    write_heading_json(path, record)
+    assert read_heading_json(path) == record
+    for field in record:
+        broken = copy.deepcopy(record)
+        del broken[field]
+        path.write_text(json.dumps(broken))
+        with pytest.raises(ValueError):
+            read_heading_json(path)
+    for field, value in [('k', -1), ('k', 512), ('k', 1.5), ('k', True), ('k', 0),
+                         ('phi_deg', None), ('decision', 'unknown'), ('timestamp', 'invalid'),
+                         ('input_sha256', {}), ('source_closure', {}), ('estimator', {}),
+                         ('per_mic', []), ('descriptive', {})]:
+        broken = copy.deepcopy(record)
+        broken[field] = value
+        with pytest.raises(ValueError):
+            write_heading_json(path, broken)
+
+
+def test_refusal_record_and_override_rescue(heading_cache, tmp_path):
+    # Equal compensated energies erase directional evidence in both windows.
+    rirs = np.load(heading_cache / 'rirs.npy')
+    rirs[:4] /= 10 ** (9 / 20)
+    np.save(heading_cache / 'rirs.npy', rirs)
+    refused = estimate_room_heading(heading_cache)
+    assert refused['decision'] == 'refused' and refused['k'] is None and refused['phi_deg'] is None
+    path = tmp_path / 'refused.json'
+    write_heading_json(path, refused)
+    assert read_heading_json(path) == refused
+    override = estimate_room_heading(heading_cache, -90, 'independent documented orientation')
+    assert override['decision'] == 'override' and override['k'] == 128
+    assert override['estimator'] == refused['estimator']
+    write_heading_json(path, override)
+    assert read_heading_json(path) == override
+    override['override_reason'] = ''
+    with pytest.raises(ValueError):
+        write_heading_json(path, override)

@@ -254,3 +254,91 @@ def estimate_room_heading(room_dir, override_deg=None, override_reason=None):
         source_closure=dict(entry_module='tools.exp06_heading', repo=str(repo), files=files,
                             sha256=digest, basis='working_tree'),
         timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat())
+
+
+def _validate_heading_record(record):
+    """Validate schema and decision evidence; refused records have no usable rotation."""
+    required = {'schema_version', 'room', 'phi_deg', 'k', 'decision', 'reason', 'override_deg',
+                'override_reason', 'estimator', 'descriptive', 'per_mic', 'input_sha256',
+                'source_closure', 'timestamp'}
+    try:
+        if not isinstance(record, dict) or not required <= record.keys():
+            raise ValueError('missing heading fields')
+        json.dumps(record, allow_nan=False)
+        if type(record['schema_version']) is not int or record['schema_version'] != 1:
+            raise ValueError('unsupported heading schema')
+        decision, phi, k = record['decision'], record['phi_deg'], record['k']
+        if decision not in {'estimated', 'override', 'refused'}:
+            raise ValueError('invalid heading decision')
+        if decision == 'refused':
+            if phi is not None or k is not None:
+                raise ValueError('refused records cannot specify a rotation')
+        else:
+            canonical_heading_deg(k, 512)
+            if type(phi) not in (int, float) or k != heading_roll_k(phi):
+                raise ValueError('heading and roll disagree')
+        if decision == 'override':
+            if (phi != record['override_deg'] or not isinstance(record['override_reason'], str)
+                    or not record['override_reason'].strip()):
+                raise ValueError('override heading and reason required')
+        elif record['override_deg'] is not None or record['override_reason'] is not None:
+            raise ValueError('unexpected override fields')
+        if not all(isinstance(record[key], str) and record[key] for key in ['room', 'reason']):
+            raise ValueError('room and reason required')
+        if datetime.datetime.fromisoformat(record['timestamp']).tzinfo is None:
+            raise ValueError('timestamp must include its timezone')
+        inputs = record['input_sha256']
+        if set(inputs) != {'meta.json', 'rirs.npy', 'xyzs.npy', 'speaker_xyz.npy'}:
+            raise ValueError('four input hashes required')
+        source = record['source_closure']
+        if (source['entry_module'] != 'tools.exp06_heading' or source['basis'] != 'working_tree'
+                or not Path(source['repo']).is_absolute() or not source['files']):
+            raise ValueError('invalid source closure')
+        pairs = [[f['path'], f['sha256']] for f in source['files']]
+        hashes = list(inputs.values()) + [source['sha256']] + [h for _, h in pairs]
+        if any(not isinstance(h, str) or len(h) != 64 or any(c not in '0123456789abcdef' for c in h)
+               for h in hashes):
+            raise ValueError('invalid SHA256')
+        digest = hashlib.sha256(json.dumps(pairs, sort_keys=True).encode()).hexdigest()
+        if source['sha256'] != digest:
+            raise ValueError('source closure digest mismatch')
+        mics = record['per_mic']
+        if (len(mics) != 12 or len({m['index'] for m in mics}) != 12
+                or any(type(m['index']) is not int or m['index'] < 0 or m['distance_m'] <= 0 for m in mics)):
+            raise ValueError('12 distinct training microphone records required')
+        theta = [m['theta_deg'] for m in mics]
+        levels = {w: [m['levels_db'][w] for m in mics] for w in ['5ms', '50ms']}
+        winner, table, reason = decide_heading(theta, levels)
+        loo = _leave_one_out_winners(theta, levels)
+        stable = winner is not None and all(w == winner for w in loo)
+        if winner is not None and not stable:
+            reason = 'leave-one-out decision is unstable'
+        expected = dict(winner=winner, table=table, reason=reason,
+                        leave_one_out_winners=loo, leave_one_out_stable=stable)
+        if record['estimator'] != expected:
+            raise ValueError('estimator evidence mismatch')
+        if decision != 'override':
+            if (decision == 'estimated') != stable or (stable and phi != CANDIDATES[winner]):
+                raise ValueError('decision disagrees with estimator')
+        if set(record['descriptive']) != set(levels):
+            raise ValueError('descriptive results required for both windows')
+        for result in record['descriptive'].values():
+            fit = result['continuous_fit']
+            if (not {'phi_deg', 'a', 'b', 'mse'} <= fit.keys() or fit['b'] < 0 or fit['mse'] < 0
+                    or len(result['loo_phi_deg']) != 12 or len(result['loo_range_deg']) != 2
+                    or 'mean_direction_deg' not in result):
+                raise ValueError('invalid descriptive fit')
+    except (KeyError, TypeError, OverflowError, AttributeError) as error:
+        raise ValueError('malformed heading record') from error
+    return record
+
+
+def write_heading_json(path, record):
+    """Write a validated, finite heading record (including explicit refusal records)."""
+    _validate_heading_record(record)
+    Path(path).write_text(json.dumps(record, sort_keys=True, indent=2, allow_nan=False) + '\n')
+
+
+def read_heading_json(path):
+    """Read and validate a heading record before its rotation can be used."""
+    return _validate_heading_record(json.loads(Path(path).read_text()))
