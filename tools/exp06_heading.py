@@ -1,11 +1,16 @@
 """Training-only acoustic heading inference and heading-frame HAA geometry."""
 import math
 import numbers
+import datetime
+import hashlib
+import json
+from pathlib import Path
 
 import numpy as np
 
 from sim_to_real.haa_dataset import DEFAULT_ROOT, HAADataset
 from tools.yaw_rotation import rotate_scene_yaw
+from tools.provenance import sha256_file, source_closure
 
 
 def _vector(value):
@@ -184,3 +189,68 @@ class HeadingFrameDataset(HAADataset):
     def side_label(self, room, idx):
         """Original room-frame sign of microphone y relative to the speaker."""
         return int(self.data[room]['src_local'][idx, 1].sign().item())
+
+
+def estimate_room_heading(room_dir, override_deg=None, override_reason=None):
+    """Infer an acoustic axis from exactly the 12 training RIRs, retaining audit evidence.
+
+    Full input files are streamed only for SHA256 identity. Signal calculations
+    select training rows from a read-only mmap. The source digest binds current
+    file bytes, including uncommitted code, using provenance's closure discovery.
+    """
+    if override_deg is None and override_reason is not None:
+        raise ValueError('override reason requires an override heading')
+    if override_deg is not None:
+        heading_roll_k(override_deg)
+        if not isinstance(override_reason, str) or not override_reason.strip():
+            raise ValueError('override heading requires a nonblank reason')
+    room = Path(room_dir)
+    meta = json.loads((room / 'meta.json').read_text())
+    train = meta['train']
+    if (len(train) != 12 or len(set(train)) != 12 or
+            any(isinstance(i, bool) or not isinstance(i, int) or i < 0 for i in train)):
+        raise ValueError('expected 12 distinct nonnegative training indices')
+    train = np.array(train, dtype=np.int64)
+    xyz = np.load(room / 'xyzs.npy')[train] - np.load(room / 'speaker_xyz.npy')
+    theta = np.rad2deg(np.arctan2(xyz[:, 1], xyz[:, 0]))
+    dist = np.linalg.norm(xyz[:, :2], axis=1)
+    rirs = np.load(room / 'rirs.npy', mmap_mode='r')[train]
+    levels = {name: compensated_levels(rirs, dist, meta['sr'], duration)
+              for name, duration in [('5ms', .005), ('50ms', .05)]}
+    winner, table, reason = decide_heading(theta, levels)
+    loo = _leave_one_out_winners(theta, levels)
+    stable = winner is not None and all(value == winner for value in loo)
+    accepted = winner is not None and stable
+    if winner is not None and not stable:
+        reason = 'leave-one-out decision is unstable'
+    phi = CANDIDATES[winner] if accepted else None
+    decision = 'estimated' if accepted else 'refused'
+    if override_deg is not None:
+        phi, decision = override_deg, 'override'
+    descriptive = {}
+    for window, level in levels.items():
+        fits = [continuous_fit(np.delete(theta, i), np.delete(level, i))['phi_deg']
+                for i in range(len(train))]
+        descriptive[window] = dict(continuous_fit=continuous_fit(theta, level),
+            loo_phi_deg=fits, loo_range_deg=[min(fits), max(fits)],
+            mean_direction_deg=mean_direction(theta, 10 ** ((level - level.max()) / 10)))
+    repo = Path(__file__).resolve().parents[1]
+    files = [dict(path=name, sha256=sha256_file(repo / name))
+             for name in source_closure('tools.exp06_heading', repo)]
+    digest = hashlib.sha256(json.dumps([[f['path'], f['sha256']] for f in files],
+                                     sort_keys=True).encode()).hexdigest()
+    return dict(schema_version=1, room=room.name, phi_deg=phi,
+        k=heading_roll_k(phi) if phi is not None else None, decision=decision,
+        reason=override_reason if decision == 'override' else reason,
+        override_deg=override_deg, override_reason=override_reason,
+        estimator=dict(winner=winner, table=table, reason=reason,
+                       leave_one_out_winners=loo, leave_one_out_stable=stable),
+        descriptive=descriptive,
+        per_mic=[dict(index=int(idx), theta_deg=float(theta[i]), distance_m=float(dist[i]),
+                      levels_db={w: float(level[i]) for w, level in levels.items()})
+                 for i, idx in enumerate(train)],
+        input_sha256={name: sha256_file(room / name) for name in
+                      ['meta.json', 'xyzs.npy', 'speaker_xyz.npy', 'rirs.npy']},
+        source_closure=dict(entry_module='tools.exp06_heading', repo=str(repo), files=files,
+                            sha256=digest, basis='working_tree'),
+        timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat())

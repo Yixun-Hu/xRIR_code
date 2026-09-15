@@ -1,5 +1,7 @@
 """Frozen training-only heading rule, records, and heading-frame dataset."""
 import json
+import hashlib
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -11,6 +13,8 @@ from tools.exp06_heading import (canonical_heading_deg, compensated_levels, cont
                                 early_level, heading_roll_k, mean_direction)
 from tools.exp06_heading import candidate_contrasts, decide_heading, leave_one_out_stable
 from tools.exp06_heading import HeadingFrameDataset
+from tools.exp06_heading import estimate_room_heading
+from tools.provenance import sha256_file, source_closure
 
 
 @pytest.mark.parametrize('window,n', [(0.005, 110), (0.05, 1102)])
@@ -181,3 +185,81 @@ def test_dataset_requires_room_roll(room_cache):
     for mapping in [{}, {'synthetic': 512}, {'synthetic': 1.5}]:
         with pytest.raises(ValueError):
             HeadingFrameDataset(['synthetic'], 'test', root=str(room_cache.parent), k_by_room=mapping)
+
+
+@pytest.fixture
+def heading_cache(room_cache):
+    theta = np.deg2rad([-90] * 4 + [90] * 8)
+    dist = np.arange(1, 13) / 3
+    xyz = np.zeros((14, 3))
+    xyz[:12, :2] = np.stack((np.cos(theta), np.sin(theta)), axis=1) * dist[:, None]
+    xyz[:, 2] = 50  # Only horizontal distance compensates levels.
+    np.save(room_cache / 'xyzs.npy', xyz)
+    np.save(room_cache / 'speaker_xyz.npy', np.zeros(3))
+    rirs = np.zeros((14, 1200))
+    rirs[:12, 10] = 10 ** (np.array([9] * 4 + [0] * 8) / 20) / dist
+    rirs[12:] = np.nan  # Held-out values must never enter the estimator.
+    np.save(room_cache / 'rirs.npy', rirs)
+    return room_cache
+
+
+def test_estimate_training_only_mmap_and_source_hashes(heading_cache, monkeypatch):
+    import tools.exp06_heading as heading
+    original_load = np.load
+    accesses = []
+    class TrainingRows:
+        def __getitem__(self, rows):
+            np.testing.assert_array_equal(rows, np.arange(12))
+            accesses.append(list(rows))
+            return original_load(heading_cache / 'rirs.npy', mmap_mode='r')[rows]
+    def guarded_load(path, **kwargs):
+        if Path(path).name == 'rirs.npy':
+            assert kwargs.get('mmap_mode') == 'r'
+            return TrainingRows()
+        return original_load(path, **kwargs)
+    monkeypatch.setattr(heading.np, 'load', guarded_load)
+    record = estimate_room_heading(heading_cache)
+    assert accesses == [list(range(12))]
+    assert (record['decision'], record['phi_deg'], record['k']) == ('estimated', -90, 128)
+    assert record['estimator']['leave_one_out_winners'] == ['-y'] * 12
+    assert record['estimator']['leave_one_out_stable'] is True
+    assert [row['index'] for row in record['per_mic']] == list(range(12))
+    for name, digest in record['input_sha256'].items():
+        assert digest == sha256_file(heading_cache / name)
+    repo = Path(__file__).resolve().parents[1]
+    names = source_closure('tools.exp06_heading', repo)
+    pairs = [[name, sha256_file(repo / name)] for name in names]
+    assert record['source_closure']['sha256'] == hashlib.sha256(json.dumps(pairs, sort_keys=True).encode()).hexdigest()
+    assert record['source_closure']['basis'] == 'working_tree'
+    assert len(record['descriptive']['5ms']['loo_phi_deg']) == 12
+
+
+def test_override_retains_estimator_and_reason(heading_cache):
+    record = estimate_room_heading(heading_cache, 90, 'documented speaker axis')
+    assert (record['decision'], record['phi_deg'], record['k']) == ('override', 90, 384)
+    assert record['override_reason'] == 'documented speaker axis' and record['override_deg'] == 90
+    assert record['estimator']['winner'] == '-y'
+    for kwargs in [dict(override_deg=90), dict(override_reason='alone'),
+                   dict(override_deg=90, override_reason=' '), dict(override_deg=np.nan, override_reason='bad')]:
+        with pytest.raises(ValueError):
+            estimate_room_heading(heading_cache, **kwargs)
+
+
+@pytest.mark.parametrize('room,contrasts,margins', [
+    ('class_room', [12.9, 9.0], None), ('dampened_room', [11.4, 8.7], [17.4, 13.1]),
+    ('hallway', [18.4, 11.3], [36.8, 22.6]), ('complex_room', [12.0, 10.8], None)])
+def test_real_training_readback(room, contrasts, margins):
+    path = Path('/home/yixunhu/data_cache/HAA_xrir') / room
+    if not path.is_dir():
+        pytest.skip('HAA cache absent')
+    record = estimate_room_heading(path)
+    assert (record['decision'], record['phi_deg'], record['k']) == ('estimated', -90, 128)
+    assert record['estimator']['leave_one_out_winners'] == ['-y'] * 12
+    assert record['estimator']['leave_one_out_stable'] is True
+    for i, window in enumerate(['5ms', '50ms']):
+        row = record['estimator']['table'][window]
+        assert row['contrasts_db']['-y'] == pytest.approx(contrasts[i], abs=.2)
+        if margins is None:
+            assert row['competitor_count'] == 0 and row['runner_up_margin_db'] is None
+        else:
+            assert row['runner_up_margin_db'] == pytest.approx(margins[i], abs=.2)
