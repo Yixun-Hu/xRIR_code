@@ -109,3 +109,26 @@ def test_a_child_that_evaluated_another_split_is_not_finalized(attempt, field):
         launcher.execute_run(args, child_code(args.out_dir, extra), lambda: fields,
                              args.data_root)
     assert Path(args.out_dir + '_ABORTED_output_invalid').is_dir()
+
+
+@pytest.mark.parametrize('spelling', ['absolute', 'symlink', 'indirect'])
+def test_an_explicit_binding_of_the_canonical_split_is_accepted(seen_args, tmp_path, spelling):
+    """The shared launcher resolves --bind-input paths; the canonical file is the file."""
+    canonical = REPO / p.SEEN_SPLIT
+    named = {'absolute': canonical,
+             'indirect': canonical.parent / '..' / canonical.parent.name / canonical.name,
+             'symlink': tmp_path / 'link.pkl'}[spelling]
+    if spelling == 'symlink':
+        named.symlink_to(canonical)
+    seen_args.bind_input = ['seen_split=' + str(named)]
+    fields = launcher.build_fields(seen_args, launcher.child_command(seen_args, REPO), REPO)
+    assert fields['mutable_inputs']['seen_split'] == p.seen_split_identity(REPO)  # stored canonical
+    assert p.revalidate({'repo': str(REPO), 'mutable_inputs': fields['mutable_inputs']}) == []
+
+
+def test_a_byte_identical_copy_of_the_split_elsewhere_is_refused(seen_args, tmp_path):
+    copy = tmp_path / 'seen_test_split.pkl'
+    copy.write_bytes((REPO / p.SEEN_SPLIT).read_bytes())
+    seen_args.bind_input = ['seen_split=' + str(copy)]
+    with pytest.raises(ValueError, match='seen_split'):
+        launcher.build_fields(seen_args, launcher.child_command(seen_args, REPO), REPO)

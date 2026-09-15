@@ -74,18 +74,37 @@ def validate_manifest(args, metadata=None):
     return fields, digest, reference
 
 
+def is_canonical_split(explicit, binding, repo):
+    """Does an explicit ``--bind-input seen_split=...`` name the authors' own file?
+
+    The shared launcher resolves and absolutises every binding path, so the canonical
+    file arrives spelled differently from ``seen_split_identity``'s repository-relative
+    record.  Paths are therefore compared after resolution (a symlink to the file is the
+    file) and the digest must match as well, so a byte-identical copy elsewhere is not
+    accepted in its place.
+    """
+    try:
+        resolved = Path(explicit['path']).resolve()
+        digest = explicit['sha256']
+    except (AttributeError, KeyError, TypeError):
+        return False
+    return resolved == (Path(repo).resolve() / binding['path']).resolve() and digest == binding['sha256']
+
+
 def build_fields(args, command, repo):
     """Extend the shared launcher's bindings with the split identity.
 
-    ``seen_split`` is bound automatically (an explicit --bind-input of another file is
-    refused) and revalidated at finalisation, and a seen run counts as confirmatory only
-    when its manifest holds every query of the split.
+    ``seen_split`` is bound automatically -- an explicit --bind-input is accepted only
+    when it names the authors' file (:func:`is_canonical_split`) and is stored in the
+    canonical repository-relative form either way -- and revalidated at finalisation; a
+    seen run counts as confirmatory only when its manifest holds every query of the split.
     """
     from tools import exp04_eval_launch as launcher
     fields = launcher.build_fields(args, command, repo, module=sys.modules[__name__])
     fields.update(split_metadata(args))  # the shared builder records the unseen split
     binding = p.seen_split_identity(repo)
-    if fields['mutable_inputs'].get('seen_split', binding) != binding:
+    explicit = fields['mutable_inputs'].get('seen_split')
+    if explicit is not None and not is_canonical_split(explicit, binding, repo):
         raise ValueError('seen_split must bind ' + p.SEEN_SPLIT)
     fields['mutable_inputs']['seen_split'] = binding
     fields['confirmatory'] = bool(fields['confirmatory']
