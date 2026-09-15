@@ -309,20 +309,45 @@ def test_a_complete_seed_is_an_admissible_arm(finetune_seed, clone, cache):
     assert (root / 'completion.json').is_file()
 
 
-@pytest.mark.parametrize('field,value', [
-    ('backbone', 'cylindrical'), ('frame', 'room'), ('seed', 1), ('expect', 'zeroshot'),
-    ('init_sha256', 'a' * 64), ('rooms', ['hallway']), ('init', 'somebody_elses_pretrain'),
-    ('heading', {room: 0 for room in ROOMS})])
-def test_a_flipped_frozen_field_refuses_the_job(finetune_seed, clone, field, value):
+@pytest.mark.parametrize('field,value,cause', [
+    ('backbone', 'cylindrical', 'backbone'), ('frame', 'room', 'frame'), ('seed', 1, 'seed'),
+    ('expect', 'zeroshot', 'expect'), ('init_sha256', 'a' * 64, 'init'),
+    ('rooms', ['hallway'], 'rooms'), ('init', 'somebody_elses_pretrain', 'init'),
+    ('heading', {room: 0 for room in ROOMS}, 'rolls')])
+def test_a_flipped_frozen_field_refuses_the_job(finetune_seed, clone, field, value, cause):
+    """Round 2b finding 3: every mutation is refused at first admission, and by name.
+
+    A job that has already published a completion would refuse a changed result merely
+    because it differs from the published bytes, so each mutation is tried against a job
+    with no completion at all and must name the field it contradicts.
+    """
     root, children, spec, joblog = finetune_seed
+    completion = Path(root) / 'completion.json'
+    if completion.exists():
+        completion.unlink()
     original = Path(spec).read_text()
     Path(spec).write_text(json.dumps(dict(json.loads(original), **{field: value})))
     try:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=cause):
             exp06_finalize.finalize(root, 'haa_job', joblog, 0, repo=clone, children=children,
                                     expect='finetune', job_spec=spec, owner_pid=os.getpid())
+        assert not completion.exists()
     finally:
         Path(spec).write_text(original)
+
+
+def test_a_child_of_another_job_spec_is_refused(finetune_seed, clone, tmp_path):
+    """The declaration each child recorded at launch is the one the job may admit."""
+    root, children, spec, joblog = finetune_seed
+    completion = Path(root) / 'completion.json'
+    if completion.exists():
+        completion.unlink()
+    other = tmp_path / 'other_job_spec.json'  # the same declaration, not the same bytes
+    other.write_text(json.dumps(json.loads(Path(spec).read_text()), sort_keys=True))
+    with pytest.raises(ValueError, match='job spec'):
+        exp06_finalize.finalize(root, 'haa_job', joblog, 0, repo=clone, children=children,
+                                expect='finetune', job_spec=str(other), owner_pid=os.getpid())
+    assert not completion.exists()
 
 
 def test_a_live_pid_in_a_child_refuses_the_job(finetune_seed, clone):

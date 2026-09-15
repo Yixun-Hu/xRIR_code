@@ -86,7 +86,8 @@ def test_shared_flag_defaults_equal_the_pinned_trainer(monkeypatch):
     assert set(pinned) <= set(mine)
     for key, value in pinned.items():
         assert type(mine[key]) is type(value) and mine[key] == value, key
-    assert set(mine) - set(pinned) == {'root', 'heading_json_dir', 'run_type'}
+    assert set(mine) - set(pinned) == {'root', 'heading_json_dir', 'run_type',
+                                      'job_spec'}
     assert mine['run_type'] == 'haa_train'
     assert sorted(action.choices for action in trainer.build_parser()._actions
                   if action.dest == 'backbone') == [sorted(trainer.BACKBONES_EXP06)]
@@ -214,7 +215,7 @@ def test_eval_shared_flag_defaults_equal_the_pinned_evaluator(monkeypatch):
     for key, value in pinned.items():
         assert type(mine[key]) is type(value) and mine[key] == value, key
     assert set(mine) - set(pinned) == {'root', 'heading_json_dir', 'seed', 'run_type',
-                                       'gl_seed_per_query'}
+                                       'gl_seed_per_query', 'job_spec'}
     assert mine['run_type'] == 'haa_eval' and mine['gl_seed_per_query'] is False
     assert mine['seed'] == 0 and mine['eval_seed'] == 0
 
@@ -352,3 +353,67 @@ def test_eval_main_refuses_before_it_reaches_the_gpu(cache, tmp_path):
     with pytest.raises(ValueError, match='heading'):
         evaluator.main(eval_argv(cache) + ['--save-dir', str(out)])
     assert not out.exists()
+
+
+# --- the pre-launch job declaration a child is bound to (round 2b finding 3) ----------
+
+JOB_INIT = 'pretrain_epoch_012'
+
+
+def job_spec_file(path, **overrides):
+    """What the pipeline writes before the first child of a seed starts."""
+    spec = {'init': JOB_INIT, 'backbone': ORIENTED, 'frame': 'heading', 'seed': 0,
+            'init_sha256': 'a' * 64, 'rooms': sorted(ROOMS), 'expect': 'finetune',
+            'heading': {room: 128 for room in ROOMS}}
+    spec.update(overrides)
+    Path(path).write_text(json.dumps(spec, sort_keys=True, indent=2) + '\n')
+    return path
+
+
+def test_a_child_records_the_job_spec_it_was_launched_under(cache, tmp_path):
+    spec = job_spec_file(tmp_path / 'job_spec.json')
+    args = trainer.build_parser().parse_args(
+        train_argv(cache, '--heading-json-dir', cache['heading'], '--job-spec', str(spec)))
+    record = trainer.prepare(args).args_record
+    assert record['job_spec'] == str(spec)
+    assert record['job_spec_sha256'] == provenance.sha256_file(spec)
+    assert record['job_init'] == JOB_INIT and record['job_init_sha256'] == 'a' * 64
+
+
+def test_an_evaluation_child_records_the_same_job_identity(cache, tmp_path):
+    from tools import exp06_haa_eval as evaluator
+    spec = job_spec_file(tmp_path / 'job_spec.json', expect='zeroshot')
+    args = evaluator.build_parser().parse_args(
+        eval_argv(cache, '--heading-json-dir', cache['heading'], '--job-spec', str(spec)))
+    record = evaluator.prepare(args).args_record
+    assert record['job_spec_sha256'] == provenance.sha256_file(spec)
+    assert record['job_init'] == JOB_INIT and record['job_init_sha256'] == 'a' * 64
+
+
+def test_a_child_launched_by_hand_records_no_job_identity(cache):
+    args = trainer.build_parser().parse_args(
+        train_argv(cache, '--heading-json-dir', cache['heading']))
+    record = trainer.prepare(args).args_record
+    assert record['job_spec'] is None and record['job_spec_sha256'] is None
+    assert record['job_init'] is None and record['job_init_sha256'] is None
+
+
+@pytest.mark.parametrize('damage', ['missing', 'not_json', 'not_a_record', 'no_init',
+                                    'empty_init', 'bad_init_sha256'])
+def test_an_unusable_job_spec_refuses_the_child(cache, tmp_path, damage):
+    """Fail-closed: a declaration that names no initialisation binds nothing."""
+    path = tmp_path / (damage + '.json')
+    if damage == 'not_json':
+        path.write_text('nonsense')
+    elif damage == 'not_a_record':
+        path.write_text('["a job spec is a record"]')
+    elif damage == 'no_init':
+        job_spec_file(path, init=None)
+    elif damage == 'empty_init':
+        job_spec_file(path, init='')
+    elif damage == 'bad_init_sha256':
+        job_spec_file(path, init_sha256='not a digest')
+    args = trainer.build_parser().parse_args(
+        train_argv(cache, '--heading-json-dir', cache['heading'], '--job-spec', str(path)))
+    with pytest.raises(ValueError, match='job spec'):
+        trainer.prepare(args)
