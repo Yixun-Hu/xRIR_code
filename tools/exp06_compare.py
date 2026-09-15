@@ -717,8 +717,13 @@ def main(argv=None):
                               + check_producer_identity(approved, identity,
                                                         args.exploratory)
                               + list(admitted['deviations']))
-    if receipt is not None:          # the approvals are revalidated with every other input
+    # Finding 2: what H3 publishes as its own evidence -- the approvals record it read
+    # and the producer closure that ran -- is revalidated with every other input.
+    if receipt is not None:
         admitted['inputs'][str(Path(receipt['path']).resolve())] = receipt['sha256']
+    for record in identity['files']:
+        admitted['inputs'][str((REPO / record['path']).resolve())] = \
+            record['working_tree_sha256']
     result = analyse(admitted, MARGIN, args.n_boot, args.exploratory)
     result['approved_digests'] = receipt
     result['producer'] = identity
