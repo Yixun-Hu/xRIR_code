@@ -1195,3 +1195,19 @@ def test_every_child_provenance_dependency_is_retained_with_its_validated_digest
         for entry in (record.get('mutable_inputs') or {}).values():
             path = subject.finalizer._resolve(entry['path'], repo)
             assert inputs[str(Path(path).resolve())] == entry['sha256']
+
+
+def test_a_dependency_that_contradicts_an_earlier_binding_is_refused(real_job, cache,
+                                                                     monkeypatch):
+    """Finding 2a: one dependency path, two digests -- a contradiction, not an update.
+
+    Green by construction since the dependencies are bound at all; it is the regression
+    for the review's "reject conflicting bindings for one path" at the dependency level.
+    """
+    root, repo = real_job
+    monkeypatch.setattr(legacy, 'HAA_ROOT', cache['root'])
+    target = Path(cache['root']) / 'hallway' / 'rirs.npy'
+    inputs = {str(target.resolve()): 'a' * 64}
+    with pytest.raises(ValueError, match='contradictory bindings'):
+        subject.verify_job(root, 'seed0', 'cyl_or', repo=repo, sensitivity=True,
+                           inputs=inputs)
