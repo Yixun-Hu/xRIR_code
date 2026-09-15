@@ -71,14 +71,6 @@ def test_a_malformed_approvals_file_is_refused(tmp_path, template, damage):
         profiles.load_approved_digests(path)
 
 
-def test_the_record_copy_is_byte_identical_when_it_is_present():
-    """The committed record asset and the worktree copy the tools read must agree."""
-    if not profiles.APPROVED_DIGESTS_PATH.is_file():
-        pytest.skip('the record asset lives in the main tree, not on this branch')
-    assert (profiles.APPROVED_DIGESTS_PATH.read_bytes()
-            == profiles.TEMPLATE_PATH.read_bytes())
-
-
 @pytest.fixture(scope='module')
 def computed():
     notes = []
@@ -195,3 +187,66 @@ def test_binding_needs_both_a_repository_and_a_commit(committed):
     for repo, commit in ((root, None), (None, head)):
         with pytest.raises(ValueError, match='repository and the commit'):
             profiles.load_approved_digests(path, repo=repo, commit=commit)
+
+
+@pytest.fixture(scope='module')
+def record():
+    """The populated record copy: the approvals a confirmatory run is admitted against."""
+    if not profiles.APPROVED_DIGESTS_PATH.is_file():
+        pytest.skip('the record asset lives in the main tree, not on this branch')
+    return profiles.load_approved_digests(profiles.APPROVED_DIGESTS_PATH)
+
+
+def tracked_at(commit, relative):
+    """Whether that commit's tree carries the path; False when git cannot answer at all."""
+    try:
+        return subprocess.run(['git', 'cat-file', '-e', '{}:{}'.format(commit, relative)],
+                              cwd=REPO, capture_output=True).returncode == 0
+    except OSError:
+        return False
+
+
+def test_the_record_copy_is_schema_valid_and_keyed_like_the_template(record, template):
+    """Plan section 6.4 fills `code` in a second reviewed commit, so the record copy is no
+    longer the null template the tools ship; what must still hold is its schema and its
+    key sets -- an approval the template does not name is one no producer ever reads."""
+    approved, identity = record
+    raw = profiles.APPROVED_DIGESTS_PATH.read_bytes()
+    assert profiles.json_value(approved) == json.loads(raw)
+    assert identity['path'] == str(profiles.APPROVED_DIGESTS_PATH)
+    assert identity['sha256'] == hashlib.sha256(raw).hexdigest()
+    template_value = template[0]
+    assert approved['schema_version'] == template_value['schema_version']
+    assert set(approved) == set(template_value)
+    for section in ('code', 'reused', 'artifacts'):
+        assert set(approved[section]) == set(template_value[section])
+    for name in profiles.NESTED:
+        section, key = name.split('.')
+        assert set(approved[section][key]) == set(template_value[section][key])
+
+
+def test_the_record_copy_binds_to_the_bytes_committed_at_head(record):
+    """Finding 2's binding on the real asset: the approvals a run cites are a reviewed
+    commit's bytes, not a working-tree edit made after the review."""
+    if not tracked_at(HEAD, profiles.APPROVED_RELATIVE):
+        pytest.skip('the record copy is not tracked at HEAD in this checkout')
+    bound, identity = profiles.load_approved_digests(profiles.APPROVED_DIGESTS_PATH,
+                                                     repo=REPO, commit=HEAD)
+    assert identity['repo_relative'] == profiles.APPROVED_RELATIVE
+    assert identity['committed_at'] == HEAD
+    assert identity['sha256'] == record[1]['sha256']
+    assert profiles.json_value(bound) == profiles.json_value(record[0])
+
+
+def test_every_filled_record_digest_is_the_one_this_checkout_computes(record, computed):
+    """A filled key must equal what is here now, and a key this checkout cannot compute --
+    a later round's module, absent rather than named in any list kept here -- must be null.
+    The null `reused` and `artifacts` sections are filled after the runs and stay null."""
+    approved, _ = record
+    digests, _ = computed
+    filled = {key: value for key, value in approved['code'].items() if value is not None}
+    assert filled, 'the record copy carries no approved code digest at all'
+    assert {key: digests.get(key) for key in filled} == filled
+    assert set(profiles.TRAINING_KEYS) <= set(filled)
+    assert profiles.require(approved, profiles.TRAINING_KEYS, repo=REPO, commit=HEAD,
+                            current=digests) == []
