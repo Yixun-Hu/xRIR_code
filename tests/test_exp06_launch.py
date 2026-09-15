@@ -526,3 +526,78 @@ def test_a_passing_diagnostic_leaves_the_launcher_running(tmp_path):
     assert 'LAUNCHER_CONTINUED' in completed.stdout
     assert run.is_dir() and log.is_file()
     assert log.read_text().splitlines()[-1].startswith('EXP06_CHILD_EXIT 0 ')
+
+
+class _CudaReached(BaseException):
+    """Raised where the real startup would need a GPU; nothing past it is CPU-testable."""
+
+
+class _StubDataset:
+    """The dataset the registered smokes would build, without touching the mirror."""
+
+    def __init__(self, split=None, max_len=None, num_shot=None, **kwargs):
+        self.split, self.file_list = split, []
+
+    def __len__(self):
+        return 8
+
+    def __getitem__(self, index):
+        raise AssertionError('a startup regression reads no sample')
+
+
+@pytest.fixture
+def cpu_startup(monkeypatch):
+    """Run a child's real startup path up to the first line that needs a GPU."""
+    import train_xRIR_backbone as trainer
+    from tools import exp06_train
+
+    def build(args):
+        raise _CudaReached(args.backbone)
+
+    monkeypatch.setattr(exp06_train, 'xRIR_Dataset', _StubDataset)
+    monkeypatch.setattr(trainer, 'xRIR_Dataset', _StubDataset)
+    monkeypatch.setattr(exp06_train, 'build_model_exp06', build)
+    monkeypatch.setattr(trainer, 'build_model', build)
+
+
+def printed_children(lines):
+    """The (entry, child argv) pairs the launcher prints for its diagnostic rungs."""
+    children = []
+    for line in lines:
+        if line.startswith('RUN nohup setsid ') and 'exp06_smoke.py' in line:
+            tokens = line[len('RUN nohup setsid '):].split()
+            children.append((tokens[tokens.index('--entry') + 1],
+                             tokens[tokens.index('--') + 1:]))
+    return children
+
+
+@pytest.mark.parametrize('mode', ['smoke', 'probe'])
+def test_the_printed_diagnostic_commands_reach_the_real_entry(mode, cpu_startup):
+    """Finding 1: the child argv the launcher prints must start the entry it names.
+
+    The review reproduced a ValueError before any dataset or CUDA use, because the
+    wrapper's --run-type and --approved never reached the exp_06 trainer's parser.
+    """
+    import importlib
+
+    from tools import exp06_smoke
+
+    children = printed_children(dry_run(mode))
+    assert children, mode
+    for entry, argv in children:
+        module = importlib.import_module(exp06_smoke.ENTRIES[entry])
+        with pytest.raises(_CudaReached):
+            exp06_smoke._invoke(module, entry, argv)
+
+
+def test_a_full_child_without_its_approvals_is_still_refused(cpu_startup):
+    """Finding 1: relaxing the diagnostic admission must not relax the confirmatory one."""
+    from tools import exp06_train
+
+    argv = TRAIN_ARGV.split()[2:]
+    assert '--approved' in argv and '--run-type' in argv
+    stripped = argv[: argv.index('--approved')] + argv[argv.index('--approved') + 2:]
+    with pytest.raises(ValueError, match='approv'):
+        exp06_train.main(stripped)
+    with pytest.raises(_CudaReached):
+        exp06_train.main(argv)
