@@ -302,6 +302,24 @@ def job_completion(job_dir, expect, arm):
     return record
 
 
+def job_owner(job_dir, record):
+    """Finding 6: amendment A3 binds the launcher that owned the job, so the job root's
+    own ``launch.pid`` is read and required to be the ``owner_pid`` the completion
+    recorded. Liveness is deliberately not checked: a retrospective analysis runs long
+    after the launcher exited and a reused pid would prove nothing either way.
+    """
+    path = Path(job_dir) / 'launch.pid'
+    _require(path.is_file(), 'job {} has no launch.pid: amendment A3 binds the launcher '
+             'that owned it'.format(job_dir))
+    try:
+        pid = int(path.read_text().split()[0])
+    except (IndexError, ValueError) as error:
+        raise ValueError('job {} has an unreadable launch.pid: {}'.format(job_dir, error))
+    _require(pid == record['owner_pid'], 'job {} holds launch.pid {}, not the owner_pid {} '
+             'its completion bound'.format(job_dir, pid, record['owner_pid']))
+    return {'path': str(path.resolve()), 'pid': pid, 'sha256': provenance.sha256_file(path)}
+
+
 def _heading_rolls(heading, label):
     """Every bound room rolls by the registered column and names the JSON it came from."""
     _require(isinstance(heading, dict) and heading, '{} binds no heading'.format(label))
@@ -426,6 +444,7 @@ def verify_job(job_dir, job, arm, repo=REPO):
     """
     job_dir, expect = Path(job_dir), EXPECT_OF[job]
     record = job_completion(job_dir, expect, arm)
+    owner = job_owner(job_dir, record)
     spec_path = Path(record['job_spec']['path'])
     _require(spec_path.is_file(), 'missing job spec {}'.format(spec_path))
     _require(provenance.sha256_file(spec_path) == record['job_spec']['sha256'],
@@ -462,7 +481,8 @@ def verify_job(job_dir, job, arm, repo=REPO):
     _require(set(rooms) == set(ROOMS),
              'the job {} evaluated {}'.format(job_dir, sorted(rooms)))
     return {'record': record, 'spec': spec, 'children': children, 'per': rooms,
-            'closure': arm_closures(children), 'heading': arm_headings(children)}
+            'owner': owner, 'closure': arm_closures(children),
+            'heading': arm_headings(children)}
 
 
 def load_new_arm(root, arm, init_sha256=None, repo=REPO, approved=None):
@@ -481,6 +501,7 @@ def load_new_arm(root, arm, init_sha256=None, repo=REPO, approved=None):
         _require(job not in SEEDS or record['seed'] == int(job[len('seed'):]),
                  'the arm {} job {} records seed {!r}'.format(arm, job, record['seed']))
         jobs[job], records[job] = verified['per'], record
+        inputs[verified['owner']['path']] = verified['owner']['sha256']
         completion = job_dir / 'completion.json'
         inputs[str(completion.resolve())] = provenance.sha256_file(completion)
         inputs[str(Path(record['job_spec']['path']).resolve())] = record['job_spec']['sha256']
