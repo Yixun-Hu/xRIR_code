@@ -829,8 +829,10 @@ def haa_metrics(run_dir, name, room, args, per_sample):
         if key == 't60_error_pct' and room in NO_T60_ROOMS:
             _require(metrics[key] is None, '{}: {} is recorded for a room the paper omits'.format(
                 name, key))
-            _require(not finite, '{} records {} measurements in a room whose T60 the writer '
-                     'never measures'.format(label, len(finite)))
+            measured = [value for value in per_sample[field] if not math.isnan(value)]
+            _require(not measured, '{} records the t60 values {} in a room whose T60 the writer '
+                     'never measures: every observation is its NaN'.format(
+                         label, sorted(map(repr, measured))[:4]))
             _require(metrics[counter] == 0, '{} records {} {}, but nothing measures T60 in '
                      '{}'.format(name, counter, metrics[counter], room))
             continue
