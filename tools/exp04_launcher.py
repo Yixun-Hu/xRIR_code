@@ -942,7 +942,7 @@ def main(argv=None):
     parser.add_argument('--allow-dirty', action='store_true')
     parser.add_argument('--projection-hours', type=float, default=30.0)
     parser.add_argument('--probe-json', help='full requires a clean passing probe receipt')
-    parser.add_argument('--renew-ceiling', help='S/L full only: notebook timestamp: reason')
+    parser.add_argument('--renew-ceiling', help='S|L or seen full only: notebook timestamp: reason')
     args = parser.parse_args(argv)
     tiered, seen = args.tier != 'M', args.protocol == 'seen'
     if args.renew_ceiling is not None and (not (tiered or seen) or args.mode != 'full'):
