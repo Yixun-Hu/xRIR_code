@@ -269,6 +269,56 @@ def an_hours_ledger_without_this_full_attempt(built):
     return 'training hours ledger'
 
 
+def retimed(built, role, **changes):
+    manifest = built.read(built.attempts[role] / 'train_manifest.json')
+    manifest['timing_limits'].update(**changes)
+    rebind_training(built, role, manifest=manifest)
+
+
+def rereceipted(built, role, **changes):
+    """Rewrite the arm's probe receipt and the limits the launcher derives from it."""
+    attempt = built.attempts[role]
+    receipt = dict(built.read(attempt.parent / 'probe_receipt.json'), **changes)
+    digest = built.replace(attempt.parent / 'probe_receipt.json', receipt)
+    manifest = built.read(attempt / 'train_manifest.json')
+    manifest['mutable_inputs']['probe_receipt']['sha256'] = digest
+    manifest['timing_limits'].update(probe_receipt_sha256=digest, epoch_seconds=1.05 * receipt['T_epoch'],
+        projection_hours=receipt['T_run'] / 3600, ceiling_hours=1.5 * receipt['T_run'] / 3600)
+    rebind_training(built, role, manifest=manifest)
+
+
+def a_projection_that_disagrees_with_the_receipt(built):
+    retimed(built, 'seen_cyl', projection_hours=1000.)
+    return 'training projection hours'
+
+
+def a_projection_above_the_sixty_hour_budget_rule(built):
+    rereceipted(built, 'seen_aug', T_run=61 * 3600.)
+    return 'training projection hours'
+
+
+def a_ceiling_that_is_not_one_and_a_half_projections(built):
+    retimed(built, 'seen_simple', ceiling_hours=60.)
+    return 'training ceiling hours'
+
+
+def a_limit_derived_from_another_receipt(built):
+    retimed(built, 'seen_cyl', probe_receipt_sha256='f' * 64)
+    return 'probe receipt identity'
+
+
+def a_probe_receipt_for_another_backbone(built):
+    rereceipted(built, 'seen_simple', backbone='cylindrical')
+    return 'probe receipt backbone'
+
+
+def a_missing_probe_receipt_binding(built):
+    manifest = built.read(built.attempts['seen_aug'] / 'train_manifest.json')
+    manifest['mutable_inputs'].pop('probe_receipt')
+    rebind_training(built, 'seen_aug', manifest=manifest)
+    return 'probe receipt binding'
+
+
 def a_training_closure_that_is_not_the_pin(built):
     built.pins['closures']['training'] = 'f' * 64
     return 'training closure'
@@ -337,6 +387,9 @@ REFUSALS = [an_evaluated_split_that_is_not_seen, an_output_meta_from_another_spl
             an_inventory_sidecar_outside_the_attempt, an_inventory_sidecar_rewritten_after_the_run,
             an_inventory_count_that_is_not_the_seen_training_split,
             a_substituted_training_inventory_digest, an_hours_ledger_without_this_full_attempt,
+            a_projection_that_disagrees_with_the_receipt, a_missing_probe_receipt_binding,
+            a_projection_above_the_sixty_hour_budget_rule, a_limit_derived_from_another_receipt,
+            a_ceiling_that_is_not_one_and_a_half_projections, a_probe_receipt_for_another_backbone,
             a_launcher_outside_the_approved_list, an_args_file_with_another_epoch_budget,
             an_args_file_with_the_wrong_yaw_flag, an_args_file_with_the_unseen_batch_count,
             an_args_file_from_another_capacity_tier,
@@ -358,7 +411,8 @@ def test_the_validated_training_evidence_is_bound_into_the_producer_inputs(built
     _, admitted = admit(built)
     for role in ('seen_simple', 'seen_cyl', 'seen_aug'):
         attempt = built.attempts[role]
-        for path in (attempt / 'train_inventory.json', attempt.parent / 'cumulative_hours.json'):
+        for path in (attempt / 'train_inventory.json', attempt.parent / 'cumulative_hours.json',
+                     attempt.parent / 'probe_receipt.json'):
             assert admitted['inputs'][str(path)] == p.sha256_file(path)
 
 

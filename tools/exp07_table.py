@@ -128,6 +128,26 @@ def run_contract(directory, arm, profile, pins, cache=None):
     ledger = read(attempt.parent / 'cumulative_hours.json')
     require(any(_equal(row.get('attempt'), attempt.name) and _equal(row.get('mode'), 'full')
                 for row in ledger.get('attempts', ())), 'training hours ledger')
+    limits = manifest.get('timing_limits') or {}
+    bound = manifest.get('mutable_inputs', {}).get('probe_receipt') or {}
+    receipt_path = (root / bound.get('path', 'absent')).resolve()
+    require(receipt_path.is_file(), 'probe receipt binding')
+    receipt = read(receipt_path)
+    require(inputs[str(receipt_path)] == bound.get('sha256') and
+            limits.get('probe_receipt_sha256') == bound.get('sha256'), 'probe receipt identity')
+    # The launcher derives all three limits from this receipt (tools.exp05_gates.timing_limits).
+    seconds = receipt.get('T_run')
+    require(type(seconds) is float and 0 < seconds / 3600 <= profile['projection_max_hours'] and
+            _equal(limits.get('projection_hours'), seconds / 3600), 'training projection hours')
+    require(_equal(limits.get('ceiling_hours'), profile['ceiling_factor'] * seconds / 3600),
+            'training ceiling hours')
+    epoch_seconds = receipt.get('T_epoch')
+    require(type(epoch_seconds) is float and
+            _equal(limits.get('epoch_seconds'), 1.05 * epoch_seconds), 'training epoch acceptance')
+    for key, value in (('tier', profile['tier']), ('backbone', arm['backbone']),
+                       ('protocol', 'seen'), ('yaw_aug', arm['yaw_aug']),
+                       ('passed', True), ('PROBE_NOT_CLEAN', False)):
+        require(_equal(receipt.get(key), value), 'probe receipt ' + key)
     recorded = {}
     for name in ('training', 'launcher'):
         # A7: the approval pins the REVIEWED source identity, so recompute it here from the
