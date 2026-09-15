@@ -5,6 +5,8 @@
 #   tools/exp06_launch.sh finalize --gpu 1 --reviewed-commit <sha> \
 #       --attempt <dir> --log <child.log> --child-exit <code>
 # --dry-run prints every command and path (timestamps as <UTC>) and executes nothing.
+# EXP06_LAUNCH_LIB=1 source tools/exp06_launch.sh defines the functions and returns, so the
+# child lifecycle (run_child / close_child) is exercised by tests without a mode.
 set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 export PYTHONPATH="$PWD"
@@ -18,6 +20,49 @@ usage() {
     echo "       [--attempt-root <dir>] [--attempt <dir> --log <path> --child-exit <n>] [--dry-run]" >&2
     exit 2
 }
+
+say() { printf '%s\n' "$*"; }
+run() { say "RUN $*"; if [ "${DRY:-0}" -eq 0 ]; then "$@"; fi; }
+
+preflight() {
+    run "$PYTHON" tools/exp06_finalize.py preflight --mode "$MODE" --gpu "$GPU" \
+        --reviewed-commit "$COMMIT" --attempt-root "$ATTEMPT_ROOT"
+}
+
+finalize() {  # finalize <attempt> <log> <child-exit> <run-type>
+    run "$PYTHON" tools/exp06_finalize.py --run-dir "$1" --run-type "$4" --log "$2" --child-exit "$3"
+}
+
+# run_child <attempt> <log> <command...>: every byte the child or any descendant writes
+# goes through one pipe whose sink appends to the log. Waiting for the sink waits for EOF,
+# which arrives only after every process holding the write end has exited -- so nothing can
+# append after the end marker. Sets CHILD_PID and CHILD_STATUS.
+run_child() {
+    local attempt="$1" log="$2" pipe sink pid status=0
+    shift 2
+    pipe="$attempt/child.pipe"
+    rm -f -- "$pipe"
+    mkfifo -m 600 -- "$pipe"
+    cat >> "$log" < "$pipe" &
+    sink=$!
+    nohup setsid "$@" > "$pipe" 2>&1 &
+    pid=$!
+    printf '%s\n' "$pid" > "$attempt/launch.pid"
+    wait "$pid" || status=$?
+    wait "$sink" || true   # EOF: the child and every descendant have closed the write end
+    rm -f -- "$pipe"
+    CHILD_PID="$pid"
+    CHILD_STATUS="$status"
+}
+
+# close_child <attempt> <log>: append the end marker and bind exactly those bytes.
+close_child() {
+    say "MARKER EXP06_CHILD_EXIT $CHILD_STATUS <iso> >> $2"
+    "$PYTHON" tools/exp06_finalize.py child-exit --run-dir "$1" --log "$2" \
+        --child-pid "$CHILD_PID" --status "$CHILD_STATUS"
+}
+
+if [ "${EXP06_LAUNCH_LIB:-0}" = 1 ]; then return 0; fi
 
 MODE="${1:-}"
 shift || true
@@ -40,17 +85,6 @@ done
 [ "$MODE" != finalize ] || { [ -n "$ATTEMPT" ] && [ -n "$LOG" ] && [ -n "$CHILD_EXIT" ]; } || usage
 
 if [ "$DRY" -eq 1 ]; then STAMP='<UTC>'; else STAMP="$(date -u +%Y%m%dT%H%M%S)"; fi
-say() { printf '%s\n' "$*"; }
-run() { say "RUN $*"; if [ "$DRY" -eq 0 ]; then "$@"; fi; }
-
-preflight() {
-    run "$PYTHON" tools/exp06_finalize.py preflight --mode "$MODE" --gpu "$GPU" \
-        --reviewed-commit "$COMMIT" --attempt-root "$ATTEMPT_ROOT"
-}
-
-finalize() {  # finalize <attempt> <log> <child-exit> <run-type>
-    run "$PYTHON" tools/exp06_finalize.py --run-dir "$1" --run-type "$4" --log "$2" --child-exit "$3"
-}
 
 say "EXP06_LAUNCH mode=$MODE gpu=$GPU commit=$COMMIT root=$ATTEMPT_ROOT stamp=$STAMP dry_run=$DRY"
 say "ENV CUDA_VISIBLE_DEVICES=$GPU PYTHONHASHSEED=0 OMP_NUM_THREADS=8"
@@ -61,7 +95,7 @@ full)
     attempt="$ATTEMPT_ROOT/attempt_$STAMP"
     log="$RECORD/oriented_cyl_${STAMP}_train_full.log"
     say "MKDIR $attempt"
-    say "TEE $log"
+    say "SINK cat >> $log"
     say "PIDFILE $attempt/launch.pid"
     child=("$PYTHON" tools/exp06_train.py --backbone cylindrical_oriented --save-dir "$attempt"
            --num-shot 8 --max-len 9600 --lr 1e-3 --weight-decay 1e-4 --decay-epochs 3
@@ -79,14 +113,11 @@ full)
     mkdir -p -- "$ATTEMPT_ROOT"
     mkdir -- "$attempt"  # exclusive: a repeated stamp must not reuse an attempt
     mkdir -p -- "$RECORD"
-    status=0
-    CUDA_VISIBLE_DEVICES="$GPU" PYTHONHASHSEED=0 OMP_NUM_THREADS=8 \
-        nohup setsid "${child[@]}" > "$log" 2>&1 &
-    pid=$!
-    printf '%s\n' "$pid" > "$attempt/launch.pid"
-    tail -f --pid="$pid" "$log" &  # live view only; the child owns the file
-    wait "$pid" || status=$?
-    printf 'EXP06_CHILD_EXIT %s %s\n' "$status" "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" >> "$log"
+    : > "$log"
+    export CUDA_VISIBLE_DEVICES="$GPU" PYTHONHASHSEED=0 OMP_NUM_THREADS=8
+    run_child "$attempt" "$log" "${child[@]}"
+    close_child "$attempt" "$log"
+    status="$CHILD_STATUS"
     if [ "$status" -ne 0 ]; then
         aborted="${attempt}_ABORTED_child_exit_$status"
         say "ABORT $aborted"

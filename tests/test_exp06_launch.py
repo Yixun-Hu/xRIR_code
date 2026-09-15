@@ -1,4 +1,5 @@
 """Launch preflight and the dry-run argv of tools/exp06_launch.sh."""
+import hashlib
 import json
 import os
 import subprocess
@@ -138,8 +139,9 @@ def test_full_dry_run_matches_the_plan_argv():
     assert 'ENV CUDA_VISIBLE_DEVICES=1 PYTHONHASHSEED=0 OMP_NUM_THREADS=8' in lines
     assert 'RUN nohup setsid ' + TRAIN_ARGV in lines
     log = 'worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_<UTC>_train_full.log'
-    assert 'TEE ' + log in lines and 'PIDFILE ' + ATTEMPT + '/launch.pid' in lines
+    assert 'SINK cat >> ' + log in lines and 'PIDFILE ' + ATTEMPT + '/launch.pid' in lines
     assert 'MARKER EXP06_CHILD_EXIT <code> <iso> >> ' + log in lines
+    assert all('tail -f' not in line for line in lines), 'no second reader of the log'
     assert ('RUN ' + PYTHON + ' tools/exp06_finalize.py --run-dir ' + ATTEMPT
             + ' --run-type full --log ' + log + ' --child-exit <code>') in lines
     assert 'PROMOTE ' + ROOT + '/final -> attempt_<UTC>' in lines
@@ -184,3 +186,53 @@ def test_finalize_mode_and_usage_errors():
                   '--reviewed-commit', COMMIT, '--nonsense']):
         completed = subprocess.run(['bash', LAUNCHER] + extra, cwd=REPO, capture_output=True, text=True)
         assert completed.returncode == 2, completed.stdout
+
+
+HARNESS = ('set -euo pipefail\n'
+           'export EXP06_LAUNCH_LIB=1\n'
+           'source tools/exp06_launch.sh\n'
+           'run_child {attempt} {log} {child}\n'
+           'close_child {attempt} {log}\n'
+           'echo "HARNESS_STATUS $CHILD_STATUS $CHILD_PID"\n')
+
+
+def run_harness(tmp_path, script, child_args=''):
+    """Drive the launcher's child lifecycle directly, without a mode or a preflight."""
+    attempt = tmp_path / 'attempt'
+    attempt.mkdir()
+    log = tmp_path / 'child.log'
+    log.write_text('')
+    stub = tmp_path / 'stub.sh'
+    stub.write_text(script)
+    stub.chmod(0o755)
+    completed = subprocess.run(
+        ['bash', '-c', HARNESS.format(attempt=attempt, log=log,
+                                      child=str(stub) + (' ' + child_args if child_args else ''))],
+        cwd=REPO, capture_output=True, text=True, env={**os.environ, 'PYTHONPATH': str(REPO)})
+    return attempt, log, completed
+
+
+def test_a_surviving_descendant_cannot_write_past_the_end_marker(tmp_path):
+    """Blocker 4: the sink reaches EOF only when every holder of the pipe has exited."""
+    attempt, log, completed = run_harness(tmp_path, '#!/usr/bin/env bash\n'
+                                          'echo early\n( sleep 2; echo late ) &\nexit 0\n')
+    assert completed.returncode == 0, completed.stderr
+    lines = log.read_text().splitlines()
+    assert 'late' in lines, 'the descendant output was lost: ' + repr(lines)
+    assert lines[-1].startswith('EXP06_CHILD_EXIT 0 '), lines
+    assert lines.index('late') < len(lines) - 1
+    receipt = json.loads((attempt / 'child_exit.json').read_text())
+    assert receipt['status'] == 0 and receipt['ended_at'] == lines[-1].split()[2]
+    assert receipt['log_sha256_after_marker'] == hashlib.sha256(log.read_bytes()).hexdigest()
+    assert (attempt / 'launch.pid').read_text().strip() == str(receipt['child_pid'])
+    assert not (attempt / 'child.pipe').exists()
+
+
+def test_a_failing_child_reports_its_status_through_the_lifecycle(tmp_path):
+    attempt, log, completed = run_harness(tmp_path,
+                                          '#!/usr/bin/env bash\necho boom >&2\nexit 7\n')
+    assert completed.returncode == 0, completed.stderr
+    assert 'HARNESS_STATUS 7 ' in completed.stdout
+    lines = log.read_text().splitlines()
+    assert lines[0] == 'boom' and lines[-1].startswith('EXP06_CHILD_EXIT 7 ')
+    assert json.loads((attempt / 'child_exit.json').read_text())['status'] == 7
