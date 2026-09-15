@@ -16,6 +16,7 @@ from tools import provenance as prov
 from tools.exp07_manifests import manifest_name
 from tools.paired_compare import _digest
 from tools.reference_manifest import load_manifest
+from exp07_fixture import exp07_fixture  # noqa: F401  (fixture)
 from test_exp04_profiles import approval_repo
 
 ROOT = profiles.REPO
@@ -246,11 +247,61 @@ def test_the_new_arm_checkpoint_digests_come_from_the_runtime_approval(role, bac
     run is matched, so a trained arm is pinned by the approval file and by nothing else.
     """
     arm = next(item for item in profiles.ARMS if item['role'] == role)
-    path = ROOT / arm['checkpoint']
-    if arm['sha256'] is None:
-        assert not path.exists() or prov.sha256_file(path)  # the approval pins it
-    else:
-        assert path.exists() and arm['sha256'] == prov.sha256_file(path)
+    assert arm['sha256'] is None and arm['epoch'] == 12
+    assert arm['checkpoint'] == 'ckpt/exp07/{}/final/epoch_012.pth'.format(role)
+    if (ROOT / arm['checkpoint']).exists():  # the pin, not the file, decides admission
+        assert profiles.load_approved_digests()[0]['checkpoints'][role]['sha256'] is not None
+
+
+@pytest.fixture
+def approved_runs(tmp_path, exp07_fixture, template):  # noqa: F811
+    """An isolated run layout whose runtime approval pins the real checkpoint bytes."""
+    built = exp07_fixture()
+    value = filled(template)
+    for role, arm in value['checkpoints'].items():
+        checkpoint = built.attempts[role] / 'epoch_012.pth'
+        arm.update(path=next(a['checkpoint'] for a in profiles.ARMS if a['role'] == role),
+                   epoch=12, sha256=prov.sha256_file(checkpoint))
+    pins, receipt = profiles.load_approved_digests(approval_repo(tmp_path, value))
+    isolated = profiles.json_value(pins)['checkpoints']
+    # The fixture's own pins carry the same digests but the fixture's paths; admission
+    # reads the arm's checkpoint path from the profile, so keep the fixture's paths.
+    for role in built.pins['checkpoints']:
+        assert isolated[role]['sha256'] == built.pins['checkpoints'][role]['sha256']
+    return built
+
+
+@pytest.mark.parametrize('role', [role for role, _, _ in NEW_ARMS] + ['released_seen'])
+def test_admission_compares_the_checkpoint_bytes_with_the_runtime_pin(approved_runs, role):
+    """A substituted checkpoint is refused even though every recorded digest still agrees."""
+    from tools import exp07_table as table
+    built = approved_runs
+    _, admitted = table.admit(built.directories, built.profile, built.approved,
+                              producer=built.producer)
+    checkpoint = Path(next(arm['checkpoint'] for arm in built.profile['arms']
+                           if arm['role'] == role))
+    assert admitted['inputs'][str(checkpoint.resolve())] == prov.sha256_file(checkpoint)
+    checkpoint.write_bytes(b'a substituted checkpoint')
+    with pytest.raises(ValueError, match='admission failed'):
+        table.admit(built.directories, built.profile, built.approved, producer=built.producer)
+    _, listed = table.admit(built.directories, built.profile, built.approved,
+                            producer=built.producer, exploratory=True)
+    assert any('checkpoint bytes' in item for item in listed['deviations']), listed['deviations']
+
+
+def test_admission_requires_the_completion_to_certify_the_pinned_checkpoint(approved_runs):
+    from tools import exp07_table as table
+    built = approved_runs
+    table.admit(built.directories, built.profile, built.approved, producer=built.producer)
+    attempt = built.attempts['seen_cyl']
+    completion = json.loads((attempt / 'completion.json').read_text())
+    completion['outputs']['epoch_012.pth'] = 'f' * 64
+    (attempt / 'completion.json').write_text(json.dumps(completion))
+    with pytest.raises(ValueError, match='admission failed'):
+        table.admit(built.directories, built.profile, built.approved, producer=built.producer)
+    _, listed = table.admit(built.directories, built.profile, built.approved,
+                            producer=built.producer, exploratory=True)
+    assert any('train_completion' in item for item in listed['deviations']), listed['deviations']
 
 
 def test_the_evaluation_inventory_pin_is_the_manifests_data_identity():

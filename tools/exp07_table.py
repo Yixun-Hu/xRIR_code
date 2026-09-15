@@ -35,6 +35,25 @@ BINDING_FILES = {'train_args': 'args.json', 'train_manifest': 'train_manifest.js
 CHECKPOINT_NAME = 'epoch_012.pth'
 
 
+def checkpoint_bytes(root, fields, pinned, cache, inputs, require):
+    """Hash the evaluated checkpoint itself when it is present and pin its bytes.
+
+    ``fields['checkpoint_sha256']`` is what the launcher recorded; this compares the file
+    that is on disk NOW with the runtime approval, so a substituted checkpoint is refused
+    even though the manifest still quotes the approved digest.  The digest joins
+    ``inputs``, so :func:`tools.exp07_record.write_outputs` rechecks it before publishing.
+    Absent checkpoints (an archived run) are left to the manifest's recorded digest.
+    """
+    path = (root / fields['checkpoint']).resolve()
+    if not path.is_file():
+        return
+    key = 'checkpoint:' + str(path)
+    if cache.get(key) is None:
+        cache[key] = provenance.sha256_file(path)
+    inputs[str(path)] = cache[key]
+    require(cache[key] == pinned, 'approved checkpoint bytes')
+
+
 def run_contract(directory, arm, profile, pins, cache=None):
     """Validate the exp_07 additions; raise on the first named failure.
 
@@ -79,14 +98,17 @@ def run_contract(directory, arm, profile, pins, cache=None):
         require(Path(fields['mutable_inputs'][name]['path']).name == BINDING_FILES[name],
                 name + ' binding filename')
     waivers = [str(directory) + ': mutable_inputs names']
+    root = Path(fields['repo'])
     if arm['reference']:  # external checkpoint, exempt from TRAINING provenance only
         require(not names & set(TRAINING_BINDINGS), 'released row has no training provenance')
+        require(arm['sha256'] == fields['checkpoint_sha256'], 'released checkpoint digest')
+        checkpoint_bytes(root, fields, arm['sha256'], cache, inputs, require)
         return dict(role=arm['role'], reference=True, training=None, waivers=waivers, inputs=inputs)
     approved = pins['checkpoints'][arm['role']]
     require(approved['path'] == arm['checkpoint'] and _equal(approved['epoch'], arm['epoch']) and
             _equal(approved['epoch'], 12), 'approved checkpoint path/epoch')
     require(approved['sha256'] == fields['checkpoint_sha256'], 'approved checkpoint digest')
-    root = Path(fields['repo'])
+    checkpoint_bytes(root, fields, approved['sha256'], cache, inputs, require)
     attempt = (root / fields['checkpoint']).resolve().parent
     training = {}
     for name in TRAINING_BINDINGS:
