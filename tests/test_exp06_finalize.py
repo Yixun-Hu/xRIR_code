@@ -1788,3 +1788,29 @@ def test_nested_job_schema_failures_are_named_cli_refusals(job_run, closed_log_f
                                   '--children'] + children)
     assert status == 2 and cause in capsys.readouterr().err
     assert not (job / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('child,damage', [
+    ('stage1', 'extra_null'), ('eval/hallway', 'extra_null'), ('stage1', 'extra_hash'),
+    ('stage1', 'null_for_hash'), ('eval/hallway', 'missing_key')])
+def test_a_child_artifact_map_must_equal_the_re_run_key_for_key(job_run, closed_log_file,
+                                                                child, damage):
+    """Close-3 finding 1: an absent key and a recorded null are not the same evidence."""
+    def mutate(job, names):
+        record = json.loads((job / child / 'completion.json').read_text())
+        if damage == 'extra_null':  # the file does not exist, so the re-run hashed nothing
+            record['artifacts']['nonexistent.pth'] = None
+        elif damage == 'extra_hash':
+            record['artifacts']['nonexistent.pth'] = 'a' * 64
+        elif damage == 'null_for_hash':
+            record['artifacts']['last.pth'] = None
+        else:
+            record['artifacts'].pop('args.json')
+        (job / child / 'completion.json').write_text(json.dumps(record, sort_keys=True, indent=2))
+        return names
+
+    job, children, spec, repo = job_run(mutate=mutate)
+    with pytest.raises(ValueError, match='artefact'):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                children=children, expect='finetune', job_spec=spec)
+    assert not (job / 'completion.json').exists()
