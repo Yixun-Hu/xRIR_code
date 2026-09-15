@@ -200,5 +200,5 @@ def test_a_tampered_receipt_or_a_changed_artifact_is_refused(legacy_root, tmp_pa
 
 def test_a_receipt_of_an_incomplete_arm_is_never_written(legacy_root, tmp_path):
     (Path(legacy_root) / 'cyl/seed2/eval/metrics_hallway.json').unlink()
-    with pytest.raises(ValueError, match='has no seed2/eval/metrics_hallway.json'):
+    with pytest.raises(ValueError, match='cyl has no cyl/seed2/eval/metrics_hallway'):
         subject.write_legacy_receipt(tmp_path / 'r.json', legacy_root, strict=False)
