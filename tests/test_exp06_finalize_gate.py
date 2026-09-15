@@ -183,3 +183,80 @@ def test_an_incomplete_geometry_inventory_is_refused(full_run, clone, data_root,
     with pytest.raises(ValueError, match='geometry'):
         exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
     assert not (run / 'completion.json').exists()
+
+
+from test_exp06_finalize import diagnostic_run  # noqa: E402,F401
+
+DIAGNOSTIC_FIELDS = ('runner', 'runner_closure_sha256', 'entry', 'argv', 'run_type',
+                     'started_at', 'ended_at', 'wall_s', 'peak_bytes', 'alarm_seconds',
+                     'max_gb', 'outcome', 'exit_status', 'exploratory', 'git_head')
+
+
+def test_a_diagnostic_completion_records_its_budgets_and_peak(tmp_path, clone, approvals):
+    """Finding 6: timing and memory evidence, not a bare exit status."""
+    run = tmp_path / 'probe'
+    log = seal(run, tmp_path / 'probe.log')
+    _, receipt = diagnostic_run(run, 'probe', clone, approvals)
+    fields = exp06_finalize.finalize(run, 'probe', log, 0, repo=clone, receipt=receipt)
+    assert fields['passed'] is True and fields['admissible_arm'] is False
+    assert fields['receipt']['wall_s'] == 12.5 and fields['receipt']['peak_bytes'] == 0
+    assert fields['receipt']['alarm_seconds'] == 300.0 and fields['receipt']['max_gb'] == 3.0
+    assert fields['receipt']['runner'] == 'tools.exp06_smoke'
+    assert fields['run_type'] == 'probe' and fields['exploratory'] is False
+
+
+def test_the_reviews_minimal_receipt_is_refused(tmp_path, clone, approvals):
+    """The review's reproduction: {diagnostic, argv, exit_status} produced passed: true."""
+    run = tmp_path / 'smoke'
+    log = seal(run, tmp_path / 'smoke.log')
+    diagnostic_run(run, 'smoke', clone, approvals)
+    receipt = tmp_path / 'minimal.json'
+    receipt.write_text(json.dumps({'diagnostic': True, 'argv': ['--no-save'],
+                                   'exit_status': 0}) + '\n')
+    with pytest.raises(ValueError, match='receipt'):
+        exp06_finalize.finalize(run, 'smoke', log, 0, repo=clone, receipt=receipt)
+    assert not (run / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('field', DIAGNOSTIC_FIELDS)
+def test_every_missing_receipt_field_is_refused(tmp_path, clone, approvals, field):
+    run = tmp_path / 'smoke'
+    log = seal(run, tmp_path / 'smoke.log')
+    _, receipt = diagnostic_run(run, 'smoke', clone, approvals)
+    record = json.loads(Path(receipt).read_text())
+    record.pop(field)
+    Path(receipt).write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    with pytest.raises(ValueError, match=field.replace('_', '.')):
+        exp06_finalize.finalize(run, 'smoke', log, 0, repo=clone, receipt=receipt)
+    assert not (run / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('damage,cause', [('runner', 'runner'), ('closure', 'runner'),
+                                          ('head', 'git_head'), ('run_type', 'run_type'),
+                                          ('outcome', 'outcome'), ('wall', 'wall_s'),
+                                          ('peak', 'peak_bytes'), ('no_provenance', 'provenance')])
+def test_a_diagnostic_receipt_must_agree_with_its_provenance(tmp_path, clone, approvals,
+                                                             damage, cause):
+    run = tmp_path / 'smoke'
+    log = seal(run, tmp_path / 'smoke.log')
+    _, receipt = diagnostic_run(run, 'smoke', clone, approvals)
+    record = json.loads(Path(receipt).read_text())
+    if damage == 'runner':
+        record['runner'] = 'tools.exp06_train'
+    elif damage == 'closure':
+        record['runner_closure_sha256'] = 'e' * 64
+    elif damage == 'head':
+        record['git_head'] = 'f' * 40
+    elif damage == 'run_type':
+        record['run_type'] = 'probe'
+    elif damage == 'outcome':
+        record['outcome'] = 'memory'
+    elif damage == 'wall':
+        record['wall_s'] = -1.0
+    elif damage == 'peak':
+        record['peak_bytes'] = -1
+    else:
+        (run / 'provenance.json').unlink()
+    Path(receipt).write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(run, 'smoke', log, 0, repo=clone, receipt=receipt)
