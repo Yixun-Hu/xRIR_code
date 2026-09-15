@@ -1,12 +1,20 @@
 """exp_06 training entry point: the trainer's flags, model and recorded arguments."""
 import argparse
+import hashlib
+import inspect
+import json
+import os
 import sys
+from pathlib import Path
 
 import pytest
 import torch
 
 import train_xRIR_backbone as trainer
 from tools import exp06_recipe, exp06_train
+from tools import provenance
+
+REPO = Path(__file__).resolve().parents[1]
 
 MINIMAL = ['--backbone', 'simple', '--save-dir', 'ckpt/exp06/_smoke/t0']
 
@@ -110,3 +118,65 @@ def test_prepare_args_refuses_a_capacity_outside_the_recipe_tier():
     args = exp06_train.parse_args(RECIPE + ['--vit-depth', '6'])
     with pytest.raises(ValueError, match='tier'):
         exp06_train.prepare_args(args, None, {}, None)
+
+
+def test_registry_digest_covers_every_registered_backbone():
+    from model.xRIR_cyl_oriented import BACKBONES_EXP06
+    mapping = {name: cls.__module__ + '.' + cls.__qualname__ for name, cls in BACKBONES_EXP06.items()}
+    assert set(mapping) == {'simple', 'cylindrical', 'cylindrical_oriented'}
+    expected = hashlib.sha256(json.dumps(mapping, sort_keys=True).encode()).hexdigest()
+    assert exp06_train.registry_sha256() == expected and len(expected) == 64
+
+
+def test_provenance_fields_bind_code_data_and_argv():
+    identity = {'data_root': '/data', 'inventory': [], 'inventory_sha256': 'd' * 64}
+    fields = exp06_train.provenance_fields(RECIPE, 'full', identity=identity)
+    assert fields['run_type'] == 'full' and fields['command'] == RECIPE
+    assert fields['train_data_identity'] is identity and fields['repo'] == str(REPO)
+    assert fields['registry_sha256'] == exp06_train.registry_sha256()
+    assert fields['reviewed_commit'] == fields['git_state']['HEAD']
+    assert fields['environment']['python'].startswith('3.8')
+    closure = fields['source_closures']['training']
+    paths = [record['path'] for record in closure['files']]
+    assert {'train_xRIR_backbone.py', 'tools/exp06_train.py', 'tools/exp06_recipe.py',
+            'model/xRIR_cyl_oriented.py', 'model/cylindrical_vit_oriented.py'} <= set(paths)
+    assert closure['sha256'] == provenance.closure_record(paths, fields['git_state']['HEAD'], REPO)[1]
+    without_data = {key: value for key, value in fields.items() if key != 'train_data_identity'}
+    assert provenance.revalidate(without_data, required=('source_closures', 'run_type')) == []
+
+
+def test_provenance_destination_follows_the_save_mode(tmp_path):
+    saving = exp06_train.parse_args(MINIMAL)
+    assert exp06_train.provenance_destination(saving) == os.path.join(saving.save_dir, 'provenance.json')
+    assert exp06_train.provenance_destination(exp06_train.parse_args(MINIMAL + ['--no-save'])) is None
+    out = str(tmp_path / 'p.json')
+    quiet = exp06_train.parse_args(MINIMAL + ['--no-save', '--provenance-out', out])
+    assert exp06_train.provenance_destination(quiet) == out
+
+
+def test_data_identity_never_creates_the_shared_cache(tmp_path, monkeypatch):
+    calls = {}
+
+    def fake(data_root, cache_path=None, workers=8):
+        calls['cache'] = str(cache_path)
+        return {'inventory': [], 'data_root': data_root}
+
+    monkeypatch.setattr(exp06_train.provenance, 'train_data_identity', fake)
+    absent = tmp_path / 'absent.json'
+    assert exp06_train.data_identity('/data', absent)['data_root'] == '/data'
+    assert not absent.exists() and Path(calls['cache']).parent != tmp_path
+    present = tmp_path / 'present.json'
+    present.write_text('{}')
+    exp06_train.data_identity('/data', present)
+    assert calls['cache'] == str(present)
+
+
+def test_main_composes_the_pinned_trainer_and_never_completes_a_run():
+    source = inspect.getsource(exp06_train.main)
+    for call in ('trainer.seed_everything(', 'trainer.seed_worker', 'trainer.train_epoch(',
+                 'trainer.test_epoch(', 'trainer.save_checkpoint(', 'write_manifest('):
+        assert call in source
+    module = inspect.getsource(exp06_train)
+    assert 'write_completion' not in module
+    assert "'completion.json'" not in module and '"completion.json"' not in module
+    assert 'XRIR_RUNTIME_ARGS' in source and 'history.jsonl' in source
