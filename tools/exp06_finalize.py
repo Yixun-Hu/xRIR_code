@@ -102,6 +102,10 @@ HAA_SUMMARY = ('best_val_loss', 'best_epoch', 'init_val_loss', 'epochs')
 METRIC_SOURCE = {'edt_error_s': 'edt', 'c50_error_db': 'c50', 't60_error_pct': 't60',
                  'env_error': 'env', 'stft_log_mse': 'stft_mse', 'test_loss': 'loss'}
 METRIC_COUNTS = ('c50_outliers', 't60_invalid', 'edt_invalid')
+# sim_to_real/eval_haa.py:76-98 counts every non-finite C50 it reads, but counts EDT and T60
+# only when the measurement raised -- a subset of their non-finite observations.
+METRIC_INVALID = {'c50': ('c50_outliers', True), 'edt': ('edt_invalid', False),
+                  't60': ('t60_invalid', False)}
 SUMMARY_FIELDS = ('mean', 'median', 'n')  # exactly what eval_xRIR_backbone.summarize writes
 METRICS_REQUIRED = (('backbone', 'checkpoint', 'room', 'split', 'num_shot', 'eval_seed',
                      'n_samples') + METRIC_COUNTS + tuple(sorted(METRIC_SOURCE)))
@@ -804,12 +808,22 @@ def haa_metrics(run_dir, name, room, args, per_sample):
                  '{} records {} {!r}, not a count of at most the {} samples'.format(
                      name, field, metrics[field], len(index)))
     for key, field in sorted(METRIC_SOURCE.items()):
-        finite = _numbers('{}: per-sample {}'.format(name, field), per_sample.get(field),
-                          len(index))
+        label = '{}: per-sample {}'.format(name, field)
+        finite = _numbers(label, per_sample.get(field), len(index))
+        invalid = len(index) - len(finite)  # close-3 finding 2: what the counters describe
+        counter, exact = METRIC_INVALID.get(field, (None, False))
         if key == 't60_error_pct' and room in NO_T60_ROOMS:
             _require(metrics[key] is None, '{}: {} is recorded for a room the paper omits'.format(
                 name, key))
+            _require(not finite, '{} records {} measurements in a room whose T60 the writer '
+                     'never measures'.format(label, len(finite)))
+            _require(metrics[counter] == 0, '{} records {} {}, but nothing measures T60 in '
+                     '{}'.format(name, counter, metrics[counter], room))
             continue
+        if counter is not None:
+            _require(metrics[counter] == invalid if exact else metrics[counter] <= invalid,
+                     '{} records {} {}, which contradicts the {} non-finite per-sample {} '
+                     'values'.format(name, counter, metrics[counter], invalid, field))
         _summary_block('{}: {}'.format(name, key), metrics[key], finite)
     return metrics
 
