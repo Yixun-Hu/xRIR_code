@@ -19,14 +19,7 @@ GOLDENS = REPO / ('worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/'
 ENV_KEYS = ('XRIR_DATA_PATH', 'PYTHONHASHSEED', 'OMP_NUM_THREADS', 'CUDA_VISIBLE_DEVICES')
 DATA_ROOT = '/home/yixunhu/data_cache/AcousticRooms'
 TIER_RECORD = 'worklog/worklog_yixun/exp_05_param_efficiency_claude'
-EXP07_RECORD = 'worklog/worklog_yixun/exp_07_seen_protocol_claude'
 REQUIRED_INPUTS = ('repo', 'source_closures', 'train_data_identity', 'effective_args', 'mutable_inputs')
-SEEN_MODULE = 'treble_multi_room_dataset/treble_xRIR_seen_dataset.py'
-SEEN_INPUTS = {'seen_split'}  # mutable inputs a --protocol seen run must bind and revalidate
-SEEN_ARMS = {('simple', 0): 'seen_simple', ('cylindrical', 0): 'seen_cyl', ('simple', 1): 'seen_aug'}
-SEEN_CONTROL = 'ckpt/xRIR_simple_yawaug_8_shot/final/args.json'  # seen_aug's unseen twin (exp_04)
-TRAIN_FILES = {'unseen': 296334, 'seen': 296454}
-TRAIN_BATCHES = {'unseen': 9261, 'seen': 9265}
 
 
 def child_environment(gpu):
@@ -35,38 +28,15 @@ def child_environment(gpu):
                 PYTHONPATH=str(REPO), PYTHONUNBUFFERED='1')
 
 
-def flag_value(argv, flag, default=None):
-    index = argv.index(flag) if flag in argv else -1
-    return argv[index + 1] if 0 <= index < len(argv) - 1 else default
-
-
-def seen_arm(backbone, yaw_aug=0):
-    """Name the exp_07 arm of a backbone/yaw pair; the flag may be an int or its argv string."""
-    key = (backbone, {None: 0, 0: 0, 1: 1, '0': 0, '1': 1}.get(yaw_aug, -1))
-    if key not in SEEN_ARMS:
-        raise ValueError('no seen arm for backbone/yaw: {}/{}'.format(backbone, yaw_aug))
-    return SEEN_ARMS[key]
-
-
-def protocol_of(fields):
-    return fields.get('protocol') or fields.get('effective_args', {}).get('protocol') or 'unseen'
-
-
-def arm_root(tier, backbone, protocol='unseen', yaw_aug=0):
-    if protocol == 'seen':
-        return REPO / 'ckpt/exp07' / seen_arm(backbone, yaw_aug)
+def arm_root(tier, backbone):
     return ROOT if tier == 'M' else REPO / 'ckpt/exp05' / (tier + '_' + backbone)
 
 
-def command(mode, attempt, tier='M', backbone='simple', protocol='unseen', yaw_aug=0):
+def command(mode, attempt, tier='M', backbone='simple'):
     if mode not in ('smoke', 'full'):
         raise ValueError('command requires smoke or full')
-    smoke, seen = mode == 'smoke', protocol == 'seen'
-    if seen and tier != 'M':
-        raise ValueError('the seen protocol runs at tier M only')
-    if seen:
-        seen_arm(backbone, yaw_aug)
-    elif (tier == 'M' and backbone != 'simple') or (tier != 'M' and smoke):
+    smoke = mode == 'smoke'
+    if (tier == 'M' and backbone != 'simple') or (tier != 'M' and smoke):
         raise ValueError('M uses exp04 simple; S/L currently provide full argv only')
     result = [PYTHON, 'train_xRIR_backbone.py', '--backbone', 'simple', '--save-dir',
               str(attempt) + ('/smoke' if smoke else '')]
@@ -78,15 +48,11 @@ def command(mode, attempt, tier='M', backbone='simple', protocol='unseen', yaw_a
                           '--batch-size 32 --accum-steps 2 --num-workers 12')
     result += shlex.split('--seed 0 --tf32 --log-interval ' + ('1' if smoke else '50') +
                           ' --save-every 0 --epoch-ckpt-every ' + ('0 --no-save' if smoke else '1'))
-    yaw_flags = shlex.split('--yaw-aug 1 --yaw-aug-seed 0 --yaw-aug-width 512')
-    if seen:
-        result[result.index('--backbone') + 1] = backbone
-        return result + ['--protocol', 'seen'] + (yaw_flags if yaw_aug else [])
     if tier != 'M':
         result[result.index('--backbone') + 1] = backbone
         return result + [part for key, value in TIERS[tier].items()
                          for part in ('--vit-' + key.replace('_', '-'), str(value))]
-    return result + yaw_flags
+    return result + shlex.split('--yaw-aug 1 --yaw-aug-seed 0 --yaw-aug-width 512')
 
 
 def check_golden(argv, mode, attempt):
@@ -105,19 +71,7 @@ def check_golden(argv, mode, attempt):
             raise ValueError('argv differs from golden tier arm')
         path = REPO / TIER_RECORD / 'param_efficiency_results_assets' / ('argv_golden_{}_{}.txt'.format(tier, backbone))
         placeholder = 'ckpt/exp05/{}_{}/attempt_<ts>'.format(tier, backbone)
-    elif flag_value(argv, '--protocol') == 'seen':
-        try:
-            arm = seen_arm(flag_value(argv, '--backbone'), flag_value(argv, '--yaw-aug', 0))
-        except ValueError as error:
-            raise ValueError('argv differs from golden seen arm') from error
-        placeholder = 'ckpt/exp07/{}/{}<ts>'.format(arm, 'attempt_' if mode == 'full' else '_smoke_')
-        prefix = placeholder[:-len('<ts>')]
-        if not str(attempt).startswith(prefix) or not re.fullmatch(r'[A-Za-z0-9_-]+', str(attempt)[len(prefix):]):
-            raise ValueError('argv differs from golden seen arm')
-        path = REPO / EXP07_RECORD / 'seen_protocol_results_assets' / (
-            'argv_golden_{}{}.txt'.format(arm, '' if mode == 'full' else '_smoke'))
-    elif any((REPO / name).resolve() in (REPO / attempt).resolve().parents
-             for name in ('ckpt/exp05', 'ckpt/exp07')):
+    elif (REPO / 'ckpt/exp05').resolve() in (REPO / attempt).resolve().parents:
         raise ValueError('argv differs from golden tier arm')
     if not path.is_file():
         raise ValueError('golden file missing: ' + path.name)
@@ -175,9 +129,8 @@ def check_runtime(runtime, expected, mode):
                    actual[key] != expected[key]]
     if differences:
         raise LauncherFailure('guard_runtime_args', 'runtime args mismatch: ' + ', '.join(sorted(differences)))
-    expected_batches = TRAIN_BATCHES[actual.get('protocol', 'unseen')]
-    if mode == 'full' and actual['train_batches_per_epoch'] != expected_batches:
-        raise ValueError('full requires train_batches_per_epoch == ' + str(expected_batches))
+    if mode == 'full' and actual['train_batches_per_epoch'] != 9261:
+        raise ValueError('full requires train_batches_per_epoch == 9261')
 
 
 import fcntl
@@ -284,9 +237,6 @@ TRAIN_MINIMUM = {'train_xRIR_backbone.py', 'treble_multi_room_dataset/treble_xRI
     'utils/spec_utils.py', 'utils/lr_scheduler.py', 'tools/yaw_aug.py', 'tools/yaw_rotation.py'}
 
 
-def train_minimum(protocol):
-    return TRAIN_MINIMUM | ({SEEN_MODULE} if protocol == 'seen' else set())
-
 
 CONTROL_EXCLUSIONS = {'save_dir', 'yaw_aug', 'yaw_aug_seed', 'yaw_aug_width', 'no_save',
                       'save_every', 'epoch_ckpt_every', 'PYTHONHASHSEED', 'CUDA_VISIBLE_DEVICES'}
@@ -294,41 +244,32 @@ CONTROL_EXCLUSIONS = {'save_dir', 'yaw_aug', 'yaw_aug_seed', 'yaw_aug_width', 'n
 
 def compare_control(runtime, control, control_env):
     treatment, baseline = normalize(runtime), normalize(dict(control, env=control_env))
-    protocol = treatment.get('protocol', 'unseen')
     for values in (treatment, baseline):
         for key, value in TIERS['M'].items():
             values.setdefault('vit_' + key, value)
         validate_parameters(values)
         for key in ('tier', 'param_counts'):
             values.pop(key, None)
-        values.setdefault('protocol', 'unseen')  # the historical comparators predate exp_07
-        if values['protocol'] not in TRAIN_FILES:
-            raise ValueError('unknown protocol: ' + str(values['protocol']))
-        files = TRAIN_FILES[values['protocol']]
-        bpe = values.pop('train_batches_per_epoch', math.ceil(files / values['batch_size']))
-        if type(bpe) is not int or bpe != math.ceil(files / values['batch_size']):
+        bpe = values.pop('train_batches_per_epoch', math.ceil(296334 / values['batch_size']))
+        if type(bpe) is not int or bpe != math.ceil(296334 / values['batch_size']):
             raise ValueError('invalid train_batches_per_epoch')
     if tier_of(baseline) != 'M':
         raise ValueError('control requires tier M')
-    exclusions, tiered = CONTROL_EXCLUSIONS, tier_of(treatment) != 'M'
-    if tiered or protocol != 'unseen':
+    exclusions = CONTROL_EXCLUSIONS
+    if tier_of(treatment) != 'M':
         for values in (treatment, baseline):
             for key, value in dict(yaw_aug=0, yaw_aug_seed=values['seed'], yaw_aug_width=512, no_save=False).items():
                 values.setdefault(key, value)
             if values['yaw_aug_seed'] is None:
                 values['yaw_aug_seed'] = values['seed']
-            if tiered and (type(values['yaw_aug']) is not int or values['yaw_aug'] != 0):
+            if type(values['yaw_aug']) is not int or values['yaw_aug'] != 0:
                 raise ValueError('exp05 requires yaw_aug=0')
-        exclusions = exclusions - {'yaw_aug', 'yaw_aug_seed', 'yaw_aug_width', 'no_save'}
-        # A seen arm differs from its unseen twin in the protocol and nothing else.
-        exclusions |= {'vit_' + key for key in TIERS['M']} if tiered else {'protocol'}
+        exclusions = (exclusions - {'yaw_aug', 'yaw_aug_seed', 'yaw_aug_width', 'no_save'}) | {'vit_' + key for key in TIERS['M']}
     missing = object()
     differences = {key: {'treatment': treatment.get(key), 'control': baseline.get(key)}
         for key in treatment.keys() | baseline.keys()
         if type(treatment.get(key, missing)) is not type(baseline.get(key, missing))
         or treatment.get(key, missing) != baseline.get(key, missing)}
-    if protocol != 'unseen' and differences.get('protocol') != dict(treatment=protocol, control='unseen'):
-        raise ValueError('control mismatch: a seen arm requires its unseen-protocol twin')
     refused = differences.keys() - exclusions
     if refused:
         raise ValueError('control mismatch: ' + ', '.join(sorted(refused)))
@@ -337,10 +278,8 @@ def compare_control(runtime, control, control_env):
 
 def build_fields(argv, gpu, reviewed_commit, mode, allow_dirty=False):
     state = p.checked_git_state(REPO, mode == 'full', allow_dirty)
-    provisional = effective_args(argv, gpu, 1)
-    protocol = provisional['protocol']
     files = p.source_closure('train_xRIR_backbone', REPO)
-    if not train_minimum(protocol) <= set(files):
+    if not TRAIN_MINIMUM <= set(files):
         raise ValueError('training closure missing required files')
     closures = {}
     for role, paths in [('training', files), ('launcher',
@@ -351,16 +290,9 @@ def build_fields(argv, gpu, reviewed_commit, mode, allow_dirty=False):
                 r['commits_after_reviewed'] for r in records):
             raise ValueError(role + ' closure differs from reviewed commit')
         closures[role] = {'files': records, 'sha256': digest}
-    # The split file selects the training inventory: capture its identity BEFORE the
-    # inventory is built, re-verify it afterwards and bind the one it was selected under.
-    split = p.seen_split_identity(REPO) if protocol == 'seen' else None
     print('Hashing training data identity...', flush=True)
-    data = (p.train_data_identity(DATA_ROOT, protocol='seen',
-                                  cache_path=REPO / 'ckpt/exp07/train_inventory_seen.json')
-            if protocol == 'seen' else
-            p.train_data_identity(DATA_ROOT, cache_path=REPO / 'ckpt/yaw_aug/train_inventory.json'))
-    if split is not None and p.seen_split_identity(REPO) != split:
-        raise ValueError('seen split changed during training inventory construction')
+    data = p.train_data_identity(DATA_ROOT, cache_path=REPO / 'ckpt/yaw_aug/train_inventory.json')
+    provisional = effective_args(argv, gpu, 1)
     bpe = math.ceil(data['inventory_files'] / provisional['batch_size'])
     effective = effective_args(argv, gpu, bpe)
     check_runtime(effective, effective, mode)
@@ -368,19 +300,13 @@ def build_fields(argv, gpu, reviewed_commit, mode, allow_dirty=False):
         source_closures=closures, train_data_identity=data, effective_args=effective,
         command=argv, environment=p.environment(), git_state=state, allow_dirty=allow_dirty,
         env={key: child_environment(gpu)[key] for key in ENV_KEYS})
-    if protocol == 'seen':  # the authors' split file is a first-class revalidated input
-        fields.update(protocol=protocol, mutable_inputs={'seen_split': split})
     if mode == 'full':
         label = 'cyl' if effective['backbone'] == 'cylindrical' else 'simple'
-        control_path = REPO / (SEEN_CONTROL if protocol == 'seen' and effective['yaw_aug']
-                               else 'ckpt/xRIR_' + label + '_8_shot/args.json')
-        control = json.loads(control_path.read_text())
-        control_env = control.get('env') or dict(XRIR_DATA_PATH=DATA_ROOT, OMP_NUM_THREADS='2',
-                                                 CUDA_VISIBLE_DEVICES='1')
-        fields['control_excluded_differences'] = compare_control(effective, control, control_env)
+        control_path = REPO / ('ckpt/xRIR_' + label + '_8_shot/args.json')
+        control_env = dict(XRIR_DATA_PATH=DATA_ROOT, OMP_NUM_THREADS='2', CUDA_VISIBLE_DEVICES='1')
+        fields['control_excluded_differences'] = compare_control(effective, json.loads(control_path.read_text()), control_env)
         fields['control_env_reconstructed'] = control_env
-        fields.setdefault('mutable_inputs', {})['control_args'] = {
-            'path': str(control_path), 'sha256': p.sha256_file(control_path)}
+        fields['mutable_inputs'] = {'control_args': {'path': str(control_path), 'sha256': p.sha256_file(control_path)}}
     return fields
 
 
@@ -409,7 +335,6 @@ class LogGuard:
         self.epoch_one_done = False
         self.probe = None
         self.log_created = False
-        self.single = expected.get('tier', 'M') != 'M' or expected.get('protocol', 'unseen') == 'seen'
         self.epoch_limit_seconds = limits['epoch_seconds'] if limits else 2.431 * 3600
         self.live_epoch_limit_seconds = limits['epoch_seconds'] if limits else 2.6 * 3600
         self.tier_limits = limits
@@ -423,7 +348,7 @@ class LogGuard:
             raise LauncherFailure('guard_runtime_args', str(error)) from error
 
     def feed(self, line):
-        prefix = 'EXP05_PROBE_RESULT ' if self.single else 'EXP04_PROBE_RESULT '
+        prefix = 'EXP04_PROBE_RESULT ' if self.expected.get('tier', 'M') == 'M' else 'EXP05_PROBE_RESULT '
         if line.startswith(('EXP04_PROBE_RESULT ', 'EXP05_PROBE_RESULT ')):
             if not line.startswith(prefix):
                 raise ValueError('probe result prefix differs from tier')
@@ -491,11 +416,10 @@ class LogGuard:
                 or not math.isfinite(self.probe.get('mean_iteration_seconds', float('nan')))
                 or self.probe['mean_iteration_seconds'] <= 0):
             raise ValueError('missing or invalid probe result')
-        if self.mode == 'probe' and self.single:
+        if self.mode == 'probe' and self.expected.get('tier', 'M') != 'M':
             tier_probe.projection(self.probe)
-            if any(self.probe.get(key, 'unseen') != self.expected.get(key, 'unseen')
-                   for key in ('tier', 'backbone', 'protocol')):
-                raise ValueError('probe tier/backbone/protocol mismatch')
+            if any(self.probe.get(k) != self.expected[k] for k in ('tier', 'backbone')):
+                raise ValueError('probe tier/backbone mismatch')
         return dict(train_losses=self.losses, test_loss=self.test_loss, banner=self.banner, probe=self.probe)
 
 
@@ -630,7 +554,6 @@ def _complete_attempt(attempt, mode, log_path, fields, digest, metrics, hours):
     fields['mutable_inputs']['train_manifest'] = {
         'path': str((attempt / 'train_manifest.json').resolve()), 'sha256': digest}
     required = {'effective_args', 'train_manifest'} | ({'control_args', 'probe_receipt'} if mode == 'full' else set())
-    required |= SEEN_INPUTS if protocol_of(fields) == 'seen' else set()
     missing = required - fields['mutable_inputs'].keys()
     if missing:
         raise LauncherFailure('input_changed', 'missing mutable inputs: ' + ', '.join(sorted(missing)))
@@ -694,9 +617,8 @@ def recovery_evidence(fields, execution, attempt, launcher_log):
         raise ValueError('invalid recovery repo or mode')
     if not re.fullmatch('[0-9a-f]{40}', fields.get('reviewed_commit', '')):
         raise ValueError('invalid reviewed_commit')
-    protocol = protocol_of(fields)
     closures = fields.get('source_closures', {})
-    if (not train_minimum(protocol) <= {r['path'] for r in closures.get('training', {}).get('files', [])}
+    if (not TRAIN_MINIMUM <= {r['path'] for r in closures.get('training', {}).get('files', [])}
             or not closures.get('launcher', {}).get('files')):
         raise ValueError('recovery closure minimum missing')
     if not fields.get('resource_before') or not set(ENV_KEYS) <= set(fields.get('env', {})):
@@ -709,12 +631,9 @@ def recovery_evidence(fields, execution, attempt, launcher_log):
             raise ValueError('recovery command attempt path mismatch')
         check_golden(fields['command'], mode, original)
     required = {'effective_args', 'train_inventory'} | ({'control_args', 'probe_receipt'} if mode == 'full' else set())
-    required |= SEEN_INPUTS if protocol == 'seen' else set()
     if not required <= set(fields.get('mutable_inputs', {})):
         raise ValueError('recovery required bindings missing')
-    if protocol == 'seen' and fields['mutable_inputs']['seen_split'] != p.seen_split_identity(REPO):
-        raise ValueError('recovery seen split changed')
-    if mode == 'full' and fields['train_data_identity'].get('inventory_files') != TRAIN_FILES[protocol]:
+    if mode == 'full' and fields['train_data_identity'].get('inventory_files') != 296334:
         raise ValueError('recovery training inventory count')
     if launcher_log is None:
         raise ValueError('recovery requires --launcher-log from nohup setsid invocation')
@@ -892,16 +811,6 @@ def refusal_self_test():
         with patch(__name__ + '.gpu_snapshot', return_value={'compute_apps': 'foreign', 'free_gib': 39}), \
                 patch.object(subprocess, 'check_output', return_value='Avail\n' + str(50 * 2**30)):
             refuses('gpu', lambda: resource_gate('1', root, 'smoke'))
-        seen = command('full', 'ckpt/exp07/seen_aug/attempt_test', 'M', 'simple', 'seen', 1)
-        refuses('seen_other_arm', lambda: check_golden(seen, 'full', 'ckpt/exp07/seen_simple/attempt_test'))
-        refuses('seen_unseen_argv', lambda: check_golden(command('full', 'ckpt/exp07/seen_aug/attempt_test'),
-                                                         'full', 'ckpt/exp07/seen_aug/attempt_test'))
-        refuses('seen_arm', lambda: seen_arm('cylindrical', 1))
-        seen_args = effective_args(seen, '1', 9261)
-        refuses('seen_bpe', lambda: check_runtime(seen_args, seen_args, 'full'))
-        control = json.loads((REPO / 'ckpt/xRIR_simple_8_shot/args.json').read_text())
-        refuses('seen_control', lambda: compare_control(effective_args(seen, '1', 9265), control,
-            dict(XRIR_DATA_PATH=DATA_ROOT, OMP_NUM_THREADS='2', CUDA_VISIBLE_DEVICES='1')))
         abort_attempt(attempt, 'test', 1)
         refuses('cumulative_budget', lambda: check_budget(root, 42.1))
     return {'passed': True, 'refusals': refusals}
@@ -936,9 +845,6 @@ def main(argv=None):
     parser.add_argument('--gpu', default='1', choices=('0', '1'))
     parser.add_argument('--tier', choices=tuple(TIERS), default='M')
     parser.add_argument('--backbone', choices=('simple', 'cylindrical'), default='simple')
-    parser.add_argument('--protocol', choices=('unseen', 'seen'), default='unseen')
-    parser.add_argument('--yaw-aug', type=int, choices=(0, 1),
-                        help='--protocol seen: 1 selects the seen_aug arm')
     parser.add_argument('--reviewed-commit')
     parser.add_argument('--log-dir')
     parser.add_argument('--launcher-log', help='finalize: external nohup setsid launcher stdout log')
@@ -947,24 +853,13 @@ def main(argv=None):
     parser.add_argument('--allow-dirty', action='store_true')
     parser.add_argument('--projection-hours', type=float, default=30.0)
     parser.add_argument('--probe-json', help='full requires a clean passing probe receipt')
-    parser.add_argument('--renew-ceiling', help='S|L or seen full only: notebook timestamp: reason')
+    parser.add_argument('--renew-ceiling', help='S/L full only: notebook timestamp: reason')
     args = parser.parse_args(argv)
-    tiered, seen = args.tier != 'M', args.protocol == 'seen'
-    if args.renew_ceiling is not None and (not (tiered or seen) or args.mode != 'full'):
-        parser.error('--renew-ceiling requires a full --tier S|L or --protocol seen run')
-    if seen and tiered:
-        parser.error('--protocol seen runs at tier M')
-    if args.yaw_aug is not None and not seen:
-        parser.error('--yaw-aug is a --protocol seen argument')
-    if seen:
-        try:
-            seen_arm(args.backbone, args.yaw_aug)
-        except ValueError as error:
-            parser.error(str(error))
+    tiered = args.tier != 'M'
+    if args.renew_ceiling is not None and (not tiered or args.mode != 'full'):
+        parser.error('--renew-ceiling requires full --tier S|L')
     if tiered and not args.log_dir:
         args.log_dir = str(REPO / TIER_RECORD)
-    if seen and not args.log_dir:
-        args.log_dir = str(REPO / EXP07_RECORD)
     if args.mode == 'finalize':
         if not args.attempt_dir:
             parser.error('finalize requires an attempt directory')
@@ -981,11 +876,11 @@ def main(argv=None):
         parser.error('--reviewed-commit and --log-dir are required')
     if args.tier != 'M' and args.mode == 'smoke':
         parser.error('exp05 requires the fit-probe protocol before full')
-    if (tiered or seen) and args.mode == 'full' and not args.probe_json:
+    if args.tier != 'M' and args.mode == 'full' and not args.probe_json:
         parser.error('full requires --probe-json (clean passing fit-probe)')
-    if args.tier == 'M' and not seen and args.backbone != 'simple':
+    if args.tier == 'M' and args.backbone != 'simple':
         parser.error('exp04 M launches require backbone simple')
-    root = arm_root(args.tier, args.backbone, args.protocol, args.yaw_aug)
+    root = arm_root(args.tier, args.backbone)
     if not re.fullmatch(r'[A-Za-z0-9_-]+', args.timestamp) or '_ABORTED_' in args.timestamp:
         parser.error('timestamp must be a safe filename component')
     if Path(sys.executable).resolve() != Path(PYTHON).resolve():
@@ -997,31 +892,27 @@ def main(argv=None):
             parser.error('full forbids --allow-cotenant')
         if not args.probe_json:
             parser.error('full requires --probe-json (clean passing probe)')
-        receipt = (tier_gates.validate_receipt(args.probe_json, commit, args.gpu, args.tier,
-                       args.backbone, args.protocol, args.yaw_aug or 0) if tiered or seen else
-                   probe_receipt(args.probe_json, commit, args.gpu))
-        if not (tiered or seen):
+        receipt = (probe_receipt(args.probe_json, commit, args.gpu) if args.tier == 'M' else
+                   tier_gates.validate_receipt(args.probe_json, commit, args.gpu, args.tier, args.backbone))
+        if args.tier == 'M':
             check_budget(root, args.projection_hours)
     stamp, mode = args.timestamp, args.mode
     if mode in ('smoke', 'full'):
         attempt = root / (('_smoke_' if mode == 'smoke' else 'attempt_') + stamp)
         relative = os.path.relpath(attempt, REPO)
-        cmd = command(mode, relative, args.tier, args.backbone, args.protocol, args.yaw_aug)
+        cmd = command(mode, relative, args.tier, args.backbone)
         check_golden(cmd, mode, relative)
     root.mkdir(parents=True, exist_ok=True)
     with (root / '.launch.lock').open('a') as lock, patch.dict(os.environ, child_environment(args.gpu)):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         log_dir = Path(args.log_dir).resolve()
         train_log = ('param_efficiency_{}_train_{}_{}_{}.log'.format(stamp, args.tier, args.backbone, mode)
-                     if tiered else
-                     'seen_protocol_{}_train_{}_{}.log'.format(stamp, seen_arm(args.backbone, args.yaw_aug), mode)
-                     if seen else 'yaw_aug_xrir_' + stamp + '_train_' + mode + '.log')
+                     if tiered else 'yaw_aug_xrir_' + stamp + '_train_' + mode + '.log')
         if mode in ('smoke', 'full'):
             limits = None
-            if mode == 'full' and (tiered or seen):
+            if mode == 'full' and args.tier != 'M':
                 limits = tier_gates.timing_limits(dict(reviewed_commit=commit,
-                    effective_args=effective_args(cmd, args.gpu, TRAIN_BATCHES[args.protocol]),
-                    mutable_inputs=dict(probe_receipt=receipt)), args.gpu)
+                    effective_args=effective_args(cmd, args.gpu, 9261), mutable_inputs=dict(probe_receipt=receipt)), args.gpu)
                 args.projection_hours = limits['projection_hours']
             def fields_factory():
                 fields = build_fields(cmd, args.gpu, commit, mode, args.allow_dirty)
@@ -1034,42 +925,38 @@ def main(argv=None):
                 allow_cotenant=args.allow_cotenant, projection=args.projection_hours,
                 **({'limits': limits, 'renew_ceiling': args.renew_ceiling} if limits else {}))
         else:
-            single = tiered or seen
-            output = root / ('_probe_' + stamp + ('_' + seen_arm(args.backbone, args.yaw_aug) if seen
-                             else '_' + args.tier + '_' + args.backbone if tiered else '') + '.json')
+            output = root / ('_probe_' + stamp + ('_' + args.tier + '_' + args.backbone if tiered else '') + '.json')
             if output.exists():
                 raise FileExistsError(str(output))
             before = gpu_snapshot(args.gpu)
             measurements, attempts, arms_before = [], [], []
-            for yaw, label in (((args.yaw_aug or 0, 'arm'),) if single else ((0, 'off'), (1, 'on'))):
+            for yaw, label in (((0, 'arm'),) if tiered else ((0, 'off'), (1, 'on'))):
                 attempt = root / ('_probe_' + stamp + '_' + label)
                 relative = os.path.relpath(attempt, REPO)
                 cmd = [PYTHON, '-m', 'tools.exp04_probe', '--yaw-aug', str(yaw), '--save-dir', relative]
                 trainer_argv = trainer_command(yaw, relative)
-                if single:
-                    cmd = [PYTHON, '-m', 'tools.exp05_probe', '--tier', args.tier, '--backbone',
-                           args.backbone, '--save-dir', relative] + (['--protocol', 'seen'] if seen else [])
-                    cmd += ['--yaw-aug', str(yaw)] if seen and yaw else []
-                    trainer_argv = tier_probe.trainer_command(args.tier, args.backbone, relative,
-                                                              args.protocol, yaw)
+                if tiered:
+                    cmd = [PYTHON, '-m', 'tools.exp05_probe', '--tier', args.tier,
+                           '--backbone', args.backbone, '--save-dir', relative]
+                    trainer_argv = tier_probe.trainer_command(args.tier, args.backbone, relative)
                 def fields_factory():
                     fields = build_fields([PYTHON] + trainer_argv, args.gpu, commit, 'probe', args.allow_dirty)
                     fields['trainer_command'], fields['command'] = fields['command'], cmd
                     return fields
                 completed = execute_attempt(attempt, 'probe', args.gpu,
-                    log_dir / (train_log if single else 'yaw_aug_xrir_' + stamp + '_' + label + '_train_probe.log'),
+                    log_dir / (train_log if tiered else 'yaw_aug_xrir_' + stamp + '_' + label + '_train_probe.log'),
                     fields_factory, allow_cotenant=args.allow_cotenant)
                 measurements.append(completed['metrics']['probe'])
                 arms_before.append(completed['resource_before'])
                 attempts.append(str(attempt))
             after = gpu_snapshot(args.gpu)
-            measured = (dict(measurements[0], schema_version=1, gpu=args.gpu) if single else
+            measured = (dict(measurements[0], schema_version=1, gpu=args.gpu) if tiered else
                         dict(compare_results(*measurements), yaw_off=measurements[0], yaw_on=measurements[1]))
             result = dict(measured,
                 before=before, after=after, arms_before=arms_before,
                 PROBE_NOT_CLEAN=any(bool(state['compute_apps']) for state in [before, *arms_before, after]),
                 attempts=attempts, reviewed_commit=commit)
-            if single:
+            if tiered:
                 result.update(probe_attempt=dict(path=str(attempt.resolve()), **{
                     name + '_sha256': p.sha256_file(attempt / (name + '.json'))
                     for name in ('train_manifest', 'completion')}),
@@ -1082,7 +969,7 @@ def main(argv=None):
                     result['passed'] = False
             p.write_manifest(output, result)
             if result['PROBE_NOT_CLEAN']:
-                print('PROBE_NOT_CLEAN: GPU resource checks failed; re-probe on a clean GPU.' if single else
+                print('PROBE_NOT_CLEAN: GPU resource checks failed; re-probe on a clean GPU.' if tiered else
                       'PROBE_NOT_CLEAN: another process was present; timing gate needs Planner judgment.', flush=True)
         print(json.dumps(result, sort_keys=True, allow_nan=False), flush=True)
         if mode == 'probe' and not result['passed']:
