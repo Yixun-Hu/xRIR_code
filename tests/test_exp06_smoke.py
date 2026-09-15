@@ -236,3 +236,17 @@ def test_the_cli_accepts_the_diagnostic_admission_flags(tmp_path, stub_entry, ca
     with pytest.raises(SystemExit):
         exp06_smoke.main(['--entry', 'exp06_haa_finetune', '--run-type', 'full', '--',
                           '--no-save'])
+
+
+def test_a_run_that_outlasted_its_alarm_is_published_as_an_abort(tmp_path):
+    """Finding 4: the watchdog ticks once a second, so a late return must still abort.
+
+    The finalizer refuses an ``ok`` receipt whose wall time is over its budget; the
+    runner and the receipt therefore have to agree on that retrospectively, exactly as
+    they already do for the memory ceiling.
+    """
+    result = dict(exit_status=0, outcome='ok', alarm_seconds=0.001, max_gb=3.0)
+    published = exp06_smoke._publish(result, time.monotonic() - 1.0, tmp_path / 'late.json')
+    assert published['outcome'] == 'aborted_alarm' and published['exit_status'] == 3
+    assert published['wall_s'] >= 1.0
+    assert json.loads((tmp_path / 'late.json').read_text())['outcome'] == 'aborted_alarm'

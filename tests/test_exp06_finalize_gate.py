@@ -413,3 +413,58 @@ def test_a_duplicated_inventory_entry_is_refused(full_run, clone, key):
     with pytest.raises(ValueError, match='distinct paths'):
         exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
     assert not (run / 'completion.json').exists()
+
+
+GIB = 1024 ** 3
+CONTRADICTIONS = {
+    'failed_ok_status': dict(outcome='failed'),
+    'memory_ok_status': dict(outcome='aborted_memory', aborted_memory=True),
+    'over_memory': dict(peak_bytes=4 * GIB),
+    'over_time': dict(wall_s=301.0, alarm_seconds=300.0),
+    'zero_alarm': dict(alarm_seconds=0.0),
+    'zero_memory': dict(max_gb=0.0),
+    'unknown_entry': dict(entry='invented'),
+    'untyped_argv': dict(argv=['--no-save', 17, {}]),
+    'other_entry': dict(entry='exp06_haa_eval'),
+    'other_argv': dict(argv=['--backbone', 'cylindrical_oriented', '--no-save']),
+    'early_start': dict(started_at='2026-09-15T02:59:59+00:00'),
+    'late_end': dict(ended_at='2026-09-15T04:05:08+00:00'),
+}
+
+
+@pytest.mark.parametrize('damage,cause', [
+    ('failed_ok_status', 'exit_status 0'), ('memory_ok_status', 'exit_status 0'),
+    ('over_memory', 'GiB budget'), ('over_time', 's budget'),
+    ('zero_alarm', 'positive budget'), ('zero_memory', 'positive budget'),
+    ('unknown_entry', 'entry'), ('untyped_argv', 'list of strings'),
+    ('other_entry', 'provenance records'), ('other_argv', 'child command'),
+    ('early_start', 'before the child'), ('late_end', 'after the child exited')])
+def test_contradictory_diagnostic_receipts_are_refused(tmp_path, clone, approvals, damage, cause):
+    """Finding 4: every one of these was accepted with exit 0 and passed=True."""
+    run = tmp_path / 'smoke'
+    log = seal(run, tmp_path / 'smoke.log')
+    record, path = diagnostic_run(run, 'smoke', clone, approvals)
+    smoke_receipt(path, record=record, **CONTRADICTIONS[damage])
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(run, 'smoke', log, 0, repo=clone, receipt=path)
+    assert not (run / 'completion.json').exists()
+
+
+def test_a_consistent_failure_is_recorded_as_not_passed(tmp_path, clone, approvals):
+    """Finding 4: a valid failure receipt keeps its completion, marked passed false."""
+    run = tmp_path / 'smoke'
+    log = seal(run, tmp_path / 'smoke.log', status=3)
+    _, path = diagnostic_run(run, 'smoke', clone, approvals, exit_status=3,
+                             outcome='aborted_memory', aborted_memory=True, peak_bytes=4 * GIB)
+    fields = exp06_finalize.finalize(run, 'smoke', log, 3, repo=clone, receipt=path)
+    assert fields['passed'] is False and fields['admissible_arm'] is False
+    assert fields['receipt']['peak_bytes'] == 4 * GIB
+
+
+def test_the_marker_second_is_the_only_slack_at_the_end_of_the_window(tmp_path, clone, approvals):
+    """The launcher truncates the child's ended_at to the second; the receipt does not."""
+    run = tmp_path / 'smoke'
+    log = seal(run, tmp_path / 'smoke.log')
+    _, path = diagnostic_run(run, 'smoke', clone, approvals,
+                             ended_at='2026-09-15T04:05:07+00:00')
+    assert exp06_finalize.finalize(run, 'smoke', log, 0, repo=clone, receipt=path)['passed']
