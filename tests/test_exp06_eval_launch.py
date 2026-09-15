@@ -189,6 +189,8 @@ def test_main_runs_the_child_through_the_shared_finaliser(launch_args, monkeypat
     monkeypatch.setattr(subject.launcher, 'execute_run',
                         lambda args, command, factory, repo: seen.update(
                             args=args, command=command, repo=repo) or 'completion')
+    monkeypatch.setattr(subject, 'certify_outputs',
+                        lambda run, completion: seen.update(certified=(run, completion)))
     argv = ['--backbone', 'simple', '--checkpoint', 'c', '--manifest', 'm',
             '--manifest-hash', 'h', '--out-dir', 'o', '--log-dir', 'l', '--data-root', 'd',
             '--run-label', 'r', '--reviewed-commit', 'HEAD', '--num-shot', '8',
@@ -196,3 +198,93 @@ def test_main_runs_the_child_through_the_shared_finaliser(launch_args, monkeypat
     assert subject.main(argv) == 'completion'
     assert seen['command'][1] == str(ROOT / 'tools/exp06_eval.py')
     assert seen['repo'] == ROOT and seen['args'].num_shot == 8
+    assert seen['certified'] == (Path(seen['args'].out_dir), 'completion')
+
+
+# --- the finished outputs must be this arm's, or nothing stands (round 2b finding 2) ---
+
+OUTPUT_FIELDS = ('model_class', 'registry_sha256', 'checkpoint_role', 'checkpoint_epoch',
+                 'heading', 'frame')
+
+
+@pytest.fixture
+def certified(tmp_path):
+    """A finished run: the manifest, both outputs, and the hashes completion captured."""
+    run = tmp_path / 'run'
+    run.mkdir()
+    fields = {'schema_version': 1, 'conditions': ['P'], 'n_samples': 16,
+              'model_class': 'xRIR_CylOriented', 'registry_sha256': 'r' * 64,
+              'checkpoint_role': 'arm', 'checkpoint_epoch': 12, 'heading': None,
+              'frame': 'room'}
+    digest = p.write_manifest(run / 'eval_manifest.json', fields)
+    meta = dict({key: fields[key] for key in OUTPUT_FIELDS}, conditions=fields['conditions'],
+                n_samples=fields['n_samples'], eval_manifest_sha256=digest)
+    for name in inherited.OUTPUTS:
+        (run / name).write_text(json.dumps({'meta': meta, 'query': []}))
+    completion = {'schema_version': 1, 'eval_manifest_sha256': digest,
+                  'outputs': {name: p.sha256_file(run / name) for name in inherited.OUTPUTS}}
+    return run, completion
+
+
+def test_intact_outputs_pass_the_post_run_check(certified):
+    run, completion = certified
+    assert subject.certify_outputs(run, completion) is None
+    assert run.is_dir() and not list(run.parent.glob('*_QUARANTINED_*'))
+
+
+@pytest.mark.parametrize('name', list(inherited.OUTPUTS))
+@pytest.mark.parametrize('field', OUTPUT_FIELDS)
+@pytest.mark.parametrize('damage', ['corrupt', 'remove'])
+def test_an_output_contradicting_the_manifest_is_quarantined(certified, name, field, damage):
+    """Corruption before completion captured the hashes: the inherited check cannot see it."""
+    run, completion = certified
+    body = json.loads((run / name).read_text())
+    if damage == 'remove':
+        body['meta'].pop(field)
+    else:
+        body['meta'][field] = 'not what the manifest declares'
+    (run / name).write_text(json.dumps(body))
+    completion['outputs'][name] = p.sha256_file(run / name)
+    quarantined = subject.certify_outputs(run, completion)
+    assert quarantined is not None and not run.exists()
+    assert quarantined.name.startswith(run.name + '_QUARANTINED_')
+    record = json.loads((quarantined / 'quarantine.json').read_text())
+    assert record['reason'] in quarantined.name
+    assert name in record['detail'] and field in record['detail']
+    assert record['run_dir'] == str(run) and (quarantined / name).is_file()
+
+
+@pytest.mark.parametrize('damage', ['output_bytes', 'manifest_bytes', 'output_gone',
+                                    'no_meta'])
+def test_a_run_whose_bound_bytes_moved_is_quarantined(certified, damage):
+    """The completion's own hashes are re-checked here, over the same two files."""
+    run, completion = certified
+    name = inherited.OUTPUTS[0]
+    if damage == 'output_bytes':
+        (run / name).write_text(json.dumps({'meta': {}, 'appended': True}))
+    elif damage == 'manifest_bytes':
+        (run / 'eval_manifest.json').write_text('{"schema_version": 1}')
+    elif damage == 'output_gone':
+        (run / name).unlink()
+    else:
+        (run / name).write_text(json.dumps({'query': []}))
+        completion['outputs'][name] = p.sha256_file(run / name)
+    quarantined = subject.certify_outputs(run, completion)
+    assert quarantined is not None and not run.exists()
+    assert json.loads((quarantined / 'quarantine.json').read_text())['reason']
+
+
+def test_main_fails_when_the_outputs_are_quarantined(launch_args, monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setattr(subject.launcher, 'execute_run',
+                        lambda *arguments: {'outputs': {}, 'eval_manifest_sha256': 'x'})
+    monkeypatch.setattr(subject, 'certify_outputs',
+                        lambda run, completion: seen.setdefault('run', run))
+    argv = ['--backbone', 'simple', '--checkpoint', 'c', '--manifest', 'm',
+            '--manifest-hash', 'h', '--out-dir', str(tmp_path / 'o'), '--log-dir', 'l',
+            '--data-root', 'd', '--run-label', 'r', '--reviewed-commit', 'HEAD',
+            '--num-shot', '8', '--checkpoint-epoch', '12']
+    with pytest.raises(SystemExit) as failure:
+        subject.main(argv)
+    assert failure.value.code not in (0, None)
+    assert seen['run'] == Path(str(tmp_path / 'o'))
