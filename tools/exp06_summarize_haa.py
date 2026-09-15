@@ -151,7 +151,7 @@ def source_identity(repo=REPO, strict=True):
             'files': records, 'drift': sorted(drift)}
 
 
-def legacy_receipt(root, repo=REPO, strict=True):
+def legacy_receipt(root, repo=REPO, strict=True, identity=None):
     """The reconstructed receipt: what the historical arms are, byte for byte, today.
 
     Finding 6: the enumeration is derived from ``LEGACY_ARMS``, never from a caller's or
@@ -161,13 +161,14 @@ def legacy_receipt(root, repo=REPO, strict=True):
     files = legacy_receipt_files(root, LEGACY_ARMS)
     return {'schema_version': 1, 'label': 'reconstructed', 'arms': list(LEGACY_ARMS),
             'root': str(Path(root).resolve()), 'files': files, 'files_sha256': _digest(files),
-            'source_closure': source_identity(repo, strict),
+            'source_closure': source_identity(repo, strict)
+                              if identity is None else identity,
             'timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat()}
 
 
-def write_legacy_receipt(path, root, repo=REPO, strict=True):
+def write_legacy_receipt(path, root, repo=REPO, strict=True, identity=None):
     """Write once; a receipt is never silently replaced."""
-    record = legacy_receipt(root, repo, strict)
+    record = legacy_receipt(root, repo, strict, identity)
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     return record, provenance.write_manifest(path, record)
 
@@ -744,7 +745,42 @@ def arm_inputs(arms, receipt=None, receipt_path=None):
     return inputs
 
 
-def approvals(exploratory, path=None):
+PRODUCER_CODE_KEY = {'summarize_haa': 'summarize_haa', 'legacy_receipt': 'summarize_haa'}
+
+
+def check_producer_identity(approved, producer, identity, exploratory=False):
+    """Finding 3: the closure that really ran, against the approved `code` digest."""
+    if approved is None:
+        return []
+    key = PRODUCER_CODE_KEY[producer]
+    pinned = approved['code'].get(key)
+    if identity['sha256'] == pinned:
+        return []
+    deviation = 'this producer ran the closure {}, not the approved code.{} {}'.format(
+        identity['sha256'], key, pinned)
+    _require(exploratory, deviation)
+    return [deviation]
+
+
+def check_reused_identities(approved, receipt, gate_g1):
+    """The exp_02 canonical record and the G1 gate artifact, as 6.4 approved them."""
+    if approved is None:
+        return {}
+    canonical = {item['path']: item['sha256'] for item in receipt['files']}
+    for name, key in (('stats.json', 'exp02_stats_sha256'),
+                      ('summary.txt', 'exp02_summary_sha256')):
+        _require(canonical.get(name) == approved['reused'][key],
+                 'the legacy {} hashes to {}, not the approved reused.{} {}'.format(
+                     name, canonical.get(name), key, approved['reused'][key]))
+    pinned = approved['artifacts']['gate_g1_sha256']
+    _require(gate_g1, 'the approved artifacts.gate_g1 requires --gate-g1 <path>')
+    digest = provenance.sha256_file(gate_g1)
+    _require(digest == pinned, 'the G1 artifact {} hashes to {}, not the approved '
+             'artifacts.gate_g1 {}'.format(gate_g1, digest, pinned))
+    return {str(Path(gate_g1).resolve()): digest}
+
+
+def approvals(exploratory, path=None, producer='summarize_haa'):
     """Section 6.4's producer gate; exploratory records what production would refuse."""
     try:
         approved, receipt = approvals_api.load_approved_digests(path)
@@ -752,13 +788,13 @@ def approvals(exploratory, path=None):
         if not exploratory:
             raise
         return None, None, [str(error)]
-    return approved, receipt, approvals_api.require_producer(approved, 'summarize_haa',
+    return approved, receipt, approvals_api.require_producer(approved, producer,
                                                              exploratory)
 
 
 def analyse(arms, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, cache_root=None,
             exploratory=False, receipt=None, receipt_path=None, approved=None,
-            deviations=(), approvals_receipt=None):
+            deviations=(), approvals_receipt=None, producer=None, extra_inputs=()):
     """Every displayed number, and the evidence each rests on."""
     result = {'schema_version': 1, 'exploratory': bool(exploratory),
               'deviations': list(deviations), 'arms': {name: {
@@ -772,8 +808,8 @@ def analyse(arms, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, cache_root=Non
               'legacy_receipt': None if receipt is None else {
                   'path': str(receipt_path), 'sha256': receipt['sha256'],
                   'label': receipt['label'], 'files': len(receipt['files'])},
-              'approved_digests': approvals_receipt,
-              'inputs': arm_inputs(arms, receipt, receipt_path),
+              'approved_digests': approvals_receipt, 'producer': producer,
+              'inputs': dict(arm_inputs(arms, receipt, receipt_path), **dict(extra_inputs)),
               'side_split': side_split(arms, cache_root)}
     result['H1'] = decision_cell(arms, H1, H1_ROOM, H1_METRIC, H1_MARGIN_DB, n_boot)
     result['H1b'] = decision_cell(arms, H1B, H1_ROOM, H1_METRIC, 0.0, n_boot)
@@ -881,6 +917,7 @@ def build_parser():
     parser.add_argument('--write-legacy-receipt')
     parser.add_argument('--approved')
     parser.add_argument('--cache-root')
+    parser.add_argument('--gate-g1')
     parser.add_argument('--json')
     parser.add_argument('--summary')
     parser.add_argument('--n-boot', type=int, default=N_BOOT)
@@ -892,24 +929,32 @@ def build_parser():
 def main(argv=None):
     """0 on success; a refusal exits 1 and an argparse usage error exits 2."""
     args = build_parser().parse_args(argv)
-    if args.write_legacy_receipt:
+    producer = 'legacy_receipt' if args.write_legacy_receipt else 'summarize_haa'
+    approved, approvals_receipt, deviations = approvals(args.exploratory, args.approved,
+                                                        producer)
+    identity = source_identity(REPO, strict=not args.exploratory)
+    deviations = list(deviations) + check_producer_identity(approved, producer, identity,
+                                                            args.exploratory)
+    if args.write_legacy_receipt:      # finding 3: the receipt is a producer, and gated
         record, digest = write_legacy_receipt(args.write_legacy_receipt, args.legacy_root,
-                                              strict=not args.exploratory)
+                                              strict=not args.exploratory, identity=identity)
         print(json.dumps({'receipt': str(args.write_legacy_receipt), 'sha256': digest,
                           'files': len(record['files']), 'label': record['label']}))
         return 0
     _require(args.json and args.summary, 'both --json and --summary are required')
-    approved, approvals_receipt, deviations = approvals(args.exploratory, args.approved)
     binding = approved['reused']['legacy_receipt'] if approved else None
     if binding is not None and binding.get('sha256') is None:
         binding = None
     arms, receipt = load_legacy(args.legacy_root, args.legacy_receipt, binding)
+    extra = check_reused_identities(None if args.exploratory else approved, receipt,
+                                    args.gate_g1)
     inits = {} if args.exploratory else expected_inits(approved)
     for arm in NEW_ARMS:
-        arms[arm] = load_new_arm(args.new_root, arm, inits.get(arm))
+        arms[arm] = load_new_arm(args.new_root, arm, inits.get(arm), REPO,
+                                 None if args.exploratory else approved)
     result = analyse(arms, args.n_boot, args.n_boot_adjusted, args.cache_root,
                      args.exploratory, receipt, args.legacy_receipt, approved, deviations,
-                     approvals_receipt)
+                     approvals_receipt, identity, extra)
     record, digest, text = write_outputs(result, args.json, args.summary)
     print(text)
     print(json.dumps({'json': args.json, 'sha256': digest,

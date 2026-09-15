@@ -643,11 +643,14 @@ def test_the_producer_closure_must_be_the_approved_one():
     identity = subject.source_identity(strict=False)
     approved = filled_approvals()
     approved['code']['summarize_haa'] = identity['sha256']
-    subject.check_producer_identity(approved, 'summarize_haa', identity)
-    subject.check_producer_identity(approved, 'legacy_receipt', identity)
-    subject.check_producer_identity(None, 'summarize_haa', identity)
+    assert subject.check_producer_identity(approved, 'summarize_haa', identity) == []
+    assert subject.check_producer_identity(approved, 'legacy_receipt', identity) == []
+    assert subject.check_producer_identity(None, 'summarize_haa', identity) == []
+    wrong = filled_approvals()
     with pytest.raises(ValueError, match=r'not the approved code\.summarize_haa'):
-        subject.check_producer_identity(filled_approvals(), 'summarize_haa', identity)
+        subject.check_producer_identity(wrong, 'summarize_haa', identity)
+    drafted = subject.check_producer_identity(wrong, 'summarize_haa', identity, True)
+    assert len(drafted) == 1 and 'not the approved code.summarize_haa' in drafted[0]
 
 
 def test_the_exp02_record_and_the_g1_artifact_must_be_the_approved_ones(legacy_root,
@@ -719,6 +722,9 @@ def test_the_cli_writes_a_draft_and_the_legacy_receipt(legacy_root, stub_new_arm
         'reconstructed'
     assert record['H1']['verdict'] == 'suppressed (draft)'
     assert record['legacy_receipt']['sha256'] == sha(receipt)
+    assert record['producer']['entry_module'] == 'tools.exp06_summarize_haa'
+    assert any('not the approved code.summarize_haa' in item
+               for item in record['deviations'])
 
 
 def test_the_cli_refuses_a_production_run_on_this_branch(legacy_root, stub_new_arms,
