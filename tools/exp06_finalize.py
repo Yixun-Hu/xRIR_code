@@ -60,8 +60,9 @@ data inventory and mutable inputs.
               it, so the job closes no log, a ``child_exit.json`` at a job root is refused as
               ambiguous evidence, and the queue log -- when the pipeline passes one -- is
               recorded by path and hash as information. What binds a job instead is the job
-              spec, the owner ``launch.pid`` (which must be the ``--owner-pid`` declared) and
-              the children's re-validated completions.
+              spec, the owner the job root's own ``launch.pid`` records -- required of every
+              job, and which must be the ``--owner-pid`` declared whenever the launcher
+              declares one -- and the children's re-validated completions.
 
     python tools/exp06_finalize.py --run-dir <dir> --run-type full \
         --log <log> --child-exit 0 [--repo <path>] [--receipt <json>] \
@@ -1549,12 +1550,21 @@ def haa_job_completion(run_dir, children, expect, repo, job_spec, log, child_exi
 
     The orchestrating shell is the process that finalizes the job, so the only execution
     evidence a job root can hold is its own still-live ``launch.pid``; a receipt there could
-    only name that same shell. What binds a job is the job spec, that declared owner, and
-    every expected child's completion, each re-validated by ``haa_job_evidence``.
+    only name that same shell. What binds a job is the job spec, that owner, and every
+    expected child's completion, each re-validated by ``haa_job_evidence``.
+
+    Pre-merge finding 1: the owner is bound unconditionally. ``tools/exp06_haa_pipeline.sh``
+    writes the job root's ``launch.pid`` when it opens the root, so a job that records none
+    -- or one that is unreadable -- is missing the very binding A3 requires, and is refused
+    rather than certified with a null owner because ``--owner-pid`` happened to be omitted.
+    A recovery finalisation of a job whose launcher has died stays admissible: what the
+    owner may not be is absent.
     """
     _require(not (run_dir / 'child_exit.json').exists(),
              'job roots carry no child exit receipt (A3)')
     owner = refuse_live_launch(run_dir, owner_pid)
+    _require(owner is not None, '{} records no launch.pid: a job binds the owner that ran '
+             'it'.format(run_dir))
     _require(owner_pid is None or owner == owner_pid,
              'the job root holds launch.pid {}, not the declared owner {}'.format(
                  owner, owner_pid))

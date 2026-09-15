@@ -163,7 +163,11 @@ finalize_job() {
         --job-spec "$root/job_spec.json"
 }
 
-open_job() {  # open_job <root>: this launcher owns the job root, never a child
+# open_job <root>: this launcher owns the job root, never a child. own_launch records
+# this shell's $$ there whether the root is new or adopted from an interrupted queue, and
+# that launch.pid is the owner the job completion binds: pre-merge finding 1 made it
+# required evidence, so a job root without one is refused rather than certified ownerless.
+open_job() {
     say "MKDIR $1"
     say "PIDFILE $1/launch.pid"
     if [ "$DRY" -eq 0 ]; then
