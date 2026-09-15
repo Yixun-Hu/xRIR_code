@@ -1,0 +1,9 @@
+{
+  "schema_version": null,
+  "closures": {"evaluator": null, "writer": null, "training_launcher": [], "training": null, "producer_table": null, "producer_pairs": null},
+  "checkpoints": {
+    "seen_simple": {"path": null, "epoch": null, "sha256": null},
+    "seen_cyl": {"path": null, "epoch": null, "sha256": null},
+    "seen_aug": {"path": null, "epoch": null, "sha256": null}
+  }
+}

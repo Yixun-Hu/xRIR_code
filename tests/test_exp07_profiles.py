@@ -1,4 +1,5 @@
 """The frozen exp_07 (seen protocol) profiles and the literals they pin."""
+import hashlib
 import importlib
 import json
 import re
@@ -13,6 +14,7 @@ from tools import provenance as prov
 from tools.exp07_manifests import manifest_name
 from tools.paired_compare import _digest
 from tools.reference_manifest import load_manifest
+from test_exp04_profiles import approval_repo
 
 ROOT = profiles.REPO
 MANIFESTS = ROOT / 'ckpt/exp07'
@@ -172,3 +174,73 @@ def test_the_query_digest_agrees_with_the_seed_42_manifest_when_it_exists():
     queries = [entry['query'] for entry in load_manifest(path)['entries']]
     assert len(queries) == table['dataset']['n_queries']
     assert table['dataset']['query_sha256'] == _digest(queries)
+
+
+@pytest.fixture
+def template():
+    """The committed template's shape, independent of the real file's fill state."""
+    return dict(schema_version=None, closures=dict(
+        evaluator=None, writer=None, training_launcher=[], training=None,
+        producer_table=None, producer_pairs=None), checkpoints={
+            role: dict.fromkeys(('path', 'epoch', 'sha256'))
+            for role, _, _ in NEW_ARMS})
+
+
+def filled(value):
+    value['schema_version'] = 1
+    value['closures'] = dict.fromkeys(value['closures'], 'a' * 64)
+    value['closures']['training_launcher'] = ['b' * 64]
+    for role in value['checkpoints']:
+        arm = next(a for a in profiles.ARMS if a['role'] == role)
+        value['checkpoints'][role] = dict(path=arm['checkpoint'], epoch=12, sha256='c' * 64)
+    return value
+
+
+def test_the_committed_approval_file_is_the_all_null_template(template):
+    pins, receipt = profiles.load_approved_digests()
+    raw = profiles.APPROVED_DIGESTS_PATH.read_bytes()
+    assert profiles.json_value(pins) == json.loads(raw) == template
+    assert receipt['sha256'] == hashlib.sha256(raw).hexdigest() and len(receipt['git_blob']) == 40
+    assert receipt['path'] == str(profiles.APPROVED_DIGESTS_PATH.resolve())
+
+
+def test_a_filled_approval_is_accepted_and_frozen(tmp_path, template):
+    value = filled(template)
+    pins, receipt = profiles.load_approved_digests(approval_repo(tmp_path, value))
+    assert profiles.json_value(pins) == value and len(receipt['git_blob']) == 40
+    with pytest.raises(TypeError):
+        pins['checkpoints']['seen_cyl']['epoch'] = 11
+
+
+@pytest.mark.parametrize('mutate', [
+    lambda v: v.update(schema_version=1),                       # partially filled
+    lambda v: v['closures'].update(evaluator='a' * 64),         # partially filled
+    lambda v: v.update(schema_version=True),
+    lambda v: v['closures'].update(producer_pairs='not a digest'),
+    lambda v: v['closures'].pop('producer_table'),
+    lambda v: v['closures'].update(extra=None),
+    lambda v: v['checkpoints'].pop('seen_aug'),
+    lambda v: v['checkpoints']['seen_cyl'].update(path='ckpt/exp07/other/epoch_012.pth'),
+    lambda v: v['checkpoints']['seen_cyl'].update(epoch=11),
+    lambda v: v['closures'].update(training_launcher='a' * 64),
+    lambda v: v['closures'].update(training_launcher=[None]),
+])
+def test_partial_or_invalid_pins_are_refused(tmp_path, template, mutate):
+    mutate(template)
+    with pytest.raises(ValueError, match='schema'):
+        profiles.load_approved_digests(approval_repo(tmp_path, template))
+
+
+@pytest.mark.parametrize('mutate', [lambda v: v['closures'].update(training_launcher=[]),
+                                    lambda v: v['checkpoints']['seen_aug'].update(sha256=None)])
+def test_a_filled_approval_missing_one_pin_is_refused(tmp_path, template, mutate):
+    mutate(filled(template))
+    with pytest.raises(ValueError, match='all-null or all-filled'):
+        profiles.load_approved_digests(approval_repo(tmp_path, template))
+
+
+def test_bytes_that_differ_from_the_committed_ones_are_refused(tmp_path, template):
+    path = approval_repo(tmp_path, template)
+    path.write_text(json.dumps(template) + '\n')
+    with pytest.raises(ValueError, match='HEAD'):
+        profiles.load_approved_digests(path)

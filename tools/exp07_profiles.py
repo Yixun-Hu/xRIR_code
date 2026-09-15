@@ -13,6 +13,8 @@ source file is read while importing profiles.
 """
 import hashlib
 import json
+import re
+import subprocess
 from pathlib import Path
 from types import MappingProxyType as MP
 
@@ -92,3 +94,60 @@ def profile_digest(name):
     payload = json.dumps(json_value(get_profile(name)), sort_keys=True,
                          separators=(',', ':'), allow_nan=False).encode()
     return hashlib.sha256(payload).hexdigest()
+
+
+APPROVED_DIGESTS_PATH = REPO / ('worklog/worklog_yixun/exp_07_seen_protocol_claude/'
+                                'seen_protocol_results_assets/approved_digests.json')
+CLOSURES = ('evaluator', 'writer', 'training_launcher', 'training', 'producer_table',
+            'producer_pairs')
+NEW_ROLES = tuple(arm['role'] for arm in ARMS if arm['training'] == 'internal')
+
+
+def load_approved_digests(path=None):
+    """Read the committed exp_07 pins; return a frozen view and the file's identity.
+
+    ``evaluator`` pins tools.exp07_eval's closure and ``writer`` tools.exp04_eval_launch's;
+    ``training_launcher`` is the list of admissible training-launcher closures and
+    ``training`` the single closure all three arms must share.  The committed all-null
+    template loads -- the schema is reviewable before anything is approved -- but every
+    producer refuses those nulls in production; only --exploratory lists them as
+    deviations.  Pins are all-null or all-filled: a half-filled file is refused.
+    """
+    path = Path(path or APPROVED_DIGESTS_PATH).resolve()
+    raw = path.read_bytes()
+    value = json.loads(raw)
+    def shape(obj, keys):
+        if type(obj) is not dict or set(obj) != set(keys):
+            raise ValueError('approved digests schema: expected ' + ', '.join(keys))
+    shape(value, ('schema_version', 'closures', 'checkpoints'))
+    shape(value['closures'], CLOSURES)
+    shape(value['checkpoints'], NEW_ROLES)
+    def digest(item):
+        return type(item) is str and bool(re.fullmatch('[0-9a-f]{64}', item))
+    checks = [(value['schema_version'], lambda v: type(v) is int and v == 1)]
+    checks += [(value['closures'][key], digest) for key in CLOSURES if key != 'training_launcher']
+    launchers = value['closures']['training_launcher']  # [] is this pin's unfilled form
+    checks += [(None if launchers == [] else launchers,
+                lambda v: type(v) is list and len(v) >= 1 and all(digest(item) for item in v))]
+    for role, arm in value['checkpoints'].items():
+        shape(arm, ('path', 'epoch', 'sha256'))
+        expected = next(a['checkpoint'] for a in ARMS if a['role'] == role)
+        checks += [(arm['path'], lambda v, expected=expected: type(v) is str and v == expected),
+                   (arm['epoch'], lambda v: type(v) is int and v == 12), (arm['sha256'], digest)]
+    if any(item is not None and not valid(item) for item, valid in checks):
+        raise ValueError('approved digests schema: invalid pin type or value')
+    if any(item is None for item, _ in checks) and any(item is not None for item, _ in checks):
+        raise ValueError('approved digests schema: requires all-null or all-filled pins')
+    def git(*args):
+        return subprocess.check_output(['git', '-C', str(path.parent)] + list(args),
+                                       stderr=subprocess.PIPE)
+    try:
+        repo = Path(git('rev-parse', '--show-toplevel').decode().strip())
+        blob = git('rev-parse', 'HEAD:' + path.relative_to(repo).as_posix()).decode().strip()
+        committed = git('cat-file', 'blob', blob)
+    except subprocess.CalledProcessError as exc:
+        raise ValueError('approved digests must be committed at HEAD') from exc
+    if raw != committed:
+        raise ValueError('approved digests differ from committed HEAD bytes')
+    return freeze(value), dict(path=str(path), sha256=hashlib.sha256(raw).hexdigest(),
+                               git_blob=blob)
