@@ -2,3 +2,18 @@
 2026-09-15T02:07:40-04:00 SKIP existing ckpt/yaw_aug/eval/aug_k8_seed43_k0
 2026-09-15T02:07:40-04:00 SKIP existing ckpt/yaw_aug/eval/aug_k8_seed44_k0
 2026-09-15T02:07:40-04:00 START aug_k8_seed45_k0
+2026-09-15T02:21:11-04:00 END aug_k8_seed45_k0 exit=0
+2026-09-15T02:21:11-04:00 START aug_k8_seed46_k0
+2026-09-15T02:34:35-04:00 END aug_k8_seed46_k0 exit=0
+2026-09-15T02:34:35-04:00 START aug_k1_seed42_k0
+2026-09-15T02:41:48-04:00 END aug_k1_seed42_k0 exit=0
+2026-09-15T02:41:48-04:00 SKIP existing ckpt/yaw_aug/eval/aug_k1_seed43_k0
+2026-09-15T02:41:48-04:00 SKIP existing ckpt/yaw_aug/eval/aug_k1_seed44_k0
+2026-09-15T02:41:48-04:00 SKIP existing ckpt/yaw_aug/eval/aug_k1_seed45_k0
+2026-09-15T02:41:48-04:00 SKIP existing ckpt/yaw_aug/eval/aug_k1_seed46_k0
+2026-09-15T02:41:48-04:00 SKIP existing ckpt/yaw_aug/eval/aug_k8_seed42_block
+2026-09-15T02:41:48-04:00 SKIP existing ckpt/yaw_aug/eval/aug_k8_seed43_block
+2026-09-15T02:41:48-04:00 SKIP existing ckpt/yaw_aug/eval/aug_k8_seed44_block
+2026-09-15T02:41:48-04:00 SKIP existing ckpt/yaw_aug/eval/aug_k8_seed45_block
+2026-09-15T02:41:48-04:00 SKIP existing ckpt/yaw_aug/eval/aug_k8_seed46_block
+2026-09-15T02:41:48-04:00 START aug_k8_seed42_grid
