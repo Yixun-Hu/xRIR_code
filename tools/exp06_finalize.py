@@ -918,6 +918,8 @@ def child_completion(path, name, role):
     _require(record['run_type'] == role,
              'child {} has run type {!r}, not the {!r} its path requires'.format(
                  name, record['run_type'], role))
+    _require(isinstance(record['run_dir'], str) and record['run_dir'],
+             'child {} records no run_dir path: {!r}'.format(name, record['run_dir']))
     _require(Path(record['run_dir']).resolve() == Path(path).resolve(),
              'child {} claims the run_dir {}'.format(name, record['run_dir']))
     _require(record['diagnostic'] is False, 'child {} is a diagnostic run'.format(name))
@@ -1015,7 +1017,11 @@ def check_job_spec(name, role, evidence, spec):
 
 
 def load_job_spec(path, expect):
-    """The pipeline's declaration of one seed: what every child of it must agree with."""
+    """The pipeline's declaration of one seed: what every child of it must agree with.
+
+    Finding 5: every nested value is typed before it is used, so a malformed spec is a
+    named refusal (CLI exit 2, nothing written) and never a TypeError out of ``sorted``.
+    """
     _require(path, 'a job needs the pipeline --job-spec it was run from')
     spec = _mapping(_read_json(path, 'job spec'), 'job spec')
     missing = [key for key in JOB_SPEC if key not in spec]
@@ -1027,12 +1033,18 @@ def load_job_spec(path, expect):
     _require(_is_sha256(spec['init_sha256']),
              'job spec init_sha256 {!r} is not a sha256'.format(spec['init_sha256']))
     _require(type(spec['seed']) is int, 'job spec seed {!r} is not an integer'.format(spec['seed']))
-    _require(isinstance(spec['rooms'], list) and sorted(spec['rooms']) == sorted(ROOMS),
+    _require(isinstance(spec['init'], str) and spec['init'],
+             'job spec init {!r} is not an initialisation name'.format(spec['init']))
+    _require(isinstance(spec['rooms'], list)
+             and all(isinstance(room, str) for room in spec['rooms'])
+             and sorted(spec['rooms']) == sorted(ROOMS),
              'job spec rooms {!r} are not the pipeline rooms'.format(spec['rooms']))
     if spec['frame'] == 'heading':
         heading = _mapping(spec.get('heading'), 'job spec heading')
-        absent = [room for room in spec['rooms'] if type(heading.get(room)) is not int]
-        _require(not absent, 'job spec records no heading roll for ' + ', '.join(absent))
+        absent = [room for room in spec['rooms'] if type(heading.get(room)) is not int
+                  or not 0 <= heading[room] < WIDTH]
+        _require(not absent, 'job spec records no heading roll in [0, {}) for {}'.format(
+            WIDTH, ', '.join(absent)))
     else:
         _require(not spec.get('heading'), 'a room-frame job spec declares no heading')
     return spec
