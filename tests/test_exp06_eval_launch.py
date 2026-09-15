@@ -223,7 +223,14 @@ def certified(tmp_path):
         (run / name).write_text(json.dumps({'meta': meta, 'query': []}))
     completion = {'schema_version': 1, 'eval_manifest_sha256': digest,
                   'outputs': {name: p.sha256_file(run / name) for name in inherited.OUTPUTS}}
+    p.write_completion(run / 'completion.json', completion)
     return run, completion
+
+
+def persist(run, completion):
+    """Republish the on-disk completion after a test has changed the returned mapping."""
+    (run / 'completion.json').unlink()
+    p.write_completion(run / 'completion.json', completion)
 
 
 def test_intact_outputs_pass_the_post_run_check(certified):
@@ -245,6 +252,7 @@ def test_an_output_contradicting_the_manifest_is_quarantined(certified, name, fi
         body['meta'][field] = 'not what the manifest declares'
     (run / name).write_text(json.dumps(body))
     completion['outputs'][name] = p.sha256_file(run / name)
+    persist(run, completion)
     quarantined = subject.certify_outputs(run, completion)
     assert quarantined is not None and not run.exists()
     assert quarantined.name.startswith(run.name + '_QUARANTINED_')
@@ -269,9 +277,52 @@ def test_a_run_whose_bound_bytes_moved_is_quarantined(certified, damage):
     else:
         (run / name).write_text(json.dumps({'query': []}))
         completion['outputs'][name] = p.sha256_file(run / name)
+        persist(run, completion)
     quarantined = subject.certify_outputs(run, completion)
     assert quarantined is not None and not run.exists()
     assert json.loads((quarantined / 'quarantine.json').read_text())['reason']
+
+
+# --- the gate reads the record the run published, not the caller's dict (nit 7) ---
+
+
+@pytest.mark.parametrize('name', list(inherited.OUTPUTS))
+def test_a_tampered_persisted_completion_is_quarantined(certified, name):
+    """The returned mapping still binds the right bytes; only the retained record moved."""
+    run, completion = certified
+    persist(run, dict(completion, outputs=dict(completion['outputs'], **{name: 'f' * 64})))
+    quarantined = subject.certify_outputs(run, completion)
+    assert quarantined is not None and not run.exists()
+    record = json.loads((quarantined / 'quarantine.json').read_text())
+    assert record['reason'] == 'completion_mismatch' and record['reason'] in quarantined.name
+    assert (quarantined / 'completion.json').is_file()
+
+
+@pytest.mark.parametrize('damage', ['missing', 'unparsable', 'not_an_object'])
+def test_an_unreadable_persisted_completion_is_quarantined(certified, damage):
+    run, completion = certified
+    if damage == 'missing':
+        (run / 'completion.json').unlink()
+    else:
+        (run / 'completion.json').write_text('[]' if damage == 'not_an_object' else '{nope')
+    quarantined = subject.certify_outputs(run, completion)
+    assert quarantined is not None and not run.exists()
+    record = json.loads((quarantined / 'quarantine.json').read_text())
+    assert record['reason'] in ('completion_unreadable', 'completion_mismatch')
+    assert record['reason'] in quarantined.name
+
+
+def test_the_persisted_record_is_the_one_whose_hashes_are_checked(certified):
+    """A stale hash in the caller's dict cannot excuse the bytes the run published."""
+    run, completion = certified
+    name = inherited.OUTPUTS[0]
+    (run / name).write_text(json.dumps({'meta': {}, 'rewritten': True}))
+    persist(run, dict(completion, outputs=dict(completion['outputs'],
+                                               **{name: p.sha256_file(run / name)})))
+    quarantined = subject.certify_outputs(run, completion)
+    assert quarantined is not None and not run.exists()
+    assert json.loads((quarantined / 'quarantine.json').read_text())['reason'] \
+        == 'completion_mismatch'
 
 
 def test_main_fails_when_the_outputs_are_quarantined(launch_args, monkeypatch, tmp_path):
