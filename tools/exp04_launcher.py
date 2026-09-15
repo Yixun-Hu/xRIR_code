@@ -624,6 +624,7 @@ def _complete_attempt(attempt, mode, log_path, fields, digest, metrics, hours):
     fields['mutable_inputs']['train_manifest'] = {
         'path': str((attempt / 'train_manifest.json').resolve()), 'sha256': digest}
     required = {'effective_args', 'train_manifest'} | ({'control_args', 'probe_receipt'} if mode == 'full' else set())
+    required |= SEEN_INPUTS if protocol_of(fields) == 'seen' else set()
     missing = required - fields['mutable_inputs'].keys()
     if missing:
         raise LauncherFailure('input_changed', 'missing mutable inputs: ' + ', '.join(sorted(missing)))
@@ -687,8 +688,9 @@ def recovery_evidence(fields, execution, attempt, launcher_log):
         raise ValueError('invalid recovery repo or mode')
     if not re.fullmatch('[0-9a-f]{40}', fields.get('reviewed_commit', '')):
         raise ValueError('invalid reviewed_commit')
+    protocol = protocol_of(fields)
     closures = fields.get('source_closures', {})
-    if (not TRAIN_MINIMUM <= {r['path'] for r in closures.get('training', {}).get('files', [])}
+    if (not train_minimum(protocol) <= {r['path'] for r in closures.get('training', {}).get('files', [])}
             or not closures.get('launcher', {}).get('files')):
         raise ValueError('recovery closure minimum missing')
     if not fields.get('resource_before') or not set(ENV_KEYS) <= set(fields.get('env', {})):
@@ -701,9 +703,12 @@ def recovery_evidence(fields, execution, attempt, launcher_log):
             raise ValueError('recovery command attempt path mismatch')
         check_golden(fields['command'], mode, original)
     required = {'effective_args', 'train_inventory'} | ({'control_args', 'probe_receipt'} if mode == 'full' else set())
+    required |= SEEN_INPUTS if protocol == 'seen' else set()
     if not required <= set(fields.get('mutable_inputs', {})):
         raise ValueError('recovery required bindings missing')
-    if mode == 'full' and fields['train_data_identity'].get('inventory_files') != 296334:
+    if protocol == 'seen' and fields['mutable_inputs']['seen_split'] != p.seen_split_identity(REPO):
+        raise ValueError('recovery seen split changed')
+    if mode == 'full' and fields['train_data_identity'].get('inventory_files') != TRAIN_FILES[protocol]:
         raise ValueError('recovery training inventory count')
     if launcher_log is None:
         raise ValueError('recovery requires --launcher-log from nohup setsid invocation')
@@ -915,6 +920,9 @@ def main(argv=None):
     parser.add_argument('--gpu', default='1', choices=('0', '1'))
     parser.add_argument('--tier', choices=tuple(TIERS), default='M')
     parser.add_argument('--backbone', choices=('simple', 'cylindrical'), default='simple')
+    parser.add_argument('--protocol', choices=('unseen', 'seen'), default='unseen')
+    parser.add_argument('--yaw-aug', type=int, choices=(0, 1),
+                        help='--protocol seen: 1 selects the seen_aug arm')
     parser.add_argument('--reviewed-commit')
     parser.add_argument('--log-dir')
     parser.add_argument('--launcher-log', help='finalize: external nohup setsid launcher stdout log')
@@ -925,11 +933,22 @@ def main(argv=None):
     parser.add_argument('--probe-json', help='full requires a clean passing probe receipt')
     parser.add_argument('--renew-ceiling', help='S/L full only: notebook timestamp: reason')
     args = parser.parse_args(argv)
-    tiered = args.tier != 'M'
+    tiered, seen = args.tier != 'M', args.protocol == 'seen'
     if args.renew_ceiling is not None and (not tiered or args.mode != 'full'):
         parser.error('--renew-ceiling requires full --tier S|L')
+    if seen and tiered:
+        parser.error('--protocol seen runs at tier M')
+    if args.yaw_aug is not None and not seen:
+        parser.error('--yaw-aug is a --protocol seen argument')
+    if seen:
+        try:
+            seen_arm(args.backbone, args.yaw_aug)
+        except ValueError as error:
+            parser.error(str(error))
     if tiered and not args.log_dir:
         args.log_dir = str(REPO / TIER_RECORD)
+    if seen and not args.log_dir:
+        args.log_dir = str(REPO / EXP07_RECORD)
     if args.mode == 'finalize':
         if not args.attempt_dir:
             parser.error('finalize requires an attempt directory')
@@ -948,9 +967,9 @@ def main(argv=None):
         parser.error('exp05 requires the fit-probe protocol before full')
     if args.tier != 'M' and args.mode == 'full' and not args.probe_json:
         parser.error('full requires --probe-json (clean passing fit-probe)')
-    if args.tier == 'M' and args.backbone != 'simple':
+    if args.tier == 'M' and not seen and args.backbone != 'simple':
         parser.error('exp04 M launches require backbone simple')
-    root = arm_root(args.tier, args.backbone)
+    root = arm_root(args.tier, args.backbone, args.protocol, args.yaw_aug)
     if not re.fullmatch(r'[A-Za-z0-9_-]+', args.timestamp) or '_ABORTED_' in args.timestamp:
         parser.error('timestamp must be a safe filename component')
     if Path(sys.executable).resolve() != Path(PYTHON).resolve():
@@ -970,14 +989,16 @@ def main(argv=None):
     if mode in ('smoke', 'full'):
         attempt = root / (('_smoke_' if mode == 'smoke' else 'attempt_') + stamp)
         relative = os.path.relpath(attempt, REPO)
-        cmd = command(mode, relative, args.tier, args.backbone)
+        cmd = command(mode, relative, args.tier, args.backbone, args.protocol, args.yaw_aug)
         check_golden(cmd, mode, relative)
     root.mkdir(parents=True, exist_ok=True)
     with (root / '.launch.lock').open('a') as lock, patch.dict(os.environ, child_environment(args.gpu)):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         log_dir = Path(args.log_dir).resolve()
         train_log = ('param_efficiency_{}_train_{}_{}_{}.log'.format(stamp, args.tier, args.backbone, mode)
-                     if tiered else 'yaw_aug_xrir_' + stamp + '_train_' + mode + '.log')
+                     if tiered else
+                     'seen_protocol_{}_train_{}_{}.log'.format(stamp, seen_arm(args.backbone, args.yaw_aug), mode)
+                     if seen else 'yaw_aug_xrir_' + stamp + '_train_' + mode + '.log')
         if mode in ('smoke', 'full'):
             limits = None
             if mode == 'full' and args.tier != 'M':

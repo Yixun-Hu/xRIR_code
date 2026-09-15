@@ -192,3 +192,48 @@ def test_unseen_fields_keep_the_exp04_inventory_and_no_seen_binding(stub_inputs)
                             str(launch.REPO / 'ckpt/yaw_aug/train_inventory.json'))]
     assert 'protocol' not in fields and fields['effective_args']['protocol'] == 'unseen'
     assert 'seen_split' not in fields.get('mutable_inputs', {})
+
+
+def test_bound_seen_split_is_revalidated(tmp_path):
+    record = p.seen_split_identity(launch.REPO)
+    fields = {'repo': str(launch.REPO), 'mutable_inputs': {'seen_split': record}}
+    assert p.revalidate(fields) == [] and 'seen_split' in launch.SEEN_INPUTS
+    fields['mutable_inputs']['seen_split'] = dict(record, sha256='0' * 64)
+    assert p.revalidate(fields) == ['seen_split']
+    from tools import exp04_eval_launch
+    assert 'seen_split' in exp04_eval_launch.MUTABLE_INPUTS
+
+
+def recovery_fields(arm='seen_simple'):
+    attempt = attempt_of(arm)
+    argv = argv_of(arm, attempt)
+    closure = [dict(path=name) for name in sorted(launch.TRAIN_MINIMUM | {launch.SEEN_MODULE})]
+    return dict(repo=str(launch.REPO), mode='full', reviewed_commit='a' * 40, command=argv,
+                effective_args=launch.effective_args(argv, '1', SEEN_BATCHES),
+                source_closures=dict(training=dict(files=closure), launcher=dict(files=closure)),
+                resource_before={'gpu': '1'}, env={key: '' for key in launch.ENV_KEYS},
+                train_data_identity=dict(inventory_files=launch.TRAIN_FILES['seen']),
+                attempt_path=str((launch.REPO / attempt).resolve()),
+                mutable_inputs=dict(seen_split=p.seen_split_identity(launch.REPO),
+                                    **{name: {} for name in ('effective_args', 'train_inventory',
+                                                             'control_args', 'probe_receipt')}))
+
+
+@pytest.mark.parametrize('fault,message', [
+    (None, 'launcher-log'), ('binding', 'required bindings'), ('digest', 'seen split'),
+    ('count', 'training inventory count'), ('closure', 'closure minimum')])
+def test_recovery_validates_the_seen_inputs(fault, message):
+    fields = recovery_fields()
+    if fault == 'binding':
+        del fields['mutable_inputs']['seen_split']
+    elif fault == 'digest':
+        fields['mutable_inputs']['seen_split']['sha256'] = '0' * 64
+    elif fault == 'count':
+        fields['train_data_identity']['inventory_files'] = launch.TRAIN_FILES['unseen']
+    elif fault == 'closure':
+        files = fields['source_closures']['training']['files']
+        fields['source_closures']['training']['files'] = [
+            r for r in files if r['path'] != launch.SEEN_MODULE]
+    # A clean seen manifest reaches the launcher-log check that follows these gates.
+    with pytest.raises(ValueError, match=message):
+        launch.recovery_evidence(fields, {}, launch.REPO / attempt_of('seen_simple'), None)

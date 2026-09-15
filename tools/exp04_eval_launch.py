@@ -15,7 +15,8 @@ from eval_unseen import griffin_lim
 OUTPUTS = ("per_sample_yaw.json", "metrics_yaw.json")
 REQUIRED_INPUTS = ('repo', 'checkpoint', 'checkpoint_sha256', 'manifest_path', 'manifest_file_sha256',
                    'data_identity', 'evaluator_closure', 'source_closures', 'mutable_inputs', 'eval_manifest')
-MUTABLE_INPUTS = {'control_args', 'train_args', 'train_manifest', 'train_completion', 'probe_receipt'}
+MUTABLE_INPUTS = {'control_args', 'train_args', 'train_manifest', 'train_completion',
+                  'probe_receipt', 'seen_split'}
 TIER_FIELDS = ('tier', 'param_counts', 'args_json_sha256', 'legacy_M',
                'vit_dim', 'vit_depth', 'vit_heads', 'vit_mlp_dim')
 
