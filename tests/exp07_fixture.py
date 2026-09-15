@@ -144,13 +144,30 @@ def exp07_fixture(tmp_path):
                                protocol='seen', yaw_aug=arm['yaw_aug'], passed=True,
                                PROBE_NOT_CLEAN=False, T_epoch=8400., T_run=100800.,
                                reviewed_commit=commit, gpu='1')
-                receipt_path = attempt.parent / 'probe_receipt.json'
+                receipt_path = attempt.parent / ('_probe_t_' + role + '.json')
                 receipt_digest = p.write_manifest(receipt_path, receipt)
+                # Every arm probed once; seen_simple also retried after a slow epoch one.
+                history = [dict(attempt=attempt.name, hours=27.5, mode='full'),
+                           dict(attempt='_probe_t_arm', hours=.4, mode='probe')]
+                probe = attempt.parent / '_probe_t_arm'
+                probe.mkdir()
+                p.write_manifest(probe / 'train_manifest.json', dict(mode='probe', role=role))
+                p.write_completion(probe / 'completion.json',
+                                   dict(metrics=dict(probe=dict(T_epoch=receipt['T_epoch']))))
+                if role == 'seen_simple':
+                    aborted = attempt.parent / 'attempt_first_ABORTED_slow'
+                    aborted.mkdir()
+                    p.write_completion(aborted / 'abort.json', dict(
+                        reason='guard_epoch_one', wall_hours=3.1,
+                        exception_message='epoch one exceeds probe acceptance'))
+                    p.write_manifest(aborted / 'train_manifest.json',
+                                     dict(mode='full', role=role, attempt_path=str(aborted)))
+                    history.append(dict(attempt=aborted.name, hours=3.1, mode='full'))
                 p.write_manifest(attempt.parent / 'cumulative_hours.json', dict(
-                    total_hours=27.5, ceiling_hours=1.5 * receipt['T_run'] / 3600,
+                    total_hours=sum(row['hours'] for row in history),
+                    ceiling_hours=1.5 * receipt['T_run'] / 3600,
                     probe_projection_hours=receipt['T_run'] / 3600,
-                    probe_receipt_sha256=receipt_digest,
-                    attempts=[dict(attempt=attempt.name, hours=27.5, mode='full')]))
+                    probe_receipt_sha256=receipt_digest, attempts=history))
                 inventory_path = attempt / 'train_inventory.json'
                 inventory_digest = p.write_manifest(
                     inventory_path, dict(inventory=trained_data['inventory']))

@@ -42,14 +42,18 @@ def test_the_fixture_carries_the_full_runs_training_evidence(exp07_fixture):
         records = built.read(sidecar)['inventory']
         assert p._inventory_digest(records) == identity['inventory_sha256']
         assert identity['inventory_files'] == len(records) == built.profile['train_inventory_files']
-        receipt = built.read(attempt.parent / 'probe_receipt.json')
+        receipt = built.read(receipt_path(attempt))
         limits = manifest['timing_limits']
-        assert limits['probe_receipt_sha256'] == p.sha256_file(attempt.parent / 'probe_receipt.json')
+        assert limits['probe_receipt_sha256'] == p.sha256_file(receipt_path(attempt))
         assert limits['projection_hours'] == receipt['T_run'] / 3600 <= 60
         assert limits['ceiling_hours'] == 1.5 * limits['projection_hours']
         assert limits['epoch_seconds'] == 1.05 * receipt['T_epoch']
         ledger = built.read(attempt.parent / 'cumulative_hours.json')
-        assert [row['mode'] for row in ledger['attempts']] == ['full']
+        # Every arm probed once; seen_simple also retried after a slow first epoch.
+        expected = ['full', 'probe'] + (['full'] if role == 'seen_simple' else [])
+        assert sorted(row['mode'] for row in ledger['attempts']) == sorted(expected)
+        assert any(row['attempt'] == attempt.name and row['mode'] == 'full'
+                   for row in ledger['attempts'])
         args = built.read(attempt / 'args.json')
         assert manifest['effective_args'] != args  # the launcher normalises the env keys
         assert manifest['effective_args']['PYTHONHASHSEED'] == args['env']['PYTHONHASHSEED']
@@ -297,11 +301,16 @@ def retimed(built, role, **changes):
     rebind_training(built, role, manifest=manifest)
 
 
+def receipt_path(attempt):
+    """The arm's probe receipt, named as tools/exp07_launcher.py writes it."""
+    return next(attempt.parent.glob('_probe_*.json'))
+
+
 def rereceipted(built, role, **changes):
     """Rewrite the arm's probe receipt and the limits the launcher derives from it."""
     attempt = built.attempts[role]
-    receipt = dict(built.read(attempt.parent / 'probe_receipt.json'), **changes)
-    digest = built.replace(attempt.parent / 'probe_receipt.json', receipt)
+    receipt = dict(built.read(receipt_path(attempt)), **changes)
+    digest = built.replace(receipt_path(attempt), receipt)
     manifest = built.read(attempt / 'train_manifest.json')
     manifest['mutable_inputs']['probe_receipt']['sha256'] = digest
     manifest['timing_limits'].update(probe_receipt_sha256=digest, epoch_seconds=1.05 * receipt['T_epoch'],
@@ -474,7 +483,7 @@ def test_the_validated_training_evidence_is_bound_into_the_producer_inputs(built
     for role in ('seen_simple', 'seen_cyl', 'seen_aug'):
         attempt = built.attempts[role]
         for path in (attempt / 'train_inventory.json', attempt.parent / 'cumulative_hours.json',
-                     attempt.parent / 'probe_receipt.json'):
+                     receipt_path(attempt)):
             assert admitted['inputs'][str(path)] == p.sha256_file(path)
 
 

@@ -1,6 +1,7 @@
 """The exp_07 record generators run on real producer outputs over synthetic runs."""
 import json
 import re
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -199,8 +200,22 @@ def bound(record_inputs, tmp_path, monkeypatch):
     released = next(arm for arm in built.profile['arms'] if arm['reference'])
     monkeypatch.setattr(binder, 'RELEASED', released['checkpoint'])
     monkeypatch.setattr(binder, 'RELEASED_SHA256', released['sha256'])
+    head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(binder.ROOT),
+                                   text=True).strip()
     audit = tmp_path / 'alignment_audit_seen.json'
-    audit.write_text('{"protocol": "seen"}')
+    audit.write_text(json.dumps(dict(pairs=768, changed_delays=0, fraction=0.0,
+        cohort_sha256='a' * 64, W=512, schema_version=1, passed=True,
+        args=dict(seed=0, n_batches=3, batch_size=32, protocol='seen', num_workers=12,
+                  loader_batches=binder.SEEN_BATCHES, W=512, data_root='/data',
+                  PYTHONHASHSEED='0', git_head=head),
+        env=dict(python='3.8.0', torch='2.0.1', cuda='11.7', hostname='host'))))
+    evidence = {'gpu_parity': tmp_path / 'gpu_parity.log',
+                'calibration': tmp_path / 'calibration.json'}
+    evidence['gpu_parity'].write_text('9 passed, 0 skipped\n')
+    evidence['calibration'].write_text(json.dumps(dict(
+        role='released_seen', protocol='seen', num_shot=8, passed=True,
+        metrics={name: dict(mean=value, sd=value / 100, historical=value, passed=True)
+                 for name, value in binder.HISTORICAL.items()})))
     documents = [record_inputs['out']]
     load_asset('make_results_md').main(argv(record_inputs))
     for suffix, module in (('.html', 'make_results_html'), ('.tex', 'make_latex')):
@@ -209,7 +224,9 @@ def bound(record_inputs, tmp_path, monkeypatch):
     reports = tmp_path / 'reports'
     reports.mkdir()
     return SimpleNamespace(binder=binder, built=built, paths=record_inputs, reports=reports,
+        evidence=evidence,
         arguments=dict(runs=list(built.directories), audit=str(audit),
+                       evidence=[name + '=' + str(path) for name, path in sorted(evidence.items())],
                        attempt=[str(built.attempts[role]) for role in built.pins['checkpoints']],
                        results=[str(record_inputs['table'])] + [str(item) for item in
                                                                 record_inputs['pairs']],
@@ -223,7 +240,21 @@ def test_the_binding_report_covers_the_whole_seen_record(bound):
     assert len(report['runs']) == 40 and len(report['attempts']) == 3
     assert sorted(item['role'] for item in report['attempts']) == ['seen_aug', 'seen_cyl',
                                                                    'seen_simple']
-    assert all(item['full_attempts'] == 1 for item in report['attempts'])
+    counted = {item['role']: item['full_attempts'] for item in report['attempts']}
+    assert counted == dict(seen_simple=2, seen_cyl=1, seen_aug=1)
+    # Every attempt the ledgers list is bound, aborted and probe runs included.
+    others = {item['role']: sorted((row['attempt'], row['mode'])
+                                   for row in item['other_attempts'])
+              for item in report['attempts']}
+    assert others['seen_cyl'] == others['seen_aug'] == [('_probe_t_arm', 'probe')]
+    assert others['seen_simple'] == [('_probe_t_arm', 'probe'),
+                                     ('attempt_first_ABORTED_slow', 'full')]
+    assert all(row['files'] for item in report['attempts'] for row in item['other_attempts'])
+    assert all(item['probe_receipts'] for item in report['attempts'])
+    assert report['audit']['protocol'] == 'seen' and report['audit']['cohort_sha256']
+    assert set(report['evidence']) == set(bound.binder.EVIDENCE)
+    assert report['evidence']['calibration']['role'] == 'released_seen'
+    assert sorted(report['evidence']['calibration']['metrics']) == ['C50', 'EDT', 'T60']
     assert all(item['inventory']['sha256'] and item['probe_receipt']['sha256'] and
                item['ledger']['sha256'] and item['seen_split']['sha256']
                for item in report['attempts'])
@@ -278,6 +309,66 @@ def relink(bound):
     bound.built.rebind(run, manifest=fields)
 
 
+def edit_json(path, mutate):
+    data = json.loads(Path(path).read_text())
+    mutate(data)
+    Path(path).write_text(json.dumps(data))
+
+
+def restamp(bound):
+    """Repair the sidecar's digest of the canonical JSON after editing both of them."""
+    md = load_asset('make_results_md')
+    path = Path(bound.paths['table'])
+    side = json.loads(sidecar(path).read_text())
+    side['outputs'][str(path.resolve())] = md.sha(path.read_bytes())
+    sidecar(path).write_text(json.dumps(side))
+
+
+def edit_both(bound, mutate):
+    """Edit the seen table's inputs in the JSON and its sidecar, keeping them consistent."""
+    path = Path(bound.paths['table'])
+    data, side = json.loads(path.read_text()), json.loads(sidecar(path).read_text())
+    mutate(data, side)
+    side['inputs'] = data['inputs']
+    path.write_text(json.dumps(data))
+    sidecar(path).write_text(json.dumps(side))
+    restamp(bound)
+
+
+def drop_input(bound, name):
+    """Remove one declared input from BOTH the canonical JSON and its sidecar."""
+    def mutate(data, side):
+        victim = next(item for item in data['inputs'] if Path(item).name == name)
+        del data['inputs'][victim]
+    edit_both(bound, mutate)
+
+
+def substitute_input(bound, name, digest):
+    def mutate(data, side):
+        victim = next(item for item in data['inputs'] if Path(item).name == name)
+        data['inputs'][victim] = digest
+    edit_both(bound, mutate)
+
+
+def foreign_approval(bound, replacement='/nonexistent/approved.json'):
+    """Point the approval identity at another path, consistently in JSON and sidecar."""
+    def mutate(data, side):
+        old = side['approved_digests']['path']
+        data['inputs'][replacement] = data['inputs'].pop(old)
+        side['approved_digests'] = dict(side['approved_digests'], path=replacement)
+    edit_both(bound, mutate)
+
+
+def orphan_ledger_row(bound, role='seen_cyl'):
+    """Add a ledger row for an attempt directory that does not exist."""
+    path = bound.built.attempts[role].parent / 'cumulative_hours.json'
+    ledger = json.loads(path.read_text())
+    ledger['attempts'].append(dict(attempt='attempt_vanished', hours=.5, mode='probe'))
+    ledger['total_hours'] = sum(row['hours'] for row in ledger['attempts'])
+    path.unlink()
+    path.write_text(json.dumps(ledger))
+
+
 FORGERIES = {
     'retried_twice': (lambda b: replace_ledger(b, 'seen_simple', 3),
                       'more than one retry recorded'),
@@ -287,15 +378,70 @@ FORGERIES = {
                     'the forty evaluation runs'),
     'uncited_document': (lambda b: Path(b.arguments['rendered'][0]).write_text('nothing'),
                          'does not cite every canonical digest'),
+    # Blocker 2: incomplete products and inputs that are not the bound evidence.
+    'empty_table': (lambda b: edit(b.paths['table'], lambda d: d.update(rows=[])),
+                    'incomplete seen table coverage'),
+    'nonfinal_pairs': (lambda b: edit(b.paths['pairs'][0], lambda d: d.update(
+        final=False, reconverge_required=['EDT K=8'])), 'pairing is not final'),
+    'unconverged_cell': (lambda b: edit(b.paths['pairs'][1], lambda d: d['cells'][0][
+        'statistics']['absolute'].update(reconverge_required=True)), 'larger n_boot'),
+    'missing_run_input': (lambda b: drop_input(b, 'metrics_yaw.json'),
+                          'incomplete run coverage'),
+    'substituted_inventory_digest': (lambda b: substitute_input(
+        b, 'train_inventory.json', 'f' * 64), 'input differs from the bound artefact'),
+    'foreign_approval_path': (foreign_approval, 'result approval identity or pins'),
+    # Blocker 3: the attempt history, the audit and the required evidence.
+    'changed_abort_json': (lambda b: edit_json(
+        b.built.attempts['seen_simple'].parent / 'attempt_first_ABORTED_slow/abort.json',
+        lambda d: d.update(reason='rewritten')), None),
+    'missing_ledger_attempt': (orphan_ledger_row, 'the ledger names a missing attempt'),
+    'unseen_audit': (lambda b: edit_json(b.arguments['audit'],
+                                         lambda d: d['args'].update(protocol='unseen')),
+                     'not a seen-protocol audit'),
+    'failed_audit': (lambda b: edit_json(b.arguments['audit'],
+                                         lambda d: d.update(passed=False, changed_delays=7)),
+                     'the audit did not pass'),
+    'unseen_audit_loader': (lambda b: edit_json(b.arguments['audit'],
+                                                lambda d: d['args'].update(loader_batches=9261)),
+                            'the audit cohort is not the seen training loader'),
+    'audit_without_cohort': (lambda b: edit_json(b.arguments['audit'],
+                                                 lambda d: d.update(cohort_sha256=None)),
+                             'the audit has no cohort digest'),
+    'missing_evidence': (lambda b: b.arguments.__setitem__(
+        'evidence', b.arguments['evidence'][:1]), 'every evidence artefact is required'),
+    'unregistered_evidence': (lambda b: b.arguments['evidence'].append('extra=/dev/null'),
+                              'invalid or duplicate --evidence'),
+    'empty_parity_log': (lambda b: b.evidence['gpu_parity'].write_text(''),
+                         'empty evidence artefact'),
+    'calibration_outside_tolerance': (lambda b: edit_json(
+        b.evidence['calibration'],
+        lambda d: d['metrics']['C50'].update(mean=d['metrics']['C50']['historical'] * 2)),
+        'calibration acceptance'),
+    'calibration_not_the_released_row': (lambda b: edit_json(
+        b.evidence['calibration'], lambda d: d.update(role='seen_simple')),
+        'calibration identity'),
 }
 
 
-@pytest.mark.parametrize('forgery', sorted(FORGERIES))
+
+
+
+@pytest.mark.parametrize('forgery', sorted(name for name in FORGERIES
+                                           if FORGERIES[name][1] is not None))
 def test_the_binder_refuses_a_forged_record(bound, forgery):
     mutate, message = FORGERIES[forgery]
     mutate(bound)
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises((ValueError, KeyError), match=message):
         bound.binder.collect(**bound.arguments)
+
+
+@pytest.mark.parametrize('forgery', sorted(name for name in FORGERIES
+                                           if FORGERIES[name][1] is None))
+def test_a_change_to_any_bound_attempt_file_changes_the_report(bound, forgery):
+    """Not a refusal: the report must simply stop matching, so check_record.py fails."""
+    before = bound.binder.collect(**bound.arguments)
+    FORGERIES[forgery][0](bound)
+    assert bound.binder.collect(**bound.arguments) != before
 
 
 def table_rows(text):
