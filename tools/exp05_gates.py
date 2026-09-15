@@ -46,10 +46,17 @@ def validate_receipt(path, commit, gpu, tier, backbone, protocol='unseen', yaw_a
         require(effective['tier'] == tier and effective['backbone'] == backbone
                 and effective.get('protocol', 'unseen') == protocol
                 and effective.get('yaw_aug', 0) == yaw_aug, 'tier/backbone mismatch')
+        measured = completion['metrics']['probe']
+        # The receipt's own identity is required to equal the requested arm above (yaw_aug in
+        # `valid` below), so tying the completion to the request also ties it to the receipt.
+        requested = dict(tier=tier, backbone=backbone, protocol=protocol, yaw_aug=yaw_aug)
         if (attempt_path.parent != arm_root(tier, backbone, protocol, yaw_aug).resolve()
                 or manifest['mode'] != 'probe'
                 or Path(manifest['attempt_path']).resolve() != attempt_path
-                or any(completion['metrics']['probe'][k] != data[k] for k in
+                or completion['train_manifest_sha256'] != attempt['train_manifest_sha256']
+                or any(measured.get(key, 'unseen' if key == 'protocol' else None) != value
+                       for key, value in requested.items())
+                or any(measured[k] != data[k] for k in
                        ('t_micro', 't_test', 't_save', 'iteration_seconds', 'peak_allocated_bytes',
                         'peak_reserved_bytes', 'T_epoch', 'T_run'))):
             raise ValueError('probe attempt arm or measurements differ')
@@ -93,7 +100,8 @@ def timing_limits(fields, gpu):
     except (OSError, KeyError, TypeError, ValueError) as error:
         raise ValueError('missing or changed tier probe receipt') from error
     return dict(epoch_seconds=1.05 * data['T_epoch'], projection_hours=data['T_run'] / 3600,
-                ceiling_hours=1.5 * data['T_run'] / 3600, probe_receipt_sha256=actual['sha256'])
+                ceiling_hours=1.5 * data['T_run'] / 3600, probe_receipt_sha256=actual['sha256'],
+                protocol=protocol)
 
 
 def set_budget(root, limits, renewal=None, commit=True):
@@ -117,7 +125,11 @@ def set_budget(root, limits, renewal=None, commit=True):
                     raise ValueError('slow abort requires a new probe receipt')
             except (OSError, KeyError, TypeError, ValueError) as error:
                 raise ValueError('slow abort requires intact evidence and a new probe receipt') from error
-        used = sum(r['hours'] for r in record['attempts'] if r['mode'] == 'full')
+        full = [r for r in record['attempts'] if r['mode'] == 'full']
+        # A seen arm gets one retry: neither a new receipt nor a renewal resets this count.
+        if limits.get('protocol') == 'seen' and len(full) >= 2:
+            raise ValueError('seen arm allows at most one retry: two full attempts recorded')
+        used = sum(r['hours'] for r in full)
         ceiling = limits['ceiling_hours']
         old = record.get('probe_receipt_sha256')
         if old == limits['probe_receipt_sha256'] and record.get('probe_projection_hours') != limits['projection_hours']:

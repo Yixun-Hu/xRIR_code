@@ -4,12 +4,14 @@ Timings are mocked and the child is stubbed, exactly as tests/test_exp05_probe*.
 no GPU and no trainer are involved.
 """
 import json
+from pathlib import Path
 
 import pytest
 
 from tools import exp04_launcher as launch, exp05_gates as gates, exp05_probe as probe
 from tools import provenance as p
 from tools.exp05_params import TIERS
+from test_exp05_gates import receipt  # noqa: F401  (the historical S/L receipt fixture)
 from test_exp05_probe import measurement
 
 ARMS = [('seen_simple', 'simple', 0), ('seen_cyl', 'cylindrical', 0), ('seen_aug', 'simple', 1)]
@@ -121,7 +123,8 @@ def test_timing_limits_for_a_seen_arm(seen_receipt):
                                       **{'vit_' + key: value for key, value in TIERS['M'].items()}))
     assert gates.timing_limits(fields, '1') == dict(
         epoch_seconds=1.05 * data['T_epoch'], projection_hours=data['T_run'] / 3600,
-        ceiling_hours=1.5 * data['T_run'] / 3600, probe_receipt_sha256=binding['sha256'])
+        ceiling_hours=1.5 * data['T_run'] / 3600, probe_receipt_sha256=binding['sha256'],
+        protocol='seen')  # the ledger's one-retry rule reads the protocol from the limits
     fields['effective_args']['protocol'] = 'unseen'  # the exp_04 M path stays unlimited
     assert gates.timing_limits(fields, '1') is None
 
@@ -159,3 +162,86 @@ def test_cli_requires_a_receipt_and_gates_renewal(tmp_path, capsys, argv, messag
         launch.main(argv + ['--protocol', 'seen', '--reviewed-commit', 'HEAD', '--log-dir', str(tmp_path)])
     assert message in capsys.readouterr().err
     assert not (tmp_path / 'ckpt').exists()
+
+
+def substitute_completion(receipt_path, data, **changes):
+    """Rewrite the bound completion and recompute the receipt's outer hash of it."""
+    bound = data['probe_attempt']
+    path = Path(bound['path']) / 'completion.json'
+    completion = json.loads(path.read_text())
+    completion.update({k: v for k, v in changes.items() if k == 'train_manifest_sha256'})
+    completion['metrics']['probe'].update({k: v for k, v in changes.items()
+                                           if k != 'train_manifest_sha256'})
+    path.write_text(json.dumps(completion))
+    bound['completion_sha256'] = p.sha256_file(path)
+    receipt_path.write_text(json.dumps(data))
+
+
+@pytest.mark.parametrize('changes', [
+    dict(train_manifest_sha256='0' * 64), dict(protocol='unseen'), dict(yaw_aug=0),
+    dict(tier='S'), dict(backbone='cylindrical'), dict(protocol='unseen', yaw_aug=0)])
+def test_receipt_requires_a_completion_that_certifies_its_manifest(seen_receipt, changes):
+    """Unrelated completion evidence is refused even with accurate outer file hashes."""
+    path, data = seen_receipt
+    assert gates.validate_receipt(path, 'a' * 40, '1', 'M', 'simple', 'seen', 1)['sha256']
+    substitute_completion(path, data, **changes)
+    with pytest.raises(ValueError, match='probe attempt arm or measurements differ'):
+        gates.validate_receipt(path, 'a' * 40, '1', 'M', 'simple', 'seen', 1)
+
+
+def test_unseen_receipts_keep_their_completion_linkage(receipt):
+    """The exp_05 S/L receipts validate unchanged and refuse the same substitution."""
+    path, data = receipt
+    assert gates.validate_receipt(path, 'a' * 40, '1', 'S', 'simple')['sha256']
+    substitute_completion(path, data, train_manifest_sha256='0' * 64)
+    with pytest.raises(ValueError, match='probe attempt arm or measurements differ'):
+        gates.validate_receipt(path, 'a' * 40, '1', 'S', 'simple')
+
+
+LIMITS = dict(projection_hours=30., ceiling_hours=45., probe_receipt_sha256='a' * 64)
+
+
+def ledger(root, modes, hours=1.):
+    """A consistent arm ledger holding one row per attempt of the given modes."""
+    root.mkdir(parents=True, exist_ok=True)
+    attempts = [dict(attempt='attempt_{}'.format(i), hours=hours, mode=mode)
+                for i, mode in enumerate(modes)]
+    p.write_completion(root / 'cumulative_hours.json', dict(
+        total_hours=hours * len(modes), attempts=attempts, ceiling_hours=45.,
+        probe_receipt_sha256='a' * 64, probe_projection_hours=30.))
+
+
+@pytest.mark.parametrize('protocol,modes,allowed', [
+    ('seen', [], True), ('seen', ['full'], True), ('seen', ['full', 'smoke', 'probe'], True),
+    ('seen', ['full', 'full'], False), ('seen', ['smoke', 'full', 'full', 'probe'], False),
+    ('unseen', ['full', 'full'], True)])  # the exp_05 S/L ledgers keep their behaviour
+def test_seen_arms_allow_at_most_one_retry(tmp_path, protocol, modes, allowed):
+    ledger(tmp_path, modes)
+    limits = dict(LIMITS, protocol=protocol)
+    if allowed:  # the hours check alone admits every one of these ledgers
+        assert gates.set_budget(tmp_path, limits, commit=False)['ceiling_hours'] == 45.
+    else:
+        with pytest.raises(ValueError, match='one retry'):
+            gates.set_budget(tmp_path, limits, commit=False)
+
+
+@pytest.mark.parametrize('renewal', [None, '2026-09-15T00:00:00-04:00: fresh clean probe'])
+def test_neither_a_new_receipt_nor_a_renewal_resets_the_seen_count(tmp_path, renewal):
+    ledger(tmp_path, ['full', 'full'])
+    limits = dict(LIMITS, protocol='seen', probe_receipt_sha256='b' * 64, ceiling_hours=90.)
+    with pytest.raises(ValueError, match='one retry'):
+        gates.set_budget(tmp_path, limits, renewal=renewal)
+    record = json.loads((tmp_path / 'cumulative_hours.json').read_text())
+    assert (record['ceiling_hours'], record['probe_receipt_sha256']) == (45., 'a' * 64)
+    assert not record.get('renewals') and not record.get('probe_receipt_history')
+
+
+def test_third_seen_full_attempt_is_refused_before_any_directory(tmp_path, monkeypatch):
+    root = tmp_path / 'ckpt/exp07/seen_simple'
+    ledger(root, ['full', 'full'])
+    monkeypatch.setattr(launch, 'resource_gate', lambda *a: pytest.fail('resource gate reached'))
+    with pytest.raises(ValueError, match='one retry'):
+        launch.execute_attempt(root / 'attempt_new', 'full', '1', tmp_path / 'train.log',
+                               lambda: pytest.fail('fields built'),
+                               limits=dict(LIMITS, protocol='seen'))
+    assert [f.name for f in root.iterdir()] == ['cumulative_hours.json']
