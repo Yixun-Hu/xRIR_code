@@ -127,3 +127,59 @@ def test_the_training_admission_record_must_be_complete(full_run, clone, damage,
     with pytest.raises(ValueError, match=cause):
         exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
     assert not (run / 'completion.json').exists()
+
+
+def test_geometry_membership_is_derived_from_the_datasets_own_split(data_root):
+    """Finding 2: the metadata and depth maps every query and reference of a split reads."""
+    from tools import exp06_train
+    files, counts = exp06_train.geometry_paths(data_root)
+    assert counts == {'train': 2, 'test': 1}
+    assert set(files) == {
+        'metadata/Apartments/Apartments_idx_1/S000_R000.json',
+        'metadata/Apartments/Apartments_idx_1/S001_R000.json',
+        'metadata/Bathrooms/Bathrooms_idx_18/S000_R000.json',
+        'depth_map/Apartments/Apartments_idx_1/0.npy',
+        'depth_map/Bathrooms/Bathrooms_idx_18/0.npy'}
+    identity = exp06_train.geometry_identity(str(data_root))
+    assert identity['inventory_files'] == 5 and identity['splits'] == ['train', 'test']
+    assert identity['split_files'] == counts
+    assert {entry['path'] for entry in identity['inventory']} == set(files)
+
+
+def test_a_full_completion_rehashes_every_geometry_input(full_run, clone, data_root):
+    run, log = full_run
+    fields = exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert fields['geometry_files'] == 5
+    assert fields['geometry_rehash_seconds'] >= 0
+
+
+@pytest.mark.parametrize('changed', ['metadata/Apartments/Apartments_idx_1/S000_R000.json',
+                                     'depth_map/Bathrooms/Bathrooms_idx_18/0.npy'])
+def test_a_geometry_input_that_changed_after_provenance_is_refused(full_run, clone, data_root,
+                                                                   changed):
+    """The review's reproduction: a changed source position passed the WAV inventory."""
+    run, log = full_run
+    (Path(data_root) / changed).write_bytes(b'a different room')
+    with pytest.raises(ValueError, match='geometry'):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert not (run / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('damage', ['absent', 'short', 'wrong_root'])
+def test_an_incomplete_geometry_inventory_is_refused(full_run, clone, data_root, damage):
+    run, log = full_run
+    record = json.loads((run / 'provenance.json').read_text())
+    if damage == 'absent':
+        record.pop('geometry_identity')
+    elif damage == 'wrong_root':
+        record['geometry_identity']['data_root'] = str(Path(data_root).parent)
+    else:
+        identity = record['geometry_identity']
+        identity['inventory'] = identity['inventory'][:-1]
+        identity['inventory_files'] = len(identity['inventory'])
+        identity['inventory_bytes'] = sum(entry['size'] for entry in identity['inventory'])
+        identity['inventory_sha256'] = exp06_finalize.inventory_digest(identity['inventory'])
+    (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    with pytest.raises(ValueError, match='geometry'):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert not (run / 'completion.json').exists()

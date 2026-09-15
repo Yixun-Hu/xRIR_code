@@ -76,7 +76,16 @@ def data_root(tmp_path):
     for index, name in enumerate(TRAIN_IRS + (TEST_IR,)):
         (root / name).parent.mkdir(parents=True, exist_ok=True)
         (root / name).write_bytes(b'sample %d' % index)
+    # Finding 2: the geometry the dataset reads for the same IRs, inventoried by exp_06.
+    for index, name in enumerate(exp06_train.geometry_paths(root)[0]):
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_bytes(b'geometry %d' % index)
     return root
+
+
+def geometry_of(root):
+    """The exp_06-owned inventory of every metadata JSON and depth map of both splits."""
+    return exp06_train.geometry_identity(str(root))
 
 
 def inventory_of(root):
@@ -149,6 +158,7 @@ def full_run(tmp_path, clone, data_root, approvals):
     record = provenance_record(clone, approvals)
     record['data_root'] = str(Path(data_root).resolve())
     record['train_data_identity'] = inventory_of(data_root)
+    record['geometry_identity'] = geometry_of(data_root)
     args = bound_args(run, record)
     record['effective_args'] = args
     (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
