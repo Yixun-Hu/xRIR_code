@@ -36,6 +36,7 @@ import datetime
 import functools
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -43,8 +44,9 @@ import sys
 
 import torch
 
+from model.xRIR_cyl_oriented import build_xrir_exp06
 from sim_to_real.haa_dataset import ROOMS
-from tools import exp06_recipe, provenance
+from tools import exp06_heading, exp06_recipe, provenance
 
 REPO = Path(__file__).resolve().parents[1]
 MARKER = 'EXP06_CHILD_EXIT'
@@ -54,13 +56,18 @@ EXPECTATIONS = ('finetune', 'zeroshot')
 LAUNCH_MODES = ('smoke', 'probe', 'full')
 EXCLUSIVE_GPU_MODES = ('probe', 'full')
 FULL_ARTIFACTS = ('provenance.json', 'args.json', 'history.jsonl', 'last.pth', 'epoch_012.pth')
-HAA_TRAIN_ARTIFACTS = ('args.json', 'history.jsonl', 'summary.json', 'best.pth', 'last.pth')
+HAA_TRAIN_ARTIFACTS = ('provenance.json', 'args.json', 'history.jsonl', 'summary.json',
+                       'best.pth', 'last.pth')
+HAA_SUMMARY = ('best_val_loss', 'best_epoch')
+HEADING_DECISIONS = ('estimated', 'override')
 FRAMES = ('room', 'heading')
 REQUIRED_PROVENANCE = ('run_type', 'repo', 'reviewed_commit', 'source_closures',
                        'registry_sha256', 'git_state', 'environment', 'command',
-                       'effective_args', 'train_data_identity')
+                       'effective_args')
 ENTRY_MODULES = {'full': 'tools.exp06_train', 'haa_train': 'tools.exp06_haa_finetune',
                  'haa_eval': 'tools.exp06_haa_eval'}
+BACKBONES = tuple(sorted(build_xrir_exp06.__globals__['BACKBONES_EXP06']))
+IDENTITY_KEYS = ('train_data_identity', 'data_identity')
 WIDTH = 512
 EPOCH_CHECKPOINT = 'epoch_{:03d}.pth'.format(exp06_recipe.EXP01_RECIPE['epochs'])
 
@@ -205,10 +212,12 @@ def load_provenance(run_dir, run_type):
     _require(not missing, 'provenance.json is incomplete: missing ' + ', '.join(missing))
     _require(record['run_type'] == run_type,
              'provenance run_type is {!r}, not {}'.format(record['run_type'], run_type))
-    identity = record['train_data_identity']
-    _require(isinstance(identity, dict) and isinstance(identity.get('inventory'), list)
-             and identity.get('data_root'),
-             'provenance.json records no train_data_identity inventory')
+    present = [key for key in IDENTITY_KEYS if isinstance(record.get(key), dict)]
+    _require(present, 'provenance.json records no train_data_identity/data_identity')
+    for key in present:
+        identity = record[key]
+        _require(isinstance(identity.get('inventory'), list) and identity.get('data_root'),
+                 'provenance.json records no {} inventory'.format(key))
     _require(isinstance(record['effective_args'], dict),
              'provenance.json records no effective_args mapping (startup arguments)')
     return record
@@ -333,6 +342,32 @@ def _is_sha256(value):
             and all(character in '0123456789abcdef' for character in value))
 
 
+@functools.lru_cache(maxsize=None)
+def expected_state_keys(backbone, num_shot):
+    """The parameter names a checkpoint of this arm must carry, and nothing else."""
+    with torch.random.fork_rng(devices=[]):
+        return frozenset(build_xrir_exp06(backbone, num_shot).state_dict().keys())
+
+
+def _finite(label, value):
+    _require(type(value) in (int, float) and not isinstance(value, bool) and math.isfinite(value),
+             '{} is {!r}, not a finite number'.format(label, value))
+    return value
+
+
+def _resolve(path, repo):
+    return Path(path) if Path(path).is_absolute() else Path(repo) / path
+
+
+def _checkpoint_keys(path, label, backbone, num_shot):
+    """Refuse a checkpoint that is not this arm's model, before anything hashes it."""
+    state = _state_dict(_load_torch(path, label), label)
+    expected = expected_state_keys(backbone, num_shot)
+    _require(frozenset(state) == expected, '{}: {} parameters are not the {} of '
+             'build_xrir_exp06({!r}, {})'.format(label, len(state), len(expected),
+                                                 backbone, num_shot))
+
+
 def _rooms_and_frame(args):
     """Every HAA child records the rooms it ran and the frame its geometry was in."""
     rooms = args.get('rooms')
@@ -343,35 +378,112 @@ def _rooms_and_frame(args):
     return rooms, frame
 
 
-def _heading_binding(args, rooms, frame):
-    """In the heading frame every room needs a bound heading record; the room frame needs none."""
+def _heading_binding(args, rooms, frame, repo):
+    """Every room's binding names a heading JSON, and must agree with it in full."""
     if frame != 'heading':
+        _require(not args.get('heading'), 'the room frame must not record a heading')
         return None
     heading = args.get('heading')
     _require(isinstance(heading, dict) and set(rooms) <= set(heading),
              'the heading frame requires a heading record for every room')
+    bound = {}
     for room in rooms:
         entry = heading[room]
-        _require(isinstance(entry, dict) and type(entry.get('k')) is int
-                 and 0 <= entry['k'] < WIDTH and _is_sha256(entry.get('sha256')),
-                 'invalid heading binding for {}: {!r}'.format(room, entry))
-    return {room: heading[room] for room in rooms}
+        _require(isinstance(entry, dict), 'heading binding for {} is not a record'.format(room))
+        phi = _finite('heading binding for {}: phi_deg'.format(room), entry.get('phi_deg'))
+        k = entry.get('k')
+        _require(type(k) is int and 0 <= k < WIDTH,
+                 'heading binding for {}: k {!r} is not a column in [0, {})'.format(room, k, WIDTH))
+        _require(k == exp06_heading.heading_roll_k(phi),
+                 'heading binding for {}: k {} is not the roll of {} degrees'.format(room, k, phi))
+        _require(entry.get('decision') in HEADING_DECISIONS,
+                 'heading binding for {} must be estimated or override, not {!r}'.format(
+                     room, entry.get('decision')))
+        _require(_is_sha256(entry.get('sha256')),
+                 'heading binding for {} records no sha256'.format(room))
+        path = entry.get('path')
+        _require(isinstance(path, str) and path,
+                 'heading binding for {} records no json path'.format(room))
+        resolved = _resolve(path, repo)
+        _require(resolved.is_file(), 'missing heading json for {}: {}'.format(room, resolved))
+        _require(provenance.sha256_file(resolved) == entry['sha256'],
+                 'heading json for {} does not hash to the recorded sha256'.format(room))
+        try:
+            record = exp06_heading.read_heading_json(str(resolved))
+        except (OSError, ValueError) as error:
+            raise ValueError('invalid heading json for {}: {}'.format(room, error)) from error
+        _require(record['room'] == room and record['k'] == k and record['phi_deg'] == phi
+                 and record['decision'] == entry['decision'],
+                 'heading json for {} disagrees with the recorded binding'.format(room))
+        bound[room] = dict(entry)
+    return bound
 
 
-def haa_train_evidence(run_dir):
+def haa_child_arguments(run_dir, run_type, repo):
+    """Provenance, closure and argument agreement, shared by both HAA child types."""
+    record = load_provenance(run_dir, run_type)
+    verify_source_closure(record, run_type, repo)
+    revalidate_inputs(record, repo, required=('source_closures',))
+    args = _read_json(Path(run_dir) / 'args.json', 'args.json')
+    disagreements = exp06_recipe.compare_sources(
+        {'args.json': args, 'provenance.effective_args': record['effective_args']})
+    _require(not disagreements, 'recorded arguments disagree: ' + '; '.join(disagreements))
+    backbone = args.get('backbone')
+    _require(backbone in BACKBONES, 'args.json records backbone {!r}'.format(backbone))
+    _require(type(args.get('num_shot')) is int and args['num_shot'] > 0,
+             'args.json records no positive integer num_shot')
+    return record, args
+
+
+def haa_history(run_dir, args):
+    """The validation cadence the arguments declare, with finite losses, and nothing else."""
+    rows = _history_rows(Path(run_dir) / 'history.jsonl', 'history.jsonl')
+    every, total = args.get('val_every'), args.get('epochs')
+    for label, value in (('val_every', every), ('epochs', total)):
+        _require(type(value) is int and value > 0,
+                 'args.json records no positive integer {}'.format(label))
+    expected = list(range(every, total + 1, every))
+    epochs = []
+    for number, row in enumerate(rows, 1):
+        epoch = row.get('epoch')
+        _require(type(epoch) is int, 'history.jsonl line {} records epoch {!r}'.format(number, epoch))
+        _finite('history.jsonl line {} val_loss'.format(number), row.get('val_loss'))
+        epochs.append(epoch)
+    _require(epochs == expected, 'history.jsonl epochs {} are not the declared validation '
+             'cadence {}'.format(epochs, expected))
+    summary = _read_json(Path(run_dir) / 'summary.json', 'summary.json')
+    missing = [key for key in HAA_SUMMARY if key not in summary]
+    _require(not missing, 'summary.json is incomplete: missing ' + ', '.join(missing))
+    _finite('summary.json best_val_loss', summary['best_val_loss'])
+    _require(summary['best_epoch'] in epochs,
+             'summary.json best_epoch {!r} is not a validated epoch'.format(summary['best_epoch']))
+    return epochs, summary
+
+
+def haa_train_evidence(run_dir, repo):
     """One fine-tuning child of the HAA pipeline (plan section 6.2)."""
     hashes = artifacts(run_dir, HAA_TRAIN_ARTIFACTS)
-    args = _read_json(Path(run_dir) / 'args.json', 'args.json')
+    record, args = haa_child_arguments(run_dir, 'haa_train', repo)
     rooms, frame = _rooms_and_frame(args)
-    heading = _heading_binding(args, rooms, frame)
-    if frame == 'heading':
-        _require(_is_sha256(args.get('init_sha256')),
-                 'heading-frame fine-tuning must record init_sha256 of its initialisation')
+    heading = _heading_binding(args, rooms, frame, repo)
+    epochs, summary = haa_history(run_dir, args)
+    for name in ('best.pth', 'last.pth'):
+        _checkpoint_keys(Path(run_dir) / name, name, args['backbone'], args['num_shot'])
+    _require(_is_sha256(args.get('init_sha256')),
+             'fine-tuning must record init_sha256 of its initialisation')
+    init = args.get('init')
+    _require(isinstance(init, str) and init, 'args.json records no init checkpoint path')
+    resolved = _resolve(init, repo)
+    _require(resolved.is_file(), 'missing init checkpoint: {}'.format(resolved))
+    _require(provenance.sha256_file(resolved) == args['init_sha256'],
+             'init checkpoint {} does not hash to the recorded init_sha256'.format(resolved))
     return dict(artifacts=hashes, rooms=rooms, frame=frame, heading=heading,
-                backbone=args.get('backbone'), init_sha256=args.get('init_sha256'))
+                backbone=args['backbone'], init_sha256=args['init_sha256'],
+                best_epoch=summary['best_epoch'], epochs=epochs,
+                source_closure_sha256=list(record['source_closures'].values())[0]['sha256'])
 
 
-def haa_eval_evidence(run_dir):
+def haa_eval_evidence(run_dir, repo):
     """One evaluation child: exactly one room, with its per-sample provenance meta."""
     args = _read_json(Path(run_dir) / 'args.json', 'args.json')
     rooms, frame = _rooms_and_frame(args)
@@ -380,7 +492,7 @@ def haa_eval_evidence(run_dir):
     names = ('args.json', 'metrics_{}{}.json'.format(room, tag),
              'per_sample_{}{}.json'.format(room, tag))
     hashes = artifacts(run_dir, names)
-    heading = _heading_binding(args, rooms, frame)
+    heading = _heading_binding(args, rooms, frame, repo)
     meta = _read_json(Path(run_dir) / names[2], names[2]).get('meta')
     required = ('backbone', 'checkpoint_sha256', 'frame') + (('heading',) if frame == 'heading' else ())
     _require(isinstance(meta, dict) and all(key in meta for key in required),
@@ -455,8 +567,8 @@ def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None,
                   diagnostic=diagnostic, admissible_arm=not diagnostic)
     fields.update(diagnostic_evidence(run_dir, receipt) if diagnostic
                   else full_evidence(run_dir, repo) if run_type == 'full'
-                  else haa_train_evidence(run_dir) if run_type == 'haa_train'
-                  else haa_eval_evidence(run_dir) if run_type == 'haa_eval'
+                  else haa_train_evidence(run_dir, repo) if run_type == 'haa_train'
+                  else haa_eval_evidence(run_dir, repo) if run_type == 'haa_eval'
                   else haa_job_evidence(run_dir, children, expect))
     _require(provenance.sha256_file(log) == log_digest,
              'stale log: {} changed while its completion was being validated'.format(log))

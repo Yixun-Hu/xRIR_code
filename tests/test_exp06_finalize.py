@@ -230,27 +230,217 @@ def test_unknown_run_type_and_missing_directory_are_refused(tmp_path, full_run, 
         exp06_finalize.finalize(tmp_path / 'absent', 'full', log, 0, repo=clone)
 
 
-def haa_train_args(frame='heading', **overrides):
-    args = dict(backbone='cylindrical_oriented', rooms=['class_room', 'hallway', 'complex_room'],
-                save_dir='ckpt/exp06/sim2real/cyl_or/seed0/stage1', frame=frame, seed=0,
-                epochs=1000, val_every=10, lr=1e-4, weight_decay=1e-4, eval_seed=0,
-                init='ckpt/exp06/pretrain/final/epoch_012.pth', init_sha256='e' * 64,
-                heading={room: {'phi_deg': -90.0, 'k': 128, 'sha256': 'f' * 64}
-                         for room in ('class_room', 'hallway', 'complex_room')})
+@pytest.fixture(scope='session')
+def haa_repo(tmp_path_factory):
+    """Round 2b's entries do not exist yet: a stub repo supplies a resolvable closure."""
+    root = tmp_path_factory.mktemp('exp06haa') / 'repo'
+    (root / 'tools').mkdir(parents=True)
+    (root / 'tools/__init__.py').write_text('')
+    for name in ('exp06_haa_finetune', 'exp06_haa_eval'):
+        (root / 'tools' / (name + '.py')).write_text('"""round 2b stub"""\nimport json\n')
+    for command in (['init', '-q'], ['add', '-A'], ['-c', 'user.email=a@b', '-c', 'user.name=t',
+                                                    'commit', '-q', '-m', 'stub entries']):
+        subprocess.run(['git'] + command, cwd=root, check=True)
+    return root
+
+
+@pytest.fixture(scope='session')
+def heading_jsons(tmp_path_factory):
+    """One real, validated heading record per room, written where a binding can point."""
+    import numpy as np
+    from tools import exp06_heading
+    cache = tmp_path_factory.mktemp('heading') / 'synthetic'
+    cache.mkdir()
+    (cache / 'meta.json').write_text(json.dumps(dict(train=list(range(12)), valid=[12],
+                                                     test=[12, 13], sr=22050)))
+    theta = np.deg2rad([-90] * 4 + [90] * 8)
+    dist = np.arange(1, 13) / 3
+    xyz = np.zeros((14, 3))
+    xyz[:12, :2] = np.stack((np.cos(theta), np.sin(theta)), axis=1) * dist[:, None]
+    xyz[:, 2] = 50
+    np.save(cache / 'xyzs.npy', xyz)
+    np.save(cache / 'speaker_xyz.npy', np.zeros(3))
+    rirs = np.zeros((14, 1200))
+    rirs[:12, 10] = 10 ** (np.array([9] * 4 + [0] * 8) / 20) / dist
+    np.save(cache / 'rirs.npy', rirs)
+    record = exp06_heading.estimate_room_heading(cache)
+    out = {}
+    for room in ROOMS:
+        path = cache.parent / (room + '.json')
+        exp06_heading.write_heading_json(path, dict(record, room=room))
+        out[room] = {'path': str(path), 'sha256': provenance.sha256_file(path),
+                     'phi_deg': record['phi_deg'], 'k': record['k'],
+                     'decision': record['decision']}
+    return out
+
+
+@functools.lru_cache(maxsize=None)
+def state_keys(backbone='cylindrical_oriented', num_shot=8):
+    from model.xRIR_cyl_oriented import build_xrir_exp06
+    return tuple(build_xrir_exp06(backbone, num_shot).state_dict().keys())
+
+
+def tiny_state(**overrides):
+    """The real parameter names with one-element tensors: the finalizer checks the key set."""
+    state = {key: torch.zeros(1) for key in state_keys()}
+    state.update(overrides)
+    return state
+
+
+def haa_provenance(repo, run_type, args, data_root):
+    entry = exp06_finalize.ENTRY_MODULES[run_type]
+    state = provenance.git_state(repo)
+    files, digest = provenance.closure_record(provenance.source_closure(entry, repo),
+                                              state['HEAD'], repo)
+    return dict(repo=str(repo), reviewed_commit=state['HEAD'], run_type=run_type,
+                source_closures={'child': {'entry_module': entry, 'files': files,
+                                           'sha256': digest}},
+                registry_sha256='a' * 64, git_state=state, environment={'python': '3.8.0'},
+                command=['--backbone', args['backbone']], effective_args=args,
+                data_identity=inventory_of(data_root))
+
+
+def haa_train_args(heading_jsons, init_sha256, frame='heading', **overrides):
+    rooms = ['class_room', 'hallway', 'complex_room']
+    args = dict(backbone='cylindrical_oriented', num_shot=8, rooms=rooms, frame=frame,
+                save_dir='stage1', seed=0, epochs=20, val_every=10, lr=1e-4,
+                weight_decay=1e-4, eval_seed=0, init='init.pth', init_sha256=init_sha256,
+                heading={room: dict(heading_jsons[room]) for room in rooms})
     args.update(overrides)
     return args
 
 
-def write_haa_train(run, args, log=None):
+def write_haa_train(run, args, log, repo, data_root, rows=None, summary=None, state=None):
     run.mkdir(parents=True, exist_ok=True)
-    if log is not None:
-        seal(run, log, text='stage output\n')
+    seal(run, log, text='stage output\n')
     (run / 'args.json').write_text(json.dumps(args))
-    (run / 'history.jsonl').write_text(json.dumps({'epoch': 10, 'val_loss': 0.5}) + '\n')
-    (run / 'summary.json').write_text(json.dumps({'best_val_loss': 0.5, 'best_epoch': 10}))
+    record = haa_provenance(repo, 'haa_train', args, data_root)
+    (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    rows = [{'epoch': 10, 'val_loss': 0.7}, {'epoch': 20, 'val_loss': 0.5}] if rows is None else rows
+    (run / 'history.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))
+    (run / 'summary.json').write_text(json.dumps(
+        {'best_val_loss': 0.5, 'best_epoch': 20} if summary is None else summary))
     for name in ('best.pth', 'last.pth'):
-        torch.save(STATE, run / name)
+        torch.save(tiny_state() if state is None else state, run / name)
     return run
+
+
+@pytest.fixture
+def haa_train_run(tmp_path, haa_repo, heading_jsons, data_root):
+    """One fine-tuning child with every binding the frozen contract requires."""
+    init = haa_repo / 'init.pth'
+    torch.save(tiny_state(), init)
+    args = haa_train_args(heading_jsons, provenance.sha256_file(init))
+    run = tmp_path / 'stage1'
+    log = tmp_path / 'child.log'
+    write_haa_train(run, args, log, haa_repo, data_root)
+    return run, log, args
+
+
+def test_haa_train_completion_binds_heading_and_artifacts(haa_train_run, haa_repo):
+    run, log, args = haa_train_run
+    fields = exp06_finalize.finalize(run, 'haa_train', log, 0, repo=haa_repo)
+    assert set(fields['artifacts']) == {'args.json', 'history.jsonl', 'summary.json',
+                                        'best.pth', 'last.pth', 'provenance.json'}
+    assert fields['frame'] == 'heading' and fields['backbone'] == 'cylindrical_oriented'
+    assert fields['heading']['hallway']['k'] == args['heading']['hallway']['k']
+    assert fields['init_sha256'] == args['init_sha256']
+    assert fields['diagnostic'] is False and fields['admissible_arm'] is True
+    assert json.loads((run / 'completion.json').read_text()) == fields
+
+
+def test_haa_train_in_the_room_frame_needs_no_heading(tmp_path, haa_repo, heading_jsons, data_root):
+    init = haa_repo / 'init.pth'
+    torch.save(tiny_state(), init)
+    args = haa_train_args(heading_jsons, provenance.sha256_file(init), frame='room')
+    args.pop('heading')
+    run, log = tmp_path / 'stage1_room', tmp_path / 'child.log'
+    write_haa_train(run, args, log, haa_repo, data_root)
+    fields = exp06_finalize.finalize(run, 'haa_train', log, 0, repo=haa_repo)
+    assert fields['frame'] == 'room' and fields['heading'] is None
+
+
+@pytest.mark.parametrize('damage,cause', [
+    ('frame', 'frame'), ('no_heading', 'heading'), ('partial_heading', 'heading'),
+    ('bad_k', 'roll'), ('bad_phi', 'phi_deg'), ('no_decision', 'estimated'),
+    ('bad_sha', 'sha256'), ('no_path', 'path'), ('changed_json', 'sha256'),
+    ('foreign_room', 'disagrees'), ('no_init', 'init_sha256'), ('init_changed', 'init_sha256'),
+    ('summary', 'summary.json'), ('summary_keys', 'summary.json'), ('best', 'best.pth'),
+    ('best_keys', 'best.pth'), ('rooms', 'rooms'), ('no_provenance', 'provenance.json'),
+    ('wrong_run_type', 'run_type'), ('closure_drift', 'drift'), ('absent_entry', 'closure'),
+    ('history_epochs', 'history.jsonl'), ('history_loss', 'history.jsonl'),
+    ('args_disagree', 'disagree')])
+def test_haa_train_refusals_are_named(tmp_path, haa_repo, heading_jsons, data_root, damage, cause):
+    init = haa_repo / 'init.pth'
+    torch.save(tiny_state(), init)
+    args = haa_train_args(heading_jsons, provenance.sha256_file(init))
+    kwargs = {}
+    if damage == 'frame':
+        args['frame'] = 'world'
+    elif damage == 'no_heading':
+        args.pop('heading')
+    elif damage == 'partial_heading':
+        args['heading'].pop('hallway')
+    elif damage == 'bad_k':
+        args['heading']['hallway']['k'] = (args['heading']['hallway']['k'] + 1) % 512
+    elif damage == 'bad_phi':
+        args['heading']['hallway']['phi_deg'] = None
+    elif damage == 'no_decision':
+        args['heading']['hallway'].pop('decision')
+    elif damage == 'bad_sha':
+        args['heading']['hallway']['sha256'] = 'zz'
+    elif damage == 'no_path':
+        args['heading']['hallway'].pop('path')
+    elif damage == 'foreign_room':
+        args['heading']['hallway']['path'] = heading_jsons['class_room']['path']
+        args['heading']['hallway']['sha256'] = heading_jsons['class_room']['sha256']
+    elif damage == 'no_init':
+        args.pop('init_sha256')
+    elif damage == 'init_changed':
+        args['init_sha256'] = 'd' * 64
+    elif damage == 'rooms':
+        args['rooms'] = []
+    elif damage == 'summary_keys':
+        kwargs['summary'] = {'best_val_loss': 0.5}
+    elif damage == 'best_keys':
+        kwargs['state'] = {'source_network.weight': torch.zeros(1)}
+    elif damage == 'history_epochs':
+        kwargs['rows'] = [{'epoch': 10, 'val_loss': 0.5}]
+    elif damage == 'history_loss':
+        kwargs['rows'] = [{'epoch': 10, 'val_loss': 0.7},
+                          {'epoch': 20, 'val_loss': float('inf')}]
+    run, log = tmp_path / 'stage1', tmp_path / 'child.log'
+    write_haa_train(run, args, log, haa_repo, data_root, **kwargs)
+    if damage == 'changed_json':
+        Path(args['heading']['hallway']['path']).write_text('{"tampered": true}\n')
+    elif damage in ('summary', 'best'):
+        (run / {'summary': 'summary.json', 'best': 'best.pth'}[damage]).unlink()
+    elif damage == 'no_provenance':
+        (run / 'provenance.json').unlink()
+    elif damage in ('wrong_run_type', 'closure_drift', 'absent_entry', 'args_disagree'):
+        record = json.loads((run / 'provenance.json').read_text())
+        if damage == 'wrong_run_type':
+            record['run_type'] = 'haa_eval'
+        elif damage == 'absent_entry':
+            record['source_closures']['child']['entry_module'] = 'tools.exp06_haa_absent'
+        elif damage == 'args_disagree':
+            record['effective_args'] = dict(args, seed=1)
+        else:
+            stub = haa_repo / 'tools/exp06_haa_finetune.py'
+            stub.write_text(stub.read_text() + '# drift\n')
+        (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    try:
+        with pytest.raises(ValueError, match=cause):
+            exp06_finalize.finalize(run, 'haa_train', log, 0, repo=haa_repo)
+    finally:
+        if damage == 'closure_drift':
+            subprocess.run(['git', 'checkout', '--', 'tools/exp06_haa_finetune.py'],
+                           cwd=haa_repo, check=True)
+        if damage == 'changed_json':
+            path = Path(args['heading']['hallway']['path'])
+            path.write_text(Path(heading_jsons['class_room']['path']).read_text()
+                            .replace('"class_room"', '"hallway"'))
+    assert not (run / 'completion.json').exists()
 
 
 def write_haa_eval(run, args, meta, log=None):
@@ -269,59 +459,11 @@ def closed_log_file(tmp_path):
     return tmp_path / 'child.log'
 
 
-def test_haa_train_completion_binds_heading_and_artifacts(tmp_path, closed_log_file):
-    run = write_haa_train(tmp_path / 'stage1', haa_train_args(), closed_log_file)
-    fields = exp06_finalize.finalize(run, 'haa_train', closed_log_file, 0, repo=REPO)
-    assert set(fields['artifacts']) == {'args.json', 'history.jsonl', 'summary.json',
-                                        'best.pth', 'last.pth'}
-    assert fields['frame'] == 'heading' and fields['backbone'] == 'cylindrical_oriented'
-    assert fields['heading']['hallway']['k'] == 128 and fields['init_sha256'] == 'e' * 64
-    assert fields['diagnostic'] is False and fields['admissible_arm'] is True
-    assert json.loads((run / 'completion.json').read_text()) == fields
-
-
-def test_haa_train_in_the_room_frame_needs_no_heading(tmp_path, closed_log_file):
-    args = haa_train_args(frame='room')
-    args.pop('heading')
-    args.pop('init_sha256')
-    run = write_haa_train(tmp_path / 'stage1_room', args, closed_log_file)
-    fields = exp06_finalize.finalize(run, 'haa_train', closed_log_file, 0, repo=REPO)
-    assert fields['frame'] == 'room' and fields['heading'] is None
-
-
-@pytest.mark.parametrize('damage,cause', [
-    ('frame', 'frame'), ('no_heading', 'heading'), ('partial_heading', 'heading'),
-    ('bad_k', 'heading'), ('bad_sha', 'heading'), ('no_init', 'init_sha256'),
-    ('summary', 'summary.json'), ('best', 'best.pth'), ('rooms', 'rooms')])
-def test_haa_train_refusals_are_named(tmp_path, closed_log_file, damage, cause):
-    args = haa_train_args()
-    if damage == 'frame':
-        args['frame'] = 'world'
-    elif damage == 'no_heading':
-        args.pop('heading')
-    elif damage == 'partial_heading':
-        args['heading'].pop('hallway')
-    elif damage == 'bad_k':
-        args['heading']['hallway']['k'] = 512
-    elif damage == 'bad_sha':
-        args['heading']['hallway']['sha256'] = 'zz'
-    elif damage == 'no_init':
-        args.pop('init_sha256')
-    elif damage == 'rooms':
-        args['rooms'] = []
-    run = write_haa_train(tmp_path / 'stage1', args, closed_log_file)
-    if damage in ('summary', 'best'):
-        (run / {'summary': 'summary.json', 'best': 'best.pth'}[damage]).unlink()
-    with pytest.raises(ValueError, match=cause):
-        exp06_finalize.finalize(run, 'haa_train', closed_log_file, 0, repo=REPO)
-    assert not (run / 'completion.json').exists()
-
-
-def test_haa_eval_completion_records_the_single_room(tmp_path, closed_log_file):
+def test_haa_eval_completion_records_the_single_room(tmp_path, closed_log_file, heading_jsons):
     args = dict(backbone='cylindrical_oriented', rooms=['hallway'], frame='heading',
                 checkpoint='ckpt/exp06/sim2real/cyl_or/seed0/stage2_hallway/best.pth',
                 eval_seed=0, split='test',
-                heading={'hallway': {'phi_deg': -90.0, 'k': 128, 'sha256': 'f' * 64}})
+                heading={'hallway': dict(heading_jsons['hallway'])})
     meta = {'backbone': 'cylindrical_oriented', 'checkpoint_sha256': 'd' * 64,
             'frame': 'heading', 'heading': {'hallway': {'k': 128}}}
     run = write_haa_eval(tmp_path / 'eval' / 'hallway', args, meta, closed_log_file)
@@ -335,15 +477,15 @@ def test_haa_eval_completion_records_the_single_room(tmp_path, closed_log_file):
     ('two_rooms', 'room'), ('no_metrics', 'metrics_hallway.json'),
     ('no_per_sample', 'per_sample_hallway.json'), ('no_meta_heading', 'heading'),
     ('no_meta_backbone', 'meta'), ('meta_backbone_differs', 'backbone')])
-def test_haa_eval_refusals_are_named(tmp_path, closed_log_file, damage, cause):
+def test_haa_eval_refusals_are_named(tmp_path, closed_log_file, heading_jsons, damage, cause):
     args = dict(backbone='cylindrical_oriented', rooms=['hallway'], frame='heading',
                 checkpoint='best.pth', eval_seed=0, split='test',
-                heading={'hallway': {'phi_deg': -90.0, 'k': 128, 'sha256': 'f' * 64}})
+                heading={'hallway': dict(heading_jsons['hallway'])})
     meta = {'backbone': 'cylindrical_oriented', 'checkpoint_sha256': 'd' * 64,
             'frame': 'heading', 'heading': {'hallway': {'k': 128}}}
     if damage == 'two_rooms':
         args['rooms'] = ['hallway', 'class_room']
-        args['heading']['class_room'] = {'phi_deg': -90.0, 'k': 128, 'sha256': 'f' * 64}
+        args['heading']['class_room'] = dict(heading_jsons['class_room'])
     elif damage == 'no_meta_heading':
         meta.pop('heading')
     elif damage == 'no_meta_backbone':
