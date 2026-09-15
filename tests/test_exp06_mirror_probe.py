@@ -93,6 +93,8 @@ def test_spectral_c50_is_the_early_to_late_energy_ratio():
 
 def test_spectral_c50_refuses_a_bad_shape_or_onset():
     with pytest.raises(ValueError):
+        subject.spectral_c50(torch.zeros(0, 63, 100), torch.zeros(0, dtype=torch.long))
+    with pytest.raises(ValueError):
         subject.spectral_c50(torch.zeros(2, 63), torch.tensor([0, 0]))
     with pytest.raises(ValueError):
         subject.spectral_c50(torch.zeros(2, 63, 100), torch.tensor([0]))

@@ -298,6 +298,15 @@ def test_a_tampered_persisted_completion_is_quarantined(certified, name):
     assert (quarantined / 'completion.json').is_file()
 
 
+def test_an_unserialisable_returned_record_is_quarantined(certified):
+    """Nothing the caller hands over can make the comparison itself raise."""
+    run, completion = certified
+    quarantined = subject.certify_outputs(run, dict(completion, outputs={'x'}))
+    assert quarantined is not None and not run.exists()
+    assert json.loads((quarantined / 'quarantine.json').read_text())['reason'] \
+        == 'completion_mismatch'
+
+
 @pytest.mark.parametrize('damage', ['missing', 'unparsable', 'not_an_object'])
 def test_an_unreadable_persisted_completion_is_quarantined(certified, damage):
     run, completion = certified
