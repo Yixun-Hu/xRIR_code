@@ -890,11 +890,22 @@ def job_spec_file(job, init, heading_jsons, **overrides):
     return str(path), spec
 
 
+def job_binding(job):
+    """What a child records at launch from the job spec it was passed (round 2b finding 3)."""
+    spec = Path(job) / 'job_spec.json'
+    if not spec.is_file():
+        return {}
+    declared = json.loads(spec.read_text())
+    return {'job_spec': str(spec), 'job_spec_sha256': provenance.sha256_file(spec),
+            'job_init': declared['init'], 'job_init_sha256': declared['init_sha256']}
+
+
 def make_train_child(job, name, haa_repo, heading_jsons, data_root, rooms, init, tag):
     """One fine-tuning child, certified by this finalizer exactly as the launcher does."""
     run, log = job / name, job / (name.replace('/', '_') + '.log')
     args = haa_train_args(heading_jsons, provenance.sha256_file(init), rooms=rooms,
-                          init=str(init), save_dir=name, epochs=4, val_every=2)
+                          init=str(init), save_dir=name, epochs=4, val_every=2,
+                          **job_binding(job))
     write_haa_train(run, args, log, haa_repo, data_root,
                     state=tiny_state(**{state_keys()[0]: torch.full((1,), float(tag))}))
     exp06_finalize.finalize(run, 'haa_train', log, 0, repo=haa_repo)
@@ -903,7 +914,7 @@ def make_train_child(job, name, haa_repo, heading_jsons, data_root, rooms, init,
 
 def make_eval_child(job, name, haa_repo, heading_jsons, data_root, room, checkpoint):
     run, log = job / name, job / (name.replace('/', '_') + '.log')
-    args = haa_eval_args(heading_jsons, checkpoint, room=room)
+    args = haa_eval_args(heading_jsons, checkpoint, room=room, **job_binding(job))
     write_haa_eval(run, args, log, haa_repo, data_root,
                    meta=eval_meta(args, provenance.sha256_file(checkpoint)))
     exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)
@@ -917,6 +928,7 @@ def write_job(tmp_path, haa_repo, heading_jsons, data_root, expect='finetune', l
     job.mkdir(parents=True, exist_ok=True)
     init = tmp_path / 'pretrain.pth'
     torch.save(tiny_state(**{state_keys()[0]: torch.full((1,), 99.0)}), init)
+    spec, _ = job_spec_file(job, init, heading_jsons, expect=expect)  # before the first child
     if log is not None:
         seal(job, log, text='pipeline output\n')
     names = []
@@ -933,7 +945,6 @@ def write_job(tmp_path, haa_repo, heading_jsons, data_root, expect='finetune', l
             names.append('stage2_' + room)
         make_eval_child(job, 'eval/' + room, haa_repo, heading_jsons, data_root, room, checkpoint)
         names.append('eval/' + room)
-    spec, _ = job_spec_file(job, init, heading_jsons, expect=expect)
     if mutate is not None:
         names = mutate(job, names)
     return job, [str(job / name) for name in names], spec
@@ -1050,7 +1061,8 @@ def test_job_refusals_are_named(job_run, closed_log_file, tmp_path, haa_repo, he
             run, log = job / 'stage2_hallway', job / 'stage2_hallway.log'
             args = haa_train_args(heading_jsons, provenance.sha256_file(job / 'stage1/best.pth'),
                                   rooms=['hallway'], init=str(job / 'stage1/best.pth'),
-                                  save_dir='stage2_hallway', epochs=4, val_every=2, seed=1)
+                                  save_dir='stage2_hallway', epochs=4, val_every=2, seed=1,
+                                  **job_binding(job))
             write_haa_train(run, args, log, haa_repo, data_root)
             exp06_finalize.finalize(run, 'haa_train', log, 0, repo=haa_repo)
         else:

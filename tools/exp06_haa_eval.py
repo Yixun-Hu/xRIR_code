@@ -70,6 +70,8 @@ def build_parser():
                    help="the pipeline seed this child belongs to; never the reference draw")
     p.add_argument("--gl-seed-per-query", action="store_true",
                    help="S1 sensitivity: seed Griffin-Lim per query instead of leaving it free")
+    p.add_argument("--job-spec", default=None,
+                   help="the pipeline declaration this child is launched under (recorded)")
     p.add_argument("--run-type", choices=(RUN_TYPE,), default=RUN_TYPE,
                    help="recorded in provenance.json; the finalizer dispatches on it")
     return p
@@ -93,7 +95,8 @@ def prepare(args, command=(), repo=records.REPO):
     fields = records.provenance_fields(command, identity, repo=repo, run_type=RUN_TYPE,
                                        entry=ENTRY_MODULE)
     record = records.record_args(args, fields, frame=frame, heading=heading, haa_root=root,
-                                 checkpoint_sha256=checkpoint_sha256)
+                                 checkpoint_sha256=checkpoint_sha256,
+                                 **records.job_binding(args.job_spec))
     return types.SimpleNamespace(root=root, frame=frame, heading=heading, datasets=datasets,
                                  model=model, fields=fields, args_record=record,
                                  checkpoint_sha256=checkpoint_sha256)

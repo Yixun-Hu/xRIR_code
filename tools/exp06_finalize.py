@@ -1065,11 +1065,36 @@ def verify_child(path, name, repo, spec):
                  'child {} completion {} {!r} is not the {!r} of the re-run'.format(
                      name, field, record[field], evidence[field]))
     rehash_bound_evidence(record, name, path, repo)
-    check_job_spec(name, role, evidence, spec)
+    check_job_spec(name, role, evidence, spec,
+                   _read_json(Path(path) / 'args.json', 'args.json'))
     return evidence
 
 
-def check_job_spec(name, role, evidence, spec):
+def check_job_identity(name, args, spec):
+    """Round 2b finding 3: the child was launched under this job's own declaration.
+
+    ``tools/exp06_haa_finetune.py`` and ``tools/exp06_haa_eval.py`` record the ``--job-spec``
+    the pipeline passed them -- its digest and the initialisation it declares -- before the
+    first epoch, so an initialisation label is frozen at launch and not merely asserted by
+    the spec at admission. A child that recorded no declaration, or a different one, is
+    never part of this job. The digest is compared last, so a contradicted field names
+    itself first.
+    """
+    for field, declared in (('job_init', spec['init']), ('job_init_sha256', spec['init_sha256'])):
+        recorded = args.get(field)
+        _require(isinstance(recorded, str) and recorded, 'child {} recorded no {}: it was not '
+                 'launched under a job spec'.format(name, field))
+        _require(recorded == declared, 'child {} was launched under the {} {!r}, not the {!r} '
+                 'of this job spec'.format(name, field, recorded, declared))
+    digest = args.get('job_spec_sha256')
+    _require(isinstance(digest, str) and digest,
+             'child {} recorded no job_spec_sha256: it was not launched under a job '
+             'spec'.format(name))
+    _require(digest == spec['job_spec_sha256'], 'child {} was launched under the job spec '
+             '{}, not the {} being admitted'.format(name, digest, spec['job_spec_sha256']))
+
+
+def check_job_spec(name, role, evidence, spec, args):
     """Every child must have run the job the pipeline declared, not one of its own."""
     for field in ('backbone', 'frame', 'seed'):
         _require(evidence[field] == spec[field], 'child {} ran {} {!r}, not the {!r} of the '
@@ -1083,10 +1108,11 @@ def check_job_spec(name, role, evidence, spec):
     if spec['frame'] == 'heading':
         for bound, binding in sorted((evidence['heading'] or {}).items()):
             _require(binding.get('k') == spec['heading'].get(bound),
-                     'child {} rolls {} to {!r}, not the {!r} of the job spec'.format(
-                         name, bound, binding.get('k'), spec['heading'].get(bound)))
+                     'child {} rolls the {} heading to {!r}, not the {!r} of the job '
+                     'spec'.format(name, bound, binding.get('k'), spec['heading'].get(bound)))
     else:
         _require(not evidence['heading'], 'child {} records a heading in the room frame'.format(name))
+    check_job_identity(name, args, spec)
 
 
 def load_job_spec(path, expect):
@@ -1120,6 +1146,8 @@ def load_job_spec(path, expect):
             WIDTH, ', '.join(absent)))
     else:
         _require(not spec.get('heading'), 'a room-frame job spec declares no heading')
+    # Finding 3: the declaration's own digest, which every child must have recorded at launch.
+    spec['job_spec_sha256'] = provenance.sha256_file(path)
     return spec
 
 

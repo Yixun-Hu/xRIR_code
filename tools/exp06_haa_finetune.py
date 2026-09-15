@@ -81,6 +81,8 @@ def build_parser():
     p.add_argument("--root", default=DEFAULT_ROOT, help="HAA cache root (recorded resolved)")
     p.add_argument("--heading-json-dir", default=None,
                    help="one <room>.json per room; required for the oriented backbone")
+    p.add_argument("--job-spec", default=None,
+                   help="the pipeline declaration this child is launched under (recorded)")
     p.add_argument("--run-type", choices=(RUN_TYPE,), default=RUN_TYPE,
                    help="recorded in provenance.json; the finalizer dispatches on it")
     return p
@@ -88,6 +90,33 @@ def build_parser():
 
 def parse_args(argv=None):
     return build_parser().parse_args(argv)
+
+
+def job_binding(path):
+    """The pre-launch declaration this child runs under (round 2b finding 3).
+
+    The pipeline writes one job spec per seed before its first child starts and passes it
+    to every child, which records its digest and the initialisation it declares. The job
+    finalizer then admits only children that recorded the declaration it is given, so an
+    arm cannot be assembled from children of another job or another initialisation. A
+    child launched by hand records no job identity and is never admissible as part of a job.
+    """
+    if path is None:
+        return {'job_spec_sha256': None, 'job_init': None, 'job_init_sha256': None}
+    try:
+        spec = json.loads(Path(path).read_text())
+    except (OSError, ValueError) as error:
+        raise ValueError('unusable job spec {}: {}'.format(path, error)) from error
+    if not isinstance(spec, dict):
+        raise ValueError('job spec {} is not a record'.format(path))
+    init, digest = spec.get('init'), spec.get('init_sha256')
+    if not isinstance(init, str) or not init:
+        raise ValueError('job spec {} declares no initialisation name'.format(path))
+    if not (isinstance(digest, str) and len(digest) == 64
+            and all(char in '0123456789abcdef' for char in digest)):
+        raise ValueError('job spec {} declares no initialisation sha256'.format(path))
+    return {'job_spec_sha256': provenance.sha256_file(path), 'job_init': init,
+            'job_init_sha256': digest}
 
 
 def registry_sha256():
@@ -200,7 +229,7 @@ def prepare(args, command=(), repo=REPO):
     identity = data_identity(root, list(args.rooms) + list(val_rooms), args.depth_variant)
     fields = provenance_fields(command, identity, repo=repo)
     record = record_args(args, fields, frame=frame, heading=heading, init_sha256=init_sha256,
-                         haa_root=root)
+                         haa_root=root, **job_binding(args.job_spec))
     return types.SimpleNamespace(
         root=root, frame=frame, heading=heading, k_by_room=k_by_room, val_rooms=val_rooms,
         train_dataset=train_dataset, val_dataset=val_dataset, model=model, fields=fields,

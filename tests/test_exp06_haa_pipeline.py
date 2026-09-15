@@ -217,12 +217,18 @@ def close_child(run_dir, log, text='child output\n'):
         '--status', '0', '--started-at', '2026-09-15T00:00:00+00:00']) == 0
 
 
+def launched_under(root):
+    """Every child of a seed is launched under the job spec written before the first one."""
+    spec = Path(root) / 'job_spec.json'
+    return ['--job-spec', str(spec)] if spec.is_file() else []
+
+
 def make_train_child(clone, cache, root, name, rooms, init, tag, seed=0):
     save = root / name
     argv = ['--backbone', 'cylindrical_oriented', '--init', str(init), '--rooms', *rooms,
             '--heading-json-dir', cache['heading'], '--save-dir', str(save),
             '--root', cache['root'], '--max-len', str(MAX_LEN), '--seed', str(seed),
-            '--epochs', '4', '--val-every', '2']
+            '--epochs', '4', '--val-every', '2', *launched_under(root)]
     args = trainer.build_parser().parse_args(argv)
     context = trainer.prepare(args, command=argv, repo=clone)
     trainer.write_records(args, context)
@@ -241,7 +247,8 @@ def make_eval_child(clone, cache, root, room, checkpoint, seed=0):
     save = root / 'eval' / room
     argv = ['--backbone', 'cylindrical_oriented', '--checkpoint', str(checkpoint),
             '--rooms', room, '--heading-json-dir', cache['heading'], '--save-dir', str(save),
-            '--root', cache['root'], '--max-len', str(MAX_LEN), '--seed', str(seed)]
+            '--root', cache['root'], '--max-len', str(MAX_LEN), '--seed', str(seed),
+            *launched_under(root)]
     args = evaluator.build_parser().parse_args(argv)
     context = evaluator.prepare(args, command=argv, repo=clone)
     trainer.write_records(args, context)
@@ -280,6 +287,7 @@ def finetune_seed(clone, cache, tmp_path_factory):
     root.mkdir(parents=True)
     init = root.parent / (PRETRAIN + '.pth')
     torch.save(tiny_state(99.0), str(init))
+    spec = write_job_spec(clone, cache, root, init)  # written before the first child starts
     children = ['stage1']
     make_train_child(clone, cache, root, 'stage1', ['class_room', 'hallway', 'complex_room'],
                      init, 1.0)
@@ -288,7 +296,6 @@ def finetune_seed(clone, cache, tmp_path_factory):
                          root / 'stage1/best.pth', float(tag))
         make_eval_child(clone, cache, root, room, root / ('stage2_' + room) / 'best.pth')
         children += ['stage2_' + room, 'eval/' + room]
-    spec = write_job_spec(clone, cache, root, init)
     joblog = root / 'job.log'
     close_child(root, joblog, text='job output\n')
     (root / 'launch.pid').write_text(str(os.getpid()) + '\n')
