@@ -1,4 +1,5 @@
 """The exp_07 seen table producer: admission, refusals and canonical outputs."""
+import hashlib
 import json
 from pathlib import Path
 
@@ -558,6 +559,25 @@ def test_publication_is_byte_stable_and_the_markdown_comes_from_the_json(built, 
     assert sidecar['profile_digest'] == result['profile_digest'] and sidecar['generated_at']
     assert sidecar['approved_digests']['sha256'] == built.approved[1]['sha256']
     assert sidecar['outputs'][str((first_run / 'table.json').resolve())]
+
+
+def test_the_confirmatory_markdown_carries_no_exploratory_banner(built, tmp_path):
+    text = (publish(built, tmp_path, 'clean') / 'model_comparison_seen.md').read_text()
+    assert 'EXPLORATORY' not in text and 'Admission deviations' not in text
+
+
+def test_the_exploratory_markdown_states_it_and_lists_every_deviation(built, tmp_path):
+    expected = an_evaluated_split_that_is_not_seen(built)
+    target = publish(built, tmp_path, 'exploratory', exploratory=True)
+    result = json.loads((target / 'table.json').read_text())
+    text = (target / 'model_comparison_seen.md').read_text()
+    assert result['exploratory'] is True and result['rows'] and result['deviations']
+    assert any(expected in item for item in result['deviations'])
+    assert 'EXPLORATORY - NOT a confirmatory exp_07 result' in text.split('# Model comparison')[0]
+    for item in result['deviations']:
+        assert '- ' + item in text
+    body, _, rest = text.partition(STAMP)  # the generated block stays self-verifying
+    assert rest.split(' -->')[0] == hashlib.sha256(body.encode()).hexdigest()
 
 
 def test_the_cli_refuses_the_unapproved_committed_profile_and_writes_nothing(tmp_path, built):

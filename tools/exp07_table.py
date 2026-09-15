@@ -25,7 +25,8 @@ from tools.exp05_params import TIERS
 from tools.exp07_profiles import get_profile, json_value, load_approved_digests
 from tools.paired_compare import (REPO, _closure_digest, _equal, admit_runs,
                                   producer_identity)
-from tools.results_table import METRICS, write_outputs
+from tools.results_table import (END, METRICS, STAMP, render_markdown as shared_markdown,
+                                 write_outputs as publish_outputs)
 
 TRAINING_BINDINGS = ('train_args', 'train_manifest', 'train_completion')
 BINDING_FILES = {'train_args': 'args.json', 'train_manifest': 'train_manifest.json',
@@ -260,6 +261,33 @@ def admit(directories, profile, approved=None, producer=None, exploratory=False,
 
 
 MARKDOWN = REPO / 'worklog/worklog_yixun/model_comparison_seen.md'
+
+
+def render_markdown(json_path, command=None):
+    """The shared table, headed by the admission status the canonical JSON carries.
+
+    A reader must see the exploratory status and every deviation in the document itself:
+    a command-line flag or an output file name is not disclosure.  The banner goes inside
+    the generated block, whose stamp is recomputed over the complete body.
+    """
+    result = json.loads(Path(json_path).read_bytes())
+    text = shared_markdown(json_path, command)
+    if not result.get('exploratory') and not result.get('deviations'):
+        return text
+    banner = ['', '> **EXPLORATORY - NOT a confirmatory exp_07 result.**', '>',
+              '> Every number below is provisional until these admission deviations are',
+              '> cleared and the table is produced again without --exploratory.', '',
+              '## Admission deviations', '']
+    banner += ['- ' + item for item in result.get('deviations') or ['(none recorded)']]
+    marker, newline, rest = text.partition(STAMP)[0].partition('\n')
+    body = marker + newline + '\n'.join(banner) + '\n' + rest
+    return body + STAMP + hashlib.sha256(body.encode()).hexdigest() + ' -->\n' + END + '\n'
+
+
+def write_outputs(result, admitted, json_path, md_path, force_md=False, command=()):
+    """Publish through exp_04's transaction with the exp_07 Markdown adapter."""
+    return publish_outputs(result, admitted, json_path, md_path, force_md, command,
+                           renderer=render_markdown)
 
 
 def build_table(directories, profile=None, approved=None, exploratory=False, producer=None):
