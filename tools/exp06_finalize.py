@@ -899,7 +899,13 @@ def verify_child(path, name, repo, spec):
     every field of its completion -- artefact hashes, identity, lineage -- must equal what
     the re-run produced. The log and receipt it bound are rehashed, and the whole child is
     then checked against the job the pipeline declared.
+
+    Finding 1: the liveness contract holds for every child as well. A live ``child.pid``
+    or ``launch.pid`` under a child directory is never admissible -- the owner exception
+    of ``--owner-pid`` covers the job's own launcher only, so a job can be certified only
+    once every one of its children has exited.
     """
+    refuse_live_launch(path)
     role = child_role(name)
     evidence = (haa_train_evidence(path, repo) if role == 'haa_train'
                 else haa_eval_evidence(path, repo))
