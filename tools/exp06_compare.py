@@ -13,8 +13,10 @@ re-implemented.
     python tools/exp06_compare.py --runs-c <five dirs> --runs-a <five> --runs-b <five> \
         --json ckpt/exp06/h3.json --summary ckpt/exp06/h3_summary.txt
 """
+import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -205,3 +207,174 @@ def admit_runs(groups, approved, exploratory=False, split=SPLIT, roles=ROLES):
     if deviations and not exploratory:
         raise ValueError('admission failed: ' + '; '.join(deviations))
     return {'groups': admitted, 'inputs': inputs, 'deviations': deviations}
+
+
+# --- the statistics of section 7, all of them exp_04's ------------------------------------
+
+
+def _arrays(runs, metric):
+    return np.asarray([run['P']['0'][metric.lower()] for run in runs], dtype=float)
+
+
+def contrast_cell(groups, x, y, metric, n_boot=N_BOOT):
+    """rho = (mean(x) - mean(y)) / mean(y) on the five-seed means of the shared cohort."""
+    a, b = _arrays(groups[x], metric), _arrays(groups[y], metric)
+    mask, exclusions = paired_compare.cell_mask(a, e0_b=b, seeds=SEEDS)
+    mean_a = paired_compare.five_seed_mean(a)[mask]
+    mean_b = paired_compare.five_seed_mean(b)[mask]
+    rooms = rooms_from_paths(groups[x][0]['query'])[mask]
+
+    def compute(seed, clusters=None):
+        return paired_compare.rho_bootstrap(mean_a, mean_b, n_boot=n_boot, seed=seed,
+                                            clusters=clusters)
+
+    result = compute(BOOT_SEEDS[0])
+    draws = {BOOT_SEEDS[0]: result.pop('samples')}
+    draws[BOOT_SEEDS[1]] = compute(BOOT_SEEDS[1])['samples']
+    cluster = compute(BOOT_SEEDS[0], rooms)
+    convergence = paired_compare.convergence(
+        lambda seed: paired_compare.two_sided_interval(draws[seed], COMPANION_ALPHA),
+        BOOT_SEEDS[0], BOOT_SEEDS[1], CONVERGENCE_TOL)
+    return {'contrast': '{} - {}'.format(x, y), 'metric': metric, 'rho': result['rho'],
+            'upper': paired_compare.one_sided_upper(draws[BOOT_SEEDS[0]], SUPERIORITY_ALPHA),
+            'alpha': SUPERIORITY_ALPHA, 'companion_alpha': COMPANION_ALPHA,
+            'companion_interval': list(paired_compare.two_sided_interval(
+                draws[BOOT_SEEDS[0]], COMPANION_ALPHA)),
+            'room_cluster_interval': list(paired_compare.two_sided_interval(
+                cluster['samples'], COMPANION_ALPHA)),
+            'n_rooms_retained': int(len(set(rooms))), 'n': int(mask.sum()),
+            'exclusions': exclusions, 'n_boot': n_boot,
+            'bootstrap_seeds': list(BOOT_SEEDS), 'convergence': convergence,
+            'seed_means': {role: _arrays(groups[role], metric)[:, mask].mean(axis=1).tolist()
+                           for role in (x, y)}}
+
+
+def analyse(admitted, margin=MARGIN, n_boot=N_BOOT, exploratory=False):
+    """H3 is C vs B; C vs A is the same machinery, reported descriptively."""
+    groups = admitted['groups']
+    result = {'schema_version': 1, 'exploratory': bool(exploratory), 'margin': margin,
+              'seeds': list(SEEDS), 'metrics': list(METRICS), 'split': dict(SPLIT),
+              'deviations': list(admitted['deviations']), 'inputs': admitted['inputs'],
+              'cells': [], 'verdicts': {}}
+    for x, y in CONTRASTS:
+        if x not in groups or y not in groups:
+            continue
+        cells = [contrast_cell(groups, x, y, metric, n_boot) for metric in METRICS]
+        result['cells'].extend(cells)
+        bounds = {cell['metric']: cell['upper'] for cell in cells}
+        verdict = paired_compare.h1_verdict(bounds['EDT'], bounds['C50'], margin)
+        failed = [cell['metric'] for cell in cells if not cell['convergence']['passed']]
+        result['verdicts']['{} - {}'.format(x, y)] = {
+            'verdict': 'not converged' if failed else verdict,
+            'descriptive': (x, y) != CONTRASTS[0], 'not_converged': failed,
+            'upper': bounds}
+    if not exploratory:
+        failed = ['{} {}'.format(cell['contrast'], cell['metric']) for cell in result['cells']
+                  if not cell['convergence']['passed']]
+        if failed:
+            result['deviations'].append('convergence gate failed: ' + ', '.join(failed))
+    return result
+
+
+# --- producer identity and the published outputs ------------------------------------------
+
+
+def producer_identity(strict=True):
+    """Bind this producer's imported closure to HEAD, as tools.paired_compare does."""
+    if strict:
+        return paired_compare.producer_identity(ENTRY_MODULE)
+    head = provenance.git_state(REPO)['HEAD']
+    records, digest = provenance.closure_record(
+        provenance.source_closure(ENTRY_MODULE, REPO), head, REPO)
+    return {'sha256': digest, 'files': records, 'commit': head}
+
+
+def _safe(value):
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_safe(item) for item in value]
+    if isinstance(value, (np.integer, np.floating, np.bool_)):
+        return _safe(value.item())
+    return value
+
+
+def render(result):
+    lines = ['{} H3 (margin {:+.3f}, one-sided {:.3f} upper bound of rho)'.format(
+        'EXPLORATORY' if result['exploratory'] else 'CONFIRMATORY', result['margin'],
+        result['cells'][0]['alpha'] if result['cells'] else SUPERIORITY_ALPHA)]
+    for cell in result['cells']:
+        lines.append('{:10s} {:4s} rho={:+.6g} upper={:+.6g} companion={} rooms={} n={}'.format(
+            cell['contrast'], cell['metric'], cell['rho'], cell['upper'],
+            ['{:+.6g}'.format(value) for value in cell['companion_interval']],
+            ['{:+.6g}'.format(value) for value in cell['room_cluster_interval']], cell['n']))
+    for name in sorted(result['verdicts']):
+        entry = result['verdicts'][name]
+        lines.append('{}: {}{}'.format(name, entry['verdict'],
+                                       ' (descriptive)' if entry['descriptive'] else ''))
+    lines.extend('Deviation: ' + item for item in result['deviations'])
+    return '\n'.join(lines) + '\n'
+
+
+def write_outputs(result, json_path, summary_path):
+    """Exclusive creation; the JSON carries the summary's digest, and no timestamp."""
+    text = render(result)
+    for path in (json_path, summary_path):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(str(summary_path), 'x') as stream:
+        stream.write(text)
+    record = dict(result, summary_path=str(Path(summary_path).resolve()),
+                  summary_sha256=hashlib.sha256(text.encode()).hexdigest())
+    return record, provenance.write_manifest(json_path, _safe(record)), text
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(description='exp_06 H3: simulated parity at k = 0.')
+    for role in sorted(ROLES):
+        parser.add_argument('--runs-' + role.lower(), nargs='+', required=(role != 'B'),
+                            help='the five evaluation runs of arm ' + role)
+    parser.add_argument('--approved')
+    parser.add_argument('--json', required=True)
+    parser.add_argument('--summary', required=True)
+    parser.add_argument('--n-boot', type=int, default=N_BOOT)
+    parser.add_argument('--exploratory', action='store_true')
+    return parser
+
+
+def approvals(exploratory, path=None):
+    try:
+        approved, receipt = approvals_api.load_approved_digests(path)
+    except approvals_api.ApprovalsUnavailable as error:
+        if not exploratory:
+            raise
+        return None, None, [str(error)]
+    return approved, receipt, approvals_api.require_producer(approved, 'compare', exploratory)
+
+
+def main(argv=None):
+    """0 on success; a refusal exits 1 and an argparse usage error exits 2."""
+    args = build_parser().parse_args(argv)
+    approved, receipt, deviations = approvals(args.exploratory, args.approved)
+    groups = {role: getattr(args, 'runs_' + role.lower()) for role in sorted(ROLES)
+              if getattr(args, 'runs_' + role.lower())}
+    admitted = admit_runs(groups, approved, args.exploratory)
+    admitted['deviations'] = list(deviations) + list(admitted['deviations'])
+    result = analyse(admitted, MARGIN, args.n_boot, args.exploratory)
+    result['approved_digests'] = receipt
+    result['producer'] = producer_identity(strict=not args.exploratory)
+    record, digest, text = write_outputs(result, args.json, args.summary)
+    print(text)
+    print(json.dumps({'json': args.json, 'sha256': digest,
+                      'summary_sha256': record['summary_sha256'],
+                      'verdicts': {name: entry['verdict']
+                                   for name, entry in sorted(record['verdicts'].items())}}))
+    return 0
+
+
+if __name__ == '__main__':
+    try:
+        raise SystemExit(main())
+    except (ValueError, OSError, KeyError) as error:
+        raise SystemExit('refusing: ' + str(error))
