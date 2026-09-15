@@ -236,6 +236,39 @@ def bound(record_inputs, tmp_path, monkeypatch):
                        unseen_binding=str(record_inputs['binding'])))
 
 
+def test_a_documented_setup_failure_is_bound_without_a_log(bound):
+    """A run that aborted before the child was spawned has no log to hash; say so."""
+    before = bound.binder.collect(**bound.arguments)
+    setup_failure(bound)
+    # The new ledger row is a real change to an artefact the products declare.
+    repair_input(bound, attempt_root(bound, 'seen_cyl') / 'cumulative_hours.json')
+    regenerate_documents(bound)
+    report = bound.binder.collect(**bound.arguments)
+    assert report != before
+    rows = {item['role']: {row['attempt']: row for row in item['other_attempts']}
+            for item in report['attempts']}
+    failed = rows['seen_cyl']['attempt_setup_ABORTED_setup_failed']
+    assert failed['state'] == 'aborted' and failed['setup_failure'] is True
+    assert failed['reason'] == 'setup_failed'
+    assert [item['present'] for item in failed['logs']] == [False]
+    aborted = rows['seen_simple']['attempt_first_ABORTED_slow']
+    assert aborted['setup_failure'] is False and aborted['reason'] == 'guard_epoch_one'
+    # The original log was renamed by the abort, so only the renamed one is on disk.
+    assert [item['present'] for item in aborted['logs']] == [False, True]
+    assert aborted['logs'][1]['sha256'] and aborted['logs'][1]['path'].endswith('_slow.log')
+    probe = rows['seen_simple']['_probe_t_arm']
+    assert probe['state'] == 'certified' and probe['logs'][0]['present'] is True
+
+
+def test_every_probe_attempt_is_linked_to_exactly_one_receipt(bound):
+    report = bound.binder.collect(**bound.arguments)
+    for attempt in report['attempts']:
+        probes = [item for item in attempt['other_attempts'] if item['mode'] == 'probe']
+        assert len(attempt['probe_linkage']) == len(probes) == 1
+        for path, receipt in attempt['probe_linkage'].items():
+            assert Path(path).name == '_probe_t_arm' and Path(receipt).name.startswith('_probe_')
+
+
 def test_the_binding_report_covers_the_whole_seen_record(bound):
     report = bound.binder.collect(**bound.arguments)
     assert len(report['runs']) == 40 and len(report['attempts']) == 3
@@ -350,6 +383,22 @@ def repair_run_digests(bound, run):
         edit_both(bound, mutate, product)
 
 
+def regenerate_documents(bound):
+    """Rewrite the three rendered documents after a product's digest legitimately changed."""
+    load_asset('make_results_md').main(argv(bound.paths))
+    for suffix, module in (('.html', 'make_results_html'), ('.tex', 'make_latex')):
+        load_asset(module).main(argv(bound.paths, out=bound.paths['out'].with_suffix(suffix)))
+
+
+def repair_input(bound, path):
+    """Restate one declared digest in both products after a legitimate change."""
+    for product in ('table', 'pairs'):
+        def mutate(data, side):
+            if str(path) in data['inputs']:
+                data['inputs'][str(path)] = p.sha256_file(str(path))
+        edit_both(bound, mutate, product)
+
+
 def drop_run(bound):
     """Remove one whole evaluation run from the table's declared provenance."""
     run = Path(bound.arguments['runs'][0])
@@ -407,6 +456,73 @@ def foreign_approval(bound, replacement='/nonexistent/approved.json'):
         data['inputs'][replacement] = data['inputs'].pop(old)
         side['approved_digests'] = dict(side['approved_digests'], path=replacement)
     edit_both(bound, mutate)
+
+
+def attempt_root(bound, role='seen_simple'):
+    return bound.built.attempts[role].parent
+
+
+def aborted_attempt(bound):
+    return attempt_root(bound) / 'attempt_first_ABORTED_slow'
+
+
+def rewrite_external_log(bound, which):
+    """Change a log an attempt's own records point at, outside every attempt directory."""
+    if which == 'aborted':
+        record = json.loads((aborted_attempt(bound) / 'abort.json').read_text())
+        path = Path(record['log']['aborted'])
+    else:
+        record = json.loads((attempt_root(bound) / '_probe_t_arm/completion.json').read_text())
+        path = Path(record['log']['path'])
+    assert path.is_file()
+    path.write_text('rewritten evidence\n')
+
+
+def extra_receipt(bound, name, mutate, role='seen_simple'):
+    """A second probe receipt in the arm root, not the one the training manifest binds."""
+    root = attempt_root(bound, role)
+    data = json.loads((root / ('_probe_t_' + role + '.json')).read_text())
+    mutate(data)
+    p.write_manifest(root / name, data)
+
+
+def add_ledger_row(bound, name, mode='full', build=None, role='seen_cyl'):
+    """Register one more attempt in the arm's ledger, optionally creating its directory."""
+    path = attempt_root(bound, role) / 'cumulative_hours.json'
+    ledger = json.loads(path.read_text())
+    ledger['attempts'].append(dict(attempt=name, hours=.2, mode=mode))
+    ledger['total_hours'] = sum(row['hours'] for row in ledger['attempts'])
+    path.unlink()
+    path.write_text(json.dumps(ledger))
+    if build is not None:
+        build(attempt_root(bound, role) / name)
+
+
+def setup_failure(bound, spawned=False, role='seen_cyl'):
+    """The one form in which an aborted attempt legitimately has no log on disk."""
+    def build(directory):
+        directory.mkdir()
+        p.write_completion(directory / 'abort.json', dict(
+            reason='setup_failed', wall_hours=.0,
+            exception_message='GPU needs no other processes and >= 40 GiB free',
+            log=dict(original=str(attempt_root(bound, role) / 'never_created.log'), aborted=None)))
+        if spawned:
+            p.write_manifest(directory / 'execution.json',
+                             dict(train_manifest_sha256='e' * 64, child_pgid=99))
+    add_ledger_row(bound, 'attempt_setup_ABORTED_setup_failed', 'full', build, role)
+
+
+def second_probe(bound, role='seen_cyl'):
+    """A complete second probe attempt: certified, logged, and named by no receipt."""
+    def build(directory):
+        directory.mkdir()
+        log = attempt_root(bound, role) / 'probe_second.log'
+        log.write_text('a second synthetic probe\n')
+        p.write_manifest(directory / 'train_manifest.json', dict(mode='probe'))
+        p.write_completion(directory / 'completion.json', dict(
+            metrics=dict(probe=dict(T_epoch=8400.)),
+            log=dict(path=str(log), sha256=p.sha256_file(log))))
+    return build
 
 
 def orphan_ledger_row(bound, role='seen_cyl'):
@@ -481,6 +597,29 @@ FORGERIES = {
                                      'names an artefact this report does not bind'),
     # Blocker 4: the binder's own split-agreement check.
     'unseen_output_metas_under_a_seen_manifest': (unseen_output_metas, 'output split identity'),
+    # Blocker 3: every ledger-listed attempt's terminal state and external evidence.
+    'aborted_attempt_without_abort_json': (
+        lambda b: (aborted_attempt(b) / 'abort.json').unlink(), 'no terminal state'),
+    'aborted_attempt_log_vanished': (
+        lambda b: Path(json.loads((aborted_attempt(b) / 'abort.json').read_text())
+                       ['log']['aborted']).unlink(), 'must bind its log'),
+    'setup_failure_form_with_a_spawned_child': (
+        lambda b: setup_failure(b, spawned=True), 'must bind its log'),
+    'probe_attempt_without_a_receipt': (lambda b: add_ledger_row(
+        b, '_probe_second_arm', 'probe', second_probe(b)), 'has no receipt'),
+    'probe_receipt_naming_another_attempt': (lambda b: extra_receipt(
+        b, '_probe_extra_arm.json',
+        lambda d: d['probe_attempt'].update(path='/nonexistent/probe')),
+        'names an attempt this arm does not list'),
+    'probe_receipt_with_a_stale_digest': (lambda b: extra_receipt(
+        b, '_probe_extra_arm.json',
+        lambda d: d['probe_attempt'].update(completion_sha256='f' * 64)),
+        'probe receipt completion digest'),
+    'probe_attempt_external_log': (lambda b: rewrite_external_log(b, 'probe'),
+                                   'digest mismatch'),
+    # Not a refusal: the abort receipt records the path but no digest, so a rewritten
+    # aborted log must at least change the report and fail check_record.py.
+    'aborted_attempt_external_log': (lambda b: rewrite_external_log(b, 'aborted'), None),
 }
 
 

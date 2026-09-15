@@ -149,28 +149,42 @@ def exp07_fixture(tmp_path):
                 effective.update(args['env'])
                 effective_path = attempt / 'effective_args.json'
                 effective_digest = p.write_manifest(effective_path, effective)
+                # The probe attempt, its log (kept outside the attempt, as the launcher
+                # does) and the receipt that binds both of its records by digest.
+                probe = attempt.parent / '_probe_t_arm'
+                probe.mkdir()
+                probe_log = attempt.parent / ('probe_' + role + '.log')
+                probe_log.write_text('synthetic probe completed\n')
+                p.write_manifest(probe / 'train_manifest.json', dict(mode='probe', role=role))
+                p.write_completion(probe / 'completion.json', dict(
+                    metrics=dict(probe=dict(T_epoch=8400.)),
+                    log=dict(path=str(probe_log), sha256=p.sha256_file(probe_log))))
                 receipt = dict(schema_version=1, tier='M', backbone=arm['backbone'],
                                protocol='seen', yaw_aug=arm['yaw_aug'], passed=True,
                                PROBE_NOT_CLEAN=False, T_epoch=8400., T_run=100800.,
-                               reviewed_commit=commit, gpu='1')
+                               reviewed_commit=commit, gpu='1',
+                               probe_attempt=dict(path=str(probe), **{
+                                   part + '_sha256': p.sha256_file(probe / (part + '.json'))
+                                   for part in ('train_manifest', 'completion')}))
                 receipt_path = attempt.parent / ('_probe_t_' + role + '.json')
                 receipt_digest = p.write_manifest(receipt_path, receipt)
                 # Every arm probed once; seen_simple also retried after a slow epoch one.
                 history = [dict(attempt=attempt.name, hours=27.5, mode='full'),
                            dict(attempt='_probe_t_arm', hours=.4, mode='probe')]
-                probe = attempt.parent / '_probe_t_arm'
-                probe.mkdir()
-                p.write_manifest(probe / 'train_manifest.json', dict(mode='probe', role=role))
-                p.write_completion(probe / 'completion.json',
-                                   dict(metrics=dict(probe=dict(T_epoch=receipt['T_epoch']))))
                 if role == 'seen_simple':
                     aborted = attempt.parent / 'attempt_first_ABORTED_slow'
                     aborted.mkdir()
+                    aborted_log = attempt.parent / 'attempt_first_train.log'
+                    renamed = attempt.parent / 'attempt_first_train_ABORTED_slow.log'
+                    renamed.write_text('synthetic epoch one was too slow\n')
                     p.write_completion(aborted / 'abort.json', dict(
                         reason='guard_epoch_one', wall_hours=3.1,
-                        exception_message='epoch one exceeds probe acceptance'))
+                        exception_message='epoch one exceeds probe acceptance',
+                        log=dict(original=str(aborted_log), aborted=str(renamed))))
                     p.write_manifest(aborted / 'train_manifest.json',
                                      dict(mode='full', role=role, attempt_path=str(aborted)))
+                    p.write_manifest(aborted / 'execution.json',
+                                     dict(train_manifest_sha256='d' * 64, child_pgid=4242))
                     history.append(dict(attempt=aborted.name, hours=3.1, mode='full'))
                 p.write_manifest(attempt.parent / 'cumulative_hours.json', dict(
                     total_hours=sum(row['hours'] for row in history),

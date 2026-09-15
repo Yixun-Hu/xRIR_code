@@ -6,7 +6,7 @@ ledger lists -- aborted full runs with their abort.json, probe attempts, and the
 probe receipts -- so a later change to any of them changes the report.  It also binds the
 released reference checkpoint, the forty evaluation runs with their seen-split bindings,
 the seen alignment audit (protocol, cohort digest, passed, commit), the required
-``--evidence`` artefacts (the GPU parity log and the released-checkpoint calibration,
+``--evidence`` artefacts (the GPU parity receipt and the released-checkpoint calibration,
 whose pre-registered acceptance rule is recomputed here), the four canonical producer
 outputs revalidated through the generators' own checks with exact per-run input coverage,
 their sidecars and companions, the rendered Markdown/HTML/LaTeX, the exp_04 inputs the
@@ -49,12 +49,54 @@ HISTORICAL = {'EDT': .0389, 'C50': 1.029, 'T60': 7.27}
 SEEN_BATCHES = launcher.TRAIN_BATCHES['seen']
 
 
+def external_log(reference, digest=None):
+    """Bind a log an attempt's own records point at, wherever the launcher put it.
+
+    The launcher deliberately keeps logs OUTSIDE the attempt directory, so hashing the
+    directory does not cover them; the path comes from the attempt's own completion or
+    abort receipt, and a log that is not on disk is recorded as absent, never assumed.
+    """
+    path = Path(reference)
+    if not path.is_file():
+        return dict(path=str(path), present=False)
+    return dict(stamp(path, digest) if digest else stamp(path), present=True)
+
+
+def terminal_state(directory, row):
+    """A ledger-listed attempt ended certified or aborted; bind that state's evidence.
+
+    Setup failure is the documented third shape of an abort: ``execute_attempt`` raises
+    before the child is spawned, so ``guard.log_created`` is false, ``abort_log`` renames
+    nothing (``log.aborted`` is null), no ``execution.json`` was ever written and there is
+    no log on disk to hash.  Any other abort must bind a log.
+    """
+    completion, abort = directory / 'completion.json', directory / 'abort.json'
+    if completion.is_file():  # a recovered attempt keeps its abort.json as well
+        record = json.loads(completion.read_text()).get('log') or {}
+        require(record.get('path'), 'a certified attempt records no log: ' + row['attempt'])
+        return dict(state='certified', setup_failure=False,
+                    logs=[external_log(record['path'], record.get('sha256'))])
+    require(abort.is_file(),
+            'the attempt has no terminal state (completion.json or abort.json): ' + row['attempt'])
+    record = json.loads(abort.read_text())
+    reason = record.get('reason')
+    require(isinstance(reason, str) and reason, 'an aborted attempt records no reason: '
+            + row['attempt'])
+    log = record.get('log') or {}
+    logs = [external_log(log[key]) for key in ('original', 'aborted') if log.get(key)]
+    failure = not log.get('aborted') and not (directory / 'execution.json').is_file()
+    require(failure or any(item['present'] for item in logs),
+            'an aborted attempt that spawned a child must bind its log: ' + row['attempt'])
+    return dict(state='aborted', setup_failure=failure, reason=reason, logs=logs)
+
+
 def other_attempts(certified, ledger, role):
     """Bind every OTHER attempt the arm's ledger lists, file by file.
 
     Plan section 3 requires the complete attempt history: an aborted full run (with its
-    abort.json) and each probe attempt are bound here at their current bytes, so a later
-    change to any of them changes the report and check_record.py fails.
+    abort.json), each probe attempt and the external logs all of them reference are bound
+    here at their current bytes, so a later change to any of them changes the report and
+    check_record.py fails.
     """
     root = Path(certified).parent
     records = []
@@ -67,8 +109,29 @@ def other_attempts(certified, ledger, role):
         require(files, 'a bound attempt holds no files: ' + row['attempt'])
         records.append(dict(role=role, attempt=row['attempt'], mode=row['mode'],
                             hours=row['hours'], path=str(directory),
-                            files=[stamp(item) for item in files]))
+                            files=[stamp(item) for item in files],
+                            **terminal_state(directory, row)))
     return records
+
+
+def probe_linkage(records, receipts):
+    """Every probe attempt is named by exactly one receipt, at the bytes it recorded."""
+    probes = {item['path'] for item in records if item['mode'] == 'probe'}
+    named = {}
+    for receipt in receipts:
+        bound = (json.loads(Path(receipt['path']).read_text()).get('probe_attempt') or {})
+        path = str(Path(bound.get('path', 'absent')).resolve())
+        require(path in probes,
+                'a probe receipt names an attempt this arm does not list: ' + receipt['path'])
+        require(path not in named, 'two probe receipts name one attempt: ' + path)
+        for part in ('train_manifest', 'completion'):
+            item = stamp(Path(path) / (part + '.json'))
+            require(bound.get(part + '_sha256') == item['sha256'],
+                    'probe receipt {} digest: {}'.format(part, receipt['path']))
+        named[path] = receipt['path']
+    missing = sorted(probes - set(named))
+    require(not missing, 'a probe attempt has no receipt: ' + ', '.join(missing))
+    return named
 
 
 def evidence_record(bindings):
@@ -160,6 +223,7 @@ def attempt_record(attempt, pins):
                                       bound['probe_receipt']['sha256']),
                   seen_split=stamp(Path(fields['repo']) / bound['seen_split']['path'],
                                    bound['seen_split']['sha256']))
+    record['probe_linkage'] = probe_linkage(record['other_attempts'], record['probe_receipts'])
     return dict(record, bound=attempt_declarations(record))
 
 
@@ -171,6 +235,7 @@ def attempt_declarations(record):
     items += [item for item in record['outputs'].values() if item]
     for other in record['other_attempts']:
         items += list(other['files'])
+        items += [item for item in other['logs'] if item['present']]
     return {item['path']: item['sha256'] for item in items if item}
 
 
