@@ -1088,3 +1088,60 @@ def test_a_child_artifact_changed_during_analysis_is_refused_at_publication(
         assert not (tmp_path / 's.json').exists() and not (tmp_path / 's.txt').exists()
     finally:
         target.write_bytes(original)
+
+
+DEPENDENCIES = {'rirs': 'hallway/rirs.npy', 'depth': 'hallway/depth.npy',
+                'closure': None}                 # the child's own entry point, in the repo
+
+
+@pytest.mark.parametrize('case', sorted(DEPENDENCIES))
+def test_a_child_dependency_changed_after_admission_is_refused_at_publication(
+        arms, real_job, cache, tmp_path, monkeypatch, case):
+    """Close review 2, finding 2a: the finalizer verifies the data inventory, the source
+    closure and the mutable inputs a child declares; retaining only the provenance file
+    that names them left those bytes free to change between admission and publication."""
+    root, repo = real_job
+    inputs = {}
+    with monkeypatch.context() as patched:
+        patched.setattr(legacy, 'HAA_ROOT', cache['root'])
+        subject.verify_job(root, 'seed0', 'cyl_or', repo=repo, sensitivity=True,
+                           inputs=inputs)
+    target = (Path(repo) / 'tools/exp06_haa_finetune.py' if DEPENDENCIES[case] is None
+              else Path(cache['root']) / DEPENDENCIES[case])
+    assert inputs.get(str(target.resolve())) == sha(target), case
+    arms['cyl_or']['inputs'] = inputs
+    result = subject.analyse(arms, n_boot=200, adjusted_n_boot=200, exploratory=True)
+    original = target.read_bytes()
+    try:
+        target.write_bytes(original + b' ')
+        with pytest.raises(ValueError, match='input changed during analysis'):
+            subject.write_outputs(result, tmp_path / 's.json', tmp_path / 's.txt')
+        assert not (tmp_path / 's.json').exists() and not (tmp_path / 's.txt').exists()
+    finally:
+        target.write_bytes(original)
+
+
+def test_every_child_provenance_dependency_is_retained_with_its_validated_digest(
+        real_job, cache, monkeypatch):
+    """The inventory entries, the closure files and the mutable inputs, per child."""
+    root, repo = real_job
+    monkeypatch.setattr(legacy, 'HAA_ROOT', cache['root'])
+    inputs = {}
+    subject.verify_job(root, 'seed0', 'cyl_or', repo=repo, sensitivity=True, inputs=inputs)
+    for child in ('stage1', 'eval/hallway'):
+        record = json.loads((Path(root) / child / 'provenance.json').read_text())
+        identity = record['data_identity']
+        assert len(identity['inventory']) >= 5
+        for entry in identity['inventory']:
+            path = Path(identity['data_root']) / entry['path']
+            assert inputs[str(path.resolve())] == entry['sha256'], (child, entry['path'])
+        files = record['source_closures']['child']['files']
+        assert any(item['path'].endswith('haa_finetune.py') or
+                   item['path'].endswith('haa_eval.py') for item in files)
+        assert any(item['path'] == 'sim_to_real/finetune_haa.py' for item in files)
+        for item in files:
+            assert inputs[str((Path(repo) / item['path']).resolve())] == \
+                item['working_tree_sha256'], (child, item['path'])
+        for entry in (record.get('mutable_inputs') or {}).values():
+            path = subject.finalizer._resolve(entry['path'], repo)
+            assert inputs[str(Path(path).resolve())] == entry['sha256']
