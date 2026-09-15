@@ -56,7 +56,9 @@ is given (``--attempt-root`` is repeatable: attempts and smokes alike), and (for
 ``full``/``probe``) a GPU with no compute apps. ``child-exit`` closes a child's log: it
 appends the end marker and exclusively writes the receipt that binds those bytes. The
 launcher owns ``launch.pid`` and names itself with ``--owner-pid``; the child gets
-``child.pid``, and a live one is never admissible.
+``child.pid``, and a live one is never admissible. That owner exception covers only the
+directory being finalized, so a job refuses while any pid file under any of its children
+is alive: a pipeline's own ``launch.pid`` belongs at the job root, never in a child.
 
     python tools/exp06_finalize.py preflight --mode full --gpu 1 \
         --reviewed-commit <sha> [--attempt-root <dir>]... [--repo <path>]
