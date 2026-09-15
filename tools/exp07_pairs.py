@@ -14,6 +14,10 @@ These are checkpoint-conditional descriptive intervals: five evaluation seeds do
 estimate training-seed variability, so no cell carries a verdict, a significance marker
 or a superiority/equivalence claim, and ``decision_driving`` is false throughout.
 """
+import hashlib
+import json
+from pathlib import Path
+
 import numpy as np
 
 from tools.exp07_profiles import get_profile, json_value
@@ -95,3 +99,69 @@ def paired_cell(profile, runs_a, runs_b, pairing, metric, shot):
                             'joint': counts['joint']},
                 arm_means={role: seed_summary(values, mask)
                            for role, values in zip(pairing, (a, b))})
+
+
+def _role_and_shot(profile, directory):
+    fields = json.loads((Path(directory) / 'eval_manifest.json').read_text())
+    matches = [arm['role'] for arm in profile['arms']
+               if (Path(fields['repo']) / fields['checkpoint']).resolve() ==
+               (REPO / arm['checkpoint']).resolve()]
+    if len(matches) != 1:
+        raise ValueError('unregistered checkpoint: ' + str(directory))
+    return matches[0], fields.get('num_shot')
+
+
+def _side(profile, directories, label):
+    identified = [_role_and_shot(profile, item) for item in directories]
+    roles = {role for role, _ in identified}
+    if len(roles) != 1:
+        raise ValueError(label + ' must hold exactly one arm, got: ' + ', '.join(sorted(roles)))
+    return roles.pop(), sorted({shot for _, shot in identified}, reverse=True)
+
+
+def build_pairs(runs_a, runs_b, profile=None, approved=None, exploratory=False, producer=None):
+    """Admit both arms of one registered pairing and compute its descriptive cells."""
+    profile = json_value(get_profile('PAIRS_SEEN_V1')) if profile is None else profile
+    role_a, shots_a = _side(profile, runs_a, '--runs-a')
+    role_b, shots_b = _side(profile, runs_b, '--runs-b')
+    if role_b != BASELINE:
+        raise ValueError('--runs-b must be the ' + BASELINE + ' baseline, got ' + role_b)
+    pairing = (role_a, role_b)
+    if list(pairing) not in [list(pair) for pair in profile['pairings']]:
+        raise ValueError('unregistered pairing: ' + ' - '.join(pairing))
+    if shots_a != shots_b or not set(shots_a) <= set(profile['num_shot']):
+        raise ValueError('both arms must be evaluated at the same registered shot counts')
+    arms = [arm for arm in profile['arms'] if arm['role'] in pairing]
+    restricted = dict(profile, num_shot=shots_a,
+                      arms=sorted(arms, key=lambda arm: pairing.index(arm['role'])))
+    groups, admitted = admit(list(runs_a) + list(runs_b), restricted, approved, producer,
+                             exploratory, producer_key='producer_pairs')
+    indexed = {(arm['role'], shot): runs
+               for (arm, shot, _), runs in zip(groups, admitted['groups'])}
+    literal = json.loads(json.dumps(json_value(profile)))
+    result = dict(schema_version=1, profile_name='PAIRS_SEEN_V1', profile=literal,
+                  profile_digest=hashlib.sha256(json.dumps(literal, sort_keys=True,
+                      separators=(',', ':'), allow_nan=False).encode()).hexdigest(),
+                  exploratory=exploratory, pairing=list(pairing), decision_driving=False,
+                  verdict_scope=profile['verdict_scope'], cells=[], reconverge_required=[],
+                  deviations=list(admitted['deviations']), inputs=admitted['inputs'],
+                  run_flags=admitted['run_flags'], contracts=admitted['contracts'],
+                  producer_closure_sha256=admitted['producer']['sha256'])
+    for shot in shots_a:
+        for metric in profile['metrics']['descriptive']:
+            label = '{} K={}'.format(metric, shot)
+            try:
+                cell = paired_cell(profile, indexed[(pairing[0], shot)],
+                                   indexed[(pairing[1], shot)], pairing, metric, shot)
+            except (ValueError, KeyError, TypeError, IndexError) as error:
+                if not exploratory:
+                    raise ValueError('{}: {}'.format(label, error))
+                result['deviations'].append('{}: {}'.format(label, error))
+                continue
+            result['cells'].append(cell)
+            flagged = sorted(name for name, statistic in cell['statistics'].items()
+                             if statistic['reconverge_required'])
+            if flagged:
+                result['reconverge_required'].append(label + ' ' + '/'.join(flagged))
+    result['final'] = not result['reconverge_required'] and not result['deviations']
+    return result, admitted
