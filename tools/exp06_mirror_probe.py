@@ -592,37 +592,45 @@ def build_record(args, captured=None):
         decision = dict(decision, outcome='inconclusive', reasons=(
             ['the legacy reproduction did not match the 2026-09-14 anchors']
             + list(legacy['deviations']) + list(decision['reasons'])))
+    # Nit 5: environment discovery imports and forks, so it is collected here and the
+    # re-check happens immediately before the caller publishes the assembled record.
+    env = environment()
+    record = {'schema_version': 2, 'room': args.room, 'haa_root': str(args.haa_root),
+               'num_shot': int(args.num_shot), 'batch': int(args.batch),
+               'legacy_only': bool(args.legacy_only),
+               'device': (gate or {}).get('device', 'cpu'),
+               'checkpoints': {name: {'path': path,
+                                      'sha256': captured['checkpoint_sha256'][path]}
+                               for name, path in sorted(checkpoints.items())},
+               'heading': {'path': captured['heading_path'],
+                           'sha256': captured['heading_sha256'], 'room': heading['room'],
+                           'k': heading['k'], 'phi_deg': heading['phi_deg'],
+                           'decision': heading['decision'],
+                           'admissibility': heading['admissibility'],
+                           'input_sha256': heading['input_sha256']},
+               'cache': {'room_dir': captured['room_dir'],
+                         'sha256': captured['cache_sha256']},
+               'cohort': {'legacy': HALLWAY_LEGACY_COHORT,
+                          'full': (gate or {}).get('cohort')},
+               'anchors': ANCHORS_LEGACY, 'anchor_tolerance': ANCHOR_TOLERANCE,
+               'legacy_reproduction': legacy, 'stats': (gate or {}).get('stats'),
+               'decision': decision, 'source_closure': captured['source_closure'],
+               'environment': env,
+               'timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat()}
     revalidate_inputs(captured)   # no record stands on inputs that moved under it
-    return {'schema_version': 2, 'room': args.room, 'haa_root': str(args.haa_root),
-            'num_shot': int(args.num_shot), 'batch': int(args.batch),
-            'legacy_only': bool(args.legacy_only),
-            'device': (gate or {}).get('device', 'cpu'),
-            'checkpoints': {name: {'path': path,
-                                   'sha256': captured['checkpoint_sha256'][path]}
-                            for name, path in sorted(checkpoints.items())},
-            'heading': {'path': captured['heading_path'],
-                        'sha256': captured['heading_sha256'], 'room': heading['room'],
-                        'k': heading['k'], 'phi_deg': heading['phi_deg'],
-                        'decision': heading['decision'],
-                        'admissibility': heading['admissibility'],
-                        'input_sha256': heading['input_sha256']},
-            'cache': {'room_dir': captured['room_dir'],
-                      'sha256': captured['cache_sha256']},
-            'cohort': {'legacy': HALLWAY_LEGACY_COHORT,
-                       'full': (gate or {}).get('cohort')},
-            'anchors': ANCHORS_LEGACY, 'anchor_tolerance': ANCHOR_TOLERANCE,
-            'legacy_reproduction': legacy, 'stats': (gate or {}).get('stats'),
-            'decision': decision, 'source_closure': captured['source_closure'],
-            'environment': environment(),
-            'timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat()}
+    return record
 
 
 def main(argv=None):
-    """0 when G1 passes, 3 when it fails, 4 when it is inconclusive, 2 for input errors."""
+    """0 when G1 passes, 3 when it fails, 4 when it is inconclusive.
+
+    Nit 6: a handled input refusal raises a textual ``SystemExit``, which is status
+    **1 for input refusals**; **2 for argparse usage errors** is argparse's own.
+    """
     args = parse_args(argv)
-    record = build_record(args)
     out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
+    out.parent.mkdir(parents=True, exist_ok=True)  # prepared before the record's last check
+    record = build_record(args)
     digest = write_manifest(out, record)          # exclusive create: never an overwrite
     outcome = record['decision']['outcome']
     print(json.dumps({'outcome': outcome, 'out': str(out), 'sha256': digest,

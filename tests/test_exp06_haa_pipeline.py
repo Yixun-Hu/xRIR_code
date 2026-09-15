@@ -401,10 +401,15 @@ def tiny_state(tag=0.0):
             for index, key in enumerate(keys)}
 
 
+def dead_pid():
+    """A pid no process can hold: the finalizer refuses a receipt whose child is alive."""
+    return int(Path('/proc/sys/kernel/pid_max').read_text().strip()) + 1
+
+
 def close_child(run_dir, log, text='child output\n'):
     Path(log).write_text(text)
     assert exp06_finalize.child_exit_main([
-        '--run-dir', str(run_dir), '--log', str(log), '--child-pid', str(os.getpid()),
+        '--run-dir', str(run_dir), '--log', str(log), '--child-pid', str(dead_pid()),
         '--status', '0', '--started-at', '2026-09-15T00:00:00+00:00']) == 0
 
 

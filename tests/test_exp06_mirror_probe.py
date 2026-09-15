@@ -695,7 +695,8 @@ def test_a_handled_input_refusal_exits_one_and_says_so(probe_cache, tmp_path, mo
     Path(cache['heading']).write_text('not json')
     with pytest.raises(SystemExit) as error:
         subject.main(cli(cache, tmp_path / 'refused.json'))
-    assert error.value.code == 1
+    # A textual SystemExit prints its message and leaves the interpreter at status 1.
+    assert isinstance(error.value.code, str) and error.value.code.startswith('refusing: ')
     with pytest.raises(SystemExit) as usage:
         subject.main(['--not-a-flag'])
     assert usage.value.code == 2
