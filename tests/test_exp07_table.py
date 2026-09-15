@@ -42,3 +42,31 @@ def test_the_contract_accepts_a_trained_arm_and_the_reference_row(built):
         assert contract['waivers'] == [directory + ': mutable_inputs names']
         assert str(Path(directory) / 'eval_manifest.json') in contract['inputs']
         assert (str(built.attempts[role] / 'args.json') in contract['inputs']) is not reference
+
+
+def admit(built, **kwargs):
+    return table.admit(built.directories, built.profile, built.approved,
+                       producer=built.producer, **kwargs)
+
+
+def test_the_complete_fixture_is_admitted_role_by_role(built):
+    groups, admitted = admit(built)
+    assert admitted['deviations'] == []
+    assert [(arm['role'], shot) for arm, shot, _ in groups] == [
+        (role, shot) for role in ('seen_simple', 'seen_cyl', 'seen_aug', 'released_seen')
+        for shot in (8, 1)]
+    assert [len(runs) for runs in admitted['groups']] == [5] * 8
+    contracts = admitted['contracts']
+    assert len(contracts) == 40 and sum(c['reference'] for c in contracts.values()) == 10
+    trained = {c['training'] for c in contracts.values() if not c['reference']}
+    assert trained == {built.pins['closures']['training']}  # one closure for all three arms
+    assert str(built.split.resolve()) in admitted['inputs']
+
+
+def test_null_pins_refuse_but_are_listed_in_exploratory_mode(built, exp07_approval_template):
+    built.approved = (exp07_approval_template, built.approved[1])
+    with pytest.raises(ValueError, match='not yet approved'):
+        admit(built)
+    _, admitted = admit(built, exploratory=True)
+    assert any('profile not yet approved: evaluator' in item for item in admitted['deviations'])
+    assert any('seen_simple checkpoint' in item for item in admitted['deviations'])

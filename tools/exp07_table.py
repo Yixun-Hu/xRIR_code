@@ -16,7 +16,8 @@ import json
 from pathlib import Path
 
 from tools import provenance
-from tools.paired_compare import _equal
+from tools.exp07_profiles import load_approved_digests
+from tools.paired_compare import REPO, _equal, admit_runs, producer_identity
 
 TRAINING_BINDINGS = ('train_args', 'train_manifest', 'train_completion')
 BINDING_FILES = {'train_args': 'args.json', 'train_manifest': 'train_manifest.json',
@@ -108,3 +109,69 @@ def run_contract(directory, arm, profile, pins):
     require(_equal(args.get('tier', profile['tier']), profile['tier']), 'args tier')
     require(_equal(args.get('backbone'), fields.get('backbone')), 'evaluated backbone')
     return dict(role=arm['role'], reference=False, training=trainer, waivers=waivers, inputs=inputs)
+
+
+def admit(directories, profile, approved=None, producer=None, exploratory=False):
+    """Route runs to (arm, K) groups, apply the contract, then collect through exp_04.
+
+    Only differences this module checks independently are waived from the inherited
+    admission; nothing on disk and no imported producer's state is modified.
+    """
+    pins, receipt = load_approved_digests() if approved is None else approved
+    approved = (pins, receipt)
+    deviations, groups, contracts, waivers, snapshots = [], [], {}, set(), {}
+    def check(ok, message):
+        if not ok:
+            deviations.append(message)
+    check(type(pins['schema_version']) is int and pins['schema_version'] == 1,
+          'approval schema_version')
+    for key in ('evaluator', 'writer', 'training_launcher', 'training', 'producer_table'):
+        check(bool(pins['closures'][key]), 'profile not yet approved: ' + key)
+    for arm in profile['arms']:
+        effective = dict(arm)
+        if not arm['reference']:
+            checkpoint = pins['checkpoints'][arm['role']]
+            check(checkpoint['path'] == arm['checkpoint'] and
+                  _equal(checkpoint['epoch'], arm['epoch']),
+                  'approved checkpoint path/epoch: ' + arm['role'])
+            effective['sha256'] = checkpoint['sha256']
+        check(effective['sha256'] is not None,
+              'profile not yet approved: ' + arm['role'] + ' checkpoint')
+        for shot in sorted(profile['num_shot'], reverse=True):
+            groups.append((effective, shot, []))
+    if deviations and not exploratory:
+        raise ValueError('admission failed: ' + '; '.join(deviations))
+    directories = sorted(str(Path(item).resolve()) for item in directories)
+    check(len(set(directories)) == len(directories), 'duplicate run directories')
+    for directory in directories:
+        try:
+            fields = json.loads((Path(directory) / 'eval_manifest.json').read_text())
+            matches = [(arm, paths) for arm, shot, paths in groups
+                       if _equal(fields.get('num_shot'), shot) and
+                       (Path(fields['repo']) / fields['checkpoint']).resolve() ==
+                       (REPO / arm['checkpoint']).resolve()]
+            if len(matches) != 1:
+                raise ValueError('unregistered checkpoint/K')
+            arm, paths = matches[0]
+            paths.append(directory)
+            contract = run_contract(directory, arm, profile, pins)
+            contracts[directory] = {key: value for key, value in contract.items()
+                                    if key not in ('waivers', 'inputs')}
+            for path, digest in contract['inputs'].items():
+                check(snapshots.get(path, digest) == digest, 'contract input changed: ' + path)
+                snapshots[path] = digest
+            waivers.update(contract['waivers'])
+        except (ValueError, TypeError, KeyError, OSError, IndexError) as error:
+            check(False, '{}: {}'.format(directory, error))
+    trainers = {c['training'] for c in contracts.values() if c['training'] is not None}
+    check(len(trainers) <= 1, 'the new arms do not share one training closure')
+    producer = producer_identity('tools.exp07_table') if producer is None else producer
+    admitted = admit_runs(profile, groups, approved=approved, exploratory=True,
+                          producer=producer, producer_key='producer_table')
+    for path, digest in snapshots.items():
+        check(admitted['inputs'].get(path) == digest, 'contract input changed: ' + path)
+    deviations.extend(item for item in admitted['deviations'] if item not in waivers)
+    if deviations and not exploratory:
+        raise ValueError('admission failed: ' + '; '.join(deviations))
+    admitted.update(deviations=deviations, contracts=contracts)
+    return groups, admitted
