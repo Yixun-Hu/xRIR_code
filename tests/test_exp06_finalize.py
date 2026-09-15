@@ -1589,3 +1589,33 @@ def test_a_child_that_records_no_role_artefact_is_refused(job_run, closed_log_fi
         exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
                                 children=children, expect='finetune', job_spec=spec)
     assert not (job / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('name', ['child.pid', 'launch.pid'])
+def test_a_live_child_is_never_certified_by_a_job(job_run, closed_log_file, name):
+    """Finding 1: job admission must apply the liveness contract to every child."""
+    def mutate(job, names):
+        (job / 'stage1' / name).write_text('{}\n'.format(os.getpid()))
+        return names
+
+    job, children, spec, repo = job_run(mutate=mutate)
+    for owner in (None, os.getpid()):
+        with pytest.raises(ValueError, match='alive'):
+            exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                    children=children, expect='finetune', job_spec=spec,
+                                    owner_pid=owner)
+    assert not (job / 'completion.json').exists()
+
+
+def test_the_job_owner_may_finalize_once_every_child_is_dead(job_run, closed_log_file):
+    """Finding 1: the owner exception covers the job's own launch.pid, never a child's."""
+    def mutate(job, names):
+        (job / 'launch.pid').write_text('{}\n'.format(os.getpid()))
+        (job / 'stage1/child.pid').write_text('999999999\n')
+        return names
+
+    job, children, spec, repo = job_run(mutate=mutate)
+    fields = exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                     children=children, expect='finetune', job_spec=spec,
+                                     owner_pid=os.getpid())
+    assert fields['admissible_arm'] is True
