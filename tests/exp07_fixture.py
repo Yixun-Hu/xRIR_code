@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from tools import exp07_provenance as e7p
 from tools import provenance as p
 from tools.exp07_profiles import get_profile, json_value
 from tools.reference_manifest import manifest_hash
@@ -68,12 +69,12 @@ def exp07_fixture(tmp_path):
         profile = json_value(get_profile(name))
         queries = sorted('Cat/room_{}/S00{}_R001_hybrid_IR.wav'.format(i // 4, i + 1)
                          for i in range(12))
-        split = root / p.SEEN_SPLIT
+        split = root / e7p.SEEN_SPLIT
         split.parent.mkdir(parents=True)
         split.write_bytes(b'synthetic seen_test_split.pkl')
         profile['dataset'].update(n_queries=12, n_rooms=3, query_sha256=_canonical_digest(queries),
                                   seen_split_sha256=p.sha256_file(split))
-        split_binding = dict(path=p.SEEN_SPLIT, sha256=p.sha256_file(split))
+        split_binding = dict(path=e7p.SEEN_SPLIT, sha256=p.sha256_file(split))
         names = ('tools/exp07_eval.py', 'tools/exp04_eval_launch.py', 'tools/exp04_launcher.py',
                  'train_xRIR_backbone.py', 'eval_yaw_rotation.py')
         entry, writer, launcher, training, frozen = [_source(root, name) for name in names]

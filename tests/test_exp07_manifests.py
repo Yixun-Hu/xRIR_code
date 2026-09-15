@@ -9,6 +9,7 @@ import json
 import pytest
 
 from tools import exp07_manifests as subject
+from tools import exp07_provenance as e7p
 from tools import provenance as p
 from tools.reference_manifest import manifest_hash
 
@@ -48,7 +49,7 @@ def test_builds_one_manifest_per_k_and_seed_with_a_bound_index(tmp_path, factory
     names = [subject.manifest_name(k, s) for k in (3, 1) for s in (42, 43)]
     assert sorted(item.name for item in out.iterdir()) == sorted(names + [subject.INDEX])
     assert index == json.loads((out / subject.INDEX).read_text())
-    assert index['seen_split'] == p.seen_split_identity(subject.REPO)
+    assert index['seen_split'] == e7p.seen_split_identity(subject.REPO)
     assert index['seeds'] == [42, 43] and index['num_shots'] == [3, 1]
     for name in names:
         manifest = json.loads((out / name).read_text())
@@ -121,7 +122,7 @@ def repo(tmp_path, monkeypatch):
     """A throwaway repository root whose split pickle can be replaced mid-build."""
     root = tmp_path / 'repo'
     (root / 'treble_multi_room_dataset').mkdir(parents=True)
-    (root / p.SEEN_SPLIT).write_bytes(b'the split the datasets are built from')
+    (root / e7p.SEEN_SPLIT).write_bytes(b'the split the datasets are built from')
     monkeypatch.setattr(subject, 'REPO', root)
     return root
 
@@ -129,8 +130,8 @@ def repo(tmp_path, monkeypatch):
 def test_the_split_identity_is_captured_before_any_dataset_and_rechecked(tmp_path, tree, factory,
                                                                         repo, monkeypatch):
     """Otherwise a replacement during construction would be attributed the old manifests."""
-    order, identity = [], p.seen_split_identity
-    monkeypatch.setattr(subject.p, 'seen_split_identity',
+    order, identity = [], e7p.seen_split_identity
+    monkeypatch.setattr(subject.e7p, "seen_split_identity",
                         lambda root: order.append('split') or identity(root))
     index = subject.build(tmp_path / 'exp07', seeds=(42,), num_shots=(3, 1),
                           entries=len(tree[1]),
@@ -142,7 +143,7 @@ def test_the_split_identity_is_captured_before_any_dataset_and_rechecked(tmp_pat
 def test_a_split_replaced_between_the_shot_counts_refuses_the_index(tmp_path, tree, factory, repo):
     out = tmp_path / 'exp07'
     def mutating(num_shot):
-        (repo / p.SEEN_SPLIT).write_bytes(b'a different split file')
+        (repo / e7p.SEEN_SPLIT).write_bytes(b'a different split file')
         return factory(num_shot)
     with pytest.raises(ValueError, match='seen_test_split'):
         subject.build(out, seeds=(42,), num_shots=(3, 1), entries=len(tree[1]), factory=mutating)

@@ -111,13 +111,8 @@ def evaluate_p_batch(model, batch, evaluator, cols, acoustic_cols=(), e_acoustic
     return keys, results, yaw.delay_flip_counts(src[:n_real], locations[:n_real], cols)
 
 
-def run_exp04(args, model_factory=None, metadata=None, manifest_validator=None,
-              dataset_factory=None):
-    """Mirror the frozen run, binding its outputs to preflight-validated inputs.
-
-    ``dataset_factory(manifest, max_samples)`` defaults to the frozen unseen builder;
-    tools/exp07_eval.py passes the seen one.  Everything else is protocol-independent.
-    """
+def run_exp04(args, model_factory=None, metadata=None, manifest_validator=None):
+    """Mirror the frozen run, binding its outputs to preflight-validated inputs."""
     fields, digest, manifest = (manifest_validator or validate_manifest)(args)
     if not yaw.torch.cuda.is_available():
         raise RuntimeError("exp04_eval needs a GPU: xRIR.apply_delay is .cuda()-only")
@@ -126,7 +121,7 @@ def run_exp04(args, model_factory=None, metadata=None, manifest_validator=None,
     yaw.set_precision(args.tf32)
     manifest = yaw.load_checked_manifest(args.manifest, args.manifest_hash)
     cols, acoustic, e_acoustic = yaw._check_cols(args.yaw_cols, args.acoustic_cols, args.e_acoustic_cols)
-    dataset = (dataset_factory or yaw.build_manifest_dataset)(manifest, max_samples=args.max_samples)
+    dataset = yaw.build_manifest_dataset(manifest, max_samples=args.max_samples)
     loader = yaw.DataLoader(dataset, batch_size=args.batch_size, shuffle=False,
                             num_workers=args.num_workers, pin_memory=True)
     model = (model_factory or yaw.build_xrir)(args.backbone, manifest["num_shot"])

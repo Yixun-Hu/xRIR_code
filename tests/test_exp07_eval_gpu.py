@@ -12,7 +12,9 @@ import pytest
 import torch
 
 import eval_yaw_rotation as frozen
-from tools import exp04_eval, exp04_eval_launch as launcher, exp07_eval, provenance
+from tools import exp04_eval, exp07_eval, exp07_eval_launch as launcher
+from tools import exp07_provenance as e7p
+from tools import provenance
 from tools.reference_manifest import build_manifest, manifest_hash, save_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,7 +65,7 @@ def test_unseen_32_query_run_is_bit_identical_to_exp04(tmp_path):
     for old, new in zip(previous, actual):
         assert new['meta']['split'] == 'unseen'
         assert new['meta']['seen_split_sha256'] == provenance.sha256_file(
-            ROOT / provenance.SEEN_SPLIT)
+            ROOT / e7p.SEEN_SPLIT)
         differing = {key for key in set(old['meta']) | set(new['meta'])
                      if old['meta'].get(key) != new['meta'].get(key)}
         assert differing <= EXTRA_META and {'split', 'eval_manifest_sha256'} <= differing
@@ -134,9 +136,9 @@ def test_seen_final_batch_matches_a_direct_frozen_call(tmp_path, monkeypatch, sh
 @GPU
 @pytest.mark.parametrize('shots', [8, 1])
 def test_the_launcher_runs_the_seen_split_and_matches_the_frozen_functions(tmp_path, shots):
-    """The planned invocation: --entry exp07 --split seen, bounded to 16 + a final 9.
+    """The planned invocation: --split seen, bounded to one batch of 16 plus a final 9.
 
-    Unlike the parity cases above this goes through tools/exp04_eval_launch.py, so the
+    Unlike the parity cases above this goes through tools/exp07_eval_launch.py, so the
     real handshake, the split bindings and the finalisation gates are exercised.  It
     needs the seen reference manifests of tools/exp07_manifests.py (the launcher hashes
     every file the manifest references), so it skips until the Planner has built them.
@@ -149,7 +151,7 @@ def test_the_launcher_runs_the_seen_split_and_matches_the_frozen_functions(tmp_p
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(ROOT), text=True).strip()
     run = tmp_path / 'launched'
     completion = launcher.main([
-        '--entry', 'exp07', '--split', 'seen', '--backbone', 'simple', '--checkpoint',
+        '--split', 'seen', '--backbone', 'simple', '--checkpoint',
         str(CHECKPOINT), '--manifest', str(reference), '--manifest-hash', manifest_hash(manifest),
         '--out-dir', str(run), '--log-dir', str(tmp_path / 'logs'), '--run-label', 'seen',
         '--data-root', exp04_eval.BASE_DATA_PATH, '--reviewed-commit', commit,
@@ -157,14 +159,14 @@ def test_the_launcher_runs_the_seen_split_and_matches_the_frozen_functions(tmp_p
         '--gl-seed', '42', '--conditions', 'P', '--yaw-cols', '0', '--acoustic-cols', '0',
         '--e-acoustic-cols', '--decomposition-batches', '0', '--num-workers', '0',
         '--threads', '2'])
-    digest = provenance.sha256_file(ROOT / provenance.SEEN_SPLIT)
+    digest = provenance.sha256_file(ROOT / e7p.SEEN_SPLIT)
     fields = json.loads((run / 'eval_manifest.json').read_text())
     assert fields['split'] == 'seen' and fields['seen_split_sha256'] == digest
-    assert fields['mutable_inputs']['seen_split'] == provenance.seen_split_identity(ROOT)
+    assert fields['mutable_inputs']['seen_split'] == e7p.seen_split_identity(ROOT)
     assert fields['split_count'] == exp07_eval.SPLIT_ENTRIES['seen'] and fields['n_samples'] == 25
     assert exp07_eval.SEEN_DATASET_SOURCE in [record['path'] for record
                                               in fields['source_closures']['entrypoint']['files']]
-    assert completion['split'] == 'seen' and completion['seen_split_sha256'] == digest
+    assert completion['eval_manifest_sha256'] == provenance.sha256_file(run / 'eval_manifest.json')
     assert completion['confirmatory'] is False  # 25 of 6 217 queries
     dataset = seen.xRIR_Dataset(split='test', num_shot=shots, max_len=exp07_eval.MAX_LEN)
     queries, expected = direct_reference(dataset, reference, shots, max_samples=25)

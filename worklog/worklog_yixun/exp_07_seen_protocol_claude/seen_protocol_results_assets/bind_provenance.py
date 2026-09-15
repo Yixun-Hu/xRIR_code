@@ -11,6 +11,7 @@ import argparse
 import json
 from pathlib import Path
 
+from tools import exp07_provenance as e7p
 from tools import provenance as p
 from tools.exp04_record import load_asset as exp04_asset
 from tools.exp07_profiles import ARMS, RELEASED_SHA256, load_approved_digests
@@ -60,7 +61,7 @@ def run_record(run, attempts, released):
     record, fields = snapshot(run, 'eval')
     require(fields.get('split') == 'seen', 'not a seen evaluation: ' + str(run))
     split = fields['mutable_inputs']['seen_split']
-    require(split['path'] == p.SEEN_SPLIT, 'seen_split binding path: ' + str(run))
+    require(split['path'] == e7p.SEEN_SPLIT, 'seen_split binding path: ' + str(run))
     split = stamp(Path(fields['repo']) / split['path'], split['sha256'])
     checkpoint = (Path(fields['repo']) / fields['checkpoint']).resolve()
     owners = [item for item in attempts if Path(item['checkpoint']['path']) == checkpoint]

@@ -15,12 +15,9 @@ from eval_unseen import griffin_lim
 OUTPUTS = ("per_sample_yaw.json", "metrics_yaw.json")
 REQUIRED_INPUTS = ('repo', 'checkpoint', 'checkpoint_sha256', 'manifest_path', 'manifest_file_sha256',
                    'data_identity', 'evaluator_closure', 'source_closures', 'mutable_inputs', 'eval_manifest')
-MUTABLE_INPUTS = {'control_args', 'train_args', 'train_manifest', 'train_completion',
-                  'probe_receipt', 'seen_split'}
+MUTABLE_INPUTS = {'control_args', 'train_args', 'train_manifest', 'train_completion', 'probe_receipt'}
 TIER_FIELDS = ('tier', 'param_counts', 'args_json_sha256', 'legacy_M',
                'vit_dim', 'vit_depth', 'vit_heads', 'vit_mlp_dim')
-SPLIT_FIELDS = ('split', 'seen_split_sha256')  # recorded only by the exp_07 seen entry
-SPLITS = ('unseen', 'seen')
 
 
 def child_environment(repo, data_root, gpu='1'):
@@ -88,10 +85,7 @@ def execute_run(args, command, fields_factory, repo):
         expected = dict(eval_manifest_sha256=digest, conditions=fields["conditions"],
                         n_samples=fields["n_samples"])
         tier_fields = {key: fields[key] for key in TIER_FIELDS} if 'tier' in fields else {}
-        split_fields = ({key: fields[key] for key in SPLIT_FIELDS}
-                        if fields.get('split') == 'seen' else {})
         expected.update(tier_fields)
-        expected.update(split_fields)
         for name in OUTPUTS:
             payload = json.loads((run / name).read_text())
             meta = payload.get("meta", {})
@@ -117,7 +111,6 @@ def execute_run(args, command, fields_factory, repo):
                           "log": {"path": str(log_path), "sha256": p.sha256_file(log_path)},
                           "outputs": {name: p.sha256_file(run / name) for name in OUTPUTS}}
             completion.update(tier_fields)
-            completion.update(split_fields)
             p.write_completion(run / "completion.json", completion)
             committed = True
         return completion
@@ -160,16 +153,10 @@ def parse_args(argv=None):
     parser.add_argument('--allow-dirty', action='store_true')
     parser.add_argument('--bind-input', action='append', default=[], metavar='NAME=PATH')
     parser.add_argument('--tier', choices=('S', 'M', 'L'))
-    parser.add_argument('--entry', choices=('exp04', 'exp05', 'exp07'), default='exp04')
-    parser.add_argument('--split', choices=SPLITS)
+    parser.add_argument('--entry', choices=('exp04', 'exp05'), default='exp04')
     args = parser.parse_args(argv)
-    if args.tier is not None and args.entry == 'exp07':
-        parser.error('--tier selects the exp05 entry; --entry exp07 has no tier')
     args.entry = 'exp05' if args.tier is not None else args.entry
     args.tier = args.tier or 'M'
-    if (args.entry == 'exp07') != (args.split == 'seen'):
-        parser.error('--entry exp07 evaluates the seen split: pass both or neither')
-    args.split = args.split or 'unseen'
     if args.eval_manifest is not None:
         parser.error("eval-manifest is created by the launcher")
     for key in ("out_dir", "checkpoint", "manifest", "data_root", "log_dir"):
@@ -179,13 +166,9 @@ def parse_args(argv=None):
 
 
 def entrypoint(args):
-    entry = getattr(args, 'entry', 'exp04')
-    if entry == 'exp05':
+    if getattr(args, 'entry', 'exp04') == 'exp05':
         from tools import exp05_eval
         return exp05_eval
-    if entry == 'exp07':
-        from tools import exp07_eval
-        return exp07_eval
     return evaluator
 
 

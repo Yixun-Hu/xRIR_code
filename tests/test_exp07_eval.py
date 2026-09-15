@@ -12,6 +12,7 @@ import pytest
 
 from tools import exp04_eval as base
 from tools import exp07_eval as subject
+from tools import exp07_provenance as e7p
 from tools import provenance as p
 from test_exp04_eval import protocol_run, bound_run  # noqa: F401  (fixtures)
 
@@ -83,7 +84,7 @@ def test_handshake_binds_the_split_and_the_split_file(split_run, split):
     args, fields = split_run(split)
     got, digest, reference = subject.validate_manifest(args)
     assert got == fields and fields['split'] == split and reference['num_shot'] == 8
-    assert fields['seen_split_sha256'] == p.sha256_file(subject.REPO / p.SEEN_SPLIT)
+    assert fields['seen_split_sha256'] == p.sha256_file(subject.REPO / e7p.SEEN_SPLIT)
     assert digest == p.sha256_file(args.eval_manifest)
 
 
@@ -119,45 +120,46 @@ def test_num_shot_comes_from_the_manifest(split_classes):
     assert split_classes == [('seen', 'test', subject.MAX_LEN, 8)]
 
 
-def test_run_exp07_binds_the_metadata_validator_and_factory(split_run, split_classes, monkeypatch):
+def test_run_exp07_needs_a_gpu_after_the_handshake(split_run, monkeypatch):
+    """The handshake runs first; the restated loop then refuses a CPU-only host."""
     args, fields = split_run('seen')
-    captured = {}
-    monkeypatch.setattr(subject.base, 'run_exp04',
-                        lambda a, **kwargs: captured.update(kwargs, args=a) or {'ok': True})
-    assert subject.run_exp07(args) == {'ok': True}
-    assert captured['args'] is args and captured['metadata'] == subject.split_metadata(args)
-    assert captured['manifest_validator'](args)[0] == fields
-    dataset = captured['dataset_factory'](manifest_of(SEEN), max_samples=0)
-    assert split_classes == [('seen', 'test', subject.MAX_LEN, 1)] and len(dataset) == 2
-
-
-def test_a_split_file_changed_during_evaluation_is_refused(split_run, monkeypatch):
-    args, _ = split_run('seen')
-    monkeypatch.setattr(subject.base, 'run_exp04', lambda a, **kwargs: {'ok': True})
-    digests = iter(['a' * 64, 'b' * 64])
-    monkeypatch.setattr(subject.p, 'sha256_file', lambda path: next(digests))
-    with pytest.raises(ValueError, match='seen_test_split'):
+    monkeypatch.setattr(subject.yaw.torch.cuda, 'is_available', lambda: False)
+    with pytest.raises(RuntimeError, match='needs a GPU'):
+        subject.run_exp07(args)
+    Path(args.eval_manifest).write_text(json.dumps(dict(fields, split='unseen')))
+    with pytest.raises(ValueError, match='split'):
         subject.run_exp07(args)
 
 
-class Stop(Exception):
-    pass
+@pytest.mark.parametrize('fault', ['split', 'seen_split_sha256', 'pickle'])
+def test_check_outputs_reads_back_the_written_split(split_run, tmp_path, monkeypatch, fault):
+    args, _ = split_run('seen')
+    args.out_dir = str(tmp_path)
+    metadata = subject.split_metadata(args)
+    for name in ('per_sample_yaw.json', 'metrics_yaw.json'):
+        (tmp_path / name).write_text(json.dumps({'meta': dict(metadata)}))
+    subject.check_outputs(args, metadata)
+    if fault == 'pickle':
+        monkeypatch.setattr(subject.provenance, 'sha256_file', lambda path: 'c' * 64)
+        message = 'changed during evaluation'
+    else:
+        (tmp_path / 'metrics_yaw.json').write_text(
+            json.dumps({'meta': dict(metadata, **{fault: 'different'})}))
+        message = 'output split metadata mismatch'
+    with pytest.raises(ValueError, match=message):
+        subject.check_outputs(args, metadata)
 
 
-@pytest.mark.parametrize('factory', [None, 'custom'])
-def test_run_exp04_keeps_the_frozen_unseen_builder_as_its_default(bound_run, monkeypatch, factory):
-    args, _, _ = bound_run
-    calls = []
-    def builder(manifest, max_samples=0):
-        calls.append(max_samples)
-        raise Stop()
-    monkeypatch.setattr(base.yaw.torch.cuda, 'is_available', lambda: True)
-    monkeypatch.setattr(base.yaw, 'build_manifest_dataset',
-                        builder if factory is None else
-                        lambda *a, **k: pytest.fail('frozen builder used despite a factory'))
-    with pytest.raises(Stop):
-        base.run_exp04(args, **({} if factory is None else {'dataset_factory': builder}))
-    assert calls == [args.max_samples]
+def test_the_shared_evaluator_keeps_mains_signature():
+    """exp_04's loop is untouched: it has no dataset factory and no split argument."""
+    import inspect
+    import subprocess
+    assert subprocess.run(['git', 'diff', '--quiet', 'main', '--', 'tools/exp04_eval.py'],
+                          cwd=str(subject.REPO)).returncode == 0
+    assert list(inspect.signature(base.run_exp04).parameters) == [
+        'args', 'model_factory', 'metadata', 'manifest_validator']
+    assert 'split' not in {a.dest for a in base.build_parser()._actions}
+    assert 'split' in {a.dest for a in subject.build_parser()._actions}
 
 
 @pytest.fixture(scope='module')
