@@ -38,14 +38,17 @@ def closure(name, tag):
 
 CLOSURES = {name: closure(name, name) for name in
             ('exp06_eval', 'exp06_eval_launch', 'exp04_eval', 'exp04_eval_launch',
-             'eval_yaw_rotation')}
-ROLES = {'C': {'arm': 'cyl_or', 'checkpoint': None, 'exp06': True, 'role': 'arm'},
+             'exp05_eval', 'eval_yaw_rotation')}
+ROLES = {'C': {'arm': 'cyl_or', 'checkpoint': None, 'route': 'exp06', 'role': 'arm'},
          'A': {'arm': 'control', 'checkpoint': {'sha256': None, 'checkpoint': 'simple.pth',
                                                 'backbone': 'simple'},
-               'exp06': False, 'role': 'arm'},
+               'route': 'exp04', 'role': 'arm'},
          'B': {'arm': 'cyl', 'checkpoint': {'sha256': None, 'checkpoint': 'cyl.pth',
                                             'backbone': 'cylindrical'},
-               'exp06': None, 'role': 'baseline'}}
+               'route': None, 'role': 'baseline'}}
+EXP04_DIGEST = provenance.sha256_file(
+    __import__('tools.exp04_profiles', fromlist=['x']).APPROVED_DIGESTS_PATH)
+EXP05_DIGEST = 'a5' * 32
 
 
 def approved_digests(epoch_012_sha):
@@ -57,6 +60,8 @@ def approved_digests(epoch_012_sha):
              'reused': dict({key: 'a' * 64 for key in approvals_api.REUSED_DIGESTS},
                             exp04_evaluator_closure=CLOSURES['exp04_eval']['sha256'],
                             exp04_writer_closure=CLOSURES['exp04_eval_launch']['sha256'],
+                            exp04_approved_digests_sha256=EXP04_DIGEST,
+                            exp05_approved_digests_sha256=EXP05_DIGEST,
                             legacy_receipt={'path': 'r.json', 'sha256': 'a' * 64}),
              'artifacts': {'epoch_012': {'path': 'epoch_012.pth', 'epoch': 12,
                                          'sha256': epoch_012_sha},
@@ -100,11 +105,12 @@ def reference_hash(manifest):
 
 def write_run(directory, role, seed, checkpoints, split=SPLIT, manifest_hash=None,
               manifest=None, per_sample=None, completion=None, bad=(), repo=None,
-              queries=None):
+              queries=None, route=None):
     """One admissible evaluation run of arm `role`, before the caller's mutations."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
-    exp06 = ROLES[role]['exp06'] is not False
+    route = (ROLES[role]['route'] or 'exp06') if route is None else route
+    exp06 = route == 'exp06'
     checkpoint = checkpoints['C' if role == 'C' else role]
     repo = checkpoints['repo'] if repo is None else Path(repo)
     reference = directory.parent / 'reference_manifest_seed{}.json'.format(seed)
@@ -129,7 +135,9 @@ def write_run(directory, role, seed, checkpoints, split=SPLIT, manifest_hash=Non
               'manifest_hash': manifest_hash or reference_hash(declared),
               'evaluator_closure': copy.deepcopy(CLOSURES['eval_yaw_rotation']),
               'source_closures': {
-                  'entrypoint': copy.deepcopy(CLOSURES['exp06_eval' if exp06 else 'exp04_eval']),
+                  'entrypoint': copy.deepcopy(
+                      CLOSURES['exp06_eval' if exp06 else
+                               ('exp05_eval' if route == 'exp05' else 'exp04_eval')]),
                   'writer': copy.deepcopy(CLOSURES['exp04_eval_launch'])}}
     if exp06:
         fields['source_closures']['writer_exp06'] = copy.deepcopy(CLOSURES['exp06_eval_launch'])
@@ -138,10 +146,14 @@ def write_run(directory, role, seed, checkpoints, split=SPLIT, manifest_hash=Non
                       model_class='xRIR_CylOriented')
     fields['data_identity'] = data_identity(repo, reference, declared,
                                             fields['manifest_file_sha256'])
+    binding = {'path': str(log), 'sha256': provenance.sha256_file(log)}
     if exp06:
-        fields['mutable_inputs'] = {
-            name: {'path': str(log), 'sha256': provenance.sha256_file(log)}
-            for name in ('train_manifest', 'train_completion')}
+        fields['mutable_inputs'] = {name: dict(binding) for name in
+                                    ('train_manifest', 'train_completion')}
+    elif route == 'exp05':
+        fields.update(tier='M', legacy_M=True, param_counts={'full': 32123581},
+                      args_json_sha256='b' * 64, vit_dim=512, vit_depth=12, vit_heads=8,
+                      vit_mlp_dim=512, mutable_inputs={'train_args': dict(binding)})
     fields.update(manifest or {})
     meta = {key: fields[key] for key in ('backbone', 'checkpoint', 'manifest_hash', 'gl_seed',
                                          'batch_size', 'tf32', 'manifest_seed', 'yaw_cols',
@@ -394,6 +406,47 @@ def rewrite(directory, fields):
     record['outputs'] = {name: provenance.sha256_file(directory / name)
                          for name in subject.OUTPUTS}
     (directory / 'completion.json').write_text(json.dumps(record, sort_keys=True))
+
+
+def test_an_exp05_m_tier_run_is_admitted_by_its_own_route(tmp_path, checkpoints, approved,
+                                                          monkeypatch):
+    """Finding 7: exp05_eval delegates with its own entry point and exp_04's writer."""
+    pins = {'evaluator': CLOSURES['exp05_eval']['sha256'],
+            'writer': CLOSURES['exp04_eval_launch']['sha256']}
+    monkeypatch.setattr(subject, 'exp05_approvals',
+                        lambda: (pins, {'sha256': EXP05_DIGEST}))
+    directory = write_run(tmp_path / 'm', 'B', 42, checkpoints, SPLIT, route='exp05')
+    assert subject.route_of(json.loads((directory / 'eval_manifest.json').read_text()),
+                            None) == 'exp05'
+    run = subject.admit_run(directory, 'B', approved, SPLIT, roles=ROLES)
+    assert run['role'] == 'B' and run['seed'] == 42
+    for index, damage in enumerate(({'tier': 'L'}, {'legacy_M': False},
+                                    {'mutable_inputs': {}})):
+        broken = write_run(tmp_path / 'm{}'.format(index), 'B', 43, checkpoints, SPLIT,
+                           route='exp05', manifest=damage)
+        with pytest.raises(ValueError):
+            subject.admit_run(broken, 'B', approved, SPLIT, roles=ROLES)
+
+
+def test_an_exp05_run_whose_approvals_record_is_not_the_approved_one_is_refused(
+        tmp_path, checkpoints, approved, monkeypatch):
+    pins = {'evaluator': CLOSURES['exp05_eval']['sha256'],
+            'writer': CLOSURES['exp04_eval_launch']['sha256']}
+    monkeypatch.setattr(subject, 'exp05_approvals', lambda: (pins, {'sha256': 'f' * 64}))
+    directory = write_run(tmp_path / 'wrong', 'B', 42, checkpoints, SPLIT, route='exp05')
+    with pytest.raises(ValueError, match='exp_05 approvals'):
+        subject.admit_run(directory, 'B', approved, SPLIT, roles=ROLES)
+
+
+def test_the_exp04_route_binds_that_experiments_approvals_record(tmp_path, checkpoints,
+                                                                 approved):
+    assert subject.exp04_approvals()['sha256'] == EXP04_DIGEST
+    directory = write_run(tmp_path / 'a', 'A', 42, checkpoints, SPLIT)
+    subject.admit_run(directory, 'A', approved, SPLIT, roles=ROLES)
+    wrong = copy.deepcopy(approved)
+    wrong['reused']['exp04_approved_digests_sha256'] = 'c' * 64
+    with pytest.raises(ValueError, match='exp_04 approvals'):
+        subject.admit_run(directory, 'A', wrong, SPLIT, roles=ROLES)
 
 
 def test_a_missing_or_duplicated_seed_is_refused(runs, approved):
