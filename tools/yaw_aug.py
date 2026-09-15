@@ -1,8 +1,7 @@
 """Counter-seeded, geometry-only yaw augmentation for exp_04; audio is never an input.
 
 The FLAC integer mixer is preserved, with strict argument validation before coercion.
-The audit CLI needs the same PYTHONHASHSEED as training (approved run: 0) and draws its
-cohort from the training dataset of the trainer's ``--protocol``.
+The audit CLI needs the same PYTHONHASHSEED as training (approved run: 0).
 """
 import argparse
 from dataclasses import dataclass
@@ -210,9 +209,6 @@ class _AuditDataset(torch.utils.data.Dataset):
         return self.dataset[index], self.dataset.file_list[index]
 
 
-DEFAULT_AUDIT_OUT = "ckpt/yaw_aug/alignment_audit.json"  # exp_04's artefact; unseen protocol only
-
-
 def _audit_main(argv=None):
     import train_xRIR_backbone as trainer
     from treble_multi_room_dataset.treble_xRIR_dataset import BASE_DATA_PATH
@@ -222,20 +218,14 @@ def _audit_main(argv=None):
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--num-workers", type=int, default=12, help="approved training run's worker count")
-    parser.add_argument("--protocol", choices=trainer.PROTOCOLS, default="unseen",
-                        help="training split convention; --out is mandatory unless it is unseen")
-    parser.add_argument("--out", default=None, help="artefact path (default " + DEFAULT_AUDIT_OUT + ")")
+    parser.add_argument("--out", default="ckpt/yaw_aug/alignment_audit.json")
     args = parser.parse_args(argv)
-    if args.out is None:
-        if args.protocol != "unseen":
-            parser.error("--out is required for --protocol " + args.protocol)
-        args.out = DEFAULT_AUDIT_OUT
     if Path(args.out).exists():
         parser.error("refusing to overwrite " + args.out)
     if args.n_batches <= 0 or args.batch_size <= 0 or args.num_workers < 0:
         parser.error("batch counts/sizes must be positive and num-workers nonnegative")
     trainer.seed_everything(args.seed)
-    dataset = trainer.dataset_class(args.protocol)(split="train", max_len=9600, num_shot=8)
+    dataset = trainer.xRIR_Dataset(split="train", max_len=9600, num_shot=8)
     loader = trainer.DataLoader(_AuditDataset(dataset), shuffle=True, batch_size=args.batch_size,
                                num_workers=args.num_workers, pin_memory=True,
                                worker_init_fn=trainer.seed_worker, persistent_workers=args.num_workers > 0)
@@ -249,9 +239,7 @@ def _audit_main(argv=None):
                for index, batch in enumerate(for_offsets))
     result = alignment_audit(model, batches, offsets)
     result["args"] = {"seed": args.seed, "n_batches": args.n_batches, "batch_size": args.batch_size,
-                      "protocol": args.protocol, "num_workers": args.num_workers,
-                      "loader_batches": aug.batches_per_epoch, "W": aug.W,
-                      "data_root": str(Path(BASE_DATA_PATH).resolve()),
+                      "num_workers": args.num_workers, "W": aug.W, "data_root": str(Path(BASE_DATA_PATH).resolve()),
                       "PYTHONHASHSEED": os.environ.get("PYTHONHASHSEED"),
                       "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"],
                           cwd=str(Path(__file__).resolve().parents[1]), text=True).strip()}
