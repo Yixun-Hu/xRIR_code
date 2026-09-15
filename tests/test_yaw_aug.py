@@ -312,8 +312,9 @@ def test_alignment_cli_matches_training_rng_and_loader(monkeypatch, tmp_path, wo
     result = json.loads(out.read_text())
     assert set(result) == {"pairs", "changed_delays", "fraction", "cohort_sha256", "W", "args", "env"}
     assert result["pairs"] == 2 * 32 * 8
-    assert result["args"] == {"seed": 7, "n_batches": 2, "batch_size": 32,
-        "num_workers": 12 if workers is None else 0, "W": 512, "data_root": str(Path(BASE_DATA_PATH).resolve()),
+    assert result["args"] == {"seed": 7, "n_batches": 2, "batch_size": 32, "protocol": "unseen",
+        "num_workers": 12 if workers is None else 0, "loader_batches": 2, "W": 512,
+        "data_root": str(Path(BASE_DATA_PATH).resolve()),
         "PYTHONHASHSEED": "17", "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"],
             cwd=Path(yaw.__file__).resolve().parents[1], text=True).strip()}
     assert result["env"] == {"python": platform.python_version(), "torch": torch.__version__,
@@ -321,3 +322,60 @@ def test_alignment_cli_matches_training_rng_and_loader(monkeypatch, tmp_path, wo
     out.unlink()
     with pytest.raises(SystemExit):
         yaw._audit_main(argv + ["--n-batches", "3"])
+
+
+@pytest.fixture
+def audit_stubs(monkeypatch):
+    """Stub both protocol datasets, the model and CUDA so the audit CLI runs on CPU."""
+    import train_xRIR_backbone as trainer
+
+    class Dataset(torch.utils.data.Dataset):
+        def __init__(self, split="train", max_len=9600, num_shot=8):
+            assert (split, max_len, num_shot) == ("train", 9600, 8)
+            self.file_list = ["query_%d.wav" % i for i in range(64)]
+
+        def __len__(self):
+            return len(self.file_list)
+
+        def __getitem__(self, i):
+            return (torch.zeros(3), torch.zeros(3), torch.zeros(3, 1, 512),
+                    torch.zeros(1, 8), torch.zeros(8, 8), torch.ones(8, 3))
+
+    built = []
+
+    def stub(label):
+        return lambda **kwargs: (built.append(label), Dataset(**kwargs))[1]
+
+    monkeypatch.setattr(trainer, "xRIR_Dataset", stub("unseen"))
+    monkeypatch.setattr(trainer, "SeenDataset", stub("seen"))
+    monkeypatch.setattr(trainer, "build_xrir", lambda backbone, num_shot: torch.nn.Linear(3, 3))
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    return built
+
+
+@pytest.mark.parametrize("protocol", ["unseen", "seen"])
+def test_audit_dispatches_and_records_the_protocol(audit_stubs, tmp_path, protocol):
+    import json
+    import tools.yaw_aug as yaw
+    out = tmp_path / "audit.json"
+    yaw._audit_main(["--audit", "--n-batches", "2", "--batch-size", "16", "--num-workers", "0",
+                     "--out", str(out), "--protocol", protocol])
+    assert audit_stubs == [protocol]
+    result = json.loads(out.read_text())
+    assert result["args"]["protocol"] == protocol and result["args"]["loader_batches"] == 4
+    assert (result["pairs"], result["W"]) == (2 * 16 * 8, 512)
+
+
+def test_audit_out_is_required_for_the_seen_protocol(audit_stubs, monkeypatch, tmp_path, capsys):
+    import json
+    from pathlib import Path
+    import tools.yaw_aug as yaw
+    monkeypatch.chdir(tmp_path)  # the unseen default is relative to the working directory
+    with pytest.raises(SystemExit):
+        yaw._audit_main(["--audit", "--protocol", "seen", "--n-batches", "1", "--num-workers", "0"])
+    assert "--out" in capsys.readouterr().err and audit_stubs == []
+    yaw._audit_main(["--audit", "--n-batches", "1", "--batch-size", "16", "--num-workers", "0"])
+    assert yaw.DEFAULT_AUDIT_OUT == "ckpt/yaw_aug/alignment_audit.json"
+    recorded = json.loads((tmp_path / Path(yaw.DEFAULT_AUDIT_OUT)).read_text())["args"]
+    assert (recorded["protocol"], recorded["loader_batches"]) == ("unseen", 4)
+    assert audit_stubs == ["unseen"]
