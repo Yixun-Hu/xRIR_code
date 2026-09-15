@@ -10,8 +10,16 @@ names and records ``tools.exp04_eval_launch`` as the writer, so this launcher
 * adds its own closure record (``source_closures['writer_exp06']``) and the exp_06
   bindings to the fields, and re-checks the arm metadata *before* ``execute_run``
   writes the manifest those fields become,
-* and runs the child through the unchanged ``execute_run``, which alone decides
-  completion after the child and its log have closed.
+* runs the child through the unchanged ``execute_run``, which alone decides
+  completion after the child and its log have closed,
+* and then re-reads the two finished outputs itself (round 2b finding 2). exp_04's
+  completion compares only its own protocol fields, so an output whose ``meta``
+  contradicts the exp_06 identity in the manifest -- model class, registry digest,
+  checkpoint role and epoch, heading, frame -- would be certified. This launcher
+  requires both outputs to carry every one of those fields, typed and equal to the
+  manifest, and to still hash to what the completion bound; anything else renames the
+  run aside as ``<name>_QUARANTINED_<reason>`` (never deleting it), records the reason
+  in ``quarantine.json`` and exits non-zero.
 
     python tools/exp06_eval_launch.py --backbone cylindrical_oriented \
         --checkpoint <epoch_012.pth> --checkpoint-role arm --checkpoint-epoch 12 \
@@ -21,8 +29,10 @@ names and records ``tools.exp04_eval_launch`` as the writer, so this launcher
         --reviewed-commit <sha40> --num-shot 8 --conditions P --gpu 1
 """
 import copy
+import datetime
 import json
 import sys
+import uuid
 from pathlib import Path
 
 from tools import exp04_eval_launch as launcher
@@ -35,6 +45,8 @@ MUTABLE_INPUTS = frozenset(launcher.MUTABLE_INPUTS) | frozenset(EXP06_INPUTS)
 WRITER = 'tools.exp06_eval_launch'
 CLOSURES = ('entrypoint', 'writer', 'writer_exp06')
 USABLE_HEADINGS = ('estimated', 'override')
+# What both finished outputs must carry: this arm's identity, and exp_04's own protocol.
+BOUND_META = evaluator.METADATA_FIELDS + ('conditions', 'n_samples')
 
 
 def parse_args(argv=None):
@@ -132,11 +144,99 @@ def build_fields(args, command, repo):
     return check_fields(args, fields)
 
 
+class OutputMismatch(ValueError):
+    """A finished output that contradicts the manifest it would be certified against."""
+
+    def __init__(self, reason, detail):
+        super().__init__(detail)
+        self.reason = reason
+        self.detail = detail
+
+
+def _same(left, right):
+    """Type-strict equality, as the inherited output check and exp_06's manifest use."""
+    return (type(left) is type(right)
+            and json.dumps(left, sort_keys=True) == json.dumps(right, sort_keys=True))
+
+
+def _declared(run, completion):
+    """The manifest this run was certified against, still the bytes completion bound."""
+    path = Path(run) / 'eval_manifest.json'
+    try:
+        digest = p.sha256_file(path)
+        fields = json.loads(path.read_text())
+    except (OSError, ValueError) as error:
+        raise OutputMismatch('manifest_unreadable', 'eval_manifest.json: {}'.format(error))
+    if digest != completion.get('eval_manifest_sha256'):
+        raise OutputMismatch('manifest_changed', 'eval_manifest.json hashes to {}, not the {} '
+                             'of completion.json'.format(digest, completion.get('eval_manifest_sha256')))
+    missing = [key for key in BOUND_META if key not in fields]
+    if missing:
+        raise OutputMismatch('manifest_incomplete',
+                             'eval_manifest.json records no ' + ', '.join(missing))
+    return dict({key: fields[key] for key in BOUND_META}, eval_manifest_sha256=digest)
+
+
+def validate_outputs(run, completion):
+    """Both finished outputs are this arm's, and are the bytes completion bound."""
+    run = Path(run)
+    expected = _declared(run, completion)
+    bound = completion.get('outputs') or {}
+    for name in launcher.OUTPUTS:
+        try:
+            payload = json.loads((run / name).read_text())
+        except (OSError, ValueError) as error:
+            raise OutputMismatch('output_unreadable', '{}: {}'.format(name, error))
+        meta = payload.get('meta') if isinstance(payload, dict) else None
+        if not isinstance(meta, dict):
+            raise OutputMismatch('output_meta_missing', name + ' records no meta')
+        for key, value in sorted(expected.items()):
+            if key not in meta:
+                raise OutputMismatch('output_field_missing',
+                                     '{} meta records no {}'.format(name, key))
+            if not _same(meta[key], value):
+                raise OutputMismatch('output_field_mismatch', '{} meta {} {!r} is not the {!r} '
+                                     'of the evaluation manifest'.format(name, key, meta[key], value))
+        if p.sha256_file(run / name) != bound.get(name):
+            raise OutputMismatch('output_changed',
+                                 '{} is not the bytes completion.json bound'.format(name))
+    return expected
+
+
+def quarantine(run, error):
+    """Rename the run aside with the reason it was refused; nothing is ever deleted."""
+    run = Path(run)
+    target = run.with_name(run.name + '_QUARANTINED_' + error.reason)
+    if target.exists():
+        target = target.with_name(target.name + '_' + uuid.uuid4().hex)
+    run.rename(target)
+    p.write_completion(target / 'quarantine.json', {
+        'schema_version': 1, 'reason': error.reason, 'detail': error.detail,
+        'run_dir': str(run), 'quarantined_dir': str(target),
+        'quarantined_at': datetime.datetime.now().astimezone().isoformat()})
+    return target
+
+
+def certify_outputs(run, completion):
+    """exp_06's own post-run gate: the quarantine directory, or None when nothing is wrong."""
+    try:
+        validate_outputs(run, completion)
+    except OutputMismatch as error:
+        return quarantine(run, error)
+    return None
+
+
 def main(argv=None):
     args = parse_args(argv)
     repo = Path(__file__).resolve().parents[1]
     command = child_command(args, repo)
-    return launcher.execute_run(args, command, lambda: build_fields(args, command, repo), repo)
+    completion = launcher.execute_run(args, command, lambda: build_fields(args, command, repo),
+                                      repo)
+    quarantined = certify_outputs(Path(args.out_dir), completion)
+    if quarantined is not None:
+        print('EXP06_EVAL_QUARANTINED ' + str(quarantined), file=sys.stderr, flush=True)
+        raise SystemExit(3)
+    return completion
 
 
 if __name__ == '__main__':
