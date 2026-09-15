@@ -36,7 +36,11 @@ data inventory and mutable inputs.
               ``<room>/<index>`` the writer records, and ``meta``'s split, num_shot and
               eval_seed the arguments'), a ``side_label`` array of -1/1 with one entry per
               index, and a parsed ``metrics_<room>.json`` whose counts, n, means and
-              medians are recomputed from the numeric per-sample values.
+              medians are recomputed from the numeric per-sample values -- every
+              invalid-measurement counter reconciled with the observations it describes (the
+              writer counts every non-finite C50, only the EDT/T60 measurements that raised,
+              and none at all in a room whose T60 the paper omits, where every observation is
+              its NaN).
 ``haa_job``   one seed of the pipeline: every expected child directory, each re-validated by
               running its own role validator again, its completion bound to that result,
               its log and receipt re-validated and rehashed, and every child checked against
