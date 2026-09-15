@@ -99,8 +99,7 @@ def finetune_job(name, seed):
                                           seed, root), 'haa_eval')
         children += [stage2, evaluation]
     joblog = log_of(name, tag, 'job')
-    lines += ['MARKER EXP06_CHILD_EXIT 0 <iso> >> ' + joblog,
-              job_finalize(root, joblog, 'finetune', children)]
+    lines.append(job_finalize(root, joblog, 'finetune', children))  # A3: no end marker
     return lines
 
 
@@ -120,8 +119,7 @@ def zeroshot_job(name):
                              'haa_eval')
         children.append(evaluation)
     joblog = log_of(name, 'zeroshot', 'job')
-    lines += ['MARKER EXP06_CHILD_EXIT 0 <iso> >> ' + joblog,
-              job_finalize(root, joblog, 'zeroshot', children)]
+    lines.append(job_finalize(root, joblog, 'zeroshot', children))  # A3: no end marker
     return lines
 
 
@@ -180,12 +178,34 @@ finalize_job() { printf 'FINALIZE %s\\n' "$1" >> "$WORK/events"; }
 INVOKE = 'if {}; then echo "STATUS 0"; else echo "STATUS $?"; fi\n'
 
 
-def run_lib(script, work, **environment):
+def run_lib(script, work, adapter=ADAPTER, **environment):
     """Exercise the pipeline's own functions with launching and finalisation stubbed out."""
     env = {**_base_env(), 'WORK': str(work), 'HAA_XRIR_ROOT': HAA_ROOT, **environment}
-    result = subprocess.run(['bash', '-c', ADAPTER + script], cwd=str(ROOT), text=True,
+    result = subprocess.run(['bash', '-c', adapter + script], cwd=str(ROOT), text=True,
                             capture_output=True, env=env)
     return result, Path(work, 'events').read_text().splitlines()
+
+
+JOB_ADAPTER = '''EXP06_PIPELINE_LIB=1 source tools/exp06_haa_pipeline.sh
+DRY=0; OWNER=$$; RECORD="$WORK/record"; OUT="$WORK/out"
+mkdir -p -- "$RECORD" "$OUT/cyl_or/seed0"
+: > "$WORK/events"
+run() { printf 'FINALIZE %s\\n' "$*" >> "$WORK/events"; }
+'''
+
+
+def test_a_real_job_finalisation_leaves_no_receipt_at_the_job_root(tmp_path):
+    """A3: finalize_job appends its queue line and finalizes; it closes no log."""
+    root, joblog = tmp_path / 'out/cyl_or/seed0', tmp_path / 'job.log'
+    result, events = run_lib(
+        INVOKE.format('finalize_job "$WORK/out/cyl_or/seed0" "$WORK/job.log" finetune a b'),
+        tmp_path, adapter=JOB_ADAPTER)
+    assert 'STATUS 0' in result.stdout, result.stderr
+    assert not (root / 'child_exit.json').exists()
+    assert joblog.read_text() == 'job {} expect finetune children 2\n'.format(root)
+    assert len(events) == 1 and '--run-type haa_job' in events[0]
+    assert '--children a b --expect finetune' in events[0]
+    assert events[0].endswith('--job-spec {}/job_spec.json'.format(root))
 
 
 @pytest.fixture(scope='module')
