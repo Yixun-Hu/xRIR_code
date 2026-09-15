@@ -544,6 +544,20 @@ def test_the_analysis_is_deterministic_and_binds_its_inputs(runs, approved, tmp_
         subject.write_outputs(first, out, summary)
 
 
+def test_every_arms_checkpoint_identity_is_recorded_with_the_result(runs, approved):
+    """Finding 5: B's exp_01 weights are hashed at admission and published with H3."""
+    admitted = subject.admit_runs(runs, approved, split=SPLIT, roles=ROLES)
+    result = subject.analyse(admitted, subject.MARGIN, 400)
+    assert set(result['checkpoints']) == {'A', 'B', 'C'}
+    assert result['checkpoints']['B']['sha256'] == ROLES['B']['checkpoint']['sha256']
+    assert result['checkpoints']['A']['sha256'] == ROLES['A']['checkpoint']['sha256']
+    assert result['checkpoints']['C']['sha256'] == \
+        approved['artifacts']['epoch_012']['sha256']
+    assert result['checkpoints']['C']['epoch'] == 12
+    assert [result['checkpoints'][role]['route'] for role in ('A', 'B', 'C')] == [
+        'exp04', 'exp06', 'exp06']
+
+
 def test_h3_is_unavailable_without_its_comparator(runs, approved):
     """Finding 9: the primary contrast has arm B, or the report carries no H3."""
     admitted = subject.admit_runs({role: runs[role] for role in ('C', 'A')}, approved,
