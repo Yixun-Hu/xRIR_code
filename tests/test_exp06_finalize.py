@@ -834,17 +834,45 @@ def test_cli_reports_refusals_with_status_two(full_run, clone):
     ('provenance_not_json', 'provenance.json'),
     ('provenance_not_an_object', 'provenance.json'),
     ('history_not_json', 'history.jsonl'),
+    ('model_unsortable_keys', 'last.pth'),
+    ('git_state_not_a_record', 'git_state'),
+    ('git_state_incomplete', 'git_state'),
+    ('mutable_inputs_null', 'mutable_inputs'),
+    ('mutable_inputs_pathless', 'mutable_inputs'),
+    ('data_identity_not_a_record', 'data_identity'),
+    ('environment_not_a_record', 'environment'),
 ])
 def test_malformed_inputs_raise_named_refusals(full_run, clone, damage, cause):
     """Should-fix 9: malformed containers must refuse by name, never raise KeyError."""
     run, log = full_run
+    args = json.loads((run / 'args.json').read_text())
     if damage == 'last_not_a_dict':
         torch.save(torch.zeros(3), run / 'last.pth')
     elif damage == 'last_without_model':
-        torch.save({'epoch': 12, 'batch_idx': 0, 'args': full_args()}, run / 'last.pth')
+        torch.save({'epoch': 12, 'batch_idx': 0, 'args': args}, run / 'last.pth')
     elif damage == 'last_model_not_a_state_dict':
         torch.save({'model': 'not-a-state-dict', 'epoch': 12, 'batch_idx': 0,
-                    'args': full_args()}, run / 'last.pth')
+                    'args': args}, run / 'last.pth')
+    elif damage == 'model_unsortable_keys':
+        torch.save({'model': {1: torch.zeros(1), 'bad': 'not a tensor'}, 'epoch': 12,
+                    'batch_idx': 0, 'args': args}, run / 'last.pth')
+    elif damage in ('git_state_not_a_record', 'git_state_incomplete', 'mutable_inputs_null',
+                    'mutable_inputs_pathless', 'data_identity_not_a_record',
+                    'environment_not_a_record'):
+        record = json.loads((run / 'provenance.json').read_text())
+        if damage == 'git_state_not_a_record':
+            record['git_state'] = []
+        elif damage == 'git_state_incomplete':
+            record['git_state'] = {'HEAD': record['git_state']['HEAD']}
+        elif damage == 'mutable_inputs_null':
+            record['mutable_inputs'] = None
+        elif damage == 'mutable_inputs_pathless':
+            record['mutable_inputs'] = {'heading': {'sha256': 'a' * 64}}
+        elif damage == 'environment_not_a_record':
+            record['environment'] = ['python 3.8']
+        else:
+            record['data_identity'] = []
+        (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
     elif damage == 'epoch_not_a_dict':
         torch.save([1, 2, 3], run / 'epoch_012.pth')
     elif damage == 'epoch_unpicklable':
