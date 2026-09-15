@@ -265,3 +265,87 @@ def test_eval_records_every_field_the_finalizer_binds(cache):
     assert meta['git_head'] == context.fields['git_state']['HEAD']
     assert meta['exp06_source_closure_sha256'] == \
         context.fields['source_closures']['child']['sha256']
+
+
+def test_the_per_query_griffin_lim_seed_is_the_frozen_formula():
+    from tools import exp06_haa_eval as evaluator
+    for eval_seed in (0, 3):
+        for room in ('hallway', 'class_room'):
+            for idx in (0, 1, 12):
+                expected = int.from_bytes(hashlib.sha256(
+                    'gl:{}:{}:{}'.format(eval_seed, room, idx).encode()).digest()[:8], 'little')
+                assert evaluator.gl_seed(eval_seed, room, idx) == expected
+    assert evaluator.gl_seed(0, 'hallway', 0) != evaluator.gl_seed(0, 'hallway', 1)
+    assert evaluator.gl_seed(0, 'hallway', 0) != evaluator.gl_seed(1, 'hallway', 0)
+    assert evaluator.gl_seed(0, 'hallway', 0) != evaluator.gl_seed(0, 'class_room', 0)
+
+
+@pytest.mark.parametrize('enabled', [False, True])
+def test_the_rng_is_touched_only_when_per_query_seeding_is_asked_for(cache, monkeypatch, enabled):
+    from tools import exp06_haa_eval as evaluator
+    extra = ['--gl-seed-per-query'] if enabled else []
+    args = evaluator.build_parser().parse_args(eval_argv(cache, *extra, backbone='simple'))
+    seeds = []
+    monkeypatch.setattr(evaluator.torch, 'manual_seed', lambda seed: seeds.append(seed))
+    waveform = evaluator.invert(torch.rand(1, 63, 20), args, 'hallway', 7)
+    assert waveform.shape[0] == 1 and waveform.dim() == 3
+    assert seeds == ([evaluator.gl_seed(0, 'hallway', 7)] if enabled else [])
+
+
+def test_per_query_seeding_makes_the_inversion_reproducible(cache):
+    from tools import exp06_haa_eval as evaluator
+    args = evaluator.build_parser().parse_args(
+        eval_argv(cache, '--gl-seed-per-query', backbone='simple'))
+    spec = torch.rand(1, 63, 20)
+    first = evaluator.invert(spec, args, 'hallway', 7)
+    assert torch.equal(first, evaluator.invert(spec, args, 'hallway', 7))
+    assert not torch.equal(first, evaluator.invert(spec, args, 'hallway', 8))
+
+
+def test_side_labels_are_the_room_frame_in_both_frames(cache):
+    from tools import exp06_haa_eval as evaluator
+    room_args = evaluator.build_parser().parse_args(eval_argv(cache, backbone='simple'))
+    head_args = evaluator.build_parser().parse_args(
+        eval_argv(cache, '--heading-json-dir', cache['heading']))
+    room_ds = evaluator.prepare(room_args).datasets['hallway']
+    head_ds = evaluator.prepare(head_args).datasets['hallway']
+    indices = [idx for _, idx in room_ds.items]
+    labels = evaluator.side_labels(room_ds, 'hallway', indices)
+    assert labels == [-1, 1]
+    assert evaluator.side_labels(head_ds, 'hallway', indices) == labels
+    room_ds.data['hallway']['src_local'][indices[0], 1] = 0.0
+    with pytest.raises(ValueError, match='side_label'):
+        evaluator.side_labels(room_ds, 'hallway', indices)
+
+
+@pytest.mark.parametrize('room', ['hallway', 'dampened_room'])
+def test_the_room_summary_is_the_pinned_writers(cache, room):
+    from tools import exp06_finalize
+    from tools import exp06_haa_eval as evaluator
+    args = evaluator.build_parser().parse_args(
+        eval_argv(cache, '--heading-json-dir', cache['heading'], rooms=(room,)))
+    context = evaluator.prepare(args)
+    meta = evaluator.per_sample_meta(args, context, room)
+    per = {'index': [12, 13], 'ir_path': [room + '/12', room + '/13'],
+           'edt': [0.05, 0.07], 'c50': [1.1, 1.3], 't60': [4.0, 6.0],
+           'stft_mse': [0.2, 0.4], 'loss': [0.03, 0.05], 'env': [1.0, 3.0],
+           'side_label': [-1, 1]}
+    counts = {'c50_outliers': 0, 't60_invalid': 0, 'edt_invalid': 0}
+    summary = evaluator.room_summary(args, room, per, counts, meta, 2.5)
+    assert not [key for key in exp06_finalize.METRICS_REQUIRED if key not in summary]
+    assert summary['n_samples'] == 2 and summary['meta'] == meta
+    assert summary['edt_error_s'] == {'mean': 0.06, 'median': 0.06, 'n': 2}
+    assert (summary['t60_error_pct'] is None) is (room in evaluator.NO_T60_ROOMS)
+    evaluator.write_room_outputs(args, room, summary, per, meta)
+    written = json.loads(Path(args.save_dir, 'metrics_{}.json'.format(room)).read_text())
+    body = json.loads(Path(args.save_dir, 'per_sample_{}.json'.format(room)).read_text())
+    assert written == summary and body['meta'] == meta and body['index'] == per['index']
+    assert body['side_label'] == per['side_label']
+
+
+def test_eval_main_refuses_before_it_reaches_the_gpu(cache, tmp_path):
+    from tools import exp06_haa_eval as evaluator
+    out = tmp_path / 'out'
+    with pytest.raises(ValueError, match='heading'):
+        evaluator.main(eval_argv(cache) + ['--save-dir', str(out)])
+    assert not out.exists()
