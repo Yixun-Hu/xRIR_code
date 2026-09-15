@@ -14,7 +14,18 @@ import torch
 from tools import exp06_finalize, exp06_recipe, exp06_train, provenance
 
 REPO = Path(__file__).resolve().parents[1]
-MARKER = 'EXP06_CHILD_EXIT 0 2026-09-15T04:05:06.070809+00:00'
+STAMP = '2026-09-15T04:05:06.070809+00:00'
+MARKER = 'EXP06_CHILD_EXIT 0 ' + STAMP
+
+
+def seal(run, log, status=0, text='', stamp=STAMP):
+    """What the launcher leaves behind: the end marker and the child-exit receipt."""
+    Path(log).write_text(text + 'EXP06_CHILD_EXIT {} {}\n'.format(status, stamp))
+    Path(run).mkdir(parents=True, exist_ok=True)
+    (Path(run) / 'child_exit.json').write_text(json.dumps(
+        {'child_pid': 424242, 'status': status, 'ended_at': stamp,
+         'log_sha256_after_marker': provenance.sha256_file(log)}, sort_keys=True, indent=2) + '\n')
+    return log
 STATE = {'source_network.weight': torch.arange(6.).reshape(2, 3), 'head.bias': torch.zeros(2)}
 
 
@@ -98,8 +109,8 @@ def full_run(tmp_path, clone, data_root):
     torch.save({'model': STATE, 'optimizer': {}, 'scheduler': {}, 'epoch': 12, 'batch_idx': 0,
                 'best_test_loss': 0.1, 'args': args}, run / 'last.pth')
     torch.save(STATE, run / 'epoch_012.pth')
-    log = tmp_path / 'oriented_cyl_train_full.log'
-    log.write_text('train samples: 296334  test samples: 6337\n' + MARKER + '\n')
+    log = seal(run, tmp_path / 'oriented_cyl_train_full.log',
+               text='train samples: 296334  test samples: 6337\n')
     return run, log
 
 
@@ -189,7 +200,7 @@ def test_open_or_disagreeing_logs_are_refused(full_run, clone, line, exit_code):
 
 def test_non_zero_child_exit_is_refused_for_an_arm(full_run, clone):
     run, log = full_run
-    log.write_text('EXP06_CHILD_EXIT 7 2026-09-15T04:05:06+00:00\n')
+    seal(run, log, status=7)
     with pytest.raises(ValueError, match='status'):
         exp06_finalize.finalize(run, 'full', log, 7, repo=clone)
     assert not (run / 'completion.json').exists()
@@ -199,8 +210,7 @@ def test_non_zero_child_exit_is_refused_for_an_arm(full_run, clone):
 def test_diagnostic_runs_need_no_artifacts(tmp_path, run_type):
     run = tmp_path / run_type
     run.mkdir()
-    log = tmp_path / 'smoke.log'
-    log.write_text('EXP06_SMOKE {"wall_s": 12.5}\nEXP06_CHILD_EXIT 3 2026-09-15T04:05:06+00:00\n')
+    log = seal(run, tmp_path / 'smoke.log', status=3, text='EXP06_SMOKE {"wall_s": 12.5}\n')
     receipt = tmp_path / 'probe_20260915T040506.json'
     receipt.write_text(json.dumps({'diagnostic': True, 'entry': 'exp06_train'}))
     fields = exp06_finalize.finalize(run, run_type, log, 3, repo=REPO, receipt=receipt)
@@ -231,8 +241,10 @@ def haa_train_args(frame='heading', **overrides):
     return args
 
 
-def write_haa_train(run, args):
+def write_haa_train(run, args, log=None):
     run.mkdir(parents=True, exist_ok=True)
+    if log is not None:
+        seal(run, log, text='stage output\n')
     (run / 'args.json').write_text(json.dumps(args))
     (run / 'history.jsonl').write_text(json.dumps({'epoch': 10, 'val_loss': 0.5}) + '\n')
     (run / 'summary.json').write_text(json.dumps({'best_val_loss': 0.5, 'best_epoch': 10}))
@@ -241,8 +253,10 @@ def write_haa_train(run, args):
     return run
 
 
-def write_haa_eval(run, args, meta):
+def write_haa_eval(run, args, meta, log=None):
     run.mkdir(parents=True, exist_ok=True)
+    if log is not None:
+        seal(run, log, text='stage output\n')
     (run / 'args.json').write_text(json.dumps(args))
     room = args['rooms'][0]
     (run / 'metrics_{}.json'.format(room)).write_text(json.dumps({'edt': 0.05, 'c50': 1.1}))
@@ -252,13 +266,11 @@ def write_haa_eval(run, args, meta):
 
 @pytest.fixture
 def closed_log_file(tmp_path):
-    log = tmp_path / 'child.log'
-    log.write_text('stage output\n' + MARKER + '\n')
-    return log
+    return tmp_path / 'child.log'
 
 
 def test_haa_train_completion_binds_heading_and_artifacts(tmp_path, closed_log_file):
-    run = write_haa_train(tmp_path / 'stage1', haa_train_args())
+    run = write_haa_train(tmp_path / 'stage1', haa_train_args(), closed_log_file)
     fields = exp06_finalize.finalize(run, 'haa_train', closed_log_file, 0, repo=REPO)
     assert set(fields['artifacts']) == {'args.json', 'history.jsonl', 'summary.json',
                                         'best.pth', 'last.pth'}
@@ -272,7 +284,7 @@ def test_haa_train_in_the_room_frame_needs_no_heading(tmp_path, closed_log_file)
     args = haa_train_args(frame='room')
     args.pop('heading')
     args.pop('init_sha256')
-    run = write_haa_train(tmp_path / 'stage1_room', args)
+    run = write_haa_train(tmp_path / 'stage1_room', args, closed_log_file)
     fields = exp06_finalize.finalize(run, 'haa_train', closed_log_file, 0, repo=REPO)
     assert fields['frame'] == 'room' and fields['heading'] is None
 
@@ -297,7 +309,7 @@ def test_haa_train_refusals_are_named(tmp_path, closed_log_file, damage, cause):
         args.pop('init_sha256')
     elif damage == 'rooms':
         args['rooms'] = []
-    run = write_haa_train(tmp_path / 'stage1', args)
+    run = write_haa_train(tmp_path / 'stage1', args, closed_log_file)
     if damage in ('summary', 'best'):
         (run / {'summary': 'summary.json', 'best': 'best.pth'}[damage]).unlink()
     with pytest.raises(ValueError, match=cause):
@@ -312,7 +324,7 @@ def test_haa_eval_completion_records_the_single_room(tmp_path, closed_log_file):
                 heading={'hallway': {'phi_deg': -90.0, 'k': 128, 'sha256': 'f' * 64}})
     meta = {'backbone': 'cylindrical_oriented', 'checkpoint_sha256': 'd' * 64,
             'frame': 'heading', 'heading': {'hallway': {'k': 128}}}
-    run = write_haa_eval(tmp_path / 'eval' / 'hallway', args, meta)
+    run = write_haa_eval(tmp_path / 'eval' / 'hallway', args, meta, closed_log_file)
     fields = exp06_finalize.finalize(run, 'haa_eval', closed_log_file, 0, repo=REPO)
     assert fields['room'] == 'hallway' and fields['frame'] == 'heading'
     assert set(fields['artifacts']) == {'args.json', 'metrics_hallway.json', 'per_sample_hallway.json'}
@@ -338,7 +350,7 @@ def test_haa_eval_refusals_are_named(tmp_path, closed_log_file, damage, cause):
         meta.pop('backbone')
     elif damage == 'meta_backbone_differs':
         meta['backbone'] = 'cylindrical'
-    run = write_haa_eval(tmp_path / 'eval' / 'hallway', args, meta)
+    run = write_haa_eval(tmp_path / 'eval' / 'hallway', args, meta, closed_log_file)
     if damage == 'no_metrics':
         (run / 'metrics_hallway.json').unlink()
     elif damage == 'no_per_sample':
@@ -351,7 +363,7 @@ def test_haa_eval_refusals_are_named(tmp_path, closed_log_file, damage, cause):
 from sim_to_real.haa_dataset import ROOMS
 
 
-def write_job(tmp_path, expect='finetune', children=None):
+def write_job(tmp_path, expect='finetune', children=None, log=None):
     job = tmp_path / 'seed0'
     names = children if children is not None else exp06_finalize.expected_children(expect)
     for name in names:
@@ -361,11 +373,13 @@ def write_job(tmp_path, expect='finetune', children=None):
             {'run_type': 'haa_eval' if name.startswith('eval/') else 'haa_train',
              'admissible_arm': True, 'run_dir': str(child)}, sort_keys=True))
     job.mkdir(parents=True, exist_ok=True)
+    if log is not None:
+        seal(job, log, text='pipeline output\n')
     return job, [str(job / name) for name in names]
 
 
 def test_job_completion_requires_every_child(tmp_path, closed_log_file):
-    job, children = write_job(tmp_path)
+    job, children = write_job(tmp_path, log=closed_log_file)
     fields = exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=REPO,
                                      children=children, expect='finetune')
     assert set(fields['children']) == set(exp06_finalize.expected_children('finetune'))
@@ -385,7 +399,7 @@ def test_job_refusals_are_named(tmp_path, closed_log_file, damage, cause):
         names.remove('stage2_hallway')
     elif damage == 'extra':
         names.append('stage2_invented')
-    job, children = write_job(tmp_path, expect, names)
+    job, children = write_job(tmp_path, expect, names, log=closed_log_file)
     if damage == 'no_completion':
         (job / 'stage1/completion.json').unlink()
     elif damage == 'outside':
@@ -405,7 +419,7 @@ def test_job_refusals_are_named(tmp_path, closed_log_file, damage, cause):
 
 
 def test_job_requires_a_declared_expectation(tmp_path, closed_log_file):
-    job, children = write_job(tmp_path)
+    job, children = write_job(tmp_path, log=closed_log_file)
     with pytest.raises(ValueError, match='expect'):
         exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=REPO, children=children)
 
@@ -610,3 +624,81 @@ def test_source_closure_and_identity_shapes_are_refused(full_run, clone, damage,
     with pytest.raises(ValueError, match=cause):
         exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
     assert not (run / 'completion.json').exists()
+
+
+def test_a_live_launch_pid_refuses_finalization_in_every_mode(full_run, clone, tmp_path):
+    """Blocker 4: recovery must not certify a run whose launcher is still alive."""
+    run, log = full_run
+    (run / 'launch.pid').write_text('{}\n'.format(os.getpid()))
+    with pytest.raises(ValueError, match='alive'):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert not (run / 'completion.json').exists()
+    (run / 'launch.pid').write_text('999999999\n')
+    assert exp06_finalize.finalize(run, 'full', log, 0, repo=clone)['admissible_arm'] is True
+    diagnostic = tmp_path / 'probe'
+    seal(diagnostic, tmp_path / 'probe.log', status=0)
+    (diagnostic / 'launch.pid').write_text('{}\n'.format(os.getpid()))
+    with pytest.raises(ValueError, match='alive'):
+        exp06_finalize.finalize(diagnostic, 'probe', tmp_path / 'probe.log', 0, repo=clone)
+
+
+@pytest.mark.parametrize('damage,cause', [
+    ('missing', 'child_exit.json'), ('status', 'child_exit.json'), ('hash', 'child_exit.json'),
+    ('not_json', 'child_exit.json'), ('no_pid', 'child_exit.json')])
+def test_the_child_exit_receipt_must_bind_the_hashed_log(full_run, clone, damage, cause):
+    """Blocker 4: the marker alone never proved the writers had gone."""
+    run, log = full_run
+    if damage == 'missing':
+        (run / 'child_exit.json').unlink()
+    elif damage == 'not_json':
+        (run / 'child_exit.json').write_text('{ truncated')
+    else:
+        receipt = json.loads((run / 'child_exit.json').read_text())
+        if damage == 'status':
+            receipt['status'] = 3
+        elif damage == 'hash':
+            receipt['log_sha256_after_marker'] = 'f' * 64
+        else:
+            receipt.pop('child_pid')
+        (run / 'child_exit.json').write_text(json.dumps(receipt, sort_keys=True))
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert not (run / 'completion.json').exists()
+
+
+def test_a_log_that_changes_during_validation_is_refused(full_run, clone, monkeypatch):
+    """Blocker 4: a surviving writer must not be able to extend a certified log."""
+    run, log = full_run
+    original = exp06_finalize.full_evidence
+
+    def late_writer(run_dir, repo):
+        with open(str(log), 'a') as stream:
+            stream.write('late output from a surviving descendant\n')
+        return original(run_dir, repo)
+
+    monkeypatch.setattr(exp06_finalize, 'full_evidence', late_writer)
+    with pytest.raises(ValueError, match='stale log'):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert not (run / 'completion.json').exists()
+
+
+def test_child_exit_subcommand_appends_the_marker_and_writes_the_receipt(tmp_path):
+    """The launcher's closing step, owned in Python so the receipt binds the same bytes."""
+    run = tmp_path / 'attempt'
+    run.mkdir()
+    log = tmp_path / 'child.log'
+    log.write_text('child output\n')
+    command = [sys.executable, 'tools/exp06_finalize.py', 'child-exit', '--run-dir', str(run),
+               '--log', str(log), '--child-pid', '4242', '--status', '0']
+    completed = subprocess.run(command, cwd=REPO, capture_output=True, text=True,
+                               env={**os.environ, 'PYTHONPATH': str(REPO)})
+    assert completed.returncode == 0, completed.stderr
+    lines = log.read_text().splitlines()
+    assert lines[-1].startswith('EXP06_CHILD_EXIT 0 ') and lines[0] == 'child output'
+    receipt = json.loads((run / 'child_exit.json').read_text())
+    assert receipt['status'] == 0 and receipt['child_pid'] == 4242
+    assert receipt['log_sha256_after_marker'] == provenance.sha256_file(log)
+    assert receipt['ended_at'] == lines[-1].split()[2]
+    again = subprocess.run(command, cwd=REPO, capture_output=True, text=True,
+                           env={**os.environ, 'PYTHONPATH': str(REPO)})
+    assert again.returncode == 2 and 'child_exit.json' in again.stderr

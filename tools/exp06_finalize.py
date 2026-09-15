@@ -123,12 +123,17 @@ def closure_digest(files):
 
 
 def closed_log(log, child_exit):
-    """Require the launcher's end marker as the log's last line, agreeing on the status."""
+    """Require the launcher's end marker as the log's last line, agreeing on the status.
+
+    The bytes are read once and hashed here, so the receipt comparison and the recorded
+    digest describe exactly the content that was validated.
+    """
     try:
-        text = Path(log).read_text()
+        data = Path(log).read_bytes()
     except OSError as error:
         raise ValueError('unreadable log: {}'.format(error)) from error
-    lines = text.splitlines()
+    digest = hashlib.sha256(data).hexdigest()
+    lines = data.decode('utf-8', 'replace').splitlines()
     _require(lines and lines[-1].startswith(MARKER + ' '),
              'log does not end with the ' + MARKER + ' marker (child still writing?)')
     parts = lines[-1].split()
@@ -140,7 +145,43 @@ def closed_log(log, child_exit):
     _require(stamp.tzinfo is not None, MARKER + ' marker needs a timezone-aware timestamp')
     _require(code == child_exit,
              'log marker status {} differs from the reported child status {}'.format(code, child_exit))
-    return {'path': str(Path(log).resolve()), 'sha256': provenance.sha256_file(log)}, parts[2]
+    return {'path': str(Path(log).resolve()), 'sha256': digest}, parts[2], digest
+
+
+def child_exit_receipt(run_dir, child_exit, log_digest):
+    """The launcher's proof that every writer had exited when it hashed the log."""
+    path = Path(run_dir) / 'child_exit.json'
+    _require(path.is_file(), 'missing child_exit.json in {}'.format(run_dir))
+    receipt = _read_json(path, 'child_exit.json')
+    missing = [key for key in ('child_pid', 'status', 'ended_at', 'log_sha256_after_marker')
+               if key not in receipt]
+    _require(not missing, 'child_exit.json is incomplete: missing ' + ', '.join(missing))
+    _require(type(receipt['status']) is int and receipt['status'] == child_exit,
+             'child_exit.json records status {!r}, not the reported {}'.format(
+                 receipt['status'], child_exit))
+    _require(receipt['log_sha256_after_marker'] == log_digest,
+             'child_exit.json binds a different log: {} is not the validated {}'.format(
+                 receipt['log_sha256_after_marker'], log_digest))
+    return {'path': str(path.resolve()), 'sha256': provenance.sha256_file(path),
+            'child_pid': receipt['child_pid'], 'ended_at': receipt['ended_at']}
+
+
+def refuse_live_launch(run_dir):
+    """No mode, recovery included, may certify a run whose launcher is still running."""
+    path = Path(run_dir) / 'launch.pid'
+    if not path.is_file():
+        return None
+    try:
+        pid = int(path.read_text().split()[0])
+    except (IndexError, ValueError) as error:
+        raise ValueError('unreadable launch.pid at {}: {}'.format(path, error)) from error
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return pid
+    except PermissionError:
+        pass  # Somebody else's live process is still a live process.
+    raise ValueError('the launch pid {} of {} is still alive'.format(pid, run_dir))
 
 
 @functools.lru_cache(maxsize=None)
@@ -401,20 +442,52 @@ def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None,
     _require(run_type in RUN_TYPES, 'unknown run type: {!r}'.format(run_type))
     _require(run_dir.is_dir(), 'run directory does not exist: {}'.format(run_dir))
     _require(type(child_exit) is int, 'child status must be an integer')
-    log_record, child_exit_time = closed_log(log, child_exit)
+    refuse_live_launch(run_dir)
+    log_record, child_exit_time, log_digest = closed_log(log, child_exit)
+    receipt_record = child_exit_receipt(run_dir, child_exit, log_digest)
     diagnostic = run_type in DIAGNOSTIC
     if not diagnostic:
         _require(child_exit == 0, 'child exited with status {}'.format(child_exit))
     fields = dict(schema_version=1, run_type=run_type, run_dir=str(run_dir.resolve()),
                   repo=str(Path(repo).resolve()), child_exit=child_exit,
                   child_exit_time=child_exit_time, log=log_record,
+                  child_exit_receipt=receipt_record,
                   diagnostic=diagnostic, admissible_arm=not diagnostic)
     fields.update(diagnostic_evidence(run_dir, receipt) if diagnostic
                   else full_evidence(run_dir, repo) if run_type == 'full'
                   else haa_train_evidence(run_dir) if run_type == 'haa_train'
                   else haa_eval_evidence(run_dir) if run_type == 'haa_eval'
                   else haa_job_evidence(run_dir, children, expect))
+    _require(provenance.sha256_file(log) == log_digest,
+             'stale log: {} changed while its completion was being validated'.format(log))
     return write_completion(run_dir / 'completion.json', fields)
+
+
+def child_exit_main(argv):
+    """Close one child's log: append the end marker, then bind those bytes in a receipt."""
+    parser = argparse.ArgumentParser(description='Close an exp_06 child log.')
+    parser.add_argument('--run-dir', required=True)
+    parser.add_argument('--log', required=True)
+    parser.add_argument('--child-pid', type=int, required=True)
+    parser.add_argument('--status', type=int, required=True)
+    args = parser.parse_args(argv)
+    path = Path(args.run_dir) / 'child_exit.json'
+    try:
+        _require(not path.exists(), 'child_exit.json already exists at {}'.format(path))
+        stamp = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
+        with open(args.log, 'a') as stream:
+            stream.write('{} {} {}\n'.format(MARKER, args.status, stamp))
+            stream.flush()
+            os.fsync(stream.fileno())
+        provenance.write_manifest(path, dict(
+            schema_version=1, child_pid=args.child_pid, status=args.status, ended_at=stamp,
+            log=str(Path(args.log).resolve()),
+            log_sha256_after_marker=provenance.sha256_file(args.log)))
+    except (OSError, ValueError) as error:
+        print('EXP06_CHILD_EXIT_REFUSED ' + str(error), file=sys.stderr, flush=True)
+        return 2
+    print('EXP06_CHILD_EXIT_OK ' + str(path), flush=True)
+    return 0
 
 
 def gpu_compute_apps(gpu):
@@ -500,6 +573,8 @@ def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv[:1] == ['preflight']:
         return preflight_main(argv[1:])
+    if argv[:1] == ['child-exit']:
+        return child_exit_main(argv[1:])
     if argv[:1] == ['finalize']:
         argv = argv[1:]
     args = build_parser().parse_args(argv)
