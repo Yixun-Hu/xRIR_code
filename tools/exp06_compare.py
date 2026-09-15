@@ -42,7 +42,14 @@ COMPANION_ALPHA = 0.05
 N_BOOT = 20000
 BOOT_SEEDS = (0, 1)
 CONVERGENCE_TOL = 0.10
-SPLIT = {'split': 'unseen', 'n_queries': 6337}
+# Finding 1: the registered experiment, taken from exp_04's own frozen registration --
+# the split and its size, the room population, the canonical query digest, the data
+# inventory every run must have read, and the seed-specific K = 8 reference manifests.
+DATASET = exp04_profiles.COMMON['dataset']
+SPLIT = {'split': DATASET['split'], 'n_queries': DATASET['n_queries'],
+         'n_rooms': DATASET['n_rooms'], 'query_sha256': DATASET['query_sha256'],
+         'inventory_sha256': DATASET['inventory_sha256'],
+         'references': exp04_profiles.json_value(exp04_profiles.REFERENCES[NUM_SHOT])}
 BATCH_SIZE = 16
 CONDITIONS = 'P'
 YAW_COLS = [0]
@@ -245,7 +252,7 @@ def admit_run(run_dir, role, approved, split=SPLIT, check=None, inputs=None,
                 'metric type ' + metric)
     for failure in _check_metrics_reconciliation(label, run):
         require(False, 'reconciliation ' + failure)
-    check_evidence(fields, directory, digest, require, bind, stats, route)
+    check_evidence(fields, directory, digest, require, bind, stats, route, split)
     check_reference(fields, run, split, require, bind)
     run['role'], run['seed'], run['manifest_hash'] = role, seed, fields.get('manifest_hash')
     # Finding 5: the weights each role really evaluated, hashed here and published.
@@ -260,7 +267,7 @@ def _stamp(path):
             status.st_ctime_ns)
 
 
-def check_evidence(fields, directory, digest, require, bind, stats, route):
+def check_evidence(fields, directory, digest, require, bind, stats, route, split=SPLIT):
     """Finding 4: the applicable `paired_compare.admit_run` evidence, composed here.
 
     The mutable inputs an arm declares, the declared inputs the launcher revalidated at
@@ -286,6 +293,8 @@ def check_evidence(fields, directory, digest, require, bind, stats, route):
     require(isinstance(identity, dict), 'data_identity')
     require(provenance._inventory_digest(identity['inventory'])
             == identity.get('inventory_sha256'), 'data inventory digest')
+    require(identity.get('inventory_sha256') == split['inventory_sha256'],
+            'the registered data inventory of the unseen split')
     require(identity.get('manifest_hash') == fields['manifest_hash']
             and identity.get('manifest_file_sha256') == fields['manifest_file_sha256'],
             'dataset manifest identity')
@@ -307,11 +316,21 @@ def check_reference(fields, run, split, require, bind):
     require(reference.get('num_shot') == NUM_SHOT
             and reference.get('seed') == fields['manifest_seed'],
             'reference seed/num_shot')
-    require(manifest_hash(reference) == fields['manifest_hash'], 'reference semantic hash')
     entries = reference['entries']
+    require(isinstance(entries, list) and len(entries) == split['n_queries'],
+            'the reference draws one entry per query of the split')
+    require(all(isinstance(entry.get('refs'), list) and len(entry['refs']) == NUM_SHOT
+                for entry in entries),
+            'every reference entry draws eight references (K = {})'.format(NUM_SHOT))
+    require(manifest_hash(reference) == fields['manifest_hash'], 'reference semantic hash')
+    require(split['references'].get(fields['manifest_seed']) == fields['manifest_hash'],
+            'the registered reference manifest of seed {}'.format(fields['manifest_seed']))
     require(run['query'] == [entry['query'] for entry in entries]
             and run['index'] == [entry['index'] for entry in entries],
             'query/index reference order')
+    require(paired_compare._digest(run['query']) == split['query_sha256'],
+            'the canonical query digest of the registered split')
+    require(len(set(rooms_from_paths(run['query']))) == split['n_rooms'], 'room count')
     return path
 
 

@@ -714,8 +714,15 @@ def test_invented_query_names_are_refused_even_when_consistent(tmp_path, checkpo
     queries = ['Cafe/Cafe_idx_1/S000_R{:03d}_invented.wav'.format(i) for i in range(N)]
     directory = write_run(tmp_path / 'names', 'C', 42, checkpoints, SPLIT, queries=queries,
                           per_sample={'query': list(queries)})
-    with pytest.raises(ValueError, match='canonical query digest'):
+    with pytest.raises(ValueError, match='registered reference manifest'):
         subject.admit_run(directory, 'C', approved, SPLIT, roles=ROLES)
+    # The canonical query digest is an independent pin: even a registration that named
+    # this manifest would not make these the queries of the unseen split.
+    pinned = dict(SPLIT['references'])
+    pinned[42] = reference_hash(manifest_of(42, queries))
+    relaxed = dict(SPLIT, references=pinned)
+    with pytest.raises(ValueError, match='canonical query digest'):
+        subject.admit_run(directory, 'C', approved, relaxed, roles=ROLES)
 
 
 def test_a_reference_entry_without_eight_references_is_refused(tmp_path, checkpoints,
