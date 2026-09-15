@@ -248,6 +248,9 @@ def admit_run(run_dir, role, approved, split=SPLIT, check=None, inputs=None,
     check_evidence(fields, directory, digest, require, bind, stats, route)
     check_reference(fields, run, split, require, bind)
     run['role'], run['seed'], run['manifest_hash'] = role, seed, fields.get('manifest_hash')
+    # Finding 5: the weights each role really evaluated, hashed here and published.
+    run['checkpoint'] = {'sha256': actual, 'path': fields['checkpoint'], 'route': route,
+                         'epoch': fields.get('checkpoint_epoch')}
     return run
 
 
@@ -388,6 +391,19 @@ def contrast_cell(groups, x, y, metric, n_boot=N_BOOT):
                            for role in (x, y)}}
 
 
+def arm_checkpoints(groups):
+    """One checkpoint identity per arm: every seed of an arm evaluated the same weights."""
+    identities = {}
+    for role in sorted(groups):
+        recorded = [run['checkpoint'] for run in groups[role]]
+        if not recorded:
+            continue
+        if any(_equal(item, recorded[0]) is False for item in recorded):
+            raise ValueError('arm {} evaluated more than one checkpoint'.format(role))
+        identities[role] = dict(recorded[0])
+    return identities
+
+
 def analyse(admitted, margin=MARGIN, n_boot=N_BOOT, exploratory=False):
     """H3 is C vs B; C vs A is the same machinery, reported descriptively.
 
@@ -403,7 +419,8 @@ def analyse(admitted, margin=MARGIN, n_boot=N_BOOT, exploratory=False):
     result = {'schema_version': 1, 'exploratory': bool(exploratory), 'margin': margin,
               'seeds': list(SEEDS), 'metrics': list(METRICS), 'split': dict(SPLIT),
               'deviations': list(admitted['deviations']), 'inputs': admitted['inputs'],
-              'cells': [], 'verdicts': {}, 'H3': status, 'complete_arms': complete}
+              'cells': [], 'verdicts': {}, 'H3': status, 'complete_arms': complete,
+              'checkpoints': arm_checkpoints(groups)}
     for x, y in CONTRASTS:
         if x not in groups or y not in groups:
             continue
