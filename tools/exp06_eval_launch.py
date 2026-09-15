@@ -177,9 +177,22 @@ def _declared(run, completion):
     return dict({key: fields[key] for key in BOUND_META}, eval_manifest_sha256=digest)
 
 
+def _persisted(run, completion):
+    """The record the run retained, which must still be the one execute_run returned."""
+    try:
+        record = json.loads((Path(run) / 'completion.json').read_text())
+    except (OSError, ValueError) as error:
+        raise OutputMismatch('completion_unreadable', 'completion.json: {}'.format(error))
+    if not isinstance(record, dict) or not _same(record, dict(completion)):
+        raise OutputMismatch('completion_mismatch', 'completion.json is not the record '
+                             'this run was finalised with')
+    return record
+
+
 def validate_outputs(run, completion):
     """Both finished outputs are this arm's, and are the bytes completion bound."""
     run = Path(run)
+    completion = _persisted(run, completion)
     expected = _declared(run, completion)
     bound = completion.get('outputs') or {}
     for name in launcher.OUTPUTS:
@@ -218,7 +231,12 @@ def quarantine(run, error):
 
 
 def certify_outputs(run, completion):
-    """exp_06's own post-run gate: the quarantine directory, or None when nothing is wrong."""
+    """exp_06's own post-run gate: the quarantine directory, or None when nothing is wrong.
+
+    Nit 7: the hashes validated are the ones the run published in completion.json, which
+    must equal the mapping execute_run returned -- a retained record that says something
+    else is a refusal, not a detail.
+    """
     try:
         validate_outputs(run, completion)
     except OutputMismatch as error:
