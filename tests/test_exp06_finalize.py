@@ -88,6 +88,11 @@ def geometry_of(root):
     return exp06_train.geometry_identity(str(root))
 
 
+def heldout_of(root):
+    """Finding 3: the exp_06-owned inventory of the waveforms test_epoch reads."""
+    return exp06_train.heldout_wav_identity(str(root))
+
+
 def inventory_of(root):
     """Exactly what the pinned tools.provenance helper records for this root."""
     return provenance.train_data_identity(str(root),
@@ -182,6 +187,7 @@ def full_run(tmp_path, clone, data_root, approvals):
     record['data_root'] = str(Path(data_root).resolve())
     record['train_data_identity'] = inventory_of(data_root)
     record['geometry_identity'] = geometry_of(data_root)
+    record['test_wav_identity'] = heldout_of(data_root)
     args = bound_args(run, record)
     record['effective_args'] = args
     (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')

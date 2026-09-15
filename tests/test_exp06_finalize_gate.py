@@ -321,3 +321,95 @@ def test_an_exploratory_diagnostic_may_read_approvals_from_anywhere(tmp_path, cl
     fields = exp06_finalize.finalize(run, 'smoke', log, 0, repo=clone, receipt=receipt)
     assert fields['exploratory'] is True and fields['admissible_arm'] is False
     assert fields['approvals']['committed_at'] is None and fields['passed'] is True
+
+
+def rewrite_identity(run, key, drop=False, **overrides):
+    """Replace one inventory in the record, keeping every other field as it was."""
+    record = json.loads((Path(run) / 'provenance.json').read_text())
+    if drop:
+        record.pop(key, None)
+    else:
+        record[key] = dict(record[key], **overrides)
+    (Path(run) / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    return record
+
+
+def reseal(identity, entries):
+    """An inventory whose totals and digest describe exactly these entries."""
+    return dict(identity, inventory=entries, inventory_files=len(entries),
+                inventory_bytes=sum(entry['size'] for entry in entries),
+                inventory_sha256=exp06_finalize.inventory_digest(entries))
+
+
+def test_heldout_membership_is_derived_from_the_datasets_own_split(data_root):
+    """Finding 3a: the waveforms every epoch's test loss was measured on."""
+    from tools import exp06_train
+    files = exp06_train.heldout_wav_paths(data_root)
+    assert files == ['single_channel_ir/Bathrooms/Bathrooms_idx_18/S000_R000_hybrid_IR.wav']
+    identity = exp06_train.heldout_wav_identity(str(data_root))
+    assert identity['split'] == 'test' and identity['wav_files'] == 1
+    assert [entry['path'] for entry in identity['inventory']] == files
+
+
+def test_a_full_completion_rehashes_every_held_out_waveform(full_run, clone, data_root):
+    run, log = full_run
+    fields = exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert fields['test_wav_files'] == 1 and fields['test_wav_bytes'] > 0
+    assert fields['test_wav_sha256'] == exp06_finalize.inventory_digest(
+        json.loads((run / 'provenance.json').read_text())['test_wav_identity']['inventory'])
+
+
+def test_a_changed_test_waveform_is_refused(full_run, clone, data_root):
+    """The review's reproduction: the training inventory left the test split unbound."""
+    run, log = full_run
+    wav = Path(data_root) / 'single_channel_ir/Bathrooms/Bathrooms_idx_18/S000_R000_hybrid_IR.wav'
+    wav.write_bytes(b'a different held-out room')
+    with pytest.raises(ValueError, match='held-out waveforms'):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert not (run / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('damage,cause', [('absent', 'test_wav_identity'),
+                                          ('extra', 'membership'),
+                                          ('wrong_root', 'data_root')])
+def test_an_incomplete_test_wav_inventory_is_refused(full_run, clone, data_root, damage, cause):
+    run, log = full_run
+    if damage == 'absent':
+        rewrite_identity(run, 'test_wav_identity', drop=True)
+    elif damage == 'wrong_root':
+        rewrite_identity(run, 'test_wav_identity', data_root=str(Path(data_root).parent))
+    else:  # a training waveform is not a held-out one
+        identity = json.loads((run / 'provenance.json').read_text())['test_wav_identity']
+        extra = {'path': 'single_channel_ir/Apartments/Apartments_idx_1/S000_R000_hybrid_IR.wav',
+                 'sha256': 'a' * 64, 'size': 8, 'mtime_ns': 1}
+        rewrite_identity(run, 'test_wav_identity',
+                         **reseal(identity, identity['inventory'] + [extra]))
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert not (run / 'completion.json').exists()
+
+
+def test_a_geometry_inventory_of_one_split_is_refused(full_run, clone, data_root):
+    """Finding 3b: the finalizer accepted the subset of splits the record declared."""
+    from tools import exp06_train
+    run, log = full_run
+    rewrite_identity(run, 'geometry_identity',
+                     **exp06_train.geometry_identity(str(data_root), splits=('train',)))
+    with pytest.raises(ValueError, match='splits'):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert not (run / 'completion.json').exists()
+    (Path(data_root) / 'depth_map/Bathrooms/Bathrooms_idx_18/0.npy').write_bytes(b'held out')
+    with pytest.raises(ValueError, match='splits'):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+
+
+@pytest.mark.parametrize('key', ['geometry_identity', 'test_wav_identity'])
+def test_a_duplicated_inventory_entry_is_refused(full_run, clone, key):
+    """Finding 3b: a set comparison never sees a path recorded twice."""
+    run, log = full_run
+    record = json.loads((run / 'provenance.json').read_text())
+    entries = record[key]['inventory']
+    rewrite_identity(run, key, **reseal(record[key], entries + entries[:1]))
+    with pytest.raises(ValueError, match='distinct paths'):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert not (run / 'completion.json').exists()
