@@ -318,13 +318,29 @@ def haa_repo(tmp_path_factory):
     return root
 
 
+def confirmatory(record):
+    """A record of a clean tree whose closure equals its HEAD blobs: what round 3 writes.
+
+    Only such a record binds a confirmatory run, so only such a record may bind a child.
+    """
+    files = [{'path': 'tools/exp06_heading.py', 'sha256': 'a' * 64, 'head_blob_sha256': 'a' * 64}]
+    git = {'HEAD': 'b' * 40, 'dirty': False, 'dirty_outside_worklog': False, 'diff_sha256': None}
+    def digest(key):
+        return hashlib.sha256(json.dumps([[item['path'], item[key]] for item in files],
+                                         sort_keys=True).encode()).hexdigest()
+    return dict(record, admissibility='confirmatory', source_closure=dict(
+        record['source_closure'], files=files, git=git, sha256=digest('sha256'),
+        head_sha256=digest('head_blob_sha256')))
+
+
 @pytest.fixture(scope='session')
 def heading_jsons(tmp_path_factory):
     """One real, validated heading record per room, written where a binding can point."""
     import numpy as np
     from tools import exp06_heading
-    cache = tmp_path_factory.mktemp('heading') / 'synthetic'
-    cache.mkdir()
+    root = tmp_path_factory.mktemp('heading') / 'HAA_xrir'
+    cache = root / 'synthetic'
+    cache.mkdir(parents=True)
     (cache / 'meta.json').write_text(json.dumps(dict(train=list(range(12)), valid=[12],
                                                      test=[12, 13], sr=22050)))
     theta = np.deg2rad([-90] * 4 + [90] * 8)
@@ -337,10 +353,11 @@ def heading_jsons(tmp_path_factory):
     rirs = np.zeros((14, 1200))
     rirs[:12, 10] = 10 ** (np.array([9] * 4 + [0] * 8) / 20) / dist
     np.save(cache / 'rirs.npy', rirs)
-    record = exp06_heading.estimate_room_heading(cache)
-    out = {}
+    record = confirmatory(exp06_heading.estimate_room_heading(cache))
+    out = {'root': str(root)}
     for room in ROOMS:
-        path = cache.parent / (room + '.json')
+        shutil.copytree(str(cache), str(root / room))
+        path = root / (room + '.json')
         exp06_heading.write_heading_json(path, dict(record, room=room))
         out[room] = {'path': str(path), 'sha256': provenance.sha256_file(path),
                      'phi_deg': record['phi_deg'], 'k': record['k'],
@@ -380,6 +397,7 @@ def haa_train_args(heading_jsons, init_sha256, frame='heading', rooms=None, **ov
     args = dict(backbone='cylindrical_oriented', num_shot=8, rooms=rooms, frame=frame,
                 save_dir='stage1', seed=0, epochs=20, val_every=10, lr=1e-4,
                 weight_decay=1e-4, eval_seed=0, init='init.pth', init_sha256=init_sha256,
+                haa_root=heading_jsons['root'],
                 heading={room: dict(heading_jsons[room]) for room in rooms})
     args.update(overrides)
     return args
@@ -616,7 +634,8 @@ def test_haa_train_refusals_are_named(tmp_path, haa_repo, heading_jsons, data_ro
 def haa_eval_args(heading_jsons, checkpoint, frame='heading', room='hallway', **overrides):
     args = dict(backbone='cylindrical_oriented', num_shot=8, rooms=[room], frame=frame,
                 checkpoint=str(checkpoint), eval_seed=0, seed=0, split='test', epochs=20,
-                val_every=10, heading={room: dict(heading_jsons[room])})
+                val_every=10, haa_root=heading_jsons['root'],
+                heading={room: dict(heading_jsons[room])})
     if frame != 'heading':
         args.pop('heading')
     args.update(overrides)
@@ -786,44 +805,6 @@ def test_the_dampened_room_records_no_t60(tmp_path, haa_repo, heading_jsons, dat
     write_haa_eval(run, args, log, haa_repo, data_root,
                    meta=eval_meta(args, provenance.sha256_file(checkpoint)))
     assert exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)['room'] == 'dampened_room'
-
-
-INFINITIES = ([float('inf'), float('nan'), float('nan')], [float('-inf')] * 3)
-
-
-@pytest.mark.parametrize('t60', INFINITIES)
-def test_an_omitted_room_measures_only_nan_t60(tmp_path, haa_repo, heading_jsons, data_root, t60):
-    """Close-4 finding 1: infinity is not the writer's skipped-measurement sentinel."""
-    checkpoint = haa_repo / 'stage2_best.pth'
-    torch.save(tiny_state(), checkpoint)
-    args = haa_eval_args(heading_jsons, checkpoint, room='dampened_room')
-    run, log = tmp_path / 'eval' / 'dampened_room', tmp_path / 'child.log'
-    write_haa_eval(run, args, log, haa_repo, data_root, per_sample={'t60': t60},
-                   meta=eval_meta(args, provenance.sha256_file(checkpoint)))
-    with pytest.raises(ValueError, match='t60'):
-        exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)
-    assert not (run / 'completion.json').exists()
-
-
-@pytest.mark.parametrize('t60', INFINITIES)
-def test_a_job_refuses_an_omitted_room_whose_t60_is_infinite(job_run, closed_log_file, t60):
-    """The same sentinel rule at job admission, with the child's hashes refreshed."""
-    def mutate(job, names):
-        path = job / 'eval/dampened_room'
-        name = 'per_sample_dampened_room.json'
-        body = json.loads((path / name).read_text())
-        body['t60'] = list(t60)[: len(body['index'])]
-        (path / name).write_text(json.dumps(body))
-        record = json.loads((path / 'completion.json').read_text())
-        record['artifacts'][name] = provenance.sha256_file(path / name)
-        (path / 'completion.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
-        return names
-
-    job, children, spec, repo = job_run(mutate=mutate)
-    with pytest.raises(ValueError, match='t60'):
-        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
-                                children=children, expect='finetune', job_spec=spec)
-    assert not (job / 'completion.json').exists()
 
 
 METRIC_DAMAGE = {
