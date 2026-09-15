@@ -660,21 +660,22 @@ def write_job(tmp_path, expect='finetune', log=None, mutate=None):
     names, stage1_best = [], b'stage1-best'
     if expect == 'finetune':
         write_child(job / 'stage1', 'haa_train',
-                    {'best.pth': stage1_best, 'last.pth': b'stage1-last'},
+                    {'args.json': b'{}', 'best.pth': stage1_best, 'last.pth': b'stage1-last'},
                     rooms=sorted(ROOMS)[:3], init_sha256=PRETRAIN, best_epoch=20)
         names.append('stage1')
     for room in ROOMS:
         checkpoint = ('stage2-' + room).encode()
         if expect == 'finetune':
             write_child(job / ('stage2_' + room), 'haa_train',
-                        {'best.pth': checkpoint, 'last.pth': b'last-' + checkpoint},
+                        {'args.json': b'{}', 'best.pth': checkpoint,
+                         'last.pth': b'last-' + checkpoint},
                         rooms=[room], init_sha256=hashlib.sha256(stage1_best).hexdigest(),
                         best_epoch=10)
             names.append('stage2_' + room)
         else:
             checkpoint = stage1_best
         write_child(job / 'eval' / room, 'haa_eval',
-                    {'metrics_{}.json'.format(room): b'{}',
+                    {'args.json': b'{}', 'metrics_{}.json'.format(room): b'{}',
                      'per_sample_{}.json'.format(room): b'{}'},
                     room=room, checkpoint_sha256=hashlib.sha256(checkpoint).hexdigest(),
                     samples=198)
@@ -731,14 +732,16 @@ def test_job_refusals_are_named(tmp_path, closed_log_file, damage, cause):
         if damage == 'missing':
             names.remove('stage2_hallway')
         elif damage == 'extra':
-            write_child(job / 'stage2_invented', 'haa_train', {'best.pth': b'x'},
+            write_child(job / 'stage2_invented', 'haa_train',
+                        {'args.json': b'{}', 'best.pth': b'x', 'last.pth': b'y'},
                         rooms=['invented'], init_sha256=PRETRAIN, best_epoch=10)
             names.append('stage2_invented')
         elif damage == 'no_completion':
             (job / 'stage1/completion.json').unlink()
         elif damage == 'outside':
             names.append('../elsewhere')
-            write_child(job.parent / 'elsewhere', 'haa_train', {'best.pth': b'x'},
+            write_child(job.parent / 'elsewhere', 'haa_train',
+                        {'args.json': b'{}', 'best.pth': b'x', 'last.pth': b'y'},
                         rooms=['hallway'], init_sha256=PRETRAIN, best_epoch=10)
         elif damage == 'stale_hash':
             (job / 'stage1/best.pth').write_bytes(b'rewritten after completion')
@@ -1061,3 +1064,21 @@ def test_child_exit_subcommand_appends_the_marker_and_writes_the_receipt(tmp_pat
     again = subprocess.run(command, cwd=REPO, capture_output=True, text=True,
                            env={**os.environ, 'PYTHONPATH': str(REPO)})
     assert again.returncode == 2 and 'child_exit.json' in again.stderr
+
+
+@pytest.mark.parametrize('child,missing', [('stage1', 'best.pth'), ('stage1', 'last.pth'),
+                                           ('eval/hallway', 'args.json')])
+def test_a_child_that_records_no_role_artefact_is_refused(tmp_path, closed_log_file,
+                                                          child, missing):
+    """Should-fix 9 on the job branch: a thin artefact map must refuse, not raise KeyError."""
+    def mutate(job, names):
+        record = json.loads((job / child / 'completion.json').read_text())
+        record['artifacts'].pop(missing, None)
+        (job / child / 'completion.json').write_text(json.dumps(record, sort_keys=True, indent=2))
+        return names
+
+    job, children = write_job(tmp_path, log=closed_log_file, mutate=mutate)
+    with pytest.raises(ValueError, match=missing):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=REPO,
+                                children=children, expect='finetune')
+    assert not (job / 'completion.json').exists()

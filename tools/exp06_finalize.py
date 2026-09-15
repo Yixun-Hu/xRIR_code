@@ -1,32 +1,53 @@
 """Completion evidence for exp_06 runs, dispatched by run type (plan v4 sections 5, 6.4).
 
 The entry points write ``provenance.json``; this external finalizer decides completion
-after the child has exited and writes ``completion.json``. Evidence depends on the run
-type recorded on the command line (and, for ``full``, in ``provenance.json``):
+after the child has exited and writes ``completion.json``. Every non-job run type shares
+the same execution evidence: no live ``launch.pid``, a log whose last line is the
+launcher's ``EXP06_CHILD_EXIT`` marker, a ``child_exit.json`` receipt binding the hash of
+exactly those bytes, and a re-hash of the log after all validation ("stale log"). For the
+run types that record provenance, the closure of the entry module named in the record is
+recomputed and required to agree three ways -- working tree now, bytes at spawn, reviewed
+blob at the recorded commit -- and ``tools.provenance.revalidate`` rehashes the declared
+data inventory and mutable inputs.
 
-``full``      twelve-epoch pretraining: closure drift, recipe/production/derived schema,
-              budget completeness, ``epoch_012.pth`` equal to ``last.pth['model']``,
-              child status 0 and a closed log.
-``smoke``/``probe``  no artifacts; labelled ``diagnostic`` and never admissible as an arm.
-``haa_train`` one fine-tuning child: its args (heading binding and init hash in the
-              heading frame), history, summary and both checkpoints.
-``haa_eval``  one evaluation child: its args and the metrics/per-sample files of the one
-              room it names, whose ``meta`` carries the backbone, checkpoint hash, frame
-              and (in the heading frame) the heading.
-``haa_job``   one seed of the pipeline: the complete set of child completions
-              (stage 1, four stage 2, four evaluations; four evaluations for zero shot).
+``full``      twelve-epoch pretraining: complete provenance, closure membership and the
+              three-way hashes, input revalidation, the recipe/production/derived schema
+              on all three recorded copies of the arguments (``args.json``,
+              ``last.pth['args']``, ``provenance.effective_args``) compared type-strictly,
+              budget completeness, and ``epoch_012.pth`` equal to ``last.pth['model']``.
+``smoke``/``probe``  no artifacts, but a valid diagnostic receipt (``diagnostic: true``, an
+              integer ``exit_status``, ``--no-save`` in its argv); ``passed`` reports
+              whether the diagnostic succeeded and it is never admissible as an arm.
+``haa_train`` one fine-tuning child: provenance and closure, arguments agreeing with the
+              record, a heading binding per room (``phi_deg``, ``k`` = roll(phi), decision,
+              sha256 and path, verified against the heading JSON), ``init_sha256`` equal to
+              the hash of the recorded init, the declared validation cadence with finite
+              losses, a complete ``summary.json`` and checkpoints carrying this arm's
+              parameter names.
+``haa_eval``  one evaluation child: provenance and closure, one room, ``meta`` whose frame,
+              backbone and heading equal the arguments and whose ``checkpoint_sha256`` is
+              the hash of the checkpoint the arguments name, and a ``side_label`` array of
+              -1/1 with one entry per index.
+``haa_job``   one seed of the pipeline: every expected child directory, each completion
+              schema-validated in the role its path requires, its recorded artefact hashes
+              re-verified, one backbone/frame/heading roll across children, and the
+              stage1 -> stage2 -> eval checkpoint lineage. ``admissible_arm`` is derived
+              here, never read from a child.
 
     python tools/exp06_finalize.py --run-dir <dir> --run-type full \
         --log <log> --child-exit 0 [--repo <path>] [--receipt <json>] \
         [--children <dir>...] [--expect finetune|zeroshot]
 
-The command exits 0 after writing ``completion.json`` and 2 on any refusal. The
-``preflight`` subcommand is the launcher's gate before it starts a child: HEAD at the
-reviewed commit, a tree clean outside ``worklog/``, no live exp_06 launch, and (for
-``full``/``probe``) a GPU with no compute apps.
+The command exits 0 after writing ``completion.json`` and 2 on any refusal. Two
+subcommands serve the launcher. ``preflight`` is its gate before it starts a child: HEAD at
+the reviewed commit, a tree clean outside ``worklog/``, no live exp_06 launch, and (for
+``full``/``probe``) a GPU with no compute apps. ``child-exit`` closes a child's log: it
+appends the end marker and exclusively writes the receipt that binds those bytes.
 
     python tools/exp06_finalize.py preflight --mode full --gpu 1 \
         --reviewed-commit <sha> [--attempt-root <dir>] [--repo <path>]
+    python tools/exp06_finalize.py child-exit --run-dir <dir> --log <log> \
+        --child-pid <pid> --status <n>
 
 Every failure raises ``ValueError`` naming its cause and writes nothing; a re-run
 produces byte-identical bytes, and an existing completion that differs is refused.
@@ -555,6 +576,8 @@ CHILD_COMPLETION = ('schema_version', 'run_type', 'run_dir', 'child_exit', 'chil
                     'backbone', 'frame', 'heading')
 CHILD_EXTRA = {'haa_train': ('rooms', 'init_sha256', 'best_epoch'),
                'haa_eval': ('room', 'checkpoint_sha256', 'samples')}
+CHILD_ARTIFACTS = {'haa_train': ('args.json', 'best.pth', 'last.pth'),
+                   'haa_eval': ('args.json',)}
 
 
 def child_role(name):
@@ -584,6 +607,8 @@ def child_completion(path, name):
              'child {} records child_exit {!r}'.format(name, record['child_exit']))
     hashes = record['artifacts']
     _require(isinstance(hashes, dict) and hashes, 'child {} records no artefacts'.format(name))
+    absent = [artefact for artefact in CHILD_ARTIFACTS[role] if artefact not in hashes]
+    _require(not absent, 'child {} records no artefact {}'.format(name, ', '.join(absent)))
     for artefact, digest in sorted(hashes.items()):
         file = Path(path) / artefact
         _require(file.is_file(), 'child {} artefact {} is gone'.format(name, artefact))

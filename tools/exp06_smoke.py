@@ -15,6 +15,10 @@ checkpoints cannot load into the five-channel patch embedding.
 
     python tools/exp06_smoke.py --entry exp06_train -- --backbone simple --no-save ...
     python tools/exp06_smoke.py --make-fixture ckpt/exp06/_smoke/fixture_cylor.pth
+
+The receipt records a numeric ``exit_status`` (0, the integer an entry returned, 3 for an
+alarm or memory abort, 1 for an exception), the reason in ``outcome``, and
+``aborted_memory`` when the ceiling fired while the entry was still running.
 """
 import argparse
 import datetime
