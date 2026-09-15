@@ -1,13 +1,24 @@
 """The frozen exp_07 (seen protocol) profiles and the literals they pin."""
 import importlib
+import json
+import re
+import shlex
+from pathlib import Path
 from types import MappingProxyType as MP
 
 import pytest
 
 from tools import exp07_profiles as profiles
 from tools import provenance as prov
+from tools.exp07_manifests import manifest_name
+from tools.paired_compare import _digest
+from tools.reference_manifest import load_manifest
 
 ROOT = profiles.REPO
+MANIFESTS = ROOT / 'ckpt/exp07'
+INDEX = MANIFESTS / 'reference_manifests_seen_index.json'
+GOLDEN = str(ROOT / ('worklog/worklog_yixun/exp_07_seen_protocol_claude/'
+                     'seen_protocol_results_assets/argv_golden_{}.txt'))
 NEW_ARMS = [('seen_simple', 'simple', 0), ('seen_cyl', 'cylindrical', 0),
             ('seen_aug', 'simple', 1)]
 
@@ -60,3 +71,104 @@ def test_the_arms_are_the_three_new_trainings_and_the_released_reference():
     assert released['training'] == 'external' and released['reference'] is True
     assert released['backbone'] == 'simple' and released['protocol'] is None
     assert 'reference' in released['label'].lower()
+
+
+def test_the_released_checkpoint_digest_is_the_pinned_file():
+    path = ROOT / 'checkpoints/xRIR_seen.pth'
+    if not path.exists():
+        pytest.skip('the released checkpoint is not present in this checkout')
+    released = next(arm for arm in profiles.get_profile('TABLE_SEEN_V1')['arms']
+                    if arm['role'] == 'released_seen')
+    assert released['sha256'] == prov.sha256_file(path)
+
+
+def test_the_recipe_and_the_full_run_constraints_are_the_plans_literals():
+    table = profiles.get_profile('TABLE_SEEN_V1')
+    assert profiles.json_value(table['recipe']) == dict(
+        num_shot=8, max_len=9600, lr=.001, weight_decay=.0001, decay_epochs=3, lr_gamma=.1,
+        epochs=12, batch_size=32, accum_steps=2, num_workers=12, seed=0, tf32=True,
+        log_interval=50, save_every=0, epoch_ckpt_every=1, protocol='seen')
+    assert profiles.json_value(table['full_run']) == dict(
+        no_save=False, resume=None, max_train_batches=0, max_test_batches=0, test_subset=0)
+    assert table['recipe']['tf32'] is True and table['full_run']['no_save'] is False
+    assert all(type(value) is not bool for key, value in table['recipe'].items() if key != 'tf32')
+    assert type(table['recipe']['lr']) is float and type(table['recipe']['epochs']) is int
+
+
+@pytest.mark.parametrize('role,backbone,yaw', NEW_ARMS)
+def test_the_recipe_matches_the_launchers_golden_argv(role, backbone, yaw):
+    """The profile and tools/exp04_launcher.py must describe the same training."""
+    tokens, flags, index = shlex.split(Path(GOLDEN.format(role)).read_text()), {}, 0
+    while index < len(tokens):
+        if tokens[index].startswith('--'):
+            name = tokens[index][2:].replace('-', '_')
+            following = tokens[index + 1] if index + 1 < len(tokens) else '--'
+            flags[name] = True if following.startswith('--') else following
+            index += 1 if following.startswith('--') else 2
+        else:
+            index += 1
+    table = profiles.get_profile('TABLE_SEEN_V1')
+    assert flags['backbone'] == backbone and flags['protocol'] == 'seen'
+    assert flags.get('yaw_aug', '0') == str(yaw)
+    for key, expected in profiles.json_value(table['recipe']).items():
+        actual = flags[key]
+        if isinstance(expected, bool):
+            assert actual is True
+        elif isinstance(expected, float):
+            assert float(actual) == expected
+        else:
+            assert actual == str(expected)
+
+
+def test_the_pairs_profile_is_descriptive_with_absolute_and_relative_statistics():
+    pairs = profiles.get_profile('PAIRS_SEEN_V1')
+    table = profiles.get_profile('TABLE_SEEN_V1')
+    assert pairs['mode'] == 'pairs' and pairs['decision_driving'] is False
+    assert pairs['family'] == 0 and 'verdict' not in pairs and pairs['tails'] == 'descriptive'
+    assert pairs['pairings'] == (('seen_cyl', 'seen_simple'), ('seen_aug', 'seen_simple'),
+                                 ('released_seen', 'seen_simple'))
+    assert pairs['reference_pairings'] == (('released_seen', 'seen_simple'),)
+    assert pairs['num_shot'] == (8, 1) and pairs['statistics'] == ('absolute', 'relative')
+    assert pairs['metrics']['descriptive'] == ('EDT', 'C50', 'T60', 'loss', 'log_mse')
+    assert (pairs['metrics']['primary'], pairs['metrics']['supportive']) == ((), ())
+    assert pairs['n_boot'] == 20000 and pairs['bootstrap_seeds'] == (0, 1)
+    assert pairs['convergence_tolerance'] == .10 and pairs['quantiles'] == (.025, .975)
+    assert pairs['interval_alpha'] == .05 and pairs['cluster'] == 'whole_room_query_weighted'
+    assert pairs['dataset'] == table['dataset'] and pairs['arms'] == table['arms']
+
+
+def test_identities_that_do_not_exist_yet_are_placeholders_or_digests():
+    """None = built at pin finalisation; the agreement tests below check filled values."""
+    table = profiles.get_profile('TABLE_SEEN_V1')
+    pinned = [table['dataset']['query_sha256'], table['dataset']['inventory_sha256']]
+    pinned += [arm['sha256'] for arm in table['arms'] if arm['role'] != 'released_seen']
+    pinned += [value for shot in (8, 1) for value in table['seeds'][shot].values()]
+    assert set(table['seeds']) == {8, 1}
+    assert all(set(table['seeds'][shot]) == set(table['eval_seeds']) for shot in (8, 1))
+    for value in pinned:
+        assert value is None or re.fullmatch('[0-9a-f]{64}', value)
+
+
+def test_the_manifest_pins_agree_with_the_index_when_it_exists():
+    if not INDEX.exists():
+        pytest.skip('the seen reference manifests are not built yet')
+    index = json.loads(INDEX.read_text())
+    table = profiles.get_profile('TABLE_SEEN_V1')
+    assert index['seen_split'] == {'path': prov.SEEN_SPLIT,
+                                   'sha256': table['dataset']['seen_split_sha256']}
+    assert index['entries'] == table['dataset']['n_queries']
+    for shot in (8, 1):
+        for seed in table['eval_seeds']:
+            record = index['manifests'][manifest_name(shot, seed)]
+            assert table['seeds'][shot][seed] == record['manifest_hash']
+            assert prov.sha256_file(MANIFESTS / manifest_name(shot, seed)) == record['file_sha256']
+
+
+def test_the_query_digest_agrees_with_the_seed_42_manifest_when_it_exists():
+    path = MANIFESTS / manifest_name(8, 42)
+    if not path.exists():
+        pytest.skip('the seen reference manifests are not built yet')
+    table = profiles.get_profile('TABLE_SEEN_V1')
+    queries = [entry['query'] for entry in load_manifest(path)['entries']]
+    assert len(queries) == table['dataset']['n_queries']
+    assert table['dataset']['query_sha256'] == _digest(queries)
