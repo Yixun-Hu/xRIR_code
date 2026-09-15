@@ -21,3 +21,22 @@
 2026-09-14T14:36:27-04:00 START aug_k8_seed42_block
 2026-09-14T15:26:36-04:00 END aug_k8_seed42_block exit=0
 2026-09-14T15:26:36-04:00 START aug_k8_seed43_block
+2026-09-14T16:16:06-04:00 END aug_k8_seed43_block exit=0
+2026-09-14T16:16:06-04:00 START aug_k8_seed44_block
+2026-09-14T17:04:27-04:00 END aug_k8_seed44_block exit=0
+2026-09-14T17:04:27-04:00 START aug_k8_seed45_block
+2026-09-14T17:52:38-04:00 END aug_k8_seed45_block exit=0
+2026-09-14T17:52:38-04:00 START aug_k8_seed46_block
+2026-09-14T18:40:58-04:00 END aug_k8_seed46_block exit=0
+2026-09-14T18:40:58-04:00 SKIP existing ckpt/yaw_aug/eval/aug_k8_seed42_grid
+2026-09-14T18:40:58-04:00 START aug9_k8_seed42_k0
+2026-09-14T18:49:02-04:00 END aug9_k8_seed42_k0 exit=0
+2026-09-14T18:49:02-04:00 START aug9_k8_seed43_k0
+2026-09-14T18:57:09-04:00 END aug9_k8_seed43_k0 exit=0
+2026-09-14T18:57:09-04:00 START aug9_k8_seed44_k0
+2026-09-14T19:05:20-04:00 END aug9_k8_seed44_k0 exit=0
+2026-09-14T19:05:20-04:00 START aug9_k8_seed45_k0
+2026-09-14T19:13:23-04:00 END aug9_k8_seed45_k0 exit=0
+2026-09-14T19:13:23-04:00 START aug9_k8_seed46_k0
+2026-09-14T19:21:31-04:00 END aug9_k8_seed46_k0 exit=0
+QUEUE_DONE aug 2026-09-14T19:21:31-04:00

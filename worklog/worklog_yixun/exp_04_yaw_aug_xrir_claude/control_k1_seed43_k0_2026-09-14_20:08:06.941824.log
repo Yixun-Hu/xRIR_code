@@ -1,48 +1,48 @@
-backbone: simple  checkpoint: /home/yixunhu/codespace/xRIR_code/ckpt/xRIR_simple_yawaug_8_shot/attempt_20260913T102051/epoch_012.pth  samples: 6337  angles: [0, 32, 64, 128, 256, 384, 448, 480]  batch: 16
+backbone: simple  checkpoint: /home/yixunhu/codespace/xRIR_code/ckpt/xRIR_simple_8_shot/epoch_12.pth  samples: 6337  angles: [0]  batch: 16
 /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
   warnings.warn(
 /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
   warnings.warn(msg)
-[160/6337] 1.92 samples/s, eta 53.6 min
-[320/6337] 1.95 samples/s, eta 51.3 min
-[480/6337] 2.01 samples/s, eta 48.5 min
-[640/6337] 2.06 samples/s, eta 46.2 min
-[800/6337] 2.08 samples/s, eta 44.3 min
-[960/6337] 2.10 samples/s, eta 42.8 min
-[1120/6337] 2.10 samples/s, eta 41.4 min
-[1280/6337] 2.11 samples/s, eta 39.9 min
-[1440/6337] 2.12 samples/s, eta 38.5 min
-[1600/6337] 2.13 samples/s, eta 37.1 min
-[1760/6337] 2.14 samples/s, eta 35.7 min
-[1920/6337] 2.14 samples/s, eta 34.3 min
-[2080/6337] 2.15 samples/s, eta 33.0 min
-[2240/6337] 2.15 samples/s, eta 31.7 min
-[2400/6337] 2.15 samples/s, eta 30.5 min
-[2560/6337] 2.15 samples/s, eta 29.2 min
-[2720/6337] 2.15 samples/s, eta 28.0 min
-[2880/6337] 2.15 samples/s, eta 26.8 min
-[3040/6337] 2.15 samples/s, eta 25.6 min
-[3200/6337] 2.15 samples/s, eta 24.3 min
-[3360/6337] 2.15 samples/s, eta 23.1 min
-[3520/6337] 2.15 samples/s, eta 21.8 min
-[3680/6337] 2.15 samples/s, eta 20.6 min
-[3840/6337] 2.15 samples/s, eta 19.4 min
-[4000/6337] 2.15 samples/s, eta 18.1 min
-[4160/6337] 2.15 samples/s, eta 16.9 min
-[4320/6337] 2.15 samples/s, eta 15.6 min
-[4480/6337] 2.15 samples/s, eta 14.4 min
-[4640/6337] 2.16 samples/s, eta 13.1 min
-[4800/6337] 2.15 samples/s, eta 11.9 min
-[4960/6337] 2.14 samples/s, eta 10.7 min
-[5120/6337] 2.15 samples/s, eta 9.5 min
-[5280/6337] 2.15 samples/s, eta 8.2 min
-[5440/6337] 2.15 samples/s, eta 7.0 min
-[5600/6337] 2.15 samples/s, eta 5.7 min
-[5760/6337] 2.15 samples/s, eta 4.5 min
-[5920/6337] 2.15 samples/s, eta 3.2 min
-[6080/6337] 2.16 samples/s, eta 2.0 min
-[6240/6337] 2.16 samples/s, eta 0.7 min
-[6337/6337] 2.16 samples/s, eta 0.0 min
+[160/6337] 13.73 samples/s, eta 7.5 min
+[320/6337] 16.34 samples/s, eta 6.1 min
+[480/6337] 17.45 samples/s, eta 5.6 min
+[640/6337] 18.10 samples/s, eta 5.2 min
+[800/6337] 18.48 samples/s, eta 5.0 min
+[960/6337] 18.72 samples/s, eta 4.8 min
+[1120/6337] 18.93 samples/s, eta 4.6 min
+[1280/6337] 19.11 samples/s, eta 4.4 min
+[1440/6337] 19.27 samples/s, eta 4.2 min
+[1600/6337] 19.40 samples/s, eta 4.1 min
+[1760/6337] 19.50 samples/s, eta 3.9 min
+[1920/6337] 19.59 samples/s, eta 3.8 min
+[2080/6337] 19.67 samples/s, eta 3.6 min
+[2240/6337] 19.73 samples/s, eta 3.5 min
+[2400/6337] 19.77 samples/s, eta 3.3 min
+[2560/6337] 19.82 samples/s, eta 3.2 min
+[2720/6337] 19.87 samples/s, eta 3.0 min
+[2880/6337] 19.89 samples/s, eta 2.9 min
+[3040/6337] 19.92 samples/s, eta 2.8 min
+[3200/6337] 19.95 samples/s, eta 2.6 min
+[3360/6337] 19.97 samples/s, eta 2.5 min
+[3520/6337] 20.00 samples/s, eta 2.3 min
+[3680/6337] 20.03 samples/s, eta 2.2 min
+[3840/6337] 20.06 samples/s, eta 2.1 min
+[4000/6337] 20.09 samples/s, eta 1.9 min
+[4160/6337] 20.12 samples/s, eta 1.8 min
+[4320/6337] 20.15 samples/s, eta 1.7 min
+[4480/6337] 20.17 samples/s, eta 1.5 min
+[4640/6337] 20.18 samples/s, eta 1.4 min
+[4800/6337] 20.20 samples/s, eta 1.3 min
+[4960/6337] 20.20 samples/s, eta 1.1 min
+[5120/6337] 20.21 samples/s, eta 1.0 min
+[5280/6337] 20.22 samples/s, eta 0.9 min
+[5440/6337] 20.23 samples/s, eta 0.7 min
+[5600/6337] 20.23 samples/s, eta 0.6 min
+[5760/6337] 20.24 samples/s, eta 0.5 min
+[5920/6337] 20.24 samples/s, eta 0.3 min
+[6080/6337] 20.24 samples/s, eta 0.2 min
+[6240/6337] 20.24 samples/s, eta 0.1 min
+[6337/6337] 20.23 samples/s, eta 0.0 min
 /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
   return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
 /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
@@ -55,9 +55,9 @@ backbone: simple  checkpoint: /home/yixunhu/codespace/xRIR_code/ckpt/xRIR_simple
   return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
 /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
   return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
-wrote /home/yixunhu/codespace/xRIR_code/ckpt/yaw_aug/eval/aug_k8_seed43_block/per_sample_yaw.json
-wrote /home/yixunhu/codespace/xRIR_code/ckpt/yaw_aug/eval/aug_k8_seed43_block/metrics_yaw.json
-done: 6337 samples x 8 angles x 1 conditions in 49.00 min
+wrote /home/yixunhu/codespace/xRIR_code/ckpt/yaw_aug/eval/control_k1_seed43_k0/per_sample_yaw.json
+wrote /home/yixunhu/codespace/xRIR_code/ckpt/yaw_aug/eval/control_k1_seed43_k0/metrics_yaw.json
+done: 6337 samples x 1 angles x 1 conditions in 5.22 min
 /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:641: UserWarning: stft with return_complex=False is deprecated. In a future pytorch release, stft will return complex tensors for all inputs, and return_complex=False will raise an error.
 Note: you can still call torch.view_as_real on the complex output to recover the old return format. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:862.)
   return _VF.stft(input, n_fft, hop_length, win_length, window,  # type: ignore[attr-defined]

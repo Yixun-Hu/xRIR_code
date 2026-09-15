@@ -286,3 +286,6 @@
 - Item 1 (merge timing): merge right after a queue `START` line (the tree is dirty only for the merge's duration; block runs last ≈ 50 min). Item 2 (grid run): the queue would pass all 18 columns to `--acoustic-cols` for `aug_k8_seed42_grid`, which `GRID_SEED42` refuses (10-angle acoustic grid required) → placeholder directory created so the queue skips it; the grid run is relaunched after the chain with `--acoustic-cols 0 8 32 64 128 256 384 448 480 504`.
 
 ## 2026-09-14T16:04:41-04:00 — `codex-window` merged into main as `9eacbb4` (`--no-ff`; one notebook conflict resolved keeping both sides); tree clean outside `worklog/`; no closure file changed; worktree removed
+
+## 2026-09-14T20:28:06-04:00 — cross-session coordination: exp_06 (oriented CylindricalViT, session xrir-code-6e) asked for a merge window and GPU hand-over
+- Replied: worklog-only dirtiness never trips the launchers; code stays on their `exp06-window` worktree branch; merge window W1 = Sep 15 04:30–20:00 (after L_simple's `full` starts, before exp_05's evaluations), with a one-line heads-up before merging; avoid now → Sep 15 04:30; GPU 1 hands over ≈ Sep 16 13:00 after L_cylindrical's evaluations (I message them); GPU 0 frees ≈ Sep 17 04:00; 5-min smokes allowed co-tenant on GPU 0 only (never GPU 1 at 46.3 GB; not during my probe/launch 03:00–04:30), ≤ 8 CPU threads.

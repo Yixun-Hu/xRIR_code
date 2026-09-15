@@ -33,3 +33,31 @@ backbone: simple  checkpoint: /home/yixunhu/codespace/xRIR_code/ckpt/xRIR_simple
 [4480/6337] 2.15 samples/s, eta 14.4 min
 [4640/6337] 2.16 samples/s, eta 13.1 min
 [4800/6337] 2.15 samples/s, eta 11.9 min
+[4960/6337] 2.14 samples/s, eta 10.7 min
+[5120/6337] 2.15 samples/s, eta 9.5 min
+[5280/6337] 2.15 samples/s, eta 8.2 min
+[5440/6337] 2.15 samples/s, eta 7.0 min
+[5600/6337] 2.15 samples/s, eta 5.7 min
+[5760/6337] 2.15 samples/s, eta 4.5 min
+[5920/6337] 2.15 samples/s, eta 3.2 min
+[6080/6337] 2.16 samples/s, eta 2.0 min
+[6240/6337] 2.16 samples/s, eta 0.7 min
+[6337/6337] 2.16 samples/s, eta 0.0 min
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+wrote /home/yixunhu/codespace/xRIR_code/ckpt/yaw_aug/eval/aug_k8_seed43_block/per_sample_yaw.json
+wrote /home/yixunhu/codespace/xRIR_code/ckpt/yaw_aug/eval/aug_k8_seed43_block/metrics_yaw.json
+done: 6337 samples x 8 angles x 1 conditions in 49.00 min
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:641: UserWarning: stft with return_complex=False is deprecated. In a future pytorch release, stft will return complex tensors for all inputs, and return_complex=False will raise an error.
+Note: you can still call torch.view_as_real on the complex output to recover the old return format. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:862.)
+  return _VF.stft(input, n_fft, hop_length, win_length, window,  # type: ignore[attr-defined]
