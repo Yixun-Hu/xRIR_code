@@ -85,3 +85,32 @@ def test_an_unexpected_entry_count_refuses_and_writes_no_index(tmp_path, factory
     with pytest.raises(ValueError, match='6217'):
         subject.build(out, seeds=(42,), num_shots=(3,), factory=factory)
     assert not (out / subject.INDEX).exists() and subject.ENTRIES == 6217
+def test_defaults_match_the_planned_grid():
+    assert subject.SEEDS == (42, 43, 44, 45, 46) and subject.NUM_SHOTS == (8, 1)
+    assert subject.MAX_LEN == 9600 and subject.INDEX == 'reference_manifests_seen_index.json'
+    assert subject.manifest_name(8, 46) == 'reference_manifest_seen_k8_seed46.json'
+
+
+def test_the_seen_dataset_is_built_from_the_repository_root(tmp_path, monkeypatch):
+    """The frozen module opens seen_test_split.pkl relative to the working directory."""
+    monkeypatch.setattr(subject, 'REPO', tmp_path)
+    with pytest.raises(ValueError, match='repository root'):
+        subject.seen_dataset(8, data_root=str(tmp_path))
+
+
+def test_cli_passes_the_grid_and_the_data_root(tmp_path, factory, tree, monkeypatch):
+    out, seen = tmp_path / 'exp07', []
+    monkeypatch.setattr(subject, 'ENTRIES', len(tree[1]))
+    monkeypatch.setattr(subject, 'seen_dataset', lambda num_shot, data_root:
+                        seen.append((num_shot, data_root)) or factory(num_shot))
+    index = subject.main(['--data-root', str(tmp_path / 'data'), '--out-dir', str(out),
+                          '--seeds', '42', '43', '--num-shots', '3'])
+    assert seen == [(3, str(tmp_path / 'data'))]  # one dataset per K, reused across seeds
+    assert sorted(index['manifests']) == [subject.manifest_name(3, s) for s in (42, 43)]
+    assert index == json.loads((out / subject.INDEX).read_text())
+
+
+def test_cli_requires_the_data_root(capsys):
+    with pytest.raises(SystemExit):
+        subject.main(['--out-dir', 'unused'])
+    assert 'data-root' in capsys.readouterr().err
