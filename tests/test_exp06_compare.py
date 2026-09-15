@@ -763,7 +763,7 @@ def test_the_reviewed_registry_and_role_identities_are_registered():
     """The comparer knows which model each role must be, not merely that a hash is hex."""
     registry, classes, fields = subject.exp06_registry()
     assert len(registry) == 64 and set(registry) <= set('0123456789abcdef')
-    assert classes['cylindrical_oriented'] == 'xRIR_Cyl_Oriented'
+    assert classes['cylindrical_oriented'] == 'xRIR_CylOriented'
     assert fields == ('model_class', 'registry_sha256', 'checkpoint_role',
                       'checkpoint_epoch', 'heading', 'frame')
     assert (registry, classes, fields) == (REGISTRY, MODEL_CLASSES, META_FIELDS)

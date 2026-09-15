@@ -14,6 +14,7 @@ re-implemented.
         --json ckpt/exp06/h3.json --summary ckpt/exp06/h3_summary.txt
 """
 import argparse
+import functools
 import hashlib
 import json
 import math
@@ -69,10 +70,28 @@ FILES = ('eval_manifest.json', 'completion.json') + OUTPUTS
 # it is either exp_05's M tier (exp_05's entry point, exp_04's writer) or an exp_06
 # evaluation of the exp_01 cylindrical checkpoint.
 ROUTES = ('exp04', 'exp05', 'exp06')
-ROLES = {'C': {'arm': 'cyl_or', 'checkpoint': None, 'route': 'exp06', 'role': 'arm'},
-         'A': {'arm': 'control', 'checkpoint': CONTROL, 'route': 'exp04', 'role': 'arm'},
-         'B': {'arm': 'cyl', 'checkpoint': CYL, 'route': None, 'role': 'baseline'}}
+EPOCH = 12                         # every arm of 6.3 evaluates the twelfth-epoch weights
+ROLES = {'C': {'arm': 'cyl_or', 'checkpoint': None, 'route': 'exp06', 'role': 'arm',
+               'backbone': 'cylindrical_oriented', 'epoch': EPOCH},
+         'A': {'arm': 'control', 'checkpoint': CONTROL, 'route': 'exp04', 'role': 'arm',
+               'backbone': CONTROL['backbone'], 'epoch': CONTROL['epoch']},
+         'B': {'arm': 'cyl', 'checkpoint': CYL, 'route': None, 'role': 'baseline',
+               'backbone': CYL['backbone'], 'epoch': CYL['epoch']}}
 CONTRASTS = (('C', 'B'), ('C', 'A'))
+
+
+@functools.lru_cache(maxsize=None)
+def exp06_registry():
+    """Finding 4: the reviewed registry -- its digest, its classes, its metadata fields.
+
+    ``tools.exp06_eval`` defines all three for the writer, so an admitted run is compared
+    with the registry that wrote it rather than with a syntactic hex check.
+    """
+    from model.xRIR_cyl_oriented import BACKBONES_EXP06
+    from tools import exp06_eval
+    return (exp06_eval.registry_sha256(),
+            {name: cls.__name__ for name, cls in BACKBONES_EXP06.items()},
+            tuple(exp06_eval.METADATA_FIELDS))
 
 
 def _equal(actual, expected):
@@ -200,17 +219,24 @@ def admit_run(run_dir, role, approved, split=SPLIT, check=None, inputs=None,
     require(type(fields.get('gl_seed')) is int and fields['gl_seed'] == seed,
             'gl_seed == manifest_seed')
     checkpoint = roles[role]['checkpoint']
+    epoch = roles[role]['epoch']
     actual = bind(fields['checkpoint'], fields.get('checkpoint_sha256'))
+    require(fields.get('backbone') == roles[role]['backbone'],
+            'backbone is not the registered {} of arm {}'.format(roles[role]['backbone'],
+                                                                 role))
     if checkpoint is None:                      # arm C: the approved epoch_012 artifact
         pinned = (approved or {}).get('artifacts', {}).get('epoch_012', {})
         require(_is_sha256(pinned.get('sha256')), 'artifacts.epoch_012 is not approved')
         require(actual == pinned.get('sha256'), 'checkpoint is not the approved epoch_012')
-        require(pinned.get('epoch') == fields.get('checkpoint_epoch'), 'checkpoint_epoch')
+        require(pinned.get('epoch') == epoch, 'the approved epoch_012 is not epoch 12')
+        require(fields.get('checkpoint_epoch') == epoch, 'checkpoint_epoch')
     else:                                       # arms A and B: exp_01's published weights
         require(actual == checkpoint['sha256'], 'checkpoint is not the exp_01 ' + role)
         require(Path(fields['checkpoint']).name == Path(checkpoint['checkpoint']).name,
                 'checkpoint path')
-        require(fields.get('backbone') == checkpoint['backbone'], 'backbone')
+        # Finding 4: a historical manifest records no epoch; its registration does, and a
+        # declared one that contradicts the registration is never published as the arm's.
+        require(fields.get('checkpoint_epoch', epoch) == epoch, 'checkpoint_epoch')
     closures = fields.get('source_closures') or {}
     evaluator = fields.get('evaluator_closure') or {}
     require(_closure_digest(evaluator) == evaluator.get('sha256'), 'evaluator closure digest')
@@ -226,16 +252,21 @@ def admit_run(run_dir, role, approved, split=SPLIT, check=None, inputs=None,
         require(_closure_digest(closures[name]) == closures[name].get('sha256'),
                 'closure digest ' + name)
     check_route(route, fields, closures, approved, require)
+    registry, classes, metadata = exp06_registry()
     if exp06:
-        require(_is_sha256(fields.get('registry_sha256')), 'registry_sha256')
+        require(fields.get('registry_sha256') == registry,
+                'registry_sha256 is not the reviewed backbone registry')
+        require(fields.get('model_class') == classes.get(fields.get('backbone')),
+                'model class is not the one the reviewed registry binds to this backbone')
         require(fields.get('checkpoint_role') == roles[role]['role'], 'checkpoint_role')
         require(fields.get('frame') == 'room' and fields.get('heading') is None,
                 'the simulated split carries no heading')
     run = load_run(str(directory))
     aggregate = payload['metrics_yaw.json']
     require(_equal(run.get('meta'), aggregate.get('meta')), 'output meta agreement')
-    for key in ('backbone', 'checkpoint', 'manifest_hash', 'gl_seed', 'batch_size',
-                'tf32', 'manifest_seed', 'yaw_cols', 'conditions', 'n_samples'):
+    keys = ('backbone', 'checkpoint', 'manifest_hash', 'gl_seed', 'batch_size',
+            'tf32', 'manifest_seed', 'yaw_cols', 'conditions', 'n_samples')
+    for key in keys + (metadata if exp06 else ()):
         require(key in fields and _equal(run['meta'].get(key), fields[key]), 'meta ' + key)
     require(run['meta'].get('eval_manifest_sha256') == digest, 'meta manifest digest')
     require(set(run.get('P') or {}) == {'0'} and 'E' not in run, 'condition P at k = 0 only')
@@ -257,7 +288,7 @@ def admit_run(run_dir, role, approved, split=SPLIT, check=None, inputs=None,
     run['role'], run['seed'], run['manifest_hash'] = role, seed, fields.get('manifest_hash')
     # Finding 5: the weights each role really evaluated, hashed here and published.
     run['checkpoint'] = {'sha256': actual, 'path': fields['checkpoint'], 'route': route,
-                         'epoch': fields.get('checkpoint_epoch')}
+                         'epoch': fields.get('checkpoint_epoch', epoch)}
     return run
 
 
