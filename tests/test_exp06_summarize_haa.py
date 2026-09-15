@@ -479,6 +479,47 @@ def test_the_decision_cell_reports_pass_fail_void_or_not_converged(arms):
         == 'fail'
 
 
+def void_hallway_c50(arms, arm='cyl_or'):
+    """Every hallway C50 observation of one arm invalid, in every job it was measured."""
+    for job in subject.JOBS:
+        per = arms[arm]['per'][job]['hallway']
+        per['c50'] = [float('nan')] * len(per['index'])
+    return arms
+
+
+def test_an_empty_cohort_is_a_reported_void_cell_not_an_exception(arms):
+    """Finding 8: the invalidity policy decides before anything is resampled."""
+    void_hallway_c50(arms)
+    rows = subject.cell_rows(arms, 'cyl_or', 'control', 'hallway', 'c50')
+    assert rows['cohort'] == 0 and rows['n_test'] == SIZE['hallway']
+    assert subject.intervals(rows, subject.ALPHA, 200) is None
+    reasons = subject.void_reasons(rows, 'cyl_or', 'control')
+    assert any('finite in every compared run' in reason for reason in reasons)
+    cell = subject.decision_cell(arms, subject.H1, 'hallway', 'c50', subject.H1_MARGIN_DB,
+                                 n_boot=200)
+    assert cell['verdict'] == 'void' and cell['cohort'] == 0
+    assert cell['diff'] is None and cell['two_way'] is None and cell['query'] is None
+    assert cell['convergence']['status'] == 'void'
+    h1b = subject.decision_cell(arms, subject.H1B, 'hallway', 'c50', 0.0, n_boot=200)
+    assert h1b['verdict'] == 'void'
+    # The bootstrap helper's own zero-width refusal is untouched.
+    with pytest.raises(ValueError, match='zero-width'):
+        subject.bootstrap.convergence_endpoints(lambda seed: (0.5, 0.5))
+
+
+def test_a_void_cell_renders_and_leaves_every_other_table_intact(arms):
+    void_hallway_c50(arms)
+    result = subject.analyse(arms, n_boot=200, adjusted_n_boot=200, exploratory=True)
+    assert result['H1']['verdict'] == 'suppressed (draft)'
+    screen = {(cell['room'], cell['metric']): cell for cell in result['H2']}
+    assert screen[('hallway', 'c50')]['label'] == 'not available'
+    assert screen[('hallway', 'c50')]['nominal_two_way'] is None
+    assert screen[('hallway', 'edt')]['nominal_two_way'] is not None
+    assert len(result['D']) == 33
+    text = subject.render(result)
+    assert 'not available' in text
+
+
 def test_h1b_uses_a_zero_margin_against_the_channel_control(arms):
     cell = subject.decision_cell(arms, subject.H1B, 'hallway', 'c50', 0.0, n_boot=200)
     assert cell['contrast'] == 'cyl_or - cyl_hf' and cell['margin'] == 0.0
