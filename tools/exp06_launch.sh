@@ -70,11 +70,17 @@ abort() {  # abort <run dir> <log> <reason>: the SOP's _ABORTED_<reason> on both
 
 # diagnostic <run-type> <run dir> <log> <receipt> <smoke argv...>: a smoke or probe runs
 # through the same lifecycle as the confirmatory child -- pid file, drained pipe, end
-# marker, child_exit.json -- and is finalized as a never-admissible diagnostic.
+# marker, child_exit.json -- and is finalized as a never-admissible diagnostic. Review
+# finding 5: a failed child or a refused finalisation renames the run and its log
+# _ABORTED_<reason> and exits with the child's status, so smoke stops at the first failed
+# rung; the completion recording `passed: false` is written first and moves with the run.
 diagnostic() {
     local kind="$1" dir="$2" log="$3" receipt="$4"
     shift 4
-    local cmd=("$PYTHON" tools/exp06_smoke.py "$@")
+    local flags=(--receipt "$receipt" --run-type "$kind" --provenance-out "$dir/provenance.json"
+                 --approved "$APPROVED" --reviewed-commit "$COMMIT")
+    [ "${EXPLORATORY:-0}" -eq 0 ] || flags+=(--exploratory)
+    local cmd=("$PYTHON" tools/exp06_smoke.py "${flags[@]}" "$@")
     say "MKDIR $dir"
     say "SINK cat >> $log"
     say "PIDFILE $dir/launch.pid"
@@ -90,7 +96,14 @@ diagnostic() {
     : > "$log"
     run_child "$dir" "$log" "${cmd[@]}"
     close_child "$dir" "$log"
-    finalize "$dir" "$log" "$CHILD_STATUS" "$kind" "$receipt"
+    if ! finalize "$dir" "$log" "$CHILD_STATUS" "$kind" "$receipt"; then
+        abort "$dir" "$log" finalize_refused
+        exit 2
+    fi
+    if [ "$CHILD_STATUS" -ne 0 ]; then
+        abort "$dir" "$log" "child_failed_$CHILD_STATUS"
+        exit "$CHILD_STATUS"
+    fi
 }
 
 # run_child <attempt> <log> <command...>: every byte the child or any descendant writes
@@ -130,13 +143,19 @@ close_child() {
         --child-pid "$CHILD_PID" --status "$CHILD_STATUS" --started-at "$CHILD_STARTED_AT"
 }
 
+# Defaults, so the sourced library (EXP06_LAUNCH_LIB=1) is complete under `set -u`; the
+# argument parser below overwrites them for a real launch.
+APPROVED="${APPROVED:-$APPROVED_DEFAULT}"
+COMMIT="${COMMIT:-}"
+EXPLORATORY="${EXPLORATORY:-0}"
+
 if [ "${EXP06_LAUNCH_LIB:-0}" = 1 ]; then return 0; fi
 
 MODE="${1:-}"
 shift || true
 case "$MODE" in smoke|probe|full|finalize) ;; *) usage ;; esac
 GPU=""; COMMIT=""; ATTEMPT_ROOT=ckpt/exp06/pretrain/xRIR_cylor_8_shot
-ATTEMPT=""; LOG=""; CHILD_EXIT=""; DRY=0; APPROVED="$APPROVED_DEFAULT"; EXPLORATORY=0
+ATTEMPT=""; LOG=""; CHILD_EXIT=""; DRY=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --gpu) GPU="${2:-}"; shift 2 ;;
@@ -216,8 +235,7 @@ probe)
     export CUDA_VISIBLE_DEVICES="$GPU" PYTHONHASHSEED=0 OMP_NUM_THREADS=8
     diagnostic probe "$ATTEMPT_ROOT/probe_$STAMP" "$RECORD/oriented_cyl_${STAMP}_probe.log" \
         "$ATTEMPT_ROOT/probe_$STAMP.json" \
-        --entry exp06_train --receipt "$ATTEMPT_ROOT/probe_$STAMP.json" \
-        --alarm-seconds 2400 --max-gb 46 -- \
+        --entry exp06_train --alarm-seconds 2400 --max-gb 46 -- \
         --backbone cylindrical_oriented --save-dir "$ATTEMPT_ROOT/probe_$STAMP" \
         --epochs 1 --max-train-batches 200 --max-test-batches 20 --no-save --run-type probe \
         --batch-size 32 --accum-steps 2 --tf32 --num-workers 12 --decay-epochs 3 --log-interval 50
@@ -232,16 +250,14 @@ smoke)
         diagnostic smoke "$SMOKE_DIR/${name}_$STAMP" \
             "$RECORD/oriented_cyl_${STAMP}_smoke_${name}.log" \
             "$SMOKE_DIR/receipt_${name}_$STAMP.json" \
-            --entry "$entry" --receipt "$SMOKE_DIR/receipt_${name}_$STAMP.json" \
-            --alarm-seconds 300 --max-gb 3 -- \
+            --entry "$entry" --alarm-seconds 300 --max-gb 3 -- \
             --backbone simple --save-dir "$SMOKE_DIR/t0" $SMOKE_FLAGS
     done
     # (b) the oriented backbone on the same budget.
     diagnostic smoke "$SMOKE_DIR/exp06_train_t1_$STAMP" \
         "$RECORD/oriented_cyl_${STAMP}_smoke_exp06_train_t1.log" \
         "$SMOKE_DIR/receipt_exp06_train_t1_$STAMP.json" \
-        --entry exp06_train --receipt "$SMOKE_DIR/receipt_exp06_train_t1_$STAMP.json" \
-        --alarm-seconds 300 --max-gb 3 -- \
+        --entry exp06_train --alarm-seconds 300 --max-gb 3 -- \
         --backbone cylindrical_oriented --save-dir "$SMOKE_DIR/t1" $SMOKE_FLAGS
     # (c) the CPU fixture the round-2b HAA smokes load (no child, no log, no completion).
     run "$PYTHON" tools/exp06_smoke.py --make-fixture "$SMOKE_DIR/fixture_cylor.pth"
