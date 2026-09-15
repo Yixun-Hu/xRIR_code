@@ -2,6 +2,9 @@
 import copy
 import functools
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -302,3 +305,85 @@ def test_haa_eval_refusals_are_named(tmp_path, closed_log_file, damage, cause):
     with pytest.raises(ValueError, match=cause):
         exp06_finalize.finalize(run, 'haa_eval', closed_log_file, 0, repo=REPO)
     assert not (run / 'completion.json').exists()
+
+
+from sim_to_real.haa_dataset import ROOMS
+
+
+def write_job(tmp_path, expect='finetune', children=None):
+    job = tmp_path / 'seed0'
+    names = children if children is not None else exp06_finalize.expected_children(expect)
+    for name in names:
+        child = job / name
+        child.mkdir(parents=True)
+        (child / 'completion.json').write_text(json.dumps(
+            {'run_type': 'haa_eval' if name.startswith('eval/') else 'haa_train',
+             'admissible_arm': True, 'run_dir': str(child)}, sort_keys=True))
+    job.mkdir(parents=True, exist_ok=True)
+    return job, [str(job / name) for name in names]
+
+
+def test_job_completion_requires_every_child(tmp_path, closed_log_file):
+    job, children = write_job(tmp_path)
+    fields = exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=REPO,
+                                     children=children, expect='finetune')
+    assert set(fields['children']) == set(exp06_finalize.expected_children('finetune'))
+    assert len(fields['children']) == 9 and fields['expect'] == 'finetune'
+    assert fields['children']['stage1'] == provenance.sha256_file(job / 'stage1/completion.json')
+    assert set(exp06_finalize.expected_children('zeroshot')) == {'eval/' + room for room in ROOMS}
+
+
+@pytest.mark.parametrize('damage,cause', [
+    ('missing', 'missing'), ('extra', 'unexpected'), ('no_completion', 'completion.json'),
+    ('zeroshot', 'unexpected'), ('outside', 'outside'), ('inadmissible', 'admissible'),
+    ('wrong_type', 'run type')])
+def test_job_refusals_are_named(tmp_path, closed_log_file, damage, cause):
+    expect = 'zeroshot' if damage == 'zeroshot' else 'finetune'
+    names = list(exp06_finalize.expected_children('finetune'))
+    if damage == 'missing':
+        names.remove('stage2_hallway')
+    elif damage == 'extra':
+        names.append('stage2_invented')
+    job, children = write_job(tmp_path, expect, names)
+    if damage == 'no_completion':
+        (job / 'stage1/completion.json').unlink()
+    elif damage == 'outside':
+        children.append(str(tmp_path / 'elsewhere'))
+        (tmp_path / 'elsewhere').mkdir()
+        (tmp_path / 'elsewhere/completion.json').write_text('{}')
+    elif damage == 'inadmissible':
+        (job / 'stage1/completion.json').write_text(json.dumps(
+            {'run_type': 'haa_train', 'admissible_arm': False}, sort_keys=True))
+    elif damage == 'wrong_type':
+        (job / 'stage1/completion.json').write_text(json.dumps(
+            {'run_type': 'full', 'admissible_arm': True}, sort_keys=True))
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=REPO,
+                                children=children, expect=expect)
+    assert not (job / 'completion.json').exists()
+
+
+def test_job_requires_a_declared_expectation(tmp_path, closed_log_file):
+    job, children = write_job(tmp_path)
+    with pytest.raises(ValueError, match='expect'):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=REPO, children=children)
+
+
+def test_cli_reports_refusals_with_status_two(full_run):
+    run, log = full_run
+    command = [sys.executable, 'tools/exp06_finalize.py', '--run-dir', str(run),
+               '--run-type', 'full', '--log', str(log), '--child-exit', '0', '--repo', str(REPO)]
+    env = {**os.environ, 'PYTHONPATH': str(REPO)}
+    completed = subprocess.run(command, cwd=REPO, capture_output=True, text=True, env=env)
+    assert completed.returncode == 0, completed.stderr
+    assert 'EXP06_FINALIZE_OK' in completed.stdout and (run / 'completion.json').is_file()
+    labelled = subprocess.run(command[:2] + ['finalize'] + command[2:], cwd=REPO,
+                              capture_output=True, text=True, env=env)
+    assert labelled.returncode == 0, labelled.stderr
+    (run / 'epoch_012.pth').unlink()
+    (run / 'completion.json').unlink()
+    refused = subprocess.run(command, cwd=REPO, capture_output=True, text=True, env=env)
+    assert refused.returncode == 2 and 'epoch_012' in refused.stderr
+    assert not (run / 'completion.json').exists()
+    usage = subprocess.run(command[:4], cwd=REPO, capture_output=True, text=True, env=env)
+    assert usage.returncode == 2 and 'usage' in usage.stderr

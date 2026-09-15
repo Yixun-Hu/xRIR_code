@@ -13,23 +13,35 @@ type recorded on the command line (and, for ``full``, in ``provenance.json``):
 ``haa_eval``  one evaluation child: its args and the metrics/per-sample files of the one
               room it names, whose ``meta`` carries the backbone, checkpoint hash, frame
               and (in the heading frame) the heading.
+``haa_job``   one seed of the pipeline: the complete set of child completions
+              (stage 1, four stage 2, four evaluations; four evaluations for zero shot).
+
+    python tools/exp06_finalize.py --run-dir <dir> --run-type full \
+        --log <log> --child-exit 0 [--repo <path>] [--receipt <json>] \
+        [--children <dir>...] [--expect finetune|zeroshot]
+
+The command exits 0 after writing ``completion.json`` and 2 on any refusal.
 
 Every failure raises ``ValueError`` naming its cause and writes nothing; a re-run
 produces byte-identical bytes, and an existing completion that differs is refused.
 """
+import argparse
 import datetime
 import hashlib
 import json
 from pathlib import Path
+import sys
 
 import torch
 
+from sim_to_real.haa_dataset import ROOMS
 from tools import exp06_recipe, provenance
 
 REPO = Path(__file__).resolve().parents[1]
 MARKER = 'EXP06_CHILD_EXIT'
 DIAGNOSTIC = ('smoke', 'probe')
-RUN_TYPES = ('full', 'smoke', 'probe', 'haa_train', 'haa_eval')
+RUN_TYPES = ('full', 'smoke', 'probe', 'haa_train', 'haa_eval', 'haa_job')
+EXPECTATIONS = ('finetune', 'zeroshot')
 FULL_ARTIFACTS = ('provenance.json', 'args.json', 'history.jsonl', 'last.pth', 'epoch_012.pth')
 HAA_TRAIN_ARTIFACTS = ('args.json', 'history.jsonl', 'summary.json', 'best.pth', 'last.pth')
 FRAMES = ('room', 'heading')
@@ -201,6 +213,39 @@ def haa_eval_evidence(run_dir):
                 backbone=args.get('backbone'), checkpoint_sha256=meta['checkpoint_sha256'])
 
 
+def expected_children(expect):
+    """The exclusive per-child directories one pipeline seed must complete."""
+    _require(expect in EXPECTATIONS, 'a job needs --expect finetune|zeroshot, not {!r}'.format(expect))
+    evaluations = tuple('eval/' + room for room in ROOMS)
+    if expect == 'zeroshot':
+        return evaluations
+    return ('stage1',) + tuple('stage2_' + room for room in ROOMS) + evaluations
+
+
+def haa_job_evidence(run_dir, children, expect):
+    """Bind one seed's children: every expected directory, each with its own completion."""
+    expected, job = set(expected_children(expect)), Path(run_dir).resolve()
+    seen = {}
+    for child in children:
+        path = Path(child).resolve()
+        try:
+            name = path.relative_to(job).as_posix()
+        except ValueError as error:
+            raise ValueError('child {} lies outside the job directory'.format(child)) from error
+        completion = path / 'completion.json'
+        _require(completion.is_file(), 'child {} has no completion.json'.format(name))
+        record = _read_json(completion, name + '/completion.json')
+        _require(record.get('run_type') in ('haa_train', 'haa_eval'),
+                 'child {} has run type {!r}'.format(name, record.get('run_type')))
+        _require(record.get('admissible_arm') is True, 'child {} is not admissible'.format(name))
+        seen[name] = provenance.sha256_file(completion)
+    missing = sorted(expected - set(seen))
+    _require(not missing, 'job is missing children: ' + ', '.join(missing))
+    unexpected = sorted(set(seen) - expected)
+    _require(not unexpected, 'unexpected children: ' + ', '.join(unexpected))
+    return dict(artifacts={}, children=seen, expect=expect)
+
+
 def write_completion(path, fields):
     """Publish once; a re-run must produce the same bytes, a different result is refused."""
     payload = json.dumps(fields, sort_keys=True, indent=2, allow_nan=False).encode() + b'\n'
@@ -212,7 +257,8 @@ def write_completion(path, fields):
     return fields
 
 
-def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None):
+def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None,
+             children=(), expect=None):
     """Verify one child's evidence for its run type and write completion.json."""
     run_dir = Path(run_dir)
     _require(run_type in RUN_TYPES, 'unknown run type: {!r}'.format(run_type))
@@ -229,5 +275,41 @@ def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None):
     fields.update(diagnostic_evidence(run_dir, receipt) if diagnostic
                   else full_evidence(run_dir, repo) if run_type == 'full'
                   else haa_train_evidence(run_dir) if run_type == 'haa_train'
-                  else haa_eval_evidence(run_dir))
+                  else haa_eval_evidence(run_dir) if run_type == 'haa_eval'
+                  else haa_job_evidence(run_dir, children, expect))
     return write_completion(run_dir / 'completion.json', fields)
+
+
+def build_parser():
+    """One finalization of one child or job; the launcher supplies the child's status."""
+    parser = argparse.ArgumentParser(description='Write exp_06 completion evidence.')
+    parser.add_argument('--run-dir', required=True)
+    parser.add_argument('--run-type', choices=RUN_TYPES, required=True)
+    parser.add_argument('--log', required=True)
+    parser.add_argument('--child-exit', type=int, required=True)
+    parser.add_argument('--repo', default=str(REPO))
+    parser.add_argument('--receipt', help='smoke/probe receipt to bind')
+    parser.add_argument('--children', nargs='+', default=(), help='haa_job: the child directories')
+    parser.add_argument('--expect', choices=EXPECTATIONS, help='haa_job: which child set is required')
+    return parser
+
+
+def main(argv=None):
+    """Exit 0 after writing completion.json, 2 on any refusal (nothing written)."""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ['finalize']:
+        argv = argv[1:]
+    args = build_parser().parse_args(argv)
+    try:
+        fields = finalize(args.run_dir, args.run_type, args.log, args.child_exit, repo=args.repo,
+                          receipt=args.receipt, children=args.children, expect=args.expect)
+    except (OSError, ValueError) as error:
+        print('EXP06_FINALIZE_REFUSED ' + str(error), file=sys.stderr, flush=True)
+        return 2
+    print('EXP06_FINALIZE_OK ' + json.dumps({key: fields[key] for key in
+        ('run_type', 'run_dir', 'child_exit', 'admissible_arm')}, sort_keys=True), flush=True)
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
