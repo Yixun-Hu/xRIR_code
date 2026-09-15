@@ -400,6 +400,37 @@ def check_argument_sources(record, args, last, rows, meta):
     return sources
 
 
+def registry_sha256():
+    """The digest of the backbone registry as it stands at finalisation."""
+    mapping = {name: cls.__module__ + '.' + cls.__qualname__
+               for name, cls in BACKBONES_EXP06.items()}
+    return hashlib.sha256(json.dumps(mapping, sort_keys=True).encode()).hexdigest()
+
+
+def check_exp06_bindings(record, args, closure, run_dir, run_type, repo):
+    """Blocker 2: every exp06_* field must equal the execution record it claims to bind.
+
+    ``closure['sha256']`` has already been recomputed from the reviewed blobs by
+    ``verify_source_closure``, and the registry digest is recomputed here, so agreement
+    between the three recorded copies of the arguments can never establish these values.
+    """
+    registry = registry_sha256()
+    _require(record.get('registry_sha256') == registry,
+             'provenance registry_sha256 {!r} is not the {} of BACKBONES_EXP06 at '
+             'finalisation'.format(record.get('registry_sha256'), registry))
+    expected = {'exp06_run_type': run_type, 'exp06_git_head': record['git_state'].get('HEAD'),
+                'exp06_registry_sha256': registry,
+                'exp06_source_closure_sha256': closure['sha256']}
+    for field in sorted(expected):
+        _require(args.get(field) == expected[field], 'args {} is {!r}, not the {!r} of the '
+                 'execution record'.format(field, args.get(field), expected[field]))
+    path = args.get('exp06_provenance_path')
+    _require(isinstance(path, str) and path, 'args exp06_provenance_path is {!r}'.format(path))
+    _require(_resolve(path, repo).resolve() == (Path(run_dir) / 'provenance.json').resolve(),
+             'args exp06_provenance_path {} is not the validated {}'.format(
+                 path, Path(run_dir) / 'provenance.json'))
+
+
 def full_evidence(run_dir, repo):
     """Verify the twelve-epoch pretraining contract of plan section 5."""
     run_dir = Path(run_dir)
@@ -413,6 +444,7 @@ def full_evidence(run_dir, repo):
     last = _load_torch(run_dir / 'last.pth', 'last.pth')
     meta = {key: last[key] for key in ('epoch', 'batch_idx') if key in last}
     check_argument_sources(record, args, last, rows, meta)
+    check_exp06_bindings(record, args, closure, run_dir, 'full', repo)
     _require('model' in last, 'last.pth records no "model" state dict')
     state = _state_dict(_load_torch(run_dir / EPOCH_CHECKPOINT, EPOCH_CHECKPOINT), EPOCH_CHECKPOINT)
     model = _state_dict(last['model'], 'last.pth["model"]')
