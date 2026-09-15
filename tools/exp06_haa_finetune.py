@@ -186,7 +186,7 @@ def build_dataset(rooms, split, args, root, k_by_room, eval_seed):
         k_by_room={room: k_by_room[room] for room in rooms})
 
 
-def prepare(args, command=()):
+def prepare(args, command=(), repo=REPO):
     """Datasets, model and records, without touching a GPU or writing a file."""
     root = resolve_root(args)
     val_rooms = args.val_rooms or list(args.rooms)
@@ -198,7 +198,7 @@ def prepare(args, command=()):
     val_dataset = build_dataset(list(val_rooms), 'val', args, root, k_by_room, args.eval_seed)
     model = build_xrir_exp06(args.backbone, args.num_shot)
     identity = data_identity(root, list(args.rooms) + list(val_rooms), args.depth_variant)
-    fields = provenance_fields(command, identity)
+    fields = provenance_fields(command, identity, repo=repo)
     record = record_args(args, fields, frame=frame, heading=heading, init_sha256=init_sha256,
                          haa_root=root)
     return types.SimpleNamespace(

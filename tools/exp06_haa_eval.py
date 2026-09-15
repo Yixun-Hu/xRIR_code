@@ -79,7 +79,7 @@ def parse_args(argv=None):
     return build_parser().parse_args(argv)
 
 
-def prepare(args, command=()):
+def prepare(args, command=(), repo=records.REPO):
     """Datasets, model and records, without touching a GPU or writing a file."""
     root = records.resolve_root(args)
     frame, k_by_room, heading = records.select_frame(args, root, list(args.rooms))
@@ -90,7 +90,8 @@ def prepare(args, command=()):
                                             args.eval_seed) for room in args.rooms}
     model = build_xrir_exp06(args.backbone, args.num_shot)
     identity = records.data_identity(root, list(args.rooms), args.depth_variant)
-    fields = records.provenance_fields(command, identity, run_type=RUN_TYPE, entry=ENTRY_MODULE)
+    fields = records.provenance_fields(command, identity, repo=repo, run_type=RUN_TYPE,
+                                       entry=ENTRY_MODULE)
     record = records.record_args(args, fields, frame=frame, heading=heading, haa_root=root,
                                  checkpoint_sha256=checkpoint_sha256)
     return types.SimpleNamespace(root=root, frame=frame, heading=heading, datasets=datasets,
