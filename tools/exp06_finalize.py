@@ -861,8 +861,12 @@ def child_completion(path, name, role):
     return record
 
 
-def rehash_bound_evidence(record, name, repo):
-    """The log and the child-exit receipt the child bound must still be those bytes."""
+def rehash_bound_evidence(record, name, path, repo):
+    """Re-validate and rehash the log and receipt the child bound to its completion.
+
+    The digests must still be those bytes, and the bytes must still satisfy the closed-log
+    contract: the job never takes a child's word that its writers had gone.
+    """
     for key in ('log', 'child_exit_receipt'):
         bound = record[key]
         _require(isinstance(bound, dict) and isinstance(bound.get('path'), str)
@@ -872,6 +876,9 @@ def rehash_bound_evidence(record, name, repo):
         _require(file.is_file(), 'child {} {} {} is gone'.format(name, key, bound['path']))
         _require(provenance.sha256_file(file) == bound['sha256'],
                  'child {} {} no longer hashes to its recorded digest'.format(name, key))
+    _, marker_time, digest = closed_log(_resolve(record['log']['path'], repo),
+                                        record['child_exit'])
+    child_exit_receipt(path, record['child_exit'], digest, marker_time)
 
 
 def verify_child(path, name, repo, spec):
@@ -894,7 +901,7 @@ def verify_child(path, name, repo, spec):
         _require(exp06_recipe.strict_equal(record[field], evidence[field]),
                  'child {} completion {} {!r} is not the {!r} of the re-run'.format(
                      name, field, record[field], evidence[field]))
-    rehash_bound_evidence(record, name, repo)
+    rehash_bound_evidence(record, name, path, repo)
     check_job_spec(name, role, evidence, spec)
     return evidence
 
