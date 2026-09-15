@@ -7,8 +7,10 @@ from pathlib import Path
 
 import pytest
 
+from model.xRIR_cyl_oriented import BACKBONES_EXP06
 from tools import exp06_approvals_api as approvals_api
 from tools import exp06_compare as subject
+from tools import exp06_eval
 from tools import provenance
 
 N = 24                                  # the synthetic split; production uses 6337
@@ -63,13 +65,18 @@ def closure(name, tag):
 CLOSURES = {name: closure(name, name) for name in
             ('exp06_eval', 'exp06_eval_launch', 'exp04_eval', 'exp04_eval_launch',
              'exp05_eval', 'eval_yaw_rotation')}
-ROLES = {'C': {'arm': 'cyl_or', 'checkpoint': None, 'route': 'exp06', 'role': 'arm'},
+EPOCH = 12                              # the pretraining epoch every arm of 6.3 evaluates
+REGISTRY = exp06_eval.registry_sha256()
+MODEL_CLASSES = {name: cls.__name__ for name, cls in BACKBONES_EXP06.items()}
+META_FIELDS = tuple(exp06_eval.METADATA_FIELDS)
+ROLES = {'C': {'arm': 'cyl_or', 'checkpoint': None, 'route': 'exp06', 'role': 'arm',
+               'backbone': 'cylindrical_oriented', 'epoch': EPOCH},
          'A': {'arm': 'control', 'checkpoint': {'sha256': None, 'checkpoint': 'simple.pth',
-                                                'backbone': 'simple'},
-               'route': 'exp04', 'role': 'arm'},
+                                                'backbone': 'simple', 'epoch': 12},
+               'route': 'exp04', 'role': 'arm', 'backbone': 'simple', 'epoch': 12},
          'B': {'arm': 'cyl', 'checkpoint': {'sha256': None, 'checkpoint': 'cyl.pth',
-                                            'backbone': 'cylindrical'},
-               'route': None, 'role': 'baseline'}}
+                                            'backbone': 'cylindrical', 'epoch': 12},
+               'route': None, 'role': 'baseline', 'backbone': 'cylindrical', 'epoch': 12}}
 EXP04_DIGEST = provenance.sha256_file(
     __import__('tools.exp04_profiles', fromlist=['x']).APPROVED_DIGESTS_PATH)
 EXP05_DIGEST = 'a5' * 32
@@ -157,9 +164,9 @@ def write_run(directory, role, seed, checkpoints, split=SPLIT, manifest_hash=Non
                   'writer': copy.deepcopy(CLOSURES['exp04_eval_launch'])}}
     if exp06:
         fields['source_closures']['writer_exp06'] = copy.deepcopy(CLOSURES['exp06_eval_launch'])
-        fields.update(registry_sha256='c' * 64, checkpoint_role=ROLES[role]['role'],
+        fields.update(registry_sha256=REGISTRY, checkpoint_role=ROLES[role]['role'],
                       checkpoint_epoch=12, frame='room', heading=None,
-                      model_class='xRIR_CylOriented')
+                      model_class=MODEL_CLASSES[fields['backbone']])
     fields['data_identity'] = data_identity(repo, reference, declared,
                                             fields['manifest_file_sha256'])
     binding = {'path': str(log), 'sha256': provenance.sha256_file(log)}
@@ -171,9 +178,9 @@ def write_run(directory, role, seed, checkpoints, split=SPLIT, manifest_hash=Non
                       args_json_sha256='b' * 64, vit_dim=512, vit_depth=12, vit_heads=8,
                       vit_mlp_dim=512, mutable_inputs={'train_args': dict(binding)})
     fields.update(manifest or {})
-    meta = {key: fields[key] for key in ('backbone', 'checkpoint', 'manifest_hash', 'gl_seed',
-                                         'batch_size', 'tf32', 'manifest_seed', 'yaw_cols',
-                                         'conditions', 'n_samples')}
+    keys = ('backbone', 'checkpoint', 'manifest_hash', 'gl_seed', 'batch_size', 'tf32',
+            'manifest_seed', 'yaw_cols', 'conditions', 'n_samples')
+    meta = {key: fields[key] for key in keys + (META_FIELDS if exp06 else ())}
     per = {'meta': meta, 'query': list(QUERIES[:split['n_queries']]),
            'index': list(range(split['n_queries'])), 'delay_flips': {'0': 0},
            'decomposition': None,
@@ -747,3 +754,69 @@ def test_the_registered_room_population_is_enforced(tmp_path, checkpoints, appro
     with pytest.raises(ValueError, match='room count'):
         subject.admit_run(write_run(tmp_path / 'rooms', 'C', 42, checkpoints, SPLIT), 'C',
                           approved, dict(SPLIT, n_rooms=len(ROOMS) + 1), roles=ROLES)
+
+
+# --- finding 4: role, registry, class and epoch identities --------------------------------
+
+
+def test_the_reviewed_registry_and_role_identities_are_registered():
+    """The comparer knows which model each role must be, not merely that a hash is hex."""
+    registry, classes, fields = subject.exp06_registry()
+    assert len(registry) == 64 and set(registry) <= set('0123456789abcdef')
+    assert classes['cylindrical_oriented'] == 'xRIR_Cyl_Oriented'
+    assert fields == ('model_class', 'registry_sha256', 'checkpoint_role',
+                      'checkpoint_epoch', 'heading', 'frame')
+    assert (registry, classes, fields) == (REGISTRY, MODEL_CLASSES, META_FIELDS)
+    assert subject.EPOCH == EPOCH == 12
+    assert subject.ROLES['C']['backbone'] == 'cylindrical_oriented'
+    assert subject.ROLES['C']['epoch'] == 12
+    assert subject.ROLES['A']['backbone'] == 'simple'
+    assert subject.ROLES['B']['backbone'] == 'cylindrical'
+    assert subject.ROLES['B']['epoch'] == subject.CYL['epoch'] == 12
+
+
+IDENTITY_REFUSALS = {
+    'model_class': ({'model_class': 'BogusModel'}, 'model class'),
+    'registry': ({'registry_sha256': 'c' * 64}, 'reviewed backbone registry'),
+    'backbone': ({'backbone': 'simple'}, 'backbone'),
+}
+
+
+@pytest.mark.parametrize('case', sorted(IDENTITY_REFUSALS))
+def test_an_arm_that_is_not_the_registered_model_is_refused(tmp_path, checkpoints, approved,
+                                                            case):
+    manifest, cause = IDENTITY_REFUSALS[case]
+    directory = write_run(tmp_path / case, 'C', 42, checkpoints, SPLIT, manifest=manifest)
+    with pytest.raises(ValueError, match=cause):
+        subject.admit_run(directory, 'C', approved, SPLIT, roles=ROLES)
+
+
+def test_a_baseline_that_declares_another_epoch_is_refused(tmp_path, checkpoints, approved):
+    """Finding 4: B's declared epoch used to be published unchecked."""
+    directory = write_run(tmp_path / 'b9', 'B', 42, checkpoints, SPLIT, route='exp06',
+                          manifest={'checkpoint_epoch': 3})
+    with pytest.raises(ValueError, match='checkpoint_epoch'):
+        subject.admit_run(directory, 'B', approved, SPLIT, roles=ROLES)
+
+
+def test_an_exp04_baseline_publishes_its_registered_epoch(tmp_path, checkpoints, approved):
+    """A's historical manifest records no epoch; its registration says twelve."""
+    run = subject.admit_run(write_run(tmp_path / 'a', 'A', 42, checkpoints, SPLIT), 'A',
+                            approved, SPLIT, roles=ROLES)
+    assert run['checkpoint']['epoch'] == 12
+
+
+def test_the_exp06_output_metadata_must_agree_with_the_manifest(tmp_path, checkpoints,
+                                                                approved):
+    directory = write_run(tmp_path / 'meta', 'C', 42, checkpoints, SPLIT)
+    per = json.loads((directory / 'per_sample_yaw.json').read_text())
+    metrics = json.loads((directory / 'metrics_yaw.json').read_text())
+    for payload, name in ((per, 'per_sample_yaw.json'), (metrics, 'metrics_yaw.json')):
+        payload['meta']['checkpoint_role'] = 'diagnostic'
+        (directory / name).write_text(json.dumps(payload))
+    record = json.loads((directory / 'completion.json').read_text())
+    record['outputs'] = {name: provenance.sha256_file(directory / name)
+                         for name in subject.OUTPUTS}
+    (directory / 'completion.json').write_text(json.dumps(record, sort_keys=True))
+    with pytest.raises(ValueError, match='meta checkpoint_role'):
+        subject.admit_run(directory, 'C', approved, SPLIT, roles=ROLES)
