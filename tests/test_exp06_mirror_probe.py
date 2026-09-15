@@ -231,11 +231,14 @@ def test_the_gate_refuses_incomplete_statistics():
 
 import json
 import os
+import shutil
 from pathlib import Path
 
 from sim_to_real.haa_dataset import HAADataset
 from tools import provenance
-from tools.exp06_heading import HeadingFrameDataset, estimate_room_heading, write_heading_json
+from tools.exp06_heading import (HeadingFrameDataset, estimate_room_heading,
+                                 write_heading_json)
+from tools.exp06_heading import _closure_digest as closure_digest
 from tools.yaw_rotation import rotate_scene_yaw
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -409,7 +412,7 @@ def test_the_full_gate_runs_every_arm_and_decides(probe_cache):
 # --- the hash-bound record -------------------------------------------------------------
 
 
-def canned(monkeypatch, outcome='pass', reproduced=True):
+def canned(monkeypatch, outcome='pass', reproduced=True, during=None):
     cells = {'cyl': {'mirror_cosine': 0.97, 'opposite_side_weight_share': 0.85},
              'control': {'mirror_cosine': 0.44, 'opposite_side_weight_share': 0.24},
              'cyl_or': {'mirror_cosine': 0.5 if outcome == 'pass' else 0.95,
@@ -418,10 +421,15 @@ def canned(monkeypatch, outcome='pass', reproduced=True):
     monkeypatch.setattr(subject, 'full_gate', lambda *a, **k: {
         'stats': cells, 'cohort': {'positions': [0], 'mic_ids': [12], 'side': '+y'},
         'decision': subject.g1_decision(cells), 'device': 'cpu'})
-    monkeypatch.setattr(subject, 'legacy_reproduction', lambda *a, **k: {
-        'models': {}, 'reproduced': reproduced, 'deviations': [],
-        'anchors': subject.ANCHORS_LEGACY,
-        'cohort': {'positions': [], 'mic_ids': []}})
+
+    def legacy(*a, **k):
+        if during is not None:          # an input moves while the probe is running
+            during()
+        return {'models': {}, 'reproduced': reproduced, 'deviations': [],
+                'anchors': subject.ANCHORS_LEGACY,
+                'cohort': {'positions': [], 'mic_ids': []}}
+
+    monkeypatch.setattr(subject, 'legacy_reproduction', legacy)
 
 
 def cli(cache, out, *extra):
@@ -486,6 +494,116 @@ def test_a_heading_whose_cache_moved_is_refused(probe_cache, tmp_path, monkeypat
     argv[argv.index('--haa-root') + 1] = str(moved)
     with pytest.raises(SystemExit):
         subject.main(argv)
+
+
+# --- the identities G1 rests on (round-3a findings 1 and 2, nit 4) ----------------------
+
+
+def mutable_cache(probe_cache, tmp_path):
+    """A private copy of the module cache, so one test may change its bytes."""
+    base = Path(shutil.copytree(probe_cache['base'], tmp_path / 'cache'))
+    return {'root': str(base / 'HAA_xrir'), 'heading': str(base / 'hallway.json'),
+            'base': base, 'checkpoints': {name: str(base / (name + '.pth'))
+                                          for name in ('cyl_or', 'cyl', 'control')}}
+
+
+def diagnostic(record):
+    """The same record estimated from a dirty tree: admissible for nothing."""
+    files = [{'path': 'tools/exp06_heading.py', 'sha256': 'a' * 64,
+              'head_blob_sha256': 'b' * 64}]
+    git = {'HEAD': 'b' * 40, 'dirty': True, 'dirty_outside_worklog': True,
+           'diff_sha256': 'c' * 64}
+    source = dict(record['source_closure'], files=files, git=git,
+                  sha256=closure_digest(files, 'sha256'),
+                  head_sha256=closure_digest(files, 'head_blob_sha256'))
+    return dict(record, source_closure=source, admissibility='diagnostic')
+
+
+MUTATIONS = {
+    'checkpoint': lambda c: Path(c['checkpoints']['cyl']).write_bytes(b'other weights'),
+    'heading': lambda c: Path(c['heading']).write_text(
+        Path(c['heading']).read_text() + ' '),
+    'depth': lambda c: np.save(Path(c['root'], 'hallway', 'depth.npy'),
+                               np.ones((256, 512), dtype='float32')),
+    'meta': lambda c: Path(c['root'], 'hallway', 'meta.json').write_text(
+        Path(c['root'], 'hallway', 'meta.json').read_text() + ' ')}
+
+
+@pytest.mark.parametrize('name', sorted(MUTATIONS))
+def test_an_input_that_moves_while_the_probe_runs_is_refused(probe_cache, tmp_path,
+                                                             monkeypatch, name):
+    """Finding 1/2: identities are captured first and re-checked before publication.
+
+    `depth.npy` is the panorama the probe consumes through HAADataset and the heading
+    record does not cover, so its four input hashes still match after this change.
+    """
+    cache = mutable_cache(probe_cache, tmp_path)
+    canned(monkeypatch, during=lambda: MUTATIONS[name](cache))
+    out = tmp_path / 'moved.json'
+    with pytest.raises(SystemExit):
+        subject.main(cli(cache, out))
+    assert not out.exists()
+
+
+def test_a_head_that_moves_while_the_probe_runs_is_refused(probe_cache, tmp_path,
+                                                           monkeypatch):
+    """The source closure is an input too: the commit it was taken at is re-checked."""
+    cache = mutable_cache(probe_cache, tmp_path)
+    moved = dict(subject.git_state(subject.REPO), HEAD='0' * 40)
+    canned(monkeypatch, during=lambda: monkeypatch.setattr(
+        subject, 'git_state', lambda repo: moved))
+    out = tmp_path / 'head.json'
+    with pytest.raises(SystemExit):
+        subject.main(cli(cache, out))
+    assert not out.exists()
+
+
+def test_the_record_binds_the_panorama_and_a_confirmatory_heading(probe_cache, tmp_path,
+                                                                  monkeypatch):
+    canned(monkeypatch)
+    out = tmp_path / 'bound.json'
+    assert subject.main(cli(probe_cache, out)) == 0
+    record = json.loads(out.read_text())
+    room = Path(probe_cache['root'], 'hallway')
+    assert record['cache']['room_dir'] == str(room)
+    assert record['cache']['sha256'] == {
+        name: provenance.sha256_file(room / name) for name in
+        ('depth.npy', 'meta.json', 'rirs.npy', 'speaker_xyz.npy', 'xyzs.npy')}
+    assert record['heading']['admissibility'] == 'confirmatory'
+
+
+def test_a_diagnostic_heading_never_binds_the_gate(probe_cache, tmp_path, monkeypatch):
+    """Nit 4: a consistent cache is not admission; only a confirmatory record binds."""
+    cache = mutable_cache(probe_cache, tmp_path)
+    write_heading_json(cache['heading'],
+                       diagnostic(json.loads(Path(cache['heading']).read_text())))
+    canned(monkeypatch)
+    out = tmp_path / 'diagnostic.json'
+    with pytest.raises(SystemExit):
+        subject.main(cli(cache, out))
+    assert not out.exists()
+
+
+@torch.no_grad()
+def test_the_probe_runs_from_the_bytes_it_hashed(probe_cache, tmp_path):
+    """Loading is bound to the captured bytes, so a later rewrite cannot be evaluated."""
+    cache = mutable_cache(probe_cache, tmp_path)
+    captured = subject.capture_inputs(subject.parse_args(cli(cache, tmp_path / 'x.json')))
+    for path in cache['checkpoints'].values():
+        Path(path).write_bytes(b'not a checkpoint')
+    states = {path: subject.state_from_blob(blob)
+              for path, blob in captured['blobs'].items()}
+    report = subject.legacy_reproduction(
+        root=cache['root'], room='hallway', cohort_size=4, num_shot=NUM_SHOT,
+        max_len=MAX_LEN, batch=2, model_factory=probe_factory, states=states,
+        checkpoints={'cyl': cache['checkpoints']['cyl'],
+                     'control': cache['checkpoints']['control']},
+        verify_frozen_cohort=False)
+    assert set(report['models']) == {'cyl', 'control'}
+    assert captured['checkpoint_sha256'][cache['checkpoints']['cyl']] == \
+        provenance.sha256_file(probe_cache['checkpoints']['cyl'])
+    with pytest.raises(SystemExit):
+        subject.revalidate_inputs(captured)
 
 
 # --- the frozen hallway cohort and the published anchors --------------------------------
