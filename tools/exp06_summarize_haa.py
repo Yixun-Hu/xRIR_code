@@ -21,7 +21,9 @@ import datetime
 import hashlib
 import json
 import math
+import os
 import subprocess
+import tempfile
 from collections import OrderedDict
 from pathlib import Path
 
@@ -198,11 +200,14 @@ def verify_legacy_receipt(path, root, approved=None):
     expected = [item['path'] for item in legacy_receipt_files(root, LEGACY_ARMS)]
     _require([item['path'] for item in files] == expected,
              'the legacy receipt does not enumerate exactly the retained artifacts')
+    inputs = {str(path.resolve()): digest}
     for item in files:
-        actual = provenance.sha256_file(Path(root) / item['path'])
+        file = Path(root) / item['path']
+        actual = provenance.sha256_file(file)
         _require(actual == item['sha256'],
                  'legacy artifact changed since the receipt: ' + item['path'])
-    return dict(record, sha256=digest)
+        inputs[str(file.resolve())] = actual   # finding 10: hashed as it was consumed
+    return dict(record, sha256=digest, inputs=inputs)
 
 
 # --- the legacy branch: exp_02's own completeness gate, then this experiment's two arms --
@@ -665,9 +670,15 @@ def descriptive_cells(arms, pairs=DESCRIPTIVE, n_boot=N_BOOT, alpha=ALPHA):
 # --- the room-frame side split -----------------------------------------------------------
 
 
-def cache_side_labels(room, cache_root=None):
+CACHE_GEOMETRY = ('meta.json', 'xyzs.npy', 'speaker_xyz.npy')
+
+
+def cache_side_labels(room, cache_root=None, inputs=None):
     """The room-frame sign of every test microphone's y, from the cache's own geometry."""
     root = Path(cache_root or legacy.HAA_ROOT) / room
+    if inputs is not None:      # finding 10: the side split rests on these bytes too
+        for name in CACHE_GEOMETRY:
+            inputs[str((root / name).resolve())] = provenance.sha256_file(root / name)
     meta = _read_json(root / 'meta.json', '{}/meta.json'.format(room))
     xyz = np.load(str(root / 'xyzs.npy')).astype(float)
     speaker = np.load(str(root / 'speaker_xyz.npy')).astype(float).reshape(-1)
@@ -678,9 +689,9 @@ def cache_side_labels(room, cache_root=None):
     return dict(zip(test, (int(value) for value in signs)))
 
 
-def side_labels(per, room, cache_root=None):
+def side_labels(per, room, cache_root=None, inputs=None):
     """The writer's labels where they exist, always checked against the cache's geometry."""
-    labels = cache_side_labels(room, cache_root)
+    labels = cache_side_labels(room, cache_root, inputs)
     computed = [labels[int(index)] for index in per['index']]
     if 'side_label' in per:
         _require(list(per['side_label']) == computed, 'the per-sample side labels of {} are '
@@ -688,13 +699,13 @@ def side_labels(per, room, cache_root=None):
     return computed
 
 
-def side_split(arms, cache_root=None, job=ZEROSHOT):
+def side_split(arms, cache_root=None, job=ZEROSHOT, inputs=None):
     """Section 7's descriptive table: -y and +y mean error per arm, room and metric."""
     table = {}
     for arm in sorted(arms):
         for room, metric in CELLS:
             per = arms[arm]['per'][job][room]
-            labels = np.asarray(side_labels(per, room, cache_root))
+            labels = np.asarray(side_labels(per, room, cache_root, inputs))
             values = np.asarray(per[metric], dtype=float)
             entry = {}
             for name, sign in (('minus_y', -1), ('plus_y', 1)):
@@ -729,20 +740,30 @@ def arm_rows(arms):
 
 
 def arm_inputs(arms, receipt=None, receipt_path=None):
-    """Every byte this summary rests on: the legacy receipt, and each bound completion."""
+    """Every byte this summary rests on, hashed when the bytes were consumed.
+
+    Finding 10: nothing is rehashed here. The legacy receipt's own verification and each
+    new arm's admission recorded what they read, so a file edited between the read and
+    this call is a mismatch at publication, not a silently up-to-date digest.
+    """
     inputs = {}
-    if receipt is not None and receipt_path is not None:
-        inputs[str(Path(receipt_path).resolve())] = receipt['sha256']
+    if receipt is not None:
+        inputs.update(receipt.get('inputs') or {})
+        if receipt_path is not None:
+            inputs[str(Path(receipt_path).resolve())] = receipt['sha256']
     for arm in sorted(arms):
-        if arms[arm]['branch'] != 'new':
-            continue
-        base = Path(arms[arm]['root'])
-        for job, record in sorted(arms[arm]['jobs'].items()):
-            inputs[str((base / job / 'completion.json').resolve())] = \
-                provenance.sha256_file(base / job / 'completion.json')
-            for name, digest in sorted(record['children'].items()):
-                inputs[str((base / job / name / 'completion.json').resolve())] = digest
+        inputs.update(arms[arm].get('inputs') or {})
     return inputs
+
+
+def recheck_inputs(inputs):
+    """Finding 10: every bound byte is still the byte that was read (paired_compare's rule)."""
+    for path in sorted(inputs):
+        try:
+            actual = provenance.sha256_file(path)
+        except OSError as error:
+            raise ValueError('input disappeared during analysis: {} ({})'.format(path, error))
+        _require(actual == inputs[path], 'input changed during analysis: ' + path)
 
 
 PRODUCER_CODE_KEY = {'summarize_haa': 'summarize_haa', 'legacy_receipt': 'summarize_haa'}
@@ -796,6 +817,7 @@ def analyse(arms, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, cache_root=Non
             exploratory=False, receipt=None, receipt_path=None, approved=None,
             deviations=(), approvals_receipt=None, producer=None, extra_inputs=()):
     """Every displayed number, and the evidence each rests on."""
+    cache_inputs = {}
     result = {'schema_version': 1, 'exploratory': bool(exploratory),
               'deviations': list(deviations), 'arms': {name: {
                   'branch': arms[name]['branch'], 'root': arms[name]['root'],
@@ -809,8 +831,9 @@ def analyse(arms, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, cache_root=Non
                   'path': str(receipt_path), 'sha256': receipt['sha256'],
                   'label': receipt['label'], 'files': len(receipt['files'])},
               'approved_digests': approvals_receipt, 'producer': producer,
-              'inputs': dict(arm_inputs(arms, receipt, receipt_path), **dict(extra_inputs)),
-              'side_split': side_split(arms, cache_root)}
+              'side_split': side_split(arms, cache_root, inputs=cache_inputs)}
+    result['inputs'] = dict(arm_inputs(arms, receipt, receipt_path),
+                            **dict(cache_inputs, **dict(extra_inputs)))
     result['H1'] = decision_cell(arms, H1, H1_ROOM, H1_METRIC, H1_MARGIN_DB, n_boot)
     result['H1b'] = decision_cell(arms, H1B, H1_ROOM, H1_METRIC, 0.0, n_boot)
     result['H2'] = screen_cells(arms, H1, n_boot, adjusted_n_boot)
@@ -898,15 +921,42 @@ def render(result):
 
 
 def write_outputs(result, json_path, summary_path):
-    """Exclusive creation of both files; the JSON binds the summary it describes."""
+    """Staged publication (finding 12): both files appear together, or neither at all.
+
+    Finding 10: the inputs are revalidated here, after the bootstrap and immediately
+    before the first byte is published, so a file edited during the analysis is refused
+    rather than described by a stale digest.
+    """
+    paths = [Path(summary_path), Path(json_path)]
+    if len({path.resolve() for path in paths}) != 2 or any(
+            os.path.lexists(str(path)) for path in paths):
+        raise FileExistsError('output paths must be distinct and absent')
     text = render(result)
-    Path(summary_path).parent.mkdir(parents=True, exist_ok=True)
-    with open(str(summary_path), 'x') as stream:
-        stream.write(text)
-    record = dict(result, summary_path=str(Path(summary_path).resolve()),
+    record = dict(result, summary_path=str(paths[0].resolve()),
                   summary_sha256=hashlib.sha256(text.encode()).hexdigest())
-    Path(json_path).parent.mkdir(parents=True, exist_ok=True)
-    return record, provenance.write_manifest(json_path, _safe(record)), text
+    data = (json.dumps(_safe(record), sort_keys=True, indent=2,
+                       allow_nan=False) + '\n').encode()
+    recheck_inputs(result.get('inputs') or {})
+    created = []
+    try:
+        for path, payload in zip(paths, (text.encode(), data)):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            handle, temporary = tempfile.mkstemp(prefix='.' + path.name, dir=str(path.parent))
+            try:
+                with os.fdopen(handle, 'wb') as stream:
+                    provenance.apply_umask(stream.fileno())
+                    stream.write(payload)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.link(temporary, str(path))     # atomic, and still exclusive
+                created.append(path)
+            finally:
+                os.unlink(temporary)
+    except BaseException:
+        for path in created:
+            path.unlink()
+        raise
+    return record, hashlib.sha256(data).hexdigest(), text
 
 
 def build_parser():
