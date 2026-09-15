@@ -1011,15 +1011,19 @@ def make_eval_child(job, name, haa_repo, heading_jsons, data_root, room, checkpo
     return run
 
 
-def open_job(job, log, text='pipeline output\n'):
-    """What the pipeline leaves at a job root: a queue log, and no receipt of its own.
+def open_job(job, log, text='pipeline output\n', owner=DEAD_PID):
+    """What the pipeline leaves at a job root: a queue log, its owner, and no receipt.
 
     Plan amendment A3: the shell that orchestrates a job is still alive when it finalizes
     it, so a job closes no log and writes no ``child_exit.json``; the queue log is
-    informational and the owner is the job root's ``launch.pid``.
+    informational and the owner is the job root's ``launch.pid``, which
+    ``tools/exp06_haa_pipeline.sh::open_job`` writes when it opens the root. Every job
+    root therefore carries one, so a finalized fixture records a pid that can never be
+    live and only a test modelling the live launcher records its own.
     """
     Path(job).mkdir(parents=True, exist_ok=True)
     Path(log).write_text(text)
+    (Path(job) / 'launch.pid').write_text('{}\n'.format(owner))
     return log
 
 
@@ -1809,6 +1813,8 @@ def test_a_declared_job_owner_must_be_the_launch_pid_at_the_job_root(job_run, cl
     def mutate(job, names):
         if present:
             (job / 'launch.pid').write_text('{}\n'.format(DEAD_PID))
+        else:  # pre-merge finding 1: an owner that was never recorded is refused, not bound
+            (job / 'launch.pid').unlink()
         return names
 
     job, children, spec, repo = job_run(mutate=mutate)
@@ -1816,6 +1822,59 @@ def test_a_declared_job_owner_must_be_the_launch_pid_at_the_job_root(job_run, cl
         exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo, children=children,
                                 expect='finetune', job_spec=spec, owner_pid=os.getpid())
     assert not (job / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('expect', ['finetune', 'zeroshot'])
+@pytest.mark.parametrize('damage,declared,cause', [
+    ('missing', False, 'no launch.pid'), ('missing', True, 'no launch.pid'),
+    ('malformed', False, 'launch.pid'), ('malformed', True, 'launch.pid')])
+def test_a_job_whose_root_records_no_owner_is_never_admissible(job_run, closed_log_file, expect,
+                                                               damage, declared, cause):
+    """Pre-merge finding 1: a job binds its owner unconditionally, --owner-pid or not.
+
+    ``launch.pid`` used to be read only to compare it with a declared ``--owner-pid``, so a
+    job root that recorded no owner at all certified with ``owner_pid: null`` whenever the
+    option was omitted. The owner is required evidence: absent or unreadable, the job is
+    refused and nothing is written.
+    """
+    def mutate(job, names):
+        if damage == 'missing':
+            (job / 'launch.pid').unlink()
+        else:
+            (job / 'launch.pid').write_text('not-a-pid\n')
+        return names
+
+    job, children, spec, repo = job_run(expect, mutate)
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo, children=children,
+                                expect=expect, job_spec=spec,
+                                owner_pid=os.getpid() if declared else None)
+    assert not (job / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('expect', ['finetune', 'zeroshot'])
+def test_the_cli_binds_the_job_owner_or_refuses_the_job(job_run, closed_log_file, capsys, expect):
+    """Pre-merge finding 1 through the parser and main(), the option supplied and omitted."""
+    job, children, spec, repo = job_run(expect)
+    command = ['--run-dir', str(job), '--run-type', 'haa_job', '--log', str(closed_log_file),
+               '--child-exit', '0', '--repo', str(repo), '--expect', expect, '--job-spec', spec]
+
+    def record_owner(value):
+        path = job / 'launch.pid'
+        if value is not None:
+            path.write_text(value)
+        elif path.exists():
+            path.unlink()
+
+    for value in ('not-a-pid\n', None):
+        for declared in ([], ['--owner-pid', str(os.getpid())]):
+            record_owner(value)
+            assert exp06_finalize.main(command + declared + ['--children'] + children) == 2
+            assert 'launch.pid' in capsys.readouterr().err
+            assert not (job / 'completion.json').exists()
+    record_owner('{}\n'.format(DEAD_PID))
+    assert exp06_finalize.main(command + ['--children'] + children) == 0
+    assert json.loads((job / 'completion.json').read_text())['owner_pid'] == DEAD_PID
 
 
 @pytest.mark.parametrize('damage,cause', [

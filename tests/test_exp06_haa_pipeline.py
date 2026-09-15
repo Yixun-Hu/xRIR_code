@@ -208,6 +208,26 @@ def test_a_real_job_finalisation_leaves_no_receipt_at_the_job_root(tmp_path):
     assert events[0].endswith('--job-spec {}/job_spec.json'.format(root))
 
 
+def test_open_job_records_the_owner_pid_at_the_job_root(tmp_path):
+    """Pre-merge finding 1: the owner a job completion binds is written when the root opens.
+
+    ``own_launch`` records the pipeline shell's own ``$$`` -- the process that stays alive
+    through every child and finalizes the job -- so a job root always carries the
+    ``launch.pid`` the finalizer now requires of it, whether it created or adopted the root.
+    """
+    root = tmp_path / 'out/cyl_or/seed0'
+    script = INVOKE.format('open_job "' + str(root) + '"') + 'echo "PID $$"\n'
+    result, _ = run_lib(script, tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert 'STATUS 0' in result.stdout
+    assert 'PIDFILE ' + str(root) + '/launch.pid' in result.stdout
+    pid = [line for line in result.stdout.splitlines() if line.startswith('PID ')][0].split()[1]
+    assert (root / 'launch.pid').read_text().strip() == pid
+    result, _ = run_lib(script, tmp_path)  # the queue re-opens an existing root
+    pid = [line for line in result.stdout.splitlines() if line.startswith('PID ')][0].split()[1]
+    assert (root / 'launch.pid').read_text().strip() == pid
+
+
 @pytest.fixture(scope='module')
 def flat_dampened(tmp_path_factory):
     """A private HAA cache whose dampened_room has no acoustic axis, and its headings."""
