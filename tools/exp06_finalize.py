@@ -582,7 +582,8 @@ def verify_approvals(record, repo, run_type):
 
     Recomputed here, equal to what the run recorded at spawn, and equal to the approvals
     file re-read now -- whose own bytes the run bound, so a mid-run edit is a refusal.
-    An exploratory diagnostic records its deviations instead, and is never an arm.
+    An exploratory diagnostic records its deviations instead, and is never an arm, so it
+    alone may name approvals no reviewed commit carries.
     """
     exploratory = bool(record.get('exploratory'))
     _require(not exploratory or run_type in DIAGNOSTIC,
@@ -605,10 +606,14 @@ def verify_approvals(record, repo, run_type):
     _require(path.is_file(), 'missing approvals file: {}'.format(path))
     _require(provenance.sha256_file(path) == approvals.get('sha256'),
              'the approvals file {} changed since the run started'.format(path))
-    approved, identity = exp06_profiles.load_approved_digests(path)
+    # Review 2 finding 2: the recorded hash proves the file did not change during the run;
+    # only its blob at the reviewed commit proves a reviewer approved those bytes.
+    approved, identity = exp06_profiles.load_approved_digests(
+        path, repo=None if exploratory else repo, commit=None if exploratory else commit)
     deviations = exp06_profiles.require(approved, exp06_profiles.TRAINING_KEYS, repo=repo,
                                         commit=commit, exploratory=exploratory, current=current)
-    return {'approvals': dict(approvals, git_free_sha256=identity['sha256']),
+    return {'approvals': dict(approvals, git_free_sha256=identity['sha256'],
+                              committed_at=identity.get('committed_at')),
             'code_digests': dict(recorded), 'orchestration_digests': orchestration,
             'approval_deviations': deviations, 'exploratory': exploratory}
 
