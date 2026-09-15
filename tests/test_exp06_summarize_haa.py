@@ -290,14 +290,16 @@ def new_job(base, job, arm, offset, closure=CLOSURE, invalid=(), job_overrides=N
 NEW_OFFSETS = {'cyl_or': 0.02, 'control_hf': 0.04, 'cyl_hf': 0.06}
 
 
-def build_new_root(root, offsets=None, arms=None):
+def build_new_root(root, offsets=None, arms=None, mutate=None, **kwargs):
+    """`mutate` names the one job built with `kwargs`, so the job seals what it built."""
     offsets = NEW_OFFSETS if offsets is None else offsets
     root = Path(root)
     for arm in (arms or subject.NEW_ARMS):
         base = root / arm
         for job in subject.JOBS:
             number = int(job[len('seed'):]) if job in subject.SEEDS else 5
-            new_job(base, job, arm, offsets[arm] + 0.01 * number, closure=CLOSURE + '')
+            extra = kwargs if job == mutate else {}
+            new_job(base, job, arm, offsets[arm] + 0.01 * number, **extra)
     return root
 
 
@@ -318,7 +320,7 @@ def test_the_legacy_branch_admits_the_complete_historical_root(legacy_root, tmp_
 
 def test_an_incomplete_historical_root_is_refused(legacy_root, tmp_path):
     (Path(legacy_root) / 'released/seed2/eval/per_sample_hallway.json').unlink()
-    with pytest.raises(ValueError, match='incomplete'):
+    with pytest.raises(ValueError, match='root is incomplete'):
         subject.load_legacy(legacy_root)
 
 
@@ -348,23 +350,22 @@ def test_a_new_arm_missing_or_changed_evidence_is_refused(new_root, case):
         subject.load_new_arm(new_root, 'cyl_or')
 
 
-def test_a_wrong_backbone_frame_roll_or_closure_is_refused(tmp_path):
-    root = build_new_root(tmp_path / 'a', arms=('cyl_or',))
-    child = Path(root) / 'cyl_or/seed0/eval/hallway'
-    (child / 'completion.json').unlink()
-    new_child(Path(root) / 'cyl_or/seed0', 'eval/hallway', 'cyl_or', 0, 0.02,
-              overrides={'backbone': 'simple'})
-    with pytest.raises(ValueError, match='backbone'):
+ARM_REFUSALS = {
+    'backbone': ({'overrides': {'backbone': 'simple'}}, 'records backbone'),
+    'frame': ({'overrides': {'frame': 'room'}}, 'records frame'),
+    'roll': ({'heading': {room: dict(HEADING[room], k=0) for room in ROOMS}}, 'rolls '),
+    'closure': ({'closure': 'a' * 64}, 'do not share one execution closure'),
+    'heading_identity': ({'heading': {room: {'k': subject.HEADING_K} for room in ROOMS}},
+                         'records no json identity'),
+}
+
+
+@pytest.mark.parametrize('case', sorted(ARM_REFUSALS))
+def test_a_child_outside_the_arm_table_is_refused(tmp_path, case):
+    kwargs, message = ARM_REFUSALS[case]
+    root = build_new_root(tmp_path / case, arms=('cyl_or',), mutate='seed1', **kwargs)
+    with pytest.raises(ValueError, match=message):
         subject.load_new_arm(root, 'cyl_or')
-    for case, kwargs in (('roll', {'heading': {r: {'k': 0} for r in ROOMS}}),
-                         ('closure', {'closure': 'a' * 64})):
-        fresh = build_new_root(tmp_path / case, arms=('cyl_or',))
-        target = Path(fresh) / 'cyl_or/seed1/eval/complex_room'
-        (target / 'completion.json').unlink()
-        new_child(Path(fresh) / 'cyl_or/seed1', 'eval/complex_room', 'cyl_or', 1, 0.03,
-                  **kwargs)
-        with pytest.raises(ValueError):
-            subject.load_new_arm(fresh, 'cyl_or')
 
 
 # --- pairing, the cohort policy and the verdicts -----------------------------------------
@@ -573,3 +574,23 @@ def test_the_cli_refuses_a_production_run_on_this_branch(legacy_root, new_root, 
         subject.main(['--legacy-root', str(legacy_root), '--new-root', str(new_root),
                       '--legacy-receipt', str(receipt), '--json', str(tmp_path / 'j.json'),
                       '--summary', str(tmp_path / 's.txt')])
+
+
+def test_a_new_arm_binds_the_initialisation_it_started_from(new_root):
+    arm = subject.load_new_arm(new_root, 'cyl_or', init_sha256='e' * 64)
+    assert arm['jobs']['seed0']['init_sha256'] == 'e' * 64
+    with pytest.raises(ValueError, match='did not start from the registered'):
+        subject.load_new_arm(new_root, 'cyl_or', init_sha256='d' * 64)
+
+
+def test_the_registered_initialisations_are_exp01s_and_the_approved_epoch(new_root):
+    assert subject.ARMS['control_hf']['init_sha256'] == \
+        subject.EXP01_CONTROL['sha256'] is not None
+    assert subject.ARMS['cyl_hf']['init_sha256'] == subject.EXP01_CYL['sha256'] is not None
+    assert subject.ARMS['cyl_or']['init_sha256'] is None
+    inits = subject.expected_inits(None)
+    assert inits['cyl_or'] is None and inits['cyl_hf'] == subject.EXP01_CYL['sha256']
+    approved = {'artifacts': {'epoch_012': {'sha256': 'c' * 64}}}
+    assert subject.expected_inits(approved)['cyl_or'] == 'c' * 64
+
+
