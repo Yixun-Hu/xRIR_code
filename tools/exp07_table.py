@@ -22,7 +22,6 @@ import numpy as np
 from tools import provenance
 from tools.exp07_profiles import get_profile, json_value, load_approved_digests
 from tools.paired_compare import REPO, _equal, admit_runs, producer_identity
-from tools import results_table
 from tools.results_table import METRICS, write_outputs
 
 TRAINING_BINDINGS = ('train_args', 'train_manifest', 'train_completion')

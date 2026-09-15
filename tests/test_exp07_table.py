@@ -8,6 +8,7 @@ import pytest
 from exp07_fixture import exp07_approval_template, exp07_fixture  # noqa: F401  (fixtures)
 from tools import exp07_table as table
 from tools import provenance as p
+from tools.results_table import STAMP
 
 
 def test_the_fixture_is_the_launchers_run_layout(exp07_fixture):
@@ -302,7 +303,7 @@ def test_publication_is_byte_stable_and_the_markdown_comes_from_the_json(built, 
     markdown = (first_run / 'model_comparison_seen.md').read_text()
     other = (second_run / 'model_comparison_seen.md').read_text()
     def body(text, run):  # the block names the canonical JSON it was rendered from
-        return text.split(table.results_table.STAMP)[0].replace(str(run), 'RUN')
+        return text.split(STAMP)[0].replace(str(run), 'RUN')
     assert body(markdown, first_run) == body(other, second_run)
     result = json.loads((first_run / 'table.json').read_text())
     for row in result['rows']:
