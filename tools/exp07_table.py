@@ -280,6 +280,9 @@ def build_table(directories, profile=None, approved=None, exploratory=False, pro
             raise ValueError('unknown metric names: ' + ', '.join(sorted(names - set(METRICS))))
         if any(set(cell) != names for cell in cells):
             raise ValueError('metric coverage differs across seeds')
+        missing = {source for source, item in METRICS.items() if item} - names
+        if missing:  # plan section 2: every row reports all five, spectral ones included
+            raise ValueError('missing metrics: ' + ', '.join(sorted(missing)))
         metrics = {}
         for source, specification in METRICS.items():
             if specification is None or source not in names:

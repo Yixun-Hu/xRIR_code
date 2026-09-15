@@ -212,6 +212,16 @@ def test_a_filled_approval_is_accepted_and_frozen(tmp_path, template):
         pins['checkpoints']['seen_cyl']['epoch'] = 11
 
 
+def test_a_loaded_approval_is_recursively_immutable(tmp_path, template):
+    pins, _ = profiles.load_approved_digests(approval_repo(tmp_path, filled(template)))
+    for pins in (pins, profiles.load_approved_digests()[0]):
+        launchers = pins['closures']['training_launcher']
+        with pytest.raises(AttributeError):
+            launchers.append('f' * 64)
+        with pytest.raises(TypeError):
+            launchers[0:0] = ['f' * 64]
+
+
 @pytest.mark.parametrize('mutate', [
     lambda v: v.update(schema_version=1),                       # partially filled
     lambda v: v['closures'].update(evaluator='a' * 64),         # partially filled

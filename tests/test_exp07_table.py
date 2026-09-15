@@ -505,6 +505,20 @@ def test_the_released_row_is_marked_a_reference_with_an_unknown_epoch(built):
     assert all(row['epoch'] == 12 and row['protocol']['training'] == 'internal' for row in trained)
 
 
+def test_a_group_missing_a_registered_metric_refuses_the_table(built):
+    for directory in built.paths[('seen_aug', 1)]:
+        directory = Path(directory)
+        sample = built.read(directory / 'per_sample_yaw.json')
+        for cell in sample['P'].values():
+            cell.pop('log_mse')
+        metrics = built.read(directory / 'metrics_yaw.json')
+        metrics['P'] = built.summaries(sample['P'])
+        built.rebind(directory, sample=sample, metrics=metrics)
+    admit(built)  # the evaluation-level admission does not require the spectral diagnostics
+    with pytest.raises(ValueError, match='missing metrics: log_mse'):
+        build(built)
+
+
 def test_a_seed_losing_too_many_queries_refuses_the_cell(built):
     directory = Path(built.paths[('seen_cyl', 1)][2])
     sample = built.read(directory / 'per_sample_yaw.json')

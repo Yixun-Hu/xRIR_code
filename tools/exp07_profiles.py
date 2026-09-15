@@ -28,7 +28,12 @@ RELEASED_SHA256 = '1762c702ee23a8f584e67c4b5b052b7483237e6471bb5e58774b66d514aec
 
 
 def freeze(value):
-    return MP({key: freeze(item) for key, item in value.items()}) if isinstance(value, dict) else value
+    """Recursively immutable: mappings become proxies and sequences tuples."""
+    if isinstance(value, dict):
+        return MP({key: freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(freeze(item) for item in value)
+    return value
 
 
 def _arm(role, label, backbone, yaw_aug):
