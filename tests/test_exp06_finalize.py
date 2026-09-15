@@ -85,15 +85,29 @@ def inventory_of(root):
                                           cache_path=str(Path(root).parent / 'inventory.json'))
 
 
+@pytest.fixture(scope='session')
+def approvals(clone, tmp_path_factory):
+    """Finding 1: the filled code approvals a confirmatory run is admitted under."""
+    from tools import exp06_profiles
+    head = provenance.git_state(clone)['HEAD']
+    value = exp06_profiles.json_value(exp06_profiles.load_approved_digests()[0])
+    value['code'].update(exp06_profiles.compute_code_digests(
+        clone, head, keys=exp06_profiles.TRAINING_KEYS))
+    path = tmp_path_factory.mktemp('approvals') / 'approved_digests.json'
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
+    return path
+
+
 @functools.lru_cache(maxsize=None)
-def _base_record(repo):
+def _base_record(repo, approved):
     """One real import closure per clone; the subprocess import is far too slow per test."""
     return exp06_train.provenance_fields(['--backbone', 'cylindrical_oriented'], 'full',
-                                         repo=Path(repo))
+                                         repo=Path(repo), approved=approved)
 
 
-def provenance_record(repo=None):
-    return copy.deepcopy(_base_record(str(repo if repo is not None else REPO)))
+def provenance_record(repo=None, approved=None):
+    return copy.deepcopy(_base_record(str(repo if repo is not None else REPO),
+                                      None if approved is None else str(approved)))
 
 
 def full_args(**overrides):
@@ -128,11 +142,11 @@ def history_rows(epochs=range(1, 13)):
 
 
 @pytest.fixture
-def full_run(tmp_path, clone, data_root):
+def full_run(tmp_path, clone, data_root, approvals):
     """A complete twelve-epoch attempt directory with tiny tensors and a closed log."""
     run = tmp_path / 'attempt_20260916T130000'
     run.mkdir()
-    record = provenance_record(clone)
+    record = provenance_record(clone, approvals)
     record['data_root'] = str(Path(data_root).resolve())
     record['train_data_identity'] = inventory_of(data_root)
     args = bound_args(run, record)

@@ -6,14 +6,15 @@ already builds; pytest resolves them by name once they are imported here.
 """
 import json
 import os
+from pathlib import Path
 
 import pytest
 import torch
 
-from test_exp06_finalize import (DEAD_PID, STATE, bound_args, clone, data_root,  # noqa: F401
-                                 dead_pid, full_args, full_run, history_rows,
+from test_exp06_finalize import (DEAD_PID, STATE, approvals, bound_args, clone,  # noqa: F401
+                                 data_root, dead_pid, full_args, full_run, history_rows,
                                  provenance_record, seal)
-from tools import exp06_finalize
+from tools import exp06_finalize, provenance
 
 
 def test_epoch_checkpoint_must_agree_in_dtype_with_last_pth(full_run, clone):
@@ -56,3 +57,73 @@ def test_the_receipt_and_the_child_pid_sidecar_must_agree(full_run, clone):
     (run / 'child.pid').write_text('{}\n'.format(DEAD_PID))
     fields = exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
     assert fields['child_exit_receipt']['child_pid'] == DEAD_PID
+
+
+def test_a_full_completion_records_the_approvals_it_matched(full_run, clone, approvals):
+    """Finding 1: the training-critical identities, approved and recomputed at the end."""
+    from tools import exp06_profiles
+    run, log = full_run
+    fields = exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert fields['approvals']['path'] == str(approvals)
+    assert fields['approvals']['sha256'] == provenance.sha256_file(approvals)
+    assert set(fields['code_digests']) == set(exp06_profiles.TRAINING_KEYS)
+
+
+def test_null_approvals_refuse_a_full_finalisation(full_run, clone, tmp_path):
+    """Finding 1: nothing is admissible before the second reviewed commit fills them."""
+    from tools import exp06_profiles
+    run, log = full_run
+    empty = tmp_path / 'approved_digests.json'
+    empty.write_bytes(exp06_profiles.TEMPLATE_PATH.read_bytes())
+    record = json.loads((run / 'provenance.json').read_text())
+    record['approvals'] = {'path': str(empty), 'schema_version': 1,
+                           'sha256': provenance.sha256_file(empty)}
+    (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    (run / 'args.json').write_text(json.dumps(
+        dict(json.loads((run / 'args.json').read_text())), indent=2))
+    with pytest.raises(ValueError, match='not approved'):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert not (run / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('orchestrator', ['tools/exp06_launch.sh', 'tools/exp06_finalize.py'])
+def test_orchestration_bytes_that_changed_after_provenance_are_refused(full_run, clone,
+                                                                      orchestrator):
+    """The review's reproduction: the launcher and the finalizer were never bound."""
+    run, log = full_run
+    path = Path(clone) / orchestrator
+    original = path.read_bytes()
+    path.write_bytes(original + b'\n# changed after the run started\n')
+    try:
+        with pytest.raises(ValueError, match='drift'):
+            exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+        assert not (run / 'completion.json').exists()
+    finally:
+        path.write_bytes(original)
+
+
+@pytest.mark.parametrize('damage,cause', [('no_approvals', 'approvals'),
+                                          ('approvals_rehashed', 'approvals'),
+                                          ('no_code_digests', 'code_digests'),
+                                          ('code_digest_changed', 'drift'),
+                                          ('no_orchestration', 'orchestration'),
+                                          ('exploratory', 'exploratory')])
+def test_the_training_admission_record_must_be_complete(full_run, clone, damage, cause):
+    run, log = full_run
+    record = json.loads((run / 'provenance.json').read_text())
+    if damage == 'no_approvals':
+        record.pop('approvals')
+    elif damage == 'approvals_rehashed':
+        record['approvals'] = dict(record['approvals'], sha256='b' * 64)
+    elif damage == 'no_code_digests':
+        record.pop('code_digests')
+    elif damage == 'code_digest_changed':
+        record['code_digests']['recipe'] = 'c' * 64
+    elif damage == 'no_orchestration':
+        record.pop('orchestration_closures')
+    else:
+        record['exploratory'] = True
+    (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert not (run / 'completion.json').exists()
