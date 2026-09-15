@@ -125,3 +125,30 @@ Round map: 3a = `9cd3703`…`fce0035` (provenance helper, `tools/exp04_eval.py`,
 - `b9ea327` — exp_04 epoch 1 accepted; exp_05 training queue launched on GPU 1 (S_simple attempt_20260913T123905)
 - `2066830` — exp_05: S_simple certified (11.41 h), S_cylindrical launched
 - `6792167` — exp_05: S_cylindrical certified (12.00 h), L_cylindrical launched
+
+## All exp_04 commits after `6792167` (Codex rounds 7–8 incl. the worktree branch, Planner record phase) — 2026-09-15T06:26:56-04:00
+- `265dc83` — exp_04: confirmatory training certified (27.43 h, epoch_012 f8e64052); evaluation chain launched on GPU 0
+- `bb9fa91` — exp_05 round 4 delivered; exp_04 round-8 prompt (result generators)
+- `f41473c` — exp04: render canonical Markdown record with provenance refusals
+- `929ab47` — exp04: correct record test path in index
+- `4827cc1` — exp04: render offline HTML tables and canonical interval charts
+- `4f0abb6` — exp04: bind immutable run evidence and check record digests
+- `424f1f0` — exp_04 round 8 delivered (record generators)
+- `ecbb96e` — exp_04: log three setup refusals (dirty tree during round 8) and the re-queue plan
+- `51b8c89` — exp_04: isolate record assets from exp_03 modules
+- `42b4903` — exp_04: bind canonical results and producer ancestry
+- `3221624` — exp_04: clarify record precision and family verdicts
+- `c359385` — exp_04: produce and render descriptive yaw diagnostics
+- `7192b6e` — exp_04 bookkeeping: round-8 review, close-out prompt, worktree decision
+- `82745f6` — exp_04: restore pinned exp_03 acceptance regression
+- `60468a0` — exp_04: bind results to approvals and completed runs
+- `7ea196a` — exp_04: close diagnostic schema and record presentation nits
+- `9eacbb4` — Merge branch codex-window: exp_04 round 8 (record generators, binder, descriptive producer) and exp_05 rounds 5 (A9 launcher-digest list, receipt causes, template tests)
+- `58a8953` — bookkeeping: merge logged, branch review
+- `77ef292` — exp_04 notebook: exp_06 coordination reply
+- `daa7eef` — exp_03: PNG figures of r_k vs yaw (acoustic, spectral, H2 D_k) rendered from the canonical full_stats.json
+- `fa219ef` — exp_04: fill approved_digests.json (second reviewed commit): evaluator 0b05245c, writer 15f9c984, training launcher 0bff0d4f (attempt record), producers at daa7eef, aug epoch-12 f8e64052, epoch-9 442a0a56
+- `87d3e54` — exp_04: H2/TOST/EPOCH9 producer runs logged (H2 partially supported; TOST equivalent at axis-aligned headings only)
+- `f851be1` — exp_04: H1 (non-inferior on EDT only at K=8 and K=1), TABLE_V1 and the living table
+- `cab6f42` — exp_04: results.md, results page, record binding report checked; grid diagnostic
+- `862923e` — exp_04: analysis, params finalised, command file, commits map

@@ -37,4 +37,4 @@ All rungs passed: static / suite (1 288 tests at the merge) / synthetic forward;
 Training: 1.4 s per micro-batch of 32 (exp_01, TF32, dedicated A6000) → 3.6 h/epoch → ≈ 30 h on one dedicated A6000 (exp_01 measured 3.6 h/epoch); evaluations ≈ 17 h on the second GPU overlapping the training. Both GPUs were held by the user's FLAC exp_13 chain from 2026-09-12 15:51 (≈ 5 days); the launch waits for the user's decision (see the notebook, 17:1x).
 
 ## Code state
-Base `8cb87d1`; Coder commits listed in `commits_yaw_aug_xrir.md` (rounds 1–5 closed by Fable reviews, round 6 = pre-launch hardening in progress); exp_03's 12-file pinned closure untouched throughout (`git log 62c9107..HEAD -- <pinned files>` empty).
+Base `8cb87d1`; Coder commits listed in `commits_yaw_aug_xrir.md` (rounds 1–8 closed by Fable reviews; launch commit `f19b9b6`; record at `f851be1`/`cab6f42`); exp_03's 12-file pinned closure untouched throughout (`git log 62c9107..HEAD -- <pinned files>` empty).
