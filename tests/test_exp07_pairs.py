@@ -188,6 +188,64 @@ def test_an_unconverged_cell_marks_the_result_not_final(built):
     assert any(item.startswith('EDT K=1') for item in result['reconverge_required'])
 
 
+def test_the_registered_retry_reruns_only_the_flagged_statistics(built):
+    """The re-run keeps the estimate and the cohort, replaces only the flagged intervals."""
+    built.profile.update(n_boot=7, reconverge_n_boot=4000)
+    first, _ = build(built, 'seen_aug', shots=(1,))
+    retried, _ = build(built, 'seen_aug', shots=(1,), reconverge=True)
+    assert first['final'] is False and first['reconverge_attempted'] is False
+    assert first['reconverge_n_boot'] is None
+    assert retried['reconverge_attempted'] is True and retried['reconverge_n_boot'] == 4000
+    assert retried['final'] is True and retried['reconverge_required'] == []
+    for before, after in zip(first['cells'], retried['cells']):
+        assert (after['metric'], after['num_shot']) == (before['metric'], before['num_shot'])
+        assert after['paired_cohort'] == before['paired_cohort']
+        for name, statistic in sorted(after['statistics'].items()):
+            estimate = before['statistics'][name]['estimate']
+            assert statistic['estimate'] == estimate  # the point estimate never resamples
+            if before['statistics'][name]['reconverge_required']:
+                assert statistic['n_boot'] == 4000 and statistic['reconverge_attempts'] == 1
+                assert statistic['reconverge_required'] is False
+                assert statistic['first_attempt']['n_boot'] == 7
+                assert statistic['first_attempt']['convergence']['passed'] is False
+                assert (statistic['first_attempt']['interval'] ==
+                        before['statistics'][name]['interval'])
+            else:  # an already-converged statistic is left exactly as it was
+                assert statistic == before['statistics'][name]
+
+
+def test_a_retry_that_fails_again_stays_flagged_and_not_final(built):
+    built.profile.update(n_boot=5, reconverge_n_boot=6)
+    result, _ = build(built, 'seen_aug', shots=(1,), reconverge=True)
+    assert result['reconverge_attempted'] is True and result['final'] is False
+    assert result['reconverge_required']
+    flagged = [cell for cell in result['cells'] if pairs.flagged_statistics(cell)]
+    assert flagged
+    for cell in flagged:
+        for name in pairs.flagged_statistics(cell):
+            statistic = cell['statistics'][name]
+            assert statistic['n_boot'] == 6 and statistic['reconverge_attempts'] == 1
+            assert statistic['first_attempt']['n_boot'] == 5
+    assert 'Reconvergence re-run at n_boot 6' in pairs.render_summary(result)
+
+
+def test_a_retry_count_that_is_not_larger_is_refused(built):
+    built.profile.update(n_boot=7, reconverge_n_boot=7)
+    with pytest.raises(ValueError, match='reconverge_n_boot must exceed'):
+        build(built, 'seen_aug', shots=(1,), reconverge=True)
+
+
+def test_the_registered_retry_count_is_the_plans_forty_thousand(profile):
+    assert profile['reconverge_n_boot'] == 40000 > profile['n_boot'] == 20000
+
+
+def test_a_converged_pairing_is_untouched_by_the_retry_flag(built):
+    plain, _ = build(built, 'seen_cyl', shots=(8,))
+    retried, _ = build(built, 'seen_cyl', shots=(8,), reconverge=True)
+    assert plain['cells'] == retried['cells'] and retried['final'] is True
+    assert retried['reconverge_attempted'] is True
+
+
 def test_an_empty_cohort_refuses_but_is_listed_in_exploratory_mode(built):
     for directory in built.paths[('seen_cyl', 8)]:
         sample = built.read(pathlib.Path(directory) / 'per_sample_yaw.json')
@@ -239,15 +297,19 @@ def test_the_cli_refuses_runs_outside_the_registered_checkpoints(built, tmp_path
     assert not (tmp_path / 'p.json').exists() and not (tmp_path / 's.txt').exists()
 
 
-def test_the_cli_passes_both_sides_and_the_renderer_to_the_shared_writer(monkeypatch, tmp_path):
+@pytest.mark.parametrize('retry', [False, True])
+def test_the_cli_passes_both_sides_and_the_renderer_to_the_shared_writer(monkeypatch, tmp_path,
+                                                                        retry):
     captured = {}
-    def fake_build(runs_a, runs_b, exploratory):
-        captured.update(a=runs_a, b=runs_b, exploratory=exploratory)
+    def fake_build(runs_a, runs_b, exploratory, reconverge):
+        captured.update(a=runs_a, b=runs_b, exploratory=exploratory, reconverge=reconverge)
         return {'ok': True}, {}
     monkeypatch.setattr(pairs, 'build_pairs', fake_build)
     monkeypatch.setattr(pairs, 'write_outputs', lambda *call: captured.update(call=call))
     pairs.main(['--profile', 'PAIRS_SEEN_V1', '--runs-a', 'x', '--runs-b', 'y', '--json',
-                str(tmp_path / 'p.json'), '--summary', str(tmp_path / 's.txt'), '--exploratory'])
+                str(tmp_path / 'p.json'), '--summary', str(tmp_path / 's.txt'), '--exploratory'] +
+               (['--reconverge'] if retry else []))
     assert captured['a'] == ['x'] and captured['b'] == ['y'] and captured['exploratory'] is True
+    assert captured['reconverge'] is retry
     assert captured['call'][2:] == (str(tmp_path / 'p.json'), str(tmp_path / 's.txt'),
                                     pairs.render_summary)

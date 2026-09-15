@@ -101,6 +101,8 @@ PAIRS_SEEN_V1 = MP({**COMMON, 'mode': 'pairs', 'num_shot': (8, 1), 'family': 0,
                                  ('released_seen', 'seen_simple')),
                     'reference_pairings': (('released_seen', 'seen_simple'),),
                     'statistics': ('absolute', 'relative'), 'quantiles': (.025, .975),
+                    # Plan section 2: a flagged cell is re-run once at this larger count.
+                    'reconverge_n_boot': 40000,
                     'interval_alpha': .05, 'cluster': 'whole_room_query_weighted',
                     'statistic': 'difference of arm means in native units and relative to '
                                  'the baseline mean, both recomputed inside shared resamples',

@@ -64,8 +64,14 @@ def difference_draws(means_a, means_b, n_boot, seed, clusters=None):
     return {'relative': relative, 'absolute': shifted + 1.0}
 
 
-def paired_cell(profile, runs_a, runs_b, pairing, metric, shot):
-    """One descriptive cell; raises on an empty cohort or a mis-specified profile."""
+def paired_cell(profile, runs_a, runs_b, pairing, metric, shot, n_boot=None):
+    """One descriptive cell; raises on an empty cohort or a mis-specified profile.
+
+    ``n_boot`` overrides the profile's resample count for the registered reconvergence
+    re-run; everything else -- the cohort, the estimates and the seeds -- is unchanged,
+    so the retry differs from the first attempt in the number of draws and nothing else.
+    """
+    n_boot = profile['n_boot'] if n_boot is None else n_boot
     alpha, quantiles = profile['interval_alpha'], tuple(profile['quantiles'])
     if quantiles != (alpha / 2, 1 - alpha / 2):
         raise ValueError('the profile quantiles do not match its interval alpha')
@@ -77,16 +83,16 @@ def paired_cell(profile, runs_a, runs_b, pairing, metric, shot):
     means_a, means_b = (five_seed_mean(values)[mask] for values in (a, b))
     rooms = rooms_from_paths(queries)[mask]
     seed_a, seed_b = profile['bootstrap_seeds']
-    draws = {seed: difference_draws(means_a, means_b, profile['n_boot'], seed)
+    draws = {seed: difference_draws(means_a, means_b, n_boot, seed)
              for seed in (seed_a, seed_b)}
-    clustered = difference_draws(means_a, means_b, profile['n_boot'], seed_a, rooms)
+    clustered = difference_draws(means_a, means_b, n_boot, seed_a, rooms)
     difference = float(means_a.mean() - means_b.mean())
     estimates = {'absolute': difference, 'relative': difference / float(means_b.mean())}
     statistics = {}
     for name in profile['statistics']:
         gate = convergence(lambda seed: two_sided_interval(draws[seed][name], alpha),
                            seed_a, seed_b, profile['convergence_tolerance'])
-        statistics[name] = dict(estimate=estimates[name], n_boot=profile['n_boot'],
+        statistics[name] = dict(estimate=estimates[name], n_boot=n_boot,
                                 unit=unit if name == 'absolute' else 'fraction of ' + pairing[1],
                                 interval=list(two_sided_interval(draws[seed_a][name], alpha)),
                                 room_cluster_interval=list(two_sided_interval(clustered[name], alpha)),
@@ -101,6 +107,34 @@ def paired_cell(profile, runs_a, runs_b, pairing, metric, shot):
                             'joint': counts['joint']},
                 arm_means={role: seed_summary(values, mask)
                            for role, values in zip(pairing, (a, b))})
+
+
+def flagged_statistics(cell):
+    return sorted(name for name, statistic in cell['statistics'].items()
+                  if statistic['reconverge_required'])
+
+
+def reconverged_cell(profile, runs_a, runs_b, pairing, cell):
+    """Re-run this cell's flagged statistics once at the profile's larger n_boot.
+
+    The first attempt is kept verbatim under ``first_attempt`` (its count, diagnostic and
+    both intervals), the retry count is carried forward, and a statistic that fails again
+    keeps ``reconverge_required`` true -- so the pairing stays non-final.
+    """
+    n_boot = profile['reconverge_n_boot']
+    if not isinstance(n_boot, int) or n_boot <= profile['n_boot']:
+        raise ValueError('reconverge_n_boot must exceed the profile n_boot')
+    retried = paired_cell(profile, runs_a, runs_b, pairing, cell['metric'], cell['num_shot'],
+                          n_boot=n_boot)
+    statistics = dict(cell['statistics'])
+    for name in flagged_statistics(cell):
+        previous = cell['statistics'][name]
+        again = dict(retried['statistics'][name])
+        again['first_attempt'] = {key: previous[key] for key in
+                                  ('n_boot', 'convergence', 'interval', 'room_cluster_interval')}
+        again['reconverge_attempts'] = previous.get('reconverge_attempts', 0) + 1
+        statistics[name] = again
+    return dict(cell, statistics=statistics)
 
 
 def _role_and_shot(profile, directory):
@@ -121,8 +155,14 @@ def _side(profile, directories, label):
     return roles.pop(), sorted({shot for _, shot in identified}, reverse=True)
 
 
-def build_pairs(runs_a, runs_b, profile=None, approved=None, exploratory=False, producer=None):
-    """Admit both arms of one registered pairing and compute its descriptive cells."""
+def build_pairs(runs_a, runs_b, profile=None, approved=None, exploratory=False, producer=None,
+                reconverge=False):
+    """Admit both arms of one registered pairing and compute its descriptive cells.
+
+    ``reconverge`` re-runs every flagged cell once at the profile's registered larger
+    n_boot (plan section 2's publication procedure); the original diagnostic, the retry
+    count and the provenance of the first attempt are kept inside the cell.
+    """
     profile = json_value(get_profile('PAIRS_SEEN_V1')) if profile is None else profile
     role_a, shots_a = _side(profile, runs_a, '--runs-a')
     role_b, shots_b = _side(profile, runs_b, '--runs-b')
@@ -146,6 +186,8 @@ def build_pairs(runs_a, runs_b, profile=None, approved=None, exploratory=False, 
                       separators=(',', ':'), allow_nan=False).encode()).hexdigest(),
                   exploratory=exploratory, pairing=list(pairing), decision_driving=False,
                   verdict_scope=profile['verdict_scope'], cells=[], reconverge_required=[],
+                  reconverge_attempted=bool(reconverge),
+                  reconverge_n_boot=profile['reconverge_n_boot'] if reconverge else None,
                   deviations=list(admitted['deviations']), inputs=admitted['inputs'],
                   run_flags=admitted['run_flags'], contracts=admitted['contracts'],
                   producer_closure_sha256=admitted['producer']['sha256'])
@@ -160,9 +202,16 @@ def build_pairs(runs_a, runs_b, profile=None, approved=None, exploratory=False, 
                     raise ValueError('{}: {}'.format(label, error))
                 result['deviations'].append('{}: {}'.format(label, error))
                 continue
+            if reconverge and flagged_statistics(cell):
+                try:
+                    cell = reconverged_cell(profile, indexed[(pairing[0], shot)],
+                                            indexed[(pairing[1], shot)], pairing, cell)
+                except (ValueError, KeyError, TypeError, IndexError) as error:
+                    if not exploratory:
+                        raise ValueError('{}: {}'.format(label, error))
+                    result['deviations'].append('{}: {}'.format(label, error))
             result['cells'].append(cell)
-            flagged = sorted(name for name, statistic in cell['statistics'].items()
-                             if statistic['reconverge_required'])
+            flagged = flagged_statistics(cell)
             if flagged:
                 result['reconverge_required'].append(label + ' ' + '/'.join(flagged))
     result['final'] = not result['reconverge_required'] and not result['deviations']
@@ -186,6 +235,8 @@ def render_summary(result):
         lines.append('  cohort means: ' + ', '.join(
             '{}={:.8g}'.format(role, summary['mean'])
             for role, summary in sorted(cell['arm_means'].items())))
+    if result.get('reconverge_attempted'):
+        lines.append('Reconvergence re-run at n_boot {}'.format(result['reconverge_n_boot']))
     lines.extend('Re-run at a larger n_boot: ' + item for item in result['reconverge_required'])
     lines.extend('Deviation: ' + item for item in result['deviations'])
     if not result['final']:
@@ -203,8 +254,11 @@ def main(argv=None):
     parser.add_argument('--summary', required=True)
     parser.add_argument('--exploratory', action='store_true',
                         help='List unapproved pins and refused cells instead of stopping')
+    parser.add_argument('--reconverge', action='store_true',
+                        help='Re-run every flagged cell once at the registered larger n_boot')
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
-    result, admitted = build_pairs(args.runs_a, args.runs_b, exploratory=args.exploratory)
+    result, admitted = build_pairs(args.runs_a, args.runs_b, exploratory=args.exploratory,
+                                   reconverge=args.reconverge)
     write_outputs(result, admitted, args.json, args.summary, render_summary)
     return result
 
