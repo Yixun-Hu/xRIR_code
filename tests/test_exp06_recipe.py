@@ -1,16 +1,36 @@
 """Type-strict classification of the trainer's args.json and budget completeness."""
+import functools
 import json
+import math
 from pathlib import Path
 
 import pytest
 
-from tools.exp05_params import TIERS
-from tools.exp06_recipe import (CLASSES, EXP01_RECIPE, check_production, check_recipe,
-                                classify, normalize_historical)
+from model.xRIR_cyl_oriented import build_xrir_exp06
+from tools.exp05_params import TIERS, count_parameters
+from tools.exp06_recipe import (CLASSES, EXP01_RECIPE, check_all, check_budget, check_derived,
+                                check_production, check_recipe, classify, normalize_historical)
 
 REPO = Path(__file__).resolve().parents[1]
 TRAINER_ARGS = REPO / 'ckpt/exp05/S_simple/attempt_20260913T123905/args.json'
 EXP01_ARGS = ['ckpt/xRIR_simple_8_shot/args.json', 'ckpt/xRIR_cyl_8_shot/args.json']
+
+
+@functools.lru_cache(maxsize=None)
+def counts(backbone):
+    return count_parameters(build_xrir_exp06(backbone, EXP01_RECIPE['num_shot'], **TIERS['M']))
+
+
+def history(epochs=range(1, 13), **overrides):
+    rows = [dict(epoch=epoch, train_loss=1.0 / epoch, test_loss=2.0 / epoch,
+                 best_test_loss=2.0 / epoch, is_best=True, lr=1e-3, epoch_minutes=155.8)
+            for epoch in epochs]
+    for key, value in overrides.items():
+        rows[-1][key] = value
+    return rows
+
+
+LAST = {'epoch': 12, 'batch_idx': 0}
 
 
 def full_args(backbone='cylindrical_oriented', **overrides):
@@ -20,7 +40,7 @@ def full_args(backbone='cylindrical_oriented', **overrides):
                      'OMP_NUM_THREADS': '8', 'CUDA_VISIBLE_DEVICES': '1'},
                 max_train_batches=0, max_test_batches=0, test_subset=0, resume=None,
                 no_save=False, yaw_aug=0, yaw_aug_seed=0, yaw_aug_width=512,
-                train_batches_per_epoch=9261, tier='M', param_counts={'full': 1})
+                train_batches_per_epoch=9261, tier='M', param_counts=dict(counts(backbone)))
     args.update(overrides)
     return args
 
@@ -111,3 +131,66 @@ def test_missing_recipe_and_production_fields_are_refused(field):
     del args[field]
     deviations = check_recipe(args) + check_production(args)
     assert deviations and all(field in deviation for deviation in deviations)
+
+
+def test_derived_fields_and_param_counts_match_the_backbone():
+    for backbone in ('simple', 'cylindrical', 'cylindrical_oriented'):
+        assert check_derived(full_args(backbone), backbone) == []
+    args = full_args('cylindrical_oriented')
+    assert any('param_counts' in d for d in check_derived(args, 'cylindrical'))
+    assert any('backbone' in d for d in check_derived(args, 'simple'))
+    wrong = full_args('cylindrical_oriented', param_counts=dict(counts('cylindrical')))
+    assert any('param_counts' in d for d in check_derived(wrong, 'cylindrical_oriented'))
+    assert any('param_counts' in d for d in check_derived(full_args('simple'), 'invented'))
+    assert counts('cylindrical_oriented')['encoder'] - counts('cylindrical')['encoder'] == 526336
+
+
+def test_check_all_admits_the_registered_recipe():
+    args = full_args(exp06_run_type='full', exp06_registry_sha256='a' * 64,
+                     exp06_source_closure_sha256='b' * 64, exp06_git_head='c' * 40,
+                     exp06_provenance_path='ckpt/exp06/attempt/provenance.json')
+    assert check_all(args, history_rows=history(), last_meta=LAST) == []
+    assert any('mystery' in d for d in check_all(full_args(mystery=1)))
+
+
+@pytest.mark.parametrize('overrides,named', [
+    ({'train_batches_per_epoch': 9260}, 'train_batches_per_epoch'),
+    ({'train_batches_per_epoch': 9261.0}, 'train_batches_per_epoch'),
+    ({'tier': 'S'}, 'tier'),
+    ({'max_train_batches': 3}, 'max_train_batches'),
+    ({'lr': 2e-3}, 'lr'),
+])
+def test_check_all_names_every_deviation(overrides, named):
+    deviations = check_all(full_args(**overrides), history_rows=history(), last_meta=LAST)
+    assert deviations and all(named in deviation for deviation in deviations)
+
+
+def test_truncated_run_is_refused_even_with_a_complete_budget():
+    rows = history()
+    assert check_budget(rows, LAST) == []
+    deviations = check_all(full_args(max_train_batches=3), history_rows=rows, last_meta=LAST)
+    assert deviations and all('max_train_batches' in d for d in deviations)
+
+
+@pytest.mark.parametrize('rows,meta,named', [
+    (history(epochs=list(range(1, 7)) + list(range(8, 13))), LAST, 'epoch'),
+    (history(epochs=[1, 2, 3, 3] + list(range(4, 12))), LAST, 'epoch'),
+    (history(epochs=list(range(1, 13))[::-1]), LAST, 'epoch'),
+    (history(epochs=range(1, 12)), LAST, 'epoch'),
+    (history(epochs=[1.0] + list(range(2, 13))), LAST, 'epoch'),
+    (history(train_loss=float('nan')), LAST, 'train_loss'),
+    (history(test_loss=float('inf')), LAST, 'test_loss'),
+    (history(epoch_minutes=None), LAST, 'epoch_minutes'),
+    ([], LAST, 'epoch'),
+    (history(), {'epoch': 11, 'batch_idx': 0}, 'epoch'),
+    (history(), {'epoch': 12, 'batch_idx': 500}, 'batch_idx'),
+    (history(), {'epoch': 12}, 'batch_idx'),
+])
+def test_budget_refusals_are_named(rows, meta, named):
+    deviations = check_budget(rows, meta)
+    assert deviations and all(named in deviation for deviation in deviations)
+
+
+def test_complete_budget_passes():
+    assert check_budget(history(), LAST) == []
+    assert all(math.isfinite(row['epoch_minutes']) for row in history())

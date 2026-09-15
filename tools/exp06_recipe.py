@@ -15,9 +15,12 @@ Comparisons are type-strict (``type(value) is int/float/bool``), so a recorded `
 never passes for ``True`` and ``12.0`` never passes for ``12``. Every check returns a
 list of deviation strings naming the offending field; an empty list is a pass.
 """
+import functools
+import math
 from types import MappingProxyType
 
-from tools.exp05_params import TIERS
+from model.xRIR_cyl_oriented import BACKBONES_EXP06, build_xrir_exp06
+from tools.exp05_params import TIERS, count_parameters
 
 EXP01_RECIPE = MappingProxyType(dict(
     num_shot=8, max_len=9600, lr=1e-3, weight_decay=1e-4, decay_epochs=3, lr_gamma=0.1,
@@ -105,3 +108,79 @@ def normalize_historical(args_dict):
     known = [field for name, group in CLASSES.items() if name != 'exp06' for field in group]
     return normalized, {'normalized': filled,
                         'not_recorded': sorted(f for f in known if f not in normalized)}
+
+
+@functools.lru_cache(maxsize=None)
+def expected_param_counts(backbone):
+    """Parameter counts of the registered backbone at the recipe's tier."""
+    model = build_xrir_exp06(backbone, EXP01_RECIPE['num_shot'], **TIERS[TIER])
+    return MappingProxyType(count_parameters(model))
+
+
+def check_derived(args_dict, backbone):
+    """Deviations of the fields the trainer derives from the data and the model."""
+    deviations = []
+    recorded = args_dict.get('backbone', MISSING)
+    if recorded is MISSING or recorded != backbone:
+        deviations.append('derived.backbone: {!r} is not {!r}'.format(
+            None if recorded is MISSING else recorded, backbone))
+    for deviation in (_compare('derived.train_batches_per_epoch',
+                               args_dict.get('train_batches_per_epoch', MISSING),
+                               TRAIN_BATCHES_PER_EPOCH),
+                      _compare('derived.tier', args_dict.get('tier', MISSING), TIER)):
+        if deviation:
+            deviations.append(deviation)
+    counts = args_dict.get('param_counts', MISSING)
+    if backbone not in BACKBONES_EXP06:
+        deviations.append('derived.param_counts: unknown backbone {!r}'.format(backbone))
+    elif counts is MISSING:
+        deviations.append('derived.param_counts: not recorded')
+    elif type(counts) is not dict or counts != dict(expected_param_counts(backbone)):
+        deviations.append('derived.param_counts: {!r} is not {!r}'.format(
+            counts, dict(expected_param_counts(backbone))))
+    return deviations
+
+
+def check_budget(history_rows, last_meta, epochs=EXP01_RECIPE['epochs']):
+    """Completeness of ``history.jsonl`` and of the epoch/batch recorded in ``last.pth``."""
+    deviations = []
+    rows = list(history_rows)
+    recorded = [row.get('epoch', MISSING) for row in rows]
+    if any(type(value) is not int for value in recorded):
+        deviations.append('budget.epoch: every history row needs a native integer epoch')
+    values = [value for value in recorded if type(value) is int]
+    missing = [epoch for epoch in range(1, epochs + 1) if values.count(epoch) != 1]
+    if missing:
+        deviations.append('budget.epoch: epochs not recorded exactly once: {}'.format(missing))
+    unexpected = sorted({value for value in values if not 1 <= value <= epochs})
+    if unexpected:
+        deviations.append('budget.epoch: unexpected epochs {}'.format(unexpected))
+    if values != sorted(set(values)):
+        deviations.append('budget.order: epochs must increase once each in file order')
+    for row, epoch in zip(rows, recorded):
+        for field in ('train_loss', 'test_loss', 'epoch_minutes'):
+            value = row.get(field, MISSING)
+            if type(value) not in (int, float) or not math.isfinite(value):
+                deviations.append('budget.{}: epoch {!r} recorded {!r}'.format(
+                    field, None if epoch is MISSING else epoch,
+                    None if value is MISSING else value))
+    for field, expected in (('epoch', epochs), ('batch_idx', 0)):
+        deviation = _compare('budget.last.' + field, last_meta.get(field, MISSING), expected)
+        if deviation:
+            deviations.append(deviation)
+    return deviations
+
+
+def check_all(args_dict, backbone=None, history_rows=None, last_meta=None, expected=EXP01_RECIPE):
+    """Every schema deviation of one run; budget checks run when history is supplied."""
+    deviations = []
+    try:
+        classify(args_dict)
+    except ValueError as error:
+        deviations.append('schema: ' + str(error))
+    deviations += check_recipe(args_dict, expected)
+    deviations += check_production(args_dict)
+    deviations += check_derived(args_dict, args_dict.get('backbone') if backbone is None else backbone)
+    if history_rows is not None or last_meta is not None:
+        deviations += check_budget(history_rows or [], last_meta or {})
+    return deviations
