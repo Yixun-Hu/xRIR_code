@@ -10,6 +10,7 @@ import pytest
 from model.xRIR_cyl_oriented import BACKBONES_EXP06
 from tools import exp06_approvals_api as approvals_api
 from tools import exp06_compare as subject
+from tools import exp05_profiles
 from tools import exp06_eval
 from tools import provenance
 
@@ -80,6 +81,10 @@ ROLES = {'C': {'arm': 'cyl_or', 'checkpoint': None, 'route': 'exp06', 'role': 'a
 EXP04_DIGEST = provenance.sha256_file(
     __import__('tools.exp04_profiles', fromlist=['x']).APPROVED_DIGESTS_PATH)
 EXP05_DIGEST = 'a5' * 32
+M_CYL = next(arm for arm in exp05_profiles.ARMS if arm['role'] == 'M_cyl')
+M_COUNTS = exp05_profiles.json_value(M_CYL['counts'])
+TIER_KEYS = ('tier', 'param_counts', 'args_json_sha256', 'legacy_M',
+             'vit_dim', 'vit_depth', 'vit_heads', 'vit_mlp_dim')
 
 
 def approved_digests(epoch_012_sha):
@@ -174,13 +179,22 @@ def write_run(directory, role, seed, checkpoints, split=SPLIT, manifest_hash=Non
         fields['mutable_inputs'] = {name: dict(binding) for name in
                                     ('train_manifest', 'train_completion')}
     elif route == 'exp05':
-        fields.update(tier='M', legacy_M=True, param_counts={'full': 32123581},
-                      args_json_sha256='b' * 64, vit_dim=512, vit_depth=12, vit_heads=8,
-                      vit_mlp_dim=512, mutable_inputs={'train_args': dict(binding)})
+        # The checkpoint-adjacent args.json exp_05's own tier rules read.
+        train_args = Path(checkpoint).resolve().parent / 'args.json'
+        if not train_args.exists():
+            train_args.write_text(json.dumps({'backbone': fields['backbone'],
+                                              'num_shot': subject.NUM_SHOT}))
+        fields.update(tier='M', legacy_M=True, param_counts=dict(M_COUNTS),
+                      args_json_sha256=provenance.sha256_file(train_args),
+                      vit_dim=512, vit_depth=12, vit_heads=8, vit_mlp_dim=512,
+                      mutable_inputs={'train_args': {
+                          'path': str(train_args),
+                          'sha256': provenance.sha256_file(train_args)}})
     fields.update(manifest or {})
     keys = ('backbone', 'checkpoint', 'manifest_hash', 'gl_seed', 'batch_size', 'tf32',
             'manifest_seed', 'yaw_cols', 'conditions', 'n_samples')
-    meta = {key: fields[key] for key in keys + (META_FIELDS if exp06 else ())}
+    extra = META_FIELDS if exp06 else (TIER_KEYS if route == 'exp05' else ())
+    meta = {key: fields[key] for key in keys + extra}
     per = {'meta': meta, 'query': list(QUERIES[:split['n_queries']]),
            'index': list(range(split['n_queries'])), 'delay_flips': {'0': 0},
            'decomposition': None,
@@ -201,6 +215,8 @@ def write_run(directory, role, seed, checkpoints, split=SPLIT, manifest_hash=Non
               'directory_listing': sorted(n for n in subject.FILES if n != 'completion.json'),
               'outputs': {name: provenance.sha256_file(directory / name)
                           for name in subject.OUTPUTS}}
+    if route == 'exp05':                     # exp_04's launcher copies them from the manifest
+        record.update({key: fields[key] for key in TIER_KEYS})
     record.update(completion or {})
     (directory / 'completion.json').write_text(json.dumps(record, sort_keys=True))
     return directory
@@ -820,3 +836,79 @@ def test_the_exp06_output_metadata_must_agree_with_the_manifest(tmp_path, checkp
     (directory / 'completion.json').write_text(json.dumps(record, sort_keys=True))
     with pytest.raises(ValueError, match='meta checkpoint_role'):
         subject.admit_run(directory, 'C', approved, SPLIT, roles=ROLES)
+
+
+# --- finding 5: the exp_05 route establishes what it declares ------------------------------
+
+
+@pytest.fixture
+def exp05(monkeypatch):
+    monkeypatch.setattr(subject, 'exp05_approvals',
+                        lambda: ({'evaluator': CLOSURES['exp05_eval']['sha256'],
+                                  'writer': CLOSURES['exp04_eval_launch']['sha256']},
+                                 {'sha256': EXP05_DIGEST}))
+
+
+def test_the_exp05_route_binds_the_checkpoints_own_args_json(tmp_path, checkpoints, approved,
+                                                             exp05):
+    directory = write_run(tmp_path / 'm', 'B', 42, checkpoints, SPLIT, route='exp05')
+    run = subject.admit_run(directory, 'B', approved, SPLIT, roles=ROLES)
+    args = Path(checkpoints['B']).resolve().parent / 'args.json'
+    assert run['tier'] == {'tier': 'M', 'legacy_M': True,
+                           'args_json': {'path': str(args),
+                                         'sha256': provenance.sha256_file(args)},
+                           'param_counts': dict(M_COUNTS), 'arm': 'M_cyl'}
+
+
+TIER_REFUSALS = {
+    'args_digest': ({'args_json_sha256': 'b' * 64}, 'args.json'),
+    'counts': ({'param_counts': {'full': 1}}, 'param_counts'),
+    'dim': ({'vit_dim': 768}, 'vit_dim'),
+    'legacy': ({'legacy_M': False}, 'legacy_M'),
+}
+
+
+@pytest.mark.parametrize('case', sorted(TIER_REFUSALS))
+def test_a_tier_declaration_the_checkpoint_does_not_support_is_refused(tmp_path, checkpoints,
+                                                                       approved, exp05, case):
+    manifest, cause = TIER_REFUSALS[case]
+    directory = write_run(tmp_path / case, 'B', 42, checkpoints, SPLIT, route='exp05',
+                          manifest=manifest)
+    with pytest.raises(ValueError, match=cause):
+        subject.admit_run(directory, 'B', approved, SPLIT, roles=ROLES)
+
+
+def test_a_train_args_binding_that_is_not_the_args_json_is_refused(tmp_path, checkpoints,
+                                                                   approved, exp05):
+    directory = write_run(tmp_path / 'elsewhere', 'B', 42, checkpoints, SPLIT, route='exp05')
+    fields = json.loads((directory / 'eval_manifest.json').read_text())
+    log = directory.parent / 'B_seed42.log'
+    fields['mutable_inputs'] = {'train_args': {'path': str(log),
+                                               'sha256': provenance.sha256_file(log)}}
+    rewrite(directory, fields)
+    with pytest.raises(ValueError, match='not the checkpoint args.json'):
+        subject.admit_run(directory, 'B', approved, SPLIT, roles=ROLES)
+
+
+def test_tier_fields_that_disagree_across_the_outputs_are_refused(tmp_path, checkpoints,
+                                                                  approved, exp05):
+    directory = write_run(tmp_path / 'disagree', 'B', 42, checkpoints, SPLIT, route='exp05')
+    record = json.loads((directory / 'completion.json').read_text())
+    record['tier'] = 'L'
+    (directory / 'completion.json').write_text(json.dumps(record, sort_keys=True))
+    with pytest.raises(ValueError, match='completion tier'):
+        subject.admit_run(directory, 'B', approved, SPLIT, roles=ROLES)
+
+
+def test_an_args_json_that_declares_another_tier_is_refused(tmp_path, checkpoints, approved,
+                                                            exp05):
+    directory = write_run(tmp_path / 'other', 'B', 43, checkpoints, SPLIT, route='exp05')
+    args = Path(checkpoints['B']).resolve().parent / 'args.json'
+    original = args.read_text()
+    args.write_text(json.dumps({'backbone': 'cylindrical', 'vit_dim': 768, 'vit_depth': 12,
+                                'vit_heads': 12, 'vit_mlp_dim': 768}))
+    try:
+        with pytest.raises(ValueError, match='args.json'):
+            subject.admit_run(directory, 'B', approved, SPLIT, roles=ROLES)
+    finally:
+        args.write_text(original)
