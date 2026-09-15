@@ -56,6 +56,18 @@ def test_the_fixture_carries_the_full_runs_training_evidence(exp07_fixture):
         assert {'epoch_%03d.pth' % epoch for epoch in range(1, 13)} <= set(listing)
 
 
+def test_the_fixtures_attempts_revalidate_as_the_binder_reads_them(exp07_fixture):
+    """The reviewed blobs resolve, so tools.provenance can ask for post-spawn drift."""
+    built = exp07_fixture()
+    for role in ('seen_simple', 'seen_cyl', 'seen_aug'):
+        fields = built.read(built.attempts[role] / 'train_manifest.json')
+        drift = []
+        assert p.revalidate(fields, required=('repo', 'source_closures', 'mutable_inputs',
+                                              'train_data_identity', 'effective_args'),
+                            source_drift=drift) == []
+        assert drift == [] and len(fields['reviewed_commit']) == 40
+
+
 @pytest.fixture
 def built(exp07_fixture):
     return exp07_fixture()

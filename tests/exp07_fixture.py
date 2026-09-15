@@ -6,6 +6,7 @@ split pickle), so the producers can be exercised without a GPU or AcousticRooms.
 """
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,6 +20,23 @@ from test_paired_compare import _canonical_digest, _read, _replace, _rebind, _su
 
 METRICS = ('edt', 'c50', 't60', 'loss', 'log_mse')
 SCALES = dict(seen_simple=1.0, seen_cyl=.94, seen_aug=1.08, released_seen=1.21)
+
+
+def _git(root, *args):
+    return subprocess.check_output(['git', '-C', str(root)] + list(args), text=True).strip()
+
+
+def _commit_sources(root, names):
+    """Make the fixture root a repository so reviewed blobs can be resolved.
+
+    tools.provenance.revalidate reads every closure record's reviewed blob with `git show`
+    when a binder asks for post-spawn drift, exactly as it does for the live repository.
+    """
+    _git(root, 'init', '-q')
+    _git(root, 'add', *names)
+    _git(root, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com',
+         'commit', '-qm', 'fixture sources', '--no-gpg-sign')
+    return _git(root, 'rev-parse', 'HEAD')
 
 
 def _source(root, name):
@@ -56,11 +74,12 @@ def exp07_fixture(tmp_path):
         profile['dataset'].update(n_queries=12, n_rooms=3, query_sha256=_canonical_digest(queries),
                                   seen_split_sha256=p.sha256_file(split))
         split_binding = dict(path=p.SEEN_SPLIT, sha256=p.sha256_file(split))
-        entry, writer, launcher, training = [_source(root, path) for path in (
-            'tools/exp07_eval.py', 'tools/exp04_eval_launch.py', 'tools/exp04_launcher.py',
-            'train_xRIR_backbone.py')]
-        frozen = _source(root, 'eval_yaw_rotation.py')
-        producer = dict(sha256='a' * 64, files=[], commit='b' * 40)
+        names = ('tools/exp07_eval.py', 'tools/exp04_eval_launch.py', 'tools/exp04_launcher.py',
+                 'train_xRIR_backbone.py', 'eval_yaw_rotation.py')
+        entry, writer, launcher, training, frozen = [_source(root, name) for name in names]
+        commit = _commit_sources(root, names)
+        producer = dict(sha256='a' * 64, files=[],
+                        commit=_git(Path(__file__).resolve().parents[1], 'rev-parse', 'HEAD'))
         pins = dict(schema_version=1, closures=dict(
             evaluator=entry['sha256'], writer=writer['sha256'],
             training_launcher=[launcher['sha256']], training=training['sha256'],
@@ -123,7 +142,7 @@ def exp07_fixture(tmp_path):
                 receipt = dict(schema_version=1, tier='M', backbone=arm['backbone'],
                                protocol='seen', yaw_aug=arm['yaw_aug'], passed=True,
                                PROBE_NOT_CLEAN=False, T_epoch=8400., T_run=100800.,
-                               reviewed_commit='b' * 40, gpu='1')
+                               reviewed_commit=commit, gpu='1')
                 receipt_path = attempt.parent / 'probe_receipt.json'
                 receipt_digest = p.write_manifest(receipt_path, receipt)
                 p.write_manifest(attempt.parent / 'cumulative_hours.json', dict(
@@ -143,7 +162,7 @@ def exp07_fixture(tmp_path):
                     train_inventory=dict(trained_identity['inventory_file']),
                     probe_receipt=dict(path=str(receipt_path), sha256=receipt_digest))
                 train_manifest = attempt / 'train_manifest.json'
-                p.write_manifest(train_manifest, dict(repo=str(root), reviewed_commit='b' * 40,
+                p.write_manifest(train_manifest, dict(repo=str(root), reviewed_commit=commit,
                     mode='full', protocol='seen', effective_args=effective, allow_dirty=False,
                     attempt_path=str(attempt), train_data_identity=trained_identity,
                     timing_limits=dict(protocol='seen', epoch_seconds=1.05 * receipt['T_epoch'],
@@ -170,7 +189,7 @@ def exp07_fixture(tmp_path):
                     directory.mkdir(parents=True)
                     paths[(role, shot)].append(str(directory))
                     reference_path, reference = references[(shot, seed)]
-                    fields = dict(schema_version=1, repo=str(root), reviewed_commit='b' * 40,
+                    fields = dict(schema_version=1, repo=str(root), reviewed_commit=commit,
                         checkpoint=str(checkpoint), checkpoint_sha256=arm['sha256'],
                         manifest_path=str(reference_path), manifest_seed=seed, gl_seed=seed,
                         manifest_file_sha256=p.sha256_file(reference_path),
