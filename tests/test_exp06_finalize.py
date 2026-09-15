@@ -174,3 +174,131 @@ def test_unknown_run_type_and_missing_directory_are_refused(tmp_path, full_run):
         exp06_finalize.finalize(run, 'invented', log, 0, repo=REPO)
     with pytest.raises(ValueError, match='directory'):
         exp06_finalize.finalize(tmp_path / 'absent', 'full', log, 0, repo=REPO)
+
+
+def haa_train_args(frame='heading', **overrides):
+    args = dict(backbone='cylindrical_oriented', rooms=['class_room', 'hallway', 'complex_room'],
+                save_dir='ckpt/exp06/sim2real/cyl_or/seed0/stage1', frame=frame, seed=0,
+                epochs=1000, val_every=10, lr=1e-4, weight_decay=1e-4, eval_seed=0,
+                init='ckpt/exp06/pretrain/final/epoch_012.pth', init_sha256='e' * 64,
+                heading={room: {'phi_deg': -90.0, 'k': 128, 'sha256': 'f' * 64}
+                         for room in ('class_room', 'hallway', 'complex_room')})
+    args.update(overrides)
+    return args
+
+
+def write_haa_train(run, args):
+    run.mkdir(parents=True, exist_ok=True)
+    (run / 'args.json').write_text(json.dumps(args))
+    (run / 'history.jsonl').write_text(json.dumps({'epoch': 10, 'val_loss': 0.5}) + '\n')
+    (run / 'summary.json').write_text(json.dumps({'best_val_loss': 0.5, 'best_epoch': 10}))
+    for name in ('best.pth', 'last.pth'):
+        torch.save(STATE, run / name)
+    return run
+
+
+def write_haa_eval(run, args, meta):
+    run.mkdir(parents=True, exist_ok=True)
+    (run / 'args.json').write_text(json.dumps(args))
+    room = args['rooms'][0]
+    (run / 'metrics_{}.json'.format(room)).write_text(json.dumps({'edt': 0.05, 'c50': 1.1}))
+    (run / 'per_sample_{}.json'.format(room)).write_text(json.dumps({'meta': meta, 'edt': [0.05]}))
+    return run
+
+
+@pytest.fixture
+def closed_log_file(tmp_path):
+    log = tmp_path / 'child.log'
+    log.write_text('stage output\n' + MARKER + '\n')
+    return log
+
+
+def test_haa_train_completion_binds_heading_and_artifacts(tmp_path, closed_log_file):
+    run = write_haa_train(tmp_path / 'stage1', haa_train_args())
+    fields = exp06_finalize.finalize(run, 'haa_train', closed_log_file, 0, repo=REPO)
+    assert set(fields['artifacts']) == {'args.json', 'history.jsonl', 'summary.json',
+                                        'best.pth', 'last.pth'}
+    assert fields['frame'] == 'heading' and fields['backbone'] == 'cylindrical_oriented'
+    assert fields['heading']['hallway']['k'] == 128 and fields['init_sha256'] == 'e' * 64
+    assert fields['diagnostic'] is False and fields['admissible_arm'] is True
+    assert json.loads((run / 'completion.json').read_text()) == fields
+
+
+def test_haa_train_in_the_room_frame_needs_no_heading(tmp_path, closed_log_file):
+    args = haa_train_args(frame='room')
+    args.pop('heading')
+    args.pop('init_sha256')
+    run = write_haa_train(tmp_path / 'stage1_room', args)
+    fields = exp06_finalize.finalize(run, 'haa_train', closed_log_file, 0, repo=REPO)
+    assert fields['frame'] == 'room' and fields['heading'] is None
+
+
+@pytest.mark.parametrize('damage,cause', [
+    ('frame', 'frame'), ('no_heading', 'heading'), ('partial_heading', 'heading'),
+    ('bad_k', 'heading'), ('bad_sha', 'heading'), ('no_init', 'init_sha256'),
+    ('summary', 'summary.json'), ('best', 'best.pth'), ('rooms', 'rooms')])
+def test_haa_train_refusals_are_named(tmp_path, closed_log_file, damage, cause):
+    args = haa_train_args()
+    if damage == 'frame':
+        args['frame'] = 'world'
+    elif damage == 'no_heading':
+        args.pop('heading')
+    elif damage == 'partial_heading':
+        args['heading'].pop('hallway')
+    elif damage == 'bad_k':
+        args['heading']['hallway']['k'] = 512
+    elif damage == 'bad_sha':
+        args['heading']['hallway']['sha256'] = 'zz'
+    elif damage == 'no_init':
+        args.pop('init_sha256')
+    elif damage == 'rooms':
+        args['rooms'] = []
+    run = write_haa_train(tmp_path / 'stage1', args)
+    if damage in ('summary', 'best'):
+        (run / {'summary': 'summary.json', 'best': 'best.pth'}[damage]).unlink()
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(run, 'haa_train', closed_log_file, 0, repo=REPO)
+    assert not (run / 'completion.json').exists()
+
+
+def test_haa_eval_completion_records_the_single_room(tmp_path, closed_log_file):
+    args = dict(backbone='cylindrical_oriented', rooms=['hallway'], frame='heading',
+                checkpoint='ckpt/exp06/sim2real/cyl_or/seed0/stage2_hallway/best.pth',
+                eval_seed=0, split='test',
+                heading={'hallway': {'phi_deg': -90.0, 'k': 128, 'sha256': 'f' * 64}})
+    meta = {'backbone': 'cylindrical_oriented', 'checkpoint_sha256': 'd' * 64,
+            'frame': 'heading', 'heading': {'hallway': {'k': 128}}}
+    run = write_haa_eval(tmp_path / 'eval' / 'hallway', args, meta)
+    fields = exp06_finalize.finalize(run, 'haa_eval', closed_log_file, 0, repo=REPO)
+    assert fields['room'] == 'hallway' and fields['frame'] == 'heading'
+    assert set(fields['artifacts']) == {'args.json', 'metrics_hallway.json', 'per_sample_hallway.json'}
+    assert fields['checkpoint_sha256'] == 'd' * 64
+
+
+@pytest.mark.parametrize('damage,cause', [
+    ('two_rooms', 'room'), ('no_metrics', 'metrics_hallway.json'),
+    ('no_per_sample', 'per_sample_hallway.json'), ('no_meta_heading', 'heading'),
+    ('no_meta_backbone', 'meta'), ('meta_backbone_differs', 'backbone')])
+def test_haa_eval_refusals_are_named(tmp_path, closed_log_file, damage, cause):
+    args = dict(backbone='cylindrical_oriented', rooms=['hallway'], frame='heading',
+                checkpoint='best.pth', eval_seed=0, split='test',
+                heading={'hallway': {'phi_deg': -90.0, 'k': 128, 'sha256': 'f' * 64}})
+    meta = {'backbone': 'cylindrical_oriented', 'checkpoint_sha256': 'd' * 64,
+            'frame': 'heading', 'heading': {'hallway': {'k': 128}}}
+    if damage == 'two_rooms':
+        args['rooms'] = ['hallway', 'class_room']
+        args['heading']['class_room'] = {'phi_deg': -90.0, 'k': 128, 'sha256': 'f' * 64}
+    elif damage == 'no_meta_heading':
+        meta.pop('heading')
+    elif damage == 'no_meta_backbone':
+        meta.pop('backbone')
+    elif damage == 'meta_backbone_differs':
+        meta['backbone'] = 'cylindrical'
+    run = write_haa_eval(tmp_path / 'eval' / 'hallway', args, meta)
+    if damage == 'no_metrics':
+        (run / 'metrics_hallway.json').unlink()
+    elif damage == 'no_per_sample':
+        (run / 'per_sample_hallway.json').unlink()
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(run, 'haa_eval', closed_log_file, 0, repo=REPO)
+    assert not (run / 'completion.json').exists()

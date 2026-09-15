@@ -8,6 +8,11 @@ type recorded on the command line (and, for ``full``, in ``provenance.json``):
               budget completeness, ``epoch_012.pth`` equal to ``last.pth['model']``,
               child status 0 and a closed log.
 ``smoke``/``probe``  no artifacts; labelled ``diagnostic`` and never admissible as an arm.
+``haa_train`` one fine-tuning child: its args (heading binding and init hash in the
+              heading frame), history, summary and both checkpoints.
+``haa_eval``  one evaluation child: its args and the metrics/per-sample files of the one
+              room it names, whose ``meta`` carries the backbone, checkpoint hash, frame
+              and (in the heading frame) the heading.
 
 Every failure raises ``ValueError`` naming its cause and writes nothing; a re-run
 produces byte-identical bytes, and an existing completion that differs is refused.
@@ -24,7 +29,11 @@ from tools import exp06_recipe, provenance
 REPO = Path(__file__).resolve().parents[1]
 MARKER = 'EXP06_CHILD_EXIT'
 DIAGNOSTIC = ('smoke', 'probe')
+RUN_TYPES = ('full', 'smoke', 'probe', 'haa_train', 'haa_eval')
 FULL_ARTIFACTS = ('provenance.json', 'args.json', 'history.jsonl', 'last.pth', 'epoch_012.pth')
+HAA_TRAIN_ARTIFACTS = ('args.json', 'history.jsonl', 'summary.json', 'best.pth', 'last.pth')
+FRAMES = ('room', 'heading')
+WIDTH = 512
 EPOCH_CHECKPOINT = 'epoch_{:03d}.pth'.format(exp06_recipe.EXP01_RECIPE['epochs'])
 
 
@@ -129,6 +138,69 @@ def diagnostic_evidence(run_dir, receipt):
     return fields
 
 
+def _is_sha256(value):
+    return (isinstance(value, str) and len(value) == 64
+            and all(character in '0123456789abcdef' for character in value))
+
+
+def _rooms_and_frame(args):
+    """Every HAA child records the rooms it ran and the frame its geometry was in."""
+    rooms = args.get('rooms')
+    _require(isinstance(rooms, list) and rooms and all(isinstance(room, str) for room in rooms),
+             'args.json must record a nonempty list of rooms')
+    frame = args.get('frame')
+    _require(frame in FRAMES, 'args.json must record frame room|heading, not {!r}'.format(frame))
+    return rooms, frame
+
+
+def _heading_binding(args, rooms, frame):
+    """In the heading frame every room needs a bound heading record; the room frame needs none."""
+    if frame != 'heading':
+        return None
+    heading = args.get('heading')
+    _require(isinstance(heading, dict) and set(rooms) <= set(heading),
+             'the heading frame requires a heading record for every room')
+    for room in rooms:
+        entry = heading[room]
+        _require(isinstance(entry, dict) and type(entry.get('k')) is int
+                 and 0 <= entry['k'] < WIDTH and _is_sha256(entry.get('sha256')),
+                 'invalid heading binding for {}: {!r}'.format(room, entry))
+    return {room: heading[room] for room in rooms}
+
+
+def haa_train_evidence(run_dir):
+    """One fine-tuning child of the HAA pipeline (plan section 6.2)."""
+    hashes = artifacts(run_dir, HAA_TRAIN_ARTIFACTS)
+    args = _read_json(Path(run_dir) / 'args.json', 'args.json')
+    rooms, frame = _rooms_and_frame(args)
+    heading = _heading_binding(args, rooms, frame)
+    if frame == 'heading':
+        _require(_is_sha256(args.get('init_sha256')),
+                 'heading-frame fine-tuning must record init_sha256 of its initialisation')
+    return dict(artifacts=hashes, rooms=rooms, frame=frame, heading=heading,
+                backbone=args.get('backbone'), init_sha256=args.get('init_sha256'))
+
+
+def haa_eval_evidence(run_dir):
+    """One evaluation child: exactly one room, with its per-sample provenance meta."""
+    args = _read_json(Path(run_dir) / 'args.json', 'args.json')
+    rooms, frame = _rooms_and_frame(args)
+    _require(len(rooms) == 1, 'an evaluation child covers exactly one room, not {}'.format(rooms))
+    room, tag = rooms[0], args.get('tag', '')
+    names = ('args.json', 'metrics_{}{}.json'.format(room, tag),
+             'per_sample_{}{}.json'.format(room, tag))
+    hashes = artifacts(run_dir, names)
+    heading = _heading_binding(args, rooms, frame)
+    meta = _read_json(Path(run_dir) / names[2], names[2]).get('meta')
+    required = ('backbone', 'checkpoint_sha256', 'frame') + (('heading',) if frame == 'heading' else ())
+    _require(isinstance(meta, dict) and all(key in meta for key in required),
+             'per-sample meta must record ' + ', '.join(required))
+    _require(meta['backbone'] == args.get('backbone') and meta['frame'] == frame,
+             'per-sample meta backbone/frame differ from args.json')
+    return dict(artifacts=hashes, room=room, frame=frame, heading=heading,
+                backbone=args.get('backbone'), checkpoint_sha256=meta['checkpoint_sha256'])
+
+
 def write_completion(path, fields):
     """Publish once; a re-run must produce the same bytes, a different result is refused."""
     payload = json.dumps(fields, sort_keys=True, indent=2, allow_nan=False).encode() + b'\n'
@@ -143,7 +215,7 @@ def write_completion(path, fields):
 def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None):
     """Verify one child's evidence for its run type and write completion.json."""
     run_dir = Path(run_dir)
-    _require(run_type in ('full',) + DIAGNOSTIC, 'unknown run type: {!r}'.format(run_type))
+    _require(run_type in RUN_TYPES, 'unknown run type: {!r}'.format(run_type))
     _require(run_dir.is_dir(), 'run directory does not exist: {}'.format(run_dir))
     _require(type(child_exit) is int, 'child status must be an integer')
     log_record, child_exit_time = closed_log(log, child_exit)
@@ -155,5 +227,7 @@ def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None):
                   child_exit_time=child_exit_time, log=log_record,
                   diagnostic=diagnostic, admissible_arm=not diagnostic)
     fields.update(diagnostic_evidence(run_dir, receipt) if diagnostic
-                  else full_evidence(run_dir, repo))
+                  else full_evidence(run_dir, repo) if run_type == 'full'
+                  else haa_train_evidence(run_dir) if run_type == 'haa_train'
+                  else haa_eval_evidence(run_dir))
     return write_completion(run_dir / 'completion.json', fields)
