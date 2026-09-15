@@ -7,6 +7,7 @@ import torch
 
 from model.cylindrical_vit import CylindricalViT
 from model.cylindrical_vit_oriented import CylindricalViTOriented, azimuth_channels
+from tools.exp06_heading import canonical_heading_deg, heading_roll_k
 from tools.yaw_rotation import rotate_scene_yaw
 from treble_multi_room_dataset.treble_xRIR_dataset import convert_equirect_to_camera_coord
 
@@ -33,7 +34,7 @@ def token_roll(tokens, k):
 
 def test_shape_buffers_camera_and_signature():
     model = encoder()
-    assert model(encoding(scene())).shape == (1, 32, 32)
+    assert model(encoding(scene()).expand(2, -1, -1, -1)).shape == (2, 32, 32)
     expected = torch.stack((model.cos_theta, model.sin_theta))[:, None].expand(2, 32, 512)
     assert torch.equal(model.az_channels, expected)
     assert torch.equal(azimuth_channels(32, 512), expected)
@@ -84,10 +85,11 @@ def test_active_yaw_matches_independent_roll_and_matrix(j):
 @pytest.mark.parametrize('j', [0, 1, 32, 128, 511])
 @torch.no_grad()
 def test_joint_heading_cancellation(phi, j):
-    # Independent quantisation oracle; production helper's ties are tested separately.
-    k = math.floor(-phi * 512 / 360 + 0.5) % 512
-    canonical = -k * 360 / 512
-    shifted_k = math.floor(-(canonical + j * 360 / 512) * 512 / 360 + 0.5) % 512
+    k = heading_roll_k(phi)
+    assert k == math.floor(-phi * 512 / 360 + 0.5) % 512
+    canonical = canonical_heading_deg(k, 512)
+    shifted_k = heading_roll_k(canonical + j * 360 / 512)
+    assert (shifted_k + j) % 512 == k
     original = scene()
     first = encoding(rotate_scene_yaw(*original, k))
     second = encoding(rotate_scene_yaw(*rotate_scene_yaw(*original, j), shifted_k))
