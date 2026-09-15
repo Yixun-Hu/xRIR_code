@@ -290,10 +290,11 @@ OPERATIONAL_CASES = [
 def test_operational_values_are_type_strict_and_bounded(overrides, named):
     """Finding 4: agreement between the three argument copies never validates a value."""
     from tools.exp06_recipe import check_operational
-    deviations = check_operational(full_args(**overrides))
+    args = dict(full_args(), **overrides)  # an unregistered backbone has no parameter counts
+    deviations = check_operational(args)
     assert deviations and all(named in deviation for deviation in deviations)
     assert any(named in deviation for deviation in
-               check_all(full_args(**overrides), history_rows=history(), last_meta=LAST))
+               check_all(args, history_rows=history(), last_meta=LAST))
 
 
 def test_the_registered_operational_arguments_pass():
