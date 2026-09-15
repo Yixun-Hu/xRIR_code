@@ -83,3 +83,72 @@ All carry the requested Codex trailer; no worklog/ or ckpt/ committed; no push.
 - `80f31461eef12d004b2dfc5f7b9389cf75e9eadb` — exp_04: fail closed on table edits and require augmented training provenance (Codex, trailer gpt-6-astra)
 
 Round map: 3a = `9cd3703`…`fce0035` (provenance helper, `tools/exp04_eval.py`, evaluation launcher); 3b = `38cf05b`…`07f3bc9` (training launcher/probe); 3a-fix = `3e34a73`…`bd50f74`; 4 = `eae21dc`…`b42b559` (profiles, `paired_compare`); 3b-fix = `9b47c7a`…`f7596c0`; 5 = `d750597`…`be5830d` (A9, `results_table`); 6 = `e3decd7`…`80f3146` (pre-launch hardening). Planner bookkeeping commits: `ad19454`, `a367d06`, `37b5f0d`. Every Codex commit < 200 changed lines with the trailer; exp_03's pinned closure untouched (`git log 62c9107..80f3146 -- <12 files>` empty).
+
+## Planner commits, record phase — 2026-09-15T04:50:31-04:00
+- `6dc1821` — exp_04 bookkeeping: round 6 delivery, params set-up draft, commits map through 80f3146
+- `167722c` — Share signal-safe termination across exp04 launchers
+- `ed5f2a1` — Protect exp04 completion transactions and restore recovery logs
+- `7fdff94` — Add frozen exp05 tiers and exact parameter accounting
+- `a3eb253` — Expose trainer ViT tiers with historical M step parity
+- `5ea3d49` — Preserve exp04 launcher parity and validate exp05 tier commands
+- `76c14e9` — feat(exp05): bind tier checkpoints to the shared evaluation loop
+- `6335eb7` — exp_04 bookkeeping: round 7 delivered and approved (launch code state certified), A10 extension
+- `dc0c895` — test(exp05): compare tier evaluation and smoke checkpoints on GPU
+- `6a1a209` — feat(exp05): launch tier evaluation with bound training arguments
+- `449055c` — feat(exp05): measure tier training validation and scratch-save costs
+- `b74d2ec` — feat(exp05): validate tier receipts and cumulative training budgets
+- `287e3ed` — feat(exp05): launch single-arm tier probes and write receipts
+- `a19a2a0` — feat(exp05): enforce receipt-derived full-run and epoch-one limits
+- `0dba2b3` — fix(exp05): reject stale probes resource drift and invalid metadata types
+- `5e8b677` — exp_05 bookkeeping: round 1 delivered and reviewed, goldens, amendments A1-A4, reviewer briefing and prompts
+- `0916864` — feat(exp05): freeze capacity profiles and approval schema
+- `f2b953a` — feat(exp05): compute registered cohorts and paired intervals
+- `6ac01f2` — feat(exp05): gate six-arm conclusions and target ratios
+- `faf3b1c` — test(exp05): bind six-arm synthetic evaluation fixtures
+- `c381184` — feat(exp05): validate tier metadata and explicit M evaluator pins
+- `a3f81d1` — feat(exp05): fail closed on grouped run admission
+- `01de56f` — feat(exp05): publish canonical curves with shared provenance writer
+- `fe0fa94` — fix(exp05): bind tier checks to admitted input bytes
+- `970bc52` — feat(exp05): report descriptive paired yaw changes by tier
+- `860a334` — test(exp05): cover secondary profiles and provenance boundaries
+- `ba2f281` — fix(exp05): bind golden recipes to tier arms and records
+- `0e35e2c` — fix(launchers): certify completion before honoring tail signals
+- `f19b9b6` — fix(exp05): bind probe evidence and audit ceiling renewals
+- `453b8da` — exp_05 bookkeeping: rounds 2-3 reviews, close-out prompts, amendments A5-A8; exp_04 round-7 review final count
+- `1ec0457` — fix(exp05): bind training evidence and complete recipe admission
+- `d1f0d61` — fix(exp05): close producer reporting and boundary review findings
+- `6cfb377` — exp_05 bookkeeping: round-3 close-out delivered
+- `8b85119` — exp_04/exp_05 bookkeeping: launch commit f19b9b6 certified; round-2 close-out review
+- `ca752ea` — exp_05 bookkeeping: round-3 close-out review, round-4 prompt
+- `486a3f0` — exp_04: rung-6 probe passed, confirmatory training launched (attempt_20260913T102051)
+- `3153ad1` — exp_05: fit/timing probes passed for S/L both backbones (L fits at 32x2); command file
+- `b9ea327` — exp_04 epoch 1 accepted; exp_05 training queue launched on GPU 1 (S_simple attempt_20260913T123905)
+- `2066830` — exp_05: S_simple certified (11.41 h), S_cylindrical launched
+- `6792167` — exp_05: S_cylindrical certified (12.00 h), L_cylindrical launched
+
+## All exp_04 commits after `6792167` (Codex rounds 7–8 incl. the worktree branch, Planner record phase) — 2026-09-15T06:26:56-04:00
+- `265dc83` — exp_04: confirmatory training certified (27.43 h, epoch_012 f8e64052); evaluation chain launched on GPU 0
+- `bb9fa91` — exp_05 round 4 delivered; exp_04 round-8 prompt (result generators)
+- `f41473c` — exp04: render canonical Markdown record with provenance refusals
+- `929ab47` — exp04: correct record test path in index
+- `4827cc1` — exp04: render offline HTML tables and canonical interval charts
+- `4f0abb6` — exp04: bind immutable run evidence and check record digests
+- `424f1f0` — exp_04 round 8 delivered (record generators)
+- `ecbb96e` — exp_04: log three setup refusals (dirty tree during round 8) and the re-queue plan
+- `51b8c89` — exp_04: isolate record assets from exp_03 modules
+- `42b4903` — exp_04: bind canonical results and producer ancestry
+- `3221624` — exp_04: clarify record precision and family verdicts
+- `c359385` — exp_04: produce and render descriptive yaw diagnostics
+- `7192b6e` — exp_04 bookkeeping: round-8 review, close-out prompt, worktree decision
+- `82745f6` — exp_04: restore pinned exp_03 acceptance regression
+- `60468a0` — exp_04: bind results to approvals and completed runs
+- `7ea196a` — exp_04: close diagnostic schema and record presentation nits
+- `9eacbb4` — Merge branch codex-window: exp_04 round 8 (record generators, binder, descriptive producer) and exp_05 rounds 5 (A9 launcher-digest list, receipt causes, template tests)
+- `58a8953` — bookkeeping: merge logged, branch review
+- `77ef292` — exp_04 notebook: exp_06 coordination reply
+- `daa7eef` — exp_03: PNG figures of r_k vs yaw (acoustic, spectral, H2 D_k) rendered from the canonical full_stats.json
+- `fa219ef` — exp_04: fill approved_digests.json (second reviewed commit): evaluator 0b05245c, writer 15f9c984, training launcher 0bff0d4f (attempt record), producers at daa7eef, aug epoch-12 f8e64052, epoch-9 442a0a56
+- `87d3e54` — exp_04: H2/TOST/EPOCH9 producer runs logged (H2 partially supported; TOST equivalent at axis-aligned headings only)
+- `f851be1` — exp_04: H1 (non-inferior on EDT only at K=8 and K=1), TABLE_V1 and the living table
+- `cab6f42` — exp_04: results.md, results page, record binding report checked; grid diagnostic
+- `862923e` — exp_04: analysis, params finalised, command file, commits map

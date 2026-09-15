@@ -1,19 +1,19 @@
 {
-  "schema_version": null,
+  "schema_version": 1,
   "closures": {
-    "evaluator": null,
-    "writer": null,
-    "training_launcher": null,
-    "producer_paired_compare": null,
-    "producer_results_table": null,
-    "producer_descriptive": null
+    "evaluator": "0b05245c3e02511f1985d0bc833cc9e424e99facee875a0f33bdf737baf4bd8b",
+    "writer": "15f9c984561de9ec3caac905d97ce0a6d1e23c00fb7d4a39e0b157de2b0a458d",
+    "training_launcher": "0bff0d4fe270740c1adc411fd3e5d945742c2dcb545290d19e663d610fd8df20",
+    "producer_paired_compare": "1bda0601b606395a91d53b0efd8b0ef550b1732cb1be23038df82e214f0d56dd",
+    "producer_results_table": "6d32a5e28611dc7db7c799025de03071374e9fc94eaa209a6495dabc6900c857",
+    "producer_descriptive": "2f86d7ed6f7849a7e890701204daedc9881a3451cc84171383970ee77604dd63"
   },
   "checkpoints": {
-    "aug_epoch9": null,
+    "aug_epoch9": "442a0a568a759090ccc9b7d54efda82c0324f66d19bfac7bf67836e5ee8693b6",
     "aug": {
-      "path": null,
-      "epoch": null,
-      "sha256": null
+      "path": "ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth",
+      "epoch": 12,
+      "sha256": "f8e640523892154fe744b60e2fe99178b68a522ee3947758812aa5a7dc15b299"
     }
   }
 }
