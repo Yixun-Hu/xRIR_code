@@ -818,3 +818,30 @@ def test_approvals_that_were_not_tracked_at_the_reviewed_commit_are_refused():
                                     cwd=str(subject.REPO), text=True).split()[0]
     with pytest.raises(ValueError, match='not tracked at'):
         subject.approvals(False, commit=first)
+
+
+# --- finding 6: the A3 owner is read from the job root, not taken from the record ---------
+
+
+def test_the_job_owner_is_bound_to_the_root_launch_pid(real_job, cache, monkeypatch):
+    """Requiring a positive owner_pid never proved it was the owner the job recorded."""
+    root, repo = real_job
+    monkeypatch.setattr(legacy, 'HAA_ROOT', cache['root'])
+    marker = Path(root) / 'launch.pid'
+    recorded = json.loads((Path(root) / 'completion.json').read_text())['owner_pid']
+    job = subject.verify_job(root, 'seed0', 'cyl_or', repo=repo)
+    assert job['owner'] == {'path': str(marker.resolve()), 'pid': recorded,
+                            'sha256': sha(marker)}
+    original = marker.read_text()
+    try:
+        marker.unlink()
+        with pytest.raises(ValueError, match='no launch.pid'):
+            subject.verify_job(root, 'seed0', 'cyl_or', repo=repo)
+        marker.write_text(str(recorded + 1) + '\n')
+        with pytest.raises(ValueError, match='not the owner_pid'):
+            subject.verify_job(root, 'seed0', 'cyl_or', repo=repo)
+        marker.write_text('not a pid\n')
+        with pytest.raises(ValueError, match='unreadable launch.pid'):
+            subject.verify_job(root, 'seed0', 'cyl_or', repo=repo)
+    finally:
+        marker.write_text(original)
