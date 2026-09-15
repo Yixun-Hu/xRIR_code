@@ -331,3 +331,76 @@
 
 ## 2026-09-15T15:02:42-04:00 — W1 window open: latest `main` (5 more exp_07 record commits, up to `ec7e649`) merged into the branch → `exp06-window` = `9ccb6ea`; one-liner sent to the peer
 - **Validation** — 0 conflicts; code outside `worklog/` identical to the approved `5091f6c`; `--diff-filter=M` vs main empty; merge-tree preview 0 conflicts; 146 commits over main. Awaiting `xrir-code-25`'s confirmation before running `w1_merge.sh`.
+
+## 2026-09-15T15:04:44-04:00 — **MERGED into main**: `eaadb26` (merge, --no-ff) + `1b49cfc` (bookkeeping); peer confirmed at 15:05 and notified at 15:08
+- **Version Control** — main: ec7e649 → eaadb26 → 1b49cfc; 30 exp_06 source/test files tracked; approvals template tracked at `oriented_cyl_results_assets/approved_digests.json`; remaining uncommitted entries are the peer's (exp_01/02 commits files, exp_05/07 logs, `xrir_table.png`). The scratch merge script had aborted harmlessly on a `grep` exit status under `set -e`; the merge was then run step by step with identical content.
+- **Next** — approvals fill (second reviewed commit) → heading JSONs → GPU-0 smokes → probe/full on GPU 1 after the hand-over.
+
+## 2026-09-15T15:08:12-04:00 — approvals fill (second reviewed commit): `fc1ee2a` (invalid: an extra `fill_note` key) → corrected `53307b6`
+- **Change** — `oriented_cyl_results_assets/approved_digests.json` `code` section filled from `tools.exp06_profiles.compute_code_digests(repo, 4d7a6cb)` (the peer's tip after it moved `xrir_table.png`): trainer 5a2c6df0…, finalize b6a9ce86…, recipe c8303ebc…, smoke 55a355ba…, encoder c75bb603…, factory 41ad2ee7…, heading 69e395d0…, profiles 61d7857c…, launch_sh 157e2435…, eval 42975b3a…, eval_launch 1fa4d4c7…, haa_finetune 9288884b…, haa_eval 1f20e36b…, haa_pipeline_sh d962e959…, evaluator_exp03 5ba818d8… (pinned); null: bootstrap, compare, mirror_probe, summarize_haa (round 3, not on main); `reused`/`artifacts` null until their artefacts exist. Fill provenance: Planner (Claude Fable 5.1), 2026-09-15, code digests are blob-based and identical at every commit since the source is unchanged. Planner error: the first fill commit carried a non-schema `fill_note` key (refused by `load_approved_digests`); corrected in the next commit; both SHAs recorded.
+- **Next** — Codex verification of the fill (independent recompute) in parallel with the heading JSONs and GPU-0 smokes; `--reviewed-commit` for smokes/probe/full = the corrected fill commit.
+
+## 2026-09-15T15:10:18-04:00 — heading JSONs produced (rung 3) and Codex verification of the fill + headings launched
+- **Result** — `ckpt/exp06/heading/{class_room,dampened_room,hallway,complex_room}.json`: all `decision estimated`, φ = −90°, k = 128, `admissibility confirmatory` (HEAD 53307b6, tree clean outside worklog/); sha256 prefixes c37053c3 / 2eddf047 / 53641c37 / c3495910 (class, dampened, hallway, complex). These become `artifacts.heading` in the next approvals commit.
+- **Command** — Codex fill/heading verification pid 48837, log `oriented_cyl_2026-09-15_15:10:13_codex_approvals_fill_review.log`.
+
+## 2026-09-15T15:11:01-04:00 — GPU-0 smokes DEFERRED to the GPU-1 hand-over (memory headroom)
+- **Observation** — GPU 0: 46 295 / 49 140 MiB used (exp_05 L_simple training, ≈ 41 h run); GPU 1: 46 352 / 49 140 (L_cylindrical). Free ≈ 2.8 GB per card, below the 3 GB smoke ceiling.
+- **Decision** — do not run co-tenant smokes now: a memory spike could disturb a multi-day training. Rung 4 (smokes a–d, ≈ 10 min) and rung 5 (fit/timing probe) run on GPU 1 right after the hand-over (≈ Sep 16 13:00), before `full`. The launcher's smoke dry-run at 53307b6 was captured (preflight → three smoke children via `exp06_smoke.py` with `--approved`, `--reviewed-commit 53307b6`, `--run-type smoke`, `--alarm-seconds 300 --max-gb 3` → finalizer per smoke → fixture) and matches plan §9.
+- **Peer** — informed; consent for co-tenant smokes (given when GPU 0 ran 1.2 GB evaluations) no longer applies at 2.8 GB headroom.
+
+## 2026-09-15T15:19:36-04:00 — Codex verification of the fill + headings: **request changes** (one test-only item) → Opus launch-gate test fix on branch `exp06-launch-gate`
+- **Result** — `oriented_cyl_codex_approvals_fill_review.md` (615 words): approvals digests recomputed independently and equal; committed-byte binding at 53307b6 confirmed; heading records revalidated against the cache, all −90°/k 128/confirmatory with closure = `code.heading` and clean HEAD 53307b6; merge code identical to 5091f6c; pins intact. Finding: `tests/test_exp06_profiles.py::test_the_record_copy_is_byte_identical_when_it_is_present` asserts record == null template → fails by design after the fill (byte 332). Fix = test only; must be reviewed and the suite replayed green before the launch gate closes.
+- **Change** — worktree `xRIR_code_wt` switched to new branch `exp06-launch-gate` from main 53307b6; `coder_prompts/launch_gate_test_fix_opus_prompt.md`.
+- **Next** — Opus fix → Codex mini-review → peer one-liner → merge into main (W1, before 20:00) → the launch commit for tomorrow = that merge tip.
+
+## 2026-09-15T15:25:19-04:00 — Planner replay of the exp_06 suite on main (started at 53307b6)
+    4d7a6cb
+    SKIPPED [3] tests/test_exp06_factory.py:47: full pinned forward requires CUDA
+    SKIPPED [1] tests/test_exp03_record_tools.py: exp_03 live environment requires two visible GPUs
+    1 failed, 875 passed, 4 skipped, 91 warnings in 1176.46s (0:19:36)
+
+## 2026-09-15T15:42:30-04:00 — Opus round-3b fix cycle 2 delivered (18 commits `2e670da..07001a0`, max 109 lines, 38 reds; **1207 passed / 8 skipped**); Codex close review 2 launched
+- **Result** — report `oriented_cyl_2026-09-15_15:11:40_coder_round3b_fix2_opus_report.md`: H3 enforces the registered split via `exp04_profiles` (inventory digest, seed-specific manifest hash, canonical query digest, 17 rooms, eight references per query); parsed-byte bindings with contradiction refusal and complete revalidation incl. every HAA child artefact; §6.2 recipe/phase profile with fail-closed default and labelled `--sensitivity`; role/registry/class/epoch identities; exp_05 args/tier binding; A3 owner from the job-root launch.pid; producers bind approvals to the reviewed commit (`--approved-commit`). Post-merge wiring list recorded in the report.
+- **Command** — Codex close review 2 pid 177718, log `oriented_cyl_2026-09-15_15:42:25_codex_code_round3b_close2_review.log`.
+
+## 2026-09-15T15:48:25-04:00 — launch-gate test fix delivered (`4dd37ec`, tests only, 71 lines; red 1 failed at byte 332 → after: 901 passed / 4 skipped, 0 failed); Codex review launched
+- **Result** — report `oriented_cyl_2026-09-15_15:39:38_coder_launch_gate_test_fix_opus_report.md`: three record tests (schema + key-set agreement; committed-byte binding at HEAD; filled digests ⊆ computed and equal, TRAINING_KEYS filled, require empty), template null assertions untouched; negative controls exercised out of tree. Branch base is 3975afe (worklog-only ahead of 53307b6), no source/approvals byte differs.
+- **Command** — Codex review pid 205921, log `oriented_cyl_2026-09-15_15:48:20_codex_launch_gate_test_review.log`.
+- **Next** — approve → peer one-liner → merge `exp06-launch-gate` into main (W1 closes 20:00) → launch commit = that merge tip; `--reviewed-commit` for tomorrow's smokes/probe/full.
+
+## 2026-09-15T15:55:43-04:00 — Codex round-3b close review 2: **request changes** (2a, 2b, 3, 5, 6 remain) → Opus 3b fix cycle 3
+- **Result** — `oriented_cyl_codex_code_round3b_close2_review.md` (1 452 words): resolved 1 (registered split/refs), 4 (identities), 7 (committed approvals); partial: 2a child-provenance dependencies (cache files, closure sources) not in the publication input map (mutating rirs.npy/depth.npy after admission still publishes); 2b parent-bound digests not enforced on later reads; 3 effective validation rooms not registered (stage-1 val_rooms ['hallway'] admitted as primary); 5 exp_05 args parsed and hashed in separate reads; 6 launch.pid parsed and hashed in separate reads. Sensitivity labelling and the exp_05 M_cyl registration judged appropriate.
+- **Change** — `coder_prompts/round3b_fix3_opus_prompt.md`.
+
+## 2026-09-15T15:56:57-04:00 — Codex review of the launch-gate test fix: **request changes** (one should-fix) → Opus fix 2
+- **Result** — `oriented_cyl_codex_launch_gate_test_review.md` (674 words): the replacement tests are correct (schema, binding, digests; negative probes refused; template untouched; 4dd37ec tests-only, clean), but the pre-existing module-level `git rev-parse HEAD` at line 13 makes collection fail outside a git checkout (exit 128), so the new graceful skip is unreachable.
+- **Change** — `coder_prompts/launch_gate_test_fix2_opus_prompt.md` (deferred HEAD helper; git-dependent tests skip cleanly; regression collecting the module outside git in a subprocess).
+
+## 2026-09-15T16:10:15-04:00 — Planner replay of `exp06-launch-gate` at 4dd37ec (before fix 2)
+    878 passed, 4 skipped, 91 warnings in 1270.92s (0:21:10)
+    status=0
+    diff-check ok
+    tests/test_exp06_profiles.py
+
+## 2026-09-15T16:10:46-04:00 — Planner replay of round-3b fix 2 (wt2b, 07001a0; note: fix 3 was already in progress in that worktree, so `status` may be non-zero)
+    1207 passed, 8 skipped, 120 warnings in 1660.34s (0:27:40)
+    status=1
+    diff-check ok
+    (modified-tracked-outside-worklog list end)
+
+## 2026-09-15T16:11:16-04:00 — pre-launch acceptance criteria (DRAFT; to be confirmed and time-stamped at launch after the GPU-1 hand-over)
+- **Commit** — the launcher's `--reviewed-commit` = the main tip after the launch-gate test fix merges (HEAD == reviewed commit; tree clean outside worklog/; approvals bound to committed bytes at that commit; TRAINING_KEYS digests recomputed at HEAD equal the approved ones).
+- **Device** — GPU 1 (RTX A6000 48 GB), no other compute process on it (preflight refuses otherwise); `CUDA_VISIBLE_DEVICES=1 PYTHONHASHSEED=0 OMP_NUM_THREADS=8 XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms`.
+- **Rung 4 smokes** — trainer parity (`trainer` vs `exp06_train`, `--backbone simple`, 3 batches, TF32 off): identical printed losses; oriented smoke (`cylindrical_oriented`, 3 batches) reaches ≥ 1 optimizer step; fixture written; HAA stage-1 smoke (fixture init, class_room, 2 epochs, batch 4) and eval smoke (hallway, 4 samples) complete; each ≤ 3 GB peak and ≤ 300 s; every smoke finalised with `passed: true`.
+- **Rung 5 probe** — 200 micro-batches at 32 × 2, TF32 on, `--no-save`: finite loss, peak memory fits (< 46 GB), extrapolated epoch time ≤ 1.15 × 156 min (≤ 179 min); receipt finalised.
+- **Full** — batch 32 × accum 2, 12 epochs, `--epoch-ckpt-every 1`, trainable = all parameters (no freezing), ≥ 1 optimizer step with no OOM/NaN/parse failure; epoch-1 wall time ≤ 179 min; `provenance.json` written with orchestration closures + approvals sha256 + data/geometry/test-WAV identities; at the end `epoch_012.pth` present, `completion.json` by the finalizer with `admissible_arm: true`, promotion symlink `final`.
+- **Failure policy** — infra (OOM from co-tenancy, host issue) → retry/resume from `last.pth` on a clean card; real bug → fix via a reviewed round, kill and relaunch (no mixed code states).
+
+## 2026-09-15T16:29:08-04:00 — launch-gate test fix 2 delivered (`4ea1b2b`, tests only, 134 lines; red = the collection error outside git reproduced by a subprocess regression; after: 903 passed / 4 skipped, 0 failed); Codex close review launched
+- **Command** — pid 443324, log `oriented_cyl_2026-09-15_16:29:03_codex_launch_gate_test_close_review.log`; Planner replay of the branch in parallel.
+- **Next** — approve → peer one-liner → `git merge --no-ff exp06-launch-gate` into main before 20:00 → launch commit for Sep 16.
+
+## 2026-09-15T16:36:34-04:00 — Codex close review of the launch-gate test fix: **approve — launch gate closes at the merge of this branch**; `main` (8cc4fd7) merged into `exp06-launch-gate` → `2e1b3ea`; peer one-liner sent (16:36)
+- **Result** — `oriented_cyl_codex_launch_gate_test_close_review.md` (626 words): lazy HEAD, `@needs_git` skips, and the non-git collection regression verified (incl. the negative control); deviations accepted; only `tests/test_exp06_profiles.py` differs from main; 903 passed / 4 skipped reported by the Coder (Planner replay running).
+- **Next** — on the peer's confirmation: `git merge --no-ff exp06-launch-gate` into main + bookkeeping commit (notebook, reviews, prompts, reports, params file, pending approvals variant) → launch commit for Sep 16.
