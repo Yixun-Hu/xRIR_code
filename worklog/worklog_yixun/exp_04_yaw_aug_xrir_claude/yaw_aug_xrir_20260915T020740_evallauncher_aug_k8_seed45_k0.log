@@ -1,0 +1,22 @@
+backbone: simple  checkpoint: /home/yixunhu/codespace/xRIR_code/ckpt/xRIR_simple_yawaug_8_shot/attempt_20260913T102051/epoch_012.pth  samples: 6337  angles: [0]  batch: 16
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+[160/6337] 6.46 samples/s, eta 15.9 min
+[320/6337] 7.30 samples/s, eta 13.7 min
+[480/6337] 7.47 samples/s, eta 13.1 min
+[640/6337] 7.64 samples/s, eta 12.4 min
+[800/6337] 7.71 samples/s, eta 12.0 min
+[960/6337] 7.87 samples/s, eta 11.4 min
+[1120/6337] 7.98 samples/s, eta 10.9 min
+[1280/6337] 7.97 samples/s, eta 10.6 min
+[1440/6337] 8.03 samples/s, eta 10.2 min
+[1600/6337] 7.99 samples/s, eta 9.9 min
+[1760/6337] 7.99 samples/s, eta 9.5 min
+[1920/6337] 8.03 samples/s, eta 9.2 min
+[2080/6337] 8.03 samples/s, eta 8.8 min
+[2240/6337] 8.02 samples/s, eta 8.5 min
+[2400/6337] 8.05 samples/s, eta 8.2 min
+[2560/6337] 8.07 samples/s, eta 7.8 min
+[2720/6337] 8.07 samples/s, eta 7.5 min
