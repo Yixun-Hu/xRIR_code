@@ -287,6 +287,111 @@ def test_a_wrong_checkpoint_or_index_order_is_refused(tmp_path, checkpoints, app
         subject.admit_run(shuffled, 'C', approved, SPLIT, roles=ROLES)
 
 
+EVIDENCE_REFUSALS = {
+    'null_output_hash': ({'outputs': {'per_sample_yaw.json': None,
+                                      'metrics_yaw.json': None}}, None),
+    'no_log': ({'log': None}, None),
+    'not_confirmatory': ({'confirmatory': False}, None),
+    'dirty_used': ({'allow_dirty_used': True}, None),
+    'no_num_shot': (None, {'num_shot': None}),
+    'wrong_num_shot': (None, {'num_shot': 1}),
+    'unknown_mutable': (None, {'mutable_inputs': {'invented': {'path': 'x', 'sha256':
+                                                              'a' * 64}}}),
+    'no_training_binding': (None, {'mutable_inputs': {}}),
+    'no_data_identity': (None, {'data_identity': None}),
+}
+
+
+@pytest.mark.parametrize('case', sorted(EVIDENCE_REFUSALS))
+def test_a_run_without_the_evidence_h3_requires_is_refused(tmp_path, checkpoints, approved,
+                                                           case):
+    """Finding 4: a declared null is never permission to skip a comparison."""
+    completion, manifest = EVIDENCE_REFUSALS[case]
+    directory = write_run(tmp_path / case, 'C', 42, checkpoints, SPLIT,
+                          manifest=manifest, completion=completion)
+    with pytest.raises(ValueError):
+        subject.admit_run(directory, 'C', approved, SPLIT, roles=ROLES)
+
+
+def test_a_changed_source_or_data_file_is_refused(tmp_path, checkpoints, approved):
+    directory = write_run(tmp_path / 'drift', 'C', 42, checkpoints, SPLIT)
+    source = Path(checkpoints['repo']) / 'tools/exp06_eval.py'
+    original = source.read_bytes()
+    source.write_bytes(original + b'#')
+    try:
+        with pytest.raises(ValueError, match='digest '):
+            subject.admit_run(directory, 'C', approved, SPLIT, roles=ROLES)
+    finally:
+        source.write_bytes(original)
+
+
+def test_an_aggregate_that_contradicts_the_per_sample_arrays_is_refused(tmp_path,
+                                                                       checkpoints,
+                                                                       approved):
+    directory = write_run(tmp_path / 'aggregate', 'C', 42, checkpoints, SPLIT)
+    aggregate = json.loads((directory / 'metrics_yaw.json').read_text())
+    aggregate['P']['0']['edt']['mean'] = 9999.0
+    (directory / 'metrics_yaw.json').write_text(json.dumps(aggregate))
+    record = json.loads((directory / 'completion.json').read_text())
+    record['outputs']['metrics_yaw.json'] = provenance.sha256_file(
+        directory / 'metrics_yaw.json')
+    (directory / 'completion.json').write_text(json.dumps(record, sort_keys=True))
+    with pytest.raises(ValueError, match='reconciliation'):
+        subject.admit_run(directory, 'C', approved, SPLIT, roles=ROLES)
+
+
+PROTOCOL_REFUSALS = {
+    'manifest_seed': {'seed': 43},
+    'manifest_num_shot': {'num_shot': 1},
+}
+
+
+@pytest.mark.parametrize('case', sorted(PROTOCOL_REFUSALS))
+def test_a_reference_manifest_outside_the_protocol_is_refused(tmp_path, checkpoints,
+                                                              approved, case):
+    """Finding 5: the reference is parsed, not merely hashed."""
+    directory = write_run(tmp_path / case, 'C', 42, checkpoints, SPLIT)
+    fields = json.loads((directory / 'eval_manifest.json').read_text())
+    reference = Path(fields['manifest_path'])
+    declared = dict(json.loads(reference.read_text()), **PROTOCOL_REFUSALS[case])
+    reference.write_text(json.dumps(declared))
+    fields['manifest_file_sha256'] = provenance.sha256_file(reference)
+    fields['manifest_hash'] = reference_hash(declared)
+    rewrite(directory, fields)
+    with pytest.raises(ValueError, match='reference '):
+        subject.admit_run(directory, 'C', approved, SPLIT, roles=ROLES)
+
+
+def test_reversed_queries_with_the_manifest_order_intact_are_refused(tmp_path, checkpoints,
+                                                                     approved):
+    directory = write_run(tmp_path / 'order', 'C', 42, checkpoints, SPLIT)
+    per = json.loads((directory / 'per_sample_yaw.json').read_text())
+    per['query'] = list(reversed(per['query']))
+    (directory / 'per_sample_yaw.json').write_text(json.dumps(per))
+    record = json.loads((directory / 'completion.json').read_text())
+    record['outputs']['per_sample_yaw.json'] = provenance.sha256_file(
+        directory / 'per_sample_yaw.json')
+    (directory / 'completion.json').write_text(json.dumps(record, sort_keys=True))
+    with pytest.raises(ValueError, match='reference order'):
+        subject.admit_run(directory, 'C', approved, SPLIT, roles=ROLES)
+
+
+def rewrite(directory, fields):
+    """Re-publish a manifest and the completion and outputs that bind its digest."""
+    (directory / 'eval_manifest.json').write_text(json.dumps(fields, sort_keys=True))
+    digest = provenance.sha256_file(directory / 'eval_manifest.json')
+    for name in subject.OUTPUTS:
+        payload = json.loads((directory / name).read_text())
+        payload['meta'].update({key: fields[key] for key in payload['meta']
+                                if key in fields}, eval_manifest_sha256=digest)
+        (directory / name).write_text(json.dumps(payload))
+    record = json.loads((directory / 'completion.json').read_text())
+    record['eval_manifest_sha256'] = digest
+    record['outputs'] = {name: provenance.sha256_file(directory / name)
+                         for name in subject.OUTPUTS}
+    (directory / 'completion.json').write_text(json.dumps(record, sort_keys=True))
+
+
 def test_a_missing_or_duplicated_seed_is_refused(runs, approved):
     short = dict(runs, C=runs['C'][:4])
     with pytest.raises(ValueError, match='five evaluation seeds'):
