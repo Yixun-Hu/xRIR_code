@@ -338,3 +338,85 @@ def mirror_stats(model, dataset, room, query_ids, frame_k, side_of_query,
     if unusable:
         raise ValueError('the probe produced non-finite ' + ', '.join(unusable))
     return stats
+
+
+def _load(model_factory, backbone, num_shot, checkpoint, device):
+    model = model_factory(backbone, num_shot)
+    model.load_state_dict(load_model_state(checkpoint), strict=True)
+    return model.to(torch.device(device)).eval()
+
+
+def _single_room_positions(dataset, room):
+    """Positions in ``meta['test']``, which are this dataset's item ids for one room."""
+    test = np.asarray(dataset.data[room]['meta']['test'])
+    if [item[1] for item in dataset.items] != [int(i) for i in test]:
+        raise ValueError('the probe needs a dataset of exactly this room in split order')
+    return test
+
+
+def legacy_reproduction(root=DEFAULT_ROOT, room=HALLWAY, device='cpu', batch=8, num_shot=8,
+                        max_len=9600, cohort_size=LEGACY_COHORT_N, checkpoints=None,
+                        model_factory=build_xrir_exp06, anchors=ANCHORS_LEGACY,
+                        tolerance=ANCHOR_TOLERANCE, verify_frozen_cohort=True):
+    """Re-run the 2026-09-14 diagnostic on its frozen cohort and report the deviation."""
+    checkpoints = dict(LEGACY_CHECKPOINTS if checkpoints is None else checkpoints)
+    dataset = HAADataset([room], 'test', root=root, num_shot=num_shot, max_len=max_len,
+                         eval_seed=0)
+    test = _single_room_positions(dataset, room)
+    cohort = legacy_cohort(test, dataset.data[room]['src_local'].numpy()[test, 1],
+                           n=cohort_size)['+y']
+    if verify_frozen_cohort and cohort != HALLWAY_LEGACY_COHORT['+y']:
+        raise ValueError('the cohort rule no longer selects the frozen 2026-09-14 microphones')
+    models, deviations = {}, []
+    for name in sorted(checkpoints):
+        model = _load(model_factory, BACKBONE_OF[name], num_shot, checkpoints[name], device)
+        with torch.no_grad():
+            models[name] = mirror_stats(model, dataset, room, cohort['positions'], 0, 1,
+                                        device=device, batch=batch)
+        for key, anchor in sorted(anchors.get(name, {}).items()):
+            deviation = models[name][key] - anchor
+            models[name][key + '_anchor'] = anchor
+            models[name][key + '_deviation'] = deviation
+            if abs(deviation) > tolerance:
+                deviations.append('{} {} {:.4f} is {:+.4f} from the 2026-09-14 anchor {}'
+                                  .format(name, key, models[name][key], deviation, anchor))
+    return {'room': room, 'device': str(device), 'batch': int(batch), 'cohort': cohort,
+            'models': models, 'anchors': anchors, 'tolerance': tolerance,
+            'reproduced': not deviations, 'deviations': deviations,
+            'checkpoints': {name: str(path) for name, path in checkpoints.items()}}
+
+
+def full_gate(cylor_checkpoint, heading_k, root=DEFAULT_ROOT, room=HALLWAY, device=None,
+              batch=8, num_shot=8, max_len=9600, side_of_query=1, checkpoints=None,
+              model_factory=build_xrir_exp06):
+    """Every test microphone of one side through the four arms of 6.1, and the verdict."""
+    device = ('cuda' if torch.cuda.is_available() else 'cpu') if device is None else device
+    checkpoints = dict(LEGACY_CHECKPOINTS if checkpoints is None else checkpoints)
+    paths = {'cyl_or': cylor_checkpoint, 'cyl': checkpoints['cyl'],
+             'control': checkpoints['control'], 'cyl_hf': checkpoints['cyl']}
+    frames = {'room': HAADataset([room], 'test', root=root, num_shot=num_shot,
+                                 max_len=max_len, eval_seed=0),
+              'heading': HeadingFrameDataset([room], 'test', root=root, num_shot=num_shot,
+                                             max_len=max_len, eval_seed=0,
+                                             k_by_room={room: int(heading_k)})}
+    test = _single_room_positions(frames['room'], room)
+    y = frames['room'].data[room]['src_local'].numpy()[test, 1]
+    positions = [int(i) for i in np.where(y > 0 if side_of_query > 0 else y < 0)[0]]
+    if not positions:
+        raise ValueError('no test microphone lies on the requested side')
+    cohort = {'positions': positions, 'mic_ids': [int(test[i]) for i in positions],
+              'side': '+y' if side_of_query > 0 else '-y'}
+    stats = {}
+    for name in GATE_ARMS:
+        frame = FRAME_OF[name]
+        model = _load(model_factory, BACKBONE_OF[name], num_shot, paths[name], device)
+        with torch.no_grad():
+            stats[name] = mirror_stats(model, frames[frame], room, positions,
+                                       int(heading_k) if frame == 'heading' else 0,
+                                       side_of_query, device=device, batch=batch)
+        stats[name].update(backbone=BACKBONE_OF[name], frame=frame,
+                           checkpoint=str(paths[name]))
+        del model
+    return {'room': room, 'device': str(device), 'batch': int(batch), 'cohort': cohort,
+            'heading_k': int(heading_k), 'stats': stats, 'decision': g1_decision(stats),
+            'checkpoints': {name: str(path) for name, path in paths.items()}}
