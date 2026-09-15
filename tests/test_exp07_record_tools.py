@@ -161,6 +161,31 @@ def test_the_combined_table_pairs_each_seen_arm_with_its_unseen_row(record_input
     assert rows[3][0] == seen[(md.REFERENCE_ROLE, 1)]['label'] and rows[3][5:] == ['—'] * 3
 
 
+def test_the_html_page_is_offline_stable_and_shows_the_same_cells(record_inputs):
+    html, md = load_asset('make_results_html'), load_asset('make_results_md')
+    out = record_inputs['out'].with_suffix('.html')
+    html.main(argv(record_inputs, out=out))
+    first = out.read_text()
+    html.main(argv(record_inputs, out=out))
+    assert first == out.read_text() and first.startswith('<!doctype html>')
+    assert '<script' not in first and 'http://' not in first and 'https://' not in first
+    assert first.count('<table>') == 5 and first.rstrip().endswith('</html>')
+    _, record, head = md.arguments(argv(record_inputs))
+    for title, headers, rows in md.tables(record, head):
+        assert '<h2>' + html.esc(title) + '</h2>' in first
+        for row in rows:
+            assert all('<td>' + html.esc(value) + '</td>' in first for value in row)
+
+
+def test_the_html_page_refuses_the_same_input_the_markdown_refuses(record_inputs):
+    html = load_asset('make_results_html')
+    MUTATIONS['pairs_reconverge'](record_inputs)
+    out = record_inputs['out'].with_suffix('.html')
+    with pytest.raises(ValueError, match='not final'):
+        html.main(argv(record_inputs, out=out))
+    assert not out.exists()
+
+
 def edit(path, mutate, restamp=True):
     """Rewrite a canonical JSON, optionally repairing the digest its sidecar records."""
     md = load_asset('make_results_md')
