@@ -7,6 +7,7 @@ digest its binding report recorded.  Exploratory or deviating JSON, a pairing th
 needs a larger n_boot, and an unseen table the exp_04 record does not bind are refused.
 """
 import argparse
+import html
 import json
 import subprocess
 from pathlib import Path
@@ -130,7 +131,13 @@ def arguments(argv=None):
     check_table(table)
     pairs = [load(path, 'PAIRS_SEEN_V1') for path in sorted(args.pairs)]
     check_pairs([data for data, _ in pairs])
+    pairs.sort(key=lambda item: PAIRINGS.index(tuple(item[0]['pairing'])))
     unseen, unseen_receipt = load_unseen(args.unseen_table, args.unseen_binding)
+    available = {(row['role'], row['num_shot']) for row in unseen['rows']}
+    for seen_role, unseen_role in PROTOCOL_PAIRS:
+        for shot in table['profile']['num_shot']:
+            if (unseen_role, shot) not in available:
+                raise ValueError('the unseen table has no {} row at K = {}'.format(unseen_role, shot))
     receipts = [table_receipt] + [receipt for _, receipt in pairs] + [unseen_receipt]
     published = {output for receipt in receipts for output in receipt['outputs']}
     published |= {str(Path(item).resolve()) + '.provenance.json' for item in sources}
@@ -139,3 +146,98 @@ def arguments(argv=None):
     head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=REPO, text=True).strip()
     record = dict(table=table, pairs=[data for data, _ in pairs], unseen=unseen, receipts=receipts)
     return args, record, head
+
+
+def native(metric, value):
+    return display(value, metric if metric in ACOUSTIC else None)
+
+
+def mean_sd(metrics, name):
+    """EDT in seconds with its SD in milliseconds, so no printed SD rounds to zero."""
+    metric = metrics[name]
+    if name == 'EDT':
+        return '{} s ± {} ms'.format(format(metric['mean'] / 1000, '.3f'),
+                                     display(metric['sd'], 'EDT'))
+    return '{} ± {} {}'.format(native(name, metric['mean']), native(name, metric['sd']),
+                               metric['unit'])
+
+
+def protocol_line(row):
+    values = dict(row['protocol'], tf32='on' if row['protocol']['tf32'] else 'off',
+                  seeds=len(row['protocol']['seeds']))
+    return ('K = {num_shot}; {split}; {n_queries} queries; {seeds} seeds; epoch {epoch}; '
+            'condition {condition}; k = {k}; batch {batch_size}; TF32 {tf32}; '
+            'training {training}').format(**values)
+
+
+def tables(record, head):
+    """Shared presentation model: titles, headers and producer-valued cells."""
+    yield ('Seen split — mean ± seed SD (TABLE_SEEN_V1)',
+           ['Arm', 'K', 'EDT (s)', 'EDT (ms)', 'C50 (dB)', 'T60 (%)', 'Loss', 'log-STFT MSE',
+            'Protocol'],
+           [[row['label'], row['num_shot'], mean_sd(row['metrics'], 'EDT'),
+             '{} ± {}'.format(display(row['metrics']['EDT']['mean'], 'EDT'),
+                              display(row['metrics']['EDT']['sd'], 'EDT'))] +
+            [mean_sd(row['metrics'], name) for name in ('C50', 'T60', 'loss', 'log_mse')] +
+            [protocol_line(row)] for row in record['table']['rows']])
+    rows = []
+    for data in record['pairs']:
+        arm, baseline = data['pairing']
+        for cell in data['cells']:
+            absolute, relative = (cell['statistics'][key] for key in ('absolute', 'relative'))
+            rows.append([' minus '.join(data['pairing']), cell['metric'], cell['num_shot'],
+                         native(cell['metric'], absolute['estimate']), absolute['unit'],
+                         native(cell['metric'], absolute['interval']),
+                         native(cell['metric'], absolute['room_cluster_interval']),
+                         percent(relative['estimate']), percent(relative['interval']),
+                         percent(relative['room_cluster_interval']),
+                         cell['paired_cohort']['n_queries'], cell['n_rooms_retained'],
+                         percent(relative['convergence']['ratio']),
+                         native(cell['metric'], cell['arm_means'][arm]['mean']),
+                         native(cell['metric'], cell['arm_means'][baseline]['mean'])])
+    yield ('Descriptive paired differences (PAIRS_SEEN_V1) — no verdict',
+           ['Pairing', 'Metric', 'K', 'Absolute difference', 'Unit', 'Query 95% interval',
+            'Room 95% interval', 'Relative difference (%)', 'Relative query 95% (%)',
+            'Relative room 95% (%)', 'Queries', 'Rooms', 'Convergence ratio (%)',
+            'Cohort mean (arm)', 'Cohort mean (baseline)'], rows)
+    seen = {(row['role'], row['num_shot']): row for row in record['table']['rows']}
+    unseen = {(row['role'], row['num_shot']): row for row in record['unseen']['rows']}
+    rows = []
+    for shot in (1, 8):
+        for seen_role, unseen_role in PROTOCOL_PAIRS + ((REFERENCE_ROLE, None),):
+            row = seen[(seen_role, shot)]
+            other = unseen[(unseen_role, shot)] if unseen_role else None
+            rows.append([row['label'], shot] +
+                        [mean_sd(row['metrics'], name) for name in ACOUSTIC] +
+                        ([mean_sd(other['metrics'], name) for name in ACOUSTIC]
+                         if other else ['—'] * 3))
+    yield ('Seen and unseen protocols — mean ± seed SD',
+           ['Method', 'K', 'Seen EDT (s)', 'Seen C50 (dB)', 'Seen T60 (%)', 'Unseen EDT (s)',
+            'Unseen C50 (dB)', 'Unseen T60 (%)'], rows)
+    yield ('Provenance', ['Canonical input', 'sha256', 'Profile digest', 'Producer closure',
+                          'Approval file', 'Approval sha256'],
+           [[receipt['path'], receipt['sha256'], receipt['profile_digest'],
+             receipt['producer_closure_sha256'], receipt['approved_digests']['path'],
+             receipt['approved_digests']['sha256']] for receipt in record['receipts']])
+    report = record['receipts'][-1]['binding_report']
+    yield ('Provenance — git HEAD and the exp_04 record', ['Field', 'Value'],
+           [['git HEAD', head], ['exp_04 binding report', report['path']],
+            ['exp_04 binding report sha256', report['sha256']]])
+
+
+def main(argv=None):
+    args, record, head = arguments(argv)
+    lines = ['generated by make_results_md.py from ' +
+             ', '.join(receipt['sha256'] for receipt in record['receipts']) + ' at ' + head,
+             ROUNDING, DESCRIPTIVE, '']
+    for title, headers, rows in tables(record, head):
+        lines += ['## ' + title, '', '| ' + ' | '.join(headers) + ' |',
+                  '| ' + ' | '.join('---' for _ in headers) + ' |']
+        lines += ['| ' + ' | '.join(html.escape(display(value)).replace('|', '&#124;')
+                                    for value in row) + ' |' for row in rows]
+        lines.append('')
+    Path(args.out).write_text('\n'.join(lines), encoding='utf-8')
+
+
+if __name__ == '__main__':
+    main()
