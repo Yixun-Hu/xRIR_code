@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -372,8 +373,8 @@ def haa_provenance(repo, run_type, args, data_root):
                 data_identity=inventory_of(data_root))
 
 
-def haa_train_args(heading_jsons, init_sha256, frame='heading', **overrides):
-    rooms = ['class_room', 'hallway', 'complex_room']
+def haa_train_args(heading_jsons, init_sha256, frame='heading', rooms=None, **overrides):
+    rooms = ['class_room', 'hallway', 'complex_room'] if rooms is None else rooms
     args = dict(backbone='cylindrical_oriented', num_shot=8, rooms=rooms, frame=frame,
                 save_dir='stage1', seed=0, epochs=20, val_every=10, lr=1e-4,
                 weight_decay=1e-4, eval_seed=0, init='init.pth', init_sha256=init_sha256,
@@ -612,8 +613,8 @@ def test_haa_train_refusals_are_named(tmp_path, haa_repo, heading_jsons, data_ro
 
 def haa_eval_args(heading_jsons, checkpoint, frame='heading', room='hallway', **overrides):
     args = dict(backbone='cylindrical_oriented', num_shot=8, rooms=[room], frame=frame,
-                checkpoint=str(checkpoint), eval_seed=0, split='test', epochs=20, val_every=10,
-                heading={room: dict(heading_jsons[room])})
+                checkpoint=str(checkpoint), eval_seed=0, seed=0, split='test', epochs=20,
+                val_every=10, heading={room: dict(heading_jsons[room])})
     if frame != 'heading':
         args.pop('heading')
     args.update(overrides)
@@ -833,84 +834,98 @@ def closed_log_file(tmp_path):
     return tmp_path / 'child.log'
 
 
-JOB_HEADING = {room: {'phi_deg': -90.0, 'k': 128, 'decision': 'estimated',
-                      'sha256': 'f' * 64, 'path': 'ckpt/exp06/heading/' + room + '.json'}
-               for room in ROOMS}
-PRETRAIN = 'e' * 64
+PRETRAIN = 'pretrain_epoch_012'
 
 
-def write_child(child, run_type, files, **fields):
-    """One child completion of the shape this finalizer writes, with real artefact bytes."""
-    child.mkdir(parents=True, exist_ok=True)
-    hashes = {}
-    for name, content in files.items():
-        (child / name).write_bytes(content)
-        hashes[name] = hashlib.sha256(content).hexdigest()
-    record = dict(schema_version=1, run_type=run_type, run_dir=str(child), repo='repo',
-                  child_exit=0, child_exit_time=STAMP,
-                  log={'path': 'child.log', 'sha256': '0' * 64},
-                  child_exit_receipt={'path': 'child_exit.json', 'sha256': '0' * 64,
-                                      'child_pid': 1, 'ended_at': STAMP},
-                  diagnostic=False, admissible_arm=True, artifacts=hashes,
-                  backbone='cylindrical_oriented', frame='heading', heading=JOB_HEADING)
-    record.update(fields)
-    (child / 'completion.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
-    return record
+def job_spec_file(job, init, heading_jsons, **overrides):
+    """What the pipeline declares for one seed before any child runs (blocker 3c)."""
+    spec = {'init': PRETRAIN, 'backbone': 'cylindrical_oriented', 'frame': 'heading',
+            'init_sha256': provenance.sha256_file(init), 'seed': 0, 'rooms': sorted(ROOMS),
+            'heading': {room: heading_jsons[room]['k'] for room in ROOMS}, 'expect': 'finetune'}
+    spec.update(overrides)
+    path = Path(job) / 'job_spec.json'
+    path.write_text(json.dumps(spec, sort_keys=True, indent=2) + '\n')
+    return str(path), spec
 
 
-def write_job(tmp_path, expect='finetune', log=None, mutate=None):
-    """A complete pipeline seed: stage 1, four stage 2 children and four evaluations."""
+def make_train_child(job, name, haa_repo, heading_jsons, data_root, rooms, init, tag):
+    """One fine-tuning child, certified by this finalizer exactly as the launcher does."""
+    run, log = job / name, job / (name.replace('/', '_') + '.log')
+    args = haa_train_args(heading_jsons, provenance.sha256_file(init), rooms=rooms,
+                          init=str(init), save_dir=name, epochs=4, val_every=2)
+    write_haa_train(run, args, log, haa_repo, data_root,
+                    state=tiny_state(**{state_keys()[0]: torch.full((1,), float(tag))}))
+    exp06_finalize.finalize(run, 'haa_train', log, 0, repo=haa_repo)
+    return run
+
+
+def make_eval_child(job, name, haa_repo, heading_jsons, data_root, room, checkpoint):
+    run, log = job / name, job / (name.replace('/', '_') + '.log')
+    args = haa_eval_args(heading_jsons, checkpoint, room=room)
+    write_haa_eval(run, args, log, haa_repo, data_root,
+                   meta=eval_meta(args, provenance.sha256_file(checkpoint)))
+    exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)
+    return run
+
+
+def write_job(tmp_path, haa_repo, heading_jsons, data_root, expect='finetune', log=None,
+              mutate=None):
+    """A complete pipeline seed whose children carry their real evidence, not claims."""
     job = tmp_path / 'seed0'
     job.mkdir(parents=True, exist_ok=True)
+    init = tmp_path / 'pretrain.pth'
+    torch.save(tiny_state(**{state_keys()[0]: torch.full((1,), 99.0)}), init)
     if log is not None:
         seal(job, log, text='pipeline output\n')
-    names, stage1_best = [], b'stage1-best'
+    names = []
     if expect == 'finetune':
-        write_child(job / 'stage1', 'haa_train',
-                    {'args.json': b'{}', 'best.pth': stage1_best, 'last.pth': b'stage1-last'},
-                    rooms=sorted(ROOMS)[:3], init_sha256=PRETRAIN, best_epoch=20)
+        make_train_child(job, 'stage1', haa_repo, heading_jsons, data_root,
+                         ['class_room', 'hallway', 'complex_room'], init, 1)
         names.append('stage1')
-    for room in ROOMS:
-        checkpoint = ('stage2-' + room).encode()
+    for tag, room in enumerate(sorted(ROOMS), 2):
+        checkpoint = init
         if expect == 'finetune':
-            write_child(job / ('stage2_' + room), 'haa_train',
-                        {'args.json': b'{}', 'best.pth': checkpoint,
-                         'last.pth': b'last-' + checkpoint},
-                        rooms=[room], init_sha256=hashlib.sha256(stage1_best).hexdigest(),
-                        best_epoch=10)
+            make_train_child(job, 'stage2_' + room, haa_repo, heading_jsons, data_root,
+                             [room], job / 'stage1/best.pth', tag)
+            checkpoint = job / ('stage2_' + room) / 'best.pth'
             names.append('stage2_' + room)
-        else:
-            checkpoint = stage1_best
-        write_child(job / 'eval' / room, 'haa_eval',
-                    {'args.json': b'{}', 'metrics_{}.json'.format(room): b'{}',
-                     'per_sample_{}.json'.format(room): b'{}'},
-                    room=room, checkpoint_sha256=hashlib.sha256(checkpoint).hexdigest(),
-                    samples=198)
+        make_eval_child(job, 'eval/' + room, haa_repo, heading_jsons, data_root, room, checkpoint)
         names.append('eval/' + room)
+    spec, _ = job_spec_file(job, init, heading_jsons, expect=expect)
     if mutate is not None:
         names = mutate(job, names)
-    return job, [str(job / name) for name in names]
+    return job, [str(job / name) for name in names], spec
 
 
-def test_job_completion_requires_every_child(tmp_path, closed_log_file):
-    job, children = write_job(tmp_path, log=closed_log_file)
-    fields = exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=REPO,
-                                     children=children, expect='finetune')
+@pytest.fixture
+def job_run(tmp_path, haa_repo, heading_jsons, data_root, closed_log_file):
+    """One finetune seed of nine real children, ready to be bound as a job."""
+    def build(expect='finetune', mutate=None):
+        return write_job(tmp_path, haa_repo, heading_jsons, data_root, expect=expect,
+                         log=closed_log_file, mutate=mutate) + (haa_repo,)
+    return build
+
+
+def test_job_completion_requires_every_child(job_run, closed_log_file):
+    job, children, spec, repo = job_run()
+    fields = exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                     children=children, expect='finetune', job_spec=spec)
     assert set(fields['children']) == set(exp06_finalize.expected_children('finetune'))
     assert len(fields['children']) == 9 and fields['expect'] == 'finetune'
     assert fields['children']['stage1'] == provenance.sha256_file(job / 'stage1/completion.json')
     assert fields['backbone'] == 'cylindrical_oriented' and fields['frame'] == 'heading'
-    assert fields['init_sha256'] == PRETRAIN and fields['admissible_arm'] is True
-    assert fields['heading']['hallway']['k'] == 128
+    assert fields['init'] == PRETRAIN and fields['admissible_arm'] is True
+    assert fields['init_sha256'] == json.loads(Path(spec).read_text())['init_sha256']
+    assert fields['heading']['hallway'] == json.loads(Path(spec).read_text())['heading']['hallway']
     assert set(exp06_finalize.expected_children('zeroshot')) == {'eval/' + room for room in ROOMS}
 
 
-def test_zeroshot_job_shares_one_checkpoint(tmp_path, closed_log_file):
-    job, children = write_job(tmp_path, 'zeroshot', log=closed_log_file)
-    fields = exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=REPO,
-                                     children=children, expect='zeroshot')
+def test_zeroshot_job_shares_one_checkpoint(job_run, closed_log_file):
+    job, children, spec, repo = job_run('zeroshot')
+    fields = exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                     children=children, expect='zeroshot', job_spec=spec)
     assert len(fields['children']) == 4 and fields['expect'] == 'zeroshot'
-    assert fields['checkpoint_sha256'] == hashlib.sha256(b'stage1-best').hexdigest()
+    assert fields['checkpoint_sha256'] == json.loads(Path(spec).read_text())['init_sha256']
 
 
 def test_a_job_of_bare_admissible_claims_is_refused(tmp_path, closed_log_file):
