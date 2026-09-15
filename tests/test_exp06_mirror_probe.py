@@ -606,6 +606,25 @@ def test_the_probe_runs_from_the_bytes_it_hashed(probe_cache, tmp_path):
         subject.revalidate_inputs(captured)
 
 
+@torch.no_grad()
+def test_every_gate_arm_loads_the_captured_bytes(probe_cache, tmp_path):
+    """All four arms are loaded from the capture, not re-read from the path they name."""
+    cache = mutable_cache(probe_cache, tmp_path)
+    captured = subject.capture_inputs(subject.parse_args(cli(cache, tmp_path / 'y.json')))
+    states = {path: subject.state_from_blob(blob)
+              for path, blob in captured['blobs'].items()}
+    for path in cache['checkpoints'].values():
+        Path(path).write_bytes(b'not a checkpoint')
+    gate = subject.full_gate(
+        cache['checkpoints']['cyl_or'], HEADING_K, root=cache['root'], room='hallway',
+        device='cpu', batch=2, num_shot=NUM_SHOT, max_len=MAX_LEN, states=states,
+        model_factory=probe_factory,
+        checkpoints={'cyl': cache['checkpoints']['cyl'],
+                     'control': cache['checkpoints']['control']})
+    assert set(gate['stats']) == {'cyl_or', 'cyl', 'control', 'cyl_hf'}
+    assert gate['decision']['outcome'] in ('pass', 'fail', 'inconclusive')
+
+
 # --- the frozen hallway cohort and the published anchors --------------------------------
 
 HALLWAY_CACHE = Path(os.environ.get('HAA_XRIR_ROOT',
