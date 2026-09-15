@@ -618,6 +618,20 @@ def test_the_printed_diagnostic_commands_reach_the_real_entry(mode, cpu_startup)
             exp06_smoke._invoke(module, entry, argv)
 
 
+@pytest.mark.parametrize('mode,kind', [('smoke', 'smoke'), ('probe', 'probe')])
+def test_an_exploratory_launch_tells_its_children_so(mode, kind):
+    """Finding 1: --exploratory is the wrapper's flag and the child's alike."""
+    children = printed_children(dry_run(mode, '--exploratory'))
+    assert children
+    for entry, argv in children:
+        if entry == 'trainer':  # the pinned parser knows neither flag
+            assert '--run-type' not in argv and '--exploratory' not in argv
+            continue
+        assert argv[argv.index('--run-type') + 1] == kind and argv[-1] == '--exploratory'
+    plain = printed_children(dry_run(mode))
+    assert all('--exploratory' not in argv for _, argv in plain)
+
+
 def test_a_full_child_without_its_approvals_is_still_refused(cpu_startup):
     """Finding 1: relaxing the diagnostic admission must not relax the confirmatory one."""
     from tools import exp06_train
