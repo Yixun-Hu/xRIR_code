@@ -4,6 +4,7 @@ The synthetic trees below are exp_02-shaped (arms A and B) and exp_06-shaped (C,
 the exp_06 children are finalised by ``tools.exp06_finalize`` itself, so their
 ``completion.json`` files are the real thing rather than a fixture's idea of one.
 """
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -846,6 +847,48 @@ def test_the_job_owner_is_bound_to_the_root_launch_pid(real_job, cache, monkeypa
             subject.verify_job(root, 'seed0', 'cyl_or', repo=repo, sensitivity=True)
     finally:
         marker.write_text(original)
+
+
+def read_once(monkeypatch, target, replacement):
+    """Rewrite one file the moment its content is first read, whichever reader reads it.
+
+    Close review 2, finding 6: the marker was parsed and then hashed again, so bytes that
+    changed in between were published as the identity of a pid nobody read.
+    """
+    state = {'fired': False}
+
+    def wrap(reader):
+        def read(self, *args, **kwargs):
+            data = reader(self, *args, **kwargs)
+            if not state['fired'] and str(self) == str(target):
+                state['fired'] = True
+                Path(target).write_bytes(replacement)
+            return data
+        return read
+
+    monkeypatch.setattr(Path, 'read_bytes', wrap(Path.read_bytes))
+    monkeypatch.setattr(Path, 'read_text', wrap(Path.read_text))
+    return state
+
+
+def test_the_owner_pid_and_its_digest_come_from_one_read(real_job, cache, monkeypatch):
+    """Finding 6: the retained ownership evidence is the bytes the pid was parsed from."""
+    root, repo = real_job
+    monkeypatch.setattr(legacy, 'HAA_ROOT', cache['root'])
+    marker, inputs = Path(root) / 'launch.pid', {}
+    original = marker.read_bytes()
+    recorded = json.loads((Path(root) / 'completion.json').read_text())['owner_pid']
+    try:
+        with monkeypatch.context() as raced:
+            state = read_once(raced, marker, str(recorded + 1).encode() + b'\n')
+            job = subject.verify_job(root, 'seed0', 'cyl_or', repo=repo, sensitivity=True,
+                                     inputs=inputs)
+        assert state['fired'], 'the marker was never read'
+        assert job['owner']['pid'] == recorded
+        assert job['owner']['sha256'] == hashlib.sha256(original).hexdigest()
+        assert inputs[str(marker.resolve())] == hashlib.sha256(original).hexdigest()
+    finally:
+        marker.write_bytes(original)
 
 
 # --- finding 3: the registered recipe of plan 6.2, and the sensitivity escape hatch -------
