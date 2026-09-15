@@ -36,7 +36,8 @@ def test_entry_runs_in_process_and_writes_a_receipt(tmp_path, stub_entry):
     argv = ['--backbone', 'cylindrical_oriented', '--rooms', 'class_room']
     result = exp06_smoke.run_entry('exp06_haa_finetune', argv, receipt=receipt, alarm_seconds=30)
     assert stub_entry.calls == [argv]
-    assert result['exit_status'] == 'ok' and result['diagnostic'] is True
+    assert result['exit_status'] == 0 and result['outcome'] == 'ok'
+    assert result['diagnostic'] is True
     assert result['entry'] == 'exp06_haa_finetune' and result['argv'] == argv
     assert result['peak_bytes'] == 0 and result['wall_s'] >= 0
     assert result['git_head'] == provenance.git_state(REPO)['HEAD']
@@ -50,7 +51,8 @@ def test_alarm_aborts_with_status_three(tmp_path, stub_entry, monkeypatch):
         exp06_smoke.run_entry('exp06_haa_finetune', [], receipt=receipt, alarm_seconds=0.2)
     assert exit.value.code == 3
     record = json.loads(receipt.read_text())
-    assert record['exit_status'] == 'alarm' and record['wall_s'] < 5
+    assert record['outcome'] == 'alarm' and record['exit_status'] == 3
+    assert record['wall_s'] < 5
     assert record['alarm_seconds'] == 0.2 and record['diagnostic'] is True
 
 
@@ -63,10 +65,10 @@ def test_peak_memory_over_the_budget_aborts(tmp_path, stub_entry, monkeypatch):
         exp06_smoke.run_entry('exp06_haa_finetune', [], receipt=receipt, max_gb=3)
     assert exit.value.code == 3
     record = json.loads(receipt.read_text())
-    assert record['exit_status'] == 'memory' and record['peak_bytes'] == 4 * 1024 ** 3
+    assert record['outcome'] == 'memory' and record['peak_bytes'] == 4 * 1024 ** 3
     monkeypatch.setattr(torch.cuda, 'max_memory_allocated', lambda: 2 * 1024 ** 3)
     ok = exp06_smoke.run_entry('exp06_haa_finetune', [], max_gb=3)
-    assert ok['exit_status'] == 'ok' and ok['peak_bytes'] == 2 * 1024 ** 3
+    assert ok['exit_status'] == 0 and ok['peak_bytes'] == 2 * 1024 ** 3
 
 
 def test_entry_failure_is_recorded_and_reraised(tmp_path, stub_entry, monkeypatch):
@@ -77,7 +79,7 @@ def test_entry_failure_is_recorded_and_reraised(tmp_path, stub_entry, monkeypatc
     receipt = tmp_path / 'error.json'
     with pytest.raises(RuntimeError, match='boom'):
         exp06_smoke.run_entry('exp06_haa_finetune', [], receipt=receipt)
-    assert json.loads(receipt.read_text())['exit_status'] == 'error: RuntimeError'
+    assert json.loads(receipt.read_text())['outcome'] == 'error: RuntimeError'
 
 
 def test_trainer_entry_is_driven_through_sys_argv(monkeypatch):
@@ -128,3 +130,51 @@ def test_cli_prints_one_smoke_line_and_supports_the_fixture(tmp_path, stub_entry
     assert (tmp_path / 'f.pth').is_file() and (tmp_path / 'f.pth.json').is_file()
     with pytest.raises(SystemExit):
         exp06_smoke.main(['--', '--rooms', 'hallway'])
+
+
+@pytest.mark.parametrize('budget,value', [
+    ('alarm_seconds', 0), ('alarm_seconds', -1), ('alarm_seconds', float('inf')),
+    ('alarm_seconds', float('nan')), ('alarm_seconds', True), ('alarm_seconds', '300'),
+    ('max_gb', 0), ('max_gb', -3), ('max_gb', float('inf')), ('max_gb', float('nan')),
+    ('max_gb', None)])
+def test_non_positive_or_non_finite_budgets_are_refused(tmp_path, stub_entry, budget, value):
+    """Should-fix 7: a zero alarm silently disabled the timer; every budget is now checked."""
+    receipt = tmp_path / 'budget.json'
+    with pytest.raises(ValueError, match=budget):
+        exp06_smoke.run_entry('exp06_haa_finetune', [], receipt=receipt, **{budget: value})
+    assert not receipt.exists() and stub_entry.calls == []
+
+
+def test_entry_returning_a_nonzero_status_fails_the_smoke(tmp_path, stub_entry, monkeypatch):
+    """Should-fix 7: a status the entry returns must not be recorded as a success."""
+    monkeypatch.setattr(stub_entry, 'main', lambda argv: 7)
+    receipt = tmp_path / 'status.json'
+    with pytest.raises(SystemExit) as exit:
+        exp06_smoke.run_entry('exp06_haa_finetune', [], receipt=receipt, alarm_seconds=30)
+    assert exit.value.code == 3
+    record = json.loads(receipt.read_text())
+    assert record['exit_status'] == 7 and record['outcome'] == 'failed'
+    assert record['entry_status'] == 7 and record['aborted_memory'] is False
+
+
+def test_memory_ceiling_aborts_during_execution(tmp_path, stub_entry, monkeypatch):
+    """Should-fix 7: the ceiling is enforced while the entry runs, not only afterwards."""
+    monkeypatch.setattr(torch.cuda, 'is_available', lambda: True)
+    monkeypatch.setattr(torch.cuda, 'max_memory_allocated', lambda: 4 * 1024 ** 3)
+    monkeypatch.setattr(torch.cuda, 'reset_peak_memory_stats', lambda: None)
+    monkeypatch.setattr(stub_entry, 'main', lambda argv: time.sleep(60))
+    receipt = tmp_path / 'ceiling.json'
+    with pytest.raises(SystemExit) as exit:
+        exp06_smoke.run_entry('exp06_haa_finetune', [], receipt=receipt, alarm_seconds=60, max_gb=3)
+    assert exit.value.code == 3
+    record = json.loads(receipt.read_text())
+    assert record['outcome'] == 'memory' and record['aborted_memory'] is True
+    assert record['exit_status'] == 3 and record['wall_s'] < 30, 'the entry ran to its alarm'
+
+
+def test_a_successful_smoke_records_a_zero_status(tmp_path, stub_entry):
+    """Should-fix 5 reads exit_status == 0 off the receipt, so success must be numeric."""
+    record = exp06_smoke.run_entry('exp06_haa_finetune', ['--no-save'],
+                                   receipt=tmp_path / 'ok.json', alarm_seconds=30)
+    assert record['exit_status'] == 0 and record['outcome'] == 'ok'
+    assert record['aborted_memory'] is False and record['diagnostic'] is True

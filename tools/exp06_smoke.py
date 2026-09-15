@@ -5,6 +5,10 @@ CUDA allocation and the wall time on a single ``EXP06_SMOKE`` line, and writes a
 ``diagnostic`` receipt. The alarm and the memory budget abort with status 3, so a smoke
 can never quietly grow past the co-tenant budget agreed with the peer session.
 
+Budgets are checked before the entry is imported (finite and strictly positive), the
+status an entry returns is recorded, and the memory ceiling is enforced *during*
+execution by a one-second watchdog as well as retrospectively.
+
 ``--make-fixture`` writes a CPU-initialised ``cylindrical_oriented`` state dict (plus a
 sidecar with its hash and the registry digest) for the HAA smokes: the exp_01
 checkpoints cannot load into the five-channel patch embedding.
@@ -16,6 +20,7 @@ import argparse
 import datetime
 import importlib
 import json
+import math
 from pathlib import Path
 import signal
 import sys
@@ -35,6 +40,17 @@ GIB = 1024 ** 3
 
 class _Timeout(BaseException):
     """Raised inside the entry by SIGALRM; a BaseException so entries cannot swallow it."""
+
+
+class _MemoryExceeded(BaseException):
+    """Raised by the watchdog when the peak allocation passes the agreed ceiling."""
+
+
+def check_budget(label, value):
+    """Refuse a budget that is not a finite positive number (a 0 alarm disabled the timer)."""
+    if isinstance(value, bool) or type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+        raise ValueError('{} must be a finite positive number, not {!r}'.format(label, value))
+    return float(value)
 
 
 def peak_bytes():
@@ -58,8 +74,8 @@ def _publish(result, started, receipt):
     """One JSON line and, if asked, the receipt; both carry the same record."""
     result['wall_s'] = time.monotonic() - started
     result['peak_bytes'] = peak_bytes()
-    if result['exit_status'] == 'ok' and result['peak_bytes'] > result['max_gb'] * GIB:
-        result['exit_status'] = 'memory'
+    if result['exit_status'] == 0 and result['peak_bytes'] > result['max_gb'] * GIB:
+        result['exit_status'], result['outcome'] = 3, 'memory'  # retrospective peak check
     print('EXP06_SMOKE ' + json.dumps(result, sort_keys=True, allow_nan=False), flush=True)
     if receipt is not None:
         provenance.write_completion(Path(receipt), result)
@@ -67,39 +83,58 @@ def _publish(result, started, receipt):
 
 
 def run_entry(entry, argv, receipt=None, alarm_seconds=300, max_gb=3.0):
-    """Run one entry in-process; abort with status 3 on the alarm or the memory budget."""
+    """Run one entry in-process; abort with status 3 on the alarm or the memory ceiling.
+
+    ``exit_status`` is numeric: 0 for a completed entry, the integer an entry returns,
+    3 for an alarm or memory abort and 1 for an exception. ``outcome`` names the reason.
+    """
     if entry not in ENTRIES:
         raise ValueError('unknown smoke entry {!r}; choose from {}'.format(entry, sorted(ENTRIES)))
+    alarm_seconds = check_budget('alarm_seconds', alarm_seconds)
+    max_gb = check_budget('max_gb', max_gb)
     module = importlib.import_module(ENTRIES[entry])
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
     result = dict(schema_version=1, diagnostic=True, entry=entry, module=ENTRIES[entry],
                   argv=list(argv), alarm_seconds=alarm_seconds, max_gb=max_gb,
+                  entry_status=None, aborted_memory=False,
                   git_head=provenance.git_state(REPO)['HEAD'],
                   timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat())
-    started = time.monotonic()
-    previous = signal.signal(signal.SIGALRM, _alarm)
-    signal.setitimer(signal.ITIMER_REAL, alarm_seconds)  # alarm(), with sub-second resolution
+    started, ceiling = time.monotonic(), max_gb * GIB
+    deadline = started + alarm_seconds
+
+    def watchdog(signum, frame):
+        """Enforce the ceiling while the entry runs, then the wall-clock deadline."""
+        if peak_bytes() > ceiling:
+            raise _MemoryExceeded('smoke exceeded its allocation ceiling')
+        if time.monotonic() >= deadline:
+            raise _Timeout('smoke exceeded its wall-clock budget')
+
+    previous = signal.signal(signal.SIGALRM, watchdog)
+    tick = min(1.0, alarm_seconds)  # periodic: sub-second alarms still fire on their deadline
+    signal.setitimer(signal.ITIMER_REAL, tick, tick)
     try:
-        _invoke(module, entry, argv)
-        result['exit_status'] = 'ok'
+        try:
+            status = _invoke(module, entry, argv)
+            result['entry_status'] = status if type(status) is int else None
+            result['exit_status'] = status if type(status) is int else 0
+            result['outcome'] = 'failed' if result['exit_status'] else 'ok'
+        finally:  # disarm before any handler runs, so nothing fires during publication
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous)
     except _Timeout:
-        result['exit_status'] = 'alarm'
+        result['exit_status'], result['outcome'] = 3, 'alarm'
+    except _MemoryExceeded:
+        result['exit_status'], result['outcome'] = 3, 'memory'
+        result['aborted_memory'] = True
     except BaseException as error:
-        result['exit_status'] = 'error: ' + type(error).__name__
+        result['exit_status'], result['outcome'] = 1, 'error: ' + type(error).__name__
         _publish(result, started, receipt)
         raise
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous)
     _publish(result, started, receipt)
-    if result['exit_status'] != 'ok':
+    if result['exit_status'] != 0:
         raise SystemExit(3)
     return result
-
-
-def _alarm(signum, frame):
-    raise _Timeout('smoke exceeded its wall-clock budget')
 
 
 def make_fixture(path, seed=0):
