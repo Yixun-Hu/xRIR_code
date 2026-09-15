@@ -174,6 +174,16 @@ def run_contract(directory, arm, profile, pins, cache=None):
     for key, value in TIERS[profile['tier']].items():  # the seen arms are trained at tier M
         require(_equal(args.get('vit_' + key, value), value), 'args tier configuration')
     require(_equal(args.get('backbone'), fields.get('backbone')), 'evaluated backbone')
+    effective = manifest.get('effective_args') or {}
+    runtime = {key: value for key, value in args.items() if key != 'env'}
+    for key, value in (args.get('env') or {}).items():  # tools.exp04_launcher.normalize
+        require(key not in runtime or _equal(runtime[key], value), 'args env conflict ' + key)
+        runtime[key] = value
+    require(_equal(runtime, effective), 'effective_args disagree with args.json')
+    require((root / effective.get('save_dir', 'absent')).resolve() == attempt,
+            'effective_args save_dir')
+    require({'epoch_%03d.pth' % epoch for epoch in range(1, 13)} <=
+            set(finished.get('directory_listing') or ()), 'training epoch checkpoints')
     return dict(role=arm['role'], reference=False, training=trainer, waivers=waivers, inputs=inputs)
 
 

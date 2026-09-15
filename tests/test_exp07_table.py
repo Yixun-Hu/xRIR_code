@@ -319,6 +319,43 @@ def a_missing_probe_receipt_binding(built):
     return 'probe receipt binding'
 
 
+def a_manifest_epoch_budget_that_is_not_the_trainers(built):
+    manifest = built.read(built.attempts['seen_simple'] / 'train_manifest.json')
+    manifest['effective_args']['epochs'] = 1
+    rebind_training(built, 'seen_simple', manifest=manifest)
+    return 'effective_args disagree with args.json'
+
+
+def a_manifest_backbone_that_is_not_the_trainers(built):
+    manifest = built.read(built.attempts['seen_cyl'] / 'train_manifest.json')
+    manifest['effective_args']['backbone'] = 'simple'
+    rebind_training(built, 'seen_cyl', manifest=manifest)
+    return 'effective_args disagree with args.json'
+
+
+def a_manifest_yaw_flag_that_is_not_the_trainers(built):
+    manifest = built.read(built.attempts['seen_aug'] / 'train_manifest.json')
+    manifest['effective_args']['yaw_aug'] = 0
+    rebind_training(built, 'seen_aug', manifest=manifest)
+    return 'effective_args disagree with args.json'
+
+
+def a_save_dir_that_is_not_the_attempt(built):
+    attempt, elsewhere = built.attempts['seen_aug'], str(built.root / 'elsewhere')
+    manifest = built.read(attempt / 'train_manifest.json')
+    manifest['effective_args']['save_dir'] = elsewhere
+    rebind_training(built, 'seen_aug', manifest=manifest,
+                    args=dict(built.read(attempt / 'args.json'), save_dir=elsewhere))
+    return 'effective_args save_dir'
+
+
+def a_completion_missing_an_epoch_checkpoint(built):
+    completion = built.read(built.attempts['seen_cyl'] / 'completion.json')
+    completion['outputs'].pop('epoch_005.pth')
+    rebind_training(built, 'seen_cyl', completion=completion)
+    return 'training epoch checkpoints'
+
+
 def a_training_closure_that_is_not_the_pin(built):
     built.pins['closures']['training'] = 'f' * 64
     return 'training closure'
@@ -390,6 +427,9 @@ REFUSALS = [an_evaluated_split_that_is_not_seen, an_output_meta_from_another_spl
             a_projection_that_disagrees_with_the_receipt, a_missing_probe_receipt_binding,
             a_projection_above_the_sixty_hour_budget_rule, a_limit_derived_from_another_receipt,
             a_ceiling_that_is_not_one_and_a_half_projections, a_probe_receipt_for_another_backbone,
+            a_manifest_epoch_budget_that_is_not_the_trainers, a_save_dir_that_is_not_the_attempt,
+            a_manifest_backbone_that_is_not_the_trainers, a_completion_missing_an_epoch_checkpoint,
+            a_manifest_yaw_flag_that_is_not_the_trainers,
             a_launcher_outside_the_approved_list, an_args_file_with_another_epoch_budget,
             an_args_file_with_the_wrong_yaw_flag, an_args_file_with_the_unseen_batch_count,
             an_args_file_from_another_capacity_tier,
