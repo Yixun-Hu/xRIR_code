@@ -480,3 +480,96 @@ def test_the_legacy_rows_reproduce_the_canonical_exp02_cells(room, key, monkeypa
     assert (got['query']['lo'], got['query']['hi']) == (want['lo'], want['hi'])
     assert (got['two_way']['lo'], got['two_way']['hi']) == (want['lo_two_way'],
                                                             want['hi_two_way'])
+
+
+# --- the side split, the approvals gate and the published outputs -------------------------
+
+
+@pytest.fixture
+def cache_root(tmp_path_factory):
+    return build_cache(tmp_path_factory.mktemp('cache'))
+
+
+def test_the_two_side_label_routes_agree_and_a_mismatch_is_refused(arms, tmp_path):
+    room = 'hallway'
+    from_cache = subject.cache_side_labels(room)
+    assert sorted(from_cache) == indices(room)
+    assert set(from_cache.values()) == {-1, 1}
+    new = arms['cyl_or']['per']['zeroshot'][room]
+    assert subject.side_labels(new, room) == new['side_label']
+    old = arms['control']['per']['zeroshot'][room]
+    assert 'side_label' not in old
+    assert subject.side_labels(old, room) == [from_cache[i] for i in old['index']]
+    broken = json.loads(json.dumps(new))
+    broken['side_label'] = [-s for s in broken['side_label']]
+    with pytest.raises(ValueError, match='not the room-frame signs'):
+        subject.side_labels(broken, room)
+
+
+def test_the_side_split_covers_every_arm_room_and_metric(arms):
+    table = subject.side_split(arms)
+    assert table['job'] == 'zeroshot'
+    assert len(table['cells']) == len(arms) * 11
+    entry = table['cells']['cyl_or|hallway|c50']
+    assert entry['n_minus_y'] + entry['n_plus_y'] == SIZE['hallway']
+    assert entry['minus_y'] is not None and entry['plus_y'] is not None
+
+
+def test_production_refuses_without_the_approvals_module():
+    with pytest.raises(subject.approvals_api.ApprovalsUnavailable):
+        subject.approvals(False)
+    approved, receipt, deviations = subject.approvals(True)
+    assert approved is None and receipt is None
+    assert deviations and 'not available on this branch' in deviations[0]
+
+
+def test_the_analysis_binds_its_inputs_and_suppresses_draft_verdicts(arms, tmp_path):
+    result = subject.analyse(arms, n_boot=200, adjusted_n_boot=200, exploratory=True,
+                             deviations=['no approvals'])
+    assert result['H1']['verdict'] == 'suppressed (draft)' == result['H1b']['verdict']
+    assert result['margin_db'] == 0.23 and result['n_boot'] == 200
+    assert len(result['H2']) == 11 and len(result['D']) == 33
+    assert result['bootstrap_seeds'] == [0, 1] and result['heading_k'] == 128
+    assert all(path.endswith('completion.json') for path in result['inputs'])
+    assert len(result['inputs']) == 3 * 4 * (1 + 9) - 3 * 5  # three arms, four jobs
+    assert result['rows']['control|fine-tuned|hallway|c50']['std'] is not None
+    assert result['arms']['cyl_or']['closure'] == CLOSURE
+
+
+def test_the_outputs_are_written_once_and_the_json_binds_the_summary(arms, tmp_path):
+    result = subject.analyse(arms, n_boot=200, adjusted_n_boot=200, exploratory=True)
+    out, summary = tmp_path / 'stats.json', tmp_path / 'summary.txt'
+    record, digest, text = subject.write_outputs(result, out, summary)
+    assert summary.read_text() == text and digest == sha(out)
+    assert record['summary_sha256'] == subject.hashlib.sha256(text.encode()).hexdigest()
+    assert json.loads(out.read_text())['summary_sha256'] == record['summary_sha256']
+    assert 'DRAFT' in text and 'H2 screen' in text and 'Room-frame side split' in text
+    with pytest.raises(FileExistsError):
+        subject.write_outputs(result, out, summary)
+
+
+def test_the_cli_writes_a_draft_and_the_legacy_receipt(legacy_root, new_root, tmp_path,
+                                                       monkeypatch):
+    receipt = tmp_path / 'legacy_receipt.json'
+    assert subject.main(['--legacy-root', str(legacy_root), '--exploratory',
+                         '--write-legacy-receipt', str(receipt)]) == 0
+    assert json.loads(receipt.read_text())['label'] == 'reconstructed'
+    out, summary = tmp_path / 'stats.json', tmp_path / 'summary.txt'
+    assert subject.main(['--legacy-root', str(legacy_root), '--new-root', str(new_root),
+                         '--legacy-receipt', str(receipt), '--json', str(out),
+                         '--summary', str(summary), '--n-boot', '200',
+                         '--n-boot-adjusted', '200', '--exploratory']) == 0
+    record = json.loads(out.read_text())
+    assert record['exploratory'] is True and record['legacy_receipt']['label'] == \
+        'reconstructed'
+    assert record['H1']['verdict'] == 'suppressed (draft)'
+    assert record['legacy_receipt']['sha256'] == sha(receipt)
+
+
+def test_the_cli_refuses_a_production_run_on_this_branch(legacy_root, new_root, tmp_path):
+    receipt = tmp_path / 'r.json'
+    subject.write_legacy_receipt(receipt, legacy_root, strict=False)
+    with pytest.raises(subject.approvals_api.ApprovalsUnavailable):
+        subject.main(['--legacy-root', str(legacy_root), '--new-root', str(new_root),
+                      '--legacy-receipt', str(receipt), '--json', str(tmp_path / 'j.json'),
+                      '--summary', str(tmp_path / 's.txt')])
