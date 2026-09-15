@@ -309,7 +309,9 @@ def test_diagnostic_runs_need_a_receipt_but_no_artifacts(tmp_path, run_type, clo
     assert fields['passed'] is True and fields['artifacts'] == {} and fields['child_exit'] == 0
     assert fields['receipt'] == {'path': str(Path(receipt).resolve()),
                                  'sha256': provenance.sha256_file(receipt),
-                                 'entry': 'exp06_train', 'exit_status': 0, 'outcome': 'ok'}
+                                 'runner': 'tools.exp06_smoke', 'entry': 'exp06_train',
+                                 'exit_status': 0, 'outcome': 'ok', 'wall_s': 12.5,
+                                 'peak_bytes': 0, 'alarm_seconds': 300.0, 'max_gb': 3.0}
     assert json.loads((run / 'completion.json').read_text()) == fields
     assert exp06_finalize.finalize(run, run_type, log, 0, repo=clone, receipt=receipt) == fields
 

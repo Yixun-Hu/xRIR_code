@@ -22,9 +22,12 @@ data inventory and mutable inputs.
               and each ``exp06_*`` field bound to the execution record (run type, HEAD,
               recomputed registry and closure digests, the validated provenance file),
               budget completeness, and ``epoch_012.pth`` equal to ``last.pth['model']``.
-``smoke``/``probe``  no artifacts, but a valid diagnostic receipt (``diagnostic: true``, an
-              integer ``exit_status``, ``--no-save`` in its argv); ``passed`` reports
-              whether the diagnostic succeeded and it is never admissible as an arm.
+``smoke``/``probe``  no artifacts, but a ``provenance.json`` bound like the full case minus
+              the training artefacts, and a complete diagnostic receipt: the runner's
+              identity and closure digest, the entry, the argv (``--no-save``), the
+              wall-clock window, the peak allocation, both budgets, an outcome in
+              {ok, failed, aborted_alarm, aborted_memory} and the exploratory flag.
+              ``passed`` reports whether the diagnostic succeeded; never an arm.
 ``haa_train`` one fine-tuning child: provenance and closure, arguments agreeing with the
               record, a heading binding per room (``phi_deg``, ``k`` = roll(phi), decision,
               sha256 and path, verified against the heading JSON), ``init_sha256`` equal to
@@ -127,7 +130,17 @@ REQUIRED_PROVENANCE = ('run_type', 'repo', 'reviewed_commit', 'source_closures',
                        'registry_sha256', 'git_state', 'environment', 'command',
                        'effective_args')
 ENTRY_MODULES = {'full': 'tools.exp06_train', 'haa_train': 'tools.exp06_haa_finetune',
-                 'haa_eval': 'tools.exp06_haa_eval'}
+                 'haa_eval': 'tools.exp06_haa_eval', 'smoke': 'tools.exp06_smoke',
+                 'probe': 'tools.exp06_smoke'}
+DIAGNOSTIC_PROVENANCE = ('run_type', 'repo', 'reviewed_commit', 'source_closures',
+                         'registry_sha256', 'git_state', 'environment', 'command')
+# Finding 6: a receipt proves nothing without the runner's identity, its budgets and what
+# the run actually cost. Every field is required and typed before `passed` is derived.
+RECEIPT_NUMBERS = ('wall_s', 'alarm_seconds', 'max_gb')
+DIAGNOSTIC_RECEIPT = ('runner', 'runner_closure_sha256', 'entry', 'argv', 'run_type',
+                      'started_at', 'ended_at', 'exit_status', 'exploratory', 'git_head',
+                      'peak_bytes', 'outcome') + RECEIPT_NUMBERS
+OUTCOMES = ('ok', 'failed', 'aborted_alarm', 'aborted_memory')
 BACKBONES = tuple(sorted(BACKBONES_EXP06))
 IDENTITY_KEYS = ('train_data_identity', 'data_identity')
 IDENTITY_FIELDS = ('data_root', 'inventory', 'inventory_files', 'inventory_bytes',
@@ -311,9 +324,11 @@ def verify_geometry_identity(record, key='geometry_identity'):
     seconds = time.monotonic() - started
     _require(fresh['inventory_sha256'] == record[key]['inventory_sha256'],
              '{}: the geometry inputs changed since the run started'.format(key))
+    # The measurement is reported, never recorded: a completion must be byte-identical on
+    # a re-run, and a wall time never is.
+    print('EXP06_GEOMETRY_REHASH {} files in {:.1f} s'.format(len(entries), seconds), flush=True)
     return {'geometry_files': len(entries), 'geometry_bytes': fresh['inventory_bytes'],
-            'geometry_splits': dict(counts), 'geometry_rehash_seconds': round(seconds, 3),
-            'geometry_sha256': fresh['inventory_sha256']}
+            'geometry_splits': dict(counts), 'geometry_sha256': fresh['inventory_sha256']}
 
 
 def closed_log(log, child_exit):
@@ -451,10 +466,10 @@ def closure_paths(entry_module, repo):
             entry_module, error)) from error
 
 
-def load_provenance(run_dir, run_type):
+def load_provenance(run_dir, run_type, required=REQUIRED_PROVENANCE, identity=True):
     """The whole execution record, or a refusal naming the field that is missing."""
     record = _read_json(Path(run_dir) / 'provenance.json', 'provenance.json')
-    missing = [key for key in REQUIRED_PROVENANCE if record.get(key) is None]
+    missing = [key for key in required if record.get(key) is None]
     _require(not missing, 'provenance.json is incomplete: missing ' + ', '.join(missing))
     _require(record['run_type'] == run_type,
              'provenance run_type is {!r}, not {}'.format(record['run_type'], run_type))
@@ -471,10 +486,11 @@ def load_provenance(run_dir, run_type):
         if key in record:
             _mapping(record[key], 'provenance.json ' + key)
     present = [key for key in IDENTITY_KEYS if isinstance(record.get(key), dict)]
-    _require(present, 'provenance.json records no train_data_identity/data_identity')
+    _require(present or not identity,
+             'provenance.json records no train_data_identity/data_identity')
     for key in present:
         check_identity_schema(record[key], key)
-    _require(isinstance(record['effective_args'], dict),
+    _require(not identity or isinstance(record['effective_args'], dict),
              'provenance.json records no effective_args mapping (startup arguments)')
     return record
 
@@ -708,27 +724,72 @@ def full_evidence(run_dir, repo):
                             'epoch': exp06_recipe.EXP01_RECIPE['epochs']})
 
 
-def diagnostic_evidence(run_dir, receipt, child_exit):
-    """A smoke or probe proves nothing about an arm, but must produce a valid receipt.
-
-    Validity is the receipt's own shape (diagnostic, an integer status, a ``--no-save``
-    argv); ``passed`` then reports whether that diagnostic actually succeeded. A failed
-    diagnostic is still recorded -- it is simply never ``admissible_arm``.
-    """
+def diagnostic_receipt(receipt, run_type, provenance_record):
+    """Finding 6: the runner's identity, budgets, timing and memory, all required."""
     _require(receipt is not None, 'a diagnostic run needs its --receipt')
     path = Path(receipt)
     _require(path.is_file(), 'missing smoke receipt: {}'.format(receipt))
     record = _read_json(path, 'smoke receipt')
     _require(record.get('diagnostic') is True, 'the smoke receipt is not marked diagnostic')
-    argv = record.get('argv')
+    missing = [key for key in DIAGNOSTIC_RECEIPT if key not in record]
+    _require(not missing, 'the smoke receipt is incomplete: missing ' + ', '.join(missing))
+    argv = record['argv']
     _require(isinstance(argv, list) and '--no-save' in argv,
              'a diagnostic must run with --no-save; its receipt records argv {!r}'.format(argv))
-    status = record.get('exit_status')
-    _require(type(status) is int, 'the smoke receipt records exit_status {!r}'.format(status))
-    return dict(artifacts={}, passed=status == 0 and child_exit == 0,
+    _require(type(record['exit_status']) is int,
+             'the smoke receipt records exit_status {!r}'.format(record['exit_status']))
+    _require(record['runner'] == 'tools.exp06_smoke',
+             'the smoke receipt records runner {!r}'.format(record['runner']))
+    _require(_is_sha256(record['runner_closure_sha256']),
+             'the smoke receipt records no runner closure digest')
+    _require(isinstance(record['entry'], str) and record['entry'],
+             'the smoke receipt records entry {!r}'.format(record['entry']))
+    _require(record['run_type'] == run_type,
+             'the smoke receipt records run_type {!r}, not {}'.format(record['run_type'], run_type))
+    _require(record['outcome'] in OUTCOMES,
+             'the smoke receipt records outcome {!r}, not one of {}'.format(
+                 record['outcome'], list(OUTCOMES)))
+    _require(type(record['exploratory']) is bool,
+             'the smoke receipt records exploratory {!r}'.format(record['exploratory']))
+    ended = _timestamp(record['ended_at'], 'ended_at')
+    _require(ended >= _timestamp(record['started_at'], 'started_at'),
+             'the smoke receipt ended_at precedes its started_at')
+    for key in RECEIPT_NUMBERS:
+        _require(_finite('the smoke receipt ' + key, record[key]) >= 0,
+                 'the smoke receipt {} is {!r}, not a duration or budget'.format(key, record[key]))
+    _require(type(record['peak_bytes']) is int and record['peak_bytes'] >= 0,
+             'the smoke receipt peak_bytes is {!r}'.format(record['peak_bytes']))
+    _require(record['git_head'] == provenance_record['git_state']['HEAD'],
+             'the smoke receipt git_head {!r} is not the {} of its provenance'.format(
+                 record['git_head'], provenance_record['git_state']['HEAD']))
+    closure = list(provenance_record['source_closures'].values())[0]
+    _require(record['runner_closure_sha256'] == closure['sha256'],
+             'the smoke receipt runner closure is not the {} its provenance recorded'.format(
+                 closure['sha256']))
+    _require(record['exploratory'] == bool(provenance_record.get('exploratory')),
+             'the smoke receipt and its provenance disagree about exploratory')
+    return record, path
+
+
+def diagnostic_evidence(run_dir, receipt, child_exit, run_type, repo):
+    """A smoke or probe proves nothing about an arm, but must prove what it cost.
+
+    Finding 6: the receipt carries the runner's identity, budgets, timing and peak
+    allocation, and the run records a ``provenance.json`` bound the way a full run's is,
+    minus the training artefacts. ``passed`` then reports whether the diagnostic actually
+    succeeded; a failed one is still recorded and is simply never ``admissible_arm``.
+    """
+    record = load_provenance(run_dir, run_type, required=DIAGNOSTIC_PROVENANCE, identity=False)
+    verify_source_closure(record, run_type, repo)
+    admission = verify_approvals(record, repo, run_type)
+    fields, path = diagnostic_receipt(receipt, run_type, record)
+    status = fields['exit_status']
+    return dict(artifacts={}, passed=status == 0 and child_exit == 0, **admission,
                 receipt={'path': str(path.resolve()), 'sha256': provenance.sha256_file(path),
-                         'entry': record.get('entry'), 'exit_status': status,
-                         'outcome': record.get('outcome')})
+                         'runner': fields['runner'], 'entry': fields['entry'],
+                         'exit_status': status, 'outcome': fields['outcome'],
+                         'wall_s': fields['wall_s'], 'peak_bytes': fields['peak_bytes'],
+                         'alarm_seconds': fields['alarm_seconds'], 'max_gb': fields['max_gb']})
 
 
 def _is_sha256(value):
@@ -1315,7 +1376,7 @@ def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None,
                   child_exit_time=child_exit_time, log=log_record,
                   child_exit_receipt=receipt_record,
                   diagnostic=diagnostic, admissible_arm=not diagnostic)
-    fields.update(diagnostic_evidence(run_dir, receipt, child_exit) if diagnostic
+    fields.update(diagnostic_evidence(run_dir, receipt, child_exit, run_type, repo) if diagnostic
                   else full_evidence(run_dir, repo) if run_type == 'full'
                   else haa_train_evidence(run_dir, repo) if run_type == 'haa_train'
                   else haa_eval_evidence(run_dir, repo) if run_type == 'haa_eval'

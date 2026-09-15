@@ -146,11 +146,12 @@ def test_geometry_membership_is_derived_from_the_datasets_own_split(data_root):
     assert {entry['path'] for entry in identity['inventory']} == set(files)
 
 
-def test_a_full_completion_rehashes_every_geometry_input(full_run, clone, data_root):
+def test_a_full_completion_rehashes_every_geometry_input(full_run, clone, data_root, capsys):
     run, log = full_run
     fields = exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
-    assert fields['geometry_files'] == 5
-    assert fields['geometry_rehash_seconds'] >= 0
+    assert fields['geometry_files'] == 5 and fields['geometry_bytes'] > 0
+    assert 'EXP06_GEOMETRY_REHASH 5 files' in capsys.readouterr().out
+    assert exp06_finalize.finalize(run, 'full', log, 0, repo=clone) == fields
 
 
 @pytest.mark.parametrize('changed', ['metadata/Apartments/Apartments_idx_1/S000_R000.json',
