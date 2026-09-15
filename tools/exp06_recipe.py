@@ -19,6 +19,8 @@ import functools
 import math
 from types import MappingProxyType
 
+import torch
+
 from model.xRIR_cyl_oriented import BACKBONES_EXP06, build_xrir_exp06
 from tools.exp05_params import TIERS, count_parameters
 
@@ -112,9 +114,15 @@ def normalize_historical(args_dict):
 
 @functools.lru_cache(maxsize=None)
 def expected_param_counts(backbone):
-    """Parameter counts of the registered backbone at the recipe's tier."""
-    model = build_xrir_exp06(backbone, EXP01_RECIPE['num_shot'], **TIERS[TIER])
-    return MappingProxyType(count_parameters(model))
+    """Parameter counts of the registered backbone at the recipe's tier.
+
+    Nit 8: the counting model is randomly initialised, so it is built inside
+    ``torch.random.fork_rng`` -- a cold call must leave the caller's global generator
+    exactly where a warm (cached) call leaves it.
+    """
+    with torch.random.fork_rng(devices=[]):
+        model = build_xrir_exp06(backbone, EXP01_RECIPE['num_shot'], **TIERS[TIER])
+        return MappingProxyType(count_parameters(model))
 
 
 def check_derived(args_dict, backbone):

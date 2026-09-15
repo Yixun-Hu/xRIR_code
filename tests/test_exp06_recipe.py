@@ -5,6 +5,7 @@ import math
 from pathlib import Path
 
 import pytest
+import torch
 
 from model.xRIR_cyl_oriented import build_xrir_exp06
 from tools.exp05_params import TIERS, count_parameters
@@ -194,3 +195,19 @@ def test_budget_refusals_are_named(rows, meta, named):
 def test_complete_budget_passes():
     assert check_budget(history(), LAST) == []
     assert all(math.isfinite(row['epoch_minutes']) for row in history())
+
+
+def test_param_count_validation_leaves_the_global_rng_untouched():
+    """Nit 8: a cold expected_param_counts must not advance torch's global generator."""
+    from tools import exp06_recipe
+    exp06_recipe.expected_param_counts.cache_clear()
+    torch.manual_seed(1234)
+    before = torch.random.get_rng_state()
+    cold = exp06_recipe.expected_param_counts('cylindrical_oriented')
+    assert torch.equal(torch.random.get_rng_state(), before), 'cold call advanced the global RNG'
+    draw = torch.randn(3)
+    exp06_recipe.expected_param_counts.cache_clear()
+    torch.manual_seed(1234)
+    warm = exp06_recipe.expected_param_counts('cylindrical_oriented')
+    assert dict(warm) == dict(cold)
+    assert torch.equal(torch.randn(3), draw), 'counting changed the subsequent random stream'
