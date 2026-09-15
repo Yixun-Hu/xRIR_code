@@ -21,7 +21,8 @@
 #
 # The child lifecycle -- exclusive directory, drained pipe, end marker, child_exit.json --
 # is tools/exp06_launch.sh's, sourced here as a library; only the job-level finalization
-# (--children/--expect/--job-spec) has no helper there and is defined below.
+# (--children/--expect/--job-spec) has no helper there and is defined below. A job is not a
+# child of anything: it closes no log and writes no receipt (plan amendment A3).
 # EXP06_PIPELINE_LIB=1 source tools/exp06_haa_pipeline.sh defines the functions and
 # returns, so job_spec, child, run_finetune and run_queue can be exercised without a queue.
 # --dry-run prints every command and path (timestamps as <UTC>) and executes nothing.
@@ -146,14 +147,16 @@ child() {
 
 # finalize_job <root> <log> <expect> <children...>: the one helper tools/exp06_launch.sh
 # has no equivalent for -- its finalize() takes no --children/--expect/--job-spec.
+# Plan amendment A3: a job has no child process of its own. This shell orchestrates the
+# nine (or four) children and is still running here, so it closes no log and writes no
+# job-root child_exit.json -- a receipt there could only name itself, and the finalizer
+# refuses one. The queue log is informational; $OWNER (= $$, the live launch.pid this
+# launcher wrote at the job root) is the owner the job-level completion binds.
 finalize_job() {
     local root="$1" log="$2" expect="$3"
     shift 3
-    say "MARKER EXP06_CHILD_EXIT 0 <iso> >> $log"
     if [ "$DRY" -eq 0 ]; then
-        printf 'job %s expect %s children %s\n' "$root" "$expect" "$#" >> "$log"
-        "$PYTHON" tools/exp06_finalize.py child-exit --run-dir "$root" --log "$log" \
-            --child-pid "$$" --status 0 --started-at "$JOB_STARTED_AT" || return 1
+        printf 'job %s expect %s children %s\n' "$root" "$expect" "$#" >> "$log" || return 1
     fi
     run "$PYTHON" tools/exp06_finalize.py --run-dir "$root" --run-type haa_job --log "$log" \
         --child-exit 0 --owner-pid "$OWNER" --children "$@" --expect "$expect" \
@@ -175,7 +178,6 @@ run_zeroshot() {  # run_zeroshot <init>
     bb="$INIT_BACKBONE"; ck="$INIT_CKPT"
     root="$OUT/$name/zeroshot"
     say "JOB $name zeroshot backbone=$bb init=$ck expect=zeroshot"
-    JOB_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%S+00:00)"
     prepare_job "$root" "$name" "$ck" 0 zeroshot "$bb" || return 1
     for room in $ROOMS; do
         evaluation="$root/eval/$room"
@@ -194,7 +196,6 @@ run_finetune() {  # run_finetune <init> <seed>
     bb="$INIT_BACKBONE"; ck="$INIT_CKPT"
     root="$OUT/$name/seed$seed"; tag="seed$seed"
     say "JOB $name $tag backbone=$bb init=$ck expect=finetune"
-    JOB_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%S+00:00)"
     prepare_job "$root" "$name" "$ck" "$seed" finetune "$bb" || return 1
     child haa_train "$root/stage1" "$(child_log "$name" "$tag" stage1)" \
         "$PYTHON" tools/exp06_haa_finetune.py --backbone "$bb" --init "$ck" \
