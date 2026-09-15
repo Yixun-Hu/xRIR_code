@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 import torch
 
+from sim_to_real.haa_dataset import ROOMS
 from tools import exp06_finalize, exp06_recipe, exp06_train, provenance
 
 REPO = Path(__file__).resolve().parents[1]
@@ -443,66 +444,135 @@ def test_haa_train_refusals_are_named(tmp_path, haa_repo, heading_jsons, data_ro
     assert not (run / 'completion.json').exists()
 
 
-def write_haa_eval(run, args, meta, log=None):
+def haa_eval_args(heading_jsons, checkpoint, frame='heading', room='hallway', **overrides):
+    args = dict(backbone='cylindrical_oriented', num_shot=8, rooms=[room], frame=frame,
+                checkpoint=str(checkpoint), eval_seed=0, split='test', epochs=20, val_every=10,
+                heading={room: dict(heading_jsons[room])})
+    if frame != 'heading':
+        args.pop('heading')
+    args.update(overrides)
+    return args
+
+
+def write_haa_eval(run, args, log, repo, data_root, meta=None, per_sample=None):
     run.mkdir(parents=True, exist_ok=True)
-    if log is not None:
-        seal(run, log, text='stage output\n')
+    seal(run, log, text='eval output\n')
     (run / 'args.json').write_text(json.dumps(args))
+    record = haa_provenance(repo, 'haa_eval', args, data_root)
+    (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
     room = args['rooms'][0]
     (run / 'metrics_{}.json'.format(room)).write_text(json.dumps({'edt': 0.05, 'c50': 1.1}))
-    (run / 'per_sample_{}.json'.format(room)).write_text(json.dumps({'meta': meta, 'edt': [0.05]}))
+    body = {'meta': meta, 'index': [0, 1, 2], 'side_label': [1, -1, 1], 'edt': [0.05, 0.06, 0.07]}
+    body.update(per_sample or {})
+    (run / 'per_sample_{}.json'.format(room)).write_text(json.dumps(body))
     return run
 
 
+def eval_meta(args, checkpoint_sha256, **overrides):
+    meta = {'backbone': args['backbone'], 'checkpoint_sha256': checkpoint_sha256,
+            'frame': args['frame']}
+    if args['frame'] == 'heading':
+        meta['heading'] = json.loads(json.dumps(args['heading']))
+    meta.update(overrides)
+    return meta
+
+
 @pytest.fixture
-def closed_log_file(tmp_path):
-    return tmp_path / 'child.log'
+def haa_eval_run(tmp_path, haa_repo, heading_jsons, data_root):
+    checkpoint = haa_repo / 'stage2_best.pth'
+    torch.save(tiny_state(), checkpoint)
+    args = haa_eval_args(heading_jsons, checkpoint)
+    run, log = tmp_path / 'eval' / 'hallway', tmp_path / 'child.log'
+    write_haa_eval(run, args, log, haa_repo, data_root,
+                   meta=eval_meta(args, provenance.sha256_file(checkpoint)))
+    return run, log, args, checkpoint
 
 
-def test_haa_eval_completion_records_the_single_room(tmp_path, closed_log_file, heading_jsons):
-    args = dict(backbone='cylindrical_oriented', rooms=['hallway'], frame='heading',
-                checkpoint='ckpt/exp06/sim2real/cyl_or/seed0/stage2_hallway/best.pth',
-                eval_seed=0, split='test',
-                heading={'hallway': dict(heading_jsons['hallway'])})
-    meta = {'backbone': 'cylindrical_oriented', 'checkpoint_sha256': 'd' * 64,
-            'frame': 'heading', 'heading': {'hallway': {'k': 128}}}
-    run = write_haa_eval(tmp_path / 'eval' / 'hallway', args, meta, closed_log_file)
-    fields = exp06_finalize.finalize(run, 'haa_eval', closed_log_file, 0, repo=REPO)
+def test_haa_eval_completion_records_the_single_room(haa_eval_run, haa_repo):
+    run, log, args, checkpoint = haa_eval_run
+    fields = exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)
     assert fields['room'] == 'hallway' and fields['frame'] == 'heading'
-    assert set(fields['artifacts']) == {'args.json', 'metrics_hallway.json', 'per_sample_hallway.json'}
-    assert fields['checkpoint_sha256'] == 'd' * 64
+    assert set(fields['artifacts']) == {'provenance.json', 'args.json', 'metrics_hallway.json',
+                                        'per_sample_hallway.json'}
+    assert fields['checkpoint_sha256'] == provenance.sha256_file(checkpoint)
+    assert fields['samples'] == 3 and fields['heading']['hallway']['k'] == args['heading']['hallway']['k']
+
+
+def test_haa_eval_in_the_room_frame_records_no_heading(tmp_path, haa_repo, heading_jsons, data_root):
+    checkpoint = haa_repo / 'stage2_best.pth'
+    torch.save(tiny_state(), checkpoint)
+    args = haa_eval_args(heading_jsons, checkpoint, frame='room')
+    run, log = tmp_path / 'eval' / 'hallway', tmp_path / 'child.log'
+    write_haa_eval(run, args, log, haa_repo, data_root,
+                   meta=eval_meta(args, provenance.sha256_file(checkpoint)))
+    assert exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)['heading'] is None
 
 
 @pytest.mark.parametrize('damage,cause', [
     ('two_rooms', 'room'), ('no_metrics', 'metrics_hallway.json'),
     ('no_per_sample', 'per_sample_hallway.json'), ('no_meta_heading', 'heading'),
-    ('no_meta_backbone', 'meta'), ('meta_backbone_differs', 'backbone')])
-def test_haa_eval_refusals_are_named(tmp_path, closed_log_file, heading_jsons, damage, cause):
-    args = dict(backbone='cylindrical_oriented', rooms=['hallway'], frame='heading',
-                checkpoint='best.pth', eval_seed=0, split='test',
-                heading={'hallway': dict(heading_jsons['hallway'])})
-    meta = {'backbone': 'cylindrical_oriented', 'checkpoint_sha256': 'd' * 64,
-            'frame': 'heading', 'heading': {'hallway': {'k': 128}}}
+    ('no_meta_backbone', 'backbone'), ('meta_backbone_differs', 'backbone'),
+    ('meta_heading_differs', 'heading'), ('meta_frame_differs', 'frame'),
+    ('checkpoint_hash_differs', 'checkpoint_sha256'), ('checkpoint_missing', 'checkpoint'),
+    ('checkpoint_keys', 'checkpoint'), ('no_side_label', 'side_label'),
+    ('short_side_label', 'side_label'), ('bad_side_label', 'side_label'),
+    ('boolean_side_label', 'side_label'), ('no_index', 'index'),
+    ('no_provenance', 'provenance.json'), ('wrong_run_type', 'run_type')])
+def test_haa_eval_refusals_are_named(tmp_path, haa_repo, heading_jsons, data_root, damage, cause):
+    checkpoint = haa_repo / 'stage2_best.pth'
+    torch.save(tiny_state(), checkpoint)
+    if damage == 'checkpoint_keys':
+        torch.save({'source_network.weight': torch.zeros(1)}, checkpoint)
+    args = haa_eval_args(heading_jsons, checkpoint)
+    digest = provenance.sha256_file(checkpoint)
     if damage == 'two_rooms':
         args['rooms'] = ['hallway', 'class_room']
         args['heading']['class_room'] = dict(heading_jsons['class_room'])
-    elif damage == 'no_meta_heading':
+    elif damage == 'checkpoint_missing':
+        args['checkpoint'] = str(haa_repo / 'absent.pth')
+    meta, extra = eval_meta(args, digest), {}
+    if damage == 'no_meta_heading':
         meta.pop('heading')
     elif damage == 'no_meta_backbone':
         meta.pop('backbone')
     elif damage == 'meta_backbone_differs':
         meta['backbone'] = 'cylindrical'
-    run = write_haa_eval(tmp_path / 'eval' / 'hallway', args, meta, closed_log_file)
+    elif damage == 'meta_heading_differs':
+        meta['heading']['hallway']['k'] = (meta['heading']['hallway']['k'] + 1) % 512
+    elif damage == 'meta_frame_differs':
+        meta['frame'] = 'room'
+    elif damage == 'checkpoint_hash_differs':
+        meta['checkpoint_sha256'] = 'd' * 64
+    elif damage == 'no_side_label':
+        extra['side_label'] = None
+    elif damage == 'short_side_label':
+        extra['side_label'] = [1, -1]
+    elif damage == 'bad_side_label':
+        extra['side_label'] = [1, 0, -1]
+    elif damage == 'boolean_side_label':
+        extra['side_label'] = [True, -1, 1]
+    elif damage == 'no_index':
+        extra['index'] = None
+    run, log = tmp_path / 'eval' / 'hallway', tmp_path / 'child.log'
+    write_haa_eval(run, args, log, haa_repo, data_root, meta=meta, per_sample=extra)
     if damage == 'no_metrics':
         (run / 'metrics_hallway.json').unlink()
     elif damage == 'no_per_sample':
         (run / 'per_sample_hallway.json').unlink()
+    elif damage == 'no_provenance':
+        (run / 'provenance.json').unlink()
+    elif damage == 'wrong_run_type':
+        record = json.loads((run / 'provenance.json').read_text())
+        record['run_type'] = 'haa_train'
+        (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
     with pytest.raises(ValueError, match=cause):
-        exp06_finalize.finalize(run, 'haa_eval', closed_log_file, 0, repo=REPO)
+        exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)
     assert not (run / 'completion.json').exists()
 
 
-from sim_to_real.haa_dataset import ROOMS
+@pytest.fixture
+def closed_log_file(tmp_path):
+    return tmp_path / 'child.log'
 
 
 def write_job(tmp_path, expect='finetune', children=None, log=None):

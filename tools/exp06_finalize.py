@@ -484,23 +484,48 @@ def haa_train_evidence(run_dir, repo):
 
 
 def haa_eval_evidence(run_dir, repo):
-    """One evaluation child: exactly one room, with its per-sample provenance meta."""
-    args = _read_json(Path(run_dir) / 'args.json', 'args.json')
+    """One evaluation child: exactly one room, bound to the checkpoint it actually ran."""
+    record, args = haa_child_arguments(run_dir, 'haa_eval', repo)
     rooms, frame = _rooms_and_frame(args)
     _require(len(rooms) == 1, 'an evaluation child covers exactly one room, not {}'.format(rooms))
     room, tag = rooms[0], args.get('tag', '')
-    names = ('args.json', 'metrics_{}{}.json'.format(room, tag),
+    names = ('provenance.json', 'args.json', 'metrics_{}{}.json'.format(room, tag),
              'per_sample_{}{}.json'.format(room, tag))
     hashes = artifacts(run_dir, names)
     heading = _heading_binding(args, rooms, frame, repo)
-    meta = _read_json(Path(run_dir) / names[2], names[2]).get('meta')
-    required = ('backbone', 'checkpoint_sha256', 'frame') + (('heading',) if frame == 'heading' else ())
-    _require(isinstance(meta, dict) and all(key in meta for key in required),
-             'per-sample meta must record ' + ', '.join(required))
-    _require(meta['backbone'] == args.get('backbone') and meta['frame'] == frame,
-             'per-sample meta backbone/frame differ from args.json')
+    per_sample = _read_json(Path(run_dir) / names[3], names[3])
+    meta = per_sample.get('meta')
+    _require(isinstance(meta, dict), 'per-sample meta must be a record')
+    required = ('backbone', 'checkpoint_sha256', 'frame') + (('heading',) if heading else ())
+    missing = [key for key in required if key not in meta]
+    _require(not missing, 'per-sample meta must record ' + ', '.join(missing))
+    _require(meta['frame'] == frame and frame in FRAMES,
+             'per-sample meta frame {!r} is not the {!r} of args.json'.format(meta['frame'], frame))
+    _require(meta['backbone'] == args['backbone'],
+             'per-sample meta backbone {!r} differs from args.json'.format(meta['backbone']))
+    if heading:
+        _require(exp06_recipe.strict_equal(meta['heading'], args['heading']),
+                 'per-sample meta heading differs from the heading bound in args.json')
+    else:
+        _require(not meta.get('heading'), 'a room-frame evaluation must record no heading')
+    checkpoint = args.get('checkpoint')
+    _require(isinstance(checkpoint, str) and checkpoint, 'args.json records no checkpoint path')
+    resolved = _resolve(checkpoint, repo)
+    _require(resolved.is_file(), 'missing evaluation checkpoint: {}'.format(resolved))
+    _checkpoint_keys(resolved, 'checkpoint ' + checkpoint, args['backbone'], args['num_shot'])
+    digest = provenance.sha256_file(resolved)
+    _require(meta['checkpoint_sha256'] == digest, 'per-sample meta checkpoint_sha256 {} is not '
+             'the hash {} of {}'.format(meta['checkpoint_sha256'], digest, resolved))
+    index, side = per_sample.get('index'), per_sample.get('side_label')
+    _require(isinstance(index, list) and index, 'the per-sample file records no index')
+    _require(isinstance(side, list) and len(side) == len(index),
+             'side_label must carry one room-frame label per index ({} for {} samples)'.format(
+                 len(side) if isinstance(side, list) else side, len(index)))
+    bad = [value for value in side if isinstance(value, bool) or value not in (-1, 1)]
+    _require(not bad, 'side_label values must be -1 or 1, not {}'.format(sorted(set(map(repr, bad)))))
     return dict(artifacts=hashes, room=room, frame=frame, heading=heading,
-                backbone=args.get('backbone'), checkpoint_sha256=meta['checkpoint_sha256'])
+                backbone=args['backbone'], checkpoint_sha256=digest, samples=len(index),
+                source_closure_sha256=list(record['source_closures'].values())[0]['sha256'])
 
 
 def expected_children(expect):
