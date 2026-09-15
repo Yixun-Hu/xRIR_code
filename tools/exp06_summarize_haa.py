@@ -26,6 +26,7 @@ from pathlib import Path
 import numpy as np
 
 from sim_to_real import summarize_haa as legacy
+from tools import exp06_finalize as finalizer
 from tools import provenance
 
 ENTRY_MODULE = 'tools.exp06_summarize_haa'
@@ -188,3 +189,187 @@ def verify_legacy_receipt(path, root, approved=None):
         _require(actual == item['sha256'],
                  'legacy artifact changed since the receipt: ' + item['path'])
     return dict(record, sha256=digest)
+
+
+# --- the legacy branch: exp_02's own completeness gate, then this experiment's two arms --
+
+
+def load_legacy(root, receipt_path=None, approved=None):
+    """exp_02's loader and completeness run unchanged over the COMPLETE historical root.
+
+    The inherited checker expects exp_02's full run set (``released``,
+    ``released_repomaps``, ``control``, ``cyl``), so it is given the whole root before
+    arms A and B are extracted from it.
+    """
+    runs = legacy.load_runs(str(root))
+    complete, problems = legacy.completeness(runs)
+    _require(complete, 'the historical exp_02 root is incomplete: ' + '; '.join(problems))
+    receipt = None if receipt_path is None else verify_legacy_receipt(
+        receipt_path, root, approved)
+    data = {}
+    for arm in LEGACY_ARMS:
+        init, jobs = ARMS[arm]['legacy_init'], {}
+        for kind in ('fine-tuned', 'zero-shot'):
+            for run in runs.get((init, kind), []):
+                jobs[Path(run['dir']).name] = run['per']
+        _require(set(jobs) == set(JOBS), 'the legacy arm {} has the jobs {}, not {}'.format(
+            arm, sorted(jobs), sorted(JOBS)))
+        for job, rooms in sorted(jobs.items()):
+            _require(set(rooms) == set(ROOMS),
+                     'the legacy arm {} job {} has the rooms {}'.format(arm, job, sorted(rooms)))
+        data[arm] = {'arm': arm, 'branch': 'legacy', 'per': jobs, 'closure': None,
+                     'root': str(Path(root) / Path(ARMS[arm]['root']).name)}
+    return data, receipt
+
+
+# --- the new branch: the finalizer's own records, re-read and rehashed -------------------
+
+# Amendment A3: a job-level completion carries no child_exit.json and no closed-log
+# marker. It binds the job specification, the launcher that owned the job, and the
+# verified completion of every child.
+JOB_FIELDS = ('schema_version', 'run_type', 'run_dir', 'expect', 'children',
+              'job_spec_sha256', 'owner', 'backbone', 'frame', 'heading', 'seed',
+              'init_sha256', 'diagnostic', 'admissible_arm')
+OWNER_FIELDS = ('pid', 'path', 'sha256')
+
+
+def _is_sha256(value):
+    return type(value) is str and len(value) == 64 and all(
+        character in '0123456789abcdef' for character in value)
+
+
+def job_completion(job_dir, expect, arm):
+    """One job's A3 record: no receipt, a bound job spec, an owner and its children."""
+    job_dir = Path(job_dir)
+    path = job_dir / 'completion.json'
+    _require(path.is_file(), 'job {} has no completion.json'.format(job_dir))
+    _require(not (job_dir / 'child_exit.json').exists(),
+             'amendment A3: the job root {} carries a child_exit.json'.format(job_dir))
+    record = _read_json(path, 'job completion.json')
+    _require('child_exit_receipt' not in record,
+             'amendment A3: a job completion carries no child exit receipt')
+    missing = [key for key in JOB_FIELDS if key not in record]
+    _require(not missing, 'job {} completion is incomplete: missing {}'.format(
+        job_dir, ', '.join(missing)))
+    _require(record['schema_version'] == 1 and record['run_type'] == 'haa_job',
+             'job {} records {!r}/{!r}'.format(job_dir, record['schema_version'],
+                                               record['run_type']))
+    _require(Path(record['run_dir']).resolve() == job_dir.resolve(),
+             'job {} claims the run_dir {}'.format(job_dir, record['run_dir']))
+    _require(record['expect'] == expect,
+             'job {} expects {!r}, not {!r}'.format(job_dir, record['expect'], expect))
+    _require(record['diagnostic'] is False and record['admissible_arm'] is True,
+             'job {} is not an admissible arm'.format(job_dir))
+    _require(_is_sha256(record['job_spec_sha256']),
+             'job {} binds no job specification hash'.format(job_dir))
+    owner = record['owner']
+    _require(isinstance(owner, dict) and set(owner) >= set(OWNER_FIELDS)
+             and type(owner['pid']) is int and owner['pid'] > 0
+             and isinstance(owner['path'], str) and owner['path']
+             and _is_sha256(owner['sha256']),
+             'job {} records no owning launch.pid'.format(job_dir))
+    children = record['children']
+    expected = set(finalizer.expected_children(expect))
+    _require(isinstance(children, dict) and set(children) == expected,
+             'job {} records the children {}, not {}'.format(
+                 job_dir, sorted(children or ()), sorted(expected)))
+    for name in sorted(children):
+        child = job_dir / name / 'completion.json'
+        _require(child.is_file(), 'job {} child {} has no completion.json'.format(job_dir, name))
+        _require(provenance.sha256_file(child) == children[name],
+                 'job {} child {} is not the completion it bound'.format(job_dir, name))
+    for field in ('backbone', 'frame'):
+        _require(record[field] == ARMS[arm][field], 'job {} records {} {!r}, not the {!r} of '
+                 'arm {}'.format(job_dir, field, record[field], ARMS[arm][field], arm))
+    _require(bool(record['heading']) == (ARMS[arm]['frame'] == 'heading'),
+             'job {} records heading {!r} in the {} frame'.format(
+                 job_dir, record['heading'], ARMS[arm]['frame']))
+    return record
+
+
+def _heading_rolls(heading, label):
+    """Every bound room rolls by the registered heading column."""
+    _require(isinstance(heading, dict) and heading, '{} binds no heading'.format(label))
+    for room in sorted(heading):
+        entry = heading[room]
+        _require(isinstance(entry, dict) and entry.get('k') == HEADING_K,
+                 '{} rolls {} by {!r}, not the registered {}'.format(
+                     label, room, (entry or {}).get('k'), HEADING_K))
+    return {room: heading[room]['k'] for room in heading}
+
+
+def child_record(job_dir, name, arm, job):
+    """The finalizer's own reader, then a rehash of every artifact that record bound."""
+    path = Path(job_dir) / name
+    role = finalizer.child_role(name)
+    record = finalizer.child_completion(path, name, role)
+    artifacts = record['artifacts']
+    _require(isinstance(artifacts, dict) and artifacts,
+             'child {} bound no artifacts'.format(name))
+    for artifact in sorted(artifacts):
+        file = path / artifact
+        _require(file.is_file() and provenance.sha256_file(file) == artifacts[artifact],
+                 'child {} artifact {} is not the bytes its completion bound'.format(
+                     name, artifact))
+    args = _read_json(path / 'args.json', '{}/args.json'.format(name))
+    for field in ('backbone', 'frame'):
+        _require(args.get(field) == ARMS[arm][field] == record[field],
+                 'child {} records {} {!r}, not the {!r} of arm {}'.format(
+                     name, field, args.get(field), ARMS[arm][field], arm))
+    if ARMS[arm]['frame'] == 'heading':
+        _heading_rolls(record['heading'], 'child ' + name)
+        _require(finalizer.exp06_recipe.strict_equal(args.get('heading'), record['heading']),
+                 'child {} args.json heading is not the one its completion bound'.format(name))
+    else:
+        _require(not record['heading'], 'child {} records a heading in the room frame'.format(name))
+    if job in SEEDS:
+        _require(record['seed'] == int(job[len('seed'):]),
+                 'child {} records seed {!r}, not the {} of its job'.format(
+                     name, record['seed'], job))
+    _require(_is_sha256(record.get('source_closure_sha256')),
+             'child {} records no execution closure'.format(name))
+    return record, role
+
+
+def child_per_sample(job_dir, name, record, arm):
+    """One evaluation child's per-sample file, with the fields the summariser reads."""
+    path = Path(job_dir) / name
+    names = sorted(key for key in record['artifacts'] if key.startswith('per_sample_'))
+    _require(len(names) == 1, 'child {} bound {} per-sample files'.format(name, len(names)))
+    per = _read_json(path / names[0], names[0])
+    meta = per.get('meta')
+    _require(isinstance(meta, dict), 'child {} per-sample records no meta'.format(name))
+    _require('heading' in meta, 'child {} per-sample meta records no heading'.format(name))
+    if ARMS[arm]['frame'] == 'heading':
+        _heading_rolls(meta['heading'], 'child {} per-sample meta'.format(name))
+    side = per.get('side_label')
+    _require(isinstance(side, list) and len(side) == len(per.get('index', [])),
+             'child {} per-sample records no room-frame side_label'.format(name))
+    _require(all(value in (-1, 1) and not isinstance(value, bool) for value in side),
+             'child {} side labels are not the room-frame signs'.format(name))
+    return per
+
+
+def load_new_arm(root, arm):
+    """One exp_06 arm: four complete jobs, one execution closure, every room evaluated."""
+    base = Path(root) / Path(ARMS[arm]['root']).name
+    _require(base.is_dir(), 'missing arm directory {}'.format(base))
+    jobs, closures, job_records = {}, set(), {}
+    for job in JOBS:
+        job_dir = base / job
+        _require(job_dir.is_dir(), 'the arm {} has no job {}'.format(arm, job))
+        expect = EXPECT_OF[job]
+        job_records[job] = job_completion(job_dir, expect, arm)
+        rooms = {}
+        for name in finalizer.expected_children(expect):
+            record, role = child_record(job_dir, name, arm, job)
+            closures.add(record['source_closure_sha256'])
+            if role == 'haa_eval':
+                rooms[record['room']] = child_per_sample(job_dir, name, record, arm)
+        _require(set(rooms) == set(ROOMS), 'the arm {} job {} evaluated {}'.format(
+            arm, job, sorted(rooms)))
+        jobs[job] = rooms
+    _require(len(closures) == 1, 'the children of {} do not share one execution closure: '
+             '{}'.format(arm, sorted(closures)))
+    return {'arm': arm, 'branch': 'new', 'per': jobs, 'closure': closures.pop(),
+            'root': str(base), 'jobs': job_records}
