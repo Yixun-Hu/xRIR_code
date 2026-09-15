@@ -1,31 +1,26 @@
-"""exp_07 seen fit-probe: tier-M receipts with the seen batch count and the yaw arm.
+"""exp_07 seen fit-probe and gates: receipts, timing limits and the one-retry ledger.
 
-Timings are mocked and the child is stubbed, exactly as tests/test_exp05_probe*.py do;
-no GPU and no trainer are involved.
+Timings are synthetic and the child is stubbed; no GPU and no trainer are involved.
 """
 import json
 from pathlib import Path
 
 import pytest
 
-from tools import exp04_launcher as launch, exp05_gates as gates, exp05_probe as probe
+from tools import exp04_launcher as base
+from tools import exp05_gates as tier_gates
+from tools import exp05_probe as tier_probe
+from tools import exp07_gates as gates
+from tools import exp07_launcher as launch
+from tools import exp07_probe as probe
 from tools import provenance as p
 from tools.exp05_params import TIERS
 from test_exp05_gates import receipt  # noqa: F401  (the historical S/L receipt fixture)
-from test_exp05_probe import measurement
+from test_exp07_launcher_run import seen_measurement
 
+ROOT = Path(__file__).resolve().parents[1]
 ARMS = [('seen_simple', 'simple', 0), ('seen_cyl', 'cylindrical', 0), ('seen_aug', 'simple', 1)]
 SEEN_BATCHES = 9265
-
-
-def seen_measurement(backbone='simple', yaw=1):
-    measured = dict(measurement(), tier='M', backbone=backbone, protocol='seen', yaw_aug=yaw,
-                    train_batches_per_epoch=SEEN_BATCHES, test_timing_protocol='full_test_loader',
-                    test_batches_timed=195, test_batches_total=195, peak_allocated_bytes=123,
-                    peak_reserved_bytes=456, train_loss=1., iteration_seconds=[1.] * 50,
-                    mean_iteration_seconds=1., median_iteration_seconds=1., min_iteration_seconds=1.)
-    measured.update(probe.projection(measured))
-    return measured
 
 
 def probe_attempt(path, data):
@@ -39,67 +34,74 @@ def probe_attempt(path, data):
                 completion_sha256=p.write_manifest(path / 'completion.json', completion))
 
 
-@pytest.mark.parametrize('arm,backbone,yaw', ARMS)
-def test_probe_recipe_per_seen_arm(arm, backbone, yaw):
+@pytest.mark.parametrize('name,backbone,yaw', ARMS)
+def test_probe_recipe_per_seen_arm(name, backbone, yaw):
     cmd = probe.trainer_command('M', backbone, 'scratch', 'seen', yaw)
     fields = {'backbone': backbone, 'save-dir': 'scratch', 'protocol': 'seen', 'batch-size': 32,
               'accum-steps': 2, 'max-train-batches': 60, 'max-test-batches': 0, 'num-workers': 12,
               'save-every': 0, 'epoch-ckpt-every': 0}
-    assert '--no-save' in cmd and '--tf32' in cmd and not any(f.startswith('--vit-') for f in cmd)
+    assert cmd[0] == launch.ENTRY and '--no-save' in cmd and '--tf32' in cmd
+    assert not any(flag.startswith('--vit-') for flag in cmd)
     assert all(cmd[cmd.index('--' + key) + 1] == str(value) for key, value in fields.items())
-    assert (cmd[cmd.index('--yaw-aug') + 1:cmd.index('--yaw-aug') + 2] == ['1']) if yaw else (
+    assert (cmd[cmd.index('--yaw-aug') + 1] == '1') if yaw else (
         not any(flag.startswith('--yaw-') for flag in cmd))
-    with pytest.raises(ValueError, match='tier probe'):
-        probe.trainer_command('S', backbone, 'scratch', 'seen', yaw)
-    with pytest.raises(ValueError, match='tier probe'):
-        probe.trainer_command('M', backbone, 'scratch')
+    for bad in (('S', backbone, 'scratch', 'seen', yaw), ('M', backbone, 'scratch', 'unseen', yaw),
+                ('M', 'invented', 'scratch', 'seen', yaw)):
+        with pytest.raises(ValueError, match='seen probe'):
+            probe.trainer_command(*bad)
+    with pytest.raises(ValueError, match='yaw_aug'):
+        probe.trainer_command('M', backbone, 'scratch', 'seen', 2)
 
 
-def test_projection_uses_the_protocol_batch_count():
+def test_projection_uses_the_seen_batch_count():
     assert probe.TRAIN_BATCHES == launch.TRAIN_BATCHES  # kept in lockstep with the launcher
-    seen = dict(measurement(), protocol='seen', train_batches_per_epoch=SEEN_BATCHES)
+    seen = seen_measurement()
     assert probe.projection(seen) == dict(T_epoch=9270., T_run=111240., passed=True)
-    assert probe.projection(measurement()) == dict(T_epoch=9266., T_run=111192., passed=True)
-    for wrong in (dict(seen, train_batches_per_epoch=9261), dict(measurement(), protocol='seen'),
+    for wrong in (dict(seen, train_batches_per_epoch=9261), dict(seen, protocol='unseen'),
                   dict(seen, protocol='held-out')):
-        with pytest.raises(ValueError, match='timing|recipe'):
+        with pytest.raises(ValueError, match='timing or recipe'):
             probe.projection(wrong)
+    # The exp_05 projection is untouched and still reads its own 9 261 literal.
+    assert tier_probe.projection(dict(seen, train_batches_per_epoch=9261))['T_epoch'] == 9266.
 
 
-@pytest.mark.parametrize('arm,backbone,yaw', ARMS)
-def test_seen_probe_writes_a_bound_receipt(tmp_path, monkeypatch, arm, backbone, yaw):
+@pytest.mark.parametrize('name,backbone,yaw', ARMS)
+def test_seen_probe_writes_a_bound_receipt(tmp_path, monkeypatch, name, backbone, yaw):
     monkeypatch.setattr(launch, 'REPO', tmp_path)
-    monkeypatch.setattr(launch.subprocess, 'check_output', lambda *a, **k: 'a' * 40 + '\n')
+    monkeypatch.setattr(launch, 'PYTHON', str(Path(launch.PYTHON)))
+    monkeypatch.setattr(base.subprocess, 'check_output', lambda *a, **k: 'a' * 40 + '\n')
     snapshot = dict(gpu='1', uuid='GPU-one', compute_apps='', free_gib=45.)
-    monkeypatch.setattr(launch, 'gpu_snapshot', lambda gpu: snapshot)
+    monkeypatch.setattr(base, 'gpu_snapshot', lambda gpu: snapshot)
     monkeypatch.setattr(launch, 'build_fields', lambda cmd, *a: dict(command=cmd))
     measured = seen_measurement(backbone, yaw)
     calls = []
+
     def execute(attempt, mode, gpu, log, factory, **kwargs):
         cmd = factory()['command']
-        assert cmd[1:3] == ['-m', 'tools.exp05_probe'] and cmd[cmd.index('--tier') + 1] == 'M'
+        assert cmd[1:3] == ['-m', 'tools.exp07_probe'] and cmd[cmd.index('--tier') + 1] == 'M'
         assert cmd[cmd.index('--protocol') + 1] == 'seen'
         assert ('--yaw-aug' in cmd) is bool(yaw)
         assert factory()['trainer_command'][1:] == probe.trainer_command(
             'M', backbone, str(attempt.relative_to(tmp_path)), 'seen', yaw)
-        assert log == tmp_path / 'logs' / 'seen_protocol_test_train_{}_probe.log'.format(arm)
+        assert log == tmp_path / 'logs' / 'seen_protocol_test_train_{}_probe.log'.format(name)
         calls.append(attempt)
         probe_attempt(attempt, dict(measured, reviewed_commit='a' * 40))
         return dict(metrics=dict(probe=measured), resource_before=snapshot)
-    monkeypatch.setattr(launch, 'execute_attempt', execute)
-    launch.main(['probe', '--protocol', 'seen', '--backbone', backbone, '--reviewed-commit', 'HEAD',
+
+    monkeypatch.setattr(base, 'execute_attempt', execute)
+    launch.main(['probe', '--backbone', backbone, '--reviewed-commit', 'HEAD',
                  '--timestamp', 'test', '--log-dir', str(tmp_path / 'logs')] +
                 (['--yaw-aug', '1'] if yaw else []))
-    root = tmp_path / 'ckpt/exp07' / arm
-    path = root / ('_probe_test_' + arm + '.json')
-    receipt = json.loads(path.read_text())
+    root = tmp_path / 'ckpt/exp07' / name
+    path = root / ('_probe_test_' + name + '.json')
+    written = json.loads(path.read_text())
     assert len(calls) == 1 and calls[0].parent == root
-    assert (receipt['tier'], receipt['protocol'], receipt['yaw_aug']) == ('M', 'seen', yaw)
-    assert receipt['schema_version'] == 1 and receipt['gpu'] == '1' and receipt['passed'] is True
-    assert receipt['PROBE_NOT_CLEAN'] is False and receipt['arms_before'] == [snapshot]
-    assert receipt['T_epoch'] == measured['T_epoch'] and receipt['T_run'] == measured['T_run']
-    assert receipt['probe_attempt']['path'] == str(calls[0])
-    assert receipt['live_epoch_limit_seconds'] == 1.05 * receipt['T_epoch']
+    assert (written['tier'], written['protocol'], written['yaw_aug']) == ('M', 'seen', yaw)
+    assert written['schema_version'] == 1 and written['gpu'] == '1' and written['passed'] is True
+    assert written['PROBE_NOT_CLEAN'] is False and written['arms_before'] == [snapshot]
+    assert written['T_epoch'] == measured['T_epoch'] and written['T_run'] == measured['T_run']
+    assert written['probe_attempt']['path'] == str(calls[0])
+    assert written['live_epoch_limit_seconds'] == 1.05 * written['T_epoch']
     assert gates.validate_receipt(path, 'a' * 40, '1', 'M', backbone, 'seen', yaw)['sha256']
 
 
@@ -107,9 +109,9 @@ def test_seen_probe_writes_a_bound_receipt(tmp_path, monkeypatch, arm, backbone,
 def seen_receipt(tmp_path, monkeypatch):
     monkeypatch.setattr(launch, 'REPO', tmp_path)
     state = dict(gpu='1', uuid='GPU-test', compute_apps='', free_gib=45.)
-    data = dict(seen_measurement(), schema_version=1, reviewed_commit='a' * 40, gpu='1',
-                before=state, after=dict(state), arms_before=[dict(state)], PROBE_NOT_CLEAN=False)
-    data['probe_attempt'] = probe_attempt(launch.arm_root('M', 'simple', 'seen', 1) / '_probe_t_arm', data)
+    data = dict(seen_measurement(), reviewed_commit='a' * 40, gpu='1', before=state,
+                after=dict(state), arms_before=[dict(state)], PROBE_NOT_CLEAN=False)
+    data['probe_attempt'] = probe_attempt(launch.arm_root('simple', 1) / '_probe_t_arm', data)
     path = tmp_path / 'probe.json'
     path.write_text(json.dumps(data))
     return path, data
@@ -125,43 +127,19 @@ def test_timing_limits_for_a_seen_arm(seen_receipt):
         epoch_seconds=1.05 * data['T_epoch'], projection_hours=data['T_run'] / 3600,
         ceiling_hours=1.5 * data['T_run'] / 3600, probe_receipt_sha256=binding['sha256'],
         protocol='seen')  # the ledger's one-retry rule reads the protocol from the limits
-    fields['effective_args']['protocol'] = 'unseen'  # the exp_04 M path stays unlimited
+    fields['effective_args']['protocol'] = 'unseen'  # an unseen M arm stays unlimited
     assert gates.timing_limits(fields, '1') is None
+    fields['effective_args']['protocol'] = 'seen'
+    path.write_text(path.read_text() + '\n')
+    with pytest.raises(ValueError, match='receipt'):
+        gates.timing_limits(fields, '1')
 
 
 @pytest.mark.parametrize('arm', [('M', 'cylindrical', 'seen', 1), ('M', 'simple', 'seen', 0),
-                                 ('M', 'simple', 'unseen', 0), ('S', 'simple', 'unseen', 0)])
+                                 ('M', 'simple', 'unseen', 0), ('S', 'simple', 'seen', 1)])
 def test_receipt_refuses_another_arm(seen_receipt, arm):
-    with pytest.raises(ValueError, match='tier receipt'):
+    with pytest.raises(ValueError, match='seen receipt'):
         gates.validate_receipt(seen_receipt[0], 'a' * 40, '1', *arm)
-
-
-def test_log_guard_requires_the_single_arm_probe_result():
-    argv = launch.command('full', 'ckpt/exp07/seen_aug/attempt_t', 'M', 'simple', 'seen', 1)
-    expected = launch.effective_args(argv, '1', SEEN_BATCHES)
-    guard = launch.LogGuard(expected, 'probe')
-    with pytest.raises(ValueError, match='prefix'):
-        guard.feed('EXP04_PROBE_RESULT {}')
-    guard.feed('XRIR_RUNTIME_ARGS ' + json.dumps(expected))
-    guard.feed('yaw_aug ENABLED W=512 seed=0 counter=(epoch-1)*9265+batch_idx')
-    guard.feed('Train Epoch: 1 [0/9265] loss 1.0')
-    measured = seen_measurement()
-    guard.feed('EXP05_PROBE_RESULT ' + json.dumps(measured))
-    assert guard.finish()['probe'] == measured
-    guard.feed('EXP05_PROBE_RESULT ' + json.dumps(dict(measured, protocol='unseen')))
-    with pytest.raises(ValueError, match='probe'):
-        guard.finish()
-
-
-@pytest.mark.parametrize('argv,message', [
-    (['full', '--backbone', 'cylindrical'], 'probe-json'),
-    (['probe', '--backbone', 'simple', '--renew-ceiling', '2026-09-15T00:00:00-04:00: reason'],
-     'renew-ceiling')])
-def test_cli_requires_a_receipt_and_gates_renewal(tmp_path, capsys, argv, message):
-    with pytest.raises(SystemExit):
-        launch.main(argv + ['--protocol', 'seen', '--reviewed-commit', 'HEAD', '--log-dir', str(tmp_path)])
-    assert message in capsys.readouterr().err
-    assert not (tmp_path / 'ckpt').exists()
 
 
 def substitute_completion(receipt_path, data, **changes):
@@ -189,13 +167,12 @@ def test_receipt_requires_a_completion_that_certifies_its_manifest(seen_receipt,
         gates.validate_receipt(path, 'a' * 40, '1', 'M', 'simple', 'seen', 1)
 
 
-def test_unseen_receipts_keep_their_completion_linkage(receipt):
-    """The exp_05 S/L receipts validate unchanged and refuse the same substitution."""
-    path, data = receipt
-    assert gates.validate_receipt(path, 'a' * 40, '1', 'S', 'simple')['sha256']
-    substitute_completion(path, data, train_manifest_sha256='0' * 64)
-    with pytest.raises(ValueError, match='probe attempt arm or measurements differ'):
-        gates.validate_receipt(path, 'a' * 40, '1', 'S', 'simple')
+def test_unseen_receipts_keep_their_shared_behaviour(receipt):
+    """The exp_05 S/L receipt validates through the untouched shared gate."""
+    path, _ = receipt
+    assert tier_gates.validate_receipt(path, 'a' * 40, '1', 'S', 'simple')['sha256']
+    with pytest.raises(ValueError, match='seen receipt'):
+        gates.validate_receipt(path, 'a' * 40, '1', 'M', 'simple', 'seen', 0)
 
 
 LIMITS = dict(projection_hours=30., ceiling_hours=45., probe_receipt_sha256='a' * 64)
@@ -239,9 +216,9 @@ def test_neither_a_new_receipt_nor_a_renewal_resets_the_seen_count(tmp_path, ren
 def test_third_seen_full_attempt_is_refused_before_any_directory(tmp_path, monkeypatch):
     root = tmp_path / 'ckpt/exp07/seen_simple'
     ledger(root, ['full', 'full'])
-    monkeypatch.setattr(launch, 'resource_gate', lambda *a: pytest.fail('resource gate reached'))
-    with pytest.raises(ValueError, match='one retry'):
-        launch.execute_attempt(root / 'attempt_new', 'full', '1', tmp_path / 'train.log',
-                               lambda: pytest.fail('fields built'),
-                               limits=dict(LIMITS, protocol='seen'))
+    monkeypatch.setattr(base, 'resource_gate', lambda *a: pytest.fail('resource gate reached'))
+    with launch.seen_overrides(), pytest.raises(ValueError, match='one retry'):
+        base.execute_attempt(root / 'attempt_new', 'full', '1', tmp_path / 'train.log',
+                             lambda: pytest.fail('fields built'),
+                             limits=dict(LIMITS, protocol='seen'))
     assert [f.name for f in root.iterdir()] == ['cumulative_hours.json']
