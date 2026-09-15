@@ -34,17 +34,6 @@
     "summarize_haa": null,
     "trainer": "5a2c6df0989905a1b7377ac0ee9d02a370d6b2fa77a47b4152c1c50a4b5b678c"
   },
-  "fill_note": {
-    "code_filled_at_commit": "4d7a6cb2261c654cc369dfa18a1b1d9cc551ea2b",
-    "date": "2026-09-15",
-    "filled_by": "Planner (Claude Fable 5.1) via tools.exp06_profiles.compute_code_digests",
-    "null_keys": [
-      "bootstrap",
-      "compare",
-      "mirror_probe",
-      "summarize_haa"
-    ]
-  },
   "reused": {
     "approved_digests_exp04": null,
     "approved_digests_exp05": null,
