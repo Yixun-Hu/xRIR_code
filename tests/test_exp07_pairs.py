@@ -1,9 +1,11 @@
 """The descriptive exp_07 paired producer: statistics, cohorts and refusals."""
 import json
+import pathlib
 
 import numpy as np
 import pytest
 
+from exp07_fixture import exp07_fixture  # noqa: F401  (fixture)
 from tools import exp07_pairs as pairs
 from tools.exp07_profiles import get_profile, json_value
 
@@ -115,3 +117,86 @@ def test_cells_are_deterministic(profile):
     arguments = (profile, runs(base() + .004), runs(base()), ('seen_cyl', 'seen_simple'), 'EDT', 8)
     assert json.dumps(pairs.paired_cell(*arguments), sort_keys=True) == json.dumps(
         pairs.paired_cell(*arguments), sort_keys=True)
+
+
+@pytest.fixture
+def built(exp07_fixture):
+    return exp07_fixture('PAIRS_SEEN_V1')
+
+
+def sides(built, role_a, role_b='seen_simple', shots=(8, 1)):
+    return ([path for shot in shots for path in built.paths[(role_a, shot)]],
+            [path for shot in shots for path in built.paths[(role_b, shot)]])
+
+
+def build(built, role_a='seen_cyl', role_b='seen_simple', shots=(8, 1), **kwargs):
+    runs_a, runs_b = sides(built, role_a, role_b, shots)
+    return pairs.build_pairs(runs_a, runs_b, built.profile, built.approved,
+                             producer=built.producer, **kwargs)
+
+
+@pytest.mark.parametrize('role_a', ['seen_cyl', 'seen_aug', 'released_seen'])
+def test_every_registered_pairing_is_computed_at_both_shot_counts(built, role_a):
+    result, _ = build(built, role_a)
+    assert result['pairing'] == [role_a, 'seen_simple'] and result['deviations'] == []
+    assert [(cell['metric'], cell['num_shot']) for cell in result['cells']] == [
+        (metric, shot) for shot in (8, 1)
+        for metric in ('EDT', 'C50', 'T60', 'loss', 'log_mse')]
+    assert result['final'] is True and result['reconverge_required'] == []
+    assert 'verdict' not in result and result['decision_driving'] is False
+    assert all(cell['reference'] is (role_a == 'released_seen') for cell in result['cells'])
+    assert result['verdict_scope'] == built.profile['verdict_scope']
+    assert result['profile_name'] == 'PAIRS_SEEN_V1'
+
+
+def test_the_cells_use_the_five_seed_means_of_the_admitted_runs(built):
+    result, _ = build(built, 'seen_cyl', shots=(8,))
+    cell = next(c for c in result['cells'] if c['metric'] == 'C50' and c['num_shot'] == 8)
+    values = {}
+    for role in ('seen_cyl', 'seen_simple'):
+        values[role] = np.array([built.read(pathlib.Path(directory) / 'per_sample_yaw.json')
+                                 ['P']['0']['c50'] for directory in built.paths[(role, 8)]])
+    difference = values['seen_cyl'].mean() - values['seen_simple'].mean()
+    assert cell['statistics']['absolute']['estimate'] == pytest.approx(difference)
+    assert cell['statistics']['relative']['estimate'] == pytest.approx(
+        difference / values['seen_simple'].mean())
+    assert cell['arm_means']['seen_cyl']['mean'] == pytest.approx(values['seen_cyl'].mean())
+
+
+@pytest.mark.parametrize('role_a,role_b,message', [
+    ('seen_simple', 'seen_simple', 'unregistered pairing'),
+    ('seen_cyl', 'seen_aug', 'must be the seen_simple baseline')])
+def test_unregistered_sides_are_refused(built, role_a, role_b, message):
+    with pytest.raises(ValueError, match=message):
+        build(built, role_a, role_b)
+
+
+def test_the_two_sides_must_hold_one_arm_each_at_the_same_shot_counts(built):
+    runs_a, runs_b = sides(built, 'seen_cyl')
+    with pytest.raises(ValueError, match='--runs-a must hold exactly one arm'):
+        pairs.build_pairs(runs_a + runs_b, runs_b, built.profile, built.approved,
+                          producer=built.producer)
+    with pytest.raises(ValueError, match='same registered shot counts'):
+        pairs.build_pairs(sides(built, 'seen_cyl', shots=(8,))[0], runs_b, built.profile,
+                          built.approved, producer=built.producer)
+
+
+def test_an_unconverged_cell_marks_the_result_not_final(built):
+    built.profile['n_boot'] = 7
+    result, _ = build(built, 'seen_aug', shots=(1,))
+    assert result['final'] is False
+    assert any(item.startswith('EDT K=1') for item in result['reconverge_required'])
+
+
+def test_an_empty_cohort_refuses_but_is_listed_in_exploratory_mode(built):
+    for directory in built.paths[('seen_cyl', 8)]:
+        sample = built.read(pathlib.Path(directory) / 'per_sample_yaw.json')
+        sample['P']['0']['edt'] = [None] * len(built.queries)
+        metrics = built.read(pathlib.Path(directory) / 'metrics_yaw.json')
+        metrics['P'] = built.summaries(sample['P'])
+        built.rebind(pathlib.Path(directory), sample=sample, metrics=metrics)
+    with pytest.raises(ValueError, match='EDT K=8'):
+        build(built, 'seen_cyl', shots=(8,))
+    result, _ = build(built, 'seen_cyl', shots=(8,), exploratory=True)
+    assert any('EDT K=8' in item for item in result['deviations']) and result['final'] is False
+    assert [cell['metric'] for cell in result['cells']] == ['C50', 'T60', 'loss', 'log_mse']
