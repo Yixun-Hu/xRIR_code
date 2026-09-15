@@ -117,7 +117,8 @@ def run_contract(directory, arm, profile, pins):
     return dict(role=arm['role'], reference=False, training=trainer, waivers=waivers, inputs=inputs)
 
 
-def admit(directories, profile, approved=None, producer=None, exploratory=False):
+def admit(directories, profile, approved=None, producer=None, exploratory=False,
+          producer_key='producer_table'):
     """Route runs to (arm, K) groups, apply the contract, then collect through exp_04.
 
     Only differences this module checks independently are waived from the inherited
@@ -131,7 +132,7 @@ def admit(directories, profile, approved=None, producer=None, exploratory=False)
             deviations.append(message)
     check(type(pins['schema_version']) is int and pins['schema_version'] == 1,
           'approval schema_version')
-    for key in ('evaluator', 'writer', 'training_launcher', 'training', 'producer_table'):
+    for key in ('evaluator', 'writer', 'training_launcher', 'training', producer_key):
         check(bool(pins['closures'][key]), 'profile not yet approved: ' + key)
     for arm in profile['arms']:
         effective = dict(arm)
@@ -171,9 +172,10 @@ def admit(directories, profile, approved=None, producer=None, exploratory=False)
             check(False, '{}: {}'.format(directory, error))
     trainers = {c['training'] for c in contracts.values() if c['training'] is not None}
     check(len(trainers) <= 1, 'the new arms do not share one training closure')
-    producer = producer_identity('tools.exp07_table') if producer is None else producer
+    entry = 'tools.exp07_' + ('pairs' if producer_key == 'producer_pairs' else 'table')
+    producer = producer_identity(entry) if producer is None else producer
     admitted = admit_runs(profile, groups, approved=approved, exploratory=True,
-                          producer=producer, producer_key='producer_table')
+                          producer=producer, producer_key=producer_key)
     for path, digest in snapshots.items():
         check(admitted['inputs'].get(path) == digest, 'contract input changed: ' + path)
     deviations.extend(item for item in admitted['deviations'] if item not in waivers)
