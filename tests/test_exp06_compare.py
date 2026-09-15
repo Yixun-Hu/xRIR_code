@@ -565,6 +565,7 @@ def test_the_real_exp04_control_runs_are_admitted_as_arm_a():
         'reused': dict({key: 'a' * 64 for key in approvals_api.REUSED_DIGESTS},
                        exp04_evaluator_closure=fields['source_closures']['entrypoint']['sha256'],
                        exp04_writer_closure=fields['source_closures']['writer']['sha256'],
+                       exp04_approved_digests_sha256=EXP04_DIGEST,
                        legacy_receipt={'path': 'r.json', 'sha256': 'a' * 64}),
         'artifacts': {'epoch_012': {'path': 'p', 'epoch': 12, 'sha256': 'a' * 64},
                       'heading': {room: 'a' * 64 for room in approvals_api.ROOMS},

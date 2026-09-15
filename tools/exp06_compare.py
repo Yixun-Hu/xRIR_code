@@ -24,6 +24,7 @@ import numpy as np
 from tools import exp06_approvals_api as approvals_api
 from tools import paired_compare
 from tools import provenance
+from tools import exp04_profiles, exp05_profiles
 from tools.exp04_profiles import CONTROL, CYL
 from tools.reference_manifest import load_manifest, manifest_hash
 from tools.summarize_yaw import load_run, rooms_from_paths, _check_metrics_reconciliation
@@ -54,9 +55,14 @@ REVALIDATE = ('repo', 'checkpoint', 'checkpoint_sha256', 'manifest_path',
 FILES = ('eval_manifest.json', 'completion.json') + OUTPUTS
 # Role -> what the run must be. C is exp_06's own arm; A and B are reused baselines whose
 # checkpoints are exp_01's, hashed at admission and recorded with the result.
-ROLES = {'C': {'arm': 'cyl_or', 'checkpoint': None, 'exp06': True, 'role': 'arm'},
-         'A': {'arm': 'control', 'checkpoint': CONTROL, 'exp06': False, 'role': 'arm'},
-         'B': {'arm': 'cyl', 'checkpoint': CYL, 'exp06': None, 'role': 'baseline'}}
+# Finding 7: an evaluation is written by exactly one of three entry points, and each has
+# its own approved identity. B is the only role whose writer is not fixed in advance --
+# it is either exp_05's M tier (exp_05's entry point, exp_04's writer) or an exp_06
+# evaluation of the exp_01 cylindrical checkpoint.
+ROUTES = ('exp04', 'exp05', 'exp06')
+ROLES = {'C': {'arm': 'cyl_or', 'checkpoint': None, 'route': 'exp06', 'role': 'arm'},
+         'A': {'arm': 'control', 'checkpoint': CONTROL, 'route': 'exp04', 'role': 'arm'},
+         'B': {'arm': 'cyl', 'checkpoint': CYL, 'route': None, 'role': 'baseline'}}
 CONTRASTS = (('C', 'B'), ('C', 'A'))
 
 
@@ -72,6 +78,60 @@ def _is_sha256(value):
 def _closure_digest(closure):
     """exp_04's own closure digest, recomputed from the reviewed blobs it recorded."""
     return paired_compare._closure_digest(closure)
+
+
+def route_of(fields, declared):
+    """Which evaluator wrote this run: exp_06's, exp_05's M tier, or exp_04's."""
+    if declared is not None:
+        return declared
+    if 'writer_exp06' in (fields.get('source_closures') or {}):
+        return 'exp06'
+    return 'exp05' if 'tier' in fields else 'exp04'
+
+
+def exp04_approvals():
+    """The identity of exp_04's own approvals record, as 6.4's `reused` section pins it."""
+    path = exp04_profiles.APPROVED_DIGESTS_PATH
+    return {'path': str(path), 'sha256': provenance.sha256_file(path)}
+
+
+def exp05_approvals():
+    """exp_05's approvals: its evaluator identity, and the record's own hash."""
+    pins, identity = exp05_profiles.load_approved_digests()
+    return dict(pins['closures']), dict(identity)
+
+
+def check_route(route, fields, closures, approved, require):
+    """Each route compares the closures that ran with that experiment's own approvals."""
+    pinned = (approved or {}).get('code', {})
+    reused = (approved or {}).get('reused', {})
+    if route == 'exp06':
+        require(closures['entrypoint']['sha256'] == pinned.get('eval'),
+                'approved eval closure')
+        require(closures['writer_exp06']['sha256'] == pinned.get('eval_launch'),
+                'approved eval_launch closure')
+        return
+    if route == 'exp05':
+        pins, identity = exp05_approvals()
+        require(_is_sha256(identity.get('sha256'))
+                and identity['sha256'] == reused.get('exp05_approved_digests_sha256'),
+                'exp_05 approvals record is not the approved one')
+        require(closures['entrypoint']['sha256'] == pins.get('evaluator'),
+                'approved exp_05 evaluator closure')
+        require(closures['writer']['sha256'] == pins.get('writer'),
+                'approved exp_05 writer closure')
+        require(fields.get('tier') == 'M' and fields.get('legacy_M') is True,
+                'the exp_05 baseline is the legacy M tier')
+        require('train_args' in (fields.get('mutable_inputs') or {}),
+                "the exp_05 tier binds its checkpoint's args.json")
+        require(_is_sha256(fields.get('args_json_sha256')), 'exp_05 args_json_sha256')
+        return
+    require(exp04_approvals()['sha256'] == reused.get('exp04_approved_digests_sha256'),
+            'exp_04 approvals record is not the approved one')
+    require(closures['entrypoint']['sha256'] == reused.get('exp04_evaluator_closure'),
+            'approved exp_04 evaluator closure')
+    require(closures['writer']['sha256'] == reused.get('exp04_writer_closure'),
+            'approved exp_04 writer closure')
 
 
 def admit_run(run_dir, role, approved, split=SPLIT, check=None, inputs=None,
@@ -148,27 +208,20 @@ def admit_run(run_dir, role, approved, split=SPLIT, check=None, inputs=None,
     pinned = (approved or {}).get('code', {})
     require(evaluator.get('sha256') == pinned.get('evaluator_exp03'),
             'evaluator closure is not the pinned exp_03 one')
-    declared = roles[role]['exp06']
-    exp06 = ('writer_exp06' in closures) if declared is None else declared
+    route = route_of(fields, roles[role]['route'])
+    require(route in ROUTES, 'unknown evaluator route: ' + str(route))
+    exp06 = route == 'exp06'
     names = ('entrypoint', 'writer', 'writer_exp06') if exp06 else ('entrypoint', 'writer')
     require(set(closures) >= set(names), 'source_closures ' + ', '.join(names))
     for name in names:
         require(_closure_digest(closures[name]) == closures[name].get('sha256'),
                 'closure digest ' + name)
+    check_route(route, fields, closures, approved, require)
     if exp06:
-        require(closures['entrypoint']['sha256'] == pinned.get('eval'), 'approved eval closure')
-        require(closures['writer_exp06']['sha256'] == pinned.get('eval_launch'),
-                'approved eval_launch closure')
         require(_is_sha256(fields.get('registry_sha256')), 'registry_sha256')
         require(fields.get('checkpoint_role') == roles[role]['role'], 'checkpoint_role')
         require(fields.get('frame') == 'room' and fields.get('heading') is None,
                 'the simulated split carries no heading')
-    else:
-        reused = (approved or {}).get('reused', {})
-        require(closures['entrypoint']['sha256'] == reused.get('exp04_evaluator_closure'),
-                'approved exp_04 evaluator closure')
-        require(closures['writer']['sha256'] == reused.get('exp04_writer_closure'),
-                'approved exp_04 writer closure')
     run = load_run(str(directory))
     aggregate = payload['metrics_yaw.json']
     require(_equal(run.get('meta'), aggregate.get('meta')), 'output meta agreement')
@@ -190,7 +243,7 @@ def admit_run(run_dir, role, approved, split=SPLIT, check=None, inputs=None,
                 'metric type ' + metric)
     for failure in _check_metrics_reconciliation(label, run):
         require(False, 'reconciliation ' + failure)
-    check_evidence(fields, directory, digest, require, bind, stats, role, roles)
+    check_evidence(fields, directory, digest, require, bind, stats, route)
     check_reference(fields, run, split, require, bind)
     run['role'], run['seed'], run['manifest_hash'] = role, seed, fields.get('manifest_hash')
     return run
@@ -202,7 +255,7 @@ def _stamp(path):
             status.st_ctime_ns)
 
 
-def check_evidence(fields, directory, digest, require, bind, stats, role, roles):
+def check_evidence(fields, directory, digest, require, bind, stats, route):
     """Finding 4: the applicable `paired_compare.admit_run` evidence, composed here.
 
     The mutable inputs an arm declares, the declared inputs the launcher revalidated at
@@ -212,7 +265,7 @@ def check_evidence(fields, directory, digest, require, bind, stats, role, roles)
     """
     names = set(fields.get('mutable_inputs') or {})
     require(names <= MUTABLE_INPUTS, 'mutable_inputs names')
-    if roles[role]['exp06'] is True:
+    if route == 'exp06':
         require(set(TRAINING_BINDINGS) <= names, 'the exp_06 arm binds its training run')
     declared = dict(fields, eval_manifest={'path': str(directory / 'eval_manifest.json'),
                                            'sha256': digest})
