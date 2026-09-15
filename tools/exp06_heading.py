@@ -4,6 +4,9 @@ import numbers
 
 import numpy as np
 
+from sim_to_real.haa_dataset import DEFAULT_ROOT, HAADataset
+from tools.yaw_rotation import rotate_scene_yaw
+
 
 def _vector(value):
     value = np.asarray(value, dtype=np.float64)
@@ -149,3 +152,35 @@ def leave_one_out_stable(theta_deg, levels_by_window):
     if winner is None or len(theta_deg) < 2:
         return False
     return all(refit == winner for refit in _leave_one_out_winners(theta_deg, levels_by_window))
+
+
+class HeadingFrameDataset(HAADataset):
+    """Rotate geometry after the pinned dataset's draw; audio and room data stay intact.
+
+    The parent retains its eager RIR loading behavior. Training-only mmap access
+    belongs to the estimator, not to this compatibility wrapper.
+    """
+
+    def __init__(self, rooms, split, root=DEFAULT_ROOT, num_shot=8, max_len=9600,
+                 eval_seed=None, depth_variant='default', *, k_by_room):
+        rooms = list(rooms)
+        if any(room not in k_by_room for room in rooms):
+            raise ValueError('a heading roll is required for every room')
+        self.k_by_room = dict(k_by_room)
+        for room in rooms:
+            canonical_heading_deg(self.k_by_room[room], 512)
+        super().__init__(rooms, split, root=root, num_shot=num_shot, max_len=max_len,
+                         eval_seed=eval_seed, depth_variant=depth_variant)
+
+    def __getitem__(self, i):
+        item = super().__getitem__(i)
+        k = self.k_by_room[self.items[i][0]]
+        if k == 0:
+            return item
+        listener, src, depth, target, audio, refs = item
+        depth, src, refs = rotate_scene_yaw(depth.unsqueeze(0), src.unsqueeze(0), refs.unsqueeze(0), k)
+        return listener, src.squeeze(0), depth.squeeze(0), target, audio, refs.squeeze(0)
+
+    def side_label(self, room, idx):
+        """Original room-frame sign of microphone y relative to the speaker."""
+        return int(self.data[room]['src_local'][idx, 1].sign().item())

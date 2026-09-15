@@ -1,10 +1,16 @@
 """Frozen training-only heading rule, records, and heading-frame dataset."""
+import json
+
 import numpy as np
 import pytest
+import torch
 
+from sim_to_real.haa_dataset import HAADataset
+from tools.yaw_rotation import rotate_scene_yaw
 from tools.exp06_heading import (canonical_heading_deg, compensated_levels, continuous_fit,
                                 early_level, heading_roll_k, mean_direction)
 from tools.exp06_heading import candidate_contrasts, decide_heading, leave_one_out_stable
+from tools.exp06_heading import HeadingFrameDataset
 
 
 @pytest.mark.parametrize('window,n', [(0.005, 110), (0.05, 1102)])
@@ -134,3 +140,44 @@ def test_loo_reapplies_counts_contrast_margin_and_winner():
     assert not leave_one_out_stable(theta, windows(level))  # margin collapses below 3
     with pytest.raises(ValueError):
         decide_heading(theta, {'5ms': level})
+
+
+@pytest.fixture
+def room_cache(tmp_path):
+    room = tmp_path / 'synthetic'
+    room.mkdir()
+    meta = dict(train=list(range(12)), valid=[12], test=[12, 13], sr=22050)
+    (room / 'meta.json').write_text(json.dumps(meta))
+    np.save(room / 'rirs.npy', np.random.default_rng(6).normal(size=(14, 64)).astype('float32'))
+    np.save(room / 'xyzs.npy', np.arange(42, dtype='float32').reshape(14, 3) / 4)
+    np.save(room / 'speaker_xyz.npy', np.array([0, 10, 0], dtype='float32'))
+    np.save(room / 'depth.npy', np.ones((256, 512), dtype='float32'))
+    return room
+
+
+@pytest.mark.parametrize('k', [0, 128])
+def test_dataset_geometry_only_and_room_side(room_cache, k):
+    kwargs = dict(rooms=['synthetic'], split='test', root=str(room_cache.parent),
+                  num_shot=8, max_len=64, eval_seed=42)
+    base = HAADataset(**kwargs)
+    framed = HeadingFrameDataset(**kwargs, k_by_room={'synthetic': k})
+    assert base.items == framed.items
+    assert HeadingFrameDataset._pick_refs is HAADataset._pick_refs
+    for index, (room, idx) in enumerate(base.items):
+        left, right = base[index], framed[index]
+        np.testing.assert_array_equal(base._pick_refs(room, idx), framed._pick_refs(room, idx))
+        depth, src, refs = rotate_scene_yaw(left[2][None], left[1][None], left[5][None], k)
+        expected = (left[0], src[0], depth[0], left[3], left[4], refs[0])
+        assert all(torch.equal(a, b) for a, b in zip(right, expected))
+        if k == 0:
+            assert all(torch.equal(a, b) for a, b in zip(left, right))
+        assert framed.side_label(room, idx) == int(base.data[room]['src_local'][idx, 1].sign())
+    for key, value in base.data['synthetic'].items():
+        other = framed.data['synthetic'][key]
+        assert torch.equal(value, other) if torch.is_tensor(value) else value == other
+
+
+def test_dataset_requires_room_roll(room_cache):
+    for mapping in [{}, {'synthetic': 512}, {'synthetic': 1.5}]:
+        with pytest.raises(ValueError):
+            HeadingFrameDataset(['synthetic'], 'test', root=str(room_cache.parent), k_by_room=mapping)
