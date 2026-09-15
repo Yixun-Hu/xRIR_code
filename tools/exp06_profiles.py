@@ -137,3 +137,79 @@ def load_approved_digests(path=None):
         _digest_or_null(value['artifacts']['heading'][room], 'artifacts.heading.' + room)
     return _freeze(value), {'path': str(path), 'sha256': hashlib.sha256(raw).hexdigest()}
 
+
+def file_digest(files, repo, commit):
+    """The closure digest over an explicit file list (the shell orchestrators)."""
+    return provenance.closure_record(list(files), commit, repo)[1]
+
+
+def code_digest(name, repo, commit):
+    """The approved identity of one code key at one reviewed commit."""
+    if name not in CODE_SPECS:
+        raise ValueError('unknown approval key: {!r}'.format(name))
+    return file_digest(_paths_of(name, repo), repo, commit)
+
+
+def present_keys(repo=REPO):
+    """The keys whose module and files exist in this checkout; the rest await later rounds."""
+    repo = Path(repo)
+    names = []
+    for name, (module, extra) in CODE_SPECS.items():
+        relative = (module.replace('.', '/') + '.py') if module else None
+        if relative is not None and not (repo / relative).is_file():
+            continue
+        if any(not (repo / path).is_file() for path in extra):
+            continue
+        names.append(name)
+    return tuple(names)
+
+
+PRESENT_KEYS_NOW = present_keys()
+
+
+def compute_code_digests(repo=REPO, commit=None, keys=None, notes=None):
+    """Recompute {key: digest} for every requested key that exists in this checkout.
+
+    A key whose module or shell file is absent (rounds 2b and 3) is skipped and named in
+    ``notes`` rather than silently defaulting to anything.
+    """
+    repo = Path(repo).resolve()
+    commit = provenance.git_state(repo)['HEAD'] if commit is None else commit
+    available = set(present_keys(repo))
+    digests = {}
+    for name in (CODE_KEYS if keys is None else keys):
+        if name not in CODE_SPECS:
+            raise ValueError('unknown approval key: {!r}'.format(name))
+        if name not in available:
+            if notes is not None:
+                notes.append('{}: not in this checkout yet'.format(name))
+            continue
+        digests[name] = code_digest(name, str(repo), commit)
+    return digests
+
+
+def require(approved, keys, repo=REPO, commit=None, exploratory=False, current=None):
+    """Fail-closed admission: every named key must be approved and match what is here now.
+
+    ``exploratory=True`` returns the deviations instead of raising, for the diagnostic
+    runs that record them in their receipt; it never admits a confirmatory run.
+    """
+    code = approved['code'] if 'code' in approved else approved
+    unknown = sorted(key for key in keys if key not in CODE_SPECS)
+    if unknown:
+        raise ValueError('unknown approval key: ' + ', '.join(unknown))
+    if current is None:
+        current = compute_code_digests(repo, commit, keys=keys)
+    deviations = []
+    for key in keys:
+        if code.get(key) is None:
+            deviations.append('code.{}: not approved (null in {})'.format(key, 'approvals'))
+        elif key not in current:
+            deviations.append('code.{}: approved but absent from this checkout'.format(key))
+        elif current[key] != code[key]:
+            deviations.append('code.{}: {} is not the approved {}'.format(
+                key, current[key], code[key]))
+    if deviations and not exploratory:
+        raise ValueError('approved code digests do not admit this run: '
+                         + '; '.join(deviations))
+    return deviations
