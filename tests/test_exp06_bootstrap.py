@@ -100,11 +100,18 @@ def test_the_adjusted_tails_are_percentiles_of_the_very_same_samples():
     for scheme in ('query', 'two_way'):
         samples = adjusted['samples'][scheme]
         assert np.array_equal(samples, nominal['samples'][scheme])
-        low, high = np.nanpercentile(samples, [100 * 0.05 / 22, 100 * (1 - 0.05 / 22)])
+        low, high = np.nanpercentile(samples, adjusted['tails'])
         assert adjusted[scheme]['lo'] == low and adjusted[scheme]['hi'] == high
         assert adjusted[scheme]['lo'] <= nominal[scheme]['lo']
         assert adjusted[scheme]['hi'] >= nominal[scheme]['hi']
-    assert adjusted['tails'] == [100 * 0.05 / 22, 100 * (1 - 0.05 / 22)]
+        # 0.05/11 and 0.05/22 differ by one ulp under IEEE division, so the registered
+        # tails are compared as probabilities, not as bit patterns.
+        target = np.nanpercentile(samples, [100 * 0.05 / 22, 100 * (1 - 0.05 / 22)])
+        assert adjusted[scheme]['lo'] == pytest.approx(target[0], rel=1e-12, abs=1e-15)
+        assert adjusted[scheme]['hi'] == pytest.approx(target[1], rel=1e-12, abs=1e-15)
+    assert adjusted['tails'] == pytest.approx([100 * 0.05 / 22, 100 * (1 - 0.05 / 22)],
+                                              rel=0, abs=1e-15)
+    assert nominal['tails'] == [2.5, 97.5]
 
 
 def test_the_bootstrap_summary_describes_the_samples_it_used():
@@ -156,8 +163,9 @@ def test_degenerate_inputs_are_refused(case):
         kwargs['n_boot'] = 0
     else:
         kwargs['seed'] = -1
+    kwargs.setdefault('n_boot', 50)
     with pytest.raises(ValueError):
-        subject.paired_intervals(a, b, clusters, seeds, n_boot=50, **kwargs)
+        subject.paired_intervals(a, b, clusters, seeds, **kwargs)
 
 
 # --- convergence ------------------------------------------------------------------------
