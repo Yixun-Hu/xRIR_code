@@ -80,6 +80,26 @@ SEEDS = MP({
            45: '5fc6cdc59acac960d7dd520ae941642d32829efc14b9c60a165bf8c6c5734dc1',
            46: '91ac1117b395ac585e2550554c314d04b54500d197166d770fe79784169bffea'}),
 })
+# Plan section 2: the pre-registered calibration of the released reference row against
+# the historical full-split reproduction (exp_01 results.md, the authors' eval_seen.py).
+# Units: EDT seconds, C50 dB, T60 per cent -- the metrics' native units, as the runs
+# report them.  The rule and its operands are registered HERE, before any number is read,
+# and are applied by tools/exp07_calibration.py and re-checked by the record binder.
+CALIBRATION = MP({'role': 'released_seen', 'protocol': 'seen', 'num_shot': 8, 'ddof': 1,
+                  'k': 0, 'condition': 'P', 'seeds': EVAL_SEEDS, 'sd_multiple': 3.,
+                  'relative_margin': .02, 'n_seeds': len(EVAL_SEEDS),
+                  'historical': MP({'EDT': .0389, 'C50': 1.029, 'T60': 7.27}),
+                  'sources': MP({'EDT': 'edt', 'C50': 'c50', 'T60': 't60'}),
+                  'units': MP({'EDT': 's', 'C50': 'dB', 'T60': '%'}),
+                  'rule': '|mean - historical| <= 3 * sd + 0.02 * |historical|'})
+CALIBRATION_METRICS = tuple(sorted(CALIBRATION['historical']))
+
+
+def calibration_tolerance(sd, historical):
+    """The registered acceptance half-width for one metric (plan section 2)."""
+    return CALIBRATION['sd_multiple'] * sd + CALIBRATION['relative_margin'] * abs(historical)
+
+
 COMMON = MP({'schema_version': 1, 'protocol': 'seen', 'tier': 'M', 'condition': 'P',
              'alpha': .05, 'n_boot': 20000, 'bootstrap_seeds': (0, 1), 'seed_sd_ddof': 1,
              'convergence_tolerance': .10, 'seeds': SEEDS, 'eval_seeds': EVAL_SEEDS,
