@@ -2,6 +2,7 @@
 import json
 import hashlib
 import copy
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -17,8 +18,8 @@ from tools.exp06_heading import (canonical_heading_deg, compensated_levels, cont
 from tools.exp06_heading import candidate_contrasts, decide_heading, leave_one_out_stable
 from tools.exp06_heading import HeadingFrameDataset
 from tools.exp06_heading import estimate_room_heading
-from tools.exp06_heading import read_heading_json, write_heading_json
-from tools.provenance import sha256_file, source_closure
+from tools.exp06_heading import read_heading_json, verify_heading_inputs, write_heading_json
+from tools.provenance import closure_record, git_state, sha256_file, source_closure
 
 
 @pytest.mark.parametrize('window,n', [(0.005, 110), (0.05, 1102)])
@@ -333,9 +334,95 @@ def test_cli(heading_cache, tmp_path, mode):
         rirs = np.load(heading_cache / 'rirs.npy')
         rirs[:4] /= 10 ** (9 / 20)
         np.save(heading_cache / 'rirs.npy', rirs)
-    completed = subprocess.run(args, cwd=repo, capture_output=True, text=True)
-    assert completed.returncode == (2 if mode == 'refuse' else 0), completed.stderr
+    completed = subprocess.run(args, cwd=repo, capture_output=True, text=True,
+                               env={**os.environ, 'PYTHONPATH': str(repo)})
+    assert completed.returncode == (3 if mode == 'refuse' else 0), completed.stderr
     assert path.exists()
     record = read_heading_json(path)
     assert record['decision'] == {'estimate': 'estimated', 'override': 'override', 'refuse': 'refused'}[mode]
     assert record['k'] == {'estimate': 128, 'override': 384, 'refuse': None}[mode]
+
+
+def test_source_closure_carries_git_identity(heading_cache):
+    record = estimate_room_heading(heading_cache)
+    repo = Path(__file__).resolve().parents[1]
+    state = git_state(repo)
+    source = record['source_closure']
+    assert source['git'] == {key: state[key] for key in
+                             ['HEAD', 'dirty', 'dirty_outside_worklog', 'diff_sha256']}
+    assert source['git']['HEAD'] == subprocess.check_output(
+        ['git', 'rev-parse', 'HEAD'], cwd=repo, text=True).strip()
+    assert len(source['git']['HEAD']) == 40 and type(source['git']['dirty']) is bool
+    records, digest = closure_record([f['path'] for f in source['files']], state['HEAD'], repo)
+    assert source['head_sha256'] == digest and len(digest) == 64
+    assert [f['head_blob_sha256'] for f in source['files']] == [r['reviewed_blob_sha256'] for r in records]
+    assert [f['sha256'] for f in source['files']] == [r['working_tree_sha256'] for r in records]
+    clean = (not state['dirty_outside_worklog']
+             and all(f['head_blob_sha256'] == f['sha256'] for f in source['files']))
+    assert record['admissibility'] == ('confirmatory' if clean else 'diagnostic')
+    assert (source['head_sha256'] == source['sha256']) == all(
+        f['head_blob_sha256'] == f['sha256'] for f in source['files'])
+
+
+def test_dirty_closure_record_is_diagnostic_only(heading_cache, tmp_path):
+    record = estimate_room_heading(heading_cache)
+    edited = copy.deepcopy(record)
+    edited['source_closure']['files'][0]['head_blob_sha256'] = '0' * 64
+    for admissibility, ok in [('diagnostic', True), ('confirmatory', False)]:
+        broken = copy.deepcopy(edited)
+        broken['admissibility'] = admissibility
+        broken['source_closure']['head_sha256'] = hashlib.sha256(json.dumps(
+            [[f['path'], f['head_blob_sha256']] for f in broken['source_closure']['files']],
+            sort_keys=True).encode()).hexdigest()
+        if ok:
+            write_heading_json(tmp_path / 'diagnostic.json', broken)
+            assert read_heading_json(tmp_path / 'diagnostic.json')['admissibility'] == 'diagnostic'
+        else:
+            with pytest.raises(ValueError):
+                write_heading_json(tmp_path / 'bad.json', broken)
+
+
+@pytest.mark.parametrize('field,value', [
+    ('git', {}), ('git', {'HEAD': 'z' * 40, 'dirty': False, 'dirty_outside_worklog': False,
+                          'diff_sha256': None}),
+    ('git', {'HEAD': 'a' * 39, 'dirty': False, 'dirty_outside_worklog': False, 'diff_sha256': None}),
+    ('git', {'HEAD': 'a' * 40, 'dirty': 0, 'dirty_outside_worklog': False, 'diff_sha256': None}),
+    ('head_sha256', 'f' * 64), ('head_sha256', None), ('head_sha256', 'ff')])
+def test_record_requires_valid_git_identity(heading_cache, tmp_path, field, value):
+    record = estimate_room_heading(heading_cache)
+    record['source_closure'][field] = value
+    with pytest.raises(ValueError):
+        write_heading_json(tmp_path / 'bad.json', record)
+    missing = estimate_room_heading(heading_cache)
+    del missing['source_closure'][field]
+    with pytest.raises(ValueError):
+        write_heading_json(tmp_path / 'bad.json', missing)
+
+
+def test_verify_heading_inputs_refuses_changed_cache(heading_cache, tmp_path):
+    record = estimate_room_heading(heading_cache)
+    path = tmp_path / 'heading.json'
+    write_heading_json(path, record)
+    assert verify_heading_inputs(record, heading_cache) == record
+    assert read_heading_json(path, room_dir=heading_cache) == record
+    assert read_heading_json(path) == record
+    (heading_cache / 'meta.json').write_text((heading_cache / 'meta.json').read_text() + ' ')
+    with pytest.raises(ValueError):
+        verify_heading_inputs(record, heading_cache)
+    with pytest.raises(ValueError):
+        read_heading_json(path, room_dir=heading_cache)
+    with pytest.raises(ValueError):
+        verify_heading_inputs(record, tmp_path / 'absent')
+
+
+def test_cli_input_error_exits_two_without_writing(heading_cache, tmp_path):
+    repo = Path(__file__).resolve().parents[1]
+    path = tmp_path / 'never.json'
+    for extra in [['--room-dir', str(tmp_path / 'absent'), '--out', str(path)],
+                  ['--room-dir', str(heading_cache), '--out', str(path), '--heading-deg', '90'],
+                  ['--room-dir', str(heading_cache), '--out', str(path), '--override-reason', 'x']]:
+        completed = subprocess.run([sys.executable, 'tools/exp06_heading.py'] + extra, cwd=repo,
+                                   capture_output=True, text=True,
+                                   env={**os.environ, 'PYTHONPATH': str(repo)})
+        assert completed.returncode == 2, completed.stderr
+        assert not path.exists()

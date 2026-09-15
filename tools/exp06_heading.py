@@ -1,4 +1,10 @@
-"""Training-only acoustic heading inference and heading-frame HAA geometry."""
+"""Training-only acoustic heading inference and heading-frame HAA geometry.
+
+The CLI exits 0 when a heading is estimated or overridden, 3 when the estimator
+refuses (evidence JSON written), and 2 for argparse or input errors (nothing written).
+A record is `confirmatory` only when its source closure matches HEAD and the tree is
+clean outside worklog/; any other record is `diagnostic` and never binds a run.
+"""
 import math
 import numbers
 import argparse
@@ -11,7 +17,7 @@ import numpy as np
 
 from sim_to_real.haa_dataset import DEFAULT_ROOT, HAADataset
 from tools.yaw_rotation import rotate_scene_yaw
-from tools.provenance import sha256_file, source_closure
+from tools.provenance import closure_record, git_state, sha256_file, source_closure
 
 
 def _vector(value):
@@ -103,6 +109,29 @@ def mean_direction(theta_deg, weights):
 
 
 CANDIDATES = {'+x': 0, '+y': 90, '-x': 180, '-y': -90}
+
+GIT_FIELDS = ('HEAD', 'dirty', 'dirty_outside_worklog', 'diff_sha256')
+
+
+def _is_hex(value, length):
+    return (isinstance(value, str) and len(value) == length
+            and all(c in '0123456789abcdef' for c in value))
+
+
+def _is_sha256(value):
+    return _is_hex(value, 64)
+
+
+def _closure_digest(files, key):
+    """Digest the closure as [[path, hash], ...], as exp_03's closure records do."""
+    return hashlib.sha256(json.dumps([[f['path'], f[key]] for f in files],
+                                     sort_keys=True).encode()).hexdigest()
+
+
+def _admissibility(files, git):
+    """Only a clean tree whose closure equals its HEAD blobs can bind a confirmatory run."""
+    return ('confirmatory' if not git['dirty_outside_worklog']
+            and all(f['head_blob_sha256'] == f['sha256'] for f in files) else 'diagnostic')
 
 
 def candidate_contrasts(theta_deg, levels, candidates=CANDIDATES,
@@ -236,11 +265,15 @@ def estimate_room_heading(room_dir, override_deg=None, override_reason=None):
             loo_phi_deg=fits, loo_range_deg=[min(fits), max(fits)],
             mean_direction_deg=mean_direction(theta, 10 ** ((level - level.max()) / 10)))
     repo = Path(__file__).resolve().parents[1]
-    files = [dict(path=name, sha256=sha256_file(repo / name))
-             for name in source_closure('tools.exp06_heading', repo)]
-    digest = hashlib.sha256(json.dumps([[f['path'], f['sha256']] for f in files],
-                                     sort_keys=True).encode()).hexdigest()
+    state = git_state(repo)
+    records, head_digest = closure_record(source_closure('tools.exp06_heading', repo),
+                                          state['HEAD'], repo)
+    files = [dict(path=r['path'], sha256=r['working_tree_sha256'],
+                  head_blob_sha256=r['reviewed_blob_sha256']) for r in records]
+    digest = _closure_digest(files, 'sha256')
+    git = {key: state[key] for key in GIT_FIELDS}
     return dict(schema_version=1, room=room.name, phi_deg=phi,
+        admissibility=_admissibility(files, git),
         k=heading_roll_k(phi) if phi is not None else None, decision=decision,
         reason=override_reason if decision == 'override' else reason,
         override_deg=override_deg, override_reason=override_reason,
@@ -253,7 +286,7 @@ def estimate_room_heading(room_dir, override_deg=None, override_reason=None):
         input_sha256={name: sha256_file(room / name) for name in
                       ['meta.json', 'xyzs.npy', 'speaker_xyz.npy', 'rirs.npy']},
         source_closure=dict(entry_module='tools.exp06_heading', repo=str(repo), files=files,
-                            sha256=digest, basis='working_tree'),
+                            sha256=digest, head_sha256=head_digest, git=git, basis='working_tree'),
         timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat())
 
 
@@ -261,7 +294,7 @@ def _validate_heading_record(record):
     """Validate schema and decision evidence; refused records have no usable rotation."""
     required = {'schema_version', 'room', 'phi_deg', 'k', 'decision', 'reason', 'override_deg',
                 'override_reason', 'estimator', 'descriptive', 'per_mic', 'input_sha256',
-                'source_closure', 'timestamp'}
+                'source_closure', 'timestamp', 'admissibility'}
     try:
         if not isinstance(record, dict) or not required <= record.keys():
             raise ValueError('missing heading fields')
@@ -296,13 +329,23 @@ def _validate_heading_record(record):
                 or not Path(source['repo']).is_absolute() or not source['files']):
             raise ValueError('invalid source closure')
         pairs = [[f['path'], f['sha256']] for f in source['files']]
-        hashes = list(inputs.values()) + [source['sha256']] + [h for _, h in pairs]
-        if any(not isinstance(h, str) or len(h) != 64 or any(c not in '0123456789abcdef' for c in h)
-               for h in hashes):
+        hashes = (list(inputs.values()) + [source['sha256'], source['head_sha256']]
+                  + [h for _, h in pairs]
+                  + [f['head_blob_sha256'] for f in source['files'] if f['head_blob_sha256'] is not None])
+        if any(not _is_sha256(h) for h in hashes):
             raise ValueError('invalid SHA256')
-        digest = hashlib.sha256(json.dumps(pairs, sort_keys=True).encode()).hexdigest()
-        if source['sha256'] != digest:
+        if source['sha256'] != _closure_digest(source['files'], 'sha256'):
             raise ValueError('source closure digest mismatch')
+        git = source['git']
+        if (set(git) != set(GIT_FIELDS) or not _is_hex(git['HEAD'], 40)
+                or any(type(git[key]) is not bool for key in ('dirty', 'dirty_outside_worklog'))
+                or (git['diff_sha256'] is not None) != git['dirty']
+                or (git['dirty'] and not _is_sha256(git['diff_sha256']))):
+            raise ValueError('invalid git identity')
+        if source['head_sha256'] != _closure_digest(source['files'], 'head_blob_sha256'):
+            raise ValueError('HEAD closure digest mismatch')
+        if record['admissibility'] != _admissibility(source['files'], git):
+            raise ValueError('admissibility disagrees with the recorded git identity')
         mics = record['per_mic']
         if (len(mics) != 12 or len({m['index'] for m in mics}) != 12
                 or any(type(m['index']) is not int or m['index'] < 0 or m['distance_m'] <= 0 for m in mics)):
@@ -346,13 +389,27 @@ def write_heading_json(path, record):
     Path(path).write_text(json.dumps(record, sort_keys=True, indent=2, allow_nan=False) + '\n')
 
 
-def read_heading_json(path):
-    """Read and validate a heading record before its rotation can be used."""
-    return _validate_heading_record(json.loads(Path(path).read_text()))
+def verify_heading_inputs(record, room_dir):
+    """Refuse a validated record whose recorded cache inputs no longer hash the same."""
+    _validate_heading_record(record)
+    for name, digest in sorted(record['input_sha256'].items()):
+        try:
+            actual = sha256_file(Path(room_dir) / name)
+        except OSError as error:
+            raise ValueError('unreadable heading input: ' + name) from error
+        if actual != digest:
+            raise ValueError('heading input changed since estimation: ' + name)
+    return record
+
+
+def read_heading_json(path, room_dir=None):
+    """Read and validate a record; with a room directory, re-verify its input hashes."""
+    record = _validate_heading_record(json.loads(Path(path).read_text()))
+    return record if room_dir is None else verify_heading_inputs(record, room_dir)
 
 
 def main(argv=None):
-    """Write the inferred acoustic axis; refusal writes evidence and exits with status 2."""
+    """Write the inferred acoustic axis; a refusal writes evidence and exits 3, input errors 2."""
     parser = argparse.ArgumentParser(description='Infer an acoustic axis from HAA training RIRs.')
     parser.add_argument('--room-dir', required=True)
     parser.add_argument('--out', required=True)
@@ -365,7 +422,7 @@ def main(argv=None):
     except (OSError, ValueError) as error:
         parser.error(str(error))
     print(json.dumps({key: record[key] for key in ['room', 'decision', 'phi_deg', 'k', 'reason']}))
-    return 2 if record['decision'] == 'refused' else 0
+    return 3 if record['decision'] == 'refused' else 0
 
 
 if __name__ == '__main__':
