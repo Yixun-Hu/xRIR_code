@@ -1,4 +1,4 @@
-"""Single-arm 32 x 2 tier/seen probe; full test loader and durable scratch saves."""
+"""Single-arm 32 x 2 tier probe; full test loader and durable scratch saves."""
 import argparse
 import copy
 import json
@@ -14,22 +14,14 @@ from tools.exp04_probe import TimedLoader, trainer_command as base_command
 from tools.exp05_params import TIERS
 
 
-TRAIN_BATCHES = {'unseen': 9261, 'seen': 9265}  # in lockstep with exp04_launcher.TRAIN_BATCHES
-
-
-def trainer_command(tier, backbone, save_dir, protocol='unseen', yaw_aug=0):
-    """The measured recipe: S/L under the unseen protocol, M under the seen protocol."""
-    seen = protocol == 'seen'
-    if tier not in (('M',) if seen else ('S', 'L')) or backbone not in ('simple', 'cylindrical'):
-        raise ValueError('tier probe requires S/L (M with --protocol seen) and simple/cylindrical')
-    cmd = base_command(1 if yaw_aug else 0, save_dir)
-    if not yaw_aug:
-        for flag in ('--yaw-aug', '--yaw-aug-seed', '--yaw-aug-width'):
-            index = cmd.index(flag)
-            del cmd[index:index + 2]
+def trainer_command(tier, backbone, save_dir):
+    if tier not in ('S', 'L') or backbone not in ('simple', 'cylindrical'):
+        raise ValueError('tier probe requires S/L and simple/cylindrical')
+    cmd = base_command(0, save_dir)
+    for flag in ('--yaw-aug', '--yaw-aug-seed', '--yaw-aug-width'):
+        index = cmd.index(flag)
+        del cmd[index:index + 2]
     cmd[cmd.index('--backbone') + 1] = backbone
-    if seen:
-        return cmd + ['--protocol', 'seen', '--max-test-batches', '0']
     for key, value in TIERS[tier].items():
         cmd.extend(['--vit-' + key.replace('_', '-'), str(value)])
     return cmd + ['--max-test-batches', '0']
@@ -40,14 +32,13 @@ def projection(result):
     try:
         micro = result['t_micro']
         values = micro['values']
-        batches = TRAIN_BATCHES[result.get('protocol', 'unseen')]
         # Exact sum/50 survives JSON round trips; hand-transcribed summaries are refused.
         valid = (len(values) == 50 and all(type(v) in (int, float) and math.isfinite(v) and v > 0
             for v in [*values, *[micro[k] for k in ('mean', 'median', 'min')], result['t_test'], result['t_save']])
             and (micro['mean'], micro['median'], micro['min']) == (sum(values) / 50, statistics.median(values), min(values))
             and all(type(result[k]) is int and result[k] == v for k, v in dict(warmup_micro_batches=10,
-                timed_micro_batches=50, batch_size=32, accum_steps=2, train_batches_per_epoch=batches).items()))
-        epoch = batches * micro['mean'] + result['t_test'] + result['t_save']
+                timed_micro_batches=50, batch_size=32, accum_steps=2, train_batches_per_epoch=9261).items()))
+        epoch = 9261 * micro['mean'] + result['t_test'] + result['t_save']
         if not valid or not math.isfinite(epoch * 12):
             raise ValueError('invalid measurement')
     except (KeyError, TypeError, ValueError, OverflowError) as error:
@@ -55,12 +46,10 @@ def projection(result):
     return dict(T_epoch=epoch, T_run=12 * epoch, passed=12 * epoch <= 60 * 3600)
 
 
-def run(tier, backbone, save_dir, protocol='unseen', yaw_aug=0):
+def run(tier, backbone, save_dir):
     import train_xRIR_backbone as trainer
     original_train, original_test, original_argv = trainer.train_epoch, trainer.test_epoch, sys.argv
-    result = dict(tier=tier, backbone=backbone, yaw_aug=yaw_aug, batch_size=32, accum_steps=2)
-    if protocol != 'unseen':  # an unseen tier receipt keeps its exp_05 schema
-        result['protocol'] = protocol
+    result = dict(tier=tier, backbone=backbone, yaw_aug=0, batch_size=32, accum_steps=2)
     state = {}
     def measured_train(model, loader, optimizer, scheduler, epoch, args, best):
         timed = TimedLoader(loader, trainer.torch.cuda, clock=time.perf_counter)
@@ -95,7 +84,7 @@ def run(tier, backbone, save_dir, protocol='unseen', yaw_aug=0):
             trainer.torch.cuda.synchronize()
             result['t_save'] = time.perf_counter() - started
         return loss
-    sys.argv = trainer_command(tier, backbone, save_dir, protocol, yaw_aug)
+    sys.argv = trainer_command(tier, backbone, save_dir)
     trainer.train_epoch, trainer.test_epoch = measured_train, measured_test
     try:
         trainer.main()
@@ -108,10 +97,8 @@ def run(tier, backbone, save_dir, protocol='unseen', yaw_aug=0):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--tier', choices=('S', 'M', 'L'), required=True)
+    parser.add_argument('--tier', choices=('S', 'L'), required=True)
     parser.add_argument('--backbone', choices=('simple', 'cylindrical'), required=True)
     parser.add_argument('--save-dir', required=True)
-    parser.add_argument('--protocol', choices=('unseen', 'seen'), default='unseen')
-    parser.add_argument('--yaw-aug', type=int, choices=(0, 1), default=0)
     options = parser.parse_args()
-    run(options.tier, options.backbone, options.save_dir, options.protocol, options.yaw_aug)
+    run(options.tier, options.backbone, options.save_dir)

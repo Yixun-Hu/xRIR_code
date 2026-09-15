@@ -130,8 +130,7 @@ def test_limits_require_bound_receipt_and_revalidate(receipt):
                   reviewed_commit='a' * 40, mutable_inputs=dict(probe_receipt=binding))
     limits = gates.timing_limits(fields, '1')
     assert limits == dict(epoch_seconds=1.05 * data['T_epoch'], projection_hours=data['T_run'] / 3600,
-                         ceiling_hours=1.5 * data['T_run'] / 3600, probe_receipt_sha256=binding['sha256'],
-                         protocol='unseen')
+                         ceiling_hours=1.5 * data['T_run'] / 3600, probe_receipt_sha256=binding['sha256'])
     path.write_text(path.read_text() + '\n')
     with pytest.raises(ValueError, match='receipt'):
         gates.timing_limits(fields, '1')
