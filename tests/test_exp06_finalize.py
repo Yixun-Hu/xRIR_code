@@ -937,8 +937,13 @@ def test_a_job_of_bare_admissible_claims_is_refused(tmp_path, closed_log_file):
         (job / name).mkdir(parents=True)
         (job / name / 'completion.json').write_text(
             json.dumps({'run_type': 'haa_eval', 'admissible_arm': True}))
-    with pytest.raises(ValueError, match='incomplete'):
-        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=REPO,
+    spec = job / 'job_spec.json'
+    spec.write_text(json.dumps({'init': PRETRAIN, 'backbone': 'cylindrical_oriented',
+                                'frame': 'heading', 'init_sha256': 'a' * 64, 'seed': 0,
+                                'rooms': sorted(ROOMS), 'expect': 'finetune',
+                                'heading': {room: 0 for room in ROOMS}}))
+    with pytest.raises(ValueError, match='provenance.json'):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=REPO, job_spec=str(spec),
                                 children=[str(job / name) for name in names], expect='finetune')
     assert not (job / 'completion.json').exists()
 
@@ -946,34 +951,67 @@ def test_a_job_of_bare_admissible_claims_is_refused(tmp_path, closed_log_file):
 @pytest.mark.parametrize('damage,cause', [
     ('missing', 'missing'), ('extra', 'unexpected'), ('no_completion', 'completion.json'),
     ('outside', 'outside'), ('wrong_role', 'run type'), ('diagnostic', 'diagnostic'),
-    ('nonzero_exit', 'child_exit'), ('stale_hash', 'artefact'), ('missing_artefact', 'artefact'),
-    ('backbone', 'backbone'), ('frame', 'frame'), ('heading_k', 'heading'),
-    ('lineage_init', 'lineage'), ('lineage_checkpoint', 'lineage'), ('schema', 'incomplete')])
-def test_job_refusals_are_named(tmp_path, closed_log_file, damage, cause):
+    ('nonzero_exit', 'child_exit'), ('stale_hash', 'artefact'),
+    ('missing_artefact', 'last.pth'), ('backbone', 'backbone'), ('frame', 'frame'),
+    ('heading_k', 'heading'), ('lineage_init', 'lineage'), ('lineage_checkpoint', 'lineage'),
+    ('schema', 'incomplete'), ('eval_artefacts_removed', 'metrics_hallway.json'),
+    ('stale_log', 'log'), ('stale_receipt', 'child_exit_receipt'), ('wrong_room', 'room'),
+    ('wrong_seed', 'seed'), ('run_dir', 'run_dir'), ('schema_version', 'schema_version')])
+def test_job_refusals_are_named(job_run, closed_log_file, tmp_path, haa_repo, heading_jsons,
+                                data_root, damage, cause):
+    def rebuild(job, name):
+        shutil.rmtree(str(job / name))
+        (job / (name.replace('/', '_') + '.log')).unlink()
+
     def mutate(job, names):
         if damage == 'missing':
             names.remove('stage2_hallway')
         elif damage == 'extra':
-            write_child(job / 'stage2_invented', 'haa_train',
-                        {'args.json': b'{}', 'best.pth': b'x', 'last.pth': b'y'},
-                        rooms=['invented'], init_sha256=PRETRAIN, best_epoch=10)
+            make_train_child(job, 'stage2_invented', haa_repo, heading_jsons, data_root,
+                             ['hallway'], tmp_path / 'pretrain.pth', 9)
             names.append('stage2_invented')
         elif damage == 'no_completion':
             (job / 'stage1/completion.json').unlink()
         elif damage == 'outside':
             names.append('../elsewhere')
-            write_child(job.parent / 'elsewhere', 'haa_train',
-                        {'args.json': b'{}', 'best.pth': b'x', 'last.pth': b'y'},
-                        rooms=['hallway'], init_sha256=PRETRAIN, best_epoch=10)
+            make_train_child(job.parent, 'elsewhere', haa_repo, heading_jsons, data_root,
+                             ['hallway'], tmp_path / 'pretrain.pth', 9)
         elif damage == 'stale_hash':
             (job / 'stage1/best.pth').write_bytes(b'rewritten after completion')
         elif damage == 'missing_artefact':
             (job / 'stage1/last.pth').unlink()
+        elif damage == 'eval_artefacts_removed':
+            record = json.loads((job / 'eval/hallway/completion.json').read_text())
+            for name in ('metrics_hallway.json', 'per_sample_hallway.json'):
+                (job / 'eval/hallway' / name).unlink()
+                record['artifacts'].pop(name)
+            (job / 'eval/hallway/completion.json').write_text(json.dumps(record, sort_keys=True))
+        elif damage == 'stale_log':
+            with open(str(job / 'stage1.log'), 'a') as stream:
+                stream.write('appended after the completion\n')
+        elif damage == 'stale_receipt':
+            (job / 'stage1/child_exit.json').write_text('{"child_pid": 1}')
+        elif damage == 'lineage_init':
+            rebuild(job, 'stage2_hallway')
+            make_train_child(job, 'stage2_hallway', haa_repo, heading_jsons, data_root,
+                             ['hallway'], tmp_path / 'pretrain.pth', 7)
+        elif damage == 'lineage_checkpoint':
+            rebuild(job, 'eval/hallway')
+            make_eval_child(job, 'eval/hallway', haa_repo, heading_jsons, data_root, 'hallway',
+                            job / 'stage2_class_room/best.pth')
+        elif damage == 'wrong_seed':
+            rebuild(job, 'stage2_hallway')
+            run, log = job / 'stage2_hallway', job / 'stage2_hallway.log'
+            args = haa_train_args(heading_jsons, provenance.sha256_file(job / 'stage1/best.pth'),
+                                  rooms=['hallway'], init=str(job / 'stage1/best.pth'),
+                                  save_dir='stage2_hallway', epochs=4, val_every=2, seed=1)
+            write_haa_train(run, args, log, haa_repo, data_root)
+            exp06_finalize.finalize(run, 'haa_train', log, 0, repo=haa_repo)
         else:
             path = job / {'wrong_role': 'stage1', 'diagnostic': 'stage1', 'nonzero_exit': 'stage1',
                           'backbone': 'eval/hallway', 'frame': 'eval/hallway',
-                          'heading_k': 'eval/hallway', 'lineage_init': 'stage2_hallway',
-                          'lineage_checkpoint': 'eval/hallway', 'schema': 'stage1'}[damage]
+                          'heading_k': 'eval/hallway', 'wrong_room': 'eval/hallway',
+                          'run_dir': 'stage1', 'schema_version': 'stage1', 'schema': 'stage1'}[damage]
             record = json.loads((path / 'completion.json').read_text())
             if damage == 'wrong_role':
                 record['run_type'] = 'haa_eval'
@@ -985,27 +1023,70 @@ def test_job_refusals_are_named(tmp_path, closed_log_file, damage, cause):
                 record['backbone'] = 'cylindrical'
             elif damage == 'frame':
                 record['frame'] = 'room'
+            elif damage == 'wrong_room':
+                record['room'] = 'class_room'
+            elif damage == 'run_dir':
+                record['run_dir'] = str(job / 'stage2_hallway')
+            elif damage == 'schema_version':
+                record['schema_version'] = 2
             elif damage == 'heading_k':
-                record['heading'] = copy.deepcopy(JOB_HEADING)
+                record['heading'] = copy.deepcopy(record['heading'])
                 record['heading']['hallway']['k'] = 0
-            elif damage == 'schema':
-                record.pop('artifacts')
             else:
-                record['init_sha256' if damage == 'lineage_init' else 'checkpoint_sha256'] = 'd' * 64
+                record.pop('artifacts')
             (path / 'completion.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
         return names
 
-    job, children = write_job(tmp_path, log=closed_log_file, mutate=mutate)
+    job, children, spec, repo = job_run(mutate=mutate)
     with pytest.raises(ValueError, match=cause):
-        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=REPO,
-                                children=children, expect='finetune')
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                children=children, expect='finetune', job_spec=spec)
     assert not (job / 'completion.json').exists()
 
 
-def test_job_requires_a_declared_expectation(tmp_path, closed_log_file):
-    job, children = write_job(tmp_path, log=closed_log_file)
+@pytest.mark.parametrize('damage,cause', [
+    ('absent', 'job_spec'), ('not_json', 'job spec'), ('no_field', 'incomplete'),
+    ('expect', 'expect'), ('backbone', 'backbone'), ('frame', 'frame'),
+    ('init_sha256', 'init_sha256'), ('seed', 'seed'), ('rooms', 'rooms'),
+    ('heading_room', 'heading'), ('heading_in_room_frame', 'heading')])
+def test_the_job_spec_is_required_and_validated(job_run, closed_log_file, tmp_path, damage, cause):
+    job, children, spec, repo = job_run()
+    record = json.loads(Path(spec).read_text())
+    if damage == 'absent':
+        spec = None
+    elif damage == 'not_json':
+        Path(spec).write_text('{ truncated')
+    else:
+        if damage == 'no_field':
+            record.pop('init')
+        elif damage == 'expect':
+            record['expect'] = 'zeroshot'
+        elif damage == 'backbone':
+            record['backbone'] = 'invented'
+        elif damage == 'frame':
+            record['frame'] = 'world'
+        elif damage == 'init_sha256':
+            record['init_sha256'] = 'zz'
+        elif damage == 'seed':
+            record['seed'] = '0'
+        elif damage == 'rooms':
+            record['rooms'] = sorted(ROOMS)[:2]
+        elif damage == 'heading_room':
+            record['heading'].pop('hallway')
+        else:
+            record['frame'] = 'room'
+        Path(spec).write_text(json.dumps(record, sort_keys=True, indent=2))
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                children=children, expect='finetune', job_spec=spec)
+    assert not (job / 'completion.json').exists()
+
+
+def test_job_requires_a_declared_expectation(job_run, closed_log_file):
+    job, children, spec, repo = job_run()
     with pytest.raises(ValueError, match='expect'):
-        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=REPO, children=children)
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo, children=children,
+                                job_spec=spec)
 
 
 def test_cli_reports_refusals_with_status_two(full_run, clone):
@@ -1463,7 +1544,7 @@ def test_child_exit_subcommand_appends_the_marker_and_writes_the_receipt(tmp_pat
 
 @pytest.mark.parametrize('child,missing', [('stage1', 'best.pth'), ('stage1', 'last.pth'),
                                            ('eval/hallway', 'args.json')])
-def test_a_child_that_records_no_role_artefact_is_refused(tmp_path, closed_log_file,
+def test_a_child_that_records_no_role_artefact_is_refused(job_run, closed_log_file,
                                                           child, missing):
     """Should-fix 9 on the job branch: a thin artefact map must refuse, not raise KeyError."""
     def mutate(job, names):
@@ -1472,8 +1553,8 @@ def test_a_child_that_records_no_role_artefact_is_refused(tmp_path, closed_log_f
         (job / child / 'completion.json').write_text(json.dumps(record, sort_keys=True, indent=2))
         return names
 
-    job, children = write_job(tmp_path, log=closed_log_file, mutate=mutate)
+    job, children, spec, repo = job_run(mutate=mutate)
     with pytest.raises(ValueError, match=missing):
-        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=REPO,
-                                children=children, expect='finetune')
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                children=children, expect='finetune', job_spec=spec)
     assert not (job / 'completion.json').exists()
