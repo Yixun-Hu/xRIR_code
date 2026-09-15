@@ -106,14 +106,23 @@ def bind(inputs, path, digest=None):
     return digest
 
 
-def _read_json(path, label, inputs=None):
-    """Parse one JSON file, binding the exact bytes that were parsed."""
+def _read_json(path, label, inputs=None, expected=None):
+    """Parse one JSON file, binding the exact bytes that were parsed.
+
+    Finding 2b: when the caller already knows the identity a parent record certified for
+    this path, it passes it as ``expected`` and these bytes must be those bytes -- a file
+    that changed between the certification and this read is refused here rather than
+    rebound, so a validated identity is never replaced by a fresher one.
+    """
     try:
         raw = Path(path).read_bytes()
     except OSError as error:
         raise ValueError('unreadable {}: {}'.format(label, error))
+    digest = hashlib.sha256(raw).hexdigest()
+    _require(expected is None or digest == expected, '{} is not the bytes bound for it: '
+             '{} is not {}'.format(label, digest, expected))
     if inputs is not None:
-        bind(inputs, path, hashlib.sha256(raw).hexdigest())
+        bind(inputs, path, digest)
     try:
         return json.loads(raw)
     except ValueError as error:
@@ -552,21 +561,29 @@ def verify_job(job_dir, job, arm, repo=REPO, sensitivity=False, inputs=None):
         bind(inputs, record['log']['path'], record['log']['sha256'])
     spec_path = Path(record['job_spec']['path'])
     _require(spec_path.is_file(), 'missing job spec {}'.format(spec_path))
-    _require(provenance.sha256_file(spec_path) == record['job_spec']['sha256'],
+    declared = record['job_spec']['sha256']
+    _require(provenance.sha256_file(spec_path) == declared,
              'the job spec {} is not the bytes job {} bound'.format(spec_path, job_dir))
+    if inputs is not None:      # bound before the loader runs, never after it
+        bind(inputs, spec_path, declared)
     spec = finalizer.load_job_spec(str(spec_path), expect)
-    if inputs is not None:      # re-hashed, so a spec edited during the load contradicts
-        bind(inputs, spec_path)
+    # Finding 2b: the loader hashes what it read; that digest must still be the one the
+    # job certified, so a spec edited while it was being loaded is refused here.
+    _require(spec['job_spec_sha256'] == declared,
+             'the job spec {} is not the bytes job {} bound'.format(spec_path, job_dir))
     children, rooms = {}, {}
     for name in sorted(finalizer.expected_children(expect)):
         path, role = job_dir / name, finalizer.child_role(name)
         completion = path / 'completion.json'
         _require(completion.is_file(),
                  'job {} child {} has no completion.json'.format(job_dir, name))
-        _require(provenance.sha256_file(completion) == record['children'][name],
+        certified = record['children'][name]
+        _require(provenance.sha256_file(completion) == certified,
                  'job {} child {} is not the completion it bound'.format(job_dir, name))
+        if inputs is not None:      # bound before the child validator is delegated to
+            bind(inputs, completion, certified)
         evidence = dict(finalizer.verify_child(path, name, repo, spec), role=role)
-        bound = _read_json(completion, name + '/completion.json', inputs)
+        bound = _read_json(completion, name + '/completion.json', inputs, certified)
         _require(bound.get('admissible_arm') is True,
                  'child {} is not an admissible arm'.format(name))
         args = _read_json(path / 'args.json', name + '/args.json', inputs)
