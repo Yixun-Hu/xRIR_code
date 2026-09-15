@@ -706,6 +706,54 @@ def test_the_outputs_are_written_once_and_the_json_binds_the_summary(arms, tmp_p
         subject.write_outputs(result, out, summary)
 
 
+def test_every_byte_the_summary_rests_on_is_bound_and_revalidated(arms, tmp_path):
+    """Finding 10: the side-split cache is an input, and inputs are rechecked at publish."""
+    result = subject.analyse(arms, n_boot=200, adjusted_n_boot=200, exploratory=True)
+    cache = Path(legacy.HAA_ROOT) / 'hallway'
+    for name in ('meta.json', 'xyzs.npy', 'speaker_xyz.npy'):
+        assert result['inputs'][str((cache / name).resolve())] == sha(cache / name)
+    out, summary = tmp_path / 's.json', tmp_path / 's.txt'
+    target = cache / 'xyzs.npy'
+    target.write_bytes(target.read_bytes() + b'\x00')
+    with pytest.raises(ValueError, match='input changed during analysis'):
+        subject.write_outputs(result, out, summary)
+    assert not out.exists() and not summary.exists()
+
+
+def test_a_failed_publication_leaves_neither_output_behind(arms, tmp_path, monkeypatch):
+    """Finding 12: the output pair is staged, so a failure publishes nothing."""
+    result = subject.analyse(arms, n_boot=200, adjusted_n_boot=200, exploratory=True)
+    out, summary = tmp_path / 'pair' / 's.json', tmp_path / 'pair' / 's.txt'
+    real, calls = subject.os.link, []
+
+    def failing(source, target):
+        calls.append(target)
+        if len(calls) == 2:
+            raise OSError('no space left on device')
+        return real(source, target)
+
+    monkeypatch.setattr(subject.os, 'link', failing)
+    with pytest.raises(OSError):
+        subject.write_outputs(result, out, summary)
+    assert not out.exists() and not summary.exists()
+    monkeypatch.undo()
+    subject.write_outputs(result, out, summary)
+    assert out.is_file() and summary.is_file()
+    with pytest.raises(FileExistsError):
+        subject.write_outputs(result, out, tmp_path / 'other.txt')
+
+
+def test_the_legacy_receipt_binds_every_artifact_it_enumerated(legacy_root, tmp_path):
+    out = tmp_path / 'r.json'
+    _, digest = subject.write_legacy_receipt(out, legacy_root, strict=False)
+    record = subject.verify_legacy_receipt(out, legacy_root)
+    inputs = record['inputs']
+    assert inputs[str(out.resolve())] == digest
+    assert inputs[str((Path(legacy_root) / 'stats.json').resolve())] == \
+        sha(Path(legacy_root) / 'stats.json')
+    assert len(inputs) == len(record['files']) + 1
+
+
 def test_the_cli_writes_a_draft_and_the_legacy_receipt(legacy_root, stub_new_arms,
                                                        tmp_path, monkeypatch):
     receipt = tmp_path / 'legacy_receipt.json'
