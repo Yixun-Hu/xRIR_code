@@ -971,3 +971,45 @@ def test_the_producer_and_approvals_records_are_revalidated_before_publication(a
         path = (Path(subject.REPO) / record['path']).resolve()
         assert result['inputs'][str(path)] == record['working_tree_sha256']
     assert result['inputs'][str(template.resolve())] == receipt['sha256']
+
+
+def test_every_child_artifact_of_a_job_is_bound(real_job, cache, monkeypatch):
+    """Finding 2: rehashing a completion never revalidates the files it names."""
+    root, repo = real_job
+    monkeypatch.setattr(legacy, 'HAA_ROOT', cache['root'])
+    inputs = {}
+    subject.verify_job(root, 'seed0', 'cyl_or', repo=repo, sensitivity=True, inputs=inputs)
+    for name in ('completion.json', 'launch.pid', 'job_spec.json',
+                 'stage1/completion.json', 'stage1/args.json', 'stage1/provenance.json',
+                 'stage1/history.jsonl', 'stage1/summary.json', 'stage1/best.pth',
+                 'stage1/last.pth', 'stage2_hallway/best.pth',
+                 'eval/hallway/completion.json', 'eval/hallway/args.json',
+                 'eval/hallway/per_sample_hallway.json',
+                 'eval/hallway/metrics_hallway.json', 'eval/hallway/child_exit.json'):
+        path = Path(root) / name
+        assert inputs.get(str(path.resolve())) == sha(path), name
+    heading = json.loads((Path(root) / 'eval/hallway/args.json').read_text())['heading']
+    for room in ROOMS:
+        assert inputs[str(Path(heading[room]['path']).resolve())] == heading[room]['sha256']
+
+
+def test_a_child_artifact_changed_during_analysis_is_refused_at_publication(
+        arms, real_job, cache, tmp_path, monkeypatch):
+    """The mutation reaches publication through admission, not through a cache read."""
+    root, repo = real_job
+    inputs = {}
+    with monkeypatch.context() as patched:
+        patched.setattr(legacy, 'HAA_ROOT', cache['root'])
+        subject.verify_job(root, 'seed0', 'cyl_or', repo=repo, sensitivity=True,
+                           inputs=inputs)
+    arms['cyl_or']['inputs'] = inputs
+    result = subject.analyse(arms, n_boot=200, adjusted_n_boot=200, exploratory=True)
+    target = Path(root) / 'eval/hallway/metrics_hallway.json'
+    original = target.read_bytes()
+    try:
+        target.write_bytes(original + b' ')
+        with pytest.raises(ValueError, match='input changed during analysis'):
+            subject.write_outputs(result, tmp_path / 's.json', tmp_path / 's.txt')
+        assert not (tmp_path / 's.json').exists() and not (tmp_path / 's.txt').exists()
+    finally:
+        target.write_bytes(original)
