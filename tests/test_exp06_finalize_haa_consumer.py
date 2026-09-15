@@ -156,3 +156,61 @@ def test_every_room_of_a_stage_one_child_is_re_verified(tmp_path, haa_repo, head
         == sorted(['class_room', 'hallway', 'complex_room'])
     for room in ('class_room', 'hallway', 'complex_room'):
         assert room in ROOMS
+
+
+# --- validation rooms select best.pth, so their headings bind too (round 2b finding 4) --
+
+def val_room_child(tmp_path, haa_repo, heading_jsons, data_root, heading,
+                   val_rooms=('class_room',)):
+    """One stage-1 child that trains on hallway and validates on class_room."""
+    init = haa_repo / 'init.pth'
+    torch.save(tiny_state(), init)
+    args = haa_train_args(heading_jsons, provenance.sha256_file(init), rooms=['hallway'],
+                          init=str(init), val_rooms=list(val_rooms)
+                          if isinstance(val_rooms, (list, tuple)) else val_rooms)
+    if heading is not None:
+        args['heading'] = heading
+    run, log = tmp_path / 'stage1', tmp_path / 'child.log'
+    write_haa_train(run, args, log, haa_repo, data_root)
+    return run, log
+
+
+def both_rooms(heading_jsons):
+    return {room: dict(heading_jsons[room]) for room in ('hallway', 'class_room')}
+
+
+def test_the_validation_rooms_join_the_heading_binding(tmp_path, haa_repo, heading_jsons,
+                                                       data_root):
+    """The union is re-verified; training-room membership stays separately recorded."""
+    run, log = val_room_child(tmp_path, haa_repo, heading_jsons, data_root,
+                              both_rooms(heading_jsons))
+    fields = exp06_finalize.finalize(run, 'haa_train', log, 0, repo=haa_repo)
+    assert sorted(fields['heading']) == ['class_room', 'hallway']
+    assert fields['rooms'] == ['hallway'] and fields['frame'] == 'heading'
+
+
+def test_a_validation_only_heading_is_revalidated(tmp_path, haa_repo, heading_jsons, data_root):
+    """Finding 4: an unreadable validation-only record may not select a checkpoint."""
+    damaged = tmp_path / 'class_room.json'
+    damaged.write_text('not a heading record at all')
+    heading = both_rooms(heading_jsons)
+    heading['class_room'] = dict(heading['class_room'], path=str(damaged),
+                                 sha256=provenance.sha256_file(damaged))
+    run, log = val_room_child(tmp_path, haa_repo, heading_jsons, data_root, heading)
+    with pytest.raises(ValueError, match='class_room'):
+        exp06_finalize.finalize(run, 'haa_train', log, 0, repo=haa_repo)
+    assert not (run / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('damage,cause', [('absent', 'class_room'), ('empty', 'val_rooms'),
+                                          ('wrong_type', 'val_rooms')])
+def test_a_validation_room_without_a_usable_binding_is_refused(tmp_path, haa_repo, heading_jsons,
+                                                               data_root, damage, cause):
+    """A declared validation room names a heading record, or nothing is admissible."""
+    val_rooms = {'empty': [], 'wrong_type': 'class_room'}.get(damage, ['class_room'])
+    heading = None if damage == 'absent' else both_rooms(heading_jsons)
+    run, log = val_room_child(tmp_path, haa_repo, heading_jsons, data_root, heading,
+                              val_rooms=val_rooms)
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(run, 'haa_train', log, 0, repo=haa_repo)
+    assert not (run / 'completion.json').exists()
