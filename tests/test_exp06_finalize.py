@@ -1086,6 +1086,33 @@ def test_the_job_spec_is_required_and_validated(job_run, closed_log_file, tmp_pa
     assert not (job / 'completion.json').exists()
 
 
+@pytest.mark.parametrize('damage,cause', [
+    ('no_marker', 'EXP06_CHILD_EXIT'), ('receipt_status', 'child_exit.json')])
+def test_a_child_whose_log_was_never_closed_is_refused(job_run, closed_log_file, damage, cause):
+    """Blocker 3c: the job re-validates the marker and the receipt, not just their hashes."""
+    def mutate(job, names):
+        record = json.loads((job / 'stage1/completion.json').read_text())
+        log = job / 'stage1.log'
+        if damage == 'no_marker':
+            log.write_text('output that was never closed\n')
+            record['log']['sha256'] = hashlib.sha256(log.read_bytes()).hexdigest()
+        else:
+            receipt = json.loads((job / 'stage1/child_exit.json').read_text())
+            receipt['status'] = 3
+            (job / 'stage1/child_exit.json').write_text(json.dumps(receipt, sort_keys=True))
+            record['child_exit_receipt']['sha256'] = provenance.sha256_file(
+                job / 'stage1/child_exit.json')
+        (job / 'stage1/completion.json').write_text(
+            json.dumps(record, sort_keys=True, indent=2) + '\n')
+        return names
+
+    job, children, spec, repo = job_run(mutate=mutate)
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                children=children, expect='finetune', job_spec=spec)
+    assert not (job / 'completion.json').exists()
+
+
 def test_job_requires_a_declared_expectation(job_run, closed_log_file):
     job, children, spec, repo = job_run()
     with pytest.raises(ValueError, match='expect'):
