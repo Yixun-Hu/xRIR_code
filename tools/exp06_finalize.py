@@ -27,8 +27,10 @@ data inventory and mutable inputs.
               the training artefacts, and a complete diagnostic receipt: the runner's
               identity and closure digest, the entry, the argv (``--no-save``), the
               wall-clock window, the peak allocation, both budgets, an outcome in
-              {ok, failed, aborted_alarm, aborted_memory} and the exploratory flag.
-              ``passed`` reports whether the diagnostic succeeded; never an arm.
+              {ok, failed, aborted_alarm, aborted_memory} and the exploratory flag -- all
+              consistent with each other, with the startup command and with the child
+              window the launcher recorded. ``passed`` reports whether the diagnostic
+              succeeded; never an arm.
 ``haa_train`` one fine-tuning child: provenance and closure, arguments agreeing with the
               record, a heading binding per room (``phi_deg``, ``k`` = roll(phi), decision,
               sha256 and path, verified against the heading JSON), ``init_sha256`` equal to
@@ -99,7 +101,8 @@ import torch
 
 from model.xRIR_cyl_oriented import BACKBONES_EXP06, build_xrir_exp06
 from sim_to_real.haa_dataset import NO_T60_ROOMS, ROOMS
-from tools import exp06_heading, exp06_profiles, exp06_recipe, exp06_train, provenance
+from tools import (exp06_heading, exp06_profiles, exp06_recipe, exp06_smoke, exp06_train,
+                   provenance)
 
 REPO = Path(__file__).resolve().parents[1]
 MARKER = 'EXP06_CHILD_EXIT'
@@ -142,6 +145,8 @@ DIAGNOSTIC_RECEIPT = ('runner', 'runner_closure_sha256', 'entry', 'argv', 'run_t
                       'started_at', 'ended_at', 'exit_status', 'exploratory', 'git_head',
                       'peak_bytes', 'outcome') + RECEIPT_NUMBERS
 OUTCOMES = ('ok', 'failed', 'aborted_alarm', 'aborted_memory')
+SMOKE_ENTRIES = exp06_smoke.ENTRIES  # the only entries a diagnostic receipt may name
+GIB = 1024 ** 3
 BACKBONES = tuple(sorted(BACKBONES_EXP06))
 IDENTITY_KEYS = ('train_data_identity', 'data_identity')
 IDENTITY_FIELDS = ('data_root', 'inventory', 'inventory_files', 'inventory_bytes',
@@ -816,7 +821,55 @@ def diagnostic_receipt(receipt, run_type, provenance_record):
     return record, path
 
 
-def diagnostic_evidence(run_dir, receipt, child_exit, run_type, repo):
+def check_receipt_consistency(fields, record, window):
+    """Finding 4: field presence and two zero statuses do not make a diagnostic passed.
+
+    Every receipt the runner writes is internally consistent, so each disagreement here is
+    a forged or corrupted receipt: an entry outside the supported set or disagreeing with
+    the startup command, a non-string argv, a budget that bounds nothing, an outcome that
+    contradicts its own status or resource evidence, or a window outside the one the
+    launcher recorded for the child. Returns whether the diagnostic actually passed.
+
+    ``tools/exp06_smoke.py`` converts an over-budget run to ``aborted_memory`` or
+    ``aborted_alarm`` before it publishes, so a real ``ok`` receipt never exceeds either
+    ceiling. The child's ``ended_at`` is truncated to the second by the launcher's marker,
+    which is the one second of slack allowed at the end of the window.
+    """
+    entry, argv = fields['entry'], fields['argv']
+    _require(entry in SMOKE_ENTRIES, 'the smoke receipt records entry {!r}, not one of {}'
+             .format(entry, sorted(SMOKE_ENTRIES)))
+    _require(isinstance(argv, list) and all(isinstance(token, str) for token in argv),
+             'the smoke receipt argv {!r} is not a list of strings'.format(argv))
+    _require(record.get('entry') == entry, 'the smoke receipt ran the entry {!r}; its '
+             'provenance records {!r}'.format(entry, record.get('entry')))
+    _require(record.get('command') == [entry] + argv, 'the smoke receipt argv is not the '
+             'child command {!r} its provenance recorded'.format(record.get('command')))
+    alarm = _positive('the smoke receipt alarm_seconds', fields['alarm_seconds'])
+    ceiling = _positive('the smoke receipt max_gb', fields['max_gb']) * GIB
+    status, outcome, peak = fields['exit_status'], fields['outcome'], fields['peak_bytes']
+    if outcome == 'ok':
+        _require(status == 0, 'the smoke receipt records outcome ok with exit_status '
+                 '{}'.format(status))
+        _require(peak <= ceiling, 'the smoke receipt records outcome ok with a peak of {} '
+                 'bytes over its {} GiB budget'.format(peak, fields['max_gb']))
+        _require(fields['wall_s'] <= alarm, 'the smoke receipt records outcome ok after {} s '
+                 'over its {} s budget'.format(fields['wall_s'], alarm))
+    else:
+        _require(status != 0, 'the smoke receipt records outcome {!r} with exit_status 0'
+                 .format(outcome))
+    started = _timestamp(fields['started_at'], 'started_at')
+    ended = _timestamp(fields['ended_at'], 'ended_at')
+    _require(_timestamp(window['started_at'], 'started_at') <= started,
+             'the smoke receipt started at {}, before the child the launcher spawned at '
+             '{}'.format(fields['started_at'], window['started_at']))
+    _require(ended <= _timestamp(window['ended_at'], 'ended_at')
+             + datetime.timedelta(seconds=1),
+             'the smoke receipt ended at {}, after the child exited at {}'.format(
+                 fields['ended_at'], window['ended_at']))
+    return status == 0 and outcome == 'ok'
+
+
+def diagnostic_evidence(run_dir, receipt, child_exit, run_type, repo, window):
     """A smoke or probe proves nothing about an arm, but must prove what it cost.
 
     Finding 6: the receipt carries the runner's identity, budgets, timing and peak
@@ -829,7 +882,8 @@ def diagnostic_evidence(run_dir, receipt, child_exit, run_type, repo):
     admission = verify_approvals(record, repo, run_type)
     fields, path = diagnostic_receipt(receipt, run_type, record)
     status = fields['exit_status']
-    return dict(artifacts={}, passed=status == 0 and child_exit == 0, **admission,
+    passed = check_receipt_consistency(fields, record, window) and child_exit == 0
+    return dict(artifacts={}, passed=passed, **admission,
                 receipt={'path': str(path.resolve()), 'sha256': provenance.sha256_file(path),
                          'runner': fields['runner'], 'entry': fields['entry'],
                          'exit_status': status, 'outcome': fields['outcome'],
@@ -857,6 +911,12 @@ def _isfinite(label, value):
     except OverflowError:
         raise ValueError('{} is an integer of {} digits, too large for a finite number'.format(
             label, len(str(abs(value)))))
+
+
+def _positive(label, value):
+    """A budget of zero disables the thing it bounds, so it is never evidence."""
+    _require(_finite(label, value) > 0, '{} is {!r}, not a positive budget'.format(label, value))
+    return float(value)
 
 
 def _finite(label, value):
@@ -1421,7 +1481,8 @@ def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None,
                   child_exit_time=child_exit_time, log=log_record,
                   child_exit_receipt=receipt_record,
                   diagnostic=diagnostic, admissible_arm=not diagnostic)
-    fields.update(diagnostic_evidence(run_dir, receipt, child_exit, run_type, repo) if diagnostic
+    fields.update(diagnostic_evidence(run_dir, receipt, child_exit, run_type, repo,
+                                      receipt_record) if diagnostic
                   else full_evidence(run_dir, repo) if run_type == 'full'
                   else haa_train_evidence(run_dir, repo) if run_type == 'haa_train'
                   else haa_eval_evidence(run_dir, repo) if run_type == 'haa_eval'

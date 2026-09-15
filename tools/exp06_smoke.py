@@ -116,6 +116,10 @@ def _publish(result, started, receipt):
     result['ended_at'] = _now()
     if result['exit_status'] == 0 and result['peak_bytes'] > result['max_gb'] * GIB:
         result['exit_status'], result['outcome'] = 3, 'aborted_memory'  # retrospective peak
+    elif result['exit_status'] == 0 and result['wall_s'] > result['alarm_seconds']:
+        # The watchdog ticks once a second, so an entry can return just past the deadline
+        # without it firing. Finalisation refuses an `ok` receipt that is over its budget.
+        result['exit_status'], result['outcome'] = 3, 'aborted_alarm'
     print('EXP06_SMOKE ' + json.dumps(result, sort_keys=True, allow_nan=False), flush=True)
     if receipt is not None:
         provenance.write_completion(Path(receipt), result)
