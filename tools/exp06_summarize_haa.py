@@ -316,6 +316,77 @@ def _heading_rolls(heading, label):
     return {room: heading[room]['k'] for room in heading}
 
 
+PROTOCOL = dict(legacy.PROTOCOL)      # K = 8, eval_seed 0, the DiffRIR test split
+# Finding 1: the finalizer records the executed entry point's closure, and the two entry
+# points are different modules with different closures. Consistency is per role, and the
+# approved identity each role must match is its own.
+ROLE_CODE_KEY = {'haa_train': 'haa_finetune', 'haa_eval': 'haa_eval'}
+
+
+def arm_closures(children):
+    """{role: digest}: every child of one entry point ran the same reviewed closure."""
+    closures = {}
+    for name in sorted(children):
+        digest = children[name]['source_closure_sha256']
+        _require(_is_sha256(digest), 'child {} records no execution closure'.format(name))
+        closures.setdefault(children[name]['role'], set()).add(digest)
+    for role in sorted(closures):
+        _require(len(closures[role]) == 1, 'the {} children of this arm do not share one '
+                 'execution closure: {}'.format(role, sorted(closures[role])))
+    return {role: sorted(digests)[0] for role, digests in sorted(closures.items())}
+
+
+def arm_headings(children):
+    """{room: heading json sha256}: one heading record per room, across every seed."""
+    headings = {}
+    for name in sorted(children):
+        for room, binding in sorted((children[name]['heading'] or {}).items()):
+            _require(isinstance(binding, dict) and binding.get('k') == HEADING_K,
+                     'child {} rolls {} by {!r}, not the registered {}'.format(
+                         name, room, (binding or {}).get('k'), HEADING_K))
+            _require(_is_sha256(binding.get('sha256')) and binding.get('path'),
+                     'child {} records no json identity for {}'.format(name, room))
+            recorded = headings.setdefault(room, binding['sha256'])
+            _require(recorded == binding['sha256'], 'the arm binds two heading records for '
+                     '{}: {} and {}'.format(room, recorded, binding['sha256']))
+    return headings
+
+
+def check_arm_identities(arm, closures, headings, approved):
+    """Finding 3: what really ran, against what section 6.4 approved -- not merely null."""
+    if approved is None:
+        return
+    code = approved['code']
+    for role in sorted(closures):
+        key = ROLE_CODE_KEY[role]
+        _require(code.get(key) == closures[role], 'the {} children of {} ran the closure {}, '
+                 'not the approved code.{} {}'.format(role, arm, closures[role], key,
+                                                      code.get(key)))
+    pinned = approved['artifacts']['heading']
+    for room in sorted(headings):
+        _require(pinned.get(room) == headings[room], 'the arm {} read the {} heading record '
+                 '{}, not the approved artifacts.heading.{} {}'.format(
+                     arm, room, headings[room], room, pinned.get(room)))
+
+
+def child_protocol(args, name, role):
+    """The protocol exp_02 froze, read from the arguments the child really ran."""
+    for field in sorted(PROTOCOL):
+        if role == 'haa_train' and field == 'split':
+            continue                       # a fine-tuning child trains, it does not evaluate
+        _require(finalizer.exp06_recipe.strict_equal(args.get(field), PROTOCOL[field]),
+                 'child {} records {} {!r}, not the registered {!r}'.format(
+                     name, field, args.get(field), PROTOCOL[field]))
+
+
+def check_test_indices(name, room, index):
+    """Exactly the DiffRIR test split of the room, in the order exp_02 registered."""
+    expected = legacy._test_indices(room)
+    _require([int(value) for value in index] == expected,
+             'child {} evaluated {} queries of {}, not exactly the {} DiffRIR test indices '
+             'in order'.format(name, len(index), room, len(expected)))
+
+
 def expected_inits(approved):
     """What each new arm must have started from: exp_01's weights, or the approved epoch."""
     inits = {arm: ARMS[arm]['init_sha256'] for arm in NEW_ARMS}
