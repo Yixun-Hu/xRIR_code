@@ -485,3 +485,35 @@ def test_a_live_pid_in_a_child_refuses_the_job(finetune_seed, clone):
                                     expect='finetune', job_spec=spec, owner_pid=os.getpid())
     finally:
         marker.unlink()
+
+
+@pytest.mark.xfail(strict=True, reason='merge conflict, product decision pending: the gate '
+                   'fix (56dc945) refuses a receipt whose own child_pid is alive, and '
+                   'finalize_job writes the launcher\'s own still-running "$$" there')
+def test_the_job_receipt_the_pipeline_really_writes_is_admissible(finetune_seed, clone):
+    """A job root's receipt is the launcher's own, and the launcher has not exited.
+
+    ``tools/exp06_haa_pipeline.sh::finalize_job`` closes the job log with
+    ``--child-pid "$$"`` and then, in that same process, runs the ``haa_job`` finalizer.
+    ``refuse_live_launch`` forgives the matching ``<root>/launch.pid`` for the
+    ``--owner-pid`` it is given, but ``child_exit_receipt`` grants no owner exception, so
+    every job the real pipeline finalizes is refused. Tests only: which side gives -- the
+    receipt's owner exception or the wrapper's self-named receipt -- is not the Coder's
+    call, so this pins the conflict instead of hiding it. The nine children below it are
+    honest: their pids really are dead by the time the launcher finalizes them.
+    """
+    root, children, spec, joblog = finetune_seed
+    completion, path = Path(root) / 'completion.json', Path(root) / 'child_exit.json'
+    original = path.read_text()
+    if completion.exists():
+        completion.unlink()
+    path.write_text(json.dumps(dict(json.loads(original), child_pid=os.getpid()),
+                               sort_keys=True, indent=2) + '\n')
+    try:
+        assert exp06_finalize.finalize(root, 'haa_job', joblog, 0, repo=clone,
+                                       children=children, expect='finetune', job_spec=spec,
+                                       owner_pid=os.getpid())['admissible_arm'] is True
+    finally:
+        path.write_text(original)
+        if completion.exists():
+            completion.unlink()
