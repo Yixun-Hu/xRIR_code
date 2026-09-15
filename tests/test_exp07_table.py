@@ -165,6 +165,32 @@ def a_training_manifest_of_the_unseen_protocol(built):
     return 'training protocol'
 
 
+def record(name, reviewed='e' * 64):
+    return dict(path=name, reviewed_blob_sha256=reviewed, working_tree_sha256='e' * 64,
+                commits_after_reviewed=[], mtime='2026-09-15T00:00:00+00:00')
+
+
+def a_training_closure_with_no_file_records(built):
+    manifest = built.read(built.attempts['seen_simple'] / 'train_manifest.json')
+    manifest['source_closures']['training']['files'] = []
+    rebind_training(built, 'seen_simple', manifest=manifest)
+    return 'training closure records training'
+
+
+def a_launcher_closure_record_that_was_never_reviewed(built):
+    manifest = built.read(built.attempts['seen_cyl'] / 'train_manifest.json')
+    manifest['source_closures']['launcher']['files'] = [record('tools/wrong.py', None)]
+    rebind_training(built, 'seen_cyl', manifest=manifest)
+    return 'training closure records launcher'
+
+
+def a_training_closure_label_that_is_not_its_records(built):
+    manifest = built.read(built.attempts['seen_aug'] / 'train_manifest.json')
+    manifest['source_closures']['training']['files'].append(record('wrong.py'))
+    rebind_training(built, 'seen_aug', manifest=manifest)
+    return 'training closure digest training'
+
+
 def a_training_closure_that_is_not_the_pin(built):
     built.pins['closures']['training'] = 'f' * 64
     return 'training closure'
@@ -227,6 +253,8 @@ REFUSALS = [an_evaluated_split_that_is_not_seen, an_output_meta_from_another_spl
             an_unapproved_evaluator_closure, an_unapproved_writer_closure,
             a_missing_training_binding, a_completion_that_certifies_another_checkpoint,
             a_training_manifest_of_the_unseen_protocol, a_training_closure_that_is_not_the_pin,
+            a_training_closure_with_no_file_records, a_training_closure_label_that_is_not_its_records,
+            a_launcher_closure_record_that_was_never_reviewed,
             a_launcher_outside_the_approved_list, an_args_file_with_another_epoch_budget,
             an_args_file_with_the_wrong_yaw_flag, an_args_file_with_the_unseen_batch_count,
             an_args_file_from_another_capacity_tier,
@@ -242,6 +270,17 @@ def test_admission_refuses_and_names_the_deviation(built, mutation):
         admit(built)
     _, admitted = admit(built, exploratory=True)
     assert any(expected in item for item in admitted['deviations']), admitted['deviations']
+
+
+def test_source_drift_recorded_after_the_spawn_is_still_admitted(built):
+    """A7: the pin is the reviewed identity; the launcher records later working-tree drift."""
+    attempt = built.attempts['seen_simple']
+    completion = built.read(attempt / 'completion.json')
+    completion['source_drift_after_spawn'] = [dict(path='train_xRIR_backbone.py',
+                                                   spawn_sha256='a' * 64, now_sha256='b' * 64)]
+    rebind_training(built, 'seen_simple', completion=completion)
+    _, admitted = admit(built)
+    assert admitted['deviations'] == []
 
 
 def build(built, **kwargs):

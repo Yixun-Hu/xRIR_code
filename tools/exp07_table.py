@@ -6,8 +6,9 @@ cannot express: the seen split identity in every artefact that records it, the a
 tools.exp07_eval and writer closures, and -- for the three NEW arms only -- the training
 provenance (approved checkpoint, completion/manifest/args bindings tied to the
 checkpoint's attempt directory, the seen protocol in the training manifest and its
-identity, one shared training closure, an admissible launcher closure, and an args.json
-equal to the plan's recipe with this arm's backbone and yaw flags).  The released
+identity, one shared training closure and an admissible launcher closure -- both
+recomputed from their complete records -- and an args.json equal to the plan's recipe
+with this arm's backbone and yaw flags).  The released
 checkpoint is an EXTERNAL reference row: digest-only admission and no training bindings,
 with every evaluation check kept.
 """
@@ -22,7 +23,8 @@ import numpy as np
 from tools import provenance
 from tools.exp05_params import TIERS
 from tools.exp07_profiles import get_profile, json_value, load_approved_digests
-from tools.paired_compare import REPO, _equal, admit_runs, producer_identity
+from tools.paired_compare import (REPO, _closure_digest, _equal, admit_runs,
+                                  producer_identity)
 from tools.results_table import METRICS, write_outputs
 
 TRAINING_BINDINGS = ('train_args', 'train_manifest', 'train_completion')
@@ -101,11 +103,22 @@ def run_contract(directory, arm, profile, pins):
     trained_split = manifest.get('mutable_inputs', {}).get('seen_split')
     require(trained_split is not None and trained_split['path'] == provenance.SEEN_SPLIT and
             trained_split['sha256'] == dataset['seen_split_sha256'], 'training seen_split binding')
-    launcher = manifest['source_closures']['launcher']['sha256']
-    require(launcher is not None and launcher in (pins['closures']['training_launcher'] or ()),
+    recorded = {}
+    for name in ('training', 'launcher'):
+        # A7: the approval pins the REVIEWED source identity, so recompute it here from the
+        # manifest's complete records instead of trusting the label they are stored beside.
+        # Drift of the working tree AFTER the spawn is the completion's business, not this
+        # digest's, and stays permitted.
+        try:
+            recorded[name] = _closure_digest(manifest['source_closures'][name])
+        except (ValueError, KeyError, TypeError) as error:
+            raise ValueError('training closure records ' + name + ': ' + str(error))
+        require(_equal(manifest['source_closures'][name].get('sha256'), recorded[name]),
+                'training closure digest ' + name)
+    require(recorded['launcher'] in (pins['closures']['training_launcher'] or ()),
             'training launcher closure')
-    trainer = manifest['source_closures']['training']['sha256']
-    require(trainer is not None and trainer == pins['closures']['training'], 'training closure')
+    require(recorded['training'] == pins['closures']['training'], 'training closure')
+    trainer = recorded['training']
     for key, value in dict(profile['recipe'], **profile['full_run']).items():
         require(_equal(args.get(key), value), 'args ' + key)
     for key in ('backbone', 'yaw_aug', 'yaw_aug_seed', 'yaw_aug_width'):
