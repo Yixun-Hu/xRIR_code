@@ -362,3 +362,115 @@ def test_a_wrong_backbone_frame_roll_or_closure_is_refused(tmp_path):
                   **kwargs)
         with pytest.raises(ValueError):
             subject.load_new_arm(fresh, 'cyl_or')
+
+
+# --- pairing, the cohort policy and the verdicts -----------------------------------------
+
+REAL_LEGACY = Path(__file__).resolve().parents[1] / 'ckpt/sim2real'
+CANONICAL_STATS = REAL_LEGACY / 'stats.json'
+
+
+@pytest.fixture
+def arms(legacy_root, new_root):
+    data, _ = subject.load_legacy(legacy_root)
+    for arm in subject.NEW_ARMS:
+        data[arm] = subject.load_new_arm(new_root, arm)
+    return data
+
+
+def test_the_pairing_assertions_are_exp02s(arms):
+    a = arms['cyl_or']['per']['seed0']['hallway']
+    b = arms['control']['per']['seed0']['hallway']
+    subject.assert_pairing(a, b, 'ok')
+    for change in (lambda p: p.update(index=list(reversed(p['index']))),
+                   lambda p: p.update(ir_path=['x'] * len(p['index'])),
+                   lambda p: p['meta'].update(num_shot=1),
+                   lambda p: p['meta'].update(eval_seed=1)):
+        broken = json.loads(json.dumps(a))
+        change(broken)
+        with pytest.raises(ValueError, match='pair '):
+            subject.assert_pairing(broken, b, 'broken')
+
+
+def test_the_cohort_is_the_queries_finite_in_every_compared_run(tmp_path, monkeypatch):
+    build_cache(tmp_path / 'HAA_xrir')
+    monkeypatch.setattr(legacy, 'HAA_ROOT', str(tmp_path / 'HAA_xrir'))
+    build_legacy_root(tmp_path / 'sim2real')
+    root = tmp_path / 'new'
+    for arm in subject.NEW_ARMS:
+        for job in subject.JOBS:
+            invalid = (0, 1) if (arm == 'cyl_or' and job == 'seed1') else ()
+            new_job(root / arm, job, arm, 0.02, invalid=invalid)
+    data, _ = subject.load_legacy(tmp_path / 'sim2real')
+    for arm in subject.NEW_ARMS:
+        data[arm] = subject.load_new_arm(root, arm)
+    rows = subject.cell_rows(data, 'cyl_or', 'control', 'hallway', 'c50')
+    assert rows['n_test'] == SIZE['hallway'] and rows['cohort'] == SIZE['hallway'] - 2
+    assert rows['excluded']['cyl_or']['queries'] == 2
+    assert rows['excluded']['cyl_or']['seeds'] == {'seed0': 0, 'seed1': 2, 'seed2': 0}
+    assert rows['excluded']['control']['queries'] == 0
+    assert len(rows['a']) == len(rows['b']) == 3 * rows['cohort']
+    assert sorted(set(rows['seeds'])) == list(subject.SEEDS)
+    reasons = subject.void_reasons(rows, 'cyl_or', 'control')
+    assert len(reasons) == 2 and 'more invalid queries' in reasons[0]
+    assert subject.void_reasons(subject.cell_rows(data, 'control_hf', 'control', 'hallway',
+                                                 'c50'), 'control_hf', 'control') == []
+
+
+def test_the_decision_cell_reports_pass_fail_void_or_not_converged(arms):
+    cell = subject.decision_cell(arms, subject.H1, 'hallway', 'c50', subject.H1_MARGIN_DB,
+                                 n_boot=200)
+    assert cell['contrast'] == 'cyl_or - control' and cell['verdict'] in ('pass', 'fail')
+    assert cell['convergence']['status'] == 'converged'
+    assert cell['cohort'] == SIZE['hallway'] and cell['void_reasons'] == []
+    assert sorted(cell['per_seed_diff']) == list(subject.SEEDS)
+    assert cell['verdict'] == ('pass' if cell['convergence']['interval'][1]
+                               < subject.H1_MARGIN_DB else 'fail')
+    assert subject.verdict_of(cell['convergence'], ['void'], 0.23) == 'void'
+    assert subject.verdict_of({'status': 'not_converged', 'interval': None}, [], 0.23) == \
+        'not_converged'
+    assert subject.verdict_of({'status': 'converged', 'interval': (-1.0, 0.229)}, [], 0.23) \
+        == 'pass'
+    assert subject.verdict_of({'status': 'converged', 'interval': (-1.0, 0.23)}, [], 0.23) \
+        == 'fail'
+
+
+def test_h1b_uses_a_zero_margin_against_the_channel_control(arms):
+    cell = subject.decision_cell(arms, subject.H1B, 'hallway', 'c50', 0.0, n_boot=200)
+    assert cell['contrast'] == 'cyl_or - cyl_hf' and cell['margin'] == 0.0
+
+
+def test_the_screen_labels_every_cell_and_adjusts_for_eleven(arms):
+    cells = subject.screen_cells(arms, subject.H1, n_boot=200, adjusted_n_boot=200)
+    assert len(cells) == 11 and {c['family'] for c in cells} == {11}
+    assert {round(c['adjusted_alpha'], 8) for c in cells} == {round(0.05 / 11, 8)}
+    assert {c['label'] for c in cells} <= {'detected harm', 'detected improvement',
+                                           'no detected difference', 'not converged'}
+    assert subject.h2_label((0.1, 0.4)) == 'detected harm'
+    assert subject.h2_label((-0.4, -0.1)) == 'detected improvement'
+    assert subject.h2_label((-0.1, 0.4)) == 'no detected difference'
+    assert subject.h2_label((0.0, 0.4)) == 'no detected difference'
+
+
+def test_the_descriptive_contrasts_are_the_three_of_section_7(arms):
+    cells = subject.descriptive_cells(arms, n_boot=200)
+    assert {c['contrast'] for c in cells} == {'cyl_or - control_hf', 'control_hf - control',
+                                              'cyl_hf - cyl'}
+    assert len(cells) == 3 * 11 and all('adjusted_two_way' not in c for c in cells)
+
+
+@pytest.mark.skipif(not CANONICAL_STATS.is_file(), reason='needs the exp_02 results')
+@pytest.mark.parametrize('room,key', [(c['room'], c['metric']) for c in
+                                      json.loads(CANONICAL_STATS.read_text())['paired']]
+                         if CANONICAL_STATS.is_file() else [])
+def test_the_legacy_rows_reproduce_the_canonical_exp02_cells(room, key):
+    data, _ = subject.load_legacy(REAL_LEGACY)
+    rows = subject.cell_rows(data, 'cyl', 'control', room, key)
+    got = subject.intervals(rows, subject.ALPHA, subject.N_BOOT)
+    want = next(c for c in json.loads(CANONICAL_STATS.read_text())['paired']
+                if (c['room'], c['metric']) == (room, key))
+    assert rows['cohort'] == want['n_queries'] and len(rows['a']) == want['n_valid']
+    assert got['diff'] == want['diff']
+    assert (got['query']['lo'], got['query']['hi']) == (want['lo'], want['hi'])
+    assert (got['two_way']['lo'], got['two_way']['hi']) == (want['lo_two_way'],
+                                                            want['hi_two_way'])
