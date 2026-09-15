@@ -16,9 +16,11 @@ heading roll and execution closure to be the one the table registers.
     python tools/exp06_summarize_haa.py --json ckpt/exp06/stats.json \
         --summary ckpt/exp06/summary.txt
 """
+import argparse
 import datetime
 import hashlib
 import json
+import math
 import subprocess
 from collections import OrderedDict
 from pathlib import Path
@@ -26,6 +28,7 @@ from pathlib import Path
 import numpy as np
 
 from sim_to_real import summarize_haa as legacy
+from tools import exp06_approvals_api as approvals_api
 from tools import exp06_bootstrap as bootstrap
 from tools import exp06_finalize as finalizer
 from tools import provenance
@@ -529,3 +532,251 @@ def descriptive_cells(arms, pairs=DESCRIPTIVE, n_boot=N_BOOT, alpha=ALPHA):
                           'cohort': rows['cohort'], 'n_test': rows['n_test'],
                           'per_seed_diff': rows['per_seed_diff']})
     return cells
+
+
+# --- the room-frame side split -----------------------------------------------------------
+
+
+def cache_side_labels(room, cache_root=None):
+    """The room-frame sign of every test microphone's y, from the cache's own geometry."""
+    root = Path(cache_root or legacy.HAA_ROOT) / room
+    meta = _read_json(root / 'meta.json', '{}/meta.json'.format(room))
+    xyz = np.load(str(root / 'xyzs.npy')).astype(float)
+    speaker = np.load(str(root / 'speaker_xyz.npy')).astype(float).reshape(-1)
+    test = sorted(int(index) for index in meta['test'])
+    signs = np.sign(xyz[test, 1] - speaker[1]).astype(int)
+    _require(bool((signs != 0).all()),
+             'a microphone of {} lies on the speaker axis: its side is undefined'.format(room))
+    return dict(zip(test, (int(value) for value in signs)))
+
+
+def side_labels(per, room, cache_root=None):
+    """The writer's labels where they exist, always checked against the cache's geometry."""
+    labels = cache_side_labels(room, cache_root)
+    computed = [labels[int(index)] for index in per['index']]
+    if 'side_label' in per:
+        _require(list(per['side_label']) == computed, 'the per-sample side labels of {} are '
+                 'not the room-frame signs the cache carries'.format(room))
+    return computed
+
+
+def side_split(arms, cache_root=None, job=ZEROSHOT):
+    """Section 7's descriptive table: -y and +y mean error per arm, room and metric."""
+    table = {}
+    for arm in sorted(arms):
+        for room, metric in CELLS:
+            per = arms[arm]['per'][job][room]
+            labels = np.asarray(side_labels(per, room, cache_root))
+            values = np.asarray(per[metric], dtype=float)
+            entry = {}
+            for name, sign in (('minus_y', -1), ('plus_y', 1)):
+                selected = values[(labels == sign) & np.isfinite(values)]
+                entry[name] = float(selected.mean()) if selected.size else None
+                entry['n_' + name] = int(selected.size)
+            table['{}|{}|{}'.format(arm, room, metric)] = entry
+    return {'job': job, 'cells': table}
+
+
+# --- the tables, the approvals and the published outputs ---------------------------------
+
+
+def arm_rows(arms):
+    """exp_02's display rows: mean and standard deviation over the fine-tuning seeds."""
+    rows = {}
+    for arm in sorted(arms):
+        for job_kind, jobs in (('fine-tuned', SEEDS), ('zero-shot', (ZEROSHOT,))):
+            for room in ROOMS:
+                for key, _, _ in METRICS:
+                    per_run = []
+                    for job in jobs:
+                        values = np.asarray(arms[arm]['per'][job][room][key], dtype=float)
+                        values = values[np.isfinite(values)]
+                        per_run.append(float(values.mean()) if values.size else None)
+                    finite = [value for value in per_run if value is not None]
+                    rows['{}|{}|{}|{}'.format(arm, job_kind, room, key)] = {
+                        'per_run': per_run, 'jobs': list(jobs),
+                        'mean': float(np.mean(finite)) if finite else None,
+                        'std': float(np.std(finite)) if len(finite) > 1 else None}
+    return rows
+
+
+def arm_inputs(arms, receipt=None, receipt_path=None):
+    """Every byte this summary rests on: the legacy receipt, and each bound completion."""
+    inputs = {}
+    if receipt is not None and receipt_path is not None:
+        inputs[str(Path(receipt_path).resolve())] = receipt['sha256']
+    for arm in sorted(arms):
+        if arms[arm]['branch'] != 'new':
+            continue
+        base = Path(arms[arm]['root'])
+        for job, record in sorted(arms[arm]['jobs'].items()):
+            inputs[str((base / job / 'completion.json').resolve())] = \
+                provenance.sha256_file(base / job / 'completion.json')
+            for name, digest in sorted(record['children'].items()):
+                inputs[str((base / job / name / 'completion.json').resolve())] = digest
+    return inputs
+
+
+def approvals(exploratory, path=None):
+    """Section 6.4's producer gate; exploratory records what production would refuse."""
+    try:
+        approved, receipt = approvals_api.load_approved_digests(path)
+    except approvals_api.ApprovalsUnavailable as error:
+        if not exploratory:
+            raise
+        return None, None, [str(error)]
+    return approved, receipt, approvals_api.require_producer(approved, 'summarize_haa',
+                                                             exploratory)
+
+
+def analyse(arms, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, cache_root=None,
+            exploratory=False, receipt=None, receipt_path=None, approved=None,
+            deviations=(), approvals_receipt=None):
+    """Every displayed number, and the evidence each rests on."""
+    result = {'schema_version': 1, 'exploratory': bool(exploratory),
+              'deviations': list(deviations), 'arms': {name: {
+                  'branch': arms[name]['branch'], 'root': arms[name]['root'],
+                  'closure': arms[name]['closure'], 'backbone': ARMS[name]['backbone'],
+                  'frame': ARMS[name]['frame']} for name in sorted(arms)},
+              'margin_db': H1_MARGIN_DB, 'alpha': ALPHA, 'family': H2_FAMILY,
+              'n_boot': n_boot, 'n_boot_adjusted': adjusted_n_boot,
+              'bootstrap_seeds': list(BOOT_SEEDS), 'convergence_tolerance': CONVERGENCE_TOL,
+              'heading_k': HEADING_K, 'rows': arm_rows(arms),
+              'legacy_receipt': None if receipt is None else {
+                  'path': str(receipt_path), 'sha256': receipt['sha256'],
+                  'label': receipt['label'], 'files': len(receipt['files'])},
+              'approved_digests': approvals_receipt,
+              'inputs': arm_inputs(arms, receipt, receipt_path),
+              'side_split': side_split(arms, cache_root)}
+    result['H1'] = decision_cell(arms, H1, H1_ROOM, H1_METRIC, H1_MARGIN_DB, n_boot)
+    result['H1b'] = decision_cell(arms, H1B, H1_ROOM, H1_METRIC, 0.0, n_boot)
+    result['H2'] = screen_cells(arms, H1, n_boot, adjusted_n_boot)
+    result['D'] = descriptive_cells(arms, DESCRIPTIVE, n_boot)
+    if exploratory:
+        for name in ('H1', 'H1b'):
+            result[name]['verdict'] = 'suppressed (draft)'
+    return result
+
+
+def _safe(value):
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_safe(item) for item in value]
+    if isinstance(value, (np.integer, np.floating)):
+        return _safe(value.item())
+    return value
+
+
+def render(result):
+    """The printed summary: exp_02's arm table, then the paired tables and the verdicts."""
+    lines = []
+    if result['exploratory']:
+        lines.append('DRAFT - exploratory run; verdicts are suppressed')
+        lines.extend('Deviation: ' + item for item in result['deviations'])
+    lines.append('{:22s}'.format('model') + ''.join('| {:39s}'.format(r) for r in ROOMS))
+    lines.append('{:22s}'.format('') + ''.join(
+        '| ' + ''.join('{:>13s}'.format(name) for _, name, _ in METRICS) for _ in ROOMS))
+    for arm in ARMS:
+        if arm not in result['arms']:
+            continue
+        for kind in ('zero-shot', 'fine-tuned'):
+            line = '{:22s}'.format('{} {}'.format(arm, kind))
+            for room in ROOMS:
+                cells = []
+                for key, _, nd in METRICS:
+                    row = result['rows']['{}|{}|{}|{}'.format(arm, kind, room, key)]
+                    cells.append(legacy.fmt(row['per_run'], nd))
+                line += '| ' + ''.join(cells)
+            lines.append(line)
+    for name in ('H1', 'H1b'):
+        cell = result[name]
+        lines.append('\n{} {} {} {}: diff {:+.4f}, two-way [{:+.4f}, {:+.4f}], margin {}, '
+                     'cohort {}/{} -> {}'.format(
+                         name, cell['contrast'], cell['room'], cell['metric'], cell['diff'],
+                         cell['two_way']['lo'], cell['two_way']['hi'], cell['margin'],
+                         cell['cohort'], cell['n_test'], cell['verdict']))
+        lines.extend('  void: ' + reason for reason in cell['void_reasons'])
+    lines.append('\nH2 screen ({} cells, adjusted at alpha/{})'.format(len(result['H2']),
+                                                                      H2_FAMILY))
+    for cell in result['H2']:
+        lines.append('  {:14s} {:4s} diff {:+.4f} nominal [{:+.4f}, {:+.4f}] adjusted {} -> '
+                     '{}'.format(cell['room'], cell['metric'], cell['diff'],
+                                 cell['nominal_two_way']['lo'], cell['nominal_two_way']['hi'],
+                                 cell['adjusted_two_way'], cell['label']))
+    lines.append('\nDescriptive contrasts')
+    for cell in result['D']:
+        lines.append('  {:22s} {:14s} {:4s} diff {:+.4f} [{:+.4f}, {:+.4f}]'.format(
+            cell['contrast'], cell['room'], cell['metric'], cell['diff'],
+            cell['nominal_two_way']['lo'], cell['nominal_two_way']['hi']))
+    lines.append('\nRoom-frame side split ({} job)'.format(result['side_split']['job']))
+    for key in sorted(result['side_split']['cells']):
+        entry = result['side_split']['cells'][key]
+        lines.append('  {:30s} -y {!s:>10.10} (n={}) +y {!s:>10.10} (n={})'.format(
+            key, entry['minus_y'], entry['n_minus_y'], entry['plus_y'], entry['n_plus_y']))
+    return '\n'.join(lines) + '\n'
+
+
+def write_outputs(result, json_path, summary_path):
+    """Exclusive creation of both files; the JSON binds the summary it describes."""
+    text = render(result)
+    Path(summary_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(str(summary_path), 'x') as stream:
+        stream.write(text)
+    record = dict(result, summary_path=str(Path(summary_path).resolve()),
+                  summary_sha256=hashlib.sha256(text.encode()).hexdigest())
+    Path(json_path).parent.mkdir(parents=True, exist_ok=True)
+    return record, provenance.write_manifest(json_path, _safe(record)), text
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(description='Summarise exp_06 and exp_02 HAA arms.')
+    parser.add_argument('--legacy-root', default=LEGACY_ROOT)
+    parser.add_argument('--new-root', default=NEW_ROOT)
+    parser.add_argument('--legacy-receipt', default='ckpt/exp06/legacy_receipt.json')
+    parser.add_argument('--write-legacy-receipt')
+    parser.add_argument('--approved')
+    parser.add_argument('--cache-root')
+    parser.add_argument('--json')
+    parser.add_argument('--summary')
+    parser.add_argument('--n-boot', type=int, default=N_BOOT)
+    parser.add_argument('--n-boot-adjusted', type=int, default=N_BOOT_ADJUSTED)
+    parser.add_argument('--exploratory', action='store_true')
+    return parser
+
+
+def main(argv=None):
+    """0 on success; a refusal exits 1 and an argparse usage error exits 2."""
+    args = build_parser().parse_args(argv)
+    if args.write_legacy_receipt:
+        record, digest = write_legacy_receipt(args.write_legacy_receipt, args.legacy_root,
+                                              strict=not args.exploratory)
+        print(json.dumps({'receipt': str(args.write_legacy_receipt), 'sha256': digest,
+                          'files': len(record['files']), 'label': record['label']}))
+        return 0
+    _require(args.json and args.summary, 'both --json and --summary are required')
+    approved, approvals_receipt, deviations = approvals(args.exploratory, args.approved)
+    binding = approved['reused']['legacy_receipt'] if approved else None
+    if binding is not None and binding.get('sha256') is None:
+        binding = None
+    arms, receipt = load_legacy(args.legacy_root, args.legacy_receipt, binding)
+    for arm in NEW_ARMS:
+        arms[arm] = load_new_arm(args.new_root, arm)
+    result = analyse(arms, args.n_boot, args.n_boot_adjusted, args.cache_root,
+                     args.exploratory, receipt, args.legacy_receipt, approved, deviations,
+                     approvals_receipt)
+    record, digest, text = write_outputs(result, args.json, args.summary)
+    print(text)
+    print(json.dumps({'json': args.json, 'sha256': digest,
+                      'summary_sha256': record['summary_sha256'],
+                      'H1': record['H1']['verdict'], 'H1b': record['H1b']['verdict']}))
+    return 0
+
+
+if __name__ == '__main__':
+    try:
+        raise SystemExit(main())
+    except (ValueError, OSError, KeyError) as error:
+        raise SystemExit('refusing: ' + str(error))
