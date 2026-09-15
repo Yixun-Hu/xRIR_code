@@ -575,18 +575,61 @@ def closed_log_file(tmp_path):
     return tmp_path / 'child.log'
 
 
-def write_job(tmp_path, expect='finetune', children=None, log=None):
+JOB_HEADING = {room: {'phi_deg': -90.0, 'k': 128, 'decision': 'estimated',
+                      'sha256': 'f' * 64, 'path': 'ckpt/exp06/heading/' + room + '.json'}
+               for room in ROOMS}
+PRETRAIN = 'e' * 64
+
+
+def write_child(child, run_type, files, **fields):
+    """One child completion of the shape this finalizer writes, with real artefact bytes."""
+    child.mkdir(parents=True, exist_ok=True)
+    hashes = {}
+    for name, content in files.items():
+        (child / name).write_bytes(content)
+        hashes[name] = hashlib.sha256(content).hexdigest()
+    record = dict(schema_version=1, run_type=run_type, run_dir=str(child), repo='repo',
+                  child_exit=0, child_exit_time=STAMP,
+                  log={'path': 'child.log', 'sha256': '0' * 64},
+                  child_exit_receipt={'path': 'child_exit.json', 'sha256': '0' * 64,
+                                      'child_pid': 1, 'ended_at': STAMP},
+                  diagnostic=False, admissible_arm=True, artifacts=hashes,
+                  backbone='cylindrical_oriented', frame='heading', heading=JOB_HEADING)
+    record.update(fields)
+    (child / 'completion.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    return record
+
+
+def write_job(tmp_path, expect='finetune', log=None, mutate=None):
+    """A complete pipeline seed: stage 1, four stage 2 children and four evaluations."""
     job = tmp_path / 'seed0'
-    names = children if children is not None else exp06_finalize.expected_children(expect)
-    for name in names:
-        child = job / name
-        child.mkdir(parents=True)
-        (child / 'completion.json').write_text(json.dumps(
-            {'run_type': 'haa_eval' if name.startswith('eval/') else 'haa_train',
-             'admissible_arm': True, 'run_dir': str(child)}, sort_keys=True))
     job.mkdir(parents=True, exist_ok=True)
     if log is not None:
         seal(job, log, text='pipeline output\n')
+    names, stage1_best = [], b'stage1-best'
+    if expect == 'finetune':
+        write_child(job / 'stage1', 'haa_train',
+                    {'best.pth': stage1_best, 'last.pth': b'stage1-last'},
+                    rooms=sorted(ROOMS)[:3], init_sha256=PRETRAIN, best_epoch=20)
+        names.append('stage1')
+    for room in ROOMS:
+        checkpoint = ('stage2-' + room).encode()
+        if expect == 'finetune':
+            write_child(job / ('stage2_' + room), 'haa_train',
+                        {'best.pth': checkpoint, 'last.pth': b'last-' + checkpoint},
+                        rooms=[room], init_sha256=hashlib.sha256(stage1_best).hexdigest(),
+                        best_epoch=10)
+            names.append('stage2_' + room)
+        else:
+            checkpoint = stage1_best
+        write_child(job / 'eval' / room, 'haa_eval',
+                    {'metrics_{}.json'.format(room): b'{}',
+                     'per_sample_{}.json'.format(room): b'{}'},
+                    room=room, checkpoint_sha256=hashlib.sha256(checkpoint).hexdigest(),
+                    samples=198)
+        names.append('eval/' + room)
+    if mutate is not None:
+        names = mutate(job, names)
     return job, [str(job / name) for name in names]
 
 
@@ -597,36 +640,89 @@ def test_job_completion_requires_every_child(tmp_path, closed_log_file):
     assert set(fields['children']) == set(exp06_finalize.expected_children('finetune'))
     assert len(fields['children']) == 9 and fields['expect'] == 'finetune'
     assert fields['children']['stage1'] == provenance.sha256_file(job / 'stage1/completion.json')
+    assert fields['backbone'] == 'cylindrical_oriented' and fields['frame'] == 'heading'
+    assert fields['init_sha256'] == PRETRAIN and fields['admissible_arm'] is True
+    assert fields['heading']['hallway']['k'] == 128
     assert set(exp06_finalize.expected_children('zeroshot')) == {'eval/' + room for room in ROOMS}
+
+
+def test_zeroshot_job_shares_one_checkpoint(tmp_path, closed_log_file):
+    job, children = write_job(tmp_path, 'zeroshot', log=closed_log_file)
+    fields = exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=REPO,
+                                     children=children, expect='zeroshot')
+    assert len(fields['children']) == 4 and fields['expect'] == 'zeroshot'
+    assert fields['checkpoint_sha256'] == hashlib.sha256(b'stage1-best').hexdigest()
+
+
+def test_a_job_of_bare_admissible_claims_is_refused(tmp_path, closed_log_file):
+    """The review's third counterexample: nine children asserting their own admission."""
+    job = tmp_path / 'seed0'
+    seal(job, closed_log_file, text='pipeline output\n')
+    names = list(exp06_finalize.expected_children('finetune'))
+    for name in names:
+        (job / name).mkdir(parents=True)
+        (job / name / 'completion.json').write_text(
+            json.dumps({'run_type': 'haa_eval', 'admissible_arm': True}))
+    with pytest.raises(ValueError, match='incomplete'):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=REPO,
+                                children=[str(job / name) for name in names], expect='finetune')
+    assert not (job / 'completion.json').exists()
 
 
 @pytest.mark.parametrize('damage,cause', [
     ('missing', 'missing'), ('extra', 'unexpected'), ('no_completion', 'completion.json'),
-    ('zeroshot', 'unexpected'), ('outside', 'outside'), ('inadmissible', 'admissible'),
-    ('wrong_type', 'run type')])
+    ('outside', 'outside'), ('wrong_role', 'run type'), ('diagnostic', 'diagnostic'),
+    ('nonzero_exit', 'child_exit'), ('stale_hash', 'artefact'), ('missing_artefact', 'artefact'),
+    ('backbone', 'backbone'), ('frame', 'frame'), ('heading_k', 'heading'),
+    ('lineage_init', 'lineage'), ('lineage_checkpoint', 'lineage'), ('schema', 'incomplete')])
 def test_job_refusals_are_named(tmp_path, closed_log_file, damage, cause):
-    expect = 'zeroshot' if damage == 'zeroshot' else 'finetune'
-    names = list(exp06_finalize.expected_children('finetune'))
-    if damage == 'missing':
-        names.remove('stage2_hallway')
-    elif damage == 'extra':
-        names.append('stage2_invented')
-    job, children = write_job(tmp_path, expect, names, log=closed_log_file)
-    if damage == 'no_completion':
-        (job / 'stage1/completion.json').unlink()
-    elif damage == 'outside':
-        children.append(str(tmp_path / 'elsewhere'))
-        (tmp_path / 'elsewhere').mkdir()
-        (tmp_path / 'elsewhere/completion.json').write_text('{}')
-    elif damage == 'inadmissible':
-        (job / 'stage1/completion.json').write_text(json.dumps(
-            {'run_type': 'haa_train', 'admissible_arm': False}, sort_keys=True))
-    elif damage == 'wrong_type':
-        (job / 'stage1/completion.json').write_text(json.dumps(
-            {'run_type': 'full', 'admissible_arm': True}, sort_keys=True))
+    def mutate(job, names):
+        if damage == 'missing':
+            names.remove('stage2_hallway')
+        elif damage == 'extra':
+            write_child(job / 'stage2_invented', 'haa_train', {'best.pth': b'x'},
+                        rooms=['invented'], init_sha256=PRETRAIN, best_epoch=10)
+            names.append('stage2_invented')
+        elif damage == 'no_completion':
+            (job / 'stage1/completion.json').unlink()
+        elif damage == 'outside':
+            names.append('../elsewhere')
+            write_child(job.parent / 'elsewhere', 'haa_train', {'best.pth': b'x'},
+                        rooms=['hallway'], init_sha256=PRETRAIN, best_epoch=10)
+        elif damage == 'stale_hash':
+            (job / 'stage1/best.pth').write_bytes(b'rewritten after completion')
+        elif damage == 'missing_artefact':
+            (job / 'stage1/last.pth').unlink()
+        else:
+            path = job / {'wrong_role': 'stage1', 'diagnostic': 'stage1', 'nonzero_exit': 'stage1',
+                          'backbone': 'eval/hallway', 'frame': 'eval/hallway',
+                          'heading_k': 'eval/hallway', 'lineage_init': 'stage2_hallway',
+                          'lineage_checkpoint': 'eval/hallway', 'schema': 'stage1'}[damage]
+            record = json.loads((path / 'completion.json').read_text())
+            if damage == 'wrong_role':
+                record['run_type'] = 'haa_eval'
+            elif damage == 'diagnostic':
+                record['diagnostic'] = True
+            elif damage == 'nonzero_exit':
+                record['child_exit'] = 1
+            elif damage == 'backbone':
+                record['backbone'] = 'cylindrical'
+            elif damage == 'frame':
+                record['frame'] = 'room'
+            elif damage == 'heading_k':
+                record['heading'] = copy.deepcopy(JOB_HEADING)
+                record['heading']['hallway']['k'] = 0
+            elif damage == 'schema':
+                record.pop('artifacts')
+            else:
+                record['init_sha256' if damage == 'lineage_init' else 'checkpoint_sha256'] = 'd' * 64
+            (path / 'completion.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+        return names
+
+    job, children = write_job(tmp_path, log=closed_log_file, mutate=mutate)
     with pytest.raises(ValueError, match=cause):
         exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=REPO,
-                                children=children, expect=expect)
+                                children=children, expect='finetune')
     assert not (job / 'completion.json').exists()
 
 

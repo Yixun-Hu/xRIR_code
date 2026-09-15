@@ -537,28 +537,100 @@ def expected_children(expect):
     return ('stage1',) + tuple('stage2_' + room for room in ROOMS) + evaluations
 
 
+CHILD_COMPLETION = ('schema_version', 'run_type', 'run_dir', 'child_exit', 'child_exit_time',
+                    'log', 'child_exit_receipt', 'diagnostic', 'admissible_arm', 'artifacts',
+                    'backbone', 'frame', 'heading')
+CHILD_EXTRA = {'haa_train': ('rooms', 'init_sha256', 'best_epoch'),
+               'haa_eval': ('room', 'checkpoint_sha256', 'samples')}
+
+
+def child_role(name):
+    """The run type this finalizer requires at one child path of a pipeline seed."""
+    if name == 'stage1' or (name.startswith('stage2_') and name[len('stage2_'):] in ROOMS):
+        return 'haa_train'
+    for prefix in ('eval/', 'zeroshot/eval/'):
+        if name.startswith(prefix) and name[len(prefix):] in ROOMS:
+            return 'haa_eval'
+    raise ValueError('unexpected child path: ' + name)
+
+
+def child_completion(path, name):
+    """Schema, role and artefact hashes of one child, never its own admission claim."""
+    completion = Path(path) / 'completion.json'
+    _require(completion.is_file(), 'child {} has no completion.json'.format(name))
+    record = _read_json(completion, name + '/completion.json')
+    role = child_role(name)
+    missing = [key for key in CHILD_COMPLETION + CHILD_EXTRA[role] if key not in record]
+    _require(not missing, 'child {} completion is incomplete: missing {}'.format(
+        name, ', '.join(missing)))
+    _require(record['run_type'] == role,
+             'child {} has run type {!r}, not the {!r} its path requires'.format(
+                 name, record['run_type'], role))
+    _require(record['diagnostic'] is False, 'child {} is a diagnostic run'.format(name))
+    _require(type(record['child_exit']) is int and record['child_exit'] == 0,
+             'child {} records child_exit {!r}'.format(name, record['child_exit']))
+    hashes = record['artifacts']
+    _require(isinstance(hashes, dict) and hashes, 'child {} records no artefacts'.format(name))
+    for artefact, digest in sorted(hashes.items()):
+        file = Path(path) / artefact
+        _require(file.is_file(), 'child {} artefact {} is gone'.format(name, artefact))
+        _require(provenance.sha256_file(file) == digest,
+                 'child {} artefact {} no longer hashes to its recorded digest'.format(
+                     name, artefact))
+    return record
+
+
+def job_identity(records, expect):
+    """Backbone, frame, heading rolls and the init/checkpoint lineage across one seed."""
+    backbones = {record['backbone'] for record in records.values()}
+    _require(len(backbones) == 1, 'children disagree on the backbone: ' + repr(sorted(backbones)))
+    frames = {record['frame'] for record in records.values()}
+    _require(len(frames) == 1, 'children disagree on the frame: ' + repr(sorted(frames)))
+    heading = {}
+    for name, record in sorted(records.items()):
+        for room, binding in (record['heading'] or {}).items():
+            previous = heading.setdefault(room, binding)
+            _require(previous.get('k') == binding.get('k'),
+                     'children disagree on the heading roll of {}: {} at {}'.format(
+                         room, binding.get('k'), name))
+    fields = dict(backbone=sorted(backbones)[0], frame=sorted(frames)[0], heading=heading or None)
+    if expect == 'zeroshot':
+        digests = {record['checkpoint_sha256'] for record in records.values()}
+        _require(len(digests) == 1,
+                 'zero-shot lineage: the evaluations used {} different checkpoints'.format(
+                     len(digests)))
+        return dict(fields, checkpoint_sha256=sorted(digests)[0])
+    stage1 = records['stage1']['artifacts']['best.pth']
+    for name, record in sorted(records.items()):
+        if name.startswith('stage2_'):
+            _require(record['init_sha256'] == stage1,
+                     'lineage: {} did not start from stage1/best.pth'.format(name))
+        elif name.startswith('eval/'):
+            room = name[len('eval/'):]
+            _require(record['checkpoint_sha256'] == records['stage2_' + room]['artifacts']['best.pth'],
+                     'lineage: {} did not evaluate stage2_{}/best.pth'.format(name, room))
+    return dict(fields, init_sha256=records['stage1']['init_sha256'])
+
+
 def haa_job_evidence(run_dir, children, expect):
     """Bind one seed's children: every expected directory, each with its own completion."""
     expected, job = set(expected_children(expect)), Path(run_dir).resolve()
-    seen = {}
+    seen, records = {}, {}
     for child in children:
         path = Path(child).resolve()
         try:
             name = path.relative_to(job).as_posix()
         except ValueError as error:
             raise ValueError('child {} lies outside the job directory'.format(child)) from error
-        completion = path / 'completion.json'
-        _require(completion.is_file(), 'child {} has no completion.json'.format(name))
-        record = _read_json(completion, name + '/completion.json')
-        _require(record.get('run_type') in ('haa_train', 'haa_eval'),
-                 'child {} has run type {!r}'.format(name, record.get('run_type')))
-        _require(record.get('admissible_arm') is True, 'child {} is not admissible'.format(name))
-        seen[name] = provenance.sha256_file(completion)
+        if expect == 'zeroshot' and name.startswith('zeroshot/'):
+            name = name[len('zeroshot/'):]  # <init>/zeroshot/eval/<room> and <init>/zeroshot alike
+        records[name] = child_completion(path, name)
+        seen[name] = provenance.sha256_file(path / 'completion.json')
     missing = sorted(expected - set(seen))
     _require(not missing, 'job is missing children: ' + ', '.join(missing))
     unexpected = sorted(set(seen) - expected)
     _require(not unexpected, 'unexpected children: ' + ', '.join(unexpected))
-    return dict(artifacts={}, children=seen, expect=expect)
+    return dict(job_identity(records, expect), artifacts={}, children=seen, expect=expect)
 
 
 def write_completion(path, fields):
