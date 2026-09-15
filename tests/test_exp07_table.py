@@ -29,6 +29,32 @@ def test_the_fixture_is_the_launchers_run_layout(exp07_fixture):
         assert set(fields['mutable_inputs']) == {'seen_split'}  # no training provenance
 
 
+def test_the_fixture_carries_the_full_runs_training_evidence(exp07_fixture):
+    built = exp07_fixture()
+    for role in ('seen_simple', 'seen_cyl', 'seen_aug'):
+        attempt = built.attempts[role]
+        manifest = built.read(attempt / 'train_manifest.json')
+        assert manifest['mode'] == 'full' and manifest['allow_dirty'] is False
+        identity, sidecar = manifest['train_data_identity'], attempt / 'train_inventory.json'
+        assert identity['inventory_file'] == dict(path=str(sidecar), sha256=p.sha256_file(sidecar))
+        records = built.read(sidecar)['inventory']
+        assert p._inventory_digest(records) == identity['inventory_sha256']
+        assert identity['inventory_files'] == len(records) == built.profile['train_inventory_files']
+        receipt = built.read(attempt.parent / 'probe_receipt.json')
+        limits = manifest['timing_limits']
+        assert limits['probe_receipt_sha256'] == p.sha256_file(attempt.parent / 'probe_receipt.json')
+        assert limits['projection_hours'] == receipt['T_run'] / 3600 <= 60
+        assert limits['ceiling_hours'] == 1.5 * limits['projection_hours']
+        assert limits['epoch_seconds'] == 1.05 * receipt['T_epoch']
+        ledger = built.read(attempt.parent / 'cumulative_hours.json')
+        assert [row['mode'] for row in ledger['attempts']] == ['full']
+        args = built.read(attempt / 'args.json')
+        assert manifest['effective_args'] != args  # the launcher normalises the env keys
+        assert manifest['effective_args']['PYTHONHASHSEED'] == args['env']['PYTHONHASHSEED']
+        listing = built.read(attempt / 'completion.json')['directory_listing']
+        assert {'epoch_%03d.pth' % epoch for epoch in range(1, 13)} <= set(listing)
+
+
 @pytest.fixture
 def built(exp07_fixture):
     return exp07_fixture()
@@ -87,7 +113,10 @@ def rebind_training(built, role, args=None, manifest=None, completion=None):
             digests[name] = built.replace(attempt / filename, payload)
     finished = completion if completion is not None else built.read(attempt / 'completion.json')
     finished['train_manifest_sha256'] = p.sha256_file(attempt / 'train_manifest.json')
-    finished['outputs']['args.json'] = p.sha256_file(attempt / 'args.json')
+    for name in ('args.json', 'train_manifest.json'):
+        if name in finished['outputs']:  # the entries this rewrite invalidated
+            finished['outputs'][name] = p.sha256_file(attempt / name)
+    finished['directory_listing'] = dict(finished['outputs'])
     digests['train_completion'] = built.replace(attempt / 'completion.json', finished)
     for shot in (8, 1):
         for directory in built.paths[(role, shot)]:

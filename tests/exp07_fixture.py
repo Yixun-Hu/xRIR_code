@@ -68,8 +68,12 @@ def exp07_fixture(tmp_path):
         data_root = root / 'data'
         data_root.mkdir()
         (data_root / 'query.dat').write_bytes(b'synthetic dataset bytes')
+        (data_root / 'train.dat').write_bytes(b'synthetic training bytes')
         identity = p._inventory(['query.dat'], data_root)
         profile['dataset']['inventory_sha256'] = identity['inventory_sha256']
+        # The training inventory is a different file set from the evaluation one.
+        trained_data = p._inventory(['query.dat', 'train.dat'], data_root)
+        profile['train_inventory_files'] = trained_data['inventory_files']
         references = {}
         for shot in profile['num_shot']:
             for seed in profile['eval_seeds']:
@@ -94,6 +98,12 @@ def exp07_fixture(tmp_path):
                 p.write_manifest(attempt / 'release_note.json', dict(source='authors'))
             else:
                 pins['checkpoints'][role] = dict(path=str(checkpoint), epoch=12, sha256=arm['sha256'])
+                for epoch in range(1, 12):  # the full run's twelve epoch checkpoints
+                    (attempt / ('epoch_%03d.pth' % epoch)).write_bytes(
+                        'synthetic {} epoch {}'.format(role, epoch).encode())
+                (attempt / 'history.jsonl').write_text(''.join(json.dumps(dict(
+                    epoch=epoch, train_loss=1., test_loss=1., epoch_minutes=140.)) + '\n'
+                    for epoch in range(1, 13)))
                 args = dict(profile['recipe'], **profile['full_run'])
                 args.update(backbone=arm['backbone'], save_dir=str(attempt), yaw_aug=arm['yaw_aug'],
                     yaw_aug_seed=arm['yaw_aug_seed'], yaw_aug_width=arm['yaw_aug_width'],
@@ -104,22 +114,52 @@ def exp07_fixture(tmp_path):
                              OMP_NUM_THREADS='2', CUDA_VISIBLE_DEVICES='1'))
                 args_path = attempt / 'args.json'
                 p.write_manifest(args_path, args)
+                # tools.exp04_launcher.normalize: the launcher's effective args carry the
+                # environment keys at the top level, the trainer's args.json nests them.
+                effective = {key: value for key, value in args.items() if key != 'env'}
+                effective.update(args['env'])
+                effective_path = attempt / 'effective_args.json'
+                effective_digest = p.write_manifest(effective_path, effective)
+                receipt = dict(schema_version=1, tier='M', backbone=arm['backbone'],
+                               protocol='seen', yaw_aug=arm['yaw_aug'], passed=True,
+                               PROBE_NOT_CLEAN=False, T_epoch=8400., T_run=100800.,
+                               reviewed_commit='b' * 40, gpu='1')
+                receipt_path = attempt.parent / 'probe_receipt.json'
+                receipt_digest = p.write_manifest(receipt_path, receipt)
+                p.write_manifest(attempt.parent / 'cumulative_hours.json', dict(
+                    total_hours=27.5, ceiling_hours=1.5 * receipt['T_run'] / 3600,
+                    probe_projection_hours=receipt['T_run'] / 3600,
+                    probe_receipt_sha256=receipt_digest,
+                    attempts=[dict(attempt=attempt.name, hours=27.5, mode='full')]))
+                inventory_path = attempt / 'train_inventory.json'
+                inventory_digest = p.write_manifest(
+                    inventory_path, dict(inventory=trained_data['inventory']))
+                trained_identity = dict(
+                    {key: value for key, value in trained_data.items() if key != 'inventory'},
+                    split='train', protocol='seen', cache_key='e' * 64,
+                    inventory_file=dict(path=str(inventory_path), sha256=inventory_digest))
+                train_bindings = dict(seen_split=dict(split_binding),
+                    effective_args=dict(path=str(effective_path), sha256=effective_digest),
+                    train_inventory=dict(trained_identity['inventory_file']),
+                    probe_receipt=dict(path=str(receipt_path), sha256=receipt_digest))
                 train_manifest = attempt / 'train_manifest.json'
                 p.write_manifest(train_manifest, dict(repo=str(root), reviewed_commit='b' * 40,
-                    mode='full', protocol='seen', effective_args=args,
-                    train_data_identity=dict(protocol='seen', inventory_files=296454,
-                                             inventory_sha256='d' * 64),
-                    timing_limits=dict(protocol='seen', ceiling_hours=45.,
-                                       projection_hours=30., epoch_seconds=9000.),
+                    mode='full', protocol='seen', effective_args=effective, allow_dirty=False,
+                    attempt_path=str(attempt), train_data_identity=trained_identity,
+                    timing_limits=dict(protocol='seen', epoch_seconds=1.05 * receipt['T_epoch'],
+                                       projection_hours=receipt['T_run'] / 3600,
+                                       ceiling_hours=1.5 * receipt['T_run'] / 3600,
+                                       probe_receipt_sha256=receipt_digest),
                     source_closures=dict(launcher=launcher, training=training),
-                    mutable_inputs=dict(seen_split=dict(split_binding))))
-                log = attempt / 'train.log'
+                    mutable_inputs=train_bindings))
+                log = attempt.parent / 'train.log'  # the launcher keeps it outside the attempt
                 log.write_text('synthetic training completed\n')
                 completion = attempt / 'completion.json'
+                outputs = {item.name: p.sha256_file(item) for item in sorted(attempt.iterdir())}
                 p.write_completion(completion, dict(
                     train_manifest_sha256=p.sha256_file(train_manifest), source_drift_after_spawn=[],
-                    log=dict(path=str(log), sha256=p.sha256_file(log)),
-                    outputs={'epoch_012.pth': arm['sha256'], 'args.json': p.sha256_file(args_path)}))
+                    log=dict(path=str(log), sha256=p.sha256_file(log)), wall_hours=27.5,
+                    outputs=outputs, directory_listing=dict(outputs)))
                 for key, path in (('train_args', args_path), ('train_manifest', train_manifest),
                                   ('train_completion', completion)):
                     bindings[key] = dict(path=str(path), sha256=p.sha256_file(path))
