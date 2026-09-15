@@ -437,7 +437,8 @@ def cell_rows(arms, x, y, room, metric):
     stacked = {arm: np.stack(columns[arm]) for arm in (x, y)}
     finite = {arm: np.isfinite(stacked[arm]).all(axis=0) for arm in (x, y)}
     cohort = finite[x] & finite[y]
-    _require(cohort.any(), 'the cohort of {}/{} for {} - {} is empty'.format(room, metric, x, y))
+    # Finding 8: an empty cohort is a diagnosis, not an exception -- the void rule below
+    # needs the exclusion counts it would otherwise never reach.
     rows = {arm: np.concatenate([stacked[arm][i][cohort] for i in range(len(SEEDS))])
             for arm in (x, y)}
     queries = np.asarray(index)[cohort]
@@ -445,7 +446,9 @@ def cell_rows(arms, x, y, room, metric):
             'clusters': np.concatenate([queries] * len(SEEDS)),
             'seeds': np.concatenate([np.full(int(cohort.sum()), seed) for seed in SEEDS]),
             'cohort': int(cohort.sum()), 'n_test': len(index),
-            'per_seed_diff': {seed: float((stacked[x][i][cohort] - stacked[y][i][cohort]).mean())
+            'per_seed_diff': {seed: (float((stacked[x][i][cohort]
+                                            - stacked[y][i][cohort]).mean())
+                                     if cohort.any() else None)
                               for i, seed in enumerate(SEEDS)},
             'excluded': {arm: {'queries': int((~finite[arm]).sum()),
                                'seeds': {seed: int((~np.isfinite(stacked[arm][i])).sum())
@@ -457,6 +460,9 @@ def void_reasons(rows, treatment, comparator):
     """Section 7's invalidity policy; a void verdict is never replaced by a subset."""
     excess = rows['excluded'][treatment]['queries'] - rows['excluded'][comparator]['queries']
     reasons = []
+    if not rows['cohort']:
+        reasons.append('no query of the {} test split is finite in every compared '
+                       'run'.format(rows['n_test']))
     if excess > VOID_EXCESS_FRACTION * rows['n_test']:
         reasons.append('{} has {} more invalid queries than {}, above the {:.0%} of {} the '
                        'policy allows'.format(treatment, excess, comparator,
@@ -471,6 +477,9 @@ def void_reasons(rows, treatment, comparator):
 
 
 def intervals(rows, alpha, n_boot, seed=BOOT_SEEDS[0]):
+    """The paired intervals, or ``None`` when the cohort the policy voided is empty."""
+    if not rows['cohort']:
+        return None
     return bootstrap.paired_intervals(rows['a'], rows['b'], rows['clusters'], rows['seeds'],
                                       alpha=alpha, n_boot=n_boot, seed=seed)
 
@@ -509,15 +518,20 @@ def decision_cell(arms, pair, room, metric, margin, n_boot=N_BOOT, alpha=ALPHA):
     treatment, comparator = pair
     rows = cell_rows(arms, treatment, comparator, room, metric)
     void = void_reasons(rows, treatment, comparator)
-    convergence = converged_two_way(rows, alpha, n_boot)
-    nominal = intervals(rows, alpha, convergence['n_boot'] or n_boot)
-    return {'contrast': '{} - {}'.format(treatment, comparator), 'room': room,
+    cell = {'contrast': '{} - {}'.format(treatment, comparator), 'room': room,
             'metric': metric, 'margin': margin, 'alpha': alpha,
-            'diff': nominal['diff'], 'query': nominal['query'], 'two_way': nominal['two_way'],
             'cohort': rows['cohort'], 'n_test': rows['n_test'], 'excluded': rows['excluded'],
             'per_seed_diff': rows['per_seed_diff'], 'void_reasons': void,
-            'convergence': convergence, 'bootstrap_seeds': list(BOOT_SEEDS),
-            'verdict': verdict_of(convergence, void, margin)}
+            'bootstrap_seeds': list(BOOT_SEEDS)}
+    if void:  # Finding 8: a voided cell is reported, never bootstrapped and never raised.
+        return dict(cell, diff=None, query=None, two_way=None, verdict='void',
+                    convergence={'status': 'void', 'n_boot': None, 'interval': None,
+                                 'attempts': []})
+    convergence = converged_two_way(rows, alpha, n_boot)
+    nominal = intervals(rows, alpha, convergence['n_boot'] or n_boot)
+    return dict(cell, diff=nominal['diff'], query=nominal['query'],
+                two_way=nominal['two_way'], convergence=convergence,
+                verdict=verdict_of(convergence, void, margin))
 
 
 def screen_cells(arms, pair, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, alpha=ALPHA):
@@ -527,17 +541,22 @@ def screen_cells(arms, pair, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, alp
     cells = []
     for room, metric in CELLS:
         rows = cell_rows(arms, treatment, comparator, room, metric)
+        cell = {'contrast': '{} - {}'.format(treatment, comparator), 'room': room,
+                'metric': metric, 'alpha': alpha, 'adjusted_alpha': adjusted_alpha,
+                'family': H2_FAMILY, 'cohort': rows['cohort'], 'n_test': rows['n_test'],
+                'excluded': rows['excluded'], 'per_seed_diff': rows['per_seed_diff']}
         nominal = intervals(rows, alpha, n_boot)
+        if nominal is None:      # finding 8: nothing is resampled from an empty cohort
+            cells.append(dict(cell, diff=None, nominal_two_way=None, query=None,
+                              adjusted_two_way=None, convergence=None,
+                              label='not available'))
+            continue
         convergence = converged_two_way(rows, adjusted_alpha, adjusted_n_boot)
         interval = convergence['interval']
-        cells.append({'contrast': '{} - {}'.format(treatment, comparator), 'room': room,
-                      'metric': metric, 'diff': nominal['diff'], 'alpha': alpha,
-                      'adjusted_alpha': adjusted_alpha, 'family': H2_FAMILY,
-                      'nominal_two_way': nominal['two_way'], 'query': nominal['query'],
-                      'adjusted_two_way': interval, 'convergence': convergence,
-                      'cohort': rows['cohort'], 'n_test': rows['n_test'],
-                      'excluded': rows['excluded'], 'per_seed_diff': rows['per_seed_diff'],
-                      'label': 'not converged' if interval is None else h2_label(interval)})
+        cells.append(dict(cell, diff=nominal['diff'], nominal_two_way=nominal['two_way'],
+                          query=nominal['query'], adjusted_two_way=interval,
+                          convergence=convergence,
+                          label='not converged' if interval is None else h2_label(interval)))
     return cells
 
 
@@ -551,8 +570,10 @@ def descriptive_cells(arms, pairs=DESCRIPTIVE, n_boot=N_BOOT, alpha=ALPHA):
             rows = cell_rows(arms, treatment, comparator, room, metric)
             nominal = intervals(rows, alpha, n_boot)
             cells.append({'contrast': '{} - {}'.format(treatment, comparator), 'room': room,
-                          'metric': metric, 'diff': nominal['diff'],
-                          'nominal_two_way': nominal['two_way'], 'query': nominal['query'],
+                          'metric': metric,
+                          'diff': None if nominal is None else nominal['diff'],
+                          'nominal_two_way': None if nominal is None else nominal['two_way'],
+                          'query': None if nominal is None else nominal['query'],
                           'cohort': rows['cohort'], 'n_test': rows['n_test'],
                           'per_seed_diff': rows['per_seed_diff']})
     return cells
@@ -694,6 +715,20 @@ def _safe(value):
     return value
 
 
+UNAVAILABLE = 'not available'
+
+
+def _number(value):
+    return UNAVAILABLE if value is None else '{:+.4f}'.format(value)
+
+
+def _bounds(interval):
+    """An interval the invalidity policy voided has no endpoints to print."""
+    if interval is None:
+        return UNAVAILABLE
+    return '[{:+.4f}, {:+.4f}]'.format(interval['lo'], interval['hi'])
+
+
 def render(result):
     """The printed summary: exp_02's arm table, then the paired tables and the verdicts."""
     lines = []
@@ -717,24 +752,25 @@ def render(result):
             lines.append(line)
     for name in ('H1', 'H1b'):
         cell = result[name]
-        lines.append('\n{} {} {} {}: diff {:+.4f}, two-way [{:+.4f}, {:+.4f}], margin {}, '
-                     'cohort {}/{} -> {}'.format(
-                         name, cell['contrast'], cell['room'], cell['metric'], cell['diff'],
-                         cell['two_way']['lo'], cell['two_way']['hi'], cell['margin'],
-                         cell['cohort'], cell['n_test'], cell['verdict']))
+        lines.append('\n{} {} {} {}: diff {}, two-way {}, margin {}, cohort {}/{} -> '
+                     '{}'.format(name, cell['contrast'], cell['room'], cell['metric'],
+                                 _number(cell['diff']), _bounds(cell['two_way']),
+                                 cell['margin'], cell['cohort'], cell['n_test'],
+                                 cell['verdict']))
         lines.extend('  void: ' + reason for reason in cell['void_reasons'])
     lines.append('\nH2 screen ({} cells, adjusted at alpha/{})'.format(len(result['H2']),
                                                                       H2_FAMILY))
     for cell in result['H2']:
-        lines.append('  {:14s} {:4s} diff {:+.4f} nominal [{:+.4f}, {:+.4f}] adjusted {} -> '
-                     '{}'.format(cell['room'], cell['metric'], cell['diff'],
-                                 cell['nominal_two_way']['lo'], cell['nominal_two_way']['hi'],
-                                 cell['adjusted_two_way'], cell['label']))
+        lines.append('  {:14s} {:4s} diff {} nominal {} adjusted {} -> {}'.format(
+            cell['room'], cell['metric'], _number(cell['diff']),
+            _bounds(cell['nominal_two_way']),
+            'not available' if cell['adjusted_two_way'] is None else cell['adjusted_two_way'],
+            cell['label']))
     lines.append('\nDescriptive contrasts')
     for cell in result['D']:
-        lines.append('  {:22s} {:14s} {:4s} diff {:+.4f} [{:+.4f}, {:+.4f}]'.format(
-            cell['contrast'], cell['room'], cell['metric'], cell['diff'],
-            cell['nominal_two_way']['lo'], cell['nominal_two_way']['hi']))
+        lines.append('  {:22s} {:14s} {:4s} diff {} {}'.format(
+            cell['contrast'], cell['room'], cell['metric'], _number(cell['diff']),
+            _bounds(cell['nominal_two_way'])))
     lines.append('\nRoom-frame side split ({} job)'.format(result['side_split']['job']))
     for key in sorted(result['side_split']['cells']):
         entry = result['side_split']['cells'][key]
