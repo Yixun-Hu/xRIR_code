@@ -46,16 +46,16 @@ def child_block(directory, log, command, run_type):
             '--child-exit <code>'.format(PYTHON, directory, run_type, log)]
 
 
-def train_command(backbone, init, rooms, save_dir, seed, recipe):
+def train_command(backbone, init, rooms, save_dir, seed, recipe, root):
     return ('{} tools/exp06_haa_finetune.py --backbone {} --init {} --rooms {} '
-            '--heading-json-dir {} --save-dir {} --seed {} {}'.format(
-                PYTHON, backbone, init, rooms, HEADING, save_dir, seed, recipe))
+            '--heading-json-dir {} --save-dir {} --seed {} --job-spec {}/job_spec.json '
+            '{}'.format(PYTHON, backbone, init, rooms, HEADING, save_dir, seed, root, recipe))
 
 
-def eval_command(backbone, checkpoint, room, save_dir, seed):
+def eval_command(backbone, checkpoint, room, save_dir, seed, root):
     return ('{} tools/exp06_haa_eval.py --backbone {} --checkpoint {} --rooms {} '
-            '--heading-json-dir {} --save-dir {} --seed {}'.format(
-                PYTHON, backbone, checkpoint, room, HEADING, save_dir, seed))
+            '--heading-json-dir {} --save-dir {} --seed {} --job-spec {}/job_spec.json'.format(
+                PYTHON, backbone, checkpoint, room, HEADING, save_dir, seed, root))
 
 
 def job_finalize(root, log, expect, children):
@@ -80,21 +80,23 @@ def finetune_job(name, seed):
              'MKDIR ' + root, 'PIDFILE ' + root + '/launch.pid',
              'JOBSPEC {}/job_spec.json init={} checkpoint={} seed={} expect=finetune '
              'backbone={} frame=heading heading={}'.format(root, name, init, seed, backbone,
-                                                           HEADING)]
+                                                           HEADING),
+             'CHECKSPEC {}/job_spec.json expect=finetune'.format(root)]
     lines += child_block(root + '/stage1', log_of(name, tag, 'stage1'),
                          train_command(backbone, init, S1_ROOMS, root + '/stage1', seed,
-                                       '--epochs 1000 --val-every 10 --tf32'), 'haa_train')
+                                       '--epochs 1000 --val-every 10 --tf32', root),
+                         'haa_train')
     children = [root + '/stage1']
     for room in ROOMS:
         stage2 = '{}/stage2_{}'.format(root, room)
         lines += child_block(stage2, log_of(name, tag, 'stage2_' + room),
                              train_command(backbone, root + '/stage1/best.pth', room, stage2,
-                                           seed, '--epochs 200 --val-every 2 --tf32'),
+                                           seed, '--epochs 200 --val-every 2 --tf32', root),
                              'haa_train')
         evaluation = '{}/eval/{}'.format(root, room)
         lines += child_block(evaluation, log_of(name, tag, 'eval_' + room),
                              eval_command(backbone, stage2 + '/best.pth', room, evaluation,
-                                          seed), 'haa_eval')
+                                          seed, root), 'haa_eval')
         children += [stage2, evaluation]
     joblog = log_of(name, tag, 'job')
     lines += ['MARKER EXP06_CHILD_EXIT 0 <iso> >> ' + joblog,
@@ -108,12 +110,14 @@ def zeroshot_job(name):
     lines = ['JOB {} zeroshot backbone={} init={} expect=zeroshot'.format(name, backbone, init),
              'MKDIR ' + root, 'PIDFILE ' + root + '/launch.pid',
              'JOBSPEC {}/job_spec.json init={} checkpoint={} seed=0 expect=zeroshot '
-             'backbone={} frame=heading heading={}'.format(root, name, init, backbone, HEADING)]
+             'backbone={} frame=heading heading={}'.format(root, name, init, backbone, HEADING),
+             'CHECKSPEC {}/job_spec.json expect=zeroshot'.format(root)]
     children = []
     for room in ROOMS:
         evaluation = '{}/eval/{}'.format(root, room)
         lines += child_block(evaluation, log_of(name, 'zeroshot', 'eval_' + room),
-                             eval_command(backbone, init, room, evaluation, 0), 'haa_eval')
+                             eval_command(backbone, init, room, evaluation, 0, root),
+                             'haa_eval')
         children.append(evaluation)
     joblog = log_of(name, 'zeroshot', 'job')
     lines += ['MARKER EXP06_CHILD_EXIT 0 <iso> >> ' + joblog,
@@ -142,7 +146,8 @@ def test_the_dry_run_of_the_zeroshot_job_covers_every_init():
 
 
 @pytest.mark.parametrize('job', ['invented:0', 'cyl_or', 'cyl_or:x', 'cyl_or:', ':0',
-                                 'zeroshot:0'])
+                                 'zeroshot:0', 'cyl_or:anything:0', 'cyl_or:0:1',
+                                 'cyl_or:-1'])
 def test_an_unknown_job_is_refused_before_anything_runs(job):
     result = run('1', job, '--dry-run')
     assert result.returncode == 2 and 'refus' in (result.stderr + result.stdout).lower()
@@ -161,6 +166,113 @@ def test_the_heading_directory_and_pretrained_checkpoint_are_overridable():
     assert 'alt/heading' in result.stdout and 'alt/epoch_012.pth' in result.stdout
     assert HEADING not in result.stdout and CYLOR not in result.stdout
     assert OUT + '/cyl_or/seed2/stage1' in result.stdout
+
+
+# --- preparation is a gate: a failed job never reaches a child (round 2b finding 1) ----
+
+ADAPTER = '''EXP06_PIPELINE_LIB=1 source tools/exp06_haa_pipeline.sh
+DRY=0; STAMP=faults; GPU=7; RECORD="$WORK/record"; OUT="$WORK/out"
+mkdir -p -- "$RECORD" "$OUT"
+: > "$WORK/events"
+child() { printf 'CHILD %s\\n' "$2" >> "$WORK/events"; }
+finalize_job() { printf 'FINALIZE %s\\n' "$1" >> "$WORK/events"; }
+'''
+INVOKE = 'if {}; then echo "STATUS 0"; else echo "STATUS $?"; fi\n'
+
+
+def run_lib(script, work, **environment):
+    """Exercise the pipeline's own functions with launching and finalisation stubbed out."""
+    env = {**_base_env(), 'WORK': str(work), 'HAA_XRIR_ROOT': HAA_ROOT, **environment}
+    result = subprocess.run(['bash', '-c', ADAPTER + script], cwd=str(ROOT), text=True,
+                            capture_output=True, env=env)
+    return result, Path(work, 'events').read_text().splitlines()
+
+
+@pytest.fixture(scope='module')
+def flat_dampened(tmp_path_factory):
+    """A private HAA cache whose dampened_room has no acoustic axis, and its headings."""
+    from tools import exp06_heading
+    from test_exp06_haa import confirmatory, write_room
+    base = tmp_path_factory.mktemp('flat')
+    root, headings = base / 'HAA_xrir', base / 'heading'
+    headings.mkdir(parents=True)
+    decisions = {}
+    for room in ROOMS:
+        levels = [0] * 12 if room == 'dampened_room' else None
+        record = exp06_heading.estimate_room_heading(write_room(root / room, levels))
+        exp06_heading.write_heading_json(headings / (room + '.json'), confirmatory(record))
+        decisions[room] = record['decision']
+    assert decisions == {'class_room': 'estimated', 'hallway': 'estimated',
+                         'complex_room': 'estimated', 'dampened_room': 'refused'}
+    init = base / 'init.pth'
+    init.write_bytes(b'initialisation')
+    return str(root), str(headings), str(init)
+
+
+@pytest.mark.parametrize('fault,cause', [
+    ('open_job() { return 3; }', 'REFUSED open_job'),
+    ('job_spec() { return 2; }', 'REFUSED job_spec'),
+    ('job_spec() { return 0; }\ncheck_spec() { return 2; }', 'REFUSED check_spec')])
+def test_a_failed_preparation_launches_no_child(tmp_path, fault, cause):
+    """Called through `||`, these helpers suppress errexit: each status is checked."""
+    result, events = run_lib(fault + '\n' + INVOKE.format('run_finetune cyl_or 0'), tmp_path)
+    assert events == [] and cause in result.stdout
+    assert 'STATUS 0' not in result.stdout and 'STATUS 1' in result.stdout
+
+
+def test_a_refused_heading_launches_no_child(tmp_path, flat_dampened):
+    """A refused dampened_room stops stage 1 too, which never trains on that room."""
+    root, headings, init = flat_dampened
+    result, events = run_lib(INVOKE.format('run_finetune cyl_or 0'), tmp_path,
+                             EXP06_HEADING_DIR=headings, HAA_XRIR_ROOT=root,
+                             EXP06_CYLOR_CKPT=init)
+    assert events == [] and 'STATUS 1' in result.stdout
+    assert 'REFUSED job_spec' in result.stdout
+    assert 'dampened_room' in result.stderr and 'refus' in result.stderr
+    assert not (tmp_path / 'out/cyl_or/seed0/job_spec.json').exists()
+
+
+def test_a_fully_decided_job_declares_itself_and_launches_every_child(tmp_path, cache):
+    """The positive control: the same queue, with every room decided and bound."""
+    result, events = run_lib(INVOKE.format('run_finetune cyl_or 0'), tmp_path,
+                             EXP06_HEADING_DIR=cache['heading'], HAA_XRIR_ROOT=cache['root'],
+                             EXP06_CYLOR_CKPT=cache['init'])
+    assert 'STATUS 0' in result.stdout, result.stderr
+    assert len([line for line in events if line.startswith('CHILD ')]) == 9
+    assert events[-1].startswith('FINALIZE ')
+    spec = json.loads((tmp_path / 'out/cyl_or/seed0/job_spec.json').read_text())
+    assert spec['heading'] == {room: 128 for room in ROOMS}
+    assert spec['expect'] == 'finetune' and spec['frame'] == 'heading' and spec['seed'] == 0
+    assert spec['init'] == 'cyl_or' and spec['rooms'] == sorted(ROOMS)
+
+
+def test_a_failed_child_stops_its_own_job(tmp_path):
+    result, events = run_lib(
+        'prepare_job() { return 0; }\n'
+        "child() { printf 'CHILD %s\\n' \"$2\" >> \"$WORK/events\"; return 1; }\n"
+        + INVOKE.format('run_finetune cyl_or 0'), tmp_path)
+    assert events == ['CHILD ' + str(tmp_path / 'out/cyl_or/seed0/stage1')]
+    assert 'STATUS 1' in result.stdout
+
+
+def test_the_queue_counts_every_failure_and_never_reports_done(tmp_path):
+    """A finalizer failure on one job must not be reported as a completed queue."""
+    result, events = run_lib(
+        'prepare_job() { return 0; }\n'
+        "finalize_job() { printf 'FINALIZE %s\\n' \"$1\" >> \"$WORK/events\"; return 1; }\n"
+        + INVOKE.format('run_queue cyl_or:0 cyl_or:1'), tmp_path)
+    assert 'QUEUE_FAILED 2' in result.stdout and 'QUEUE_DONE' not in result.stdout
+    assert 'STATUS 1' in result.stdout
+    assert len([line for line in events if line.startswith('FINALIZE ')]) == 2
+
+
+def test_a_checkpoint_path_with_spaces_is_never_split(tmp_path):
+    """Nit 5: the override is one path, not two arguments."""
+    override = str(tmp_path / 'path with spaces' / 'epoch_012.pth')
+    result = run('0', 'cyl_or:2', '--dry-run', EXP06_CYLOR_CKPT=override)
+    assert result.returncode == 0, result.stderr
+    assert 'init=' + override in result.stdout
+    assert '--init ' + override + ' --rooms' in result.stdout
 
 
 # --- end-to-end: the finalizer on artefacts these wrappers actually write -------------
