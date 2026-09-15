@@ -19,6 +19,7 @@ and one ``artifacts`` key differently. The spellings are accepted through the al
 tables below and normalised, so no committed key has to be renamed; the missing
 ``probe_align`` key is a real gap and is refused.
 """
+import functools
 import importlib
 import re
 
@@ -189,3 +190,74 @@ def load_approved_digests(path=None, module=None):
                      if isinstance(value, dict) else value
                      for key, value in dict(approved).items()}), receipt
 
+
+def leaf_paths(sections):
+    """Expand section names, section.key names and leaf paths into dotted leaf paths."""
+    leaves = {'code': ['code.' + key for key in CODE_KEYS],
+              'reused': ['reused.' + key for key in REUSED_DIGESTS]
+                        + ['reused.legacy_receipt.path', 'reused.legacy_receipt.sha256'],
+              'artifacts': ['artifacts.gate_g1_sha256']
+                           + ['artifacts.epoch_012.' + key for key in sorted(LEAF_RULES)]
+                           + ['artifacts.heading.' + room for room in ROOMS]}
+    known = {name: list(items) for name, items in leaves.items()}
+    for name, items in leaves.items():
+        for item in items:
+            known.setdefault(item.rsplit('.', 1)[0], []).append(item)
+            known.setdefault(item, [item])
+    resolved = []
+    for name in sections:
+        if name not in known:
+            raise ValueError('unknown approvals section: ' + name)
+        resolved.extend(item for item in known[name] if item not in resolved)
+    return sorted(resolved)
+
+
+def _leaf(approved, path):
+    value = approved
+    for part in path.split('.'):
+        if not isinstance(value, dict) or part not in value:
+            raise ValueError('approved digests record no ' + path)
+        value = value[part]
+    return value
+
+
+def require(approved, section_keys, exploratory=False):
+    """Deviations for every unapproved leaf; production raises, exploratory returns."""
+    deviations = ['not approved: ' + path for path in leaf_paths(section_keys)
+                  if _leaf(approved, path) is None]
+    if deviations and not exploratory:
+        raise ValueError('approvals incomplete: ' + '; '.join(deviations))
+    return deviations
+
+
+def producer_sections(producer):
+    if producer not in PRODUCER_REQUIREMENTS:
+        raise ValueError('unknown producer: ' + str(producer))
+    return PRODUCER_REQUIREMENTS[producer]
+
+
+def require_producer(approved, producer, exploratory=False):
+    """6.4's matrix for one producer; a producer never requires its own outputs."""
+    return require(approved, producer_sections(producer), exploratory)
+
+
+@functools.lru_cache(maxsize=None)
+def _closure(module, repo):
+    from tools import provenance
+    return tuple(provenance.source_closure(module, repo))
+
+
+def code_digest(key, repo, commit):
+    """``closure_record(source_closure(module) [+ shell files], commit, repo)[1]``."""
+    if key not in CODE_SOURCES:
+        raise ValueError('unknown code key: ' + str(key))
+    from tools import provenance
+    module, extra = CODE_SOURCES[key]
+    files = list(_closure(module, str(repo))) if module else []
+    return provenance.closure_record(files + list(extra), commit, repo)[1]
+
+
+def compute_code_digests(repo, commit, keys=None):
+    """Every ``code`` digest as it stands, for the reviewed commit that fills them in."""
+    return {key: code_digest(key, repo, commit)
+            for key in (CODE_KEYS if keys is None else tuple(keys))}
