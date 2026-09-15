@@ -186,8 +186,7 @@ def _publish(path, payload, overwrite=False):
             os.unlink(temporary)
 
 
-def write_outputs(result, admitted, json_path, md_path, force_md=False, command=(), renderer=None):
-    """``renderer`` lets another experiment's producer state what its JSON adds."""
+def write_outputs(result, admitted, json_path, md_path, force_md=False, command=()):
     paths = [Path(json_path).absolute(), Path(md_path).absolute(),
              Path(str(json_path) + '.provenance.json').absolute()]
     if (len({p.resolve() for p in paths}) != 3 or any(p.is_symlink() for p in paths)
@@ -202,7 +201,7 @@ def write_outputs(result, admitted, json_path, md_path, force_md=False, command=
     try:
         _publish(paths[0], data)
         created.append(paths[0])
-        markdown = _preserve_manual((renderer or render_markdown)(paths[0], command), previous).encode()
+        markdown = _preserve_manual(render_markdown(paths[0], command), previous).encode()
         receipt = dict(schema_version=1, profile_digest=result['profile_digest'],
             inputs=admitted['inputs'], producer=admitted['producer'],
             approved_digests=admitted['approved_digests'], run_flags=admitted['run_flags'],

@@ -11,6 +11,7 @@ from types import MappingProxyType as MP
 import pytest
 
 from tools import exp07_profiles as profiles
+from tools import exp07_provenance as e7p
 from tools import provenance as prov
 from tools.exp07_manifests import manifest_name
 from tools.paired_compare import _digest
@@ -55,7 +56,7 @@ def test_the_table_profile_states_the_seen_protocol_and_its_evaluation():
     assert table['eval_seeds'] == (42, 43, 44, 45, 46) and table['seed_sd_ddof'] == 1
     dataset = table['dataset']
     assert (dataset['split'], dataset['n_queries'], dataset['n_rooms']) == ('seen', 6217, 131)
-    assert dataset['seen_split_sha256'] == prov.sha256_file(ROOT / prov.SEEN_SPLIT)
+    assert dataset['seen_split_sha256'] == prov.sha256_file(ROOT / e7p.SEEN_SPLIT)
     assert set(table['run_grids']) == {arm['role'] for arm in table['arms']}
     assert set(table['run_grids'].values()) == {(0,)}
 
@@ -100,7 +101,7 @@ def test_the_recipe_and_the_full_run_constraints_are_the_plans_literals():
 
 @pytest.mark.parametrize('role,backbone,yaw', NEW_ARMS)
 def test_the_recipe_matches_the_launchers_golden_argv(role, backbone, yaw):
-    """The profile and tools/exp04_launcher.py must describe the same training."""
+    """The profile and tools/exp07_launcher.py must describe the same training."""
     tokens, flags, index = shlex.split(Path(GOLDEN.format(role)).read_text()), {}, 0
     while index < len(tokens):
         if tokens[index].startswith('--'):
@@ -125,11 +126,14 @@ def test_the_recipe_matches_the_launchers_golden_argv(role, backbone, yaw):
 
 def test_the_training_literals_are_the_launchers_own_constants():
     """The admission contract's counts must be the ones the launcher enforces."""
-    from tools import exp04_launcher as launcher
+    from tools import exp07_launcher as launcher
+    from tools import exp07_probe as probe
     table = profiles.get_profile('TABLE_SEEN_V1')
     assert table['train_inventory_files'] == launcher.TRAIN_FILES['seen'] == 296454
     assert table['train_batches_per_epoch'] == launcher.TRAIN_BATCHES['seen'] == 9265
-    assert table['projection_max_hours'] == 60. and table['ceiling_factor'] == 1.5
+    assert table['train_inventory_files'] == e7p.TRAIN_FILES['seen']
+    assert table['projection_max_hours'] == probe.RUN_HOURS_CEILING == 60.
+    assert table['ceiling_factor'] == 1.5
     assert profiles.json_value(table['recipe'])['batch_size'] == 32
 
 
@@ -167,7 +171,7 @@ def test_the_manifest_pins_agree_with_the_index_when_it_exists():
         pytest.skip('the seen reference manifests are not built yet')
     index = json.loads(INDEX.read_text())
     table = profiles.get_profile('TABLE_SEEN_V1')
-    assert index['seen_split'] == {'path': prov.SEEN_SPLIT,
+    assert index['seen_split'] == {'path': e7p.SEEN_SPLIT,
                                    'sha256': table['dataset']['seen_split_sha256']}
     assert index['entries'] == table['dataset']['n_queries']
     for shot in (8, 1):

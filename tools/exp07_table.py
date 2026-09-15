@@ -20,13 +20,14 @@ from pathlib import Path
 
 import numpy as np
 
+from tools import exp07_provenance as e7p
 from tools import provenance
 from tools.exp05_params import TIERS
 from tools.exp07_profiles import get_profile, json_value, load_approved_digests
 from tools.paired_compare import (REPO, _closure_digest, _equal, admit_runs,
                                   producer_identity)
-from tools.results_table import (END, METRICS, STAMP, render_markdown as shared_markdown,
-                                 write_outputs as publish_outputs)
+from tools.exp07_record import write_outputs as publish_outputs
+from tools.results_table import END, METRICS, STAMP, render_markdown as shared_markdown
 
 TRAINING_BINDINGS = ('train_args', 'train_manifest', 'train_completion')
 BINDING_FILES = {'train_args': 'args.json', 'train_manifest': 'train_manifest.json',
@@ -62,7 +63,7 @@ def run_contract(directory, arm, profile, pins, cache=None):
             _equal(fields.get('n_samples'), dataset['n_queries']) and
             _equal(fields.get('max_samples'), profile['max_samples']), 'seen split coverage')
     bound_split = fields['mutable_inputs'].get('seen_split')
-    require(bound_split is not None and bound_split['path'] == provenance.SEEN_SPLIT and
+    require(bound_split is not None and bound_split['path'] == e7p.SEEN_SPLIT and
             bound_split['sha256'] == dataset['seen_split_sha256'], 'seen_split binding')
     for pin, recorded in (('evaluator', 'entrypoint'), ('writer', 'writer')):
         digest = fields['source_closures'][recorded]['sha256']
@@ -107,7 +108,7 @@ def run_contract(directory, arm, profile, pins, cache=None):
             _equal(manifest.get('train_data_identity', {}).get('protocol'), 'seen') and
             _equal(manifest.get('timing_limits', {}).get('protocol'), 'seen'), 'training protocol')
     trained_split = manifest.get('mutable_inputs', {}).get('seen_split')
-    require(trained_split is not None and trained_split['path'] == provenance.SEEN_SPLIT and
+    require(trained_split is not None and trained_split['path'] == e7p.SEEN_SPLIT and
             trained_split['sha256'] == dataset['seen_split_sha256'], 'training seen_split binding')
     require(_equal(manifest.get('mode'), 'full') and _equal(manifest.get('allow_dirty'), False),
             'training full-run mode')
@@ -285,9 +286,9 @@ def render_markdown(json_path, command=None):
 
 
 def write_outputs(result, admitted, json_path, md_path, force_md=False, command=()):
-    """Publish through exp_04's transaction with the exp_07 Markdown adapter."""
-    return publish_outputs(result, admitted, json_path, md_path, force_md, command,
-                           renderer=render_markdown)
+    """Publish through the record's copy of exp_04's transaction, rendering exp_07's table."""
+    return publish_outputs(result, admitted, json_path, md_path, render_markdown,
+                           force_md, command)
 
 
 def build_table(directories, profile=None, approved=None, exploratory=False, producer=None):
