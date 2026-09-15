@@ -16,16 +16,18 @@ from tools import exp06_finalize, exp06_recipe, exp06_train, provenance
 
 REPO = Path(__file__).resolve().parents[1]
 STAMP = '2026-09-15T04:05:06.070809+00:00'
+STARTED = '2026-09-15T03:00:00+00:00'
 MARKER = 'EXP06_CHILD_EXIT 0 ' + STAMP
 
 
-def seal(run, log, status=0, text='', stamp=STAMP):
+def seal(run, log, status=0, text='', stamp=STAMP, **overrides):
     """What the launcher leaves behind: the end marker and the child-exit receipt."""
     Path(log).write_text(text + 'EXP06_CHILD_EXIT {} {}\n'.format(status, stamp))
     Path(run).mkdir(parents=True, exist_ok=True)
-    (Path(run) / 'child_exit.json').write_text(json.dumps(
-        {'child_pid': 424242, 'status': status, 'ended_at': stamp,
-         'log_sha256_after_marker': provenance.sha256_file(log)}, sort_keys=True, indent=2) + '\n')
+    receipt = {'child_pid': 424242, 'status': status, 'started_at': STARTED, 'ended_at': stamp,
+               'log_sha256_after_marker': provenance.sha256_file(log)}
+    receipt.update(overrides)
+    (Path(run) / 'child_exit.json').write_text(json.dumps(receipt, sort_keys=True, indent=2) + '\n')
     return log
 STATE = {'source_network.weight': torch.arange(6.).reshape(2, 3), 'head.bias': torch.zeros(2)}
 
@@ -1168,7 +1170,11 @@ def test_a_live_launch_pid_refuses_finalization_in_every_mode(full_run, clone, t
 
 @pytest.mark.parametrize('damage,cause', [
     ('missing', 'child_exit.json'), ('status', 'child_exit.json'), ('hash', 'child_exit.json'),
-    ('not_json', 'child_exit.json'), ('no_pid', 'child_exit.json')])
+    ('not_json', 'child_exit.json'), ('no_pid', 'child_exit.json'),
+    ('pid_zero', 'child_pid'), ('pid_string', 'child_pid'), ('no_started_at', 'started_at'),
+    ('started_after_ended', 'started_at'), ('ended_not_a_time', 'ended_at'),
+    ('ended_naive', 'ended_at'), ('ended_not_the_marker', 'ended_at'),
+    ('hash_not_hex', 'log_sha256_after_marker')])
 def test_the_child_exit_receipt_must_bind_the_hashed_log(full_run, clone, damage, cause):
     """Blocker 4: the marker alone never proved the writers had gone."""
     run, log = full_run
@@ -1182,6 +1188,22 @@ def test_the_child_exit_receipt_must_bind_the_hashed_log(full_run, clone, damage
             receipt['status'] = 3
         elif damage == 'hash':
             receipt['log_sha256_after_marker'] = 'f' * 64
+        elif damage == 'pid_zero':
+            receipt['child_pid'] = 0
+        elif damage == 'pid_string':
+            receipt['child_pid'] = str(receipt['child_pid'])
+        elif damage == 'no_started_at':
+            receipt.pop('started_at')
+        elif damage == 'started_after_ended':
+            receipt['started_at'] = '2026-09-15T05:00:00+00:00'
+        elif damage == 'ended_not_a_time':
+            receipt['ended_at'] = 'whenever'
+        elif damage == 'ended_naive':
+            receipt['ended_at'] = STAMP.replace('+00:00', '')
+        elif damage == 'ended_not_the_marker':
+            receipt['ended_at'] = '2026-09-15T04:05:07.070809+00:00'
+        elif damage == 'hash_not_hex':
+            receipt['log_sha256_after_marker'] = 'z' * 64
         else:
             receipt.pop('child_pid')
         (run / 'child_exit.json').write_text(json.dumps(receipt, sort_keys=True))
@@ -1213,7 +1235,8 @@ def test_child_exit_subcommand_appends_the_marker_and_writes_the_receipt(tmp_pat
     log = tmp_path / 'child.log'
     log.write_text('child output\n')
     command = [sys.executable, 'tools/exp06_finalize.py', 'child-exit', '--run-dir', str(run),
-               '--log', str(log), '--child-pid', '4242', '--status', '0']
+               '--log', str(log), '--child-pid', '4242', '--status', '0',
+               '--started-at', STARTED]
     completed = subprocess.run(command, cwd=REPO, capture_output=True, text=True,
                                env={**os.environ, 'PYTHONPATH': str(REPO)})
     assert completed.returncode == 0, completed.stderr
@@ -1222,7 +1245,10 @@ def test_child_exit_subcommand_appends_the_marker_and_writes_the_receipt(tmp_pat
     receipt = json.loads((run / 'child_exit.json').read_text())
     assert receipt['status'] == 0 and receipt['child_pid'] == 4242
     assert receipt['log_sha256_after_marker'] == provenance.sha256_file(log)
-    assert receipt['ended_at'] == lines[-1].split()[2]
+    assert receipt['ended_at'] == lines[-1].split()[2] and receipt['started_at'] == STARTED
+    refused = subprocess.run(command[:-1] + ['not-a-timestamp'], cwd=REPO, capture_output=True,
+                             text=True, env={**os.environ, 'PYTHONPATH': str(REPO)})
+    assert refused.returncode == 2 and 'started_at' in refused.stderr
     again = subprocess.run(command, cwd=REPO, capture_output=True, text=True,
                            env={**os.environ, 'PYTHONPATH': str(REPO)})
     assert again.returncode == 2 and 'child_exit.json' in again.stderr

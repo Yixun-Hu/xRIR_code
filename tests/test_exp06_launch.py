@@ -232,6 +232,36 @@ def test_a_surviving_descendant_cannot_write_past_the_end_marker(tmp_path):
     assert not (attempt / 'child.pipe').exists()
 
 
+SINK_HARNESS = ('set -euo pipefail\n'
+                'export EXP06_LAUNCH_LIB=1\n'
+                'source tools/exp06_launch.sh\n'
+                'ulimit -c 0\n'
+                'ulimit -f 1\n'          # the sink dies on SIGXFSZ after consuming output
+                'run_child {attempt} {log} {child}\n'
+                'close_child {attempt} {log}\n')
+
+
+def test_a_failing_log_sink_aborts_the_launch(tmp_path):
+    """Blocker 4: a sink that dies on a write error must publish nothing."""
+    attempt = tmp_path / 'attempt'
+    attempt.mkdir()
+    log = tmp_path / 'child.log'
+    log.write_text('')
+    stub = tmp_path / 'stub.sh'
+    stub.write_text('#!/usr/bin/env bash\nhead -c 8192 /dev/zero | tr "\\0" "x"\necho\nexit 0\n')
+    stub.chmod(0o755)
+    completed = subprocess.run(
+        ['bash', '-c', SINK_HARNESS.format(attempt=attempt, log=log, child=stub)],
+        cwd=REPO, capture_output=True, text=True, env={**os.environ, 'PYTHONPATH': str(REPO)})
+    assert completed.returncode == 3, completed.stdout + completed.stderr
+    assert 'ABORT {}_ABORTED_sink_failed'.format(attempt) in completed.stdout
+    aborted = Path(str(log) + '_ABORTED_sink_failed')
+    assert aborted.is_file() and (tmp_path / 'attempt_ABORTED_sink_failed').is_dir()
+    assert not log.exists() and not attempt.exists()
+    assert 'EXP06_CHILD_EXIT' not in aborted.read_text()
+    assert not (tmp_path / 'attempt_ABORTED_sink_failed/child_exit.json').exists()
+
+
 def test_a_failing_child_reports_its_status_through_the_lifecycle(tmp_path):
     attempt, log, completed = run_harness(tmp_path,
                                           '#!/usr/bin/env bash\necho boom >&2\nexit 7\n')
