@@ -3,6 +3,8 @@
 Parallel to ``train_xRIR_unseen.py``. Same dataset, loss (STFT L1 + energy-decay),
 optimizer (AdamW), LR schedule (ExponentialLR) and default hyperparameters, plus:
 argparse, ``--backbone simple|cylindrical`` (SimpleViT baseline vs CylindricalViT),
+``--protocol unseen|seen`` (the authors' split convention; ``seen`` must be run from the
+repository root because that dataset module opens its pickle relative to the cwd),
 DataLoader workers, gradient accumulation, intra-epoch checkpoints, resume, and
 bounded smoke-test flags. Run from the repo root with PYTHONPATH set.
 
@@ -28,9 +30,26 @@ from torch.utils.data import DataLoader, Subset
 from model.xRIR_cyl import BACKBONES, build_xrir
 from tools.exp05_params import TIERS, count_parameters, tier_of
 from tools.yaw_aug import YawAug, apply_yaw_aug
-from treble_multi_room_dataset.treble_xRIR_dataset import xRIR_Dataset
+from treble_multi_room_dataset.treble_xRIR_dataset import xRIR_Dataset as UnseenDataset
+from treble_multi_room_dataset.treble_xRIR_seen_dataset import xRIR_Dataset as SeenDataset
 from utils.lr_scheduler import ExponentialLR
 from utils.spec_utils import compute_spect_energy_decay_losses, stft_l1_loss
+
+PROTOCOLS = ("unseen", "seen")
+# Backwards-compatible name for the unseen dataset: tools/yaw_aug.py and the exp_04/exp_05
+# tests patch ``trainer.xRIR_Dataset``, and dataset_class honours that patch.
+xRIR_Dataset = UnseenDataset
+
+
+def dataset_class(protocol):
+    """Return the dataset class of the authors' split convention for ``protocol``.
+
+    Both modules are imported above so that the import-derived training closure always
+    contains them, whichever protocol a run selects.
+    """
+    if protocol not in PROTOCOLS:
+        raise ValueError("unknown protocol: " + str(protocol))
+    return SeenDataset if protocol == "seen" else xRIR_Dataset
 
 
 def parse_args():
@@ -39,6 +58,9 @@ def parse_args():
     p.add_argument("--save-dir", required=True)
     p.add_argument("--num-shot", type=int, default=8)
     p.add_argument("--max-len", type=int, default=9600)
+    p.add_argument("--protocol", choices=PROTOCOLS, default="unseen",
+                   help="split convention: unseen = the held-out rooms (default), "
+                        "seen = treble_multi_room_dataset/seen_test_split.pkl")
     for key, value in TIERS['M'].items():
         p.add_argument('--vit-' + key.replace('_', '-'), type=int, default=value)
     # Baseline hyperparameters from train_xRIR_unseen.py.
@@ -203,8 +225,9 @@ def main():
     torch.backends.cuda.matmul.allow_tf32 = args.tf32
     torch.backends.cudnn.allow_tf32 = args.tf32
 
-    train_dataset = xRIR_Dataset(split="train", max_len=args.max_len, num_shot=args.num_shot)
-    test_dataset = xRIR_Dataset(split="test", max_len=args.max_len, num_shot=args.num_shot)
+    dataset = dataset_class(args.protocol)
+    train_dataset = dataset(split="train", max_len=args.max_len, num_shot=args.num_shot)
+    test_dataset = dataset(split="test", max_len=args.max_len, num_shot=args.num_shot)
     if args.test_subset and args.test_subset < len(test_dataset):
         idx = np.random.RandomState(args.seed).permutation(len(test_dataset))[: args.test_subset]
         test_dataset = Subset(test_dataset, sorted(idx.tolist()))
