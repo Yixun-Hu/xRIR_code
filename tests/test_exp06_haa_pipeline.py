@@ -1,4 +1,6 @@
 """The exp_06 HAA pipeline: one queue of jobs, exclusive children, finalized in place."""
+import datetime
+import json
 import subprocess
 from pathlib import Path
 
@@ -220,6 +222,35 @@ def test_a_failed_preparation_launches_no_child(tmp_path, fault, cause):
     assert 'STATUS 0' not in result.stdout and 'STATUS 1' in result.stdout
 
 
+@pytest.mark.parametrize('fault,reason', [
+    ('open_job() { return 3; }', 'open_job'),
+    ('job_spec() { return 2; }', 'job_spec'),
+    ('job_spec() { return 0; }\ncheck_spec() { return 2; }', 'check_spec')])
+def test_a_failed_preparation_leaves_a_structured_receipt(tmp_path, fault, reason):
+    """Nit 8: the cause outlives the terminal, and the job root is named _ABORTED_."""
+    result, events = run_lib(fault + '\n' + INVOKE.format('run_finetune cyl_or 0'), tmp_path)
+    assert events == [] and 'STATUS 1' in result.stdout
+    root = tmp_path / 'out/cyl_or/seed0'
+    aborted = root.with_name(root.name + '_ABORTED_prepare_' + reason)
+    assert not root.exists() and aborted.is_dir()
+    record = json.loads((aborted / 'preparation_failure.json').read_text())
+    assert record['reason'] == reason and record['job_root'] == str(root)
+    assert record['aborted_dir'] == str(aborted)
+    assert record['git']['HEAD'] == subprocess.run(
+        ['git', 'rev-parse', 'HEAD'], cwd=str(ROOT), text=True,
+        capture_output=True).stdout.strip()
+    datetime.datetime.fromisoformat(record['failed_at'])
+
+
+def test_a_second_refused_preparation_never_overwrites_the_first(tmp_path):
+    script = 'job_spec() { return 2; }\n' + INVOKE.format('run_finetune cyl_or 0') * 2
+    result, events = run_lib(script, tmp_path)
+    assert events == [] and result.stdout.count('STATUS 1') == 2
+    aborted = sorted(Path(tmp_path, 'out/cyl_or').glob('seed0_ABORTED_prepare_job_spec*'))
+    assert len(aborted) == 2
+    assert all((directory / 'preparation_failure.json').is_file() for directory in aborted)
+
+
 def test_a_refused_heading_launches_no_child(tmp_path, flat_dampened):
     """A refused dampened_room stops stage 1 too, which never trains on that room."""
     root, headings, init = flat_dampened
@@ -230,6 +261,9 @@ def test_a_refused_heading_launches_no_child(tmp_path, flat_dampened):
     assert 'REFUSED job_spec' in result.stdout
     assert 'dampened_room' in result.stderr and 'refus' in result.stderr
     assert not (tmp_path / 'out/cyl_or/seed0/job_spec.json').exists()
+    aborted = tmp_path / 'out/cyl_or/seed0_ABORTED_prepare_job_spec'
+    assert json.loads((aborted / 'preparation_failure.json').read_text())['reason'] == 'job_spec'
+    assert not (aborted / 'job_spec.json').exists()
 
 
 def test_a_fully_decided_job_declares_itself_and_launches_every_child(tmp_path, cache):
