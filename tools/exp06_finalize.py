@@ -65,10 +65,49 @@ def _require(ok, cause):
 
 
 def _read_json(path, label):
+    """Decode one JSON object; a malformed or non-object file is a named refusal."""
     try:
-        return json.loads(Path(path).read_text())
+        value = json.loads(Path(path).read_text())
     except (OSError, ValueError) as error:
         raise ValueError('unreadable {}: {}'.format(label, error)) from error
+    _require(isinstance(value, dict), '{} is not a JSON object'.format(label))
+    return value
+
+
+def _load_torch(path, label):
+    """Load a checkpoint container; every decoding failure becomes a named refusal."""
+    try:
+        loaded = torch.load(str(path), map_location='cpu')
+    except Exception as error:  # torch surfaces pickle, zip, EOF and type errors alike
+        raise ValueError('unreadable {}: {}: {}'.format(label, type(error).__name__, error)) from error
+    _require(isinstance(loaded, dict), '{} is not a checkpoint mapping'.format(label))
+    return loaded
+
+
+def _state_dict(mapping, label):
+    """Require a parameter mapping of names to tensors before anything compares it."""
+    _require(isinstance(mapping, dict) and mapping, '{} is not a parameter mapping'.format(label))
+    bad = sorted(key for key, value in mapping.items()
+                 if not isinstance(key, str) or not torch.is_tensor(value))
+    _require(not bad, '{} has non-tensor entries: {}'.format(label, bad[:4]))
+    return mapping
+
+
+def _history_rows(path, label):
+    """Parse history.jsonl into one object per line, naming the first malformed line."""
+    rows = []
+    try:
+        text = Path(path).read_text()
+    except OSError as error:
+        raise ValueError('unreadable {}: {}'.format(label, error)) from error
+    for number, line in enumerate(text.splitlines(), 1):
+        try:
+            row = json.loads(line)
+        except ValueError as error:
+            raise ValueError('{} line {} is not JSON: {}'.format(label, number, error)) from error
+        _require(isinstance(row, dict), '{} line {} is not a JSON object'.format(label, number))
+        rows.append(row)
+    return rows
 
 
 def closure_digest(files):
@@ -126,19 +165,15 @@ def full_evidence(run_dir, repo):
     _require(provenance.closure_record(paths, commit, repo)[1] == closure['sha256'],
              'source closure drift: the reviewed blobs differ from the recorded digest')
     args = _read_json(run_dir / 'args.json', 'args.json')
-    rows = []
-    for number, line in enumerate(Path(run_dir / 'history.jsonl').read_text().splitlines(), 1):
-        try:
-            rows.append(json.loads(line))
-        except ValueError as error:
-            raise ValueError('history.jsonl line {} is not JSON: {}'.format(number, error)) from error
-    last = torch.load(str(run_dir / 'last.pth'), map_location='cpu')
+    rows = _history_rows(run_dir / 'history.jsonl', 'history.jsonl')
+    last = _load_torch(run_dir / 'last.pth', 'last.pth')
     meta = {key: last[key] for key in ('epoch', 'batch_idx') if key in last}
     deviations = exp06_recipe.check_all(args, history_rows=rows, last_meta=meta)
     _require(not deviations, 'schema deviations: ' + '; '.join(deviations))
     _require(last.get('args') == args, 'the args recorded in last.pth differ from args.json')
-    state = torch.load(str(run_dir / EPOCH_CHECKPOINT), map_location='cpu')
-    model = last['model']
+    _require('model' in last, 'last.pth records no "model" state dict')
+    state = _state_dict(_load_torch(run_dir / EPOCH_CHECKPOINT, EPOCH_CHECKPOINT), EPOCH_CHECKPOINT)
+    model = _state_dict(last['model'], 'last.pth["model"]')
     _require(set(state) == set(model), EPOCH_CHECKPOINT + ' has a different parameter set than last.pth')
     _require(all(torch.equal(state[key], model[key]) for key in state),
              EPOCH_CHECKPOINT + ' differs tensor-wise from last.pth["model"]')

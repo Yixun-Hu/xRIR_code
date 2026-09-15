@@ -387,3 +387,57 @@ def test_cli_reports_refusals_with_status_two(full_run):
     assert not (run / 'completion.json').exists()
     usage = subprocess.run(command[:4], cwd=REPO, capture_output=True, text=True, env=env)
     assert usage.returncode == 2 and 'usage' in usage.stderr
+
+
+@pytest.mark.parametrize('damage,cause', [
+    ('last_not_a_dict', 'last.pth'),
+    ('last_without_model', 'last.pth'),
+    ('last_model_not_a_state_dict', 'last.pth'),
+    ('epoch_not_a_dict', 'epoch_012.pth'),
+    ('epoch_unpicklable', 'epoch_012.pth'),
+    ('args_not_json', 'args.json'),
+    ('args_not_an_object', 'args.json'),
+    ('provenance_not_json', 'provenance.json'),
+    ('provenance_not_an_object', 'provenance.json'),
+    ('history_not_json', 'history.jsonl'),
+])
+def test_malformed_inputs_raise_named_refusals(full_run, damage, cause):
+    """Should-fix 9: malformed containers must refuse by name, never raise KeyError."""
+    run, log = full_run
+    if damage == 'last_not_a_dict':
+        torch.save(torch.zeros(3), run / 'last.pth')
+    elif damage == 'last_without_model':
+        torch.save({'epoch': 12, 'batch_idx': 0, 'args': full_args()}, run / 'last.pth')
+    elif damage == 'last_model_not_a_state_dict':
+        torch.save({'model': 'not-a-state-dict', 'epoch': 12, 'batch_idx': 0,
+                    'args': full_args()}, run / 'last.pth')
+    elif damage == 'epoch_not_a_dict':
+        torch.save([1, 2, 3], run / 'epoch_012.pth')
+    elif damage == 'epoch_unpicklable':
+        (run / 'epoch_012.pth').write_bytes(b'not a torch archive')
+    elif damage == 'args_not_json':
+        (run / 'args.json').write_text('{ this is not json')
+    elif damage == 'args_not_an_object':
+        (run / 'args.json').write_text('[1, 2, 3]')
+    elif damage == 'provenance_not_json':
+        (run / 'provenance.json').write_text('{ nope')
+    elif damage == 'provenance_not_an_object':
+        (run / 'provenance.json').write_text('"a string"')
+    else:
+        (run / 'history.jsonl').write_text('{"epoch": 1}\nnot json\n')
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=REPO)
+    assert not (run / 'completion.json').exists()
+
+
+def test_cli_exits_two_on_a_malformed_checkpoint(full_run):
+    """The documented refusal interface: exit 2 and a named cause, nothing written."""
+    run, log = full_run
+    torch.save(torch.zeros(3), run / 'last.pth')
+    command = [sys.executable, 'tools/exp06_finalize.py', '--run-dir', str(run),
+               '--run-type', 'full', '--log', str(log), '--child-exit', '0', '--repo', str(REPO)]
+    completed = subprocess.run(command, cwd=REPO, capture_output=True, text=True,
+                               env={**os.environ, 'PYTHONPATH': str(REPO)})
+    assert completed.returncode == 2 and 'last.pth' in completed.stderr
+    assert 'EXP06_FINALIZE_REFUSED' in completed.stderr
+    assert not (run / 'completion.json').exists()
