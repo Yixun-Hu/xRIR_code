@@ -15,8 +15,9 @@ data inventory and mutable inputs.
               the one the run resolved and whose inventory covers the membership the pinned
               ``train_data_identity`` derives for that root, an exp_06-owned geometry
               inventory (every metadata JSON and receiver depth map of both splits, with
-              membership derived again here and every file rehashed), the
-              recipe/production/derived
+              membership derived again here and every file rehashed), an exp_06-owned
+              inventory of the held-out waveforms the epoch test losses were measured on,
+              the recipe/production/derived
               schema on all three recorded copies of the arguments (``args.json``,
               ``last.pth['args']``, ``provenance.effective_args``) compared type-strictly
               and each ``exp06_*`` field bound to the execution record (run type, HEAD,
@@ -291,6 +292,50 @@ def verify_train_identity(record, key='train_data_identity'):
     return entries
 
 
+def _identity_root(record, key):
+    """The one root the run resolved, required to be the root the inventory describes."""
+    declared = record.get('data_root')
+    _require(isinstance(declared, str) and declared,
+             'provenance.json records no resolved data_root for the {}'.format(key))
+    resolved = str(Path(record[key]['data_root']).resolve())
+    _require(str(Path(declared).resolve()) == resolved,
+             '{}: data_root {} is not the {} the run resolved'.format(
+                 key, record[key]['data_root'], declared))
+    return resolved
+
+
+def _membership(key, entries, expected):
+    """Finding 3: no omission, no addition and no duplicate versus the derived membership."""
+    recorded = {entry['path'] for entry in entries}
+    _require(len(recorded) == len(entries),
+             '{}: the inventory records {} entries for {} distinct paths'.format(
+                 key, len(entries), len(recorded)))
+    difference = sorted(set(expected) ^ recorded)
+    _require(not difference, '{}: membership differs from the split by {} files, e.g. {}'.format(
+        key, len(difference), difference[:2]))
+
+
+def verify_heldout_identity(record, key='test_wav_identity'):
+    """Finding 3a: the test-split waveforms every epoch's test loss was measured on.
+
+    Membership comes from the pinned dataset's own split logic, never from the record,
+    and every waveform is hashed again here.
+    """
+    entries = check_identity_schema(record.get(key), key)
+    resolved = _identity_root(record, key)
+    try:
+        expected = exp06_train.heldout_wav_paths(resolved)
+    except Exception as error:  # the dataset and the filesystem refuse alike
+        raise ValueError('cannot derive the {} of {}: {}: {}'.format(
+            key, resolved, type(error).__name__, error)) from error
+    _membership(key, entries, expected)
+    fresh = provenance._inventory(expected, resolved, workers=exp06_train.GEOMETRY_WORKERS)
+    _require(fresh['inventory_sha256'] == record[key]['inventory_sha256'],
+             '{}: the held-out waveforms changed since the run started'.format(key))
+    return {'test_wav_files': len(entries), 'test_wav_bytes': fresh['inventory_bytes'],
+            'test_wav_sha256': fresh['inventory_sha256']}
+
+
 def verify_geometry_identity(record, key='geometry_identity'):
     """Finding 2: the metadata and depth maps the run consumed, rehashed at finalisation.
 
@@ -299,26 +344,20 @@ def verify_geometry_identity(record, key='geometry_identity'):
     is a refusal even though the IR waveforms are untouched.
     """
     entries = check_identity_schema(record.get(key), key)
-    declared = record.get('data_root')
-    _require(isinstance(declared, str) and declared,
-             'provenance.json records no resolved data_root for the {}'.format(key))
-    resolved = str(Path(record[key]['data_root']).resolve())
-    _require(str(Path(declared).resolve()) == resolved,
-             '{}: data_root {} is not the {} the run resolved'.format(
-                 key, record[key]['data_root'], declared))
-    splits = record[key].get('splits') or list(exp06_train.GEOMETRY_SPLITS)
-    _require(isinstance(splits, list) and splits
-             and set(splits) <= set(exp06_train.GEOMETRY_SPLITS),
-             '{}: splits {!r} are not the ones the run reads'.format(key, splits))
+    resolved = _identity_root(record, key)
+    # Finding 3b: the required splits come from the full-run contract, never from the
+    # record -- a correctly hashed splits=['train'] inventory left the held-out geometry
+    # unbound and still certified.
+    splits = record[key].get('splits')
+    _require(isinstance(splits, list) and list(splits) == list(exp06_train.GEOMETRY_SPLITS),
+             '{}: splits {!r} are not the {} a full run reads'.format(
+                 key, splits, list(exp06_train.GEOMETRY_SPLITS)))
     try:
-        expected, counts = exp06_train.geometry_paths(resolved, tuple(splits))
+        expected, counts = exp06_train.geometry_paths(resolved, exp06_train.GEOMETRY_SPLITS)
     except Exception as error:  # the dataset and the filesystem refuse alike
         raise ValueError('cannot derive the {} of {}: {}: {}'.format(
             key, resolved, type(error).__name__, error)) from error
-    recorded = {entry['path'] for entry in entries}
-    difference = sorted(set(expected) ^ recorded)
-    _require(not difference, '{}: membership differs from the split by {} files, e.g. {}'.format(
-        key, len(difference), difference[:2]))
+    _membership(key, entries, expected)
     started = time.monotonic()
     fresh = provenance._inventory(expected, resolved, workers=exp06_train.GEOMETRY_WORKERS)
     seconds = time.monotonic() - started
@@ -699,6 +738,7 @@ def full_evidence(run_dir, repo):
     admission = verify_approvals(record, repo, 'full')
     verify_train_identity(record)
     admission.update(verify_geometry_identity(record))
+    admission.update(verify_heldout_identity(record))
     revalidate_inputs(record, repo)
     args = _read_json(run_dir / 'args.json', 'args.json')
     rows = _history_rows(run_dir / 'history.jsonl', 'history.jsonl')

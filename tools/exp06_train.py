@@ -205,6 +205,28 @@ def geometry_identity(data_root, splits=GEOMETRY_SPLITS, workers=GEOMETRY_WORKER
                 depth_maps=sum(1 for name in files if name.startswith('depth_map/')))
 
 
+def heldout_wav_paths(data_root, max_len=9600, num_shot=8):
+    """Every held-out waveform ``test_epoch`` reads, from the dataset's own split logic.
+
+    Finding 3 of full_train review 2: the pinned ``train_data_identity`` inventories the
+    training waveforms only, so the test-split IRs that produce the recorded epoch test
+    losses -- and through them every best-checkpoint decision -- were not bound to the run.
+    """
+    root = Path(data_root).resolve()
+    dataset = xRIR_Dataset(split='test', max_len=max_len, num_shot=num_shot,
+                           ir_path=str(root / 'single_channel_ir'),
+                           pano_depth_path=str(root / 'depth_map'),
+                           metadata_path=str(root / 'metadata'))
+    return sorted(str(Path(wav).resolve().relative_to(root)) for wav in dataset.file_list)
+
+
+def heldout_wav_identity(data_root, workers=GEOMETRY_WORKERS):
+    """Content-hash every held-out waveform, in the inventory shape of provenance."""
+    files = heldout_wav_paths(data_root)
+    return dict(provenance._inventory(files, data_root, workers=workers), split='test',
+                wav_files=len(files))
+
+
 def registry_sha256():
     """Digest of the backbone registry as a sorted name -> class path mapping."""
     mapping = {name: cls.__module__ + '.' + cls.__qualname__ for name, cls in BACKBONES_EXP06.items()}
@@ -244,7 +266,7 @@ def orchestration_closures(repo, commit):
 
 
 def provenance_fields(argv, run_type, identity=None, repo=REPO, approved=None,
-                      reviewed_commit=None, exploratory=False, geometry=None):
+                      reviewed_commit=None, exploratory=False, geometry=None, heldout=None):
     """Bind the import closure, HEAD, environment, data inventory and argv of one run."""
     state = provenance.git_state(repo)
     commit = state['HEAD'] if reviewed_commit is None else reviewed_commit
@@ -258,7 +280,7 @@ def provenance_fields(argv, run_type, identity=None, repo=REPO, approved=None,
                 code_digests=exp06_profiles.compute_code_digests(
                     repo, commit, keys=exp06_profiles.TRAINING_KEYS),
                 approvals=approvals_binding(approved), exploratory=bool(exploratory),
-                geometry_identity=geometry,
+                geometry_identity=geometry, test_wav_identity=heldout,
                 registry_sha256=registry_sha256(), git_state=state,
                 environment=provenance.environment(), train_data_identity=identity,
                 command=list(argv))
@@ -297,6 +319,7 @@ def main(argv=None):
     fields = provenance_fields(command, args.run_type,
                                identity=data_identity(root) if destination else None,
                                geometry=geometry_identity(root) if destination else None,
+                               heldout=heldout_wav_identity(root) if destination else None,
                                approved=args.approved, reviewed_commit=args.reviewed_commit,
                                exploratory=args.exploratory)
     prepare_args(args, model, fields, destination)
