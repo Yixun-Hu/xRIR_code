@@ -985,8 +985,13 @@ def verify_child(path, name, repo, spec):
                 else haa_eval_evidence(path, repo))
     record = child_completion(path, name, role)
     recorded = _mapping(record['artifacts'], 'child {} artifacts'.format(name))
-    for artefact in sorted(set(recorded) | set(evidence['artifacts'])):
-        _require(recorded.get(artefact) == evidence['artifacts'].get(artefact),
+    fresh = evidence['artifacts']
+    # Close-3 finding 1: compare the whole mappings, never through .get() -- an absent key and
+    # a recorded null agree there, so an invented 'nonexistent.pth': null would pass.
+    _require(set(recorded) == set(fresh), 'child {} records the artefacts {}, not the {} the '
+             're-run hashed'.format(name, sorted(recorded), sorted(fresh)))
+    for artefact in sorted(fresh):
+        _require(exp06_recipe.strict_equal(recorded[artefact], fresh[artefact]),
                  'child {} artefact {} is not the one the re-run hashed'.format(name, artefact))
     for field in sorted(set(evidence) - {'artifacts'}):
         _require(field in record, 'child {} completion records no {}'.format(name, field))
