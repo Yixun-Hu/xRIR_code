@@ -6,8 +6,9 @@ ledger lists -- aborted full runs with their abort.json, probe attempts, and the
 probe receipts -- so a later change to any of them changes the report.  It also binds the
 released reference checkpoint, the forty evaluation runs with their seen-split bindings,
 the seen alignment audit (protocol, cohort digest, passed, commit), the required
-``--evidence`` artefacts (the GPU parity receipt and the released-checkpoint calibration,
-whose pre-registered acceptance rule is recomputed here), the four canonical producer
+``--evidence`` artefacts (the GPU parity receipt, whose nine registered cases must all
+have passed, and the released-checkpoint calibration, whose pre-registered acceptance rule
+AND its five-seed operands are recomputed here from the bound runs), the four canonical producer
 outputs revalidated through the generators' own checks with exact per-run input coverage,
 their sidecars and companions, the rendered Markdown/HTML/LaTeX, the exp_04 inputs the
 combined table reuses, the approval blob and git HEAD.  Each arm's ledger must show at
@@ -17,7 +18,10 @@ import argparse
 import json
 from pathlib import Path
 
+from tools import exp07_calibration as calibration
 from tools import exp07_launcher as launcher
+from tools import exp07_parity as parity
+from tools import exp07_profiles as profiles
 from tools import exp07_provenance as e7p
 from tools import provenance as p
 from tools.exp04_record import load_asset as exp04_asset
@@ -25,7 +29,7 @@ from tools.exp07_eval_launch import OUTPUTS as EVAL_OUTPUTS, SPLIT_FIELDS
 from tools.exp07_profiles import (ARMS, EVAL_SEEDS, RELEASED_SHA256, get_profile,
                                   load_approved_digests)
 from tools.exp07_record import load_asset
-from tools.paired_compare import _closure_digest
+from tools.paired_compare import _closure_digest, producer_identity
 
 binder = exp04_asset('bind_provenance')
 md = load_asset('make_results_md')
@@ -42,10 +46,8 @@ IDENTITIES = frozenset((role, shot, seed) for role in ROLES
 # Every product that used a trained role must declare that arm's training evidence.
 TRAINING_DEPENDENCIES = ('args.json', 'train_manifest.json', 'train_inventory.json')
 EVIDENCE = ('gpu_parity', 'calibration')  # --evidence NAME=PATH, both required
-CALIBRATION_METRICS = ('EDT', 'C50', 'T60')
-# The historical full-split reproduction the released row is calibrated against
-# (plan section 2; exp_01 results.md): EDT seconds, C50 dB, T60 per cent.
-HISTORICAL = {'EDT': .0389, 'C50': 1.029, 'T60': 7.27}
+CALIBRATION = profiles.CALIBRATION
+CALIBRATION_METRICS = profiles.CALIBRATION_METRICS
 SEEN_BATCHES = launcher.TRAIN_BATCHES['seen']
 
 
@@ -134,8 +136,8 @@ def probe_linkage(records, receipts):
     return named
 
 
-def evidence_record(bindings):
-    """--evidence NAME=PATH for the parity log and the released-checkpoint calibration."""
+def evidence_record(bindings, runs, head):
+    """--evidence NAME=PATH for the parity receipt and the released-checkpoint calibration."""
     parsed = {}
     for binding in bindings or []:
         name, separator, path = binding.partition('=')
@@ -149,29 +151,97 @@ def evidence_record(bindings):
         item = stamp(parsed[name])
         require(Path(item['path']).stat().st_size > 0, 'empty evidence artefact: ' + name)
         record[name] = item
-    record['calibration'] = calibration_record(record['calibration'])
+    record['calibration'] = calibration_record(record['calibration'], runs, head)
+    record['gpu_parity'] = parity_record(record['gpu_parity'], head)
     return record
 
 
-def calibration_record(item):
-    """The released row's five-seed means must meet the pre-registered acceptance rule."""
-    data = json.loads(Path(item['path']).read_text())
-    require(data.get('passed') is True and data.get('role') == 'released_seen'
-            and data.get('protocol') == 'seen' and data.get('num_shot') == 8,
-            'calibration identity')
+def read_evidence(item, label):
+    """Evidence is a receipt, not a log: a file that is not canonical JSON is refused."""
+    try:
+        return json.loads(Path(item['path']).read_text())
+    except ValueError as error:
+        raise ValueError('the ' + label + ' evidence is not canonical JSON: ' + str(error))
+
+
+def parity_record(item, head):
+    """The deferred GPU parity: exactly the nine registered cases, all passed, at HEAD."""
+    data = read_evidence(item, 'GPU parity')
+    require(data.get('schema_version') == 1 and data.get('passed') is True,
+            'parity receipt identity')
+    tests = data.get('tests') or {}
+    require(sorted(tests) == sorted(parity.TESTS), 'parity test coverage')
+    refused = sorted(node for node, outcome in tests.items() if outcome != 'passed')
+    require(not refused, 'parity cases did not pass: ' + ', '.join(refused))
+    require(data.get('pytest_exit') == 0, 'parity pytest exit: ' + str(data.get('pytest_exit')))
+    require(data.get('allow_dirty_used') is False, 'parity ran outside a clean checkout')
+    require(isinstance(data.get('cuda_device'), str) and data['cuda_device'],
+            'the parity receipt names no CUDA device')
+    check_ancestor(data.get('git_head'), head)
+    require(data.get('reviewed_commit') == data.get('git_head'),
+            'parity did not run at the reviewed commit')
+    files = {name: stamp(data[name]['path'], data[name]['sha256']) for name in ('log', 'junit')}
+    return dict(item, tests=dict(tests), pytest_exit=data['pytest_exit'],
+                git_head=data['git_head'], cuda_device=data['cuda_device'], **files)
+
+
+def calibration_producer():
+    """The calibration producer's identity; this gate precedes every approval pin."""
+    return producer_identity('tools.exp07_calibration')
+
+
+def calibration_record(item, runs, head):
+    """The released row's five-seed means must meet the pre-registered acceptance rule.
+
+    The rule is recomputed here, and so are its OPERANDS: the five-seed means and sample
+    SDs are derived again from the per-sample arrays of the five released K = 8 runs this
+    report binds, through the producer's own function, so a hand-written or fabricated
+    summary -- finite, self-consistent, and unrelated to any evaluation -- is refused.
+    """
+    data = read_evidence(item, 'calibration')
+    require(data.get('schema_version') == 1 and data.get('passed') is True
+            and data.get('profile_name') == calibration.PROFILE_NAME
+            and data.get('role') == CALIBRATION['role']
+            and data.get('protocol') == CALIBRATION['protocol']
+            and data.get('num_shot') == CALIBRATION['num_shot'], 'calibration identity')
     metrics = data.get('metrics') or {}
     require(sorted(metrics) == sorted(CALIBRATION_METRICS), 'calibration metrics')
     accepted = {}
     for name in CALIBRATION_METRICS:
         cell = metrics[name]
-        require(cell.get('historical') == HISTORICAL[name], 'calibration historical: ' + name)
-        tolerance = 3 * cell['sd'] + .02 * abs(HISTORICAL[name])
-        require(cell.get('passed') is True
-                and abs(cell['mean'] - HISTORICAL[name]) <= tolerance,
+        historical = calibration.HISTORICAL[name]
+        tolerance = profiles.calibration_tolerance(cell['sd'], historical)
+        require(cell.get('historical') == historical, 'calibration historical: ' + name)
+        require(cell.get('passed') is True and abs(cell['mean'] - historical) <= tolerance,
                 'calibration acceptance: ' + name)
-        accepted[name] = dict(mean=cell['mean'], sd=cell['sd'], historical=HISTORICAL[name],
+        accepted[name] = dict(mean=cell['mean'], sd=cell['sd'], historical=historical,
                               tolerance=tolerance)
-    return dict(item, role=data['role'], num_shot=data['num_shot'], metrics=accepted)
+    expected = {run['path'] for run in runs if run['role'] == CALIBRATION['role']
+                and run['num_shot'] == CALIBRATION['num_shot']}
+    require(len(expected) == CALIBRATION['n_seeds'], 'the five released calibration runs')
+    require(set(data.get('run_flags') or {}) == expected, 'calibration run coverage')
+    coverage = run_coverage([run for run in runs if run['path'] in expected])
+    for path in sorted(expected):
+        for name, digest in sorted(coverage[path].items()):
+            require((data.get('inputs') or {}).get(name) == digest,
+                    'incomplete calibration run coverage: ' + name)
+    require(calibration.measure(sorted(expected)) == metrics,
+            'the calibration metrics differ from the bound runs')
+    require((data.get('checkpoint') or {}).get('sha256') == RELEASED_SHA256,
+            'calibration checkpoint')
+    sidecar = Path(item['path'] + '.provenance.json')
+    require(sidecar.is_file(), 'the calibration has no provenance sidecar: ' + item['path'])
+    side = json.loads(sidecar.read_text())
+    require(side.get('outputs') == {item['path']: item['sha256']}, 'calibration sidecar outputs')
+    require(side.get('inputs') == data.get('inputs') and
+            side.get('run_flags') == data.get('run_flags'), 'calibration sidecar bindings')
+    producer = calibration_producer()
+    require(side['producer']['sha256'] == producer['sha256'] ==
+            data.get('producer_closure_sha256'), 'calibration producer closure')
+    check_ancestor(side['producer']['commit'], head)
+    check_ancestor(data.get('reviewed_commit'), head)
+    return dict(item, role=data['role'], num_shot=data['num_shot'], metrics=accepted,
+                runs=sorted(expected), producer_closure_sha256=producer['sha256'])
 
 
 def audit_record(path, head):
@@ -425,7 +495,8 @@ def collect(runs, attempt, audit, evidence, results, rendered, unseen_table, uns
                                   stderr=binder.subprocess.PIPE).returncode == 0,
             'invalid binding HEAD')
     published = bind_results(results, head, approval, records, attempts, released)
-    audited, evidenced = audit_record(audit, head), evidence_record(evidence)
+    audited = audit_record(audit, head)
+    evidenced = evidence_record(evidence, records, head)
     unseen, unseen_receipt = md.load_unseen(unseen_table, unseen_binding)
     cited = [item['sha256'] for item in published] + [unseen_receipt['sha256']]
     documents = []

@@ -11,6 +11,7 @@ import pytest
 from exp07_fixture import exp07_fixture  # noqa: F401  (fixture)
 from test_paired_compare import admission_fixture  # noqa: F401  (table_fixture needs it)
 from test_results_table import table_fixture  # noqa: F401  (exp_04's unseen table)
+from tools import exp07_calibration as calibration, exp07_parity as parity
 from tools import exp07_pairs as pairs_producer, exp07_table as table_producer
 from tools import provenance as p
 from tools import results_table as rt
@@ -191,6 +192,37 @@ def test_the_html_page_refuses_the_same_input_the_markdown_refuses(record_inputs
     assert not out.exists()
 
 
+def parity_receipt(path, head, **changes):
+    """A GPU parity receipt shaped exactly as tools/exp07_parity.py writes one."""
+    log, junit = path.with_suffix('.log'), path.with_suffix('.xml')
+    log.write_text('9 passed, 0 skipped in 1200.00s\n')
+    junit.write_text('<testsuites><testsuite tests="9"/></testsuites>')
+    receipt = dict(schema_version=1, passed=True, pytest_exit=0, n_tests=len(parity.TESTS),
+                   tests={node: 'passed' for node in parity.TESTS}, git_head=head,
+                   reviewed_commit=head, cuda_device='NVIDIA RTX A6000', gpu='1',
+                   allow_dirty_used=False, python='/envs/xRIR/bin/python',
+                   log=dict(path=str(log), sha256=p.sha256_file(log)),
+                   junit=dict(path=str(junit), sha256=p.sha256_file(junit)))
+    receipt.update(changes)
+    if path.exists():
+        path.unlink()
+    p.write_manifest(path, receipt)
+    return receipt
+
+
+def calibration_evidence(built, path, head, monkeypatch):
+    """The real calibration producer over the fixture's five released K = 8 runs."""
+    runs = list(built.paths[('released_seen', 8)])
+    monkeypatch.setattr(calibration, 'closure_pins', lambda commit: dict(
+        closures=dict(built.pins['closures']), checkpoints={}))
+    monkeypatch.setattr(calibration, 'HISTORICAL', {name: cell['mean'] for name, cell
+                                                    in calibration.measure(runs).items()})
+    result, admitted = calibration.build_calibration(runs, head, profile=built.profile,
+                                                     producer=built.producer)
+    calibration.write_outputs(result, admitted, str(path), command=['exp07_calibration.py'])
+    return result
+
+
 @pytest.fixture
 def bound(record_inputs, tmp_path, monkeypatch):
     """The whole record: forty runs, three attempts, four producer outputs, three documents."""
@@ -210,13 +242,11 @@ def bound(record_inputs, tmp_path, monkeypatch):
                   loader_batches=binder.SEEN_BATCHES, W=512, data_root='/data',
                   PYTHONHASHSEED='0', git_head=head),
         env=dict(python='3.8.0', torch='2.0.1', cuda='11.7', hostname='host'))))
-    evidence = {'gpu_parity': tmp_path / 'gpu_parity.log',
-                'calibration': tmp_path / 'calibration.json'}
-    evidence['gpu_parity'].write_text('9 passed, 0 skipped\n')
-    evidence['calibration'].write_text(json.dumps(dict(
-        role='released_seen', protocol='seen', num_shot=8, passed=True,
-        metrics={name: dict(mean=value, sd=value / 100, historical=value, passed=True)
-                 for name, value in binder.HISTORICAL.items()})))
+    evidence = {'gpu_parity': tmp_path / 'gpu_parity.receipt.json',
+                'calibration': tmp_path / 'CALIBRATION_SEEN_V1.json'}
+    parity_receipt(evidence['gpu_parity'], head)
+    monkeypatch.setattr(binder, 'calibration_producer', lambda: built.producer)
+    calibration_evidence(built, evidence['calibration'], head, monkeypatch)
     documents = [record_inputs['out']]
     load_asset('make_results_md').main(argv(record_inputs))
     for suffix, module in (('.html', 'make_results_html'), ('.tex', 'make_latex')):
@@ -289,6 +319,11 @@ def test_the_binding_report_covers_the_whole_seen_record(bound):
     assert set(report['evidence']) == set(bound.binder.EVIDENCE)
     assert report['evidence']['calibration']['role'] == 'released_seen'
     assert sorted(report['evidence']['calibration']['metrics']) == ['C50', 'EDT', 'T60']
+    assert len(report['evidence']['calibration']['runs']) == 5
+    assert report['evidence']['gpu_parity']['tests'] == {
+        node: 'passed' for node in parity.TESTS}
+    assert report['evidence']['gpu_parity']['log']['sha256']
+    assert report['evidence']['gpu_parity']['junit']['sha256']
     assert all(item['inventory']['sha256'] and item['probe_receipt']['sha256'] and
                item['ledger']['sha256'] and item['seen_split']['sha256']
                for item in report['attempts'])
@@ -581,11 +616,48 @@ FORGERIES = {
                          'empty evidence artefact'),
     'calibration_outside_tolerance': (lambda b: edit_json(
         b.evidence['calibration'],
-        lambda d: d['metrics']['C50'].update(mean=d['metrics']['C50']['historical'] * 2)),
+        lambda d: d['metrics']['C50'].update(mean=d['metrics']['C50']['historical'] * 2 + 1)),
         'calibration acceptance'),
     'calibration_not_the_released_row': (lambda b: edit_json(
         b.evidence['calibration'], lambda d: d.update(role='seen_simple')),
         'calibration identity'),
+    # Blocker 2: a finite, self-consistent summary unrelated to any evaluation, a summary
+    # that covers the wrong runs, and a bare log where a parity receipt is required.
+    'calibration_fabricated_summary': (lambda b: edit_json(
+        b.evidence['calibration'], lambda d: [cell.update(mean=1000000., sd=1000000.)
+                                              for cell in d['metrics'].values()]),
+        'differ from the bound runs'),
+    'calibration_infinite_sd': (lambda b: edit_json(
+        b.evidence['calibration'], lambda d: [cell.update(mean=1000000., sd=float('inf'))
+                                              for cell in d['metrics'].values()]),
+        'differ from the bound runs'),
+    'calibration_missing_a_run': (lambda b: edit_json(
+        b.evidence['calibration'],
+        lambda d: d['run_flags'].pop(sorted(d['run_flags'])[0])), 'calibration run coverage'),
+    'calibration_without_a_sidecar': (
+        lambda b: Path(str(b.evidence['calibration']) + '.provenance.json').unlink(),
+        'no provenance sidecar'),
+    'parity_case_failed': (lambda b: edit_json(b.evidence['gpu_parity'], lambda d: d['tests']
+                                               .update({sorted(d['tests'])[0]: 'failed'})),
+                           'parity cases did not pass'),
+    'parity_case_skipped': (lambda b: edit_json(b.evidence['gpu_parity'], lambda d: d['tests']
+                                                .update({sorted(d['tests'])[-1]: 'skipped'})),
+                            'parity cases did not pass'),
+    'parity_case_missing': (lambda b: edit_json(
+        b.evidence['gpu_parity'], lambda d: d['tests'].pop(sorted(d['tests'])[0])),
+        'parity test coverage'),
+    'parity_nonzero_exit': (lambda b: edit_json(b.evidence['gpu_parity'],
+                                                lambda d: d.update(pytest_exit=1)),
+                            'parity pytest exit'),
+    'parity_dirty_checkout': (lambda b: edit_json(b.evidence['gpu_parity'],
+                                                  lambda d: d.update(allow_dirty_used=True)),
+                              'outside a clean checkout'),
+    'parity_log_rewritten': (lambda b: b.evidence['gpu_parity'].with_suffix('.log')
+                             .write_text('9 failed, 0 passed\n'), 'digest mismatch'),
+    'parity_bare_log': (lambda b: b.arguments.__setitem__('evidence', [
+        'calibration=' + str(b.evidence['calibration']),
+        'gpu_parity=' + str(b.evidence['gpu_parity'].with_suffix('.log'))]),
+        'not canonical JSON'),
     # Blocker 1: whole-run omissions, missing training dependencies and inputs that are
     # not the artefacts this report binds (the round-6 reviewer's four reproductions).
     'whole_run_removed_from_a_product': (drop_run, 'does not declare exactly its runs'),
