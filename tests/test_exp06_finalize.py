@@ -6,6 +6,7 @@ import json
 import math
 import os
 import shutil
+import statistics
 import subprocess
 import sys
 from pathlib import Path
@@ -633,7 +634,7 @@ def summarize(values):
     finite = [value for value in values if math.isfinite(value)]
     if not finite:
         return {'mean': None, 'median': None, 'n': 0}
-    return {'mean': sum(finite) / len(finite), 'median': sorted(finite)[len(finite) // 2],
+    return {'mean': sum(finite) / len(finite), 'median': statistics.median(finite),
             'n': len(finite)}
 
 

@@ -35,8 +35,8 @@ data inventory and mutable inputs.
               per-sample observations bound to that room and protocol (every ``ir_path`` the
               ``<room>/<index>`` the writer records, and ``meta``'s split, num_shot and
               eval_seed the arguments'), a ``side_label`` array of -1/1 with one entry per
-              index, and a parsed ``metrics_<room>.json`` whose n and means are the
-              per-sample values.
+              index, and a parsed ``metrics_<room>.json`` whose counts, n, means and
+              medians are recomputed from the numeric per-sample values.
 ``haa_job``   one seed of the pipeline: every expected child directory, each re-validated by
               running its own role validator again, its completion bound to that result,
               its log and receipt re-validated and rehashed, and every child checked against
@@ -74,6 +74,7 @@ import json
 import math
 import os
 from pathlib import Path
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -98,9 +99,10 @@ HAA_TRAIN_ARTIFACTS = ('provenance.json', 'args.json', 'history.jsonl', 'summary
 HAA_SUMMARY = ('best_val_loss', 'best_epoch', 'init_val_loss', 'epochs')
 METRIC_SOURCE = {'edt_error_s': 'edt', 'c50_error_db': 'c50', 't60_error_pct': 't60',
                  'env_error': 'env', 'stft_log_mse': 'stft_mse', 'test_loss': 'loss'}
+METRIC_COUNTS = ('c50_outliers', 't60_invalid', 'edt_invalid')
+SUMMARY_FIELDS = ('mean', 'median', 'n')  # exactly what eval_xRIR_backbone.summarize writes
 METRICS_REQUIRED = (('backbone', 'checkpoint', 'room', 'split', 'num_shot', 'eval_seed',
-                     'n_samples', 'c50_outliers', 't60_invalid', 'edt_invalid')
-                    + tuple(sorted(METRIC_SOURCE)))
+                     'n_samples') + METRIC_COUNTS + tuple(sorted(METRIC_SOURCE)))
 HEADING_DECISIONS = ('estimated', 'override')
 EVAL_PROTOCOL = ('split', 'num_shot', 'eval_seed')  # the writer's own per-sample meta keys
 FRAMES = ('room', 'heading')
@@ -749,8 +751,39 @@ def haa_train_evidence(run_dir, repo):
                 seed=args['seed'], best_epoch=summary['best_epoch'], epochs=epochs)
 
 
+def _numbers(label, values, count):
+    """Finding 4: per-sample metrics are numbers -- NaN is the writer's invalid measurement,
+    a string or a mapping is a corrupt observation and never a missing one."""
+    _require(isinstance(values, list) and len(values) == count,
+             '{} needs one value per index'.format(label))
+    bad = [value for value in values if type(value) not in (int, float)]
+    _require(not bad, '{} has non-numeric entries: {}'.format(label, sorted(map(repr, bad))[:4]))
+    return [value for value in values if math.isfinite(value)]
+
+
+def _summary_block(label, summary, values):
+    """The {mean, median, n} of eval_xRIR_backbone.summarize, recomputed from the values."""
+    _require(isinstance(summary, dict) and set(summary) == set(SUMMARY_FIELDS),
+             '{} is not a {} summary'.format(label, '/'.join(SUMMARY_FIELDS)))
+    _require(type(summary['n']) is int and summary['n'] == len(values),
+             '{} counts {!r} of {} finite per-sample values'.format(
+                 label, summary['n'], len(values)))
+    if not values:
+        for field in ('mean', 'median'):
+            _require(summary[field] is None, '{} {} is {!r}, and summarize writes null for '
+                     'n == 0'.format(label, field, summary[field]))
+        return
+    for field, expected in (('mean', sum(values) / len(values)),
+                            ('median', statistics.median(values))):
+        _finite('{} {}'.format(label, field), summary[field])
+        _require(math.isclose(summary[field], expected, rel_tol=1e-9, abs_tol=1e-9),
+                 '{} {} {!r} is not the {!r} of the per-sample values'.format(
+                     label, field, summary[field], expected))
+
+
 def haa_metrics(run_dir, name, room, args, per_sample):
-    """Blocker 3b: the summary is parsed and cross-checked, never merely hashed."""
+    """Blocker 3b and finding 4: every count, summary and observation is typed and
+    recomputed here, never merely hashed."""
     metrics = _read_json(Path(run_dir) / name, name)
     missing = [key for key in METRICS_REQUIRED if key not in metrics]
     _require(not missing, '{} is incomplete: missing {}'.format(name, ', '.join(missing)))
@@ -761,29 +794,21 @@ def haa_metrics(run_dir, name, room, args, per_sample):
                  '{} records {} {!r}, not the {!r} of args.json'.format(
                      name, field, metrics[field], args.get(field)))
     index = per_sample['index']
-    _require(metrics['n_samples'] == len(index), '{} records n_samples {!r}, not the {} per-sample '
-             'entries'.format(name, metrics['n_samples'], len(index)))
+    _require(type(metrics['n_samples']) is int and metrics['n_samples'] == len(index),
+             '{} records n_samples {!r}, not the {} per-sample entries'.format(
+                 name, metrics['n_samples'], len(index)))
+    for field in METRIC_COUNTS:
+        _require(type(metrics[field]) is int and 0 <= metrics[field] <= len(index),
+                 '{} records {} {!r}, not a count of at most the {} samples'.format(
+                     name, field, metrics[field], len(index)))
     for key, field in sorted(METRIC_SOURCE.items()):
-        summary = metrics[key]
+        finite = _numbers('{}: per-sample {}'.format(name, field), per_sample.get(field),
+                          len(index))
         if key == 't60_error_pct' and room in NO_T60_ROOMS:
-            _require(summary is None, '{}: {} is recorded for a room the paper omits'.format(
+            _require(metrics[key] is None, '{}: {} is recorded for a room the paper omits'.format(
                 name, key))
             continue
-        _require(isinstance(summary, dict) and set(('mean', 'median', 'n')) <= set(summary),
-                 '{}: {} is not a mean/median/n summary'.format(name, key))
-        values = per_sample.get(field)
-        _require(isinstance(values, list) and len(values) == len(index),
-                 '{}: per-sample {} needs one value per index'.format(name, field))
-        finite = [value for value in values if type(value) in (int, float)
-                  and not isinstance(value, bool) and math.isfinite(value)]
-        _require(summary['n'] == len(finite), '{}: {} counts {!r} of {} finite per-sample '
-                 'values'.format(name, key, summary['n'], len(finite)))
-        mean = sum(finite) / len(finite) if finite else None
-        _require(mean is None and summary['mean'] is None or mean is not None
-                 and type(summary['mean']) in (int, float)
-                 and math.isclose(summary['mean'], mean, rel_tol=1e-9, abs_tol=1e-9),
-                 '{}: {} mean {!r} is not the {!r} of the per-sample values'.format(
-                     name, key, summary['mean'], mean))
+        _summary_block('{}: {}'.format(name, key), metrics[key], finite)
     return metrics
 
 
