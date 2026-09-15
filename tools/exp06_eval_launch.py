@@ -183,7 +183,11 @@ def _persisted(run, completion):
         record = json.loads((Path(run) / 'completion.json').read_text())
     except (OSError, ValueError) as error:
         raise OutputMismatch('completion_unreadable', 'completion.json: {}'.format(error))
-    if not isinstance(record, dict) or not _same(record, dict(completion)):
+    try:
+        matches = isinstance(record, dict) and _same(record, dict(completion))
+    except (TypeError, ValueError):
+        matches = False
+    if not matches:
         raise OutputMismatch('completion_mismatch', 'completion.json is not the record '
                              'this run was finalised with')
     return record

@@ -52,7 +52,7 @@ def spectral_c50(mag, onset):
     if not isinstance(mag, torch.Tensor) or mag.dim() != 3:
         raise ValueError('mag must have shape [B, F, T]')
     onset = torch.as_tensor(onset).reshape(-1)
-    if onset.shape[0] != mag.shape[0] or onset.min().item() < 0:
+    if mag.shape[0] == 0 or onset.shape[0] != mag.shape[0] or onset.min().item() < 0:
         raise ValueError('one nonnegative onset frame per query is required')
     energy = (mag ** 2).sum(1)
     out = []
@@ -321,7 +321,7 @@ def mirror_stats(model, dataset, room, query_ids, frame_k, side_of_query,
 
     share, error = torch.cat(shares), torch.cat(errors)
     counts = torch.cat(opposite_counts)
-    references = float(len(mic_ids) * ref_locs.shape[1])
+    references = float(len(mic_ids) * dataset.num_shot)
     stats = {'room': room, 'frame_k': int(frame_k), 'side_of_query': int(side_of_query),
              'n_queries': len(mic_ids), 'mic_ids': mic_ids, 'batch': int(batch),
              'device': str(target_device),
@@ -474,6 +474,7 @@ def build_record(args):
     heading = _verified_heading(args.heading_json, room_dir)
     checkpoints = {'cyl_or': args.cylor_checkpoint, 'cyl': args.cyl_checkpoint,
                    'control': args.control_checkpoint}
+    # Part 1 of 6.1 is specified on CPU, so --device steers only the full-cohort gate.
     legacy = legacy_reproduction(root=args.haa_root, room=args.room, device='cpu',
                                  batch=args.batch, num_shot=args.num_shot,
                                  checkpoints={'cyl': args.cyl_checkpoint,
