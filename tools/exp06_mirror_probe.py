@@ -9,14 +9,28 @@ Nothing here imports the diagnostic scripts and nothing patches a Torch global: 
 forward is recomposed from the model's own submodules, and the alignment the pinned method
 would allocate on a GPU comes from tools.exp06_probe_align.
 """
+import argparse
+import datetime
+import json
 import numbers
+from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 
+from eval_xRIR_backbone import load_model_state
+from model.xRIR_cyl_oriented import build_xrir_exp06
+from sim_to_real.haa_dataset import DEFAULT_ROOT, HAADataset
+from tools.exp06_heading import GIT_FIELDS, HeadingFrameDataset, read_heading_json
+from tools.exp06_heading import _closure_digest as closure_digest
 from tools.exp06_probe_align import (SAMPLE_RATE, SPEED_OF_SOUND,  # noqa: F401  (re-export)
                                      shift_and_align_device)
+from tools.provenance import (closure_record, environment, git_state, sha256_file,
+                              source_closure, write_manifest)
+from tools.yaw_rotation import rotate_scene_yaw
+
+ENTRY_MODULE = 'tools.exp06_mirror_probe'
 
 HOP_SIZE = 31                                   # the pinned STFT hop of xRIR.convert_ir_to_spec
 C50_SECONDS = 0.05
@@ -186,3 +200,141 @@ def g1_decision(stats, thresholds=G1_THRESHOLDS):
             share['cyl_or'], thresholds['cylor_share_max']))
     return {'outcome': 'fail' if failures else 'pass', 'reasons': failures,
             'thresholds': dict(thresholds), 'values': values}
+
+
+# --- the probe on a real cache ---------------------------------------------------------
+
+HALLWAY = 'hallway'
+LEGACY_COHORT_N = 24
+BACKBONE_OF = {'cyl': 'cylindrical', 'control': 'simple',
+               'cyl_or': 'cylindrical_oriented', 'cyl_hf': 'cylindrical'}
+FRAME_OF = {'cyl': 'room', 'control': 'room', 'cyl_or': 'heading', 'cyl_hf': 'heading'}
+GATE_ARMS = ('cyl_or', 'cyl', 'control', 'cyl_hf')
+LEGACY_CHECKPOINTS = {'cyl': 'ckpt/xRIR_cyl_8_shot/epoch_12.pth',
+                      'control': 'ckpt/xRIR_simple_8_shot/epoch_12.pth'}
+# The 2026-09-14 diagnostic's published hallway numbers, and the band the reproduction
+# must land in for the probe's numerics to count as validated (plan v4 6.1).
+ANCHORS_LEGACY = {'cyl': {'mirror_cosine': 0.975, 'opposite_side_weight_share': 0.85},
+                  'control': {'mirror_cosine': 0.435, 'opposite_side_weight_share': 0.24}}
+ANCHOR_TOLERANCE = 0.01
+# Frozen on 2026-09-15 from ~/data_cache/HAA_xrir/hallway by exactly `legacy_cohort`;
+# `test_the_frozen_cohort_is_the_rule_applied_to_the_cache` re-derives them.
+HALLWAY_LEGACY_COHORT = {
+    '+y': {'positions': [238, 246, 250, 256, 265, 275, 283, 294, 303, 313, 318, 333,
+                         338, 342, 343, 352, 365, 372, 382, 391, 401, 406, 419, 422],
+           'mic_ids': [324, 335, 340, 350, 362, 375, 387, 402, 414, 427, 434, 454,
+                       461, 466, 468, 480, 498, 508, 521, 533, 547, 554, 571, 575]},
+    '-y': {'positions': [0, 13, 21, 29, 41, 57, 67, 76, 83, 94, 98, 113,
+                         130, 138, 144, 151, 158, 170, 192, 200, 207, 216, 220, 237],
+           'mic_ids': [0, 18, 29, 40, 56, 78, 92, 104, 114, 128, 134, 155,
+                       178, 188, 196, 206, 216, 232, 262, 272, 282, 294, 300, 323]}}
+
+MIRROR_SIGNS = (-1.0, -1.0, 1.0)
+
+
+def mirror_positions(positions):
+    """The exact mirror of each microphone about the speaker: ``(-x, -y, z)``."""
+    if not isinstance(positions, torch.Tensor) or positions.shape[-1:] != torch.Size([3]):
+        raise ValueError('positions must end in a 3-vector axis')
+    signs = torch.tensor(MIRROR_SIGNS, dtype=positions.dtype, device=positions.device)
+    return positions * signs
+
+
+def _declared_frame_k(dataset, room):
+    return int(dataset.k_by_room[room]) if hasattr(dataset, 'k_by_room') else 0
+
+
+def mirror_stats(model, dataset, room, query_ids, frame_k, side_of_query,
+                 device='cpu', batch=8):
+    """Mirror cosine, opposite-side weight share and signed spectral-C50 error of one arm.
+
+    Sides are room-frame facts: the label of a query and of a reference is the sign of its
+    y before any heading roll, taken from the dataset's own room-frame coordinates. The
+    geometry is expressed in the frame the dataset itself serves, so ``frame_k`` must be
+    exactly the roll that dataset applies to this room.
+    """
+    if side_of_query not in (1, -1):
+        raise ValueError('side_of_query must be +1 or -1')
+    if getattr(dataset, 'eval_seed', None) is None:
+        raise ValueError('the probe needs a dataset with a fixed eval_seed')
+    if room not in getattr(dataset, 'data', {}):
+        raise ValueError('the dataset holds no room ' + str(room))
+    if int(frame_k) != _declared_frame_k(dataset, room):
+        raise ValueError('frame_k {} is not the roll the dataset applies to {}'.format(
+            frame_k, room))
+    query_ids = [int(i) for i in query_ids]
+    if not query_ids:
+        raise ValueError('at least one query is required')
+    if any(not 0 <= i < len(dataset) or dataset.items[i][0] != room for i in query_ids):
+        raise ValueError('every query id must index an item of room ' + str(room))
+
+    data = dataset.data[room]
+    room_y = data['src_local'][:, 1]
+    mic_ids = [int(dataset.items[i][1]) for i in query_ids]
+    if any(int(torch.sign(room_y[mic]).item()) != side_of_query for mic in mic_ids):
+        raise ValueError('every query must lie on the declared side in the room frame')
+
+    target_device = torch.device(device)
+    depth_room = data['depth_coord']
+    query_room = data['src_local'][mic_ids]
+    pair = torch.cat([query_room, mirror_positions(query_room)]).unsqueeze(0)
+    depth_frame, _, pair_frame = rotate_scene_yaw(
+        depth_room.unsqueeze(0), torch.zeros(1, 3, dtype=depth_room.dtype), pair, int(frame_k))
+    depth_frame = depth_frame.squeeze(0)
+    query_frame, mirror_frame = pair_frame.squeeze(0).split(len(mic_ids))
+
+    depth_on = depth_frame.to(target_device)
+    cosines = []
+    for start in range(0, len(mic_ids), batch):
+        stop = start + batch
+        cosines.append(F.cosine_similarity(
+            geometry_feature(model, query_frame[start:stop].to(target_device), depth_on),
+            geometry_feature(model, mirror_frame[start:stop].to(target_device), depth_on),
+            dim=-1).cpu())
+    cosine = torch.cat(cosines)
+
+    shares, errors, opposite_counts = [], [], []
+    for start in range(0, len(query_ids), batch):
+        chunk = query_ids[start:start + batch]
+        items = [dataset[i] for i in chunk]
+        _, src, depth_b, target, ref_irs, ref_locs = [
+            torch.stack([item[j] for item in items]) for j in range(6)]
+        if not torch.equal(depth_b[0], depth_frame):
+            raise ValueError('the dataset serves a panorama this frame_k does not explain')
+        opposite = torch.zeros(len(chunk), ref_locs.shape[1])
+        for j, item in enumerate(chunk):
+            ref_ids = torch.as_tensor(np.asarray(dataset._pick_refs(room, dataset.items[item][1])),
+                                      dtype=torch.long)
+            if not torch.equal(ref_irs[j], data['rirs'][ref_ids]):
+                raise ValueError('the reference draw is not reproducible for item {}'.format(item))
+            opposite[j] = (torch.sign(room_y[ref_ids]) == -side_of_query).float()
+        out_log, tgt, weights, _ = composed_forward(
+            model, depth_b.to(target_device), ref_irs.to(target_device),
+            src.to(target_device), ref_locs.to(target_device), target.to(target_device))
+        magnitude = weights.abs().mean(-1)
+        shares.append(((magnitude * opposite.to(target_device)).sum(1)
+                       / magnitude.sum(1)).cpu())
+        onset = onset_frames(src.to(target_device))
+        errors.append((spectral_c50(torch.exp(out_log), onset)
+                       - spectral_c50(tgt, onset)).cpu())
+        opposite_counts.append(opposite.sum(1))
+
+    share, error = torch.cat(shares), torch.cat(errors)
+    counts = torch.cat(opposite_counts)
+    references = float(len(mic_ids) * ref_locs.shape[1])
+    stats = {'room': room, 'frame_k': int(frame_k), 'side_of_query': int(side_of_query),
+             'n_queries': len(mic_ids), 'mic_ids': mic_ids, 'batch': int(batch),
+             'device': str(target_device),
+             'mirror_cosine': float(cosine.mean()), 'mirror_cosine_sd': float(cosine.std()),
+             'opposite_side_weight_share': float(share.mean()),
+             'opposite_side_weight_share_sd': float(share.std()),
+             'c50_signed_error_db': float(error.mean()),
+             'c50_signed_error_sd': float(error.std()),
+             'reference_side_counts': {'opposite': int(counts.sum()),
+                                       'same': int(references - float(counts.sum()))},
+             'reference_opposite_fraction': float(counts.sum()) / references}
+    unusable = sorted(key for key, value in stats.items()
+                      if isinstance(value, float) and not np.isfinite(value))
+    if unusable:
+        raise ValueError('the probe produced non-finite ' + ', '.join(unusable))
+    return stats
