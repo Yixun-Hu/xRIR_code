@@ -585,9 +585,19 @@ def expected_state_keys(backbone, num_shot):
         return frozenset(build_xrir_exp06(backbone, num_shot).state_dict().keys())
 
 
+def _isfinite(label, value):
+    """Nit 3: an integer too wide to become a float is a named refusal, not an OverflowError
+    escaping the numeric check."""
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        raise ValueError('{} is an integer of {} digits, too large for a finite number'.format(
+            label, len(str(abs(value)))))
+
+
 def _finite(label, value):
-    _require(type(value) in (int, float) and not isinstance(value, bool) and math.isfinite(value),
-             '{} is {!r}, not a finite number'.format(label, value))
+    _require(type(value) in (int, float) and not isinstance(value, bool)
+             and _isfinite(label, value), '{} is {!r}, not a finite number'.format(label, value))
     return value
 
 
@@ -764,7 +774,7 @@ def _numbers(label, values, count):
              '{} needs one value per index'.format(label))
     bad = [value for value in values if type(value) not in (int, float)]
     _require(not bad, '{} has non-numeric entries: {}'.format(label, sorted(map(repr, bad))[:4]))
-    return [value for value in values if math.isfinite(value)]
+    return [value for value in values if _isfinite(label, value)]
 
 
 def _summary_block(label, summary, values):
