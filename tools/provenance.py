@@ -327,8 +327,8 @@ def train_data_identity(data_root, protocol='unseen', cache_path=None, workers=8
 def seen_split_identity(repo):
     """Bind the authors' seen-split pickle as mutable_inputs['seen_split'] (path + sha256).
 
-    TODO(exp_07 round 2): add 'seen_split' to tools/exp04_eval_launch.MUTABLE_INPUTS, the
-    launcher-side allowlist, so --bind-input seen_split=<path> is accepted there.
+    'seen_split' is an accepted binding name in tools/exp04_eval_launch.MUTABLE_INPUTS and
+    in tools/exp04_launcher.SEEN_INPUTS, which requires it on every --protocol seen run.
     """
     return {'path': SEEN_SPLIT, 'sha256': sha256_file(Path(repo) / SEEN_SPLIT)}
 
