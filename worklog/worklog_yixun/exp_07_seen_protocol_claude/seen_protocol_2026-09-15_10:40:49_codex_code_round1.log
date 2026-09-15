@@ -1,0 +1,14 @@
+Reading additional input from stdin...
+OpenAI Codex v0.154.0
+--------
+workdir: /home/yixunhu/codespace/xRIR_code_wt07
+model: gpt-6-astra
+provider: openai
+approval: on-request
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 01a0a583-7225-7720-b76c-4298ba97f24b
+--------
+user
+Follow the briefing in worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_review_briefing.md (read it first). Review exp_07 Coder round 1 = commits `6ed7bef` (trainer `--protocol`), `e122355` (provenance protocol identity + `seen_split_identity`), `d7511fb` (yaw_aug audit `--protocol`) on top of `f492613` (`git diff f492613..d7511fb`; 389 insertions / 26 deletions over train_xRIR_backbone.py, tools/provenance.py, tools/yaw_aug.py, tests/test_exp07_trainer.py, tests/test_provenance.py, tests/test_yaw_aug.py), per coder_prompts/round1_prompt.md and plan §3 round 1. The Coder's report claims: default `--protocol unseen` bit-identical to `f492613` (GPU parity tests written but DEFERRED — 4 skips — must pass before any launch); the seen dataset module now in the training closure (module-level import); seen sizes 296 454 / 6 217, loader length 9 265 with a last batch of 6; cache key of the unseen protocol deliberately unchanged so the live `ckpt/yaw_aug/train_inventory.json` stays valid (decision 2); `xRIR_Dataset` kept as the unseen alias for existing patches (decision 1); `seen_split` allowlist deferred to round 2 (decision 3); the real-root inventory test stubs hashing (decision 4); `PROTOCOLS` duplicated to keep provenance out of the training closure (decision 5). Verify in particular: (1) the default path — read every changed trainer line and confirm nothing in the unseen path changed (dataset selection, loader construction order, RNG consumption order, `args.json` keys other than the added `protocol`, banner, counter); confirm `source_closure('train_xRIR_backbone')` at the head lists the seen module and otherwise the same files as at `f492613`; (2) the seen path facts (sizes, loader length, last batch) by constructing the datasets on CPU; (3) provenance: protocol-keyed caches, cross-protocol refusal, the unseen legacy key decision (is it safe? could a seen inventory ever be accepted as unseen or vice versa?), `seen_split_identity`; (4) the audit CLI; (5) hygiene: commits < 200 changed lines with the Opus trailer, only the six files, pinned files untouched, `git diff --check`, `py_compile`, the test run counts; (6) the seven Coder decisions — accept or require change, each with a reason; (7) fitness for round 2 (launcher `--protocol seen`, probes, recovery). Write nothing; your final message is the review.
