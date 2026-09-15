@@ -51,7 +51,7 @@ def test_alarm_aborts_with_status_three(tmp_path, stub_entry, monkeypatch):
         exp06_smoke.run_entry('exp06_haa_finetune', [], receipt=receipt, alarm_seconds=0.2)
     assert exit.value.code == 3
     record = json.loads(receipt.read_text())
-    assert record['outcome'] == 'alarm' and record['exit_status'] == 3
+    assert record['outcome'] == 'aborted_alarm' and record['exit_status'] == 3
     assert record['wall_s'] < 5
     assert record['alarm_seconds'] == 0.2 and record['diagnostic'] is True
 
@@ -65,7 +65,7 @@ def test_peak_memory_over_the_budget_aborts(tmp_path, stub_entry, monkeypatch):
         exp06_smoke.run_entry('exp06_haa_finetune', [], receipt=receipt, max_gb=3)
     assert exit.value.code == 3
     record = json.loads(receipt.read_text())
-    assert record['outcome'] == 'memory' and record['peak_bytes'] == 4 * 1024 ** 3
+    assert record['outcome'] == 'aborted_memory' and record['peak_bytes'] == 4 * 1024 ** 3
     monkeypatch.setattr(torch.cuda, 'max_memory_allocated', lambda: 2 * 1024 ** 3)
     ok = exp06_smoke.run_entry('exp06_haa_finetune', [], max_gb=3)
     assert ok['exit_status'] == 0 and ok['peak_bytes'] == 2 * 1024 ** 3
@@ -79,7 +79,9 @@ def test_entry_failure_is_recorded_and_reraised(tmp_path, stub_entry, monkeypatc
     receipt = tmp_path / 'error.json'
     with pytest.raises(RuntimeError, match='boom'):
         exp06_smoke.run_entry('exp06_haa_finetune', [], receipt=receipt)
-    assert json.loads(receipt.read_text())['outcome'] == 'error: RuntimeError'
+    recorded = json.loads(receipt.read_text())
+    assert recorded['outcome'] == 'failed'
+    assert recorded['outcome_detail'] == 'error: RuntimeError'
 
 
 def test_trainer_entry_is_driven_through_sys_argv(monkeypatch):
@@ -168,7 +170,7 @@ def test_memory_ceiling_aborts_during_execution(tmp_path, stub_entry, monkeypatc
         exp06_smoke.run_entry('exp06_haa_finetune', [], receipt=receipt, alarm_seconds=60, max_gb=3)
     assert exit.value.code == 3
     record = json.loads(receipt.read_text())
-    assert record['outcome'] == 'memory' and record['aborted_memory'] is True
+    assert record['outcome'] == 'aborted_memory' and record['aborted_memory'] is True
     assert record['exit_status'] == 3 and record['wall_s'] < 30, 'the entry ran to its alarm'
 
 
@@ -178,3 +180,59 @@ def test_a_successful_smoke_records_a_zero_status(tmp_path, stub_entry):
                                    receipt=tmp_path / 'ok.json', alarm_seconds=30)
     assert record['exit_status'] == 0 and record['outcome'] == 'ok'
     assert record['aborted_memory'] is False and record['diagnostic'] is True
+
+
+REQUIRED = ('runner', 'runner_closure_sha256', 'entry', 'module', 'argv', 'run_type',
+            'started_at', 'ended_at', 'wall_s', 'peak_bytes', 'alarm_seconds', 'max_gb',
+            'outcome', 'exit_status', 'exploratory', 'git_head', 'diagnostic')
+
+
+def test_the_receipt_carries_its_runner_budgets_and_timing(tmp_path, stub_entry):
+    """Finding 6: a diagnostic must prove who ran what, for how long, and how big."""
+    import datetime
+    record = exp06_smoke.run_entry('exp06_haa_finetune', ['--no-save'],
+                                   receipt=tmp_path / 'ok.json', alarm_seconds=30,
+                                   run_type='probe')
+    assert set(REQUIRED) <= set(record)
+    assert record['runner'] == 'tools.exp06_smoke'
+    assert len(record['runner_closure_sha256']) == 64
+    assert record['run_type'] == 'probe' and record['exploratory'] is False
+    assert record['outcome'] == 'ok' and record['alarm_seconds'] == 30.0
+    assert isinstance(record['peak_bytes'], int) and record['peak_bytes'] >= 0
+    started = datetime.datetime.fromisoformat(record['started_at'])
+    ended = datetime.datetime.fromisoformat(record['ended_at'])
+    assert started.tzinfo is not None and ended >= started
+    assert record['wall_s'] >= 0
+
+
+def test_a_diagnostic_writes_its_own_provenance(tmp_path, stub_entry):
+    """Finding 6: smoke and probe bind their code the way the full run does."""
+    from tools import exp06_profiles
+    out = tmp_path / 'run' / 'provenance.json'
+    out.parent.mkdir()
+    record = exp06_smoke.run_entry(
+        'exp06_haa_finetune', ['--no-save'], receipt=tmp_path / 'r.json', alarm_seconds=30,
+        run_type='smoke', provenance_out=str(out), exploratory=True)
+    written = json.loads(out.read_text())
+    assert written['run_type'] == 'smoke' and written['exploratory'] is True
+    assert written['source_closures']['diagnostic']['entry_module'] == 'tools.exp06_smoke'
+    assert set(written['code_digests']) == set(exp06_profiles.TRAINING_KEYS)
+    assert set(written['orchestration_closures']) == {'launcher', 'finalizer'}
+    assert written['git_state']['HEAD'] == record['git_head']
+    assert record['runner_closure_sha256'] == written['source_closures']['diagnostic']['sha256']
+    assert record['provenance']['sha256'] == provenance.sha256_file(out)
+    assert record['exploratory'] is True
+
+
+def test_the_cli_accepts_the_diagnostic_admission_flags(tmp_path, stub_entry, capsys):
+    argv = ['--entry', 'exp06_haa_finetune', '--receipt', str(tmp_path / 'r.json'),
+            '--alarm-seconds', '30', '--run-type', 'probe', '--exploratory', '--',
+            '--no-save']
+    assert exp06_smoke.main(argv) == 0
+    printed = [line for line in capsys.readouterr().out.splitlines()
+               if line.startswith('EXP06_SMOKE ')]
+    record = json.loads(printed[0][len('EXP06_SMOKE '):])
+    assert record['run_type'] == 'probe' and record['exploratory'] is True
+    with pytest.raises(SystemExit):
+        exp06_smoke.main(['--entry', 'exp06_haa_finetune', '--run-type', 'full', '--',
+                          '--no-save'])
