@@ -40,27 +40,33 @@ def clone(tmp_path_factory):
     return root
 
 
+CATEGORIES = ('Apartments', 'Bathrooms', 'Cafe', 'LivingRoomsWithHallway', 'Office',
+              'Auditorium', 'Bedrooms', 'ListeningRoom', 'MeetingRoom', 'Restaurants')
+TRAIN_IRS = ('single_channel_ir/Apartments/Apartments_idx_1/S000_R000_hybrid_IR.wav',
+             'single_channel_ir/Apartments/Apartments_idx_1/S001_R000_hybrid_IR.wav')
+TEST_IR = 'single_channel_ir/Bathrooms/Bathrooms_idx_18/S000_R000_hybrid_IR.wav'
+
+
 @pytest.fixture
 def data_root(tmp_path):
-    """A tiny stand-in for the AcousticRooms mirror, small enough to rehash in a test."""
+    """A tiny AcousticRooms mirror the pinned train_data_identity can really walk.
+
+    Blocker 1: the expected membership is the train split of this root, so the test
+    root carries an unseen room as well -- its file must never enter the inventory.
+    """
     root = tmp_path / 'data'
-    (root / 'single_channel_ir').mkdir(parents=True)
-    (root / 'single_channel_ir/a.wav').write_bytes(b'first sample')
-    (root / 'single_channel_ir/b.wav').write_bytes(b'second sample')
+    for category in CATEGORIES:
+        (root / 'single_channel_ir' / category).mkdir(parents=True)
+    for index, name in enumerate(TRAIN_IRS + (TEST_IR,)):
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_bytes(b'sample %d' % index)
     return root
 
 
 def inventory_of(root):
-    """The shape tools.provenance.train_data_identity records, over a tiny root."""
-    names = sorted(str(path.relative_to(root)) for path in Path(root).rglob('*') if path.is_file())
-    records = [{'path': name, 'sha256': provenance.sha256_file(Path(root) / name),
-                'size': (Path(root) / name).stat().st_size,
-                'mtime_ns': (Path(root) / name).stat().st_mtime_ns} for name in names]
-    digest = hashlib.sha256(json.dumps([[r['path'], r['sha256']] for r in records],
-                                       sort_keys=True).encode()).hexdigest()
-    return {'data_root': str(root), 'inventory': records, 'inventory_files': len(records),
-            'inventory_missing': 0, 'inventory_bytes': sum(r['size'] for r in records),
-            'inventory_sha256': digest, 'split': 'train', 'cache_key': 'a' * 64}
+    """Exactly what the pinned tools.provenance helper records for this root."""
+    return provenance.train_data_identity(str(root),
+                                          cache_path=str(Path(root).parent / 'inventory.json'))
 
 
 @functools.lru_cache(maxsize=None)
@@ -101,6 +107,7 @@ def full_run(tmp_path, clone, data_root):
     run = tmp_path / 'attempt_20260916T130000'
     run.mkdir()
     record = provenance_record(clone)
+    record['data_root'] = str(Path(data_root).resolve())
     record['train_data_identity'] = inventory_of(data_root)
     args = full_args()
     record['effective_args'] = args
@@ -937,12 +944,12 @@ def test_a_modified_closure_file_is_refused_after_provenance_was_written(full_ru
 def test_changed_training_data_bytes_are_refused(full_run, clone, data_root):
     """Blocker 1: the recorded inventory is rehashed, not trusted."""
     run, log = full_run
-    (data_root / 'single_channel_ir/b.wav').write_bytes(b'second sample, edited')
+    (data_root / TRAIN_IRS[1]).write_bytes(b'sample 1, edited')
     with pytest.raises(ValueError, match='revalidation'):
         exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
     assert not (run / 'completion.json').exists()
-    (data_root / 'single_channel_ir/a.wav').unlink()
-    with pytest.raises(ValueError, match='revalidation'):
+    (data_root / TRAIN_IRS[0]).unlink()
+    with pytest.raises(ValueError, match='inventory|revalidation'):
         exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
 
 
@@ -984,6 +991,84 @@ def test_source_closure_and_identity_shapes_are_refused(full_run, clone, damage,
     run, log = full_run
     (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
     with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert not (run / 'completion.json').exists()
+
+
+def rewrite_identity(run, **overrides):
+    """Replace the recorded training-data identity with a damaged copy."""
+    record = json.loads((run / 'provenance.json').read_text())
+    record['train_data_identity'] = dict(record['train_data_identity'], **overrides)
+    (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    return record
+
+
+def test_the_expected_membership_comes_from_the_pinned_helper(data_root, monkeypatch):
+    """Blocker 1: the membership is derived, never read out of the record."""
+    calls = []
+    real = provenance.train_data_identity
+    monkeypatch.setattr(provenance, 'train_data_identity',
+                        lambda root, cache_path=None, **kw: (calls.append((root, cache_path)),
+                                                             real(root, cache_path=cache_path))[1])
+    paths = exp06_finalize.train_inventory_paths(str(Path(data_root).resolve()))
+    assert paths == set(TRAIN_IRS), paths
+    assert TEST_IR not in paths and calls[0][0] == str(Path(data_root).resolve())
+    assert str(exp06_finalize.TRAIN_INVENTORY).endswith('ckpt/yaw_aug/train_inventory.json')
+    with pytest.raises(ValueError, match='training inventory'):
+        exp06_finalize.train_inventory_paths(str(data_root / 'absent'))
+
+
+@pytest.mark.parametrize('damage,cause', [
+    ('empty', 'empty'), ('short', 'training split'), ('root', 'data_root'),
+    ('files', 'inventory_files'), ('bytes', 'inventory_bytes'), ('digest', 'inventory_sha256'),
+    ('entry', 'inventory entry'), ('not_a_list', 'inventory'), ('no_root', 'data_root'),
+])
+def test_an_incomplete_training_inventory_is_refused(full_run, clone, tmp_path, damage, cause):
+    """Blocker 1: an empty or partial inventory establishes no training-data identity."""
+    run, log = full_run
+    identity = json.loads((run / 'provenance.json').read_text())['train_data_identity']
+    entries = identity['inventory']
+    if damage == 'empty':
+        rewrite_identity(run, inventory=[], inventory_files=0, inventory_bytes=0,
+                         inventory_sha256=hashlib.sha256(b'[]').hexdigest())
+    elif damage == 'short':
+        kept = entries[:-1]
+        rewrite_identity(run, inventory=kept, inventory_files=len(kept),
+                         inventory_bytes=sum(entry['size'] for entry in kept),
+                         inventory_sha256=exp06_finalize.inventory_digest(kept))
+    elif damage == 'root':
+        rewrite_identity(run, data_root=str(tmp_path / 'elsewhere'))
+    elif damage == 'no_root':
+        record = json.loads((run / 'provenance.json').read_text())
+        record['train_data_identity'].pop('data_root')
+        (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    elif damage == 'files':
+        rewrite_identity(run, inventory_files=len(entries) + 1)
+    elif damage == 'bytes':
+        rewrite_identity(run, inventory_bytes=identity['inventory_bytes'] + 1)
+    elif damage == 'digest':
+        rewrite_identity(run, inventory_sha256='f' * 64)
+    elif damage == 'entry':
+        broken = [dict(entries[0], sha256='zz')] + entries[1:]
+        rewrite_identity(run, inventory=broken)
+    else:
+        rewrite_identity(run, inventory={'path': entries[0]['path']})
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert not (run / 'completion.json').exists()
+
+
+def test_the_recorded_data_root_must_be_the_one_the_run_resolved(full_run, clone, tmp_path):
+    """Blocker 1: identity and execution record must name the same resolved root."""
+    run, log = full_run
+    record = json.loads((run / 'provenance.json').read_text())
+    record['data_root'] = str(tmp_path / 'another_mirror')
+    (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    with pytest.raises(ValueError, match='data_root'):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    record.pop('data_root')
+    (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    with pytest.raises(ValueError, match='data_root'):
         exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
     assert not (run / 'completion.json').exists()
 
