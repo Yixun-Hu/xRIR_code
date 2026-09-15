@@ -48,7 +48,8 @@ def test_shared_flags_and_defaults_equal_the_trainers(trainer_parser):
     mine = {action.dest: action for action in parser._actions}
     theirs = {action.dest: action for action in reference._actions}
     assert set(theirs) - set(mine) == set()
-    assert set(mine) - set(theirs) == {'run_type', 'provenance_out'}
+    assert set(mine) - set(theirs) == {'run_type', 'provenance_out', 'approved',
+                                       'reviewed_commit', 'exploratory'}
     for dest, action in theirs.items():
         if dest in ('help', 'backbone', 'yaw_aug'):
             continue
@@ -58,8 +59,10 @@ def test_shared_flags_and_defaults_equal_the_trainers(trainer_parser):
         assert action.required == mine[dest].required and action.nargs == mine[dest].nargs, dest
         assert type(action) is type(mine[dest]), dest
     args = exp06_train.parse_args(MINIMAL)
-    assert {k: v for k, v in vars(args).items() if k not in ('run_type', 'provenance_out')} == vars(reference_args)
+    extra = ('run_type', 'provenance_out', 'approved', 'reviewed_commit', 'exploratory')
+    assert {k: v for k, v in vars(args).items() if k not in extra} == vars(reference_args)
     assert (args.run_type, args.provenance_out) == ('full', None)
+    assert (args.approved, args.reviewed_commit, args.exploratory) == (None, None, False)
 
 
 def test_backbone_registry_and_yaw_augmentation_are_restricted():
@@ -204,3 +207,74 @@ def test_an_absent_data_root_is_refused(monkeypatch):
 def test_provenance_records_the_resolved_data_root():
     fields = exp06_train.provenance_fields(RECIPE, 'full')
     assert fields['data_root'] == exp06_train.resolve_data_root()
+
+
+@pytest.fixture(scope='module')
+def approvals(tmp_path_factory):
+    """A filled approvals file for this checkout, as the second reviewed commit will be."""
+    from tools import exp06_profiles
+    head = provenance.git_state(REPO)['HEAD']
+    value = exp06_profiles.json_value(exp06_profiles.load_approved_digests()[0])
+    value['code'].update(exp06_profiles.compute_code_digests(
+        REPO, head, keys=exp06_profiles.TRAINING_KEYS))
+    path = tmp_path_factory.mktemp('approvals') / 'approved_digests.json'
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
+    return path, head
+
+
+def test_the_approvals_and_reviewed_commit_reach_the_parser():
+    """Finding 1: the launcher hands the child what its preflight verified."""
+    args = exp06_train.parse_args(RECIPE + ['--approved', 'a.json', '--reviewed-commit', 'f' * 40])
+    assert args.approved == 'a.json' and args.reviewed_commit == 'f' * 40
+    assert args.exploratory is False
+    assert exp06_train.parse_args(MINIMAL + ['--run-type', 'probe', '--exploratory']).exploratory
+    with pytest.raises(SystemExit) as exit:  # an exploratory run is never confirmatory
+        exp06_train.parse_args(RECIPE + ['--exploratory'])
+    assert exit.value.code == 2
+
+
+def test_provenance_binds_the_orchestration_and_the_approvals(approvals):
+    """Finding 1: the launcher and the finalizer bytes are recorded at spawn."""
+    from tools import exp06_profiles
+    path, head = approvals
+    fields = exp06_train.provenance_fields(RECIPE, 'full', approved=str(path),
+                                           reviewed_commit=head)
+    assert fields['reviewed_commit'] == head
+    orchestration = fields['orchestration_closures']
+    assert set(orchestration) == {'launcher', 'finalizer'}
+    assert [record['path'] for record in orchestration['launcher']['files']] == \
+        ['tools/exp06_launch.sh']
+    assert orchestration['finalizer']['entry_module'] == 'tools.exp06_finalize'
+    assert 'tools/exp06_finalize.py' in [r['path'] for r in orchestration['finalizer']['files']]
+    for role in orchestration:
+        for record in orchestration[role]['files']:
+            assert len(record['working_tree_sha256']) == 64
+            assert len(record['reviewed_blob_sha256']) == 64
+    assert fields['approvals'] == {'path': str(path), 'schema_version': 1,
+                                   'sha256': provenance.sha256_file(path)}
+    assert fields['exploratory'] is False
+    digests = fields['code_digests']
+    assert set(digests) == set(exp06_profiles.TRAINING_KEYS)
+    assert digests['launch_sh'] == orchestration['launcher']['sha256']
+    assert digests['finalize'] == orchestration['finalizer']['sha256']
+    assert digests['trainer'] == fields['source_closures']['training']['sha256']
+
+
+def test_a_full_run_without_approvals_never_starts(monkeypatch, tmp_path):
+    """Finding 1: a confirmatory run is refused at spawn, not 31 hours later."""
+    monkeypatch.setattr(sys, 'argv', ['tools/exp06_train.py'] + RECIPE)
+    with pytest.raises(ValueError, match='approv'):
+        exp06_train.main(RECIPE + ['--save-dir', str(tmp_path / 'attempt')])
+
+
+def test_prepare_args_drops_every_admission_flag():
+    args = exp06_train.parse_args(RECIPE + ['--approved', 'a.json', '--reviewed-commit', 'f' * 40])
+    args.train_batches_per_epoch = exp06_recipe.TRAIN_BATCHES_PER_EPOCH
+    args.env = {'PYTHONHASHSEED': '0', 'XRIR_DATA_PATH': '/data',
+                'OMP_NUM_THREADS': '8', 'CUDA_VISIBLE_DEVICES': '1'}
+    exp06_train.prepare_args(args, None, {'source_closures': {'training': {'sha256': 'a' * 64}},
+                                          'git_state': {'HEAD': 'b' * 40},
+                                          'registry_sha256': 'c' * 64}, 'p.json')
+    for dropped in ('approved', 'reviewed_commit', 'exploratory'):
+        assert not hasattr(args, dropped)
+    assert exp06_recipe.check_all(vars(args)) == []
