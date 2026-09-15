@@ -55,7 +55,13 @@ data inventory and mutable inputs.
               its log and receipt re-validated and rehashed, and every child checked against
               the pipeline's ``--job-spec`` (backbone, frame, seed, rooms, heading rolls)
               and the stage1 -> stage2 -> eval checkpoint lineage. ``admissible_arm`` is
-              derived here, never read from a child.
+              derived here, never read from a child. A job has no child process of its own
+              (plan amendment A3): the shell that orchestrates it is the one that finalizes
+              it, so the job closes no log, a ``child_exit.json`` at a job root is refused as
+              ambiguous evidence, and the queue log -- when the pipeline passes one -- is
+              recorded by path and hash as information. What binds a job instead is the job
+              spec, the owner ``launch.pid`` (which must be the ``--owner-pid`` declared) and
+              the children's re-validated completions.
 
     python tools/exp06_finalize.py --run-dir <dir> --run-type full \
         --log <log> --child-exit 0 [--repo <path>] [--receipt <json>] \
@@ -1529,6 +1535,37 @@ def write_completion(path, fields):
     return fields
 
 
+def job_log(log):
+    """A job closes no log of its own, so the queue log is recorded, never read as proof."""
+    if log is None:
+        return None
+    path = Path(log)
+    _require(path.is_file(), 'missing job log: {}'.format(log))
+    return {'path': str(path.resolve()), 'sha256': provenance.sha256_file(path)}
+
+
+def haa_job_completion(run_dir, children, expect, repo, job_spec, log, child_exit, owner_pid):
+    """One pipeline job: no child of its own, hence no exit receipt and no closed log (A3).
+
+    The orchestrating shell is the process that finalizes the job, so the only execution
+    evidence a job root can hold is its own still-live ``launch.pid``; a receipt there could
+    only name that same shell. What binds a job is the job spec, that declared owner, and
+    every expected child's completion, each re-validated by ``haa_job_evidence``.
+    """
+    _require(not (run_dir / 'child_exit.json').exists(),
+             'job roots carry no child exit receipt (A3)')
+    owner = refuse_live_launch(run_dir, owner_pid)
+    _require(owner_pid is None or owner == owner_pid,
+             'the job root holds launch.pid {}, not the declared owner {}'.format(
+                 owner, owner_pid))
+    _require(child_exit == 0, 'the job was declared with child status {}'.format(child_exit))
+    fields = dict(schema_version=1, run_type='haa_job', run_dir=str(run_dir.resolve()),
+                  repo=str(Path(repo).resolve()), child_exit=child_exit, log=job_log(log),
+                  owner_pid=owner, diagnostic=False, admissible_arm=True)
+    fields.update(haa_job_evidence(run_dir, children, expect, repo, job_spec))
+    return write_completion(run_dir / 'completion.json', fields)
+
+
 def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None,
              children=(), expect=None, owner_pid=None, job_spec=None):
     """Verify one child's evidence for its run type and write completion.json."""
@@ -1536,6 +1573,9 @@ def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None,
     _require(run_type in RUN_TYPES, 'unknown run type: {!r}'.format(run_type))
     _require(run_dir.is_dir(), 'run directory does not exist: {}'.format(run_dir))
     _require(type(child_exit) is int, 'child status must be an integer')
+    if run_type == 'haa_job':  # A3: a job orchestrates children and is none itself
+        return haa_job_completion(run_dir, children, expect, repo, job_spec, log, child_exit,
+                                  owner_pid)
     refuse_live_launch(run_dir, owner_pid)
     log_record, child_exit_time, log_digest = closed_log(log, child_exit)
     receipt_record = child_exit_receipt(run_dir, child_exit, log_digest, child_exit_time)
@@ -1551,8 +1591,7 @@ def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None,
                                       receipt_record) if diagnostic
                   else full_evidence(run_dir, repo) if run_type == 'full'
                   else haa_train_evidence(run_dir, repo) if run_type == 'haa_train'
-                  else haa_eval_evidence(run_dir, repo) if run_type == 'haa_eval'
-                  else haa_job_evidence(run_dir, children, expect, repo, job_spec))
+                  else haa_eval_evidence(run_dir, repo))
     _require(provenance.sha256_file(log) == log_digest,
              'stale log: {} changed while its completion was being validated'.format(log))
     return write_completion(run_dir / 'completion.json', fields)
