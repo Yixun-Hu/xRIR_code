@@ -405,6 +405,7 @@ class LogGuard:
         self.epoch_one_done = False
         self.probe = None
         self.log_created = False
+        self.single = expected.get('tier', 'M') != 'M' or expected.get('protocol', 'unseen') == 'seen'
         self.epoch_limit_seconds = limits['epoch_seconds'] if limits else 2.431 * 3600
         self.live_epoch_limit_seconds = limits['epoch_seconds'] if limits else 2.6 * 3600
         self.tier_limits = limits
@@ -418,7 +419,7 @@ class LogGuard:
             raise LauncherFailure('guard_runtime_args', str(error)) from error
 
     def feed(self, line):
-        prefix = 'EXP04_PROBE_RESULT ' if self.expected.get('tier', 'M') == 'M' else 'EXP05_PROBE_RESULT '
+        prefix = 'EXP05_PROBE_RESULT ' if self.single else 'EXP04_PROBE_RESULT '
         if line.startswith(('EXP04_PROBE_RESULT ', 'EXP05_PROBE_RESULT ')):
             if not line.startswith(prefix):
                 raise ValueError('probe result prefix differs from tier')
@@ -486,10 +487,11 @@ class LogGuard:
                 or not math.isfinite(self.probe.get('mean_iteration_seconds', float('nan')))
                 or self.probe['mean_iteration_seconds'] <= 0):
             raise ValueError('missing or invalid probe result')
-        if self.mode == 'probe' and self.expected.get('tier', 'M') != 'M':
+        if self.mode == 'probe' and self.single:
             tier_probe.projection(self.probe)
-            if any(self.probe.get(k) != self.expected[k] for k in ('tier', 'backbone')):
-                raise ValueError('probe tier/backbone mismatch')
+            if any(self.probe.get(key, 'unseen') != self.expected.get(key, 'unseen')
+                   for key in ('tier', 'backbone', 'protocol')):
+                raise ValueError('probe tier/backbone/protocol mismatch')
         return dict(train_losses=self.losses, test_loss=self.test_loss, banner=self.banner, probe=self.probe)
 
 
@@ -934,8 +936,8 @@ def main(argv=None):
     parser.add_argument('--renew-ceiling', help='S/L full only: notebook timestamp: reason')
     args = parser.parse_args(argv)
     tiered, seen = args.tier != 'M', args.protocol == 'seen'
-    if args.renew_ceiling is not None and (not tiered or args.mode != 'full'):
-        parser.error('--renew-ceiling requires full --tier S|L')
+    if args.renew_ceiling is not None and (not (tiered or seen) or args.mode != 'full'):
+        parser.error('--renew-ceiling requires a full --tier S|L or --protocol seen run')
     if seen and tiered:
         parser.error('--protocol seen runs at tier M')
     if args.yaw_aug is not None and not seen:
@@ -965,7 +967,7 @@ def main(argv=None):
         parser.error('--reviewed-commit and --log-dir are required')
     if args.tier != 'M' and args.mode == 'smoke':
         parser.error('exp05 requires the fit-probe protocol before full')
-    if args.tier != 'M' and args.mode == 'full' and not args.probe_json:
+    if (tiered or seen) and args.mode == 'full' and not args.probe_json:
         parser.error('full requires --probe-json (clean passing fit-probe)')
     if args.tier == 'M' and not seen and args.backbone != 'simple':
         parser.error('exp04 M launches require backbone simple')
@@ -981,9 +983,10 @@ def main(argv=None):
             parser.error('full forbids --allow-cotenant')
         if not args.probe_json:
             parser.error('full requires --probe-json (clean passing probe)')
-        receipt = (probe_receipt(args.probe_json, commit, args.gpu) if args.tier == 'M' else
-                   tier_gates.validate_receipt(args.probe_json, commit, args.gpu, args.tier, args.backbone))
-        if args.tier == 'M':
+        receipt = (tier_gates.validate_receipt(args.probe_json, commit, args.gpu, args.tier,
+                       args.backbone, args.protocol, args.yaw_aug or 0) if tiered or seen else
+                   probe_receipt(args.probe_json, commit, args.gpu))
+        if not (tiered or seen):
             check_budget(root, args.projection_hours)
     stamp, mode = args.timestamp, args.mode
     if mode in ('smoke', 'full'):
@@ -1001,9 +1004,10 @@ def main(argv=None):
                      if seen else 'yaw_aug_xrir_' + stamp + '_train_' + mode + '.log')
         if mode in ('smoke', 'full'):
             limits = None
-            if mode == 'full' and args.tier != 'M':
+            if mode == 'full' and (tiered or seen):
                 limits = tier_gates.timing_limits(dict(reviewed_commit=commit,
-                    effective_args=effective_args(cmd, args.gpu, 9261), mutable_inputs=dict(probe_receipt=receipt)), args.gpu)
+                    effective_args=effective_args(cmd, args.gpu, TRAIN_BATCHES[args.protocol]),
+                    mutable_inputs=dict(probe_receipt=receipt)), args.gpu)
                 args.projection_hours = limits['projection_hours']
             def fields_factory():
                 fields = build_fields(cmd, args.gpu, commit, mode, args.allow_dirty)
@@ -1016,38 +1020,42 @@ def main(argv=None):
                 allow_cotenant=args.allow_cotenant, projection=args.projection_hours,
                 **({'limits': limits, 'renew_ceiling': args.renew_ceiling} if limits else {}))
         else:
-            output = root / ('_probe_' + stamp + ('_' + args.tier + '_' + args.backbone if tiered else '') + '.json')
+            single = tiered or seen
+            output = root / ('_probe_' + stamp + ('_' + seen_arm(args.backbone, args.yaw_aug) if seen
+                             else '_' + args.tier + '_' + args.backbone if tiered else '') + '.json')
             if output.exists():
                 raise FileExistsError(str(output))
             before = gpu_snapshot(args.gpu)
             measurements, attempts, arms_before = [], [], []
-            for yaw, label in (((0, 'arm'),) if tiered else ((0, 'off'), (1, 'on'))):
+            for yaw, label in (((args.yaw_aug or 0, 'arm'),) if single else ((0, 'off'), (1, 'on'))):
                 attempt = root / ('_probe_' + stamp + '_' + label)
                 relative = os.path.relpath(attempt, REPO)
                 cmd = [PYTHON, '-m', 'tools.exp04_probe', '--yaw-aug', str(yaw), '--save-dir', relative]
                 trainer_argv = trainer_command(yaw, relative)
-                if tiered:
-                    cmd = [PYTHON, '-m', 'tools.exp05_probe', '--tier', args.tier,
-                           '--backbone', args.backbone, '--save-dir', relative]
-                    trainer_argv = tier_probe.trainer_command(args.tier, args.backbone, relative)
+                if single:
+                    cmd = [PYTHON, '-m', 'tools.exp05_probe', '--tier', args.tier, '--backbone',
+                           args.backbone, '--save-dir', relative] + (['--protocol', 'seen'] if seen else [])
+                    cmd += ['--yaw-aug', str(yaw)] if seen and yaw else []
+                    trainer_argv = tier_probe.trainer_command(args.tier, args.backbone, relative,
+                                                              args.protocol, yaw)
                 def fields_factory():
                     fields = build_fields([PYTHON] + trainer_argv, args.gpu, commit, 'probe', args.allow_dirty)
                     fields['trainer_command'], fields['command'] = fields['command'], cmd
                     return fields
                 completed = execute_attempt(attempt, 'probe', args.gpu,
-                    log_dir / (train_log if tiered else 'yaw_aug_xrir_' + stamp + '_' + label + '_train_probe.log'),
+                    log_dir / (train_log if single else 'yaw_aug_xrir_' + stamp + '_' + label + '_train_probe.log'),
                     fields_factory, allow_cotenant=args.allow_cotenant)
                 measurements.append(completed['metrics']['probe'])
                 arms_before.append(completed['resource_before'])
                 attempts.append(str(attempt))
             after = gpu_snapshot(args.gpu)
-            measured = (dict(measurements[0], schema_version=1, gpu=args.gpu) if tiered else
+            measured = (dict(measurements[0], schema_version=1, gpu=args.gpu) if single else
                         dict(compare_results(*measurements), yaw_off=measurements[0], yaw_on=measurements[1]))
             result = dict(measured,
                 before=before, after=after, arms_before=arms_before,
                 PROBE_NOT_CLEAN=any(bool(state['compute_apps']) for state in [before, *arms_before, after]),
                 attempts=attempts, reviewed_commit=commit)
-            if tiered:
+            if single:
                 result.update(probe_attempt=dict(path=str(attempt.resolve()), **{
                     name + '_sha256': p.sha256_file(attempt / (name + '.json'))
                     for name in ('train_manifest', 'completion')}),
@@ -1060,7 +1068,7 @@ def main(argv=None):
                     result['passed'] = False
             p.write_manifest(output, result)
             if result['PROBE_NOT_CLEAN']:
-                print('PROBE_NOT_CLEAN: GPU resource checks failed; re-probe on a clean GPU.' if tiered else
+                print('PROBE_NOT_CLEAN: GPU resource checks failed; re-probe on a clean GPU.' if single else
                       'PROBE_NOT_CLEAN: another process was present; timing gate needs Planner judgment.', flush=True)
         print(json.dumps(result, sort_keys=True, allow_nan=False), flush=True)
         if mode == 'probe' and not result['passed']:

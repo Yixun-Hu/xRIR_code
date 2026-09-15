@@ -1,4 +1,4 @@
-"""Admission and cumulative time limits for exp_05 S/L training arms."""
+"""Admission and cumulative time limits for the exp_05 S/L and exp_07 seen arms."""
 import fcntl
 import datetime
 import hashlib
@@ -12,7 +12,7 @@ from tools.exp05_params import tier_of
 from tools.exp05_probe import projection
 
 
-def validate_receipt(path, commit, gpu, tier, backbone):
+def validate_receipt(path, commit, gpu, tier, backbone, protocol='unseen', yaw_aug=0):
     from tools.exp04_launcher import arm_root
     def require(ok, cause):
         if not ok:
@@ -24,8 +24,10 @@ def validate_receipt(path, commit, gpu, tier, backbone):
         digest = hashlib.sha256(raw).hexdigest()
         data = json.loads(raw)
         require(data['reviewed_commit'] == commit, 'commit mismatch')
-        require(tier in ('S', 'L') and backbone in ('simple', 'cylindrical')
-                and data['tier'] == tier and data['backbone'] == backbone, 'tier/backbone mismatch')
+        require(tier in (('M',) if protocol == 'seen' else ('S', 'L'))
+                and backbone in ('simple', 'cylindrical') and data['tier'] == tier
+                and data['backbone'] == backbone
+                and data.get('protocol', 'unseen') == protocol, 'tier/backbone mismatch')
         require(data['gpu'] == gpu, 'GPU mismatch')
         require(data['PROBE_NOT_CLEAN'] is False, 'NOT CLEAN')
         projected = projection(data)
@@ -40,9 +42,11 @@ def validate_receipt(path, commit, gpu, tier, backbone):
         manifest = json.loads((attempt_path / 'train_manifest.json').read_bytes())
         completion = json.loads((attempt_path / 'completion.json').read_bytes())
         require(manifest['reviewed_commit'] == commit, 'commit mismatch')
-        require(manifest['effective_args']['tier'] == tier and manifest['effective_args']['backbone'] == backbone,
-                'tier/backbone mismatch')
-        if (attempt_path.parent != arm_root(tier, backbone).resolve()
+        effective = manifest['effective_args']
+        require(effective['tier'] == tier and effective['backbone'] == backbone
+                and effective.get('protocol', 'unseen') == protocol
+                and effective.get('yaw_aug', 0) == yaw_aug, 'tier/backbone mismatch')
+        if (attempt_path.parent != arm_root(tier, backbone, protocol, yaw_aug).resolve()
                 or manifest['mode'] != 'probe'
                 or Path(manifest['attempt_path']).resolve() != attempt_path
                 or any(completion['metrics']['probe'][k] != data[k] for k in
@@ -60,7 +64,7 @@ def validate_receipt(path, commit, gpu, tier, backbone):
             and type(data['test_batches_total']) is int and data['test_batches_total'] > 0
             and type(data['test_batches_timed']) is int and data['test_batches_timed'] == data['test_batches_total']
             and all(type(data[k]) is int and data[k] > 0 for k in ('peak_allocated_bytes', 'peak_reserved_bytes'))
-            and data['peak_reserved_bytes'] >= data['peak_allocated_bytes'] and data['yaw_aug'] == 0
+            and data['peak_reserved_bytes'] >= data['peak_allocated_bytes'] and data['yaw_aug'] == yaw_aug
             and math.isfinite(data['train_loss']) and data['iteration_seconds'] == data['t_micro']['values']
             and all(data[k + '_iteration_seconds'] == data['t_micro'][k] for k in ('mean', 'median', 'min')))
         require(valid, 'invalid measurements or schema')
@@ -72,12 +76,13 @@ def validate_receipt(path, commit, gpu, tier, backbone):
 
 def timing_limits(fields, gpu):
     effective = fields['effective_args']
-    tier = tier_of(effective)
-    if tier == 'M':
+    tier, protocol = tier_of(effective), effective.get('protocol', 'unseen')
+    if tier == 'M' and protocol != 'seen':
         return None
     try:
         bound = fields['mutable_inputs']['probe_receipt']
-        actual = validate_receipt(bound['path'], fields['reviewed_commit'], gpu, tier, effective['backbone'])
+        actual = validate_receipt(bound['path'], fields['reviewed_commit'], gpu, tier,
+                                  effective['backbone'], protocol, effective.get('yaw_aug', 0))
         raw = Path(actual['path']).read_bytes()
         if bound['sha256'] != actual['sha256'] or hashlib.sha256(raw).hexdigest() != actual['sha256']:
             raise ValueError('changed receipt')
