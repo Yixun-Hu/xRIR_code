@@ -970,3 +970,18 @@ def test_the_comparer_records_the_identity_of_the_approvals_it_used(runs, approv
     record = json.loads(out.read_text())
     assert record['approved_digests']['committed_at'] == repo_head()
     assert record['inputs'][str(template.resolve())] == receipt['sha256']
+
+
+def test_the_comparers_own_closure_is_bound_and_revalidated(runs, approved, tmp_path,
+                                                            monkeypatch):
+    """Finding 2: the producer files H3 publishes are rechecked with every other input."""
+    monkeypatch.setattr(subject, 'approvals',
+                        lambda exploratory, path=None, commit=None: (approved, None, []))
+    out, summary = tmp_path / 'h3.json', tmp_path / 'h3.txt'
+    subject.main(['--runs-c'] + runs['C'] + ['--runs-a'] + runs['A'] + ['--runs-b']
+                 + runs['B'] + ['--json', str(out), '--summary', str(summary),
+                                '--n-boot', '200', '--exploratory'])
+    record = json.loads(out.read_text())
+    for item in record['producer']['files']:
+        path = (Path(subject.REPO) / item['path']).resolve()
+        assert record['inputs'][str(path)] == item['working_tree_sha256'], item['path']
