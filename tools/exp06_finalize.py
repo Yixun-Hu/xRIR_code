@@ -44,7 +44,7 @@ import sys
 
 import torch
 
-from model.xRIR_cyl_oriented import build_xrir_exp06
+from model.xRIR_cyl_oriented import BACKBONES_EXP06, build_xrir_exp06
 from sim_to_real.haa_dataset import ROOMS
 from tools import exp06_heading, exp06_recipe, provenance
 
@@ -66,7 +66,7 @@ REQUIRED_PROVENANCE = ('run_type', 'repo', 'reviewed_commit', 'source_closures',
                        'effective_args')
 ENTRY_MODULES = {'full': 'tools.exp06_train', 'haa_train': 'tools.exp06_haa_finetune',
                  'haa_eval': 'tools.exp06_haa_eval'}
-BACKBONES = tuple(sorted(build_xrir_exp06.__globals__['BACKBONES_EXP06']))
+BACKBONES = tuple(sorted(BACKBONES_EXP06))
 IDENTITY_KEYS = ('train_data_identity', 'data_identity')
 WIDTH = 512
 EPOCH_CHECKPOINT = 'epoch_{:03d}.pth'.format(exp06_recipe.EXP01_RECIPE['epochs'])
