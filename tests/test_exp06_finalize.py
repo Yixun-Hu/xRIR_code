@@ -1758,3 +1758,33 @@ def test_corrupt_per_sample_values_never_count_as_missing(tmp_path, haa_repo, he
     with pytest.raises(ValueError, match='edt'):
         exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)
     assert not (run / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('damage,cause', [
+    ('rooms_mixed', 'rooms'), ('run_dir_null', 'run_dir'), ('init_null', 'init'),
+    ('heading_out_of_range', 'heading')])
+def test_nested_job_schema_failures_are_named_cli_refusals(job_run, closed_log_file, capsys,
+                                                           damage, cause):
+    """Finding 5: every job-boundary type error must be a named refusal, never a TypeError."""
+    def mutate(job, names):
+        spec = json.loads((job / 'job_spec.json').read_text())
+        if damage == 'rooms_mixed':
+            spec['rooms'] = ['hallway', 1, None, {}]
+        elif damage == 'init_null':
+            spec['init'] = None
+        elif damage == 'heading_out_of_range':
+            spec['heading']['hallway'] = 512
+        else:
+            record = json.loads((job / 'stage1/completion.json').read_text())
+            record['run_dir'] = None
+            (job / 'stage1/completion.json').write_text(json.dumps(record, sort_keys=True))
+        (job / 'job_spec.json').write_text(json.dumps(spec, sort_keys=True, indent=2))
+        return names
+
+    job, children, spec, repo = job_run(mutate=mutate)
+    status = exp06_finalize.main(['--run-dir', str(job), '--run-type', 'haa_job', '--log',
+                                  str(closed_log_file), '--child-exit', '0', '--repo', str(repo),
+                                  '--expect', 'finetune', '--job-spec', spec,
+                                  '--children'] + children)
+    assert status == 2 and cause in capsys.readouterr().err
+    assert not (job / 'completion.json').exists()
