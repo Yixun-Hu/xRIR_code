@@ -33,7 +33,7 @@ from torch.utils.data import DataLoader, Subset
 
 import train_xRIR_backbone as trainer
 from model.xRIR_cyl_oriented import BACKBONES_EXP06, build_xrir_exp06
-from tools import exp06_recipe
+from tools import exp06_profiles, exp06_recipe
 from tools import provenance
 from tools.exp05_params import TIERS, count_parameters, tier_of
 from treble_multi_room_dataset.treble_xRIR_dataset import BASE_DATA_PATH, xRIR_Dataset
@@ -84,6 +84,12 @@ def build_parser():
                    help="recorded in provenance.json; the finalizer dispatches on it")
     p.add_argument("--provenance-out", default=None,
                    help="where a --no-save run writes provenance.json (default: nowhere)")
+    p.add_argument("--approved", default=None,
+                   help="approved_digests.json this run is admitted under (required for --run-type full)")
+    p.add_argument("--reviewed-commit", default=None,
+                   help="the commit the launcher's preflight verified HEAD against (default: HEAD)")
+    p.add_argument("--exploratory", action="store_true",
+                   help="diagnostic run outside the approvals; never admissible as an arm")
     return p
 
 
@@ -94,6 +100,8 @@ def parse_args(argv=None):
     args.yaw_aug_seed = args.seed if args.yaw_aug_seed is None else args.yaw_aug_seed
     if args.provenance_out is not None and not args.no_save:
         parser.error("--provenance-out applies to --no-save runs; saving runs write it to --save-dir")
+    if args.exploratory and args.run_type == 'full':
+        parser.error("--exploratory is a diagnostic mode; a full run must match the approvals")
     return args
 
 
@@ -121,8 +129,9 @@ def prepare_args(args, model, fields, destination):
     args.exp06_source_closure_sha256 = fields.get('source_closures', {}).get('training', {}).get('sha256')
     args.exp06_git_head = fields.get('git_state', {}).get('HEAD')
     args.exp06_provenance_path = destination
-    del args.run_type
-    del args.provenance_out
+    for flag in ('run_type', 'provenance_out', 'approved', 'reviewed_commit', 'exploratory'):
+        if hasattr(args, flag):
+            delattr(args, flag)
     return args
 
 
@@ -149,15 +158,44 @@ def data_identity(data_root, cache_path=TRAIN_INVENTORY):
                                               cache_path=str(Path(scratch) / 'train_inventory.json'))
 
 
-def provenance_fields(argv, run_type, identity=None, repo=REPO):
+def approvals_binding(approved):
+    """Finding 1: bind the approvals file's own bytes, so a mid-run edit is detectable."""
+    if approved is None:
+        return None
+    value, identity = exp06_profiles.load_approved_digests(approved)
+    return {'path': str(approved), 'sha256': identity['sha256'],
+            'schema_version': value['schema_version']}
+
+
+def orchestration_closures(repo, commit):
+    """Finding 1: the launcher shell and the finalizer decide this run; bind them too.
+
+    ``tools/exp06_launch.sh`` has no import closure and is bound as a file, exp_04's
+    pattern; the finalizer is bound with its whole import closure, because a later round
+    may change it while a 31-hour training run is still going.
+    """
+    launcher, launcher_digest = exp06_profiles.closure_of('launch_sh', repo, commit)
+    finalizer, finalizer_digest = exp06_profiles.closure_of('finalize', repo, commit)
+    return {'launcher': {'files': launcher, 'sha256': launcher_digest},
+            'finalizer': {'entry_module': 'tools.exp06_finalize',
+                          'files': finalizer, 'sha256': finalizer_digest}}
+
+
+def provenance_fields(argv, run_type, identity=None, repo=REPO, approved=None,
+                      reviewed_commit=None, exploratory=False):
     """Bind the import closure, HEAD, environment, data inventory and argv of one run."""
     state = provenance.git_state(repo)
+    commit = state['HEAD'] if reviewed_commit is None else reviewed_commit
     records, digest = provenance.closure_record(
-        provenance.source_closure('tools.exp06_train', repo), state['HEAD'], repo)
-    return dict(repo=str(repo), reviewed_commit=state['HEAD'], run_type=run_type,
+        provenance.source_closure('tools.exp06_train', repo), commit, repo)
+    return dict(repo=str(repo), reviewed_commit=commit, run_type=run_type,
                 data_root=resolve_data_root(),
                 source_closures={'training': {'entry_module': 'tools.exp06_train',
                                               'files': records, 'sha256': digest}},
+                orchestration_closures=orchestration_closures(repo, commit),
+                code_digests=exp06_profiles.compute_code_digests(
+                    repo, commit, keys=exp06_profiles.TRAINING_KEYS),
+                approvals=approvals_binding(approved), exploratory=bool(exploratory),
                 registry_sha256=registry_sha256(), git_state=state,
                 environment=provenance.environment(), train_data_identity=identity,
                 command=list(argv))
@@ -172,6 +210,8 @@ def main(argv=None):
     """The trainer's main, step for step, with the exp_06 registry and provenance."""
     command = list(sys.argv[1:] if argv is None else argv)
     args = parse_args(argv)
+    if args.run_type == 'full' and args.approved is None:
+        raise ValueError('a full run must name the approvals it is admitted under (--approved)')
     trainer.seed_everything(args.seed)
     torch.backends.cuda.matmul.allow_tf32 = args.tf32
     torch.backends.cudnn.allow_tf32 = args.tf32
@@ -193,7 +233,9 @@ def main(argv=None):
 
     destination = provenance_destination(args)
     fields = provenance_fields(command, args.run_type,
-                               identity=data_identity(resolve_data_root()) if destination else None)
+                               identity=data_identity(resolve_data_root()) if destination else None,
+                               approved=args.approved, reviewed_commit=args.reviewed_commit,
+                               exploratory=args.exploratory)
     prepare_args(args, model, fields, destination)
     fields['effective_args'] = vars(args)
     if destination:

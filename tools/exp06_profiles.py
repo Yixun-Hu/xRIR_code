@@ -21,6 +21,7 @@ closure, has no Python entry point here.
     approved, identity = load_approved_digests()
     require(approved, TRAINING_KEYS, repo=REPO, commit=head)   # raises on any drift
 """
+import functools
 import hashlib
 import json
 from pathlib import Path
@@ -74,11 +75,15 @@ NESTED = MP({'reused.legacy_receipt': ('path', 'sha256'),
 DIGEST = re.compile('[0-9a-f]{64}')
 
 
+@functools.lru_cache(maxsize=None)
 def _paths_of(name, repo):
-    """The file list a key's digest is taken over; a missing module is reported, never guessed."""
+    """The file list a key's digest is taken over; a missing module is reported, never guessed.
+
+    Cached per process: one import subprocess per module, however many producers ask.
+    """
     module, extra = CODE_SPECS[name]
     files = list(provenance.source_closure(module, repo)) if module else []
-    return files + [path for path in extra]
+    return tuple(files) + tuple(extra)
 
 
 def json_value(value):
@@ -143,11 +148,22 @@ def file_digest(files, repo, commit):
     return provenance.closure_record(list(files), commit, repo)[1]
 
 
-def code_digest(name, repo, commit):
-    """The approved identity of one code key at one reviewed commit."""
+@functools.lru_cache(maxsize=None)
+def _closure_of(name, repo, commit):
+    return provenance.closure_record(list(_paths_of(name, repo)), commit, repo)
+
+
+def closure_of(name, repo, commit):
+    """``(file records, digest)`` for one code key: what a producer records at spawn."""
     if name not in CODE_SPECS:
         raise ValueError('unknown approval key: {!r}'.format(name))
-    return file_digest(_paths_of(name, repo), repo, commit)
+    records, digest = _closure_of(name, str(Path(repo).resolve()), commit)
+    return [dict(record) for record in records], digest
+
+
+def code_digest(name, repo, commit):
+    """The approved identity of one code key at one reviewed commit."""
+    return closure_of(name, repo, commit)[1]
 
 
 def present_keys(repo=REPO):
