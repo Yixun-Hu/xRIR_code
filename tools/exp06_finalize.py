@@ -308,22 +308,39 @@ def child_exit_receipt(run_dir, child_exit, log_digest, marker_time):
             'ended_at': receipt['ended_at']}
 
 
-def refuse_live_launch(run_dir):
-    """No mode, recovery included, may certify a run whose launcher is still running."""
-    path = Path(run_dir) / 'launch.pid'
-    if not path.is_file():
-        return None
+def _pid_of(path):
+    """One pid file, or a named refusal; a stale file names a process that is gone."""
     try:
-        pid = int(path.read_text().split()[0])
+        pid = int(Path(path).read_text().split()[0])
     except (IndexError, ValueError) as error:
-        raise ValueError('unreadable launch.pid at {}: {}'.format(path, error)) from error
+        raise ValueError('unreadable {}: {}'.format(path, error)) from error
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
-        return pid
+        return pid, False
     except PermissionError:
         pass  # Somebody else's live process is still a live process.
-    raise ValueError('the launch pid {} of {} is still alive'.format(pid, run_dir))
+    return pid, True
+
+
+def refuse_live_launch(run_dir, owner_pid=None):
+    """No mode may certify a run some other launcher or child is still writing.
+
+    Should-fix 5: the launcher that spawned the child stays alive through draining and
+    finalisation, so its own ``launch.pid`` is admissible when it identifies itself with
+    ``--owner-pid``. A live ``child.pid`` is never admissible.
+    """
+    owner = None
+    for name in ('launch.pid', 'child.pid'):
+        path = Path(run_dir) / name
+        if not path.is_file():
+            continue
+        pid, alive = _pid_of(path)
+        if name == 'launch.pid':
+            owner = pid
+        if alive and not (name == 'launch.pid' and pid == owner_pid):
+            raise ValueError('the {} {} of {} is still alive'.format(name, pid, run_dir))
+    return owner
 
 
 @functools.lru_cache(maxsize=None)
@@ -840,13 +857,13 @@ def write_completion(path, fields):
 
 
 def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None,
-             children=(), expect=None):
+             children=(), expect=None, owner_pid=None):
     """Verify one child's evidence for its run type and write completion.json."""
     run_dir = Path(run_dir)
     _require(run_type in RUN_TYPES, 'unknown run type: {!r}'.format(run_type))
     _require(run_dir.is_dir(), 'run directory does not exist: {}'.format(run_dir))
     _require(type(child_exit) is int, 'child status must be an integer')
-    refuse_live_launch(run_dir)
+    refuse_live_launch(run_dir, owner_pid)
     log_record, child_exit_time, log_digest = closed_log(log, child_exit)
     receipt_record = child_exit_receipt(run_dir, child_exit, log_digest, child_exit_time)
     diagnostic = run_type in DIAGNOSTIC
@@ -911,22 +928,25 @@ def gpu_compute_apps(gpu):
     return [line.strip() for line in output.splitlines() if line.strip()]
 
 
+def launch_roots(attempt_root):
+    """Every location this launcher writes pid files into, attempts and smokes alike."""
+    if attempt_root is None:
+        roots = []
+    elif isinstance(attempt_root, (str, Path)):
+        roots = [attempt_root]
+    else:
+        roots = list(attempt_root)
+    return [Path(root) for root in roots if Path(root).is_dir()]
+
+
 def live_launches(attempt_root):
-    """Refuse a second launch while any attempt's launch.pid still names a live process."""
+    """Refuse a second launch while any pid file under these roots names a live process."""
     live = []
-    for pid_file in sorted(Path(attempt_root).glob('*/launch.pid')):
-        text = pid_file.read_text().split()
-        try:
-            pid = int(text[0])
-        except (IndexError, ValueError) as error:
-            raise ValueError('unreadable launch.pid at {}: {}'.format(pid_file, error)) from error
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            continue
-        except PermissionError:
-            pass  # A live process owned by somebody else is still a live process.
-        live.append({'path': str(pid_file), 'pid': pid})
+    for root in launch_roots(attempt_root):
+        for pid_file in sorted(list(root.glob('*/launch.pid')) + list(root.glob('*/child.pid'))):
+            pid, alive = _pid_of(pid_file)
+            if alive:
+                live.append({'path': str(pid_file), 'pid': pid})
     return live
 
 
@@ -937,12 +957,12 @@ def preflight(mode, gpu, reviewed_commit, attempt_root=None, repo=REPO):
     _require(state['HEAD'] == reviewed_commit,
              'HEAD {} is not the reviewed commit {!r} (full 40-hex sha required)'.format(
                  state['HEAD'], reviewed_commit))
-    running = live_launches(attempt_root) if attempt_root and Path(attempt_root).is_dir() else []
+    running = live_launches(attempt_root)
     _require(not running, 'another exp_06 launch is alive: {}'.format(running))
     apps = gpu_compute_apps(gpu) if mode in EXCLUSIVE_GPU_MODES else None
     _require(not apps, 'GPU {} is busy with compute apps {}'.format(gpu, apps))
     return dict(mode=mode, gpu=gpu, reviewed_commit=reviewed_commit, git_state=state,
-                attempt_root=str(attempt_root) if attempt_root else None,
+                attempt_root=[str(root) for root in launch_roots(attempt_root)],
                 gpu_compute_apps=apps, live_launches=running)
 
 
@@ -952,7 +972,8 @@ def preflight_main(argv):
     parser.add_argument('--mode', choices=LAUNCH_MODES, required=True)
     parser.add_argument('--gpu', type=int, required=True)
     parser.add_argument('--reviewed-commit', required=True)
-    parser.add_argument('--attempt-root')
+    parser.add_argument('--attempt-root', action='append', default=[],
+                        help='repeatable: every root whose */launch.pid must be dead')
     parser.add_argument('--repo', default=str(REPO))
     args = parser.parse_args(argv)
     try:
@@ -975,6 +996,8 @@ def build_parser():
     parser.add_argument('--receipt', help='smoke/probe receipt to bind')
     parser.add_argument('--children', nargs='+', default=(), help='haa_job: the child directories')
     parser.add_argument('--expect', choices=EXPECTATIONS, help='haa_job: which child set is required')
+    parser.add_argument('--owner-pid', type=int,
+                        help='the live launcher that owns this run dir (its launch.pid)')
     return parser
 
 
@@ -990,7 +1013,8 @@ def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
         fields = finalize(args.run_dir, args.run_type, args.log, args.child_exit, repo=args.repo,
-                          receipt=args.receipt, children=args.children, expect=args.expect)
+                          receipt=args.receipt, children=args.children, expect=args.expect,
+                          owner_pid=args.owner_pid)
     except (OSError, ValueError) as error:
         print('EXP06_FINALIZE_REFUSED ' + str(error), file=sys.stderr, flush=True)
         return 2

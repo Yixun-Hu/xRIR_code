@@ -25,19 +25,23 @@ usage() {
 say() { printf '%s\n' "$*"; }
 run() { say "RUN $*"; if [ "${DRY:-0}" -eq 0 ]; then "$@"; fi; }
 
-preflight() {
+preflight() {  # every location this launcher writes a pid file into (review 5)
     run "$PYTHON" tools/exp06_finalize.py preflight --mode "$MODE" --gpu "$GPU" \
-        --reviewed-commit "$COMMIT" --attempt-root "$ATTEMPT_ROOT"
+        --reviewed-commit "$COMMIT" --attempt-root "$ATTEMPT_ROOT" --attempt-root "$SMOKE_DIR"
+}
+
+# own_launch <dir>: this launcher owns the run dir and stays alive through draining and
+# finalisation, so launch.pid names it -- never the child, which gets child.pid.
+own_launch() {
+    printf '%s\n' "$$" > "$1/launch.pid"
 }
 
 finalize() {  # finalize <attempt> <log> <child-exit> <run-type> [receipt]
-    if [ $# -ge 5 ]; then
-        run "$PYTHON" tools/exp06_finalize.py --run-dir "$1" --run-type "$4" --log "$2" \
-            --child-exit "$3" --receipt "$5"
-    else
-        run "$PYTHON" tools/exp06_finalize.py --run-dir "$1" --run-type "$4" --log "$2" \
-            --child-exit "$3"
-    fi
+    local extra=()
+    [ -z "${OWNER:-}" ] || extra+=(--owner-pid "$OWNER")
+    [ $# -lt 5 ] || extra+=(--receipt "$5")
+    run "$PYTHON" tools/exp06_finalize.py --run-dir "$1" --run-type "$4" --log "$2" \
+        --child-exit "$3" ${extra[@]+"${extra[@]}"}
 }
 
 promote() {  # promote <attempt basename>
@@ -72,7 +76,9 @@ diagnostic() {
         finalize "$dir" "$log" '<code>' "$kind" "$receipt"
         return 0
     fi
-    mkdir -p -- "$dir" "$RECORD"
+    mkdir -p -- "$(dirname -- "$dir")" "$RECORD"
+    mkdir -- "$dir"  # exclusive: a repeated stamp must not reuse a diagnostic run
+    own_launch "$dir"
     : > "$log"
     run_child "$dir" "$log" "${cmd[@]}"
     close_child "$dir" "$log"
@@ -94,7 +100,7 @@ run_child() {
     CHILD_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%S+00:00)"
     nohup setsid "$@" > "$pipe" 2>&1 &
     pid=$!
-    printf '%s\n' "$pid" > "$attempt/launch.pid"
+    printf '%s\n' "$pid" > "$attempt/child.pid"
     wait "$pid" || status=$?
     wait "$sink" || sink_status=$?  # EOF: the child and every descendant closed the write end
     rm -f -- "$pipe"
@@ -139,6 +145,10 @@ done
 [ "$MODE" != finalize ] || { [ -n "$ATTEMPT" ] && [ -n "$LOG" ] && [ -n "$CHILD_EXIT" ]; } || usage
 
 if [ "$DRY" -eq 1 ]; then STAMP='<UTC>'; else STAMP="$(date -u +%Y%m%dT%H%M%S)"; fi
+# Recovery finalizes an attempt whose launcher is gone, so it owns no live launch.pid.
+if [ "$MODE" = finalize ]; then OWNER=""
+elif [ "$DRY" -eq 1 ]; then OWNER='<pid>'
+else OWNER="$$"; fi
 
 say "EXP06_LAUNCH mode=$MODE gpu=$GPU commit=$COMMIT root=$ATTEMPT_ROOT stamp=$STAMP dry_run=$DRY"
 say "ENV CUDA_VISIBLE_DEVICES=$GPU PYTHONHASHSEED=0 OMP_NUM_THREADS=8 XRIR_DATA_PATH=$DATA_ROOT"
@@ -164,13 +174,14 @@ full)
     say "RUN nohup setsid ${child[*]}"
     if [ "$DRY" -eq 1 ]; then
         say "MARKER EXP06_CHILD_EXIT <code> <iso> >> $log"
-        abort "$attempt" "$log" '<reason>'
+        abort "$attempt" "$log" 'child_exit_<code>'
         finalize "$attempt" "$log" '<code>' full
         promote "attempt_$STAMP"
         exit 0
     fi
     mkdir -p -- "$ATTEMPT_ROOT"
     mkdir -- "$attempt"  # exclusive: a repeated stamp must not reuse an attempt
+    own_launch "$attempt"
     mkdir -p -- "$RECORD"
     : > "$log"
     export CUDA_VISIBLE_DEVICES="$GPU" PYTHONHASHSEED=0 OMP_NUM_THREADS=8
@@ -227,9 +238,9 @@ smoke)
     ;;
 finalize)
     preflight  # recovery is gated by the same reviewed commit, clean tree and live-pid checks
-    [ "$DRY" -eq 0 ] || abort "$ATTEMPT" "$LOG" '<reason>'
+    [ "$DRY" -eq 0 ] || abort "$ATTEMPT" "$LOG" finalize_refused
     if ! finalize "$ATTEMPT" "$LOG" "$CHILD_EXIT" full; then
-        abort "$ATTEMPT" "$LOG" '<reason>'
+        abort "$ATTEMPT" "$LOG" finalize_refused
         exit 2
     fi
     promote "$(basename -- "$ATTEMPT")"
