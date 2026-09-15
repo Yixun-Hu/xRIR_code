@@ -60,7 +60,8 @@ is given (``--attempt-root`` is repeatable: attempts and smokes alike), and (for
 ``full``/``probe``) a GPU with no compute apps. ``child-exit`` closes a child's log: it
 appends the end marker and exclusively writes the receipt that binds those bytes. The
 launcher owns ``launch.pid`` and names itself with ``--owner-pid``; the child gets
-``child.pid``, and a live one is never admissible. That owner exception covers only the
+``child.pid``, and a live child is never admissible -- named by that sidecar or by the
+receipt's own ``child_pid``, which must agree with it. That owner exception covers only the
 directory being finalized, so a job refuses while any pid file under any of its children
 is alive: a pipeline's own ``launch.pid`` belongs at the job root, never in a child.
 
@@ -322,6 +323,18 @@ def child_exit_receipt(run_dir, child_exit, log_digest, marker_time):
                  receipt['status'], child_exit))
     _require(type(receipt['child_pid']) is int and receipt['child_pid'] > 0,
              'child_exit.json records child_pid {!r}, not a pid'.format(receipt['child_pid']))
+    # Finding 3: the receipt's own pid was never checked, so a partially restored attempt
+    # could certify while its recorded child was still writing. No owner exception here:
+    # only the launcher's launch.pid may be alive at finalisation.
+    _require(not _alive(receipt['child_pid']),
+             'child_exit.json records child_pid {}, a process that is still alive'.format(
+                 receipt['child_pid']))
+    sidecar = Path(run_dir) / 'child.pid'
+    if sidecar.is_file():
+        recorded, _ = _pid_of(sidecar)
+        _require(recorded == receipt['child_pid'],
+                 'child.pid records {} but child_exit.json records child_pid {}'.format(
+                     recorded, receipt['child_pid']))
     started = _timestamp(receipt['started_at'], 'started_at')
     ended = _timestamp(receipt['ended_at'], 'ended_at')
     _require(ended >= started, 'child_exit.json ended_at {} precedes the started_at {} '
@@ -340,19 +353,25 @@ def child_exit_receipt(run_dir, child_exit, log_digest, marker_time):
             'ended_at': receipt['ended_at']}
 
 
+def _alive(pid):
+    """Whether one pid names a running process; somebody else's still counts."""
+    _require(type(pid) is int and pid > 0, '{!r} is not a pid'.format(pid))
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass  # Somebody else's live process is still a live process.
+    return True
+
+
 def _pid_of(path):
     """One pid file, or a named refusal; a stale file names a process that is gone."""
     try:
         pid = int(Path(path).read_text().split()[0])
     except (IndexError, ValueError) as error:
         raise ValueError('unreadable {}: {}'.format(path, error)) from error
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return pid, False
-    except PermissionError:
-        pass  # Somebody else's live process is still a live process.
-    return pid, True
+    return pid, _alive(pid)
 
 
 def refuse_live_launch(run_dir, owner_pid=None):

@@ -1645,7 +1645,7 @@ def test_the_job_owner_may_finalize_once_every_child_is_dead(job_run, closed_log
     """Finding 1: the owner exception covers the job's own launch.pid, never a child's."""
     def mutate(job, names):
         (job / 'launch.pid').write_text('{}\n'.format(os.getpid()))
-        (job / 'stage1/child.pid').write_text('999999999\n')
+        (job / 'stage1/child.pid').write_text('{}\n'.format(DEAD_PID))  # the receipt's own
         return names
 
     job, children, spec, repo = job_run(mutate=mutate)
