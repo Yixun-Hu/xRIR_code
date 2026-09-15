@@ -267,6 +267,24 @@ def test_a_full_run_without_approvals_never_starts(monkeypatch, tmp_path):
         exp06_train.main(RECIPE + ['--save-dir', str(tmp_path / 'attempt')])
 
 
+def test_a_diagnostic_is_admitted_without_approvals_only_while_it_saves_nothing():
+    """Finding 1 of review 2: the wrapper holds the approvals, so the child needs none.
+
+    A smoke or probe that would write to its save-dir is not that case, and is refused.
+    """
+    bounded = MINIMAL + ['--run-type', 'smoke', '--no-save']
+    assert exp06_train.check_admission(exp06_train.parse_args(bounded)).run_type == 'smoke'
+    assert exp06_train.check_admission(exp06_train.parse_args(
+        MINIMAL + ['--run-type', 'probe', '--no-save'])).approved is None
+    for argv in (MINIMAL + ['--run-type', 'smoke'], MINIMAL + ['--run-type', 'probe']):
+        with pytest.raises(ValueError, match='--no-save'):
+            exp06_train.check_admission(exp06_train.parse_args(argv))
+    with pytest.raises(ValueError, match='full run'):
+        exp06_train.check_admission(exp06_train.parse_args(MINIMAL + ['--no-save']))
+    assert exp06_train.check_admission(exp06_train.parse_args(
+        RECIPE + ['--approved', 'a.json'])).approved == 'a.json'
+
+
 def test_prepare_args_drops_every_admission_flag():
     args = exp06_train.parse_args(RECIPE + ['--approved', 'a.json', '--reviewed-commit', 'f' * 40])
     args.train_batches_per_epoch = exp06_recipe.TRAIN_BATCHES_PER_EPOCH

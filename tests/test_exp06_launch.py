@@ -175,6 +175,7 @@ TRAIN_ARGV = (PYTHON + ' tools/exp06_train.py --backbone cylindrical_oriented --
               + ' --reviewed-commit ' + COMMIT)
 SMOKE_FLAGS = ('--epochs 1 --max-train-batches 3 --max-test-batches 2 --batch-size 4'
                ' --num-workers 4 --save-every 0 --no-save')
+SMOKE_ARGV = ('--backbone simple --save-dir ckpt/exp06/_smoke/t0 ' + SMOKE_FLAGS).split()
 
 
 def dry_run(mode, *extra):
@@ -234,16 +235,20 @@ def test_smoke_dry_run_lists_the_section_nine_commands():
     lines = dry_run('smoke')
     smokes = [line for line in lines if line.startswith('RUN ') and 'exp06_smoke.py' in line]
     assert len(smokes) == 4
-    for index, (entry, name, backbone, target) in enumerate([
-            ('trainer', 'trainer', 'simple', 't0'),
-            ('exp06_train', 'exp06_train_t0', 'simple', 't0'),
-            ('exp06_train', 'exp06_train_t1', 'cylindrical_oriented', 't1')]):
+    for index, (entry, name, backbone, target, child) in enumerate([
+            ('trainer', 'trainer', 'simple', 't0', ''),
+            ('exp06_train', 'exp06_train_t0', 'simple', 't0', ' --run-type smoke'),
+            ('exp06_train', 'exp06_train_t1', 'cylindrical_oriented', 't1', ' --run-type smoke')]):
         assert smokes[index].endswith(
             '--receipt ckpt/exp06/_smoke/receipt_{}_<UTC>.json --run-type smoke'
             ' --provenance-out ckpt/exp06/_smoke/{}_<UTC>/provenance.json --approved {}'
             ' --reviewed-commit {} --entry {} --alarm-seconds 300 --max-gb 3 --'
-            ' --backbone {} --save-dir ckpt/exp06/_smoke/{} {}'.format(
-                name, name, APPROVED, COMMIT, entry, backbone, target, SMOKE_FLAGS)), smokes[index]
+            ' --backbone {} --save-dir ckpt/exp06/_smoke/{} {}{}'.format(
+                name, name, APPROVED, COMMIT, entry, backbone, target, SMOKE_FLAGS, child)), \
+            smokes[index]
+    # Finding 1: the pinned trainer has no --run-type, so its argv must stay untouched.
+    assert printed_children(lines)[0] == ('trainer', SMOKE_ARGV)
+    assert printed_children(lines)[1][1] == SMOKE_ARGV + ['--run-type', 'smoke']
     assert smokes[3].endswith('--make-fixture ckpt/exp06/_smoke/fixture_cylor.pth')
     assert all('--tf32' not in line for line in smokes)
 

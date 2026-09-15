@@ -40,6 +40,7 @@ from treble_multi_room_dataset.treble_xRIR_dataset import BASE_DATA_PATH, xRIR_D
 from utils.lr_scheduler import ExponentialLR
 
 RUN_TYPES = ('full', 'smoke', 'probe')
+DIAGNOSTIC_RUN_TYPES = ('smoke', 'probe')
 REPO = Path(__file__).resolve().parents[1]
 DATA_ROOT = BASE_DATA_PATH  # exactly what the dataset module resolved; never a second fallback
 TRAIN_INVENTORY = REPO / 'ckpt/yaw_aug/train_inventory.json'
@@ -104,6 +105,25 @@ def parse_args(argv=None):
         parser.error("--provenance-out applies to --no-save runs; saving runs write it to --save-dir")
     if args.exploratory and args.run_type == 'full':
         parser.error("--exploratory is a diagnostic mode; a full run must match the approvals")
+    return args
+
+
+def check_admission(args):
+    """Finding 1 of the second full_train review: agree with the launcher's wrapper.
+
+    A confirmatory run always names the approvals it is admitted under. A registered
+    smoke or probe is dispatched by ``tools/exp06_smoke.py``, which holds the approvals
+    itself and forwards only ``--run-type`` (and ``--exploratory``) to this child; such a
+    child is admitted without ``--approved`` only while ``--no-save`` keeps it from
+    producing any artefact that could later be mistaken for an arm.
+    """
+    if args.approved is not None:
+        return args
+    if args.run_type not in DIAGNOSTIC_RUN_TYPES:
+        raise ValueError('a full run must name the approvals it is admitted under (--approved)')
+    if not args.no_save:
+        raise ValueError('a {} run that writes to its save-dir must name its approvals '
+                         '(--approved), or run with --no-save'.format(args.run_type))
     return args
 
 
@@ -252,9 +272,7 @@ def provenance_destination(args):
 def main(argv=None):
     """The trainer's main, step for step, with the exp_06 registry and provenance."""
     command = list(sys.argv[1:] if argv is None else argv)
-    args = parse_args(argv)
-    if args.run_type == 'full' and args.approved is None:
-        raise ValueError('a full run must name the approvals it is admitted under (--approved)')
+    args = check_admission(parse_args(argv))
     trainer.seed_everything(args.seed)
     torch.backends.cuda.matmul.allow_tf32 = args.tf32
     torch.backends.cudnn.allow_tf32 = args.tf32

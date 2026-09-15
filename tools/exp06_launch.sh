@@ -186,6 +186,12 @@ if [ "$DRY" -eq 0 ] && [ ! -d "$DATA_ROOT" ]; then
     exit 2
 fi
 export XRIR_DATA_PATH="$DATA_ROOT"
+# Review 2 finding 1: --run-type and --exploratory are the wrapper's flags; the exp_06
+# child keeps its own copies and defaults to `full`, so a diagnostic must be told what it
+# is or its admission guard refuses it at startup. The pinned trainer takes neither, and
+# its argv stays exactly what plan section 9 registers.
+CHILD_EXPLORATORY=()
+[ "$EXPLORATORY" -eq 0 ] || CHILD_EXPLORATORY=(--exploratory)
 
 case "$MODE" in
 full)
@@ -238,27 +244,34 @@ probe)
         --entry exp06_train --alarm-seconds 2400 --max-gb 46 -- \
         --backbone cylindrical_oriented --save-dir "$ATTEMPT_ROOT/probe_$STAMP" \
         --epochs 1 --max-train-batches 200 --max-test-batches 20 --no-save --run-type probe \
-        --batch-size 32 --accum-steps 2 --tf32 --num-workers 12 --decay-epochs 3 --log-interval 50
+        --batch-size 32 --accum-steps 2 --tf32 --num-workers 12 --decay-epochs 3 \
+        --log-interval 50 ${CHILD_EXPLORATORY[@]+"${CHILD_EXPLORATORY[@]}"}
     ;;
 smoke)
     preflight
     export CUDA_VISIBLE_DEVICES="$GPU" PYTHONHASHSEED=0 OMP_NUM_THREADS=8
     # Plan section 9 (a): the trainer and the exp_06 entry on the same bounded argv, TF32 off.
+    child=()  # the pinned trainer knows no --run-type; the exp_06 entry must be told
     for entry in trainer exp06_train; do
         name="$entry"
-        [ "$entry" = exp06_train ] && name=exp06_train_t0
+        if [ "$entry" = exp06_train ]; then
+            name=exp06_train_t0
+            child=(--run-type smoke ${CHILD_EXPLORATORY[@]+"${CHILD_EXPLORATORY[@]}"})
+        fi
         diagnostic smoke "$SMOKE_DIR/${name}_$STAMP" \
             "$RECORD/oriented_cyl_${STAMP}_smoke_${name}.log" \
             "$SMOKE_DIR/receipt_${name}_$STAMP.json" \
             --entry "$entry" --alarm-seconds 300 --max-gb 3 -- \
-            --backbone simple --save-dir "$SMOKE_DIR/t0" $SMOKE_FLAGS
+            --backbone simple --save-dir "$SMOKE_DIR/t0" $SMOKE_FLAGS \
+            ${child[@]+"${child[@]}"}
     done
     # (b) the oriented backbone on the same budget.
     diagnostic smoke "$SMOKE_DIR/exp06_train_t1_$STAMP" \
         "$RECORD/oriented_cyl_${STAMP}_smoke_exp06_train_t1.log" \
         "$SMOKE_DIR/receipt_exp06_train_t1_$STAMP.json" \
         --entry exp06_train --alarm-seconds 300 --max-gb 3 -- \
-        --backbone cylindrical_oriented --save-dir "$SMOKE_DIR/t1" $SMOKE_FLAGS
+        --backbone cylindrical_oriented --save-dir "$SMOKE_DIR/t1" $SMOKE_FLAGS \
+        --run-type smoke ${CHILD_EXPLORATORY[@]+"${CHILD_EXPLORATORY[@]}"}
     # (c) the CPU fixture the round-2b HAA smokes load (no child, no log, no completion).
     run "$PYTHON" tools/exp06_smoke.py --make-fixture "$SMOKE_DIR/fixture_cylor.pth"
     ;;
