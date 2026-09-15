@@ -1,7 +1,14 @@
-"""Load exp_07 record assets by path without colliding with exp_03's or exp_04's modules."""
+"""exp_07 record helpers: load its assets by path, and publish its canonical products."""
+import datetime
+import hashlib
 import importlib.util
+import json
+import os
 import sys
 from pathlib import Path
+
+from tools.paired_compare import recheck_inputs
+from tools.results_table import _json_bytes, _preserve_manual, _publish
 
 ASSETS = Path(__file__).resolve().parents[1] / ('worklog/worklog_yixun/'
     'exp_07_seen_protocol_claude/seen_protocol_results_assets')
@@ -19,15 +26,6 @@ def load_asset(name):
             del sys.modules[key]
             raise
     return sys.modules[key]
-
-
-import datetime
-import hashlib
-import json
-import os
-
-from tools.paired_compare import recheck_inputs
-from tools.results_table import _json_bytes, _preserve_manual, _publish
 
 
 def write_outputs(result, admitted, json_path, md_path, renderer, force_md=False, command=()):
