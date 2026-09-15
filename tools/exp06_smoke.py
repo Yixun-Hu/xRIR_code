@@ -17,8 +17,14 @@ checkpoints cannot load into the five-channel patch embedding.
     python tools/exp06_smoke.py --make-fixture ckpt/exp06/_smoke/fixture_cylor.pth
 
 The receipt records a numeric ``exit_status`` (0, the integer an entry returned, 3 for an
-alarm or memory abort, 1 for an exception), the reason in ``outcome``, and
-``aborted_memory`` when the ceiling fired while the entry was still running.
+alarm or memory abort, 1 for an exception), the reason in ``outcome`` (``ok``, ``failed``,
+``aborted_alarm`` or ``aborted_memory``, with the exception type in ``outcome_detail``), and
+``aborted_memory`` when the ceiling fired while the entry was still running. It also names
+its runner and that runner's closure digest, the run type, the budgets, the wall-clock
+window and the peak allocation, so the finalizer can require timing and memory evidence
+rather than a bare ``exit_status`` (finding 6). With ``--provenance-out`` the runner writes
+a ``provenance.json`` of its own -- closure, orchestration, code digests and approvals --
+which the finalizer binds as it binds a full run's, minus the training artefacts.
 """
 import argparse
 import datetime
@@ -33,13 +39,16 @@ import time
 import torch
 
 from model.xRIR_cyl_oriented import build_xrir_exp06
-from tools import exp06_train, provenance
+from tools import exp06_profiles, exp06_train, provenance
 
 REPO = Path(__file__).resolve().parents[1]
 ENTRIES = {'trainer': 'train_xRIR_backbone', 'exp06_train': 'tools.exp06_train',
            'exp06_haa_finetune': 'tools.exp06_haa_finetune',
            'exp06_haa_eval': 'tools.exp06_haa_eval'}
 GIB = 1024 ** 3
+RUNNER = 'tools.exp06_smoke'
+RUN_TYPES = ('smoke', 'probe')
+OUTCOMES = ('ok', 'failed', 'aborted_alarm', 'aborted_memory')
 
 
 class _Timeout(BaseException):
@@ -74,19 +83,51 @@ def _invoke(module, entry, argv):
         sys.argv = saved
 
 
+def _now():
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def diagnostic_provenance(entry, argv, run_type, repo=REPO, approved=None,
+                          reviewed_commit=None, exploratory=False):
+    """Finding 6: a diagnostic binds its code the way a full run does, minus the training.
+
+    The runner, not the entry, is the identity that matters here: ``trainer`` is the
+    pinned script, which knows nothing about exp_06 provenance.
+    """
+    state = provenance.git_state(repo)
+    commit = state['HEAD'] if reviewed_commit is None else reviewed_commit
+    files, digest = exp06_profiles.closure_of('smoke', repo, commit)
+    return dict(repo=str(repo), reviewed_commit=commit, run_type=run_type, entry=entry,
+                source_closures={'diagnostic': {'entry_module': RUNNER, 'files': files,
+                                                'sha256': digest}},
+                orchestration_closures=exp06_train.orchestration_closures(repo, commit),
+                code_digests=exp06_profiles.compute_code_digests(
+                    repo, commit, keys=exp06_profiles.TRAINING_KEYS),
+                approvals=exp06_train.approvals_binding(approved),
+                exploratory=bool(exploratory), registry_sha256=exp06_train.registry_sha256(),
+                git_state=state, environment=provenance.environment(),
+                command=[entry] + list(argv))
+
+
 def _publish(result, started, receipt):
     """One JSON line and, if asked, the receipt; both carry the same record."""
     result['wall_s'] = time.monotonic() - started
     result['peak_bytes'] = peak_bytes()
+    result['ended_at'] = _now()
     if result['exit_status'] == 0 and result['peak_bytes'] > result['max_gb'] * GIB:
-        result['exit_status'], result['outcome'] = 3, 'memory'  # retrospective peak check
+        result['exit_status'], result['outcome'] = 3, 'aborted_memory'  # retrospective peak
+    elif result['exit_status'] == 0 and result['wall_s'] > result['alarm_seconds']:
+        # The watchdog ticks once a second, so an entry can return just past the deadline
+        # without it firing. Finalisation refuses an `ok` receipt that is over its budget.
+        result['exit_status'], result['outcome'] = 3, 'aborted_alarm'
     print('EXP06_SMOKE ' + json.dumps(result, sort_keys=True, allow_nan=False), flush=True)
     if receipt is not None:
         provenance.write_completion(Path(receipt), result)
     return result
 
 
-def run_entry(entry, argv, receipt=None, alarm_seconds=300, max_gb=3.0):
+def run_entry(entry, argv, receipt=None, alarm_seconds=300, max_gb=3.0, run_type='smoke',
+              provenance_out=None, approved=None, reviewed_commit=None, exploratory=False):
     """Run one entry in-process; abort with status 3 on the alarm or the memory ceiling.
 
     ``exit_status`` is numeric: 0 for a completed entry, the integer an entry returns,
@@ -94,15 +135,30 @@ def run_entry(entry, argv, receipt=None, alarm_seconds=300, max_gb=3.0):
     """
     if entry not in ENTRIES:
         raise ValueError('unknown smoke entry {!r}; choose from {}'.format(entry, sorted(ENTRIES)))
+    if run_type not in RUN_TYPES:
+        raise ValueError('a diagnostic run_type is smoke or probe, not {!r}'.format(run_type))
     alarm_seconds = check_budget('alarm_seconds', alarm_seconds)
     max_gb = check_budget('max_gb', max_gb)
     module = importlib.import_module(ENTRIES[entry])
+    record = None
+    if provenance_out is not None:
+        record = diagnostic_provenance(entry, argv, run_type, REPO, approved,
+                                       reviewed_commit, exploratory)
+        provenance.write_manifest(Path(provenance_out), record)
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
-    result = dict(schema_version=1, diagnostic=True, entry=entry, module=ENTRIES[entry],
+    result = dict(schema_version=1, diagnostic=True, runner=RUNNER, entry=entry,
+                  module=ENTRIES[entry], run_type=run_type, exploratory=bool(exploratory),
                   argv=list(argv), alarm_seconds=alarm_seconds, max_gb=max_gb,
-                  entry_status=None, aborted_memory=False,
+                  entry_status=None, aborted_memory=False, outcome_detail=None,
+                  runner_closure_sha256=exp06_profiles.code_digest(
+                      'smoke', REPO, provenance.git_state(REPO)['HEAD']
+                      if reviewed_commit is None else reviewed_commit),
+                  provenance=None if record is None else {
+                      'path': str(Path(provenance_out).resolve()),
+                      'sha256': provenance.sha256_file(provenance_out)},
                   git_head=provenance.git_state(REPO)['HEAD'],
+                  started_at=_now(), ended_at=None,
                   timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat())
     started, ceiling = time.monotonic(), max_gb * GIB
     deadline = started + alarm_seconds
@@ -127,12 +183,13 @@ def run_entry(entry, argv, receipt=None, alarm_seconds=300, max_gb=3.0):
             signal.setitimer(signal.ITIMER_REAL, 0)
             signal.signal(signal.SIGALRM, previous)
     except _Timeout:
-        result['exit_status'], result['outcome'] = 3, 'alarm'
+        result['exit_status'], result['outcome'] = 3, 'aborted_alarm'
     except _MemoryExceeded:
-        result['exit_status'], result['outcome'] = 3, 'memory'
+        result['exit_status'], result['outcome'] = 3, 'aborted_memory'
         result['aborted_memory'] = True
     except BaseException as error:
-        result['exit_status'], result['outcome'] = 1, 'error: ' + type(error).__name__
+        result['exit_status'], result['outcome'] = 1, 'failed'
+        result['outcome_detail'] = 'error: ' + type(error).__name__
         _publish(result, started, receipt)
         raise
     _publish(result, started, receipt)
@@ -163,6 +220,13 @@ def build_parser():
     parser.add_argument('--receipt')
     parser.add_argument('--alarm-seconds', type=float, default=300)
     parser.add_argument('--max-gb', type=float, default=3.0)
+    parser.add_argument('--run-type', choices=RUN_TYPES, default='smoke',
+                        help='recorded in the receipt and in provenance.json')
+    parser.add_argument('--provenance-out', help='where this diagnostic records its bindings')
+    parser.add_argument('--approved', help='approved_digests.json the bindings are checked against')
+    parser.add_argument('--reviewed-commit', help='the commit the launcher verified HEAD against')
+    parser.add_argument('--exploratory', action='store_true',
+                        help='the approvals need not admit this diagnostic; recorded as such')
     parser.add_argument('--make-fixture', help='write a seeded CPU fixture instead of running')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('argv', nargs=argparse.REMAINDER, help='after --, the entry\'s own argv')
@@ -180,7 +244,9 @@ def main(argv=None):
     if not args.entry:
         parser.error('--entry or --make-fixture is required')
     run_entry(args.entry, child, receipt=args.receipt, alarm_seconds=args.alarm_seconds,
-              max_gb=args.max_gb)
+              max_gb=args.max_gb, run_type=args.run_type, provenance_out=args.provenance_out,
+              approved=args.approved, reviewed_commit=args.reviewed_commit,
+              exploratory=args.exploratory)
     return 0
 
 

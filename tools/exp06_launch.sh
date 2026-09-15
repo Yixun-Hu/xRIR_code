@@ -16,12 +16,14 @@ export PYTHONPATH="$PWD"
 PYTHON=/home/yixunhu/miniconda3/envs/xRIR/bin/python
 DATA_ROOT="${XRIR_DATA_PATH:-/home/yixunhu/data_cache/AcousticRooms}"  # the registered mirror
 RECORD=worklog/worklog_yixun/exp_06_oriented_cyl_claude
+APPROVED_DEFAULT="$RECORD/oriented_cyl_results_assets/approved_digests.json"
 SMOKE_DIR=ckpt/exp06/_smoke
 SMOKE_FLAGS="--epochs 1 --max-train-batches 3 --max-test-batches 2 --batch-size 4 --num-workers 4 --save-every 0 --no-save"
 
 usage() {
     echo "usage: $0 <smoke|probe|full|finalize> --gpu <g> --reviewed-commit <sha40>" >&2
-    echo "       [--attempt-root <dir>] [--attempt <dir> --log <path> --child-exit <n>] [--dry-run]" >&2
+    echo "       [--attempt-root <dir>] [--approved <json>] [--exploratory]" >&2
+    echo "       [--attempt <dir> --log <path> --child-exit <n>] [--dry-run]" >&2
     exit 2
 }
 
@@ -29,8 +31,11 @@ say() { printf '%s\n' "$*"; }
 run() { say "RUN $*"; if [ "${DRY:-0}" -eq 0 ]; then "$@"; fi; }
 
 preflight() {  # every location this launcher writes a pid file into (review 5)
+    local extra=()
+    [ "${EXPLORATORY:-0}" -eq 0 ] || extra+=(--exploratory)
     run "$PYTHON" tools/exp06_finalize.py preflight --mode "$MODE" --gpu "$GPU" \
-        --reviewed-commit "$COMMIT" --attempt-root "$ATTEMPT_ROOT" --attempt-root "$SMOKE_DIR"
+        --reviewed-commit "$COMMIT" --attempt-root "$ATTEMPT_ROOT" --attempt-root "$SMOKE_DIR" \
+        --approved "$APPROVED" ${extra[@]+"${extra[@]}"}
 }
 
 # own_launch <dir>: this launcher owns the run dir and stays alive through draining and
@@ -65,11 +70,17 @@ abort() {  # abort <run dir> <log> <reason>: the SOP's _ABORTED_<reason> on both
 
 # diagnostic <run-type> <run dir> <log> <receipt> <smoke argv...>: a smoke or probe runs
 # through the same lifecycle as the confirmatory child -- pid file, drained pipe, end
-# marker, child_exit.json -- and is finalized as a never-admissible diagnostic.
+# marker, child_exit.json -- and is finalized as a never-admissible diagnostic. Review
+# finding 5: a failed child or a refused finalisation renames the run and its log
+# _ABORTED_<reason> and exits with the child's status, so smoke stops at the first failed
+# rung; the completion recording `passed: false` is written first and moves with the run.
 diagnostic() {
     local kind="$1" dir="$2" log="$3" receipt="$4"
     shift 4
-    local cmd=("$PYTHON" tools/exp06_smoke.py "$@")
+    local flags=(--receipt "$receipt" --run-type "$kind" --provenance-out "$dir/provenance.json"
+                 --approved "$APPROVED" --reviewed-commit "$COMMIT")
+    [ "${EXPLORATORY:-0}" -eq 0 ] || flags+=(--exploratory)
+    local cmd=("$PYTHON" tools/exp06_smoke.py "${flags[@]}" "$@")
     say "MKDIR $dir"
     say "SINK cat >> $log"
     say "PIDFILE $dir/launch.pid"
@@ -85,7 +96,14 @@ diagnostic() {
     : > "$log"
     run_child "$dir" "$log" "${cmd[@]}"
     close_child "$dir" "$log"
-    finalize "$dir" "$log" "$CHILD_STATUS" "$kind" "$receipt"
+    if ! finalize "$dir" "$log" "$CHILD_STATUS" "$kind" "$receipt"; then
+        abort "$dir" "$log" finalize_refused
+        exit 2
+    fi
+    if [ "$CHILD_STATUS" -ne 0 ]; then
+        abort "$dir" "$log" "child_failed_$CHILD_STATUS"
+        exit "$CHILD_STATUS"
+    fi
 }
 
 # run_child <attempt> <log> <command...>: every byte the child or any descendant writes
@@ -125,6 +143,12 @@ close_child() {
         --child-pid "$CHILD_PID" --status "$CHILD_STATUS" --started-at "$CHILD_STARTED_AT"
 }
 
+# Defaults, so the sourced library (EXP06_LAUNCH_LIB=1) is complete under `set -u`; the
+# argument parser below overwrites them for a real launch.
+APPROVED="${APPROVED:-$APPROVED_DEFAULT}"
+COMMIT="${COMMIT:-}"
+EXPLORATORY="${EXPLORATORY:-0}"
+
 if [ "${EXP06_LAUNCH_LIB:-0}" = 1 ]; then return 0; fi
 
 MODE="${1:-}"
@@ -140,6 +164,8 @@ while [ $# -gt 0 ]; do
         --attempt) ATTEMPT="${2:-}"; shift 2 ;;
         --log) LOG="${2:-}"; shift 2 ;;
         --child-exit) CHILD_EXIT="${2:-}"; shift 2 ;;
+        --approved) APPROVED="${2:-}"; shift 2 ;;
+        --exploratory) EXPLORATORY=1; shift ;;
         --dry-run) DRY=1; shift ;;
         *) usage ;;
     esac
@@ -160,6 +186,12 @@ if [ "$DRY" -eq 0 ] && [ ! -d "$DATA_ROOT" ]; then
     exit 2
 fi
 export XRIR_DATA_PATH="$DATA_ROOT"
+# Review 2 finding 1: --run-type and --exploratory are the wrapper's flags; the exp_06
+# child keeps its own copies and defaults to `full`, so a diagnostic must be told what it
+# is or its admission guard refuses it at startup. The pinned trainer takes neither, and
+# its argv stays exactly what plan section 9 registers.
+CHILD_EXPLORATORY=()
+[ "$EXPLORATORY" -eq 0 ] || CHILD_EXPLORATORY=(--exploratory)
 
 case "$MODE" in
 full)
@@ -173,7 +205,7 @@ full)
            --num-shot 8 --max-len 9600 --lr 1e-3 --weight-decay 1e-4 --decay-epochs 3
            --lr-gamma 0.1 --epochs 12 --batch-size 32 --accum-steps 2 --num-workers 12
            --seed 0 --tf32 --log-interval 50 --save-every 500 --epoch-ckpt-every 1
-           --run-type full)
+           --run-type full --approved "$APPROVED" --reviewed-commit "$COMMIT")
     say "RUN nohup setsid ${child[*]}"
     if [ "$DRY" -eq 1 ]; then
         say "MARKER EXP06_CHILD_EXIT <code> <iso> >> $log"
@@ -209,33 +241,37 @@ probe)
     export CUDA_VISIBLE_DEVICES="$GPU" PYTHONHASHSEED=0 OMP_NUM_THREADS=8
     diagnostic probe "$ATTEMPT_ROOT/probe_$STAMP" "$RECORD/oriented_cyl_${STAMP}_probe.log" \
         "$ATTEMPT_ROOT/probe_$STAMP.json" \
-        --entry exp06_train --receipt "$ATTEMPT_ROOT/probe_$STAMP.json" \
-        --alarm-seconds 2400 --max-gb 46 -- \
+        --entry exp06_train --alarm-seconds 2400 --max-gb 46 -- \
         --backbone cylindrical_oriented --save-dir "$ATTEMPT_ROOT/probe_$STAMP" \
         --epochs 1 --max-train-batches 200 --max-test-batches 20 --no-save --run-type probe \
-        --batch-size 32 --accum-steps 2 --tf32 --num-workers 12
+        --batch-size 32 --accum-steps 2 --tf32 --num-workers 12 --decay-epochs 3 \
+        --log-interval 50 ${CHILD_EXPLORATORY[@]+"${CHILD_EXPLORATORY[@]}"}
     ;;
 smoke)
     preflight
     export CUDA_VISIBLE_DEVICES="$GPU" PYTHONHASHSEED=0 OMP_NUM_THREADS=8
     # Plan section 9 (a): the trainer and the exp_06 entry on the same bounded argv, TF32 off.
+    child=()  # the pinned trainer knows no --run-type; the exp_06 entry must be told
     for entry in trainer exp06_train; do
         name="$entry"
-        [ "$entry" = exp06_train ] && name=exp06_train_t0
+        if [ "$entry" = exp06_train ]; then
+            name=exp06_train_t0
+            child=(--run-type smoke ${CHILD_EXPLORATORY[@]+"${CHILD_EXPLORATORY[@]}"})
+        fi
         diagnostic smoke "$SMOKE_DIR/${name}_$STAMP" \
             "$RECORD/oriented_cyl_${STAMP}_smoke_${name}.log" \
             "$SMOKE_DIR/receipt_${name}_$STAMP.json" \
-            --entry "$entry" --receipt "$SMOKE_DIR/receipt_${name}_$STAMP.json" \
-            --alarm-seconds 300 --max-gb 3 -- \
-            --backbone simple --save-dir "$SMOKE_DIR/t0" $SMOKE_FLAGS
+            --entry "$entry" --alarm-seconds 300 --max-gb 3 -- \
+            --backbone simple --save-dir "$SMOKE_DIR/t0" $SMOKE_FLAGS \
+            ${child[@]+"${child[@]}"}
     done
     # (b) the oriented backbone on the same budget.
     diagnostic smoke "$SMOKE_DIR/exp06_train_t1_$STAMP" \
         "$RECORD/oriented_cyl_${STAMP}_smoke_exp06_train_t1.log" \
         "$SMOKE_DIR/receipt_exp06_train_t1_$STAMP.json" \
-        --entry exp06_train --receipt "$SMOKE_DIR/receipt_exp06_train_t1_$STAMP.json" \
-        --alarm-seconds 300 --max-gb 3 -- \
-        --backbone cylindrical_oriented --save-dir "$SMOKE_DIR/t1" $SMOKE_FLAGS
+        --entry exp06_train --alarm-seconds 300 --max-gb 3 -- \
+        --backbone cylindrical_oriented --save-dir "$SMOKE_DIR/t1" $SMOKE_FLAGS \
+        --run-type smoke ${CHILD_EXPLORATORY[@]+"${CHILD_EXPLORATORY[@]}"}
     # (c) the CPU fixture the round-2b HAA smokes load (no child, no log, no completion).
     run "$PYTHON" tools/exp06_smoke.py --make-fixture "$SMOKE_DIR/fixture_cylor.pth"
     ;;

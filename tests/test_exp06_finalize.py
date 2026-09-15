@@ -23,11 +23,22 @@ STARTED = '2026-09-15T03:00:00+00:00'
 MARKER = 'EXP06_CHILD_EXIT 0 ' + STAMP
 
 
+def dead_pid(offset=0):
+    """Finding 3: a pid that can never be live -- pids are strictly below ``pid_max``."""
+    try:
+        return int(Path('/proc/sys/kernel/pid_max').read_text()) + offset
+    except (OSError, ValueError):  # not Linux: a pid far beyond any plausible allocation
+        return 999999999 + offset
+
+
+DEAD_PID = dead_pid()
+
+
 def seal(run, log, status=0, text='', stamp=STAMP, **overrides):
     """What the launcher leaves behind: the end marker and the child-exit receipt."""
     Path(log).write_text(text + 'EXP06_CHILD_EXIT {} {}\n'.format(status, stamp))
     Path(run).mkdir(parents=True, exist_ok=True)
-    receipt = {'child_pid': 424242, 'status': status, 'started_at': STARTED, 'ended_at': stamp,
+    receipt = {'child_pid': DEAD_PID, 'status': status, 'started_at': STARTED, 'ended_at': stamp,
                'log_sha256_after_marker': provenance.sha256_file(log)}
     receipt.update(overrides)
     (Path(run) / 'child_exit.json').write_text(json.dumps(receipt, sort_keys=True, indent=2) + '\n')
@@ -65,7 +76,21 @@ def data_root(tmp_path):
     for index, name in enumerate(TRAIN_IRS + (TEST_IR,)):
         (root / name).parent.mkdir(parents=True, exist_ok=True)
         (root / name).write_bytes(b'sample %d' % index)
+    # Finding 2: the geometry the dataset reads for the same IRs, inventoried by exp_06.
+    for index, name in enumerate(exp06_train.geometry_paths(root)[0]):
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_bytes(b'geometry %d' % index)
     return root
+
+
+def geometry_of(root):
+    """The exp_06-owned inventory of every metadata JSON and depth map of both splits."""
+    return exp06_train.geometry_identity(str(root))
+
+
+def heldout_of(root):
+    """Finding 3: the exp_06-owned inventory of the waveforms test_epoch reads."""
+    return exp06_train.heldout_wav_identity(str(root))
 
 
 def inventory_of(root):
@@ -74,15 +99,52 @@ def inventory_of(root):
                                           cache_path=str(Path(root).parent / 'inventory.json'))
 
 
+def commit_clone(root, message):
+    """Add a reviewed commit to the throwaway clone and return its sha."""
+    subprocess.run(['git', 'add', '-A'], cwd=root, check=True)
+    subprocess.run(['git', '-c', 'user.email=a@b', '-c', 'user.name=t', 'commit', '-q',
+                    '-m', message], cwd=root, check=True)
+    return provenance.git_state(root)['HEAD']
+
+
+@pytest.fixture(scope='session')
+def approvals(clone):
+    """Findings 1 and 2: the filled approvals, committed as a reviewed commit will.
+
+    They live at the registered record path inside the clone, because a confirmatory run
+    may be admitted only by bytes a reviewer committed there. The null template beside
+    them is committed too, so a "nothing is approved yet" case can be read at all.
+    """
+    from tools import exp06_profiles
+    path = Path(clone) / exp06_profiles.APPROVED_RELATIVE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    for name in (path, path.parent / 'approved_digests_null.json'):
+        name.write_bytes(exp06_profiles.TEMPLATE_PATH.read_bytes())
+    head = commit_clone(clone, 'exp06: approvals placeholder')
+    value = exp06_profiles.json_value(exp06_profiles.load_approved_digests(path)[0])
+    value['code'].update(exp06_profiles.compute_code_digests(
+        clone, head, keys=exp06_profiles.TRAINING_KEYS))
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
+    commit_clone(clone, 'exp06: approvals filled')
+    return path
+
+
+@pytest.fixture(scope='session')
+def null_approvals(clone, approvals):
+    """The committed template: readable, reviewed, and approving nothing."""
+    return Path(approvals).parent / 'approved_digests_null.json'
+
+
 @functools.lru_cache(maxsize=None)
-def _base_record(repo):
+def _base_record(repo, approved):
     """One real import closure per clone; the subprocess import is far too slow per test."""
     return exp06_train.provenance_fields(['--backbone', 'cylindrical_oriented'], 'full',
-                                         repo=Path(repo))
+                                         repo=Path(repo), approved=approved)
 
 
-def provenance_record(repo=None):
-    return copy.deepcopy(_base_record(str(repo if repo is not None else REPO)))
+def provenance_record(repo=None, approved=None):
+    return copy.deepcopy(_base_record(str(repo if repo is not None else REPO),
+                                      None if approved is None else str(approved)))
 
 
 def full_args(**overrides):
@@ -117,13 +179,15 @@ def history_rows(epochs=range(1, 13)):
 
 
 @pytest.fixture
-def full_run(tmp_path, clone, data_root):
+def full_run(tmp_path, clone, data_root, approvals):
     """A complete twelve-epoch attempt directory with tiny tensors and a closed log."""
     run = tmp_path / 'attempt_20260916T130000'
     run.mkdir()
-    record = provenance_record(clone)
+    record = provenance_record(clone, approvals)
     record['data_root'] = str(Path(data_root).resolve())
     record['train_data_identity'] = inventory_of(data_root)
+    record['geometry_identity'] = geometry_of(data_root)
+    record['test_wav_identity'] = heldout_of(data_root)
     args = bound_args(run, record)
     record['effective_args'] = args
     (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
@@ -229,70 +293,96 @@ def test_non_zero_child_exit_is_refused_for_an_arm(full_run, clone):
     assert not (run / 'completion.json').exists()
 
 
-def smoke_receipt(path, **overrides):
-    record = dict(schema_version=1, diagnostic=True, entry='exp06_train',
-                  module='tools.exp06_train', argv=['--backbone', 'simple', '--no-save'],
+def smoke_receipt(path, record=None, **overrides):
+    """Finding 6: the complete receipt the runner writes, bound to its own provenance."""
+    fields = dict(schema_version=1, diagnostic=True, runner='tools.exp06_smoke',
+                  entry='exp06_train', module='tools.exp06_train', run_type='smoke',
+                  argv=['--backbone', 'simple', '--no-save'],
                   alarm_seconds=300.0, max_gb=3.0, entry_status=0, aborted_memory=False,
-                  exit_status=0, outcome='ok', wall_s=12.5, peak_bytes=0,
-                  git_head='c' * 40, timestamp=STAMP)
-    record.update(overrides)
-    Path(path).write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+                  exit_status=0, outcome='ok', outcome_detail=None, wall_s=12.5,
+                  peak_bytes=0, exploratory=False, started_at=STARTED, ended_at=STAMP,
+                  runner_closure_sha256='d' * 64, git_head='c' * 40, timestamp=STAMP)
+    if record is not None:
+        fields.update(runner_closure_sha256=record['source_closures']['diagnostic']['sha256'],
+                      git_head=record['git_state']['HEAD'], run_type=record['run_type'],
+                      exploratory=record['exploratory'])
+    fields.update(overrides)
+    Path(path).write_text(json.dumps(fields, sort_keys=True, indent=2) + '\n')
     return path
 
 
+@functools.lru_cache(maxsize=None)
+def _diagnostic_record(repo, approved, run_type):
+    from tools import exp06_smoke
+    return exp06_smoke.diagnostic_provenance('exp06_train', ['--backbone', 'simple', '--no-save'],
+                                             run_type, Path(repo), approved, exploratory=False)
+
+
+def diagnostic_run(directory, run_type, clone, approvals, **overrides):
+    """A smoke or probe directory as the runner and the launcher leave it."""
+    record = copy.deepcopy(_diagnostic_record(str(clone), str(approvals), run_type))
+    Path(directory).mkdir(parents=True, exist_ok=True)
+    (Path(directory) / 'provenance.json').write_text(
+        json.dumps(record, sort_keys=True, indent=2) + '\n')
+    return record, smoke_receipt(Path(directory).parent / (Path(directory).name + '.json'),
+                                 record=record, **overrides)
+
+
 @pytest.mark.parametrize('run_type', ['smoke', 'probe'])
-def test_diagnostic_runs_need_a_receipt_but_no_artifacts(tmp_path, run_type):
+def test_diagnostic_runs_need_a_receipt_but_no_artifacts(tmp_path, run_type, clone, approvals):
     run = tmp_path / run_type
     log = seal(run, tmp_path / 'smoke.log', text='EXP06_SMOKE {"wall_s": 12.5}\n')
-    receipt = smoke_receipt(tmp_path / 'probe_20260915T040506.json')
-    fields = exp06_finalize.finalize(run, run_type, log, 0, repo=REPO, receipt=receipt)
+    _, receipt = diagnostic_run(run, run_type, clone, approvals)
+    fields = exp06_finalize.finalize(run, run_type, log, 0, repo=clone, receipt=receipt)
     assert fields['diagnostic'] is True and fields['admissible_arm'] is False
     assert fields['passed'] is True and fields['artifacts'] == {} and fields['child_exit'] == 0
     assert fields['receipt'] == {'path': str(Path(receipt).resolve()),
                                  'sha256': provenance.sha256_file(receipt),
-                                 'entry': 'exp06_train', 'exit_status': 0, 'outcome': 'ok'}
+                                 'runner': 'tools.exp06_smoke', 'entry': 'exp06_train',
+                                 'exit_status': 0, 'outcome': 'ok', 'wall_s': 12.5,
+                                 'peak_bytes': 0, 'alarm_seconds': 300.0, 'max_gb': 3.0}
     assert json.loads((run / 'completion.json').read_text()) == fields
-    assert exp06_finalize.finalize(run, run_type, log, 0, repo=REPO, receipt=receipt) == fields
+    assert exp06_finalize.finalize(run, run_type, log, 0, repo=clone, receipt=receipt) == fields
 
 
-def test_a_failed_diagnostic_is_recorded_and_never_admissible(tmp_path):
+def test_a_failed_diagnostic_is_recorded_and_never_admissible(tmp_path, clone, approvals):
     """Should-fix 5: a failed smoke still gets a completion, marked passed: false."""
     run = tmp_path / 'smoke'
     log = seal(run, tmp_path / 'smoke.log', status=3)
-    receipt = smoke_receipt(tmp_path / 'r.json', exit_status=3, outcome='memory',
-                            aborted_memory=True)
-    fields = exp06_finalize.finalize(run, 'smoke', log, 3, repo=REPO, receipt=receipt)
+    _, receipt = diagnostic_run(run, 'smoke', clone, approvals, exit_status=3,
+                                outcome='aborted_memory', aborted_memory=True)
+    fields = exp06_finalize.finalize(run, 'smoke', log, 3, repo=clone, receipt=receipt)
     assert fields['passed'] is False and fields['admissible_arm'] is False
-    assert fields['diagnostic'] is True and fields['receipt']['outcome'] == 'memory'
+    assert fields['diagnostic'] is True and fields['receipt']['outcome'] == 'aborted_memory'
 
 
 @pytest.mark.parametrize('damage,cause', [
     ('absent', 'receipt'), ('no_receipt_flag', 'receipt'), ('not_json', 'receipt'),
     ('not_diagnostic', 'diagnostic'), ('no_argv', 'no-save'), ('saving_argv', 'no-save'),
     ('no_status', 'exit_status'), ('float_status', 'exit_status')])
-def test_invalid_diagnostic_receipts_are_refused(tmp_path, damage, cause):
+def test_invalid_diagnostic_receipts_are_refused(tmp_path, damage, cause, clone, approvals):
     run = tmp_path / 'smoke'
     log = seal(run, tmp_path / 'smoke.log')
-    path = tmp_path / 'r.json'
+    record, path = diagnostic_run(run, 'smoke', clone, approvals)
     receipt = path
     if damage == 'absent':
         receipt = tmp_path / 'gone.json'
     elif damage == 'no_receipt_flag':
         receipt = None
     elif damage == 'not_json':
-        path.write_text('{ truncated')
+        Path(path).write_text('{ truncated')
     elif damage == 'not_diagnostic':
-        smoke_receipt(path, diagnostic=False)
+        smoke_receipt(path, record=record, diagnostic=False)
     elif damage == 'no_argv':
-        smoke_receipt(path, argv=['--backbone', 'simple'])
+        smoke_receipt(path, record=record, argv=['--backbone', 'simple'])
     elif damage == 'saving_argv':
-        smoke_receipt(path, argv=['--backbone', 'simple', '--save-dir', 'ckpt/x'])
+        smoke_receipt(path, record=record, argv=['--backbone', 'simple', '--save-dir', 'ckpt/x'])
     elif damage == 'no_status':
-        smoke_receipt(path, exit_status=None)
+        smoke_receipt(path, record=record, exit_status=None)
     else:
-        smoke_receipt(path, exit_status=0.0)
+        smoke_receipt(path, record=record, exit_status=0.0)
     with pytest.raises(ValueError, match=cause):
-        exp06_finalize.finalize(run, 'smoke', log, 0, repo=REPO, receipt=receipt)
+        exp06_finalize.finalize(run, 'smoke', log, 0, repo=clone, receipt=receipt)
     assert not (run / 'completion.json').exists()
 
 
@@ -921,6 +1011,22 @@ def make_eval_child(job, name, haa_repo, heading_jsons, data_root, room, checkpo
     return run
 
 
+def open_job(job, log, text='pipeline output\n', owner=DEAD_PID):
+    """What the pipeline leaves at a job root: a queue log, its owner, and no receipt.
+
+    Plan amendment A3: the shell that orchestrates a job is still alive when it finalizes
+    it, so a job closes no log and writes no ``child_exit.json``; the queue log is
+    informational and the owner is the job root's ``launch.pid``, which
+    ``tools/exp06_haa_pipeline.sh::open_job`` writes when it opens the root. Every job
+    root therefore carries one, so a finalized fixture records a pid that can never be
+    live and only a test modelling the live launcher records its own.
+    """
+    Path(job).mkdir(parents=True, exist_ok=True)
+    Path(log).write_text(text)
+    (Path(job) / 'launch.pid').write_text('{}\n'.format(owner))
+    return log
+
+
 def write_job(tmp_path, haa_repo, heading_jsons, data_root, expect='finetune', log=None,
               mutate=None):
     """A complete pipeline seed whose children carry their real evidence, not claims."""
@@ -930,7 +1036,7 @@ def write_job(tmp_path, haa_repo, heading_jsons, data_root, expect='finetune', l
     torch.save(tiny_state(**{state_keys()[0]: torch.full((1,), 99.0)}), init)
     spec, _ = job_spec_file(job, init, heading_jsons, expect=expect)  # before the first child
     if log is not None:
-        seal(job, log, text='pipeline output\n')
+        open_job(job, log)
     names = []
     if expect == 'finetune':
         make_train_child(job, 'stage1', haa_repo, heading_jsons, data_root,
@@ -984,7 +1090,7 @@ def test_zeroshot_job_shares_one_checkpoint(job_run, closed_log_file):
 def test_a_job_of_bare_admissible_claims_is_refused(tmp_path, closed_log_file):
     """The review's third counterexample: nine children asserting their own admission."""
     job = tmp_path / 'seed0'
-    seal(job, closed_log_file, text='pipeline output\n')
+    open_job(job, closed_log_file)
     names = list(exp06_finalize.expected_children('finetune'))
     for name in names:
         (job / name).mkdir(parents=True)
@@ -1396,8 +1502,8 @@ def test_changed_training_data_bytes_are_refused(full_run, clone, data_root):
     with pytest.raises(ValueError, match='revalidation'):
         exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
     assert not (run / 'completion.json').exists()
-    (data_root / TRAIN_IRS[0]).unlink()
-    with pytest.raises(ValueError, match='inventory|revalidation'):
+    (data_root / TRAIN_IRS[0]).unlink()  # finding 2: its geometry leaves the split too
+    with pytest.raises(ValueError, match='inventory|revalidation|membership'):
         exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
 
 
@@ -1534,7 +1640,8 @@ def test_a_live_launch_pid_refuses_finalization_in_every_mode(full_run, clone, t
     seal(diagnostic, tmp_path / 'probe.log', status=0)
     (diagnostic / 'launch.pid').write_text('{}\n'.format(os.getpid()))
     with pytest.raises(ValueError, match='alive'):
-        exp06_finalize.finalize(diagnostic, 'probe', tmp_path / 'probe.log', 0, repo=clone)
+        exp06_finalize.finalize(diagnostic, 'probe', tmp_path / 'probe.log', 0, repo=clone,
+                                receipt=tmp_path / 'probe.json')
 
 
 @pytest.mark.parametrize('damage,cause', [
@@ -1653,11 +1760,14 @@ def test_a_live_child_is_never_certified_by_a_job(job_run, closed_log_file, name
         return names
 
     job, children, spec, repo = job_run(mutate=mutate)
-    for owner in (None, os.getpid()):
-        with pytest.raises(ValueError, match='alive'):
-            exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
-                                    children=children, expect='finetune', job_spec=spec,
-                                    owner_pid=owner)
+    with pytest.raises(ValueError, match='alive'):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                children=children, expect='finetune', job_spec=spec)
+    (job / 'launch.pid').write_text('{}\n'.format(os.getpid()))  # A3: the live orchestrator
+    with pytest.raises(ValueError, match='alive'):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                children=children, expect='finetune', job_spec=spec,
+                                owner_pid=os.getpid())
     assert not (job / 'completion.json').exists()
 
 
@@ -1665,7 +1775,7 @@ def test_the_job_owner_may_finalize_once_every_child_is_dead(job_run, closed_log
     """Finding 1: the owner exception covers the job's own launch.pid, never a child's."""
     def mutate(job, names):
         (job / 'launch.pid').write_text('{}\n'.format(os.getpid()))
-        (job / 'stage1/child.pid').write_text('999999999\n')
+        (job / 'stage1/child.pid').write_text('{}\n'.format(DEAD_PID))  # the receipt's own
         return names
 
     job, children, spec, repo = job_run(mutate=mutate)
@@ -1673,6 +1783,98 @@ def test_the_job_owner_may_finalize_once_every_child_is_dead(job_run, closed_log
                                      children=children, expect='finetune', job_spec=spec,
                                      owner_pid=os.getpid())
     assert fields['admissible_arm'] is True
+
+
+def test_a_job_carries_no_child_exit_receipt_of_its_own(job_run, closed_log_file):
+    """A3: the orchestrating shell is still alive, so a receipt there is ambiguous."""
+    job, children, spec, repo = job_run()
+    (job / 'child_exit.json').write_text(json.dumps({'child_pid': os.getpid(), 'status': 0}))
+    with pytest.raises(ValueError, match='no child exit receipt'):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                children=children, expect='finetune', job_spec=spec)
+    assert not (job / 'completion.json').exists()
+
+
+def test_a_job_records_its_queue_log_as_information(job_run, closed_log_file):
+    """A3: the queue log is bound by path and hash, and carries no end marker."""
+    job, children, spec, repo = job_run()
+    fields = exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                     children=children, expect='finetune', job_spec=spec)
+    assert fields['log'] == {'path': str(Path(closed_log_file).resolve()),
+                             'sha256': provenance.sha256_file(closed_log_file)}
+    assert 'child_exit_receipt' not in fields and 'child_exit_time' not in fields
+    assert 'EXP06_CHILD_EXIT' not in Path(closed_log_file).read_text()
+
+
+@pytest.mark.parametrize('present', [True, False])
+def test_a_declared_job_owner_must_be_the_launch_pid_at_the_job_root(job_run, closed_log_file,
+                                                                     present):
+    """A3: the completion binds the owner, so a job root that names another is refused."""
+    def mutate(job, names):
+        if present:
+            (job / 'launch.pid').write_text('{}\n'.format(DEAD_PID))
+        else:  # pre-merge finding 1: an owner that was never recorded is refused, not bound
+            (job / 'launch.pid').unlink()
+        return names
+
+    job, children, spec, repo = job_run(mutate=mutate)
+    with pytest.raises(ValueError, match='owner'):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo, children=children,
+                                expect='finetune', job_spec=spec, owner_pid=os.getpid())
+    assert not (job / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('expect', ['finetune', 'zeroshot'])
+@pytest.mark.parametrize('damage,declared,cause', [
+    ('missing', False, 'no launch.pid'), ('missing', True, 'no launch.pid'),
+    ('malformed', False, 'launch.pid'), ('malformed', True, 'launch.pid')])
+def test_a_job_whose_root_records_no_owner_is_never_admissible(job_run, closed_log_file, expect,
+                                                               damage, declared, cause):
+    """Pre-merge finding 1: a job binds its owner unconditionally, --owner-pid or not.
+
+    ``launch.pid`` used to be read only to compare it with a declared ``--owner-pid``, so a
+    job root that recorded no owner at all certified with ``owner_pid: null`` whenever the
+    option was omitted. The owner is required evidence: absent or unreadable, the job is
+    refused and nothing is written.
+    """
+    def mutate(job, names):
+        if damage == 'missing':
+            (job / 'launch.pid').unlink()
+        else:
+            (job / 'launch.pid').write_text('not-a-pid\n')
+        return names
+
+    job, children, spec, repo = job_run(expect, mutate)
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo, children=children,
+                                expect=expect, job_spec=spec,
+                                owner_pid=os.getpid() if declared else None)
+    assert not (job / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('expect', ['finetune', 'zeroshot'])
+def test_the_cli_binds_the_job_owner_or_refuses_the_job(job_run, closed_log_file, capsys, expect):
+    """Pre-merge finding 1 through the parser and main(), the option supplied and omitted."""
+    job, children, spec, repo = job_run(expect)
+    command = ['--run-dir', str(job), '--run-type', 'haa_job', '--log', str(closed_log_file),
+               '--child-exit', '0', '--repo', str(repo), '--expect', expect, '--job-spec', spec]
+
+    def record_owner(value):
+        path = job / 'launch.pid'
+        if value is not None:
+            path.write_text(value)
+        elif path.exists():
+            path.unlink()
+
+    for value in ('not-a-pid\n', None):
+        for declared in ([], ['--owner-pid', str(os.getpid())]):
+            record_owner(value)
+            assert exp06_finalize.main(command + declared + ['--children'] + children) == 2
+            assert 'launch.pid' in capsys.readouterr().err
+            assert not (job / 'completion.json').exists()
+    record_owner('{}\n'.format(DEAD_PID))
+    assert exp06_finalize.main(command + ['--children'] + children) == 0
+    assert json.loads((job / 'completion.json').read_text())['owner_pid'] == DEAD_PID
 
 
 @pytest.mark.parametrize('damage,cause', [

@@ -1,212 +1,197 @@
-"""Round 3b's approvals adapter: the schema of 6.4 and the per-producer matrix.
-
-``tools.exp06_profiles`` lives on the training branch and is not importable here, so
-``tools.exp06_approvals_api`` is exercised against stub approvals objects and the named
-refusal it raises when the real module is absent.
-"""
+"""exp_06 approvals: the null template, the code digests, and fail-closed admission."""
 import copy
+import hashlib
 import json
-import re
+import subprocess
+from pathlib import Path
 
 import pytest
 
-from tools import exp06_approvals_api as subject
+from tools import exp06_profiles as profiles
 
-HEX = 'a' * 64
+REPO = Path(__file__).resolve().parents[1]
+HEAD = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=REPO, text=True).strip()
 
 
+@pytest.fixture(scope='module')
 def template():
-    """The all-null template of 6.4, in this round's canonical spelling."""
-    return {'schema_version': 1,
-            'code': {key: None for key in subject.CODE_KEYS},
-            'reused': dict({key: None for key in subject.REUSED_DIGESTS},
-                           legacy_receipt={'path': None, 'sha256': None}),
-            'artifacts': {'epoch_012': {'path': None, 'epoch': None, 'sha256': None},
-                          'heading': {room: None for room in subject.ROOMS},
-                          'gate_g1_sha256': None}}
+    return profiles.load_approved_digests()
 
 
-def filled(digest=HEX):
-    value = template()
-    value['code'] = {key: digest for key in subject.CODE_KEYS}
-    value['reused'] = dict({key: digest for key in subject.REUSED_DIGESTS},
-                           legacy_receipt={'path': 'ckpt/exp06/legacy_receipt.json',
-                                           'sha256': digest})
-    value['artifacts'] = {'epoch_012': {'path': 'ckpt/exp06/final/epoch_012.pth',
-                                        'epoch': 12, 'sha256': digest},
-                          'heading': {room: digest for room in subject.ROOMS},
-                          'gate_g1_sha256': digest}
-    return value
+def test_the_template_loads_and_round_trips(template):
+    approved, identity = template
+    raw = json.loads(profiles.TEMPLATE_PATH.read_bytes())
+    assert profiles.json_value(approved) == raw
+    assert identity['path'] == str(profiles.TEMPLATE_PATH) and len(identity['sha256']) == 64
+    assert approved['schema_version'] == profiles.SCHEMA_VERSION
+    assert set(approved) == {'schema_version', 'code', 'reused', 'artifacts'}
+    assert set(approved['code']) == set(profiles.CODE_KEYS)
+    assert set(approved['reused']) == set(profiles.REUSED_KEYS)
+    assert set(approved['artifacts']) == set(profiles.ARTIFACT_KEYS)
 
 
-class StubApprovals(object):
-    """What ``tools.exp06_profiles.load_approved_digests`` returns, without the file."""
-
-    def __init__(self, value):
-        self.value = value
-
-    def load_approved_digests(self, path=None):
-        return copy.deepcopy(self.value), {'path': str(path), 'sha256': HEX}
-
-
-# --- the schema of 6.4 -----------------------------------------------------------------
-
-
-def test_the_null_template_loads_and_keeps_every_section():
-    value = subject.validate(template())
-    assert set(value) == {'schema_version', 'code', 'reused', 'artifacts'}
-    assert set(value['code']) == set(subject.CODE_KEYS)
-    assert set(value['reused']) == set(subject.REUSED_KEYS)
-    assert set(value['artifacts']) == set(subject.ARTIFACT_KEYS)
-    assert all(item is None for item in value['code'].values())
+def test_only_the_pinned_exp03_evaluator_is_filled(template):
+    approved, _ = template
+    filled = {key for key, value in approved['code'].items() if value is not None}
+    assert filled == {'evaluator_exp03'}
+    assert approved['code']['evaluator_exp03'] == profiles.EVALUATOR_EXP03
+    assert all(approved['reused'][key] is None for key in profiles.REUSED_KEYS
+               if key != 'legacy_receipt')
+    assert all(value is None for value in approved['reused']['legacy_receipt'].values())
+    assert approved['artifacts']['gate_g1'] is None
+    assert all(value is None for value in approved['artifacts']['epoch_012'].values())
 
 
-def test_a_filled_template_validates():
-    value = subject.validate(filled())
-    assert value['artifacts']['epoch_012']['epoch'] == 12
-    assert value['reused']['legacy_receipt']['sha256'] == HEX
-    assert all(re.fullmatch('[0-9a-f]{64}', item) for item in value['code'].values())
+def test_the_training_keys_are_the_launch_critical_ones():
+    assert profiles.TRAINING_KEYS == ('trainer', 'finalize', 'recipe', 'smoke', 'encoder',
+                                      'factory', 'launch_sh', 'profiles')
+    assert set(profiles.TRAINING_KEYS) <= set(profiles.CODE_KEYS)
 
 
-def test_probe_align_is_a_required_code_key():
-    """§6.4 lists the alignment helper the mirror probe's forward is recomposed from."""
-    assert 'probe_align' in subject.CODE_KEYS
-    assert subject.CODE_SOURCES['probe_align'][0] == 'tools.exp06_probe_align'
-    value = template()
-    del value['code']['probe_align']
-    with pytest.raises(ValueError, match='missing probe_align'):
-        subject.validate(value)
-
-
-def test_the_committed_spellings_are_accepted_and_normalised():
-    """The record template's own key names resolve to this round's canonical ones."""
-    value = template()
-    for committed, canonical in subject.REUSED_ALIASES.items():
-        value['reused'][committed] = value['reused'].pop(canonical)
-    value['artifacts']['gate_g1'] = value['artifacts'].pop('gate_g1_sha256')
-    value['code']['profiles'] = None
-    got = subject.validate(value)
-    assert set(got['reused']) == set(subject.REUSED_KEYS)
-    assert 'gate_g1_sha256' in got['artifacts'] and 'gate_g1' not in got['artifacts']
-    assert got['code']['profiles'] is None
-
-
-MALFORMED = {
-    'code_not_hex': lambda v: v['code'].update(bootstrap='not a digest'),
-    'code_short': lambda v: v['code'].update(bootstrap='ab' * 20),
-    'code_unknown': lambda v: v['code'].update(mystery=None),
-    'reused_not_hex': lambda v: v['reused'].update(exp02_stats_sha256=7),
-    'reused_unknown': lambda v: v['reused'].update(mystery=None),
-    'receipt_not_record': lambda v: v['reused'].update(legacy_receipt=HEX),
-    'receipt_missing_key': lambda v: v['reused']['legacy_receipt'].pop('path'),
-    'receipt_empty_path': lambda v: v['reused']['legacy_receipt'].update(path=''),
-    'epoch_zero': lambda v: v['artifacts']['epoch_012'].update(epoch=0),
-    'epoch_bool': lambda v: v['artifacts']['epoch_012'].update(epoch=True),
-    'epoch_extra': lambda v: v['artifacts']['epoch_012'].update(role='arm'),
-    'heading_room': lambda v: v['artifacts']['heading'].update(kitchen=None),
-    'heading_missing': lambda v: v['artifacts']['heading'].pop('hallway'),
-    'gate_not_hex': lambda v: v['artifacts'].update(gate_g1_sha256='x' * 64),
-    'section_missing': lambda v: v.pop('reused'),
-    'section_extra': lambda v: v.update(checkpoints={}),
-    'schema_version': lambda v: v.update(schema_version=2),
-}
-
-
-@pytest.mark.parametrize('case', sorted(MALFORMED))
-def test_a_malformed_leaf_or_section_is_refused(case):
-    value = filled()
-    MALFORMED[case](value)
-    with pytest.raises(ValueError):
-        subject.validate(value)
-
-
-# --- the lazy import -------------------------------------------------------------------
-
-
-def test_the_absent_approvals_module_is_a_named_refusal():
-    with pytest.raises(subject.ApprovalsUnavailable, match='not available on this branch'):
-        subject.approvals_module()
-    with pytest.raises(subject.ApprovalsUnavailable):
-        subject.load_approved_digests()
-    assert issubclass(subject.ApprovalsUnavailable, ValueError)
-
-
-def test_a_stub_module_is_delegated_to_and_revalidated(tmp_path):
+@pytest.mark.parametrize('damage', ['unknown_key', 'missing_key', 'not_a_digest', 'bad_schema',
+                                    'unknown_section', 'reused_shape'])
+def test_a_malformed_approvals_file_is_refused(tmp_path, template, damage):
+    approved, _ = template
+    value = profiles.json_value(approved)
+    if damage == 'unknown_key':
+        value['code']['invented'] = None
+    elif damage == 'missing_key':
+        value['code'].pop('trainer')
+    elif damage == 'not_a_digest':
+        value['code']['trainer'] = 'not a digest'
+    elif damage == 'bad_schema':
+        value['schema_version'] = '1'
+    elif damage == 'unknown_section':
+        value['extra'] = {}
+    else:
+        value['reused']['legacy_receipt'] = 'ckpt/exp06/receipt.json'
     path = tmp_path / 'approved_digests.json'
-    path.write_text(json.dumps(filled()))
-    approved, receipt = subject.load_approved_digests(path, module=StubApprovals(filled()))
-    assert approved == subject.validate(filled()) and receipt['sha256'] == HEX
-    with pytest.raises(ValueError):
-        subject.load_approved_digests(path, module=StubApprovals({'schema_version': 1}))
+    path.write_text(json.dumps(value, indent=2) + '\n')
+    with pytest.raises(ValueError, match='approved digests'):
+        profiles.load_approved_digests(path)
 
 
-# --- the per-producer matrix and the digests that fill the code section ------------------
+def test_the_record_copy_is_byte_identical_when_it_is_present():
+    """The committed record asset and the worktree copy the tools read must agree."""
+    if not profiles.APPROVED_DIGESTS_PATH.is_file():
+        pytest.skip('the record asset lives in the main tree, not on this branch')
+    assert (profiles.APPROVED_DIGESTS_PATH.read_bytes()
+            == profiles.TEMPLATE_PATH.read_bytes())
 
 
-def test_require_lists_every_unapproved_leaf_and_raises_in_production():
-    null = subject.validate(template())
-    deviations = subject.require(null, ('code',), exploratory=True)
-    assert deviations == ['not approved: code.' + key for key in subject.CODE_KEYS]
-    with pytest.raises(ValueError, match='approvals incomplete'):
-        subject.require(null, ('code',))
-    assert subject.require(subject.validate(filled()), subject.SECTIONS) == []
-    with pytest.raises(ValueError, match='unknown approvals section'):
-        subject.require(null, ('checkpoints',))
+@pytest.fixture(scope='module')
+def computed():
+    notes = []
+    return profiles.compute_code_digests(REPO, HEAD, notes=notes), notes
 
 
-def test_require_reaches_the_leaves_of_a_named_subsection():
-    value = subject.validate(filled())
-    value['artifacts']['heading']['hallway'] = None
-    assert subject.require(value, ('artifacts.epoch_012',)) == []
-    assert subject.require(value, ('artifacts.heading',), exploratory=True) == [
-        'not approved: artifacts.heading.hallway']
-    assert subject.require(value, ('artifacts.heading.class_room',)) == []
+def key_files(key):
+    """The files one approval key is taken over, named without importing anything."""
+    module, extra = profiles.CODE_SPECS[key]
+    return ([module.replace('.', '/') + '.py'] if module else []) + list(extra)
 
 
-@pytest.mark.parametrize('producer', sorted(subject.PRODUCER_REQUIREMENTS))
-def test_no_producer_requires_its_own_outputs(producer):
-    required = set(subject.leaf_paths(subject.producer_sections(producer)))
-    for output in subject.PRODUCER_OUTPUTS[producer]:
-        assert not any(path == output or path.startswith(output + '.') for path in required)
+def test_every_present_key_gets_a_digest_and_absent_modules_are_noted(computed):
+    digests, notes = computed
+    assert set(digests) == set(profiles.PRESENT_KEYS_NOW)
+    assert all(len(value) == 64 and set(value) <= set('0123456789abcdef')
+               for value in digests.values())
+    skipped = {note.split(':')[0] for note in notes}
+    assert skipped == set(profiles.CODE_KEYS) - set(digests)
+    # A key is skipped only because its files are really absent -- re-derived here rather
+    # than read back from the module's own constant. Naming the keys of a round that has
+    # not landed would go stale the moment it does, as round 2b's did on this merge, so
+    # what is pinned instead is that the merged round's keys are digested now.
+    absent = {key for key in profiles.CODE_KEYS
+              if any(not (REPO / name).is_file() for name in key_files(key))}
+    assert skipped == absent
+    assert {'haa_finetune', 'haa_eval', 'haa_pipeline_sh'} <= set(digests)
 
 
-def test_the_matrix_is_the_one_section_6_4_registers():
-    assert subject.producer_sections('mirror_probe') == (
-        'code', 'artifacts.epoch_012', 'artifacts.heading')
-    assert subject.producer_sections('summarize_haa') == ('code', 'reused', 'artifacts')
-    assert subject.producer_sections('sim_eval') == ('code', 'artifacts.epoch_012')
-    assert subject.producer_sections('compare') == ('code', 'reused')
-    assert subject.producer_sections('heading') == ('code',)
-    with pytest.raises(ValueError, match='unknown producer'):
-        subject.producer_sections('nobody')
-    assert set(subject.PRODUCER_OUTPUTS) == set(subject.PRODUCER_REQUIREMENTS)
-    assert set(subject.PRODUCER_EVIDENCE) <= set(subject.PRODUCER_REQUIREMENTS)
+def test_the_shell_launcher_is_bound_as_a_file(computed):
+    digests, _ = computed
+    assert digests['launch_sh'] == profiles.file_digest(['tools/exp06_launch.sh'], REPO, HEAD)
+    assert digests['launch_sh'] != digests['finalize']
 
 
-def test_require_producer_refuses_the_null_template_for_every_producer():
-    null = subject.validate(template())
-    for producer in sorted(subject.PRODUCER_REQUIREMENTS):
-        if subject.producer_sections(producer):
-            with pytest.raises(ValueError):
-                subject.require_producer(null, producer)
-        assert subject.require_producer(subject.validate(filled()), producer) == []
+def test_the_pinned_exp03_evaluator_digest_reproduces(computed):
+    """The pin is recomputable: exp_03's twelve files are byte-identical at HEAD."""
+    digests, _ = computed
+    assert digests['evaluator_exp03'] == profiles.EVALUATOR_EXP03
 
 
-def test_every_code_key_hashes_to_a_closure_digest_of_this_worktree():
-    """The helper the fill commit runs: one 64-hex digest per registered code key."""
-    import subprocess
-    repo = subject.__file__.rsplit('/tools/', 1)[0]
-    commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=repo,
-                                     text=True).strip()
-    digests = subject.compute_code_digests(repo, commit, keys=('probe_align', 'launch_sh'))
-    assert set(digests) == {'probe_align', 'launch_sh'}
-    assert all(re.fullmatch('[0-9a-f]{64}', value) for value in digests.values())
-    assert digests['probe_align'] != digests['launch_sh']
-    with pytest.raises(ValueError, match='unknown code key'):
-        subject.code_digest('mystery', repo, commit)
+def test_require_refuses_null_approvals_unless_exploratory(template, computed):
+    approved, _ = template
+    digests, _ = computed
+    with pytest.raises(ValueError, match='not approved'):
+        profiles.require(approved, profiles.TRAINING_KEYS, repo=REPO, commit=HEAD,
+                         current=digests)
+    deviations = profiles.require(approved, profiles.TRAINING_KEYS, repo=REPO, commit=HEAD,
+                                  exploratory=True, current=digests)
+    assert deviations and all('not approved' in deviation for deviation in deviations)
 
 
-def test_a_shell_key_binds_its_own_file_and_no_python_closure():
-    assert subject.CODE_SOURCES['launch_sh'] == (None, ('tools/exp06_launch.sh',))
-    assert subject.CODE_SOURCES['haa_pipeline_sh'] == (None, ('tools/exp06_haa_pipeline.sh',))
-    assert subject.CODE_SOURCES['evaluator_exp03'][0] == 'eval_yaw_rotation'
+def test_require_admits_matching_digests_and_names_every_drift(template, computed):
+    approved, _ = template
+    digests, _ = computed
+    filled = copy.deepcopy(profiles.json_value(approved))
+    filled['code'].update({key: digests[key] for key in profiles.TRAINING_KEYS})
+    assert profiles.require(filled, profiles.TRAINING_KEYS, repo=REPO, commit=HEAD,
+                            current=digests) == []
+    filled['code']['launch_sh'] = 'a' * 64
+    with pytest.raises(ValueError, match='launch_sh'):
+        profiles.require(filled, profiles.TRAINING_KEYS, repo=REPO, commit=HEAD,
+                         current=digests)
+    with pytest.raises(ValueError, match='unknown approval key'):
+        profiles.require(filled, ('invented',), repo=REPO, commit=HEAD, current=digests)
+
+
+@pytest.fixture
+def committed(tmp_path):
+    """A tiny repository with the null template committed at HEAD."""
+    root = tmp_path / 'repo'
+    (root / 'assets').mkdir(parents=True)
+    path = root / 'assets/approved_digests.json'
+    path.write_bytes(profiles.TEMPLATE_PATH.read_bytes())
+    for command in (['init', '-q'], ['add', '-A'], ['-c', 'user.email=a@b', '-c', 'user.name=t',
+                                                    'commit', '-q', '-m', 'approvals']):
+        subprocess.run(['git'] + command, cwd=root, check=True)
+    return root, path, subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root,
+                                               text=True).strip()
+
+
+def test_approvals_can_be_bound_to_their_committed_blob(committed):
+    """Finding 2: a confirmatory run's approvals must be bytes a reviewer committed."""
+    root, path, head = committed
+    value, identity = profiles.load_approved_digests(path, repo=root, commit=head)
+    assert value['schema_version'] == profiles.SCHEMA_VERSION
+    assert identity['repo_relative'] == 'assets/approved_digests.json'
+    assert identity['committed_at'] == head
+    assert identity['sha256'] == hashlib.sha256(path.read_bytes()).hexdigest()
+    unbound = profiles.load_approved_digests(path)[1]
+    assert unbound['sha256'] == identity['sha256'] and 'committed_at' not in unbound
+
+
+@pytest.mark.parametrize('damage,cause', [('outside', 'outside'), ('untracked', 'not tracked'),
+                                          ('edited', 'committed'), ('unknown_commit', 'not tracked')])
+def test_approvals_that_no_reviewed_commit_carries_are_refused(committed, tmp_path, damage, cause):
+    root, path, head = committed
+    if damage == 'outside':
+        path = tmp_path / 'approved_digests.json'
+        path.write_bytes(profiles.TEMPLATE_PATH.read_bytes())
+    elif damage == 'untracked':
+        path = root / 'assets/second.json'
+        path.write_bytes(profiles.TEMPLATE_PATH.read_bytes())
+    elif damage == 'edited':
+        path.write_bytes(path.read_bytes() + b'\n')
+    else:
+        head = 'b' * 40
+    with pytest.raises(ValueError, match=cause):
+        profiles.load_approved_digests(path, repo=root, commit=head)
+
+
+def test_binding_needs_both_a_repository_and_a_commit(committed):
+    root, path, head = committed
+    for repo, commit in ((root, None), (None, head)):
+        with pytest.raises(ValueError, match='repository and the commit'):
+            profiles.load_approved_digests(path, repo=repo, commit=commit)

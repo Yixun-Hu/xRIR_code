@@ -101,8 +101,7 @@ def finetune_job(name, seed):
                                           seed, root), 'haa_eval')
         children += [stage2, evaluation]
     joblog = log_of(name, tag, 'job')
-    lines += ['MARKER EXP06_CHILD_EXIT 0 <iso> >> ' + joblog,
-              job_finalize(root, joblog, 'finetune', children)]
+    lines.append(job_finalize(root, joblog, 'finetune', children))  # A3: no end marker
     return lines
 
 
@@ -122,8 +121,7 @@ def zeroshot_job(name):
                              'haa_eval')
         children.append(evaluation)
     joblog = log_of(name, 'zeroshot', 'job')
-    lines += ['MARKER EXP06_CHILD_EXIT 0 <iso> >> ' + joblog,
-              job_finalize(root, joblog, 'zeroshot', children)]
+    lines.append(job_finalize(root, joblog, 'zeroshot', children))  # A3: no end marker
     return lines
 
 
@@ -182,12 +180,54 @@ finalize_job() { printf 'FINALIZE %s\\n' "$1" >> "$WORK/events"; }
 INVOKE = 'if {}; then echo "STATUS 0"; else echo "STATUS $?"; fi\n'
 
 
-def run_lib(script, work, **environment):
+def run_lib(script, work, adapter=ADAPTER, **environment):
     """Exercise the pipeline's own functions with launching and finalisation stubbed out."""
     env = {**_base_env(), 'WORK': str(work), 'HAA_XRIR_ROOT': HAA_ROOT, **environment}
-    result = subprocess.run(['bash', '-c', ADAPTER + script], cwd=str(ROOT), text=True,
+    result = subprocess.run(['bash', '-c', adapter + script], cwd=str(ROOT), text=True,
                             capture_output=True, env=env)
     return result, Path(work, 'events').read_text().splitlines()
+
+
+JOB_ADAPTER = '''EXP06_PIPELINE_LIB=1 source tools/exp06_haa_pipeline.sh
+DRY=0; OWNER=$$; RECORD="$WORK/record"; OUT="$WORK/out"
+mkdir -p -- "$RECORD" "$OUT/cyl_or/seed0"
+: > "$WORK/events"
+run() { printf 'FINALIZE %s\\n' "$*" >> "$WORK/events"; }
+'''
+
+
+def test_a_real_job_finalisation_leaves_no_receipt_at_the_job_root(tmp_path):
+    """A3: finalize_job appends its queue line and finalizes; it closes no log."""
+    root, joblog = tmp_path / 'out/cyl_or/seed0', tmp_path / 'job.log'
+    result, events = run_lib(
+        INVOKE.format('finalize_job "$WORK/out/cyl_or/seed0" "$WORK/job.log" finetune a b'),
+        tmp_path, adapter=JOB_ADAPTER)
+    assert 'STATUS 0' in result.stdout, result.stderr
+    assert not (root / 'child_exit.json').exists()
+    assert joblog.read_text() == 'job {} expect finetune children 2\n'.format(root)
+    assert len(events) == 1 and '--run-type haa_job' in events[0]
+    assert '--children a b --expect finetune' in events[0]
+    assert events[0].endswith('--job-spec {}/job_spec.json'.format(root))
+
+
+def test_open_job_records_the_owner_pid_at_the_job_root(tmp_path):
+    """Pre-merge finding 1: the owner a job completion binds is written when the root opens.
+
+    ``own_launch`` records the pipeline shell's own ``$$`` -- the process that stays alive
+    through every child and finalizes the job -- so a job root always carries the
+    ``launch.pid`` the finalizer now requires of it, whether it created or adopted the root.
+    """
+    root = tmp_path / 'out/cyl_or/seed0'
+    script = INVOKE.format('open_job "' + str(root) + '"') + 'echo "PID $$"\n'
+    result, _ = run_lib(script, tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert 'STATUS 0' in result.stdout
+    assert 'PIDFILE ' + str(root) + '/launch.pid' in result.stdout
+    pid = [line for line in result.stdout.splitlines() if line.startswith('PID ')][0].split()[1]
+    assert (root / 'launch.pid').read_text().strip() == pid
+    result, _ = run_lib(script, tmp_path)  # the queue re-opens an existing root
+    pid = [line for line in result.stdout.splitlines() if line.startswith('PID ')][0].split()[1]
+    assert (root / 'launch.pid').read_text().strip() == pid
 
 
 @pytest.fixture(scope='module')
@@ -362,10 +402,10 @@ import shutil
 import torch
 
 from sim_to_real.haa_dataset import NO_T60_ROOMS
-from tools import exp06_finalize
+from tools import exp06_finalize, provenance
 from tools import exp06_haa_eval as evaluator
 from tools import exp06_haa_finetune as trainer
-from test_exp06_finalize import pipeline_history, state_keys
+from test_exp06_finalize import DEAD_PID, pipeline_history, state_keys
 from test_exp06_haa import MAX_LEN, cache  # noqa: F401  (session fixture)
 
 PRETRAIN = 'pretrain_epoch_012'
@@ -401,15 +441,16 @@ def tiny_state(tag=0.0):
             for index, key in enumerate(keys)}
 
 
-def dead_pid():
-    """A pid no process can hold: the finalizer refuses a receipt whose child is alive."""
-    return int(Path('/proc/sys/kernel/pid_max').read_text().strip()) + 1
-
-
 def close_child(run_dir, log, text='child output\n'):
+    """What the launcher leaves behind once its child is gone.
+
+    The receipt names the child, and the finalizer refuses one whose pid is still alive,
+    so the fixture records a pid that can never be running -- never the test process's
+    own. Only the job root's ``launch.pid`` (the launcher, still draining) may be live.
+    """
     Path(log).write_text(text)
     assert exp06_finalize.child_exit_main([
-        '--run-dir', str(run_dir), '--log', str(log), '--child-pid', str(dead_pid()),
+        '--run-dir', str(run_dir), '--log', str(log), '--child-pid', str(DEAD_PID),
         '--status', '0', '--started-at', '2026-09-15T00:00:00+00:00']) == 0
 
 
@@ -493,7 +534,7 @@ def finetune_seed(clone, cache, tmp_path_factory):
         make_eval_child(clone, cache, root, room, root / ('stage2_' + room) / 'best.pth')
         children += ['stage2_' + room, 'eval/' + room]
     joblog = root / 'job.log'
-    close_child(root, joblog, text='job output\n')
+    joblog.write_text('job output\n')  # A3: a job closes no log and writes no receipt
     (root / 'launch.pid').write_text(str(os.getpid()) + '\n')
     return root, [str(root / name) for name in children], str(spec), joblog
 
@@ -563,3 +604,43 @@ def test_a_live_pid_in_a_child_refuses_the_job(finetune_seed, clone):
                                     expect='finetune', job_spec=spec, owner_pid=os.getpid())
     finally:
         marker.unlink()
+
+
+def test_the_job_the_pipeline_really_writes_is_admissible(finetune_seed, clone):
+    """A3: the pipeline shell that finalizes a job is alive and leaves no receipt of its own.
+
+    ``tools/exp06_haa_pipeline.sh::finalize_job`` runs in the very shell whose pid the job
+    root's ``launch.pid`` names, so the owner exception is the only way any job is ever
+    admitted. It no longer closes the job log, and the job root carries no
+    ``child_exit.json``: the nine children below it hold the exit evidence, and their pids
+    really are dead by the time the launcher finalizes them.
+    """
+    root, children, spec, joblog = finetune_seed
+    completion = Path(root) / 'completion.json'
+    if completion.exists():
+        completion.unlink()
+    assert not (Path(root) / 'child_exit.json').exists()
+    assert (Path(root) / 'launch.pid').read_text().strip() == str(os.getpid())
+    fields = exp06_finalize.finalize(root, 'haa_job', joblog, 0, repo=clone, children=children,
+                                     expect='finetune', job_spec=spec, owner_pid=os.getpid())
+    assert fields['admissible_arm'] is True and fields['owner_pid'] == os.getpid()
+    assert fields['log'] == {'path': str(Path(joblog).resolve()),
+                             'sha256': provenance.sha256_file(joblog)}
+    assert 'child_exit_receipt' not in fields and 'child_exit_time' not in fields
+    assert completion.is_file()
+
+
+def test_a_receipt_at_the_job_root_is_refused(finetune_seed, clone):
+    """A3: the job root carries no child exit receipt, so one found there is refused."""
+    root, children, spec, joblog = finetune_seed
+    completion, receipt = Path(root) / 'completion.json', Path(root) / 'child_exit.json'
+    if completion.exists():
+        completion.unlink()
+    receipt.write_text(json.dumps({'child_pid': os.getpid(), 'status': 0}))
+    try:
+        with pytest.raises(ValueError, match='no child exit receipt'):
+            exp06_finalize.finalize(root, 'haa_job', joblog, 0, repo=clone, children=children,
+                                    expect='finetune', job_spec=spec, owner_pid=os.getpid())
+        assert not completion.exists()
+    finally:
+        receipt.unlink()

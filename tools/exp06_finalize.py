@@ -13,15 +13,24 @@ data inventory and mutable inputs.
 ``full``      twelve-epoch pretraining: complete provenance, closure membership and the
               three-way hashes, input revalidation, a training-data identity whose root is
               the one the run resolved and whose inventory covers the membership the pinned
-              ``train_data_identity`` derives for that root, the recipe/production/derived
+              ``train_data_identity`` derives for that root, an exp_06-owned geometry
+              inventory (every metadata JSON and receiver depth map of both splits, with
+              membership derived again here and every file rehashed), an exp_06-owned
+              inventory of the held-out waveforms the epoch test losses were measured on,
+              the recipe/production/derived
               schema on all three recorded copies of the arguments (``args.json``,
               ``last.pth['args']``, ``provenance.effective_args``) compared type-strictly
               and each ``exp06_*`` field bound to the execution record (run type, HEAD,
               recomputed registry and closure digests, the validated provenance file),
               budget completeness, and ``epoch_012.pth`` equal to ``last.pth['model']``.
-``smoke``/``probe``  no artifacts, but a valid diagnostic receipt (``diagnostic: true``, an
-              integer ``exit_status``, ``--no-save`` in its argv); ``passed`` reports
-              whether the diagnostic succeeded and it is never admissible as an arm.
+``smoke``/``probe``  no artifacts, but a ``provenance.json`` bound like the full case minus
+              the training artefacts, and a complete diagnostic receipt: the runner's
+              identity and closure digest, the entry, the argv (``--no-save``), the
+              wall-clock window, the peak allocation, both budgets, an outcome in
+              {ok, failed, aborted_alarm, aborted_memory} and the exploratory flag -- all
+              consistent with each other, with the startup command and with the child
+              window the launcher recorded. ``passed`` reports whether the diagnostic
+              succeeded; never an arm.
 ``haa_train`` one fine-tuning child: provenance and closure, arguments agreeing with the
               record, a heading binding per room (``phi_deg``, ``k`` = roll(phi), decision,
               sha256 and path, verified against the heading JSON), ``init_sha256`` equal to
@@ -46,7 +55,14 @@ data inventory and mutable inputs.
               its log and receipt re-validated and rehashed, and every child checked against
               the pipeline's ``--job-spec`` (backbone, frame, seed, rooms, heading rolls)
               and the stage1 -> stage2 -> eval checkpoint lineage. ``admissible_arm`` is
-              derived here, never read from a child.
+              derived here, never read from a child. A job has no child process of its own
+              (plan amendment A3): the shell that orchestrates it is the one that finalizes
+              it, so the job closes no log, a ``child_exit.json`` at a job root is refused as
+              ambiguous evidence, and the queue log -- when the pipeline passes one -- is
+              recorded by path and hash as information. What binds a job instead is the job
+              spec, the owner the job root's own ``launch.pid`` records -- required of every
+              job, and which must be the ``--owner-pid`` declared whenever the launcher
+              declares one -- and the children's re-validated completions.
 
     python tools/exp06_finalize.py --run-dir <dir> --run-type full \
         --log <log> --child-exit 0 [--repo <path>] [--receipt <json>] \
@@ -60,12 +76,14 @@ is given (``--attempt-root`` is repeatable: attempts and smokes alike), and (for
 ``full``/``probe``) a GPU with no compute apps. ``child-exit`` closes a child's log: it
 appends the end marker and exclusively writes the receipt that binds those bytes. The
 launcher owns ``launch.pid`` and names itself with ``--owner-pid``; the child gets
-``child.pid``, and a live one is never admissible. That owner exception covers only the
+``child.pid``, and a live child is never admissible -- named by that sidecar or by the
+receipt's own ``child_pid``, which must agree with it. That owner exception covers only the
 directory being finalized, so a job refuses while any pid file under any of its children
 is alive: a pipeline's own ``launch.pid`` belongs at the job root, never in a child.
 
     python tools/exp06_finalize.py preflight --mode full --gpu 1 \
-        --reviewed-commit <sha> [--attempt-root <dir>]... [--repo <path>]
+        --reviewed-commit <sha> [--attempt-root <dir>]... [--repo <path>] \
+        [--approved <approved_digests.json>] [--exploratory]
     python tools/exp06_finalize.py child-exit --run-dir <dir> --log <log> \
         --child-pid <pid> --status <n> --started-at <iso>
 
@@ -84,12 +102,14 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import time
 
 import torch
 
 from model.xRIR_cyl_oriented import BACKBONES_EXP06, build_xrir_exp06
 from sim_to_real.haa_dataset import NO_T60_ROOMS, ROOMS
-from tools import exp06_heading, exp06_recipe, provenance
+from tools import (exp06_heading, exp06_profiles, exp06_recipe, exp06_smoke, exp06_train,
+                   provenance)
 
 REPO = Path(__file__).resolve().parents[1]
 MARKER = 'EXP06_CHILD_EXIT'
@@ -121,7 +141,19 @@ REQUIRED_PROVENANCE = ('run_type', 'repo', 'reviewed_commit', 'source_closures',
                        'registry_sha256', 'git_state', 'environment', 'command',
                        'effective_args')
 ENTRY_MODULES = {'full': 'tools.exp06_train', 'haa_train': 'tools.exp06_haa_finetune',
-                 'haa_eval': 'tools.exp06_haa_eval'}
+                 'haa_eval': 'tools.exp06_haa_eval', 'smoke': 'tools.exp06_smoke',
+                 'probe': 'tools.exp06_smoke'}
+DIAGNOSTIC_PROVENANCE = ('run_type', 'repo', 'reviewed_commit', 'source_closures',
+                         'registry_sha256', 'git_state', 'environment', 'command')
+# Finding 6: a receipt proves nothing without the runner's identity, its budgets and what
+# the run actually cost. Every field is required and typed before `passed` is derived.
+RECEIPT_NUMBERS = ('wall_s', 'alarm_seconds', 'max_gb')
+DIAGNOSTIC_RECEIPT = ('runner', 'runner_closure_sha256', 'entry', 'argv', 'run_type',
+                      'started_at', 'ended_at', 'exit_status', 'exploratory', 'git_head',
+                      'peak_bytes', 'outcome') + RECEIPT_NUMBERS
+OUTCOMES = ('ok', 'failed', 'aborted_alarm', 'aborted_memory')
+SMOKE_ENTRIES = exp06_smoke.ENTRIES  # the only entries a diagnostic receipt may name
+GIB = 1024 ** 3
 BACKBONES = tuple(sorted(BACKBONES_EXP06))
 IDENTITY_KEYS = ('train_data_identity', 'data_identity')
 IDENTITY_FIELDS = ('data_root', 'inventory', 'inventory_files', 'inventory_bytes',
@@ -272,6 +304,84 @@ def verify_train_identity(record, key='train_data_identity'):
     return entries
 
 
+def _identity_root(record, key):
+    """The one root the run resolved, required to be the root the inventory describes."""
+    declared = record.get('data_root')
+    _require(isinstance(declared, str) and declared,
+             'provenance.json records no resolved data_root for the {}'.format(key))
+    resolved = str(Path(record[key]['data_root']).resolve())
+    _require(str(Path(declared).resolve()) == resolved,
+             '{}: data_root {} is not the {} the run resolved'.format(
+                 key, record[key]['data_root'], declared))
+    return resolved
+
+
+def _membership(key, entries, expected):
+    """Finding 3: no omission, no addition and no duplicate versus the derived membership."""
+    recorded = {entry['path'] for entry in entries}
+    _require(len(recorded) == len(entries),
+             '{}: the inventory records {} entries for {} distinct paths'.format(
+                 key, len(entries), len(recorded)))
+    difference = sorted(set(expected) ^ recorded)
+    _require(not difference, '{}: membership differs from the split by {} files, e.g. {}'.format(
+        key, len(difference), difference[:2]))
+
+
+def verify_heldout_identity(record, key='test_wav_identity'):
+    """Finding 3a: the test-split waveforms every epoch's test loss was measured on.
+
+    Membership comes from the pinned dataset's own split logic, never from the record,
+    and every waveform is hashed again here.
+    """
+    entries = check_identity_schema(record.get(key), key)
+    resolved = _identity_root(record, key)
+    try:
+        expected = exp06_train.heldout_wav_paths(resolved)
+    except Exception as error:  # the dataset and the filesystem refuse alike
+        raise ValueError('cannot derive the {} of {}: {}: {}'.format(
+            key, resolved, type(error).__name__, error)) from error
+    _membership(key, entries, expected)
+    fresh = provenance._inventory(expected, resolved, workers=exp06_train.GEOMETRY_WORKERS)
+    _require(fresh['inventory_sha256'] == record[key]['inventory_sha256'],
+             '{}: the held-out waveforms changed since the run started'.format(key))
+    return {'test_wav_files': len(entries), 'test_wav_bytes': fresh['inventory_bytes'],
+            'test_wav_sha256': fresh['inventory_sha256']}
+
+
+def verify_geometry_identity(record, key='geometry_identity'):
+    """Finding 2: the metadata and depth maps the run consumed, rehashed at finalisation.
+
+    Membership is derived here from the pinned dataset's own split logic, never read from
+    the record, and every file is hashed again -- a changed source position or panorama
+    is a refusal even though the IR waveforms are untouched.
+    """
+    entries = check_identity_schema(record.get(key), key)
+    resolved = _identity_root(record, key)
+    # Finding 3b: the required splits come from the full-run contract, never from the
+    # record -- a correctly hashed splits=['train'] inventory left the held-out geometry
+    # unbound and still certified.
+    splits = record[key].get('splits')
+    _require(isinstance(splits, list) and list(splits) == list(exp06_train.GEOMETRY_SPLITS),
+             '{}: splits {!r} are not the {} a full run reads'.format(
+                 key, splits, list(exp06_train.GEOMETRY_SPLITS)))
+    try:
+        expected, counts = exp06_train.geometry_paths(resolved, exp06_train.GEOMETRY_SPLITS)
+    except Exception as error:  # the dataset and the filesystem refuse alike
+        raise ValueError('cannot derive the {} of {}: {}: {}'.format(
+            key, resolved, type(error).__name__, error)) from error
+    _membership(key, entries, expected)
+    started = time.monotonic()
+    fresh = provenance._inventory(expected, resolved, workers=exp06_train.GEOMETRY_WORKERS)
+    seconds = time.monotonic() - started
+    _require(fresh['inventory_sha256'] == record[key]['inventory_sha256'],
+             '{}: the geometry inputs changed since the run started'.format(key))
+    # The measurement is reported, never recorded: a completion must be byte-identical on
+    # a re-run, and a wall time never is.
+    print('EXP06_GEOMETRY_REHASH {} files in {:.1f} s'.format(len(entries), seconds), flush=True)
+    return {'geometry_files': len(entries), 'geometry_bytes': fresh['inventory_bytes'],
+            'geometry_splits': dict(counts), 'geometry_sha256': fresh['inventory_sha256']}
+
+
 def closed_log(log, child_exit):
     """Require the launcher's end marker as the log's last line, agreeing on the status.
 
@@ -322,6 +432,18 @@ def child_exit_receipt(run_dir, child_exit, log_digest, marker_time):
                  receipt['status'], child_exit))
     _require(type(receipt['child_pid']) is int and receipt['child_pid'] > 0,
              'child_exit.json records child_pid {!r}, not a pid'.format(receipt['child_pid']))
+    # Finding 3: the receipt's own pid was never checked, so a partially restored attempt
+    # could certify while its recorded child was still writing. No owner exception here:
+    # only the launcher's launch.pid may be alive at finalisation.
+    _require(not _alive(receipt['child_pid']),
+             'child_exit.json records child_pid {}, a process that is still alive'.format(
+                 receipt['child_pid']))
+    sidecar = Path(run_dir) / 'child.pid'
+    if sidecar.is_file():
+        recorded, _ = _pid_of(sidecar)
+        _require(recorded == receipt['child_pid'],
+                 'child.pid records {} but child_exit.json records child_pid {}'.format(
+                     recorded, receipt['child_pid']))
     started = _timestamp(receipt['started_at'], 'started_at')
     ended = _timestamp(receipt['ended_at'], 'ended_at')
     _require(ended >= started, 'child_exit.json ended_at {} precedes the started_at {} '
@@ -340,19 +462,25 @@ def child_exit_receipt(run_dir, child_exit, log_digest, marker_time):
             'ended_at': receipt['ended_at']}
 
 
+def _alive(pid):
+    """Whether one pid names a running process; somebody else's still counts."""
+    _require(type(pid) is int and pid > 0, '{!r} is not a pid'.format(pid))
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass  # Somebody else's live process is still a live process.
+    return True
+
+
 def _pid_of(path):
     """One pid file, or a named refusal; a stale file names a process that is gone."""
     try:
         pid = int(Path(path).read_text().split()[0])
     except (IndexError, ValueError) as error:
         raise ValueError('unreadable {}: {}'.format(path, error)) from error
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return pid, False
-    except PermissionError:
-        pass  # Somebody else's live process is still a live process.
-    return pid, True
+    return pid, _alive(pid)
 
 
 def refuse_live_launch(run_dir, owner_pid=None):
@@ -389,10 +517,10 @@ def closure_paths(entry_module, repo):
             entry_module, error)) from error
 
 
-def load_provenance(run_dir, run_type):
+def load_provenance(run_dir, run_type, required=REQUIRED_PROVENANCE, identity=True):
     """The whole execution record, or a refusal naming the field that is missing."""
     record = _read_json(Path(run_dir) / 'provenance.json', 'provenance.json')
-    missing = [key for key in REQUIRED_PROVENANCE if record.get(key) is None]
+    missing = [key for key in required if record.get(key) is None]
     _require(not missing, 'provenance.json is incomplete: missing ' + ', '.join(missing))
     _require(record['run_type'] == run_type,
              'provenance run_type is {!r}, not {}'.format(record['run_type'], run_type))
@@ -409,10 +537,11 @@ def load_provenance(run_dir, run_type):
         if key in record:
             _mapping(record[key], 'provenance.json ' + key)
     present = [key for key in IDENTITY_KEYS if isinstance(record.get(key), dict)]
-    _require(present, 'provenance.json records no train_data_identity/data_identity')
+    _require(present or not identity,
+             'provenance.json records no train_data_identity/data_identity')
     for key in present:
         check_identity_schema(record[key], key)
-    _require(isinstance(record['effective_args'], dict),
+    _require(not identity or isinstance(record['effective_args'], dict),
              'provenance.json records no effective_args mapping (startup arguments)')
     return record
 
@@ -452,6 +581,92 @@ def verify_source_closure(record, run_type, repo):
                  .format(item['path'], seen['working_tree_sha256'],
                          item['working_tree_sha256'], item['reviewed_blob_sha256']))
     return name, closure
+
+
+def _closure_files(files, label):
+    """Every recorded file must carry both hashes before anything compares them."""
+    _require(isinstance(files, list) and files, 'the recorded {} closure is empty'.format(label))
+    for item in files:
+        _require(isinstance(item, dict) and isinstance(item.get('path'), str)
+                 and _is_sha256(item.get('working_tree_sha256'))
+                 and _is_sha256(item.get('reviewed_blob_sha256')),
+                 'incomplete {} closure file record: {!r}'.format(label, item))
+    return files
+
+
+def verify_orchestration(record, repo, commit, recorded_digests):
+    """Finding 1: the launcher shell and the finalizer that decide this run, bound as files.
+
+    A later round may edit either while a 31-hour training run is going, so their bytes are
+    compared three ways -- the working tree now, what was recorded at spawn, and the
+    reviewed blobs -- exactly as the training closure is.
+    """
+    closures = _mapping(record.get('orchestration_closures') or {},
+                        'provenance.json orchestration_closures')
+    _require(set(closures) == {'launcher', 'finalizer'},
+             'provenance.json orchestration_closures must bind the launcher and the finalizer')
+    for role, key in (('launcher', 'launch_sh'), ('finalizer', 'finalize')):
+        closure = _mapping(closures[role], 'orchestration_closures.' + role)
+        files = _closure_files(closure.get('files'), role)
+        _require(closure.get('sha256') == closure_digest(files),
+                 'recorded {} digest does not match its own file list'.format(role))
+        _require(closure['sha256'] == recorded_digests.get(key),
+                 'recorded {} digest is not the code_digests {}'.format(role, key))
+        fresh, _ = exp06_profiles.closure_of(key, str(Path(repo).resolve()), commit)
+        now = {item['path']: item for item in fresh}
+        _require(sorted(now) == sorted(item['path'] for item in files),
+                 '{} closure membership changed: {}'.format(role, ', '.join(sorted(
+                     set(now) ^ {item['path'] for item in files}))))
+        for item in files:
+            seen = now[item['path']]
+            agreed = {seen['working_tree_sha256'], item['working_tree_sha256'],
+                      item['reviewed_blob_sha256'], seen['reviewed_blob_sha256']}
+            _require(len(agreed) == 1, 'orchestration drift at {}: working tree {}, recorded '
+                     '{}, reviewed {}'.format(item['path'], seen['working_tree_sha256'],
+                                              item['working_tree_sha256'],
+                                              item['reviewed_blob_sha256']))
+    return {role: closures[role]['sha256'] for role in closures}
+
+
+def verify_approvals(record, repo, run_type):
+    """Finding 1: the training-critical code identities, three ways.
+
+    Recomputed here, equal to what the run recorded at spawn, and equal to the approvals
+    file re-read now -- whose own bytes the run bound, so a mid-run edit is a refusal.
+    An exploratory diagnostic records its deviations instead, and is never an arm, so it
+    alone may name approvals no reviewed commit carries.
+    """
+    exploratory = bool(record.get('exploratory'))
+    _require(not exploratory or run_type in DIAGNOSTIC,
+             'an exploratory run is never admissible as an arm')
+    recorded = record.get('code_digests')
+    _require(isinstance(recorded, dict)
+             and set(recorded) == set(exp06_profiles.TRAINING_KEYS),
+             'provenance.json records no code_digests for the training-critical keys')
+    commit = record['reviewed_commit']
+    current = exp06_profiles.compute_code_digests(repo, commit,
+                                                  keys=exp06_profiles.TRAINING_KEYS)
+    drift = sorted(key for key in exp06_profiles.TRAINING_KEYS
+                   if current.get(key) != recorded.get(key))
+    _require(not drift, 'code drift since the run started: ' + ', '.join(drift))
+    orchestration = verify_orchestration(record, repo, commit, recorded)
+    approvals = record.get('approvals')
+    _require(isinstance(approvals, dict) and isinstance(approvals.get('path'), str),
+             'provenance.json records no approvals binding')
+    path = _resolve(approvals['path'], repo)
+    _require(path.is_file(), 'missing approvals file: {}'.format(path))
+    _require(provenance.sha256_file(path) == approvals.get('sha256'),
+             'the approvals file {} changed since the run started'.format(path))
+    # Review 2 finding 2: the recorded hash proves the file did not change during the run;
+    # only its blob at the reviewed commit proves a reviewer approved those bytes.
+    approved, identity = exp06_profiles.load_approved_digests(
+        path, repo=None if exploratory else repo, commit=None if exploratory else commit)
+    deviations = exp06_profiles.require(approved, exp06_profiles.TRAINING_KEYS, repo=repo,
+                                        commit=commit, exploratory=exploratory, current=current)
+    return {'approvals': dict(approvals, git_free_sha256=identity['sha256'],
+                              committed_at=identity.get('committed_at')),
+            'code_digests': dict(recorded), 'orchestration_digests': orchestration,
+            'approval_deviations': deviations, 'exploratory': exploratory}
 
 
 def revalidate_inputs(record, repo, required=('train_data_identity', 'source_closures')):
@@ -532,7 +747,10 @@ def full_evidence(run_dir, repo):
     hashes = artifacts(run_dir, FULL_ARTIFACTS)  # every file must exist before it is parsed
     record = load_provenance(run_dir, 'full')
     _, closure = verify_source_closure(record, 'full', repo)
+    admission = verify_approvals(record, repo, 'full')
     verify_train_identity(record)
+    admission.update(verify_geometry_identity(record))
+    admission.update(verify_heldout_identity(record))
     revalidate_inputs(record, repo)
     args = _read_json(run_dir / 'args.json', 'args.json')
     rows = _history_rows(run_dir / 'history.jsonl', 'history.jsonl')
@@ -544,9 +762,18 @@ def full_evidence(run_dir, repo):
     state = _state_dict(_load_torch(run_dir / EPOCH_CHECKPOINT, EPOCH_CHECKPOINT), EPOCH_CHECKPOINT)
     model = _state_dict(last['model'], 'last.pth["model"]')
     _require(set(state) == set(model), EPOCH_CHECKPOINT + ' has a different parameter set than last.pth')
+    # Nit 8: torch.equal compares values across dtypes, so a float64 copy of a float32
+    # checkpoint would pass. Identity requires the same dtype and shape as well.
+    for key in sorted(state):
+        _require(state[key].dtype == model[key].dtype,
+                 '{} has dtype {} at {}, not the {} of last.pth["model"]'.format(
+                     EPOCH_CHECKPOINT, state[key].dtype, key, model[key].dtype))
+        _require(tuple(state[key].shape) == tuple(model[key].shape),
+                 '{} has shape {} at {}, not the {} of last.pth["model"]'.format(
+                     EPOCH_CHECKPOINT, tuple(state[key].shape), key, tuple(model[key].shape)))
     _require(all(torch.equal(state[key], model[key]) for key in state),
              EPOCH_CHECKPOINT + ' differs tensor-wise from last.pth["model"]')
-    return dict(artifacts=hashes, epochs=len(rows),
+    return dict(artifacts=hashes, epochs=len(rows), **admission,
                 backbone=args['backbone'], source_closure_sha256=closure['sha256'],
                 registry_sha256=record.get('registry_sha256'),
                 git_head=record.get('git_state', {}).get('HEAD'),
@@ -554,27 +781,121 @@ def full_evidence(run_dir, repo):
                             'epoch': exp06_recipe.EXP01_RECIPE['epochs']})
 
 
-def diagnostic_evidence(run_dir, receipt, child_exit):
-    """A smoke or probe proves nothing about an arm, but must produce a valid receipt.
-
-    Validity is the receipt's own shape (diagnostic, an integer status, a ``--no-save``
-    argv); ``passed`` then reports whether that diagnostic actually succeeded. A failed
-    diagnostic is still recorded -- it is simply never ``admissible_arm``.
-    """
+def diagnostic_receipt(receipt, run_type, provenance_record):
+    """Finding 6: the runner's identity, budgets, timing and memory, all required."""
     _require(receipt is not None, 'a diagnostic run needs its --receipt')
     path = Path(receipt)
     _require(path.is_file(), 'missing smoke receipt: {}'.format(receipt))
     record = _read_json(path, 'smoke receipt')
     _require(record.get('diagnostic') is True, 'the smoke receipt is not marked diagnostic')
-    argv = record.get('argv')
+    missing = [key for key in DIAGNOSTIC_RECEIPT if key not in record]
+    _require(not missing, 'the smoke receipt is incomplete: missing ' + ', '.join(missing))
+    argv = record['argv']
     _require(isinstance(argv, list) and '--no-save' in argv,
              'a diagnostic must run with --no-save; its receipt records argv {!r}'.format(argv))
-    status = record.get('exit_status')
-    _require(type(status) is int, 'the smoke receipt records exit_status {!r}'.format(status))
-    return dict(artifacts={}, passed=status == 0 and child_exit == 0,
+    _require(type(record['exit_status']) is int,
+             'the smoke receipt records exit_status {!r}'.format(record['exit_status']))
+    _require(record['runner'] == 'tools.exp06_smoke',
+             'the smoke receipt records runner {!r}'.format(record['runner']))
+    _require(_is_sha256(record['runner_closure_sha256']),
+             'the smoke receipt records no runner closure digest')
+    _require(isinstance(record['entry'], str) and record['entry'],
+             'the smoke receipt records entry {!r}'.format(record['entry']))
+    _require(record['run_type'] == run_type,
+             'the smoke receipt records run_type {!r}, not {}'.format(record['run_type'], run_type))
+    _require(record['outcome'] in OUTCOMES,
+             'the smoke receipt records outcome {!r}, not one of {}'.format(
+                 record['outcome'], list(OUTCOMES)))
+    _require(type(record['exploratory']) is bool,
+             'the smoke receipt records exploratory {!r}'.format(record['exploratory']))
+    ended = _timestamp(record['ended_at'], 'ended_at')
+    _require(ended >= _timestamp(record['started_at'], 'started_at'),
+             'the smoke receipt ended_at precedes its started_at')
+    for key in RECEIPT_NUMBERS:
+        _require(_finite('the smoke receipt ' + key, record[key]) >= 0,
+                 'the smoke receipt {} is {!r}, not a duration or budget'.format(key, record[key]))
+    _require(type(record['peak_bytes']) is int and record['peak_bytes'] >= 0,
+             'the smoke receipt peak_bytes is {!r}'.format(record['peak_bytes']))
+    _require(record['git_head'] == provenance_record['git_state']['HEAD'],
+             'the smoke receipt git_head {!r} is not the {} of its provenance'.format(
+                 record['git_head'], provenance_record['git_state']['HEAD']))
+    closure = list(provenance_record['source_closures'].values())[0]
+    _require(record['runner_closure_sha256'] == closure['sha256'],
+             'the smoke receipt runner closure is not the {} its provenance recorded'.format(
+                 closure['sha256']))
+    _require(record['exploratory'] == bool(provenance_record.get('exploratory')),
+             'the smoke receipt and its provenance disagree about exploratory')
+    return record, path
+
+
+def check_receipt_consistency(fields, record, window):
+    """Finding 4: field presence and two zero statuses do not make a diagnostic passed.
+
+    Every receipt the runner writes is internally consistent, so each disagreement here is
+    a forged or corrupted receipt: an entry outside the supported set or disagreeing with
+    the startup command, a non-string argv, a budget that bounds nothing, an outcome that
+    contradicts its own status or resource evidence, or a window outside the one the
+    launcher recorded for the child. Returns whether the diagnostic actually passed.
+
+    ``tools/exp06_smoke.py`` converts an over-budget run to ``aborted_memory`` or
+    ``aborted_alarm`` before it publishes, so a real ``ok`` receipt never exceeds either
+    ceiling. The child's ``ended_at`` is truncated to the second by the launcher's marker,
+    which is the one second of slack allowed at the end of the window.
+    """
+    entry, argv = fields['entry'], fields['argv']
+    _require(entry in SMOKE_ENTRIES, 'the smoke receipt records entry {!r}, not one of {}'
+             .format(entry, sorted(SMOKE_ENTRIES)))
+    _require(isinstance(argv, list) and all(isinstance(token, str) for token in argv),
+             'the smoke receipt argv {!r} is not a list of strings'.format(argv))
+    _require(record.get('entry') == entry, 'the smoke receipt ran the entry {!r}; its '
+             'provenance records {!r}'.format(entry, record.get('entry')))
+    _require(record.get('command') == [entry] + argv, 'the smoke receipt argv is not the '
+             'child command {!r} its provenance recorded'.format(record.get('command')))
+    alarm = _positive('the smoke receipt alarm_seconds', fields['alarm_seconds'])
+    ceiling = _positive('the smoke receipt max_gb', fields['max_gb']) * GIB
+    status, outcome, peak = fields['exit_status'], fields['outcome'], fields['peak_bytes']
+    if outcome == 'ok':
+        _require(status == 0, 'the smoke receipt records outcome ok with exit_status '
+                 '{}'.format(status))
+        _require(peak <= ceiling, 'the smoke receipt records outcome ok with a peak of {} '
+                 'bytes over its {} GiB budget'.format(peak, fields['max_gb']))
+        _require(fields['wall_s'] <= alarm, 'the smoke receipt records outcome ok after {} s '
+                 'over its {} s budget'.format(fields['wall_s'], alarm))
+    else:
+        _require(status != 0, 'the smoke receipt records outcome {!r} with exit_status 0'
+                 .format(outcome))
+    started = _timestamp(fields['started_at'], 'started_at')
+    ended = _timestamp(fields['ended_at'], 'ended_at')
+    _require(_timestamp(window['started_at'], 'started_at') <= started,
+             'the smoke receipt started at {}, before the child the launcher spawned at '
+             '{}'.format(fields['started_at'], window['started_at']))
+    _require(ended <= _timestamp(window['ended_at'], 'ended_at')
+             + datetime.timedelta(seconds=1),
+             'the smoke receipt ended at {}, after the child exited at {}'.format(
+                 fields['ended_at'], window['ended_at']))
+    return status == 0 and outcome == 'ok'
+
+
+def diagnostic_evidence(run_dir, receipt, child_exit, run_type, repo, window):
+    """A smoke or probe proves nothing about an arm, but must prove what it cost.
+
+    Finding 6: the receipt carries the runner's identity, budgets, timing and peak
+    allocation, and the run records a ``provenance.json`` bound the way a full run's is,
+    minus the training artefacts. ``passed`` then reports whether the diagnostic actually
+    succeeded; a failed one is still recorded and is simply never ``admissible_arm``.
+    """
+    record = load_provenance(run_dir, run_type, required=DIAGNOSTIC_PROVENANCE, identity=False)
+    verify_source_closure(record, run_type, repo)
+    admission = verify_approvals(record, repo, run_type)
+    fields, path = diagnostic_receipt(receipt, run_type, record)
+    status = fields['exit_status']
+    passed = check_receipt_consistency(fields, record, window) and child_exit == 0
+    return dict(artifacts={}, passed=passed, **admission,
                 receipt={'path': str(path.resolve()), 'sha256': provenance.sha256_file(path),
-                         'entry': record.get('entry'), 'exit_status': status,
-                         'outcome': record.get('outcome')})
+                         'runner': fields['runner'], 'entry': fields['entry'],
+                         'exit_status': status, 'outcome': fields['outcome'],
+                         'wall_s': fields['wall_s'], 'peak_bytes': fields['peak_bytes'],
+                         'alarm_seconds': fields['alarm_seconds'], 'max_gb': fields['max_gb']})
 
 
 def _is_sha256(value):
@@ -597,6 +918,12 @@ def _isfinite(label, value):
     except OverflowError:
         raise ValueError('{} is an integer of {} digits, too large for a finite number'.format(
             label, len(str(abs(value)))))
+
+
+def _positive(label, value):
+    """A budget of zero disables the thing it bounds, so it is never evidence."""
+    _require(_finite(label, value) > 0, '{} is {!r}, not a positive budget'.format(label, value))
+    return float(value)
 
 
 def _finite(label, value):
@@ -1209,6 +1536,46 @@ def write_completion(path, fields):
     return fields
 
 
+def job_log(log):
+    """A job closes no log of its own, so the queue log is recorded, never read as proof."""
+    if log is None:
+        return None
+    path = Path(log)
+    _require(path.is_file(), 'missing job log: {}'.format(log))
+    return {'path': str(path.resolve()), 'sha256': provenance.sha256_file(path)}
+
+
+def haa_job_completion(run_dir, children, expect, repo, job_spec, log, child_exit, owner_pid):
+    """One pipeline job: no child of its own, hence no exit receipt and no closed log (A3).
+
+    The orchestrating shell is the process that finalizes the job, so the only execution
+    evidence a job root can hold is its own still-live ``launch.pid``; a receipt there could
+    only name that same shell. What binds a job is the job spec, that owner, and every
+    expected child's completion, each re-validated by ``haa_job_evidence``.
+
+    Pre-merge finding 1: the owner is bound unconditionally. ``tools/exp06_haa_pipeline.sh``
+    writes the job root's ``launch.pid`` when it opens the root, so a job that records none
+    -- or one that is unreadable -- is missing the very binding A3 requires, and is refused
+    rather than certified with a null owner because ``--owner-pid`` happened to be omitted.
+    A recovery finalisation of a job whose launcher has died stays admissible: what the
+    owner may not be is absent.
+    """
+    _require(not (run_dir / 'child_exit.json').exists(),
+             'job roots carry no child exit receipt (A3)')
+    owner = refuse_live_launch(run_dir, owner_pid)
+    _require(owner is not None, '{} records no launch.pid: a job binds the owner that ran '
+             'it'.format(run_dir))
+    _require(owner_pid is None or owner == owner_pid,
+             'the job root holds launch.pid {}, not the declared owner {}'.format(
+                 owner, owner_pid))
+    _require(child_exit == 0, 'the job was declared with child status {}'.format(child_exit))
+    fields = dict(schema_version=1, run_type='haa_job', run_dir=str(run_dir.resolve()),
+                  repo=str(Path(repo).resolve()), child_exit=child_exit, log=job_log(log),
+                  owner_pid=owner, diagnostic=False, admissible_arm=True)
+    fields.update(haa_job_evidence(run_dir, children, expect, repo, job_spec))
+    return write_completion(run_dir / 'completion.json', fields)
+
+
 def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None,
              children=(), expect=None, owner_pid=None, job_spec=None):
     """Verify one child's evidence for its run type and write completion.json."""
@@ -1216,6 +1583,9 @@ def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None,
     _require(run_type in RUN_TYPES, 'unknown run type: {!r}'.format(run_type))
     _require(run_dir.is_dir(), 'run directory does not exist: {}'.format(run_dir))
     _require(type(child_exit) is int, 'child status must be an integer')
+    if run_type == 'haa_job':  # A3: a job orchestrates children and is none itself
+        return haa_job_completion(run_dir, children, expect, repo, job_spec, log, child_exit,
+                                  owner_pid)
     refuse_live_launch(run_dir, owner_pid)
     log_record, child_exit_time, log_digest = closed_log(log, child_exit)
     receipt_record = child_exit_receipt(run_dir, child_exit, log_digest, child_exit_time)
@@ -1227,11 +1597,11 @@ def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None,
                   child_exit_time=child_exit_time, log=log_record,
                   child_exit_receipt=receipt_record,
                   diagnostic=diagnostic, admissible_arm=not diagnostic)
-    fields.update(diagnostic_evidence(run_dir, receipt, child_exit) if diagnostic
+    fields.update(diagnostic_evidence(run_dir, receipt, child_exit, run_type, repo,
+                                      receipt_record) if diagnostic
                   else full_evidence(run_dir, repo) if run_type == 'full'
                   else haa_train_evidence(run_dir, repo) if run_type == 'haa_train'
-                  else haa_eval_evidence(run_dir, repo) if run_type == 'haa_eval'
-                  else haa_job_evidence(run_dir, children, expect, repo, job_spec))
+                  else haa_eval_evidence(run_dir, repo))
     _require(provenance.sha256_file(log) == log_digest,
              'stale log: {} changed while its completion was being validated'.format(log))
     return write_completion(run_dir / 'completion.json', fields)
@@ -1303,8 +1673,32 @@ def live_launches(attempt_root):
     return live
 
 
-def preflight(mode, gpu, reviewed_commit, attempt_root=None, repo=REPO):
-    """Gate a launch: reviewed commit, clean tree, no live launch, and a free card."""
+def approval_gate(mode, reviewed_commit, approved, exploratory, repo):
+    """Finding 1: no confirmatory launch on code the approvals do not pin.
+
+    Null approvals refuse every mode; only a diagnostic may proceed ``--exploratory``,
+    and then its deviations are recorded in the preflight record and in its receipt.
+
+    Review 2 finding 2: every launch this gate admits reads its approvals from the blob
+    committed at the reviewed commit. Only a smoke or probe declared ``--exploratory``
+    may read an external or uncommitted file, and it is never admissible as an arm.
+    """
+    _require(not (exploratory and mode == 'full'),
+             'an exploratory launch is a diagnostic; mode full must match the approvals')
+    bind = not (exploratory and mode in DIAGNOSTIC)
+    path = _resolve(exp06_profiles.APPROVED_RELATIVE if approved is None else approved, repo)
+    _require(path.is_file(), 'missing approvals file: {}'.format(path))
+    value, identity = exp06_profiles.load_approved_digests(
+        path, repo=repo if bind else None, commit=reviewed_commit if bind else None)
+    deviations = exp06_profiles.require(value, exp06_profiles.TRAINING_KEYS, repo=repo,
+                                        commit=reviewed_commit, exploratory=exploratory)
+    return {'approved': identity, 'approval_deviations': deviations,
+            'exploratory': bool(exploratory)}
+
+
+def preflight(mode, gpu, reviewed_commit, attempt_root=None, repo=REPO, approved=None,
+              exploratory=False):
+    """Gate a launch: reviewed commit, clean tree, no live launch, approvals, a free card."""
     _require(mode in LAUNCH_MODES, 'unknown launch mode: {!r}'.format(mode))
     state = provenance.checked_git_state(repo, confirmatory=True)
     _require(state['HEAD'] == reviewed_commit,
@@ -1312,11 +1706,12 @@ def preflight(mode, gpu, reviewed_commit, attempt_root=None, repo=REPO):
                  state['HEAD'], reviewed_commit))
     running = live_launches(attempt_root)
     _require(not running, 'another exp_06 launch is alive: {}'.format(running))
+    admission = approval_gate(mode, reviewed_commit, approved, exploratory, repo)
     apps = gpu_compute_apps(gpu) if mode in EXCLUSIVE_GPU_MODES else None
     _require(not apps, 'GPU {} is busy with compute apps {}'.format(gpu, apps))
     return dict(mode=mode, gpu=gpu, reviewed_commit=reviewed_commit, git_state=state,
                 attempt_root=[str(root) for root in launch_roots(attempt_root)],
-                gpu_compute_apps=apps, live_launches=running)
+                gpu_compute_apps=apps, live_launches=running, **admission)
 
 
 def preflight_main(argv):
@@ -1328,9 +1723,14 @@ def preflight_main(argv):
     parser.add_argument('--attempt-root', action='append', default=[],
                         help='repeatable: every root whose */launch.pid must be dead')
     parser.add_argument('--repo', default=str(REPO))
+    parser.add_argument('--approved', default=None,
+                        help='approved_digests.json (default: the record asset)')
+    parser.add_argument('--exploratory', action='store_true',
+                        help='diagnostic launch on unapproved code; never mode full')
     args = parser.parse_args(argv)
     try:
-        record = preflight(args.mode, args.gpu, args.reviewed_commit, args.attempt_root, args.repo)
+        record = preflight(args.mode, args.gpu, args.reviewed_commit, args.attempt_root,
+                           args.repo, approved=args.approved, exploratory=args.exploratory)
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         print('EXP06_PREFLIGHT_REFUSED ' + str(error), file=sys.stderr, flush=True)
         return 2

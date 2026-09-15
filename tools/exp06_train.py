@@ -33,17 +33,20 @@ from torch.utils.data import DataLoader, Subset
 
 import train_xRIR_backbone as trainer
 from model.xRIR_cyl_oriented import BACKBONES_EXP06, build_xrir_exp06
-from tools import exp06_recipe
+from tools import exp06_profiles, exp06_recipe
 from tools import provenance
 from tools.exp05_params import TIERS, count_parameters, tier_of
 from treble_multi_room_dataset.treble_xRIR_dataset import BASE_DATA_PATH, xRIR_Dataset
 from utils.lr_scheduler import ExponentialLR
 
 RUN_TYPES = ('full', 'smoke', 'probe')
+DIAGNOSTIC_RUN_TYPES = ('smoke', 'probe')
 REPO = Path(__file__).resolve().parents[1]
 DATA_ROOT = BASE_DATA_PATH  # exactly what the dataset module resolved; never a second fallback
 TRAIN_INVENTORY = REPO / 'ckpt/yaw_aug/train_inventory.json'
 ENV_KEYS = ('PYTHONHASHSEED', 'XRIR_DATA_PATH', 'OMP_NUM_THREADS', 'CUDA_VISIBLE_DEVICES')
+GEOMETRY_SPLITS = ('train', 'test')
+GEOMETRY_WORKERS = 8
 
 
 def build_parser():
@@ -84,6 +87,12 @@ def build_parser():
                    help="recorded in provenance.json; the finalizer dispatches on it")
     p.add_argument("--provenance-out", default=None,
                    help="where a --no-save run writes provenance.json (default: nowhere)")
+    p.add_argument("--approved", default=None,
+                   help="approved_digests.json this run is admitted under (required for --run-type full)")
+    p.add_argument("--reviewed-commit", default=None,
+                   help="the commit the launcher's preflight verified HEAD against (default: HEAD)")
+    p.add_argument("--exploratory", action="store_true",
+                   help="diagnostic run outside the approvals; never admissible as an arm")
     return p
 
 
@@ -94,6 +103,27 @@ def parse_args(argv=None):
     args.yaw_aug_seed = args.seed if args.yaw_aug_seed is None else args.yaw_aug_seed
     if args.provenance_out is not None and not args.no_save:
         parser.error("--provenance-out applies to --no-save runs; saving runs write it to --save-dir")
+    if args.exploratory and args.run_type == 'full':
+        parser.error("--exploratory is a diagnostic mode; a full run must match the approvals")
+    return args
+
+
+def check_admission(args):
+    """Finding 1 of the second full_train review: agree with the launcher's wrapper.
+
+    A confirmatory run always names the approvals it is admitted under. A registered
+    smoke or probe is dispatched by ``tools/exp06_smoke.py``, which holds the approvals
+    itself and forwards only ``--run-type`` (and ``--exploratory``) to this child; such a
+    child is admitted without ``--approved`` only while ``--no-save`` keeps it from
+    producing any artefact that could later be mistaken for an arm.
+    """
+    if args.approved is not None:
+        return args
+    if args.run_type not in DIAGNOSTIC_RUN_TYPES:
+        raise ValueError('a full run must name the approvals it is admitted under (--approved)')
+    if not args.no_save:
+        raise ValueError('a {} run that writes to its save-dir must name its approvals '
+                         '(--approved), or run with --no-save'.format(args.run_type))
     return args
 
 
@@ -121,8 +151,9 @@ def prepare_args(args, model, fields, destination):
     args.exp06_source_closure_sha256 = fields.get('source_closures', {}).get('training', {}).get('sha256')
     args.exp06_git_head = fields.get('git_state', {}).get('HEAD')
     args.exp06_provenance_path = destination
-    del args.run_type
-    del args.provenance_out
+    for flag in ('run_type', 'provenance_out', 'approved', 'reviewed_commit', 'exploratory'):
+        if hasattr(args, flag):
+            delattr(args, flag)
     return args
 
 
@@ -132,6 +163,68 @@ def resolve_data_root():
     if not os.path.isdir(root):
         raise ValueError('data root does not exist: {} (set XRIR_DATA_PATH)'.format(root))
     return root
+
+
+def geometry_paths(data_root, splits=GEOMETRY_SPLITS, max_len=9600, num_shot=8):
+    """Every metadata JSON and depth map the pinned dataset reads for these splits.
+
+    Finding 2: ``train_data_identity`` inventories the IR waveforms only, so a changed
+    source position or panorama was not bound to the run. Membership comes from the
+    dataset's own split logic -- ``xRIR_Dataset.file_list`` -- and from what
+    ``__getitem__`` reads for each entry: that pair's ``metadata/.../S00s_R00r.json``
+    and the receiver's ``depth_map/.../r.npy``. The references drawn by
+    ``get_ir_and_location_for_other_sources`` are other sources at the *same* receiver,
+    every one of them an IR of the same room directory and so already in the split's
+    file list, which is why one metadata file per IR covers the reference geometry too.
+
+    Returns ``(sorted relative paths, {split: number of IRs})``.
+    """
+    root = Path(data_root).resolve()
+    files, counts = set(), {}
+    for split in splits:
+        dataset = xRIR_Dataset(split=split, max_len=max_len, num_shot=num_shot,
+                               ir_path=str(root / 'single_channel_ir'),
+                               pano_depth_path=str(root / 'depth_map'),
+                               metadata_path=str(root / 'metadata'))
+        counts[split] = len(dataset.file_list)
+        for wav in dataset.file_list:
+            parts = Path(wav).parts
+            category, room, name = parts[-3], parts[-2], parts[-1]
+            source, receiver = [int(token[1:]) for token in name.split('_')[:2]]
+            files.add('metadata/{}/{}/S00{}_R00{}.json'.format(category, room, source, receiver))
+            files.add('depth_map/{}/{}/{}.npy'.format(category, room, receiver))
+    return sorted(files), counts
+
+
+def geometry_identity(data_root, splits=GEOMETRY_SPLITS, workers=GEOMETRY_WORKERS):
+    """Content-hash every geometry input of the run, in the inventory shape of provenance."""
+    files, counts = geometry_paths(data_root, splits)
+    record = provenance._inventory(files, data_root, workers=workers)
+    return dict(record, splits=list(splits), split_files=counts,
+                metadata_files=sum(1 for name in files if name.startswith('metadata/')),
+                depth_maps=sum(1 for name in files if name.startswith('depth_map/')))
+
+
+def heldout_wav_paths(data_root, max_len=9600, num_shot=8):
+    """Every held-out waveform ``test_epoch`` reads, from the dataset's own split logic.
+
+    Finding 3 of full_train review 2: the pinned ``train_data_identity`` inventories the
+    training waveforms only, so the test-split IRs that produce the recorded epoch test
+    losses -- and through them every best-checkpoint decision -- were not bound to the run.
+    """
+    root = Path(data_root).resolve()
+    dataset = xRIR_Dataset(split='test', max_len=max_len, num_shot=num_shot,
+                           ir_path=str(root / 'single_channel_ir'),
+                           pano_depth_path=str(root / 'depth_map'),
+                           metadata_path=str(root / 'metadata'))
+    return sorted(str(Path(wav).resolve().relative_to(root)) for wav in dataset.file_list)
+
+
+def heldout_wav_identity(data_root, workers=GEOMETRY_WORKERS):
+    """Content-hash every held-out waveform, in the inventory shape of provenance."""
+    files = heldout_wav_paths(data_root)
+    return dict(provenance._inventory(files, data_root, workers=workers), split='test',
+                wav_files=len(files))
 
 
 def registry_sha256():
@@ -149,15 +242,45 @@ def data_identity(data_root, cache_path=TRAIN_INVENTORY):
                                               cache_path=str(Path(scratch) / 'train_inventory.json'))
 
 
-def provenance_fields(argv, run_type, identity=None, repo=REPO):
+def approvals_binding(approved):
+    """Finding 1: bind the approvals file's own bytes, so a mid-run edit is detectable."""
+    if approved is None:
+        return None
+    value, identity = exp06_profiles.load_approved_digests(approved)
+    return {'path': str(approved), 'sha256': identity['sha256'],
+            'schema_version': value['schema_version']}
+
+
+def orchestration_closures(repo, commit):
+    """Finding 1: the launcher shell and the finalizer decide this run; bind them too.
+
+    ``tools/exp06_launch.sh`` has no import closure and is bound as a file, exp_04's
+    pattern; the finalizer is bound with its whole import closure, because a later round
+    may change it while a 31-hour training run is still going.
+    """
+    launcher, launcher_digest = exp06_profiles.closure_of('launch_sh', repo, commit)
+    finalizer, finalizer_digest = exp06_profiles.closure_of('finalize', repo, commit)
+    return {'launcher': {'files': launcher, 'sha256': launcher_digest},
+            'finalizer': {'entry_module': 'tools.exp06_finalize',
+                          'files': finalizer, 'sha256': finalizer_digest}}
+
+
+def provenance_fields(argv, run_type, identity=None, repo=REPO, approved=None,
+                      reviewed_commit=None, exploratory=False, geometry=None, heldout=None):
     """Bind the import closure, HEAD, environment, data inventory and argv of one run."""
     state = provenance.git_state(repo)
+    commit = state['HEAD'] if reviewed_commit is None else reviewed_commit
     records, digest = provenance.closure_record(
-        provenance.source_closure('tools.exp06_train', repo), state['HEAD'], repo)
-    return dict(repo=str(repo), reviewed_commit=state['HEAD'], run_type=run_type,
+        provenance.source_closure('tools.exp06_train', repo), commit, repo)
+    return dict(repo=str(repo), reviewed_commit=commit, run_type=run_type,
                 data_root=resolve_data_root(),
                 source_closures={'training': {'entry_module': 'tools.exp06_train',
                                               'files': records, 'sha256': digest}},
+                orchestration_closures=orchestration_closures(repo, commit),
+                code_digests=exp06_profiles.compute_code_digests(
+                    repo, commit, keys=exp06_profiles.TRAINING_KEYS),
+                approvals=approvals_binding(approved), exploratory=bool(exploratory),
+                geometry_identity=geometry, test_wav_identity=heldout,
                 registry_sha256=registry_sha256(), git_state=state,
                 environment=provenance.environment(), train_data_identity=identity,
                 command=list(argv))
@@ -171,7 +294,7 @@ def provenance_destination(args):
 def main(argv=None):
     """The trainer's main, step for step, with the exp_06 registry and provenance."""
     command = list(sys.argv[1:] if argv is None else argv)
-    args = parse_args(argv)
+    args = check_admission(parse_args(argv))
     trainer.seed_everything(args.seed)
     torch.backends.cuda.matmul.allow_tf32 = args.tf32
     torch.backends.cudnn.allow_tf32 = args.tf32
@@ -192,8 +315,13 @@ def main(argv=None):
     model = build_model_exp06(args).cuda()
 
     destination = provenance_destination(args)
+    root = resolve_data_root()
     fields = provenance_fields(command, args.run_type,
-                               identity=data_identity(resolve_data_root()) if destination else None)
+                               identity=data_identity(root) if destination else None,
+                               geometry=geometry_identity(root) if destination else None,
+                               heldout=heldout_wav_identity(root) if destination else None,
+                               approved=args.approved, reviewed_commit=args.reviewed_commit,
+                               exploratory=args.exploratory)
     prepare_args(args, model, fields, destination)
     fields['effective_args'] = vars(args)
     if destination:

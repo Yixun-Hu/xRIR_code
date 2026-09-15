@@ -152,3 +152,7 @@ All clean (no co-tenant), `passed` true (T_run ≤ 60 h), bound to `f19b9b6` / G
 - **Analysis / Next** — current `source_closure('train_xRIR_backbone', repo)` matches the live S_simple manifest: 11 files, `5b2da2504e220b63bfc932cf0d83c143261e117edea1838e6907159c3b12eb13`. No A9 implementation discrepancy; its historical launcher examples must be supplemented by the final reviewed launcher closure because this cycle changes `exp05_gates.py`. Approval template stays unfilled; hand back for Fable review and planner pinning.
 
 ## 2026-09-14T16:04:41-04:00 — branch `codex-window` merged into main (`9eacbb4`): exp_05 rounds 5 + template-test fix landed; L_simple will launch at `--reviewed-commit 9eacbb4` after a fresh probe (launcher closure `9dadbef0…`); L_cylindrical continues with recorded launcher drift (A7).
+
+## 2026-09-15T06:08:25-04:00 — GPU 0 freed at 06:00 (the foreign FLAC exp_23 chain ended); L_simple probe + `full` launched
+- Probe at `862923e` (launcher closure `b09937de…` after the merge; training closure `5b2da250…` unchanged): clean, passed, T_epoch 3.45 h, T_run 41.4 h (receipt `ckpt/exp05/L_simple/_probe_20260915T060057_L_simple.json`).
+- 06:05:43 — `tools/exp04_launch.sh full --tier L --backbone simple --gpu 0 --reviewed-commit 862923e --probe-json <receipt>` → attempt `ckpt/exp05/L_simple/attempt_20260915T060543`, child pgid 2681894, `yaw_aug DISABLED` before step one; epoch-1 gate 1.05 × 3.45 h = 3.62 h; projected end ≈ 2026-09-16 23:30. exp_05 A9: this arm's launcher digest (`b09937de…`) joins the approved list beside `0bff0d4f…`.

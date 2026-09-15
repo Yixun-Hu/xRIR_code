@@ -7,7 +7,9 @@ exactly one class, and the five ``exp06_*`` provenance keys written by
 * ``recipe`` -- must equal exp_01's pretraining recipe (``EXP01_RECIPE``);
 * ``production`` -- constraints an arm must satisfy (no truncation, no resume, saving on,
   yaw augmentation off; ``yaw_aug_seed``/``yaw_aug_width`` are recorded but inert);
-* ``operational`` -- declared differences (backbone, directories, workers, cadences, env);
+* ``operational`` -- declared differences (backbone, directories, workers, cadences, env),
+  validated type-strictly and within bounds (``check_operational``), with the current
+  runs' checkpoint cadence ``epoch_ckpt_every = 1`` fixed by plan section 5;
 * ``derived`` -- computed from the data and the model (loader length, tier, parameters);
 * ``exp06`` -- run type, registry digest, closure digest, HEAD, provenance path.
 
@@ -42,6 +44,8 @@ INERT = ('yaw_aug_seed', 'yaw_aug_width')
 
 OPERATIONAL = ('backbone', 'save_dir', 'num_workers', 'log_interval', 'save_every',
                'epoch_ckpt_every', 'env')
+
+EPOCH_CKPT_EVERY = 1  # plan section 5: the current runs keep the trainer's native epoch_012.pth
 
 DERIVED = ('train_batches_per_epoch', 'tier', 'param_counts')
 
@@ -120,6 +124,57 @@ def _integer(label, value):
     if type(value) is not int:
         return '{}: {!r} is not an integer'.format(label, value)
     return None
+
+
+def _bounded_int(label, value, minimum, maximum=None):
+    """A native integer in range; ``True`` is not 1 and ``1.0`` is not 1."""
+    deviation = _integer(label, value)
+    if deviation:
+        return deviation
+    if value < minimum or (maximum is not None and value > maximum):
+        return '{}: {!r} is outside [{}, {}]'.format(
+            label, value, minimum, 'inf' if maximum is None else maximum)
+    return None
+
+
+def _environment(label, value):
+    """The trainer records ``os.environ.get(key)`` per key: strings, or None when unset."""
+    if value is MISSING:
+        return '{}: not recorded'.format(label)
+    if type(value) is not dict:
+        return '{}: {!r} is not a mapping of environment variables'.format(label, value)
+    bad = sorted(repr(key) for key, item in value.items()
+                 if type(key) is not str or not (item is None or type(item) is str))
+    if bad:
+        return '{}: {} is not a string or null'.format(label, ', '.join(bad[:4]))
+    return None
+
+
+def check_operational(args_dict, epoch_ckpt_every=EPOCH_CKPT_EVERY):
+    """Finding 4: the declared operational differences must be valid, not merely present.
+
+    Agreement between the three recorded copies of the arguments establishes nothing
+    about their values, so every operational field is checked type-strictly and, where
+    the plan fixes one, against its registered value. Only the deliberately narrower
+    historical path (``check_all(..., historical=True)``) skips these checks.
+    """
+    backbone = args_dict.get('backbone', MISSING)
+    save_dir = args_dict.get('save_dir', MISSING)
+    deviations = [
+        None if backbone in BACKBONES_EXP06 else
+        'operational.backbone: {!r} is not one of {}'.format(
+            None if backbone is MISSING else backbone, sorted(BACKBONES_EXP06)),
+        None if type(save_dir) is str and save_dir else
+        'operational.save_dir: {!r} is not a directory path'.format(
+            None if save_dir is MISSING else save_dir),
+        _bounded_int('operational.num_workers', args_dict.get('num_workers', MISSING), 0),
+        _bounded_int('operational.log_interval', args_dict.get('log_interval', MISSING), 1),
+        _bounded_int('operational.save_every', args_dict.get('save_every', MISSING), 0),
+        _compare('operational.epoch_ckpt_every', args_dict.get('epoch_ckpt_every', MISSING),
+                 epoch_ckpt_every),
+        _environment('operational.env', args_dict.get('env', MISSING)),
+    ]
+    return [deviation for deviation in deviations if deviation]
 
 
 def check_recipe(args_dict, expected=EXP01_RECIPE):
@@ -242,6 +297,7 @@ def check_all(args_dict, backbone=None, history_rows=None, last_meta=None, expec
         deviations.append('schema: ' + str(error))
     if not historical:
         deviations += check_presence(args_dict)
+        deviations += check_operational(args_dict)
     deviations += check_recipe(args_dict, expected)
     deviations += check_production(args_dict)
     deviations += check_derived(args_dict, args_dict.get('backbone') if backbone is None else backbone)
