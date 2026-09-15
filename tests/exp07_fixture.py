@@ -1,6 +1,6 @@
 """A synthetic exp_07 run layout: four roles x two K x five seeds, byte-bound.
 
-Shaped exactly like tools/exp04_eval_launch.py --entry exp07 --split seen writes it
+Shaped exactly like tools/exp07_eval_launch.py --split seen writes it
 (eval manifest, completion, the two outputs, the bound training artefacts and the seen
 split pickle), so the producers can be exercised without a GPU or AcousticRooms.
 """
@@ -75,8 +75,8 @@ def exp07_fixture(tmp_path):
         profile['dataset'].update(n_queries=12, n_rooms=3, query_sha256=_canonical_digest(queries),
                                   seen_split_sha256=p.sha256_file(split))
         split_binding = dict(path=e7p.SEEN_SPLIT, sha256=p.sha256_file(split))
-        names = ('tools/exp07_eval.py', 'tools/exp04_eval_launch.py', 'tools/exp04_launcher.py',
-                 'train_xRIR_backbone.py', 'eval_yaw_rotation.py')
+        names = ('tools/exp07_eval.py', 'tools/exp07_eval_launch.py', 'tools/exp07_launcher.py',
+                 'tools/exp07_train.py', 'eval_yaw_rotation.py')
         entry, writer, launcher, training, frozen = [_source(root, name) for name in names]
         commit = _commit_sources(root, names)
         producer = dict(sha256='a' * 64, files=[],
@@ -226,8 +226,7 @@ def exp07_fixture(tmp_path):
                     run_log.write_text('synthetic evaluation completed\n')
                     p.write_completion(directory / 'completion.json', dict(
                         schema_version=1, confirmatory=True, allow_dirty_used=False,
-                        eval_manifest_sha256=digest, child_exit_status=0, split='seen',
-                        seen_split_sha256=split_binding['sha256'],
+                        eval_manifest_sha256=digest, child_exit_status=0,
                         directory_listing=['eval_manifest.json', 'metrics_yaw.json',
                                            'per_sample_yaw.json'],
                         log=dict(path=str(run_log), sha256=p.sha256_file(run_log)),

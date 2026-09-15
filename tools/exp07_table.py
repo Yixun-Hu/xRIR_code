@@ -56,9 +56,13 @@ def run_contract(directory, arm, profile, pins, cache=None):
     require(_equal(fields.get('decomposition_batches'), 0), 'decomposition_batches')
     dataset = profile['dataset']
     identity = dict(split='seen', seen_split_sha256=dataset['seen_split_sha256'])
-    for payload in (fields, completion, sample['meta'], metrics['meta']):
+    # The reviewed run owner writes no split keys into completion.json; it binds the
+    # evaluation manifest, which declares the split, and the two outputs that echo it.
+    for payload in (fields, sample['meta'], metrics['meta']):
         require(all(_equal(payload.get(key), value) for key, value in identity.items()),
                 'split identity')
+    require(completion.get('eval_manifest_sha256') == inputs[str(directory / 'eval_manifest.json')],
+            'completion binds the evaluation manifest')
     require(_equal(fields.get('split_count'), dataset['n_queries']) and
             _equal(fields.get('n_samples'), dataset['n_queries']) and
             _equal(fields.get('max_samples'), profile['max_samples']), 'seen split coverage')

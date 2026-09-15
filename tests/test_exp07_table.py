@@ -165,6 +165,14 @@ def an_output_meta_from_another_split(built):
     return 'split identity'
 
 
+def a_completion_that_binds_another_evaluation_manifest(built):
+    run = first(built)
+    completion = built.read(run / 'completion.json')
+    completion['eval_manifest_sha256'] = 'f' * 64
+    (run / 'completion.json').write_text(json.dumps(completion, indent=2, sort_keys=True) + '\n')
+    return 'completion binds the evaluation manifest'
+
+
 def a_binding_of_another_split_file(built):
     evaluated(built, mutable_inputs=dict(
         built.read(first(built) / 'eval_manifest.json')['mutable_inputs'],
@@ -428,7 +436,7 @@ def a_checkpoint_and_shot_count_no_role_registers(built):
 
 
 REFUSALS = [an_evaluated_split_that_is_not_seen, an_output_meta_from_another_split,
-            a_binding_of_another_split_file, a_split_pickle_changed_after_the_run,
+            a_completion_that_binds_another_evaluation_manifest, a_binding_of_another_split_file, a_split_pickle_changed_after_the_run,
             an_unapproved_evaluator_closure, an_unapproved_writer_closure,
             a_missing_training_binding, a_completion_that_certifies_another_checkpoint,
             a_training_manifest_of_the_unseen_protocol, a_training_closure_that_is_not_the_pin,
