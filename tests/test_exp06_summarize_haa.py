@@ -201,6 +201,46 @@ def test_a_tampered_receipt_or_a_changed_artifact_is_refused(legacy_root, tmp_pa
         subject.verify_legacy_receipt(out, legacy_root, approved)
 
 
+def test_a_receipt_that_omits_an_arm_never_admits_it(legacy_root, tmp_path):
+    """Finding 6: load_legacy returns both arms, so a receipt must enumerate both.
+
+    A receipt whose own ``arms`` list names only ``control`` used to define what the
+    verifier expected, so every cylindrical artifact was unenumerated -- and free to
+    change -- while the loader still returned the cylindrical arm.
+    """
+    record = subject.legacy_receipt(legacy_root, strict=False)
+    kept = [item for item in record['files'] if not item['path'].startswith('cyl/')]
+    partial = dict(record, arms=['control'], files=kept,
+                   files_sha256=subject._digest(kept))
+    out = tmp_path / 'partial.json'
+    out.write_text(json.dumps(partial))
+    target = Path(legacy_root) / 'cyl/seed0/eval/metrics_hallway.json'
+    target.write_text(json.dumps({'tampered': True}))
+    approved = {'path': str(out), 'sha256': sha(out)}
+    with pytest.raises(ValueError, match='not the registered'):
+        subject.verify_legacy_receipt(out, legacy_root, approved)
+
+
+@pytest.mark.parametrize('arm', ['control', 'cyl'])
+def test_a_changed_artifact_of_either_arm_is_refused(legacy_root, tmp_path, arm):
+    out = tmp_path / (arm + '.json')
+    _, digest = subject.write_legacy_receipt(out, legacy_root, strict=False)
+    target = Path(legacy_root) / arm / 'zeroshot' / 'metrics_hallway.json'
+    target.write_text(target.read_text() + ' ')
+    with pytest.raises(ValueError, match='changed since the receipt'):
+        subject.verify_legacy_receipt(out, legacy_root, {'path': str(out), 'sha256': digest})
+
+
+@pytest.mark.skipif(not (Path(__file__).resolve().parents[1] / 'ckpt/sim2real').is_dir(),
+                    reason='needs the exp_02 results')
+def test_the_real_receipt_enumerates_both_registered_arms():
+    paths = [item['path'] for item in subject.legacy_receipt_files(
+        Path(__file__).resolve().parents[1] / 'ckpt/sim2real')]
+    assert {path.split('/')[0] for path in paths} == {'control', 'cyl', 'stats.json',
+                                                      'summary.txt'}
+    assert paths[-2:] == ['stats.json', 'summary.txt']
+
+
 def test_a_receipt_of_an_incomplete_arm_is_never_written(legacy_root, tmp_path):
     (Path(legacy_root) / 'cyl/seed2/eval/metrics_hallway.json').unlink()
     with pytest.raises(ValueError, match='cyl has no cyl/seed2/eval/metrics_hallway'):
