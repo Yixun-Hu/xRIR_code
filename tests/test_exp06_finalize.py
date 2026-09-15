@@ -1246,9 +1246,13 @@ def test_child_exit_subcommand_appends_the_marker_and_writes_the_receipt(tmp_pat
     assert receipt['status'] == 0 and receipt['child_pid'] == 4242
     assert receipt['log_sha256_after_marker'] == provenance.sha256_file(log)
     assert receipt['ended_at'] == lines[-1].split()[2] and receipt['started_at'] == STARTED
-    refused = subprocess.run(command[:-1] + ['not-a-timestamp'], cwd=REPO, capture_output=True,
+    other = tmp_path / 'attempt_two'
+    other.mkdir()
+    refused = subprocess.run([part if part != str(run) else str(other) for part in command[:-1]]
+                             + ['not-a-timestamp'], cwd=REPO, capture_output=True,
                              text=True, env={**os.environ, 'PYTHONPATH': str(REPO)})
     assert refused.returncode == 2 and 'started_at' in refused.stderr
+    assert not (other / 'child_exit.json').exists()
     again = subprocess.run(command, cwd=REPO, capture_output=True, text=True,
                            env={**os.environ, 'PYTHONPATH': str(REPO)})
     assert again.returncode == 2 and 'child_exit.json' in again.stderr

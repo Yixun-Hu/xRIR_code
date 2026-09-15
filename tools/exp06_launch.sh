@@ -84,28 +84,36 @@ diagnostic() {
 # which arrives only after every process holding the write end has exited -- so nothing can
 # append after the end marker. Sets CHILD_PID and CHILD_STATUS.
 run_child() {
-    local attempt="$1" log="$2" pipe sink pid status=0
+    local attempt="$1" log="$2" pipe sink pid status=0 sink_status=0
     shift 2
     pipe="$attempt/child.pipe"
     rm -f -- "$pipe"
     mkfifo -m 600 -- "$pipe"
     cat >> "$log" < "$pipe" &
     sink=$!
+    CHILD_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%S+00:00)"
     nohup setsid "$@" > "$pipe" 2>&1 &
     pid=$!
     printf '%s\n' "$pid" > "$attempt/launch.pid"
     wait "$pid" || status=$?
-    wait "$sink" || true   # EOF: the child and every descendant have closed the write end
+    wait "$sink" || sink_status=$?  # EOF: the child and every descendant closed the write end
     rm -f -- "$pipe"
     CHILD_PID="$pid"
     CHILD_STATUS="$status"
+    # Blocker 4: a sink that died on a write error left an incomplete log. Nothing may be
+    # published from it -- no end marker, no receipt, no completion.
+    if [ "$sink_status" -ne 0 ]; then
+        say "SINK_FAILED status=$sink_status log=$log"
+        abort "$attempt" "$log" sink_failed
+        exit 3
+    fi
 }
 
 # close_child <attempt> <log>: append the end marker and bind exactly those bytes.
 close_child() {
     say "MARKER EXP06_CHILD_EXIT $CHILD_STATUS <iso> >> $2"
     "$PYTHON" tools/exp06_finalize.py child-exit --run-dir "$1" --log "$2" \
-        --child-pid "$CHILD_PID" --status "$CHILD_STATUS"
+        --child-pid "$CHILD_PID" --status "$CHILD_STATUS" --started-at "$CHILD_STARTED_AT"
 }
 
 if [ "${EXP06_LAUNCH_LIB:-0}" = 1 ]; then return 0; fi

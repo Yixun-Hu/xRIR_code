@@ -72,6 +72,7 @@ from tools import exp06_heading, exp06_recipe, provenance
 
 REPO = Path(__file__).resolve().parents[1]
 MARKER = 'EXP06_CHILD_EXIT'
+RECEIPT_FIELDS = ('child_pid', 'status', 'started_at', 'ended_at', 'log_sha256_after_marker')
 DIAGNOSTIC = ('smoke', 'probe')
 RUN_TYPES = ('full', 'smoke', 'probe', 'haa_train', 'haa_eval', 'haa_job')
 EXPECTATIONS = ('finetune', 'zeroshot')
@@ -265,22 +266,46 @@ def closed_log(log, child_exit):
     return {'path': str(Path(log).resolve()), 'sha256': digest}, parts[2], digest
 
 
-def child_exit_receipt(run_dir, child_exit, log_digest):
+def _timestamp(value, label):
+    """One ISO-8601 instant with an offset; anything else is a named refusal."""
+    try:
+        stamp = datetime.datetime.fromisoformat(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError('child_exit.json {} is not an ISO-8601 timestamp: {!r}'.format(
+            label, value)) from error
+    _require(stamp.tzinfo is not None,
+             'child_exit.json {} needs a timezone-aware timestamp: {!r}'.format(label, value))
+    return stamp
+
+
+def child_exit_receipt(run_dir, child_exit, log_digest, marker_time):
     """The launcher's proof that every writer had exited when it hashed the log."""
     path = Path(run_dir) / 'child_exit.json'
     _require(path.is_file(), 'missing child_exit.json in {}'.format(run_dir))
     receipt = _read_json(path, 'child_exit.json')
-    missing = [key for key in ('child_pid', 'status', 'ended_at', 'log_sha256_after_marker')
-               if key not in receipt]
+    missing = [key for key in RECEIPT_FIELDS if key not in receipt]
     _require(not missing, 'child_exit.json is incomplete: missing ' + ', '.join(missing))
     _require(type(receipt['status']) is int and receipt['status'] == child_exit,
              'child_exit.json records status {!r}, not the reported {}'.format(
                  receipt['status'], child_exit))
+    _require(type(receipt['child_pid']) is int and receipt['child_pid'] > 0,
+             'child_exit.json records child_pid {!r}, not a pid'.format(receipt['child_pid']))
+    started = _timestamp(receipt['started_at'], 'started_at')
+    ended = _timestamp(receipt['ended_at'], 'ended_at')
+    _require(ended >= started, 'child_exit.json ended_at {} precedes the started_at {} '
+             'recorded at spawn'.format(receipt['ended_at'], receipt['started_at']))
+    _require(receipt['ended_at'] == marker_time,
+             'child_exit.json ended_at {} is not the {} of the log marker'.format(
+                 receipt['ended_at'], marker_time))
+    _require(_is_sha256(receipt['log_sha256_after_marker']),
+             'child_exit.json log_sha256_after_marker {!r} is not a sha256'.format(
+                 receipt['log_sha256_after_marker']))
     _require(receipt['log_sha256_after_marker'] == log_digest,
              'child_exit.json binds a different log: {} is not the validated {}'.format(
                  receipt['log_sha256_after_marker'], log_digest))
     return {'path': str(path.resolve()), 'sha256': provenance.sha256_file(path),
-            'child_pid': receipt['child_pid'], 'ended_at': receipt['ended_at']}
+            'child_pid': receipt['child_pid'], 'started_at': receipt['started_at'],
+            'ended_at': receipt['ended_at']}
 
 
 def refuse_live_launch(run_dir):
@@ -823,7 +848,7 @@ def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None,
     _require(type(child_exit) is int, 'child status must be an integer')
     refuse_live_launch(run_dir)
     log_record, child_exit_time, log_digest = closed_log(log, child_exit)
-    receipt_record = child_exit_receipt(run_dir, child_exit, log_digest)
+    receipt_record = child_exit_receipt(run_dir, child_exit, log_digest, child_exit_time)
     diagnostic = run_type in DIAGNOSTIC
     if not diagnostic:
         _require(child_exit == 0, 'child exited with status {}'.format(child_exit))
@@ -849,17 +874,23 @@ def child_exit_main(argv):
     parser.add_argument('--log', required=True)
     parser.add_argument('--child-pid', type=int, required=True)
     parser.add_argument('--status', type=int, required=True)
+    parser.add_argument('--started-at', required=True, help='ISO-8601 instant of the spawn')
     args = parser.parse_args(argv)
     path = Path(args.run_dir) / 'child_exit.json'
     try:
         _require(not path.exists(), 'child_exit.json already exists at {}'.format(path))
+        _require(args.child_pid > 0, 'child_pid {} is not a pid'.format(args.child_pid))
+        started = _timestamp(args.started_at, 'started_at')
         stamp = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
+        _require(datetime.datetime.fromisoformat(stamp) >= started,
+                 'the clock moved backwards: {} precedes started_at {}'.format(stamp, args.started_at))
         with open(args.log, 'a') as stream:
             stream.write('{} {} {}\n'.format(MARKER, args.status, stamp))
             stream.flush()
             os.fsync(stream.fileno())
         provenance.write_manifest(path, dict(
-            schema_version=1, child_pid=args.child_pid, status=args.status, ended_at=stamp,
+            schema_version=1, child_pid=args.child_pid, status=args.status,
+            started_at=args.started_at, ended_at=stamp,
             log=str(Path(args.log).resolve()),
             log_sha256_after_marker=provenance.sha256_file(args.log)))
     except (OSError, ValueError) as error:
