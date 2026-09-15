@@ -190,6 +190,11 @@ def an_args_file_with_the_unseen_batch_count(built):
     return 'args train_batches_per_epoch'
 
 
+def an_args_file_from_another_capacity_tier(built):
+    trained(built, vit_dim=256, vit_heads=4)
+    return 'args tier configuration'
+
+
 def a_released_row_claiming_training_provenance(built):
     binding = built.read(first(built) / 'eval_manifest.json')['mutable_inputs']['train_args']
     evaluated(built, role='released_seen', mutable_inputs=dict(
@@ -224,6 +229,7 @@ REFUSALS = [an_evaluated_split_that_is_not_seen, an_output_meta_from_another_spl
             a_training_manifest_of_the_unseen_protocol, a_training_closure_that_is_not_the_pin,
             a_launcher_outside_the_approved_list, an_args_file_with_another_epoch_budget,
             an_args_file_with_the_wrong_yaw_flag, an_args_file_with_the_unseen_batch_count,
+            an_args_file_from_another_capacity_tier,
             a_released_row_claiming_training_provenance,
             a_training_binding_outside_the_attempt_directory, a_bounded_evaluation,
             a_checkpoint_and_shot_count_no_role_registers]

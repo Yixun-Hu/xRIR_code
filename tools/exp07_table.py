@@ -20,6 +20,7 @@ from pathlib import Path
 import numpy as np
 
 from tools import provenance
+from tools.exp05_params import TIERS
 from tools.exp07_profiles import get_profile, json_value, load_approved_digests
 from tools.paired_compare import REPO, _equal, admit_runs, producer_identity
 from tools.results_table import METRICS, write_outputs
@@ -112,6 +113,8 @@ def run_contract(directory, arm, profile, pins):
     require(_equal(args.get('train_batches_per_epoch'), profile['train_batches_per_epoch']),
             'args train_batches_per_epoch')
     require(_equal(args.get('tier', profile['tier']), profile['tier']), 'args tier')
+    for key, value in TIERS[profile['tier']].items():  # the seen arms are trained at tier M
+        require(_equal(args.get('vit_' + key, value), value), 'args tier configuration')
     require(_equal(args.get('backbone'), fields.get('backbone')), 'evaluated backbone')
     return dict(role=arm['role'], reference=False, training=trainer, waivers=waivers, inputs=inputs)
 
