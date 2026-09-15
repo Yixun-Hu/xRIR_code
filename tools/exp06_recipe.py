@@ -1,0 +1,306 @@
+"""Type-strict schema for every field the xRIR trainer records in ``args.json``.
+
+Plan v4 section 5. Each of the 33 fields written by ``train_xRIR_backbone`` belongs to
+exactly one class, and the five ``exp06_*`` provenance keys written by
+``tools.exp06_train`` form a fifth:
+
+* ``recipe`` -- must equal exp_01's pretraining recipe (``EXP01_RECIPE``);
+* ``production`` -- constraints an arm must satisfy (no truncation, no resume, saving on,
+  yaw augmentation off; ``yaw_aug_seed``/``yaw_aug_width`` are recorded but inert);
+* ``operational`` -- declared differences (backbone, directories, workers, cadences, env),
+  validated type-strictly and within bounds (``check_operational``), with the current
+  runs' checkpoint cadence ``epoch_ckpt_every = 1`` fixed by plan section 5;
+* ``derived`` -- computed from the data and the model (loader length, tier, parameters);
+* ``exp06`` -- run type, registry digest, closure digest, HEAD, provenance path.
+
+Comparisons are type-strict (``type(value) is int/float/bool``), so a recorded ``1``
+never passes for ``True`` and ``12.0`` never passes for ``12``. Every check returns a
+list of deviation strings naming the offending field; an empty list is a pass.
+
+A current run must record every operational and ``exp06`` field (``check_presence``);
+only the deliberately narrower historical path (``check_all(..., historical=True)``,
+for exp_01's files after ``normalize_historical``) skips that requirement. The startup,
+retained and checkpoint copies of the arguments are compared with ``compare_sources``,
+which is recursively type-strict.
+"""
+import functools
+import math
+from types import MappingProxyType
+
+import torch
+
+from model.xRIR_cyl_oriented import BACKBONES_EXP06, build_xrir_exp06
+from tools.exp05_params import TIERS, count_parameters
+
+EXP01_RECIPE = MappingProxyType(dict(
+    num_shot=8, max_len=9600, lr=1e-3, weight_decay=1e-4, decay_epochs=3, lr_gamma=0.1,
+    epochs=12, batch_size=32, accum_steps=2, seed=0, tf32=True,
+    vit_dim=512, vit_depth=12, vit_heads=8, vit_mlp_dim=512))
+
+PRODUCTION = MappingProxyType(dict(max_train_batches=0, max_test_batches=0, test_subset=0,
+                                   resume=None, no_save=False, yaw_aug=0))
+
+INERT = ('yaw_aug_seed', 'yaw_aug_width')
+
+OPERATIONAL = ('backbone', 'save_dir', 'num_workers', 'log_interval', 'save_every',
+               'epoch_ckpt_every', 'env')
+
+EPOCH_CKPT_EVERY = 1  # plan section 5: the current runs keep the trainer's native epoch_012.pth
+
+DERIVED = ('train_batches_per_epoch', 'tier', 'param_counts')
+
+EXP06 = ('exp06_run_type', 'exp06_registry_sha256', 'exp06_source_closure_sha256',
+         'exp06_git_head', 'exp06_provenance_path')
+
+CLASSES = MappingProxyType({'recipe': tuple(EXP01_RECIPE), 'production': tuple(PRODUCTION) + INERT,
+                            'operational': OPERATIONAL, 'derived': DERIVED, 'exp06': EXP06})
+
+TRAIN_BATCHES_PER_EPOCH = 9261  # loader length at batch 32 on the 296 334-sample train split
+TIER = 'M'
+
+MISSING = object()
+
+
+def classify(args_dict):
+    """Map every recorded field to exactly one class; unknown fields are refused by name."""
+    lookup = {field: name for name, group in CLASSES.items() for field in group}
+    unknown = sorted(set(args_dict) - set(lookup))
+    if unknown:
+        raise ValueError('unknown args fields: ' + ', '.join(unknown))
+    return {field: lookup[field] for field in args_dict}
+
+
+def _compare(label, actual, expected):
+    """Type-strict equality; a missing field is a deviation, never a default."""
+    if actual is MISSING:
+        return '{}: not recorded'.format(label)
+    if type(actual) is not type(expected) or actual != expected:
+        return '{}: {!r} is not {!r}'.format(label, actual, expected)
+    return None
+
+
+def strict_equal(left, right):
+    """Recursive equality that never conflates bool with int, or int with float."""
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return set(left) == set(right) and all(strict_equal(left[key], right[key]) for key in left)
+    if isinstance(left, (list, tuple)):
+        return len(left) == len(right) and all(strict_equal(a, b) for a, b in zip(left, right))
+    return left == right
+
+
+def _diff(left, right, left_name, right_name):
+    deviations = []
+    for field in sorted(set(left) | set(right)):
+        if field not in left:
+            deviations.append('{}: recorded by {} but not by {}'.format(field, right_name, left_name))
+        elif field not in right:
+            deviations.append('{}: recorded by {} but not by {}'.format(field, left_name, right_name))
+        elif not strict_equal(left[field], right[field]):
+            deviations.append('{}: {} has {!r} but {} has {!r}'.format(
+                field, left_name, left[field], right_name, right[field]))
+    return deviations
+
+
+def compare_sources(sources):
+    """Every recorded copy of the arguments must agree field by field, type-strictly."""
+    names = sorted(sources)
+    reference = names[0]
+    return [deviation for other in names[1:]
+            for deviation in _diff(sources[reference], sources[other], reference, other)]
+
+
+def check_presence(args_dict):
+    """A current run records every operational and exp_06 provenance field."""
+    return ['{}.{}: not recorded'.format(name, field)
+            for name, group in (('operational', OPERATIONAL), ('exp06', EXP06))
+            for field in group if field not in args_dict]
+
+
+def _integer(label, value):
+    if value is MISSING:
+        return '{}: not recorded'.format(label)
+    if type(value) is not int:
+        return '{}: {!r} is not an integer'.format(label, value)
+    return None
+
+
+def _bounded_int(label, value, minimum, maximum=None):
+    """A native integer in range; ``True`` is not 1 and ``1.0`` is not 1."""
+    deviation = _integer(label, value)
+    if deviation:
+        return deviation
+    if value < minimum or (maximum is not None and value > maximum):
+        return '{}: {!r} is outside [{}, {}]'.format(
+            label, value, minimum, 'inf' if maximum is None else maximum)
+    return None
+
+
+def _environment(label, value):
+    """The trainer records ``os.environ.get(key)`` per key: strings, or None when unset."""
+    if value is MISSING:
+        return '{}: not recorded'.format(label)
+    if type(value) is not dict:
+        return '{}: {!r} is not a mapping of environment variables'.format(label, value)
+    bad = sorted(repr(key) for key, item in value.items()
+                 if type(key) is not str or not (item is None or type(item) is str))
+    if bad:
+        return '{}: {} is not a string or null'.format(label, ', '.join(bad[:4]))
+    return None
+
+
+def check_operational(args_dict, epoch_ckpt_every=EPOCH_CKPT_EVERY):
+    """Finding 4: the declared operational differences must be valid, not merely present.
+
+    Agreement between the three recorded copies of the arguments establishes nothing
+    about their values, so every operational field is checked type-strictly and, where
+    the plan fixes one, against its registered value. Only the deliberately narrower
+    historical path (``check_all(..., historical=True)``) skips these checks.
+    """
+    backbone = args_dict.get('backbone', MISSING)
+    save_dir = args_dict.get('save_dir', MISSING)
+    deviations = [
+        None if backbone in BACKBONES_EXP06 else
+        'operational.backbone: {!r} is not one of {}'.format(
+            None if backbone is MISSING else backbone, sorted(BACKBONES_EXP06)),
+        None if type(save_dir) is str and save_dir else
+        'operational.save_dir: {!r} is not a directory path'.format(
+            None if save_dir is MISSING else save_dir),
+        _bounded_int('operational.num_workers', args_dict.get('num_workers', MISSING), 0),
+        _bounded_int('operational.log_interval', args_dict.get('log_interval', MISSING), 1),
+        _bounded_int('operational.save_every', args_dict.get('save_every', MISSING), 0),
+        _compare('operational.epoch_ckpt_every', args_dict.get('epoch_ckpt_every', MISSING),
+                 epoch_ckpt_every),
+        _environment('operational.env', args_dict.get('env', MISSING)),
+    ]
+    return [deviation for deviation in deviations if deviation]
+
+
+def check_recipe(args_dict, expected=EXP01_RECIPE):
+    """Deviations from exp_01's frozen pretraining recipe."""
+    deviations = [_compare('recipe.' + field, args_dict.get(field, MISSING), expected[field])
+                  for field in sorted(expected)]
+    return [deviation for deviation in deviations if deviation]
+
+
+def check_production(args_dict):
+    """Deviations from the constraints an admissible training arm must satisfy."""
+    deviations = [_compare('production.' + field, args_dict.get(field, MISSING), value)
+                  for field, value in sorted(PRODUCTION.items())]
+    deviations += [_integer('production.' + field, args_dict.get(field, MISSING))
+                   for field in INERT]
+    return [deviation for deviation in deviations if deviation]
+
+
+def normalize_historical(args_dict):
+    """Fill the fields exp_01's trainer never wrote; report filled and absent fields.
+
+    Returns ``(normalized, report)``. Only the tier defaults and the inert yaw fields are
+    filled: derived and production fields stay absent and are reported as ``not_recorded``
+    so no check can mistake an assumption for a record.
+    """
+    normalized = dict(args_dict)
+    filled = {}
+    defaults = {'vit_' + key: value for key, value in TIERS[TIER].items()}
+    defaults.update(yaw_aug=0, yaw_aug_seed=0, yaw_aug_width=512)
+    for field, value in defaults.items():
+        if field not in normalized:
+            normalized[field] = filled[field] = value
+    known = [field for name, group in CLASSES.items() if name != 'exp06' for field in group]
+    return normalized, {'normalized': filled,
+                        'not_recorded': sorted(f for f in known if f not in normalized)}
+
+
+@functools.lru_cache(maxsize=None)
+def expected_param_counts(backbone):
+    """Parameter counts of the registered backbone at the recipe's tier.
+
+    Nit 8: the counting model is randomly initialised, so it is built inside
+    ``torch.random.fork_rng`` -- a cold call must leave the caller's global generator
+    exactly where a warm (cached) call leaves it.
+    """
+    with torch.random.fork_rng(devices=[]):
+        model = build_xrir_exp06(backbone, EXP01_RECIPE['num_shot'], **TIERS[TIER])
+        return MappingProxyType(count_parameters(model))
+
+
+def check_derived(args_dict, backbone):
+    """Deviations of the fields the trainer derives from the data and the model."""
+    deviations = []
+    recorded = args_dict.get('backbone', MISSING)
+    if recorded is MISSING or recorded != backbone:
+        deviations.append('derived.backbone: {!r} is not {!r}'.format(
+            None if recorded is MISSING else recorded, backbone))
+    for deviation in (_compare('derived.train_batches_per_epoch',
+                               args_dict.get('train_batches_per_epoch', MISSING),
+                               TRAIN_BATCHES_PER_EPOCH),
+                      _compare('derived.tier', args_dict.get('tier', MISSING), TIER)):
+        if deviation:
+            deviations.append(deviation)
+    counts = args_dict.get('param_counts', MISSING)
+    if backbone not in BACKBONES_EXP06:
+        deviations.append('derived.param_counts: unknown backbone {!r}'.format(backbone))
+    elif counts is MISSING:
+        deviations.append('derived.param_counts: not recorded')
+    elif type(counts) is not dict:
+        deviations.append('derived.param_counts: {!r} is not a mapping'.format(counts))
+    elif any(type(value) is not int for value in counts.values()):
+        deviations.append('derived.param_counts: values must be native integers: {!r}'.format(counts))
+    elif counts != dict(expected_param_counts(backbone)):
+        deviations.append('derived.param_counts: {!r} is not {!r}'.format(
+            counts, dict(expected_param_counts(backbone))))
+    return deviations
+
+
+def check_budget(history_rows, last_meta, epochs=EXP01_RECIPE['epochs']):
+    """Completeness of ``history.jsonl`` and of the epoch/batch recorded in ``last.pth``."""
+    deviations = []
+    rows = list(history_rows)
+    recorded = [row.get('epoch', MISSING) for row in rows]
+    if any(type(value) is not int for value in recorded):
+        deviations.append('budget.epoch: every history row needs a native integer epoch')
+    values = [value for value in recorded if type(value) is int]
+    missing = [epoch for epoch in range(1, epochs + 1) if values.count(epoch) != 1]
+    if missing:
+        deviations.append('budget.epoch: epochs not recorded exactly once: {}'.format(missing))
+    unexpected = sorted({value for value in values if not 1 <= value <= epochs})
+    if unexpected:
+        deviations.append('budget.epoch: unexpected epochs {}'.format(unexpected))
+    if values != sorted(set(values)):
+        deviations.append('budget.order: epochs must increase once each in file order')
+    for row, epoch in zip(rows, recorded):
+        for field in ('train_loss', 'test_loss', 'epoch_minutes'):
+            value = row.get(field, MISSING)
+            if type(value) not in (int, float) or not math.isfinite(value):
+                deviations.append('budget.{}: epoch {!r} recorded {!r}'.format(
+                    field, None if epoch is MISSING else epoch,
+                    None if value is MISSING else value))
+    for field, expected in (('epoch', epochs), ('batch_idx', 0)):
+        deviation = _compare('budget.last.' + field, last_meta.get(field, MISSING), expected)
+        if deviation:
+            deviations.append(deviation)
+    return deviations
+
+
+def check_all(args_dict, backbone=None, history_rows=None, last_meta=None, expected=EXP01_RECIPE,
+              historical=False):
+    """Every schema deviation of one run; budget checks run when history is supplied.
+
+    ``historical=True`` is the narrower path for exp_01's files, which never recorded the
+    operational, derived or exp_06 fields; a current run must record all of them.
+    """
+    deviations = []
+    try:
+        classify(args_dict)
+    except ValueError as error:
+        deviations.append('schema: ' + str(error))
+    if not historical:
+        deviations += check_presence(args_dict)
+        deviations += check_operational(args_dict)
+    deviations += check_recipe(args_dict, expected)
+    deviations += check_production(args_dict)
+    deviations += check_derived(args_dict, args_dict.get('backbone') if backbone is None else backbone)
+    if history_rows is not None or last_meta is not None:
+        deviations += check_budget(history_rows or [], last_meta or {})
+    return deviations
