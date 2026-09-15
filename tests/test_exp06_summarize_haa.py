@@ -941,6 +941,56 @@ def test_the_recipe_admits_exactly_section_6_2s_arguments():
         assert any(cause in item for item in deviations), (name, cause, deviations)
 
 
+def test_the_registered_selection_population_is_each_stages_own_rooms():
+    """Close review 2, finding 3: exp_02 selected best.pth on ``--val-rooms``, which
+    defaulted to ``--rooms``, so the effective validation rooms are part of the recipe."""
+    TRAIN_ARGS, _ = recipe_args()
+    stage2 = dict(TRAIN_ARGS, epochs=200, val_every=2, rooms=['hallway'])
+    assert subject.child_recipe(dict(TRAIN_ARGS, val_rooms=None), 'stage1', 'haa_train') == []
+    assert subject.child_recipe(dict(TRAIN_ARGS, val_rooms=list(subject.S1_ROOMS)),
+                                'stage1', 'haa_train') == []
+    assert subject.child_recipe(dict(stage2, val_rooms=['hallway']), 'stage2_hallway',
+                                'haa_train') == []
+    for args, name in ((dict(TRAIN_ARGS, val_rooms=['hallway']), 'stage1'),
+                       (dict(TRAIN_ARGS, val_rooms=list(ROOMS)), 'stage1'),
+                       (dict(stage2, val_rooms=['class_room']), 'stage2_hallway')):
+        deviations = subject.child_recipe(args, name, 'haa_train')
+        assert any('validation rooms' in item for item in deviations), (name, deviations)
+
+
+def test_a_job_that_selected_on_other_validation_rooms_is_refused_in_primary(
+        finetune_seed, real_job, cache, monkeypatch):
+    """The finalized job is re-certified with stage 1 validating on hallway alone."""
+    root, repo = real_job
+    monkeypatch.setattr(legacy, 'HAA_ROOT', cache['root'])
+    _, children, spec, joblog = finetune_seed
+    stage1, job = Path(root) / 'stage1', Path(root) / 'completion.json'
+    saved = {target: target.read_bytes() for target in
+             (stage1 / 'args.json', stage1 / 'provenance.json', stage1 / 'completion.json',
+              job)}
+    owner = json.loads(saved[job])['owner_pid']
+    log = json.loads(saved[stage1 / 'completion.json'])['log']['path']
+    try:
+        args = dict(json.loads(saved[stage1 / 'args.json']), val_rooms=['hallway'])
+        (stage1 / 'args.json').write_text(json.dumps(args, indent=2))
+        record = json.loads(saved[stage1 / 'provenance.json'])
+        record['effective_args'] = dict(record['effective_args'], val_rooms=['hallway'])
+        (stage1 / 'provenance.json').write_bytes(
+            json.dumps(record, sort_keys=True, indent=2).encode() + b'\n')
+        (stage1 / 'completion.json').unlink()
+        job.unlink()
+        subject.finalizer.finalize(stage1, 'haa_train', log, 0, repo=repo)
+        subject.finalizer.finalize(root, 'haa_job', joblog, 0, repo=repo, children=children,
+                                   expect='finetune', job_spec=spec, owner_pid=owner)
+        with pytest.raises(ValueError, match='validation rooms'):
+            subject.verify_job(root, 'seed0', 'cyl_or', repo=repo)
+        verified = subject.verify_job(root, 'seed0', 'cyl_or', repo=repo, sensitivity=True)
+        assert any('validation rooms' in item for item in verified['recipe_deviations'])
+    finally:
+        for target, data in saved.items():
+            target.write_bytes(data)
+
+
 def test_a_shortened_training_never_enters_the_primary_comparison(real_job, cache,
                                                                   monkeypatch):
     """The diagnostic nine-child fixture trains four epochs: not section 6.2's budget."""
