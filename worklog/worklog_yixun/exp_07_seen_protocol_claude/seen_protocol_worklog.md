@@ -10,3 +10,5 @@
 
 ## 2026-09-15T10:13:39-04:00 — Codex plan review round 2: **approve with changes** (5 should-fix, 1 nit; no scientific blocker) → plan v3 (changelog §10); plan approved for implementation (Yixun: "go for the exp_07"); decision on GPU ordering pending (default B)
 - `seen_protocol_codex_plan_round2_review.md`. Worktree `/home/yixunhu/codespace/xRIR_code_wt07` (branch `exp07-window`) created for the Opus 5 Coder; round 1 = trainer `--protocol`, protocol-aware training identity, seen-split binding, yaw-aug audit option.
+
+## 2026-09-15T10:14:15-04:00 — Coder round 1 launched (Claude Opus 5 subagent, worktree `xRIR_code_wt07`): `coder_prompts/round1_prompt.md` (trainer `--protocol`, protocol-aware training identity + seen-split binding, yaw-aug audit option); CPU-only, GPU parity deferred
