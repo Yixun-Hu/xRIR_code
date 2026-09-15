@@ -147,7 +147,8 @@ def provenance_fields(argv, run_type, identity=None, repo=REPO):
     records, digest = provenance.closure_record(
         provenance.source_closure('tools.exp06_train', repo), state['HEAD'], repo)
     return dict(repo=str(repo), reviewed_commit=state['HEAD'], run_type=run_type,
-                source_closures={'training': {'files': records, 'sha256': digest}},
+                source_closures={'training': {'entry_module': 'tools.exp06_train',
+                                              'files': records, 'sha256': digest}},
                 registry_sha256=registry_sha256(), git_state=state,
                 environment=provenance.environment(), train_data_identity=identity,
                 command=list(argv))

@@ -1,6 +1,7 @@
 """Completion evidence by run type: what the finalizer accepts and what it refuses."""
 import copy
 import functools
+import hashlib
 import json
 import os
 import subprocess
@@ -17,9 +18,48 @@ MARKER = 'EXP06_CHILD_EXIT 0 2026-09-15T04:05:06.070809+00:00'
 STATE = {'source_network.weight': torch.arange(6.).reshape(2, 3), 'head.bias': torch.zeros(2)}
 
 
+@pytest.fixture(scope='session')
+def clone(tmp_path_factory):
+    """A hardlinked clone: its working tree equals HEAD, so drift can be introduced."""
+    root = tmp_path_factory.mktemp('exp06clone') / 'repo'
+    subprocess.run(['git', 'clone', '--local', '--quiet', '--single-branch', str(REPO), str(root)],
+                   check=True)
+    assert subprocess.check_output(['git', 'status', '--porcelain'], cwd=root, text=True) == ''
+    return root
+
+
+@pytest.fixture
+def data_root(tmp_path):
+    """A tiny stand-in for the AcousticRooms mirror, small enough to rehash in a test."""
+    root = tmp_path / 'data'
+    (root / 'single_channel_ir').mkdir(parents=True)
+    (root / 'single_channel_ir/a.wav').write_bytes(b'first sample')
+    (root / 'single_channel_ir/b.wav').write_bytes(b'second sample')
+    return root
+
+
+def inventory_of(root):
+    """The shape tools.provenance.train_data_identity records, over a tiny root."""
+    names = sorted(str(path.relative_to(root)) for path in Path(root).rglob('*') if path.is_file())
+    records = [{'path': name, 'sha256': provenance.sha256_file(Path(root) / name),
+                'size': (Path(root) / name).stat().st_size,
+                'mtime_ns': (Path(root) / name).stat().st_mtime_ns} for name in names]
+    digest = hashlib.sha256(json.dumps([[r['path'], r['sha256']] for r in records],
+                                       sort_keys=True).encode()).hexdigest()
+    return {'data_root': str(root), 'inventory': records, 'inventory_files': len(records),
+            'inventory_missing': 0, 'inventory_bytes': sum(r['size'] for r in records),
+            'inventory_sha256': digest, 'split': 'train', 'cache_key': 'a' * 64}
+
+
 @functools.lru_cache(maxsize=None)
-def provenance_record():
-    return exp06_train.provenance_fields(['--backbone', 'cylindrical_oriented'], 'full')
+def _base_record(repo):
+    """One real import closure per clone; the subprocess import is far too slow per test."""
+    return exp06_train.provenance_fields(['--backbone', 'cylindrical_oriented'], 'full',
+                                         repo=Path(repo))
+
+
+def provenance_record(repo=None):
+    return copy.deepcopy(_base_record(str(repo if repo is not None else REPO)))
 
 
 def full_args():
@@ -44,11 +84,12 @@ def history_rows(epochs=range(1, 13)):
 
 
 @pytest.fixture
-def full_run(tmp_path):
+def full_run(tmp_path, clone, data_root):
     """A complete twelve-epoch attempt directory with tiny tensors and a closed log."""
     run = tmp_path / 'attempt_20260916T130000'
     run.mkdir()
-    record = copy.deepcopy(provenance_record())
+    record = provenance_record(clone)
+    record['train_data_identity'] = inventory_of(data_root)
     args = full_args()
     record['effective_args'] = args
     (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
@@ -62,9 +103,9 @@ def full_run(tmp_path):
     return run, log
 
 
-def test_full_completion_records_every_artifact(full_run):
+def test_full_completion_records_every_artifact(full_run, clone):
     run, log = full_run
-    fields = exp06_finalize.finalize(run, 'full', log, 0, repo=REPO)
+    fields = exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
     completion = json.loads((run / 'completion.json').read_text())
     assert completion == fields
     assert completion['run_type'] == 'full' and completion['diagnostic'] is False
@@ -75,18 +116,18 @@ def test_full_completion_records_every_artifact(full_run):
     assert completion['artifacts']['args.json'] == provenance.sha256_file(run / 'args.json')
     assert completion['log']['sha256'] == provenance.sha256_file(log)
     assert completion['epochs'] == 12 and completion['backbone'] == 'cylindrical_oriented'
-    assert completion['source_closure_sha256'] == provenance_record()['source_closures']['training']['sha256']
+    assert completion['source_closure_sha256'] == provenance_record(clone)['source_closures']['training']['sha256']
 
 
-def test_finalize_is_idempotent_and_refuses_a_different_completion(full_run):
+def test_finalize_is_idempotent_and_refuses_a_different_completion(full_run, clone):
     run, log = full_run
-    exp06_finalize.finalize(run, 'full', log, 0, repo=REPO)
+    exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
     first = (run / 'completion.json').read_bytes()
-    exp06_finalize.finalize(run, 'full', log, 0, repo=REPO)
+    exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
     assert (run / 'completion.json').read_bytes() == first
     (run / 'completion.json').write_text('{"run_type": "full"}\n')
     with pytest.raises(ValueError, match='completion'):
-        exp06_finalize.finalize(run, 'full', log, 0, repo=REPO)
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
 
 
 @pytest.mark.parametrize('damage,cause', [
@@ -99,7 +140,7 @@ def test_finalize_is_idempotent_and_refuses_a_different_completion(full_run):
     ('closure_drift', 'closure'),
     ('run_type', 'run_type'),
 ])
-def test_full_refusals_are_named_and_write_nothing(full_run, damage, cause):
+def test_full_refusals_are_named_and_write_nothing(full_run, clone, damage, cause):
     run, log = full_run
     if damage == 'truncated':
         args = dict(full_args(), max_train_batches=3)
@@ -129,7 +170,7 @@ def test_full_refusals_are_named_and_write_nothing(full_run, damage, cause):
         record['run_type'] = 'probe'
         (run / 'provenance.json').write_text(json.dumps(record))
     with pytest.raises(ValueError, match=cause):
-        exp06_finalize.finalize(run, 'full', log, 0, repo=REPO)
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
     assert not (run / 'completion.json').exists()
 
 
@@ -138,19 +179,19 @@ def test_full_refusals_are_named_and_write_nothing(full_run, damage, cause):
     ('no marker at all', 0), ('EXP06_CHILD_EXIT 0', 0),
     ('EXP06_CHILD_EXIT 0 2026-09-15T04:05:06+00:00 extra', 0),
     ('EXP06_CHILD_EXIT 0 2026-09-15T04:05:06', 0), ('', 0)])
-def test_open_or_disagreeing_logs_are_refused(full_run, line, exit_code):
+def test_open_or_disagreeing_logs_are_refused(full_run, clone, line, exit_code):
     run, log = full_run
     log.write_text('train samples: 1\n' + line + ('\n' if line else ''))
     with pytest.raises(ValueError):
-        exp06_finalize.finalize(run, 'full', log, exit_code, repo=REPO)
+        exp06_finalize.finalize(run, 'full', log, exit_code, repo=clone)
     assert not (run / 'completion.json').exists()
 
 
-def test_non_zero_child_exit_is_refused_for_an_arm(full_run):
+def test_non_zero_child_exit_is_refused_for_an_arm(full_run, clone):
     run, log = full_run
     log.write_text('EXP06_CHILD_EXIT 7 2026-09-15T04:05:06+00:00\n')
     with pytest.raises(ValueError, match='status'):
-        exp06_finalize.finalize(run, 'full', log, 7, repo=REPO)
+        exp06_finalize.finalize(run, 'full', log, 7, repo=clone)
     assert not (run / 'completion.json').exists()
 
 
@@ -171,12 +212,12 @@ def test_diagnostic_runs_need_no_artifacts(tmp_path, run_type):
     assert exp06_finalize.finalize(run, run_type, log, 3, repo=REPO, receipt=receipt) == fields
 
 
-def test_unknown_run_type_and_missing_directory_are_refused(tmp_path, full_run):
+def test_unknown_run_type_and_missing_directory_are_refused(tmp_path, full_run, clone):
     run, log = full_run
     with pytest.raises(ValueError, match='run type'):
         exp06_finalize.finalize(run, 'invented', log, 0, repo=REPO)
     with pytest.raises(ValueError, match='directory'):
-        exp06_finalize.finalize(tmp_path / 'absent', 'full', log, 0, repo=REPO)
+        exp06_finalize.finalize(tmp_path / 'absent', 'full', log, 0, repo=clone)
 
 
 def haa_train_args(frame='heading', **overrides):
@@ -369,10 +410,10 @@ def test_job_requires_a_declared_expectation(tmp_path, closed_log_file):
         exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=REPO, children=children)
 
 
-def test_cli_reports_refusals_with_status_two(full_run):
+def test_cli_reports_refusals_with_status_two(full_run, clone):
     run, log = full_run
     command = [sys.executable, 'tools/exp06_finalize.py', '--run-dir', str(run),
-               '--run-type', 'full', '--log', str(log), '--child-exit', '0', '--repo', str(REPO)]
+               '--run-type', 'full', '--log', str(log), '--child-exit', '0', '--repo', str(clone)]
     env = {**os.environ, 'PYTHONPATH': str(REPO)}
     completed = subprocess.run(command, cwd=REPO, capture_output=True, text=True, env=env)
     assert completed.returncode == 0, completed.stderr
@@ -401,7 +442,7 @@ def test_cli_reports_refusals_with_status_two(full_run):
     ('provenance_not_an_object', 'provenance.json'),
     ('history_not_json', 'history.jsonl'),
 ])
-def test_malformed_inputs_raise_named_refusals(full_run, damage, cause):
+def test_malformed_inputs_raise_named_refusals(full_run, clone, damage, cause):
     """Should-fix 9: malformed containers must refuse by name, never raise KeyError."""
     run, log = full_run
     if damage == 'last_not_a_dict':
@@ -426,16 +467,16 @@ def test_malformed_inputs_raise_named_refusals(full_run, damage, cause):
     else:
         (run / 'history.jsonl').write_text('{"epoch": 1}\nnot json\n')
     with pytest.raises(ValueError, match=cause):
-        exp06_finalize.finalize(run, 'full', log, 0, repo=REPO)
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
     assert not (run / 'completion.json').exists()
 
 
-def test_cli_exits_two_on_a_malformed_checkpoint(full_run):
+def test_cli_exits_two_on_a_malformed_checkpoint(full_run, clone):
     """The documented refusal interface: exit 2 and a named cause, nothing written."""
     run, log = full_run
     torch.save(torch.zeros(3), run / 'last.pth')
     command = [sys.executable, 'tools/exp06_finalize.py', '--run-dir', str(run),
-               '--run-type', 'full', '--log', str(log), '--child-exit', '0', '--repo', str(REPO)]
+               '--run-type', 'full', '--log', str(log), '--child-exit', '0', '--repo', str(clone)]
     completed = subprocess.run(command, cwd=REPO, capture_output=True, text=True,
                                env={**os.environ, 'PYTHONPATH': str(REPO)})
     assert completed.returncode == 2 and 'last.pth' in completed.stderr
@@ -457,11 +498,11 @@ def rewrite_sources(run, mutate_json=None, mutate_checkpoint=None, mutate_proven
     (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
 
 
-def test_three_argument_sources_must_agree(full_run):
+def test_three_argument_sources_must_agree(full_run, clone):
     """Blocker 2: startup, retained and checkpoint arguments are compared type-strictly."""
     run, log = full_run
     rewrite_sources(run)
-    assert exp06_finalize.finalize(run, 'full', log, 0, repo=REPO)['admissible_arm'] is True
+    assert exp06_finalize.finalize(run, 'full', log, 0, repo=clone)['admissible_arm'] is True
 
 
 @pytest.mark.parametrize('damage,cause', [
@@ -474,7 +515,7 @@ def test_three_argument_sources_must_agree(full_run):
     ('provenance_without_effective_args', 'effective_args'),
     ('checkpoint_without_args', 'args'),
 ])
-def test_argument_source_refusals_are_named(full_run, damage, cause):
+def test_argument_source_refusals_are_named(full_run, clone, damage, cause):
     run, log = full_run
     if damage == 'provenance_truncated':
         rewrite_sources(run, mutate_provenance=lambda a: dict(a, max_train_batches=3))
@@ -498,5 +539,74 @@ def test_argument_source_refusals_are_named(full_run, damage, cause):
     else:
         torch.save({'model': STATE, 'epoch': 12, 'batch_idx': 0}, run / 'last.pth')
     with pytest.raises(ValueError, match=cause):
-        exp06_finalize.finalize(run, 'full', log, 0, repo=REPO)
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert not (run / 'completion.json').exists()
+
+
+def test_a_modified_closure_file_is_refused_after_provenance_was_written(full_run, clone):
+    """Blocker 1: real working-tree bytes change; the reviewed blob digest does not."""
+    run, log = full_run
+    assert exp06_finalize.finalize(run, 'full', log, 0, repo=clone)['admissible_arm'] is True
+    (run / 'completion.json').unlink()
+    victim = clone / 'tools/exp06_recipe.py'
+    victim.write_text(victim.read_text() + '\n# drift introduced after the run started\n')
+    try:
+        with pytest.raises(ValueError, match='exp06_recipe.py'):
+            exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    finally:
+        subprocess.run(['git', 'checkout', '--', 'tools/exp06_recipe.py'], cwd=clone, check=True)
+    assert not (run / 'completion.json').exists()
+
+
+def test_changed_training_data_bytes_are_refused(full_run, clone, data_root):
+    """Blocker 1: the recorded inventory is rehashed, not trusted."""
+    run, log = full_run
+    (data_root / 'single_channel_ir/b.wav').write_bytes(b'second sample, edited')
+    with pytest.raises(ValueError, match='revalidation'):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert not (run / 'completion.json').exists()
+    (data_root / 'single_channel_ir/a.wav').unlink()
+    with pytest.raises(ValueError, match='revalidation'):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+
+
+@pytest.mark.parametrize('key', ['train_data_identity', 'environment', 'registry_sha256',
+                                 'command', 'git_state', 'reviewed_commit', 'source_closures'])
+def test_incomplete_provenance_is_refused(full_run, clone, key):
+    """Blocker 1: completion requires the whole execution record, not a fragment."""
+    run, log = full_run
+    record = json.loads((run / 'provenance.json').read_text())
+    record.pop(key)
+    (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    with pytest.raises(ValueError, match=key):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
+    assert not (run / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('damage,cause', [
+    ('empty_closure', 'empty'),
+    ('membership', 'membership'),
+    ('no_entry_module', 'entry module'),
+    ('foreign_entry_module', 'entry module'),
+    ('no_inventory', 'train_data_identity'),
+])
+def test_source_closure_and_identity_shapes_are_refused(full_run, clone, damage, cause):
+    record = json.loads((full_run[0] / 'provenance.json').read_text())
+    closure = record['source_closures']['training']
+    if damage == 'empty_closure':
+        closure['files'] = []
+        closure['sha256'] = exp06_finalize.closure_digest([])
+    elif damage == 'membership':
+        closure['files'] = closure['files'][:-1]
+        closure['sha256'] = exp06_finalize.closure_digest(closure['files'])
+    elif damage == 'no_entry_module':
+        closure.pop('entry_module')
+    elif damage == 'foreign_entry_module':
+        closure['entry_module'] = 'tools.exp06_recipe'
+    else:
+        record['train_data_identity'].pop('inventory')
+    run, log = full_run
+    (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
     assert not (run / 'completion.json').exists()

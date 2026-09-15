@@ -180,3 +180,9 @@ def test_main_composes_the_pinned_trainer_and_never_completes_a_run():
     assert 'write_completion' not in module
     assert "'completion.json'" not in module and '"completion.json"' not in module
     assert 'XRIR_RUNTIME_ARGS' in source and 'history.jsonl' in source
+
+
+def test_provenance_records_the_closure_entry_module():
+    """Blocker 1/3: the finalizer recomputes the closure of the module named here."""
+    fields = exp06_train.provenance_fields(RECIPE, 'full')
+    assert fields['source_closures']['training']['entry_module'] == 'tools.exp06_train'

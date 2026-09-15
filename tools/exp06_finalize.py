@@ -33,6 +33,7 @@ produces byte-identical bytes, and an existing completion that differs is refuse
 """
 import argparse
 import datetime
+import functools
 import hashlib
 import json
 import os
@@ -55,6 +56,11 @@ EXCLUSIVE_GPU_MODES = ('probe', 'full')
 FULL_ARTIFACTS = ('provenance.json', 'args.json', 'history.jsonl', 'last.pth', 'epoch_012.pth')
 HAA_TRAIN_ARTIFACTS = ('args.json', 'history.jsonl', 'summary.json', 'best.pth', 'last.pth')
 FRAMES = ('room', 'heading')
+REQUIRED_PROVENANCE = ('run_type', 'repo', 'reviewed_commit', 'source_closures',
+                       'registry_sha256', 'git_state', 'environment', 'command',
+                       'effective_args', 'train_data_identity')
+ENTRY_MODULES = {'full': 'tools.exp06_train', 'haa_train': 'tools.exp06_haa_finetune',
+                 'haa_eval': 'tools.exp06_haa_eval'}
 WIDTH = 512
 EPOCH_CHECKPOINT = 'epoch_{:03d}.pth'.format(exp06_recipe.EXP01_RECIPE['epochs'])
 
@@ -137,6 +143,80 @@ def closed_log(log, child_exit):
     return {'path': str(Path(log).resolve()), 'sha256': provenance.sha256_file(log)}, parts[2]
 
 
+@functools.lru_cache(maxsize=None)
+def closure_paths(entry_module, repo):
+    """Re-import the recorded entry hermetically; an unresolvable module is a refusal.
+
+    One finalization imports one entry, so the cache only spares repeated calls inside a
+    single process (tests); production calls it once.
+    """
+    try:
+        return tuple(provenance.source_closure(entry_module, repo))
+    except (OSError, RuntimeError, ValueError) as error:
+        raise ValueError('cannot recompute the source closure of {}: {}'.format(
+            entry_module, error)) from error
+
+
+def load_provenance(run_dir, run_type):
+    """The whole execution record, or a refusal naming the field that is missing."""
+    record = _read_json(Path(run_dir) / 'provenance.json', 'provenance.json')
+    missing = [key for key in REQUIRED_PROVENANCE if record.get(key) is None]
+    _require(not missing, 'provenance.json is incomplete: missing ' + ', '.join(missing))
+    _require(record['run_type'] == run_type,
+             'provenance run_type is {!r}, not {}'.format(record['run_type'], run_type))
+    identity = record['train_data_identity']
+    _require(isinstance(identity, dict) and isinstance(identity.get('inventory'), list)
+             and identity.get('data_root'),
+             'provenance.json records no train_data_identity inventory')
+    _require(isinstance(record['effective_args'], dict),
+             'provenance.json records no effective_args mapping (startup arguments)')
+    return record
+
+
+def verify_source_closure(record, run_type, repo):
+    """Three-way: the working tree now, the bytes at spawn, and the reviewed blobs."""
+    closures = record['source_closures']
+    _require(isinstance(closures, dict) and len(closures) == 1,
+             'provenance.json must record exactly one source closure')
+    name, closure = sorted(closures.items())[0]
+    _require(isinstance(closure, dict), 'source closure {} is not a record'.format(name))
+    entry = closure.get('entry_module')
+    _require(entry == ENTRY_MODULES[run_type], 'source closure entry module is {!r}, not {!r}'
+             .format(entry, ENTRY_MODULES[run_type]))
+    files = closure.get('files')
+    _require(isinstance(files, list) and files, 'the recorded source closure is empty')
+    for item in files:
+        _require(isinstance(item, dict) and isinstance(item.get('path'), str)
+                 and _is_sha256(item.get('working_tree_sha256'))
+                 and _is_sha256(item.get('reviewed_blob_sha256')),
+                 'incomplete source closure file record: {!r}'.format(item))
+    _require(closure.get('sha256') == closure_digest(files),
+             'recorded source closure digest does not match its own file list')
+    current = closure_paths(entry, str(Path(repo).resolve()))
+    recorded = sorted(item['path'] for item in files)
+    _require(sorted(current) == recorded, 'source closure membership changed: '
+             + ', '.join(sorted(set(current) ^ set(recorded))))
+    fresh, digest = provenance.closure_record(list(current), record['reviewed_commit'], repo)
+    _require(digest == closure['sha256'],
+             'source closure drift: the reviewed blobs differ from the recorded digest')
+    now = {item['path']: item for item in fresh}
+    for item in files:
+        seen = now[item['path']]
+        agreed = {seen['working_tree_sha256'], item['working_tree_sha256'],
+                  item['reviewed_blob_sha256'], seen['reviewed_blob_sha256']}
+        _require(len(agreed) == 1, 'source drift at {}: working tree {}, recorded {}, reviewed {}'
+                 .format(item['path'], seen['working_tree_sha256'],
+                         item['working_tree_sha256'], item['reviewed_blob_sha256']))
+    return name, closure
+
+
+def revalidate_inputs(record, repo, required=('train_data_identity', 'source_closures')):
+    """Rehash the declared data inventory and mutable inputs through tools.provenance."""
+    manifest = dict(record, repo=str(Path(repo).resolve()))
+    mismatches = provenance.revalidate(manifest, required=required)
+    _require(not mismatches, 'input revalidation failed: ' + ', '.join(sorted(mismatches)[:8]))
+
+
 def artifacts(run_dir, names):
     """Hash every required artifact; a missing one is refused by name."""
     hashes = {}
@@ -175,19 +255,9 @@ def full_evidence(run_dir, repo):
     """Verify the twelve-epoch pretraining contract of plan section 5."""
     run_dir = Path(run_dir)
     hashes = artifacts(run_dir, FULL_ARTIFACTS)  # every file must exist before it is parsed
-    record = _read_json(run_dir / 'provenance.json', 'provenance.json')
-    _require(record.get('run_type') == 'full',
-             'provenance run_type is {!r}, not full'.format(record.get('run_type')))
-    try:
-        closure = record['source_closures']['training']
-        commit = record['reviewed_commit']
-        paths = [entry['path'] for entry in closure['files']]
-    except (KeyError, TypeError) as error:
-        raise ValueError('provenance.json has no training source closure: {}'.format(error)) from error
-    _require(closure.get('sha256') == closure_digest(closure['files']),
-             'recorded source closure digest does not match its own file list')
-    _require(provenance.closure_record(paths, commit, repo)[1] == closure['sha256'],
-             'source closure drift: the reviewed blobs differ from the recorded digest')
+    record = load_provenance(run_dir, 'full')
+    _, closure = verify_source_closure(record, 'full', repo)
+    revalidate_inputs(record, repo)
     args = _read_json(run_dir / 'args.json', 'args.json')
     rows = _history_rows(run_dir / 'history.jsonl', 'history.jsonl')
     last = _load_torch(run_dir / 'last.pth', 'last.pth')
