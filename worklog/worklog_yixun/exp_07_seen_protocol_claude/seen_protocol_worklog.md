@@ -22,3 +22,5 @@
 
 ## 2026-09-15T11:42:35-04:00 — Coder round 2 delivered (`2fe4395`…`a035d7f`, 9 commits, 697/80 lines; suite 1 367 passed / 38 skipped CPU); Codex review launched
 - Delivered: seen arms/goldens/9 265 (`36e385d`), per-arm comparators + protocol-aware `build_fields` (`68fb737`), seen bindings in recovery/CLI (`6d9578d`), seen fit-probe/receipt/gates (`57c3a36`, **283 lines — over the 200-line rule, recorded as a process deviation**), refusals + smoke dry run (`8215702`), tidy commits. Coder found round 1 had left 5 red tests in `tests/test_exp05_launcher.py` (the round-1 report's file set excluded them; the Codex round-1 review did not run them either) — repaired in `36e385d`; Planner note: round-1 close-out incomplete on the "suite green" criterion, corrected here. Six goldens (full + smoke per arm). Operational: the first seen launch hashes 296 454 WAVs into `ckpt/exp07/train_inventory_seen.json` — the Planner pre-builds it before the probe.
+
+## 2026-09-15T11:44:23-04:00 — seen training inventory pre-built (CPU, round-2 provenance code from the worktree): `ckpt/exp07/train_inventory_seen.json`, 296 454 files / 12.23 GB, inventory sha256 `b18e9ec3…`, 73 s
