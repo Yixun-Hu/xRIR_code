@@ -1,5 +1,6 @@
 """exp_06 approvals: the null template, the code digests, and fail-closed admission."""
 import copy
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -130,3 +131,54 @@ def test_require_admits_matching_digests_and_names_every_drift(template, compute
                          current=digests)
     with pytest.raises(ValueError, match='unknown approval key'):
         profiles.require(filled, ('invented',), repo=REPO, commit=HEAD, current=digests)
+
+
+@pytest.fixture
+def committed(tmp_path):
+    """A tiny repository with the null template committed at HEAD."""
+    root = tmp_path / 'repo'
+    (root / 'assets').mkdir(parents=True)
+    path = root / 'assets/approved_digests.json'
+    path.write_bytes(profiles.TEMPLATE_PATH.read_bytes())
+    for command in (['init', '-q'], ['add', '-A'], ['-c', 'user.email=a@b', '-c', 'user.name=t',
+                                                    'commit', '-q', '-m', 'approvals']):
+        subprocess.run(['git'] + command, cwd=root, check=True)
+    return root, path, subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root,
+                                               text=True).strip()
+
+
+def test_approvals_can_be_bound_to_their_committed_blob(committed):
+    """Finding 2: a confirmatory run's approvals must be bytes a reviewer committed."""
+    root, path, head = committed
+    value, identity = profiles.load_approved_digests(path, repo=root, commit=head)
+    assert value['schema_version'] == profiles.SCHEMA_VERSION
+    assert identity['repo_relative'] == 'assets/approved_digests.json'
+    assert identity['committed_at'] == head
+    assert identity['sha256'] == hashlib.sha256(path.read_bytes()).hexdigest()
+    unbound = profiles.load_approved_digests(path)[1]
+    assert unbound['sha256'] == identity['sha256'] and 'committed_at' not in unbound
+
+
+@pytest.mark.parametrize('damage,cause', [('outside', 'outside'), ('untracked', 'not tracked'),
+                                          ('edited', 'committed'), ('unknown_commit', 'not tracked')])
+def test_approvals_that_no_reviewed_commit_carries_are_refused(committed, tmp_path, damage, cause):
+    root, path, head = committed
+    if damage == 'outside':
+        path = tmp_path / 'approved_digests.json'
+        path.write_bytes(profiles.TEMPLATE_PATH.read_bytes())
+    elif damage == 'untracked':
+        path = root / 'assets/second.json'
+        path.write_bytes(profiles.TEMPLATE_PATH.read_bytes())
+    elif damage == 'edited':
+        path.write_bytes(path.read_bytes() + b'\n')
+    else:
+        head = 'b' * 40
+    with pytest.raises(ValueError, match=cause):
+        profiles.load_approved_digests(path, repo=root, commit=head)
+
+
+def test_binding_needs_both_a_repository_and_a_commit(committed):
+    root, path, head = committed
+    for repo, commit in ((root, None), (None, head)):
+        with pytest.raises(ValueError, match='repository and the commit'):
+            profiles.load_approved_digests(path, repo=repo, commit=commit)

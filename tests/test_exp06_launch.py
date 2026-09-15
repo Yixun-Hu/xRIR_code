@@ -13,6 +13,7 @@ from tools import exp06_finalize, exp06_profiles, provenance
 REPO = Path(__file__).resolve().parents[1]
 APPROVED = ('worklog/worklog_yixun/exp_06_oriented_cyl_claude/'
             'oriented_cyl_results_assets/approved_digests.json')
+NULL_APPROVED = 'worklog/approved_digests_null.json'
 
 
 @pytest.fixture
@@ -25,6 +26,8 @@ def repo(tmp_path):
     (root / 'worklog/notes.md').write_text('notebook\n')
     write_approvals(root, {key: '{:064x}'.format(index)
                            for index, key in enumerate(exp06_profiles.TRAINING_KEYS)})
+    # Finding 2: the null approvals must be committed too, or they cannot be read at all.
+    (root / NULL_APPROVED).write_bytes(exp06_profiles.TEMPLATE_PATH.read_bytes())
     for command in (['init', '-q'], ['add', '-A'], ['-c', 'user.email=a@b', '-c', 'user.name=t',
                                                     'commit', '-q', '-m', 'initial']):
         subprocess.run(['git'] + command, cwd=root, check=True)
@@ -421,8 +424,7 @@ def test_preflight_gates_on_the_approved_code_digests(repo, fake_nvidia_smi, tmp
                                                       monkeypatch):
     """Finding 1: null approvals refuse a full launch; only a diagnostic may go exploratory."""
     root, head = repo
-    approvals = tmp_path / 'approved_digests.json'
-    approvals.write_bytes(exp06_profiles.TEMPLATE_PATH.read_bytes())
+    approvals = root / NULL_APPROVED
     with pytest.raises(ValueError, match='not approved'):
         exp06_finalize.preflight('full', 1, head, repo=root, approved=approvals)
     record = exp06_finalize.preflight('smoke', 0, head, repo=root, approved=approvals,
@@ -436,29 +438,50 @@ def test_preflight_gates_on_the_approved_code_digests(repo, fake_nvidia_smi, tmp
         exp06_finalize.preflight('full', 1, head, repo=root, approved=tmp_path / 'absent.json')
 
 
-def test_preflight_admits_a_full_launch_whose_digests_match(repo, fake_nvidia_smi, tmp_path,
-                                                            monkeypatch):
+def test_preflight_admits_a_full_launch_whose_digests_match(repo, fake_nvidia_smi,
+                                                            approved_code, monkeypatch):
     root, head = repo
-    approvals = tmp_path / 'approved_digests.json'
-    value = json.loads(exp06_profiles.TEMPLATE_PATH.read_text())
-    digests = {key: '{:064x}'.format(index)
-               for index, key in enumerate(exp06_profiles.TRAINING_KEYS)}
-    value['code'].update(digests)
-    approvals.write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
-    monkeypatch.setattr(exp06_profiles, 'compute_code_digests', lambda *a, **k: dict(digests))
+    approvals = root / exp06_profiles.APPROVED_RELATIVE
     record = exp06_finalize.preflight('full', 1, head, repo=root, approved=approvals)
     assert record['approval_deviations'] == [] and record['exploratory'] is False
     assert record['approved'] == {'path': str(approvals.resolve()),
-                                  'sha256': provenance.sha256_file(approvals)}
-    digests['launch_sh'] = 'f' * 64
+                                  'sha256': provenance.sha256_file(approvals),
+                                  'repo_relative': exp06_profiles.APPROVED_RELATIVE,
+                                  'committed_at': head}
+    digests = dict(approved_code, launch_sh='f' * 64)
+    monkeypatch.setattr(exp06_profiles, 'compute_code_digests', lambda *a, **k: dict(digests))
     with pytest.raises(ValueError, match='launch_sh'):
         exp06_finalize.preflight('full', 1, head, repo=root, approved=approvals)
 
 
+def test_confirmatory_approvals_must_be_committed_at_the_reviewed_commit(repo, fake_nvidia_smi,
+                                                                        tmp_path):
+    """Finding 2: hashing an arbitrary file at spawn proves consistency, not review."""
+    root, head = repo
+    tracked = root / exp06_profiles.APPROVED_RELATIVE
+    outside = tmp_path / 'approved_digests.json'
+    outside.write_bytes(tracked.read_bytes())
+    with pytest.raises(ValueError, match='outside'):
+        exp06_finalize.preflight('full', 1, head, repo=root, approved=outside)
+    uncommitted = root / 'worklog/approved_digests_variant.json'
+    uncommitted.write_bytes(tracked.read_bytes())
+    with pytest.raises(ValueError, match='not tracked'):
+        exp06_finalize.preflight('full', 1, head, repo=root, approved=uncommitted)
+    original = tracked.read_bytes()
+    tracked.write_bytes(original + b'\n')
+    with pytest.raises(ValueError, match='committed'):
+        exp06_finalize.preflight('full', 1, head, repo=root, approved=tracked)
+    tracked.write_bytes(original)
+    assert exp06_finalize.preflight('full', 1, head, repo=root, approved=tracked)
+    # An explicitly exploratory diagnostic may still read approvals from anywhere.
+    diagnostic = exp06_finalize.preflight('smoke', 1, head, repo=root, approved=outside,
+                                          exploratory=True)
+    assert diagnostic['exploratory'] is True and 'committed_at' not in diagnostic['approved']
+
+
 def test_the_preflight_cli_takes_the_approvals_path(repo, fake_nvidia_smi, tmp_path):
     root, head = repo
-    approvals = tmp_path / 'approved_digests.json'
-    approvals.write_bytes(exp06_profiles.TEMPLATE_PATH.read_bytes())
+    approvals = root / NULL_APPROVED
     command = [sys.executable, 'tools/exp06_finalize.py', 'preflight', '--mode', 'full',
                '--gpu', '1', '--reviewed-commit', head, '--repo', str(root),
                '--approved', str(approvals)]
