@@ -23,11 +23,35 @@ def repo(tmp_path):
     (root / 'tools').mkdir()
     (root / 'tools/exp06_launch.sh').write_text('#!/usr/bin/env bash\n')
     (root / 'worklog/notes.md').write_text('notebook\n')
+    write_approvals(root, {key: '{:064x}'.format(index)
+                           for index, key in enumerate(exp06_profiles.TRAINING_KEYS)})
     for command in (['init', '-q'], ['add', '-A'], ['-c', 'user.email=a@b', '-c', 'user.name=t',
                                                     'commit', '-q', '-m', 'initial']):
         subprocess.run(['git'] + command, cwd=root, check=True)
     head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
     return root, head
+
+
+@pytest.fixture(autouse=True)
+def approved_code(monkeypatch, tmp_path_factory, request):
+    """Most preflight cases gate git, pids and GPUs; the approvals have their own cases.
+
+    The fixture repository carries a filled approvals file at the registered relative
+    path and the digests it pins are what this checkout is made to report.
+    """
+    digests = {key: '{:064x}'.format(index)
+               for index, key in enumerate(exp06_profiles.TRAINING_KEYS)}
+    monkeypatch.setattr(exp06_profiles, 'compute_code_digests', lambda *a, **k: dict(digests))
+    return digests
+
+
+def write_approvals(root, digests=None):
+    path = Path(root) / exp06_profiles.APPROVED_RELATIVE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    value = json.loads(exp06_profiles.TEMPLATE_PATH.read_text())
+    value['code'].update(digests or {})
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
+    return path
 
 
 @pytest.fixture
@@ -124,13 +148,13 @@ def test_a_live_owner_may_finalize_its_own_attempt(tmp_path):
 
 def test_preflight_cli_exits_two_on_refusal(repo, fake_nvidia_smi):
     root, head = repo
-    command = [sys.executable, 'tools/exp06_finalize.py', 'preflight', '--mode', 'full',
-               '--gpu', '1', '--reviewed-commit', head, '--repo', str(root)]
+    command = [sys.executable, 'tools/exp06_finalize.py', 'preflight', '--mode', 'smoke',
+               '--gpu', '1', '--reviewed-commit', head, '--repo', str(root), '--exploratory']
     env = {**os.environ, 'PYTHONPATH': str(REPO)}
     ok = subprocess.run(command, cwd=REPO, capture_output=True, text=True, env=env)
-    assert ok.returncode == 0, ok.stderr
-    assert json.loads(ok.stdout.split('EXP06_PREFLIGHT_OK ')[1])['mode'] == 'full'
-    wrong = subprocess.run(command[:-4] + ['--reviewed-commit', 'b' * 40, '--repo', str(root)],
+    assert ok.returncode == 0, ok.stderr  # the child process computes real digests
+    assert json.loads(ok.stdout.split('EXP06_PREFLIGHT_OK ')[1])['mode'] == 'smoke'
+    wrong = subprocess.run(command[:-5] + ['--reviewed-commit', 'b' * 40, '--repo', str(root)],
                            cwd=REPO, capture_output=True, text=True, env=env)
     assert wrong.returncode == 2 and 'EXP06_PREFLIGHT_REFUSED' in wrong.stderr
 

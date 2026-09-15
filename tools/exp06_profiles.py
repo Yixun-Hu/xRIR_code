@@ -33,8 +33,9 @@ from tools import provenance
 REPO = Path(__file__).resolve().parents[1]
 SCHEMA_VERSION = 1
 TEMPLATE_PATH = REPO / 'tools/exp06_approved_digests_template.json'
-APPROVED_DIGESTS_PATH = REPO / ('worklog/worklog_yixun/exp_06_oriented_cyl_claude/'
-                                'oriented_cyl_results_assets/approved_digests.json')
+APPROVED_RELATIVE = ('worklog/worklog_yixun/exp_06_oriented_cyl_claude/'
+                     'oriented_cyl_results_assets/approved_digests.json')
+APPROVED_DIGESTS_PATH = REPO / APPROVED_RELATIVE
 
 # The exp_03 evaluator is pinned by tests/test_exp03_record_tools.py, so recomputing its
 # closure at any later commit reproduces this digest; it is the one value filled up front.

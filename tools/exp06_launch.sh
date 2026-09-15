@@ -16,12 +16,14 @@ export PYTHONPATH="$PWD"
 PYTHON=/home/yixunhu/miniconda3/envs/xRIR/bin/python
 DATA_ROOT="${XRIR_DATA_PATH:-/home/yixunhu/data_cache/AcousticRooms}"  # the registered mirror
 RECORD=worklog/worklog_yixun/exp_06_oriented_cyl_claude
+APPROVED_DEFAULT="$RECORD/oriented_cyl_results_assets/approved_digests.json"
 SMOKE_DIR=ckpt/exp06/_smoke
 SMOKE_FLAGS="--epochs 1 --max-train-batches 3 --max-test-batches 2 --batch-size 4 --num-workers 4 --save-every 0 --no-save"
 
 usage() {
     echo "usage: $0 <smoke|probe|full|finalize> --gpu <g> --reviewed-commit <sha40>" >&2
-    echo "       [--attempt-root <dir>] [--attempt <dir> --log <path> --child-exit <n>] [--dry-run]" >&2
+    echo "       [--attempt-root <dir>] [--approved <json>] [--exploratory]" >&2
+    echo "       [--attempt <dir> --log <path> --child-exit <n>] [--dry-run]" >&2
     exit 2
 }
 
@@ -29,8 +31,11 @@ say() { printf '%s\n' "$*"; }
 run() { say "RUN $*"; if [ "${DRY:-0}" -eq 0 ]; then "$@"; fi; }
 
 preflight() {  # every location this launcher writes a pid file into (review 5)
+    local extra=()
+    [ "${EXPLORATORY:-0}" -eq 0 ] || extra+=(--exploratory)
     run "$PYTHON" tools/exp06_finalize.py preflight --mode "$MODE" --gpu "$GPU" \
-        --reviewed-commit "$COMMIT" --attempt-root "$ATTEMPT_ROOT" --attempt-root "$SMOKE_DIR"
+        --reviewed-commit "$COMMIT" --attempt-root "$ATTEMPT_ROOT" --attempt-root "$SMOKE_DIR" \
+        --approved "$APPROVED" ${extra[@]+"${extra[@]}"}
 }
 
 # own_launch <dir>: this launcher owns the run dir and stays alive through draining and
@@ -131,7 +136,7 @@ MODE="${1:-}"
 shift || true
 case "$MODE" in smoke|probe|full|finalize) ;; *) usage ;; esac
 GPU=""; COMMIT=""; ATTEMPT_ROOT=ckpt/exp06/pretrain/xRIR_cylor_8_shot
-ATTEMPT=""; LOG=""; CHILD_EXIT=""; DRY=0
+ATTEMPT=""; LOG=""; CHILD_EXIT=""; DRY=0; APPROVED="$APPROVED_DEFAULT"; EXPLORATORY=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --gpu) GPU="${2:-}"; shift 2 ;;
@@ -140,6 +145,8 @@ while [ $# -gt 0 ]; do
         --attempt) ATTEMPT="${2:-}"; shift 2 ;;
         --log) LOG="${2:-}"; shift 2 ;;
         --child-exit) CHILD_EXIT="${2:-}"; shift 2 ;;
+        --approved) APPROVED="${2:-}"; shift 2 ;;
+        --exploratory) EXPLORATORY=1; shift ;;
         --dry-run) DRY=1; shift ;;
         *) usage ;;
     esac
@@ -173,7 +180,7 @@ full)
            --num-shot 8 --max-len 9600 --lr 1e-3 --weight-decay 1e-4 --decay-epochs 3
            --lr-gamma 0.1 --epochs 12 --batch-size 32 --accum-steps 2 --num-workers 12
            --seed 0 --tf32 --log-interval 50 --save-every 500 --epoch-ckpt-every 1
-           --run-type full)
+           --run-type full --approved "$APPROVED" --reviewed-commit "$COMMIT")
     say "RUN nohup setsid ${child[*]}"
     if [ "$DRY" -eq 1 ]; then
         say "MARKER EXP06_CHILD_EXIT <code> <iso> >> $log"

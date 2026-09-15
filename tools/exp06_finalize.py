@@ -66,7 +66,8 @@ directory being finalized, so a job refuses while any pid file under any of its 
 is alive: a pipeline's own ``launch.pid`` belongs at the job root, never in a child.
 
     python tools/exp06_finalize.py preflight --mode full --gpu 1 \
-        --reviewed-commit <sha> [--attempt-root <dir>]... [--repo <path>]
+        --reviewed-commit <sha> [--attempt-root <dir>]... [--repo <path>] \
+        [--approved <approved_digests.json>] [--exploratory]
     python tools/exp06_finalize.py child-exit --run-dir <dir> --log <log> \
         --child-pid <pid> --status <n> --started-at <iso>
 
@@ -1347,8 +1348,26 @@ def live_launches(attempt_root):
     return live
 
 
-def preflight(mode, gpu, reviewed_commit, attempt_root=None, repo=REPO):
-    """Gate a launch: reviewed commit, clean tree, no live launch, and a free card."""
+def approval_gate(mode, reviewed_commit, approved, exploratory, repo):
+    """Finding 1: no confirmatory launch on code the approvals do not pin.
+
+    Null approvals refuse every mode; only a diagnostic may proceed ``--exploratory``,
+    and then its deviations are recorded in the preflight record and in its receipt.
+    """
+    _require(not (exploratory and mode == 'full'),
+             'an exploratory launch is a diagnostic; mode full must match the approvals')
+    path = _resolve(exp06_profiles.APPROVED_RELATIVE if approved is None else approved, repo)
+    _require(path.is_file(), 'missing approvals file: {}'.format(path))
+    value, identity = exp06_profiles.load_approved_digests(path)
+    deviations = exp06_profiles.require(value, exp06_profiles.TRAINING_KEYS, repo=repo,
+                                        commit=reviewed_commit, exploratory=exploratory)
+    return {'approved': identity, 'approval_deviations': deviations,
+            'exploratory': bool(exploratory)}
+
+
+def preflight(mode, gpu, reviewed_commit, attempt_root=None, repo=REPO, approved=None,
+              exploratory=False):
+    """Gate a launch: reviewed commit, clean tree, no live launch, approvals, a free card."""
     _require(mode in LAUNCH_MODES, 'unknown launch mode: {!r}'.format(mode))
     state = provenance.checked_git_state(repo, confirmatory=True)
     _require(state['HEAD'] == reviewed_commit,
@@ -1356,11 +1375,12 @@ def preflight(mode, gpu, reviewed_commit, attempt_root=None, repo=REPO):
                  state['HEAD'], reviewed_commit))
     running = live_launches(attempt_root)
     _require(not running, 'another exp_06 launch is alive: {}'.format(running))
+    admission = approval_gate(mode, reviewed_commit, approved, exploratory, repo)
     apps = gpu_compute_apps(gpu) if mode in EXCLUSIVE_GPU_MODES else None
     _require(not apps, 'GPU {} is busy with compute apps {}'.format(gpu, apps))
     return dict(mode=mode, gpu=gpu, reviewed_commit=reviewed_commit, git_state=state,
                 attempt_root=[str(root) for root in launch_roots(attempt_root)],
-                gpu_compute_apps=apps, live_launches=running)
+                gpu_compute_apps=apps, live_launches=running, **admission)
 
 
 def preflight_main(argv):
@@ -1372,9 +1392,14 @@ def preflight_main(argv):
     parser.add_argument('--attempt-root', action='append', default=[],
                         help='repeatable: every root whose */launch.pid must be dead')
     parser.add_argument('--repo', default=str(REPO))
+    parser.add_argument('--approved', default=None,
+                        help='approved_digests.json (default: the record asset)')
+    parser.add_argument('--exploratory', action='store_true',
+                        help='diagnostic launch on unapproved code; never mode full')
     args = parser.parse_args(argv)
     try:
-        record = preflight(args.mode, args.gpu, args.reviewed_commit, args.attempt_root, args.repo)
+        record = preflight(args.mode, args.gpu, args.reviewed_commit, args.attempt_root,
+                           args.repo, approved=args.approved, exploratory=args.exploratory)
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         print('EXP06_PREFLIGHT_REFUSED ' + str(error), file=sys.stderr, flush=True)
         return 2
