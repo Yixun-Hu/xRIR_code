@@ -14,6 +14,7 @@ Run it from the repository root: the seen dataset module opens
 That file is bound by digest in the evaluation manifest and in both output metas, and
 re-checked after the run.
 """
+import sys
 from pathlib import Path
 
 from eval_xRIR_backbone import build_dataset
@@ -65,6 +66,25 @@ def validate_manifest(args, metadata=None):
     if mismatches:
         raise ValueError('evaluation manifest mismatch: ' + ', '.join(sorted(mismatches)))
     return fields, digest, reference
+
+
+def build_fields(args, command, repo):
+    """Extend the shared launcher's bindings with the split identity.
+
+    ``seen_split`` is bound automatically (an explicit --bind-input of another file is
+    refused) and revalidated at finalisation, and a seen run counts as confirmatory only
+    when its manifest holds every query of the split.
+    """
+    from tools import exp04_eval_launch as launcher
+    fields = launcher.build_fields(args, command, repo, module=sys.modules[__name__])
+    fields.update(split_metadata(args))  # the shared builder records the unseen split
+    binding = p.seen_split_identity(repo)
+    if fields['mutable_inputs'].get('seen_split', binding) != binding:
+        raise ValueError('seen_split must bind ' + p.SEEN_SPLIT)
+    fields['mutable_inputs']['seen_split'] = binding
+    fields['confirmatory'] = bool(fields['confirmatory']
+                                  and fields['split_count'] == SPLIT_ENTRIES[args.split])
+    return fields
 
 
 def run_exp07(args):
