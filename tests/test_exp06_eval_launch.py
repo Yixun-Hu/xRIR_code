@@ -136,7 +136,8 @@ def test_an_unusable_heading_binding_is_refused(launch_args, headings, tmp_path,
             'malformed': tmp_path / 'malformed.json'}[name]
     if name == 'malformed':
         path.write_text('{"decision": "estimated"}')
-    with pytest.raises(ValueError, match='heading'):
+    with pytest.raises(ValueError,
+                       match='(unusable heading binding|records the decision)'):
         subject.split_bindings(launch_args('--bind-input', 'heading=' + str(path)))
 
 
