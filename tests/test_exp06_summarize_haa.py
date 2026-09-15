@@ -918,3 +918,55 @@ def test_a_sensitivity_analysis_labels_every_output_it_produces(arms, tmp_path):
     assert 'SENSITIVITY' in text
     assert subject.analyse(arms, n_boot=200, adjusted_n_boot=200,
                            exploratory=True)['mode'] == 'primary'
+
+
+# --- finding 2: parsed bytes, contradictions and the complete revalidated set -------------
+
+
+def test_a_contradictory_binding_for_one_path_is_refused(tmp_path):
+    """A second, different digest for one path is a contradiction, not an update."""
+    inputs, target = {}, tmp_path / 'x.json'
+    target.write_text('{"a": 1}')
+    assert subject.bind(inputs, target) == sha(target)
+    assert subject.bind(inputs, target) == sha(target)      # the same bytes agree
+    target.write_text('{"a": 2}')
+    with pytest.raises(ValueError, match='contradictory bindings'):
+        subject.bind(inputs, target)
+
+
+def test_a_parsed_file_is_bound_to_the_bytes_that_were_parsed(tmp_path):
+    inputs, target = {}, tmp_path / 'y.json'
+    target.write_text('{"a": 1}')
+    assert subject._read_json(target, 'y', inputs) == {'a': 1}
+    assert inputs == {str(target.resolve()): sha(target)}
+
+
+def test_the_legacy_receipt_is_verified_before_the_historical_runs_are_read(legacy_root,
+                                                                           tmp_path,
+                                                                           monkeypatch):
+    """A changed historical artifact must be refused before anything reads it."""
+    out = tmp_path / 'r.json'
+    _, digest = subject.write_legacy_receipt(out, legacy_root, strict=False)
+    target = Path(legacy_root) / 'control/seed1/eval/per_sample_hallway.json'
+    target.write_text(target.read_text() + ' ')
+
+    def refuse(root):
+        raise AssertionError('the historical runs were read before the receipt')
+
+    monkeypatch.setattr(legacy, 'load_runs', refuse)
+    with pytest.raises(ValueError, match='changed since the receipt'):
+        subject.load_legacy(legacy_root, out, {'path': str(out), 'sha256': digest})
+
+
+def test_the_producer_and_approvals_records_are_revalidated_before_publication(arms,
+                                                                              tmp_path):
+    """Finding 2: what the record publishes as its own evidence is rechecked too."""
+    identity = subject.source_identity(strict=False)
+    template = Path(subject.approvals_api.approvals_module().TEMPLATE_PATH)
+    receipt = {'path': str(template), 'sha256': sha(template)}
+    result = subject.analyse(arms, n_boot=200, adjusted_n_boot=200, exploratory=True,
+                             producer=identity, approvals_receipt=receipt)
+    for record in identity['files']:
+        path = (Path(subject.REPO) / record['path']).resolve()
+        assert result['inputs'][str(path)] == record['working_tree_sha256']
+    assert result['inputs'][str(template.resolve())] == receipt['sha256']
