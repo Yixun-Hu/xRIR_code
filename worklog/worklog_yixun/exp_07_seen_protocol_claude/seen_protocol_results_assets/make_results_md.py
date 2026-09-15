@@ -79,21 +79,68 @@ def check_table(data):
 
 
 def check_pairs(records):
-    """Three registered pairings, ten final descriptive cells each, no verdict anywhere."""
+    """Three registered pairings, each one final, descriptive and completely covered."""
     if sorted(tuple(data['pairing']) for data in records) != sorted(PAIRINGS):
         raise ValueError('incomplete pairing coverage')
     for data in records:
-        label = ' - '.join(data['pairing'])
-        if data.get('final') is not True or data.get('reconverge_required'):
-            raise ValueError('pairing is not final: ' + label)
-        if (data.get('decision_driving') is not False or 'verdict' in data
-                or any('verdict' in cell for cell in data['cells'])):
-            raise ValueError('descriptive pairs cannot carry a verdict: ' + label)
-        expected = {(metric, shot) for metric in data['profile']['metrics']['descriptive']
-                    for shot in data['profile']['num_shot']}
-        actual = [(cell['metric'], cell['num_shot']) for cell in data['cells']]
-        if len(actual) != 10 or set(actual) != expected or len(set(actual)) != len(actual):
-            raise ValueError('incomplete pair cell coverage: ' + label)
+        check_pairing(data)
+
+
+def check_pairing(data):
+    """One pairing: ten final descriptive cells, no verdict, every cell converged."""
+    label = ' - '.join(data['pairing'])
+    if data.get('final') is not True or data.get('reconverge_required'):
+        raise ValueError('pairing is not final: ' + label)
+    if (data.get('decision_driving') is not False or 'verdict' in data
+            or any('verdict' in cell for cell in data['cells'])):
+        raise ValueError('descriptive pairs cannot carry a verdict: ' + label)
+    expected = {(metric, shot) for metric in data['profile']['metrics']['descriptive']
+                for shot in data['profile']['num_shot']}
+    actual = [(cell['metric'], cell['num_shot']) for cell in data['cells']]
+    if len(actual) != 10 or set(actual) != expected or len(set(actual)) != len(actual):
+        raise ValueError('incomplete pair cell coverage: ' + label)
+    for cell in data['cells']:
+        check_cell(data, cell, label)
+
+
+def check_cell(data, cell, label):
+    """A cell is publishable only if BOTH its statistics converged and it drives nothing.
+
+    The aggregate flags are a summary; a mutated cell must not pass because the summary
+    still says "final".  Every statistic the profile registers must be present, carry a
+    passed convergence diagnostic and no outstanding reconvergence, and the cell's own
+    pairing, grid and seed labels must be the parent's.
+    """
+    where = '{} {} K={}'.format(label, cell.get('metric'), cell.get('num_shot'))
+    if cell.get('decision_driving') is not False:
+        raise ValueError('a descriptive cell cannot drive a decision: ' + where)
+    if list(cell.get('pairing') or []) != list(data['pairing']):
+        raise ValueError('cell pairing differs from its pairing: ' + where)
+    profile = data['profile']
+    if cell.get('k') != profile['grid'][0] or list(cell.get('seed_labels') or []) != list(
+            profile['eval_seeds']):
+        raise ValueError('cell grid or seed labels differ from the profile: ' + where)
+    if list(cell.get('quantiles') or []) != list(profile['quantiles']):
+        raise ValueError('cell quantiles differ from the profile: ' + where)
+    statistics = cell.get('statistics') or {}
+    if set(statistics) != set(profile['statistics']):
+        raise ValueError('cell statistics differ from the profile: ' + where)
+    for name, statistic in sorted(statistics.items()):
+        if statistic.get('reconverge_required') is not False:
+            raise ValueError('cell {} still needs a larger n_boot: {}'.format(name, where))
+        if (statistic.get('convergence') or {}).get('passed') is not True:
+            raise ValueError('cell {} did not converge: {}'.format(name, where))
+    if not (cell.get('paired_cohort') or {}).get('n_queries'):
+        raise ValueError('empty paired cohort: ' + where)
+
+
+def validate(data, name):
+    """The canonical validation both the generators and the binder apply."""
+    if name == 'TABLE_SEEN_V1':
+        return check_table(data)
+    if name == 'PAIRS_SEEN_V1':
+        return check_pairing(data)
+    raise ValueError('unregistered profile: ' + str(name))
 
 
 def load_unseen(table, binding):
@@ -128,8 +175,10 @@ def arguments(argv=None):
     if len({Path(item).resolve() for item in sources}) != len(sources):
         raise ValueError('duplicate canonical input')
     table, table_receipt = load(args.table, 'TABLE_SEEN_V1')
-    check_table(table)
+    validate(table, 'TABLE_SEEN_V1')
     pairs = [load(path, 'PAIRS_SEEN_V1') for path in sorted(args.pairs)]
+    for data, _ in pairs:
+        validate(data, 'PAIRS_SEEN_V1')
     check_pairs([data for data, _ in pairs])
     pairs.sort(key=lambda item: PAIRINGS.index(tuple(item[0]['pairing'])))
     unseen, unseen_receipt = load_unseen(args.unseen_table, args.unseen_binding)
@@ -141,6 +190,13 @@ def arguments(argv=None):
     receipts = [table_receipt] + [receipt for _, receipt in pairs] + [unseen_receipt]
     published = {output for receipt in receipts for output in receipt['outputs']}
     published |= {str(Path(item).resolve()) + '.provenance.json' for item in sources}
+    published |= {str(Path(item).resolve()) for item in sources}
+    # The exp_04 binding report and every approval blob are inputs too: refuse to write
+    # a document over any of them, whatever spelling named them on the command line.
+    published |= {str(Path(args.unseen_binding).resolve())}
+    published |= {str(Path(receipt['approved_digests']['path']).resolve())
+                  for receipt in receipts if receipt.get('approved_digests')}
+    published |= {str(Path(unseen_receipt['binding_report']['path']).resolve())}
     if str(Path(args.out).resolve()) in published:
         raise ValueError('output overlaps canonical input')
     head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=REPO, text=True).strip()

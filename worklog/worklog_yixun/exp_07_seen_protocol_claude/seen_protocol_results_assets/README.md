@@ -29,15 +29,20 @@ arms, computed from the canonical means; a tie bolds nothing, and the released c
 an external reference row that is never part of that comparison. No verdict, significance
 marker or superiority claim appears in any rendered cell.
 
-`bind_provenance.py --runs DIR ... --attempt FINAL ... --audit JSON --results JSON ...
---rendered FILE ... --unseen-table JSON --unseen-binding JSON [--approved JSON] --out
-REPORT_DIRECTORY` validates the completion links and exclusively creates
-`binding_report_<UTC timestamp>.json` in that existing directory. It binds the three
-attempts with their inventory sidecar, probe receipt and hours ledger (at most one retry per
-arm), the released checkpoint at its pinned digest, the forty seen runs with their
-`seen_split` bindings and training linkage, the alignment audit, the four producer outputs
-with their sidecars and companions, the rendered documents (each must cite every canonical
-digest), the exp_04 table, sidecar and binding report, the approval blob and git HEAD.
+`bind_provenance.py --runs DIR ... --attempt FINAL ... --audit JSON --evidence NAME=PATH
+[...] --results JSON ... --rendered FILE ... --unseen-table JSON --unseen-binding JSON
+[--approved JSON] --out REPORT_DIRECTORY` validates the completion links and exclusively
+creates `binding_report_<UTC timestamp>.json` in that existing directory. It binds the
+three certified attempts with their inventory sidecar, probe receipt and hours ledger
+(at most one retry per arm) AND every other attempt each ledger lists -- aborted full runs
+with their `abort.json` and the probe attempts with their receipts -- so a later change to
+any of those files changes the report; the released checkpoint at its pinned digest; the
+forty seen runs with their `seen_split` bindings and training linkage; the seen alignment
+audit (protocol `seen`, passed, with its cohort digest and arguments); the required
+`--evidence` artefacts (`gpu_parity`, `calibration`); the four producer outputs, revalidated
+through the same canonical checks the generators apply, with their sidecars and companions;
+the rendered documents (each must cite every canonical digest); the exp_04 table, sidecar
+and binding report; the approval blob and git HEAD.
 `check_record.py REPORT_DIRECTORY` recomputes the latest report under its own recorded HEAD;
 an invalid latest report fails with no fallback.
 
@@ -50,10 +55,13 @@ Order of operations:
 2. Run `tools/exp07_table.py` once and `tools/exp07_pairs.py` once per registered pairing.
    Keep each JSON, its sidecar and its companion (the living Markdown table, the pairing
    summary) together.
-3. Run `bind_provenance.py` over the complete run set and all four canonical JSONs, then
-   `check_record.py`.
-4. Generate the Markdown, HTML and LaTeX from the bound JSONs, bind again so the report
-   covers the published documents, and run `check_record.py` once more before publication.
+3. Generate the Markdown, HTML and LaTeX from those canonical JSONs. Binding requires
+   non-empty `--rendered` documents that cite every canonical digest, so the documents
+   exist before the first binding: the order is **producers -> generators -> bind ->
+   check**, never bind before the documents are written.
+4. Run `bind_provenance.py` over the complete run set, every attempt of each arm, all four
+   canonical JSONs, the rendered documents and the parity/calibration/audit evidence, then
+   run `check_record.py` and keep its exit 0 with the report.
 
 Run `bash static_checks.sh` from this directory or by its full path: it compiles the assets
 and the exp_07 producers, checks whitespace, and runs the exp_07 suite plus the record-tool

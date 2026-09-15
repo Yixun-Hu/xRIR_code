@@ -389,6 +389,44 @@ def test_a_tie_leaves_the_column_unbolded(record_inputs):
     assert any(row[1].startswith('\\textbf{') for row in rows)      # seen EDT is untouched
 
 
+def test_every_sd_footnote_names_its_k_and_its_row(record_inputs):
+    latex, md = load_asset('make_latex'), load_asset('make_results_md')
+    _, record, _ = md.arguments(argv(record_inputs))
+    text = latex_file(record_inputs).read_text()
+    footnotes = [line for line in text.split('\n') if ' EDT ' in line and ' ms,' in line]
+    assert len(footnotes) == 8  # four rows at each of the two K values
+    for shot in (1, 8):
+        for name in ('xRIR', 'YawAug-xRIR', 'CylindricalViT', 'xRIR (released seen ckpt)'):
+            label = '{} ($K = {}$):'.format(name, shot)
+            assert sum(line.startswith(label) for line in footnotes) == 1, label
+    assert 'EDT in milliseconds' in text
+    seen = {(row['role'], row['num_shot']): row for row in record['table']['rows']}
+    row = seen[('seen_simple', 8)]
+    assert 'seen EDT {} ms'.format(format(row['metrics']['EDT']['sd'], '.3f')) in text
+
+
+@pytest.mark.parametrize('value,decimals,expected', [
+    (0.0, 3, '0.000'), (0.000001, 3, '0.000001'), (1.2e-9, 4, '0.000000001'),
+    (12.3456, 3, '12.346'), (0.00049, 3, '0.0005'), (None, 3, '--')])
+def test_a_positive_sd_never_prints_as_zero(value, decimals, expected):
+    """A genuine zero keeps the table's precision; a positive SD gains digits until visible."""
+    latex = load_asset('make_latex')
+    assert latex.sd_number(value, decimals) == expected
+    assert value in (0.0, None) or float(latex.sd_number(value, decimals)) != 0
+
+
+def test_a_tiny_but_positive_sd_survives_the_rendered_footnote(record_inputs):
+    latex = load_asset('make_latex')
+    edit(record_inputs['table'], lambda data: [row['metrics'][name].update(sd=1e-7)
+                                               for row in data['rows']
+                                               for name in ('EDT', 'C50', 'T60')])
+    text = latex_file(record_inputs).read_text()
+    footnotes = [line for line in text.split('\n') if ' EDT ' in line and ' ms,' in line]
+    for line in footnotes:
+        for part in line.split('seen ')[1:]:
+            assert '0.000 ms' not in part and ' 0.0000 dB' not in part
+
+
 def test_the_latex_refuses_what_the_markdown_refuses(record_inputs):
     MUTATIONS['exploratory'](record_inputs)
     with pytest.raises(ValueError, match='exploratory JSON refused'):
@@ -431,6 +469,26 @@ MUTATIONS = {
     'unseen_coverage': lambda paths: edit(paths['unseen'], lambda d: d['rows'].pop()),
     'unseen_binding': lambda paths: paths['binding'].write_text(
         json.dumps(dict(schema_version=1, git_HEAD='b' * 40, results=[]))),
+    # A mutated CELL must be refused even though every aggregate flag still says final.
+    'cell_reconverge': lambda paths: edit(paths['pairs'][0], lambda d: d['cells'][0][
+        'statistics']['absolute'].update(reconverge_required=True)),
+    'cell_unconverged': lambda paths: edit(paths['pairs'][1], lambda d: d['cells'][3][
+        'statistics']['relative']['convergence'].update(passed=False)),
+    'cell_decision': lambda paths: edit(paths['pairs'][2],
+                                        lambda d: d['cells'][2].update(decision_driving=True)),
+    'cell_verdict': lambda paths: edit(paths['pairs'][0],
+                                       lambda d: d['cells'][1].update(verdict='better')),
+    'cell_pairing': lambda paths: edit(paths['pairs'][1], lambda d: d['cells'][4].update(
+        pairing=['seen_aug', 'seen_cyl'])),
+    'cell_grid': lambda paths: edit(paths['pairs'][2], lambda d: d['cells'][5].update(k=32)),
+    'cell_seeds': lambda paths: edit(paths['pairs'][0], lambda d: d['cells'][6].update(
+        seed_labels=[42, 43, 44, 45])),
+    'cell_quantiles': lambda paths: edit(paths['pairs'][1], lambda d: d['cells'][7].update(
+        quantiles=[.05, .95])),
+    'cell_statistics': lambda paths: edit(paths['pairs'][2],
+                                          lambda d: d['cells'][8]['statistics'].pop('relative')),
+    'cell_empty_cohort': lambda paths: edit(paths['pairs'][0], lambda d: d['cells'][9][
+        'paired_cohort'].update(n_queries=0)),
 }
 
 
@@ -451,6 +509,25 @@ def test_the_generator_refuses_a_duplicate_input_or_an_overlapping_output(record
         if name == 'duplicate' else dict(out=record_inputs['table'])
     with pytest.raises(ValueError, match=message):
         md.arguments(argv(record_inputs, **changes))
+
+
+def protected_outputs(paths):
+    """Every input path a generator must refuse to write over, and two spellings of each."""
+    names = [paths['table'], paths['unseen'], paths['binding'], paths['pairs'][0],
+             sidecar(paths['table']), sidecar(paths['unseen']),
+             Path(paths['built'].approved[1]['path'])]
+    spelled = [Path(item).parent / '.' / Path(item).name for item in names]
+    return names + spelled
+
+
+@pytest.mark.parametrize('module', ['make_results_md', 'make_results_html', 'make_latex'])
+def test_no_generator_can_overwrite_any_input(record_inputs, module):
+    generator = load_asset(module)
+    for target in protected_outputs(record_inputs):
+        before = Path(target).read_bytes()
+        with pytest.raises(ValueError, match='output overlaps canonical input'):
+            generator.main(argv(record_inputs, out=target))
+        assert Path(target).read_bytes() == before, target
 
 
 def test_an_unseen_table_the_exp04_report_does_not_bind_is_refused(record_inputs):

@@ -61,21 +61,38 @@ def body(record):
         label = 'xRIR (released seen ckpt, $K = {}$)'.format(shot)
         lines.append(' & '.join([label] + cells(row, dict.fromkeys(ACOUSTIC)) +
                                 ['--'] * 3) + ' \\\\')
-        notes.append(note(label, shot, (row, None)))
+        notes.append(note('xRIR (released seen ckpt)', shot, (row, None)))
     return lines, notes
 
 
+SD_DECIMALS = {'EDT': 3, 'C50': 4, 'T60': 3}
+SD_MAX_DECIMALS = 12
+
+
+def sd_number(value, decimals):
+    """Never print a positive SD as zero; a genuine zero keeps the table's precision."""
+    if value is None:
+        return '--'
+    if value == 0:
+        return format(0.0, '.' + str(decimals) + 'f')
+    places = decimals
+    while places < SD_MAX_DECIMALS and float(format(value, '.' + str(places) + 'f')) == 0:
+        places += 1
+    return format(value, '.' + str(places) + 'f')
+
+
 def note(name, shot, rows):
-    """One SD line per table row; EDT in ms, the others in the table's own units."""
+    """One SD line per table row, labelled with its K; EDT in ms, others in table units."""
     parts = []
     for side, row in zip(('seen', 'unseen'), rows):
         if row is None:
             continue
         metrics = row['metrics']
         parts.append('{} EDT {} ms, C50 {} dB, T60 {} \\%'.format(
-            side, format(metrics['EDT']['sd'], '.3f'), format(metrics['C50']['sd'], '.4f'),
-            format(metrics['T60']['sd'], '.3f')))
-    return '{}: {}.'.format(name, '; '.join(parts))
+            side, sd_number(metrics['EDT']['sd'], SD_DECIMALS['EDT']),
+            sd_number(metrics['C50']['sd'], SD_DECIMALS['C50']),
+            sd_number(metrics['T60']['sd'], SD_DECIMALS['T60'])))
+    return '{} ($K = {}$): {}.'.format(name, shot, '; '.join(parts))
 
 
 def caption(record):
