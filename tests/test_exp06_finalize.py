@@ -1877,3 +1877,24 @@ def test_a_job_refuses_counters_that_contradict_the_observations(job_run, closed
         exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
                                 children=children, expect='finetune', job_spec=spec)
     assert not (job / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('per_sample,overrides,cause', [
+    ({'edt': [10 ** 400, 0.06, 0.07]}, {}, 'edt'),
+    ({}, {'edt_error_s': {'mean': 10 ** 400, 'median': 0.06, 'n': 3}}, 'mean')])
+def test_an_integer_too_wide_for_a_float_is_a_named_refusal(tmp_path, haa_repo, heading_jsons,
+                                                            data_root, capsys, per_sample,
+                                                            overrides, cause):
+    """Close-3 nit 3: 10 ** 400 passes the integer type check, and its finiteness test must
+    refuse by name rather than raise OverflowError out of main()."""
+    checkpoint = haa_repo / 'stage2_best.pth'
+    torch.save(tiny_state(), checkpoint)
+    args = haa_eval_args(heading_jsons, checkpoint)
+    metrics = eval_metrics(args, 'hallway', dict(PER_SAMPLE), **overrides)  # summarize() cannot read it
+    run, log = tmp_path / 'eval' / 'hallway', tmp_path / 'child.log'
+    write_haa_eval(run, args, log, haa_repo, data_root, per_sample=per_sample, metrics=metrics,
+                   meta=eval_meta(args, provenance.sha256_file(checkpoint)))
+    status = exp06_finalize.main(['--run-dir', str(run), '--run-type', 'haa_eval', '--log',
+                                  str(log), '--child-exit', '0', '--repo', str(haa_repo)])
+    assert status == 2 and cause in capsys.readouterr().err
+    assert not (run / 'completion.json').exists()
