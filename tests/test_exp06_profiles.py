@@ -2,15 +2,55 @@
 import copy
 import hashlib
 import json
+import os
 import subprocess
+import sys
 from pathlib import Path
+from xml.etree import ElementTree
 
 import pytest
 
 from tools import exp06_profiles as profiles
 
 REPO = Path(__file__).resolve().parents[1]
-HEAD = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=REPO, text=True).strip()
+_HEAD = []
+CHILD = 'EXP06_PROFILES_OUTSIDE_GIT_CHILD'
+GIT_DEPENDENT = set()
+
+
+def needs_git(function):
+    """Names a test that cannot run without this checkout's own git identity.
+
+    The regression below reads this set rather than a hand-kept list, so a git-dependent
+    test added later is covered the moment it is decorated.
+    """
+    GIT_DEPENDENT.add(function.__name__)
+    return function
+
+
+def git_head():
+    """This checkout's HEAD, or None wherever git cannot answer for this directory.
+
+    Resolved lazily and never at import: a module-level ``git rev-parse`` exits 128
+    outside a checkout, which kills *collection* of this file before any skip can run.
+    """
+    if not _HEAD:
+        try:
+            done = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=str(REPO),
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            _HEAD.append(done.stdout.decode().strip() if done.returncode == 0 else None)
+        except OSError:
+            _HEAD.append(None)
+    return _HEAD[0]
+
+
+@pytest.fixture(scope='module')
+def head():
+    """The commit the digests and the approval binding are taken at."""
+    commit = git_head()
+    if commit is None:
+        pytest.skip('git identity is unavailable here: not a checkout, or no git')
+    return commit
 
 
 @pytest.fixture(scope='module')
@@ -71,18 +111,10 @@ def test_a_malformed_approvals_file_is_refused(tmp_path, template, damage):
         profiles.load_approved_digests(path)
 
 
-def test_the_record_copy_is_byte_identical_when_it_is_present():
-    """The committed record asset and the worktree copy the tools read must agree."""
-    if not profiles.APPROVED_DIGESTS_PATH.is_file():
-        pytest.skip('the record asset lives in the main tree, not on this branch')
-    assert (profiles.APPROVED_DIGESTS_PATH.read_bytes()
-            == profiles.TEMPLATE_PATH.read_bytes())
-
-
 @pytest.fixture(scope='module')
-def computed():
+def computed(head):
     notes = []
-    return profiles.compute_code_digests(REPO, HEAD, notes=notes), notes
+    return profiles.compute_code_digests(REPO, head, notes=notes), notes
 
 
 def key_files(key):
@@ -91,6 +123,7 @@ def key_files(key):
     return ([module.replace('.', '/') + '.py'] if module else []) + list(extra)
 
 
+@needs_git
 def test_every_present_key_gets_a_digest_and_absent_modules_are_noted(computed):
     digests, notes = computed
     assert set(digests) == set(profiles.PRESENT_KEYS_NOW)
@@ -108,42 +141,46 @@ def test_every_present_key_gets_a_digest_and_absent_modules_are_noted(computed):
     assert {'haa_finetune', 'haa_eval', 'haa_pipeline_sh'} <= set(digests)
 
 
-def test_the_shell_launcher_is_bound_as_a_file(computed):
+@needs_git
+def test_the_shell_launcher_is_bound_as_a_file(computed, head):
     digests, _ = computed
-    assert digests['launch_sh'] == profiles.file_digest(['tools/exp06_launch.sh'], REPO, HEAD)
+    assert digests['launch_sh'] == profiles.file_digest(['tools/exp06_launch.sh'], REPO, head)
     assert digests['launch_sh'] != digests['finalize']
 
 
+@needs_git
 def test_the_pinned_exp03_evaluator_digest_reproduces(computed):
     """The pin is recomputable: exp_03's twelve files are byte-identical at HEAD."""
     digests, _ = computed
     assert digests['evaluator_exp03'] == profiles.EVALUATOR_EXP03
 
 
-def test_require_refuses_null_approvals_unless_exploratory(template, computed):
+@needs_git
+def test_require_refuses_null_approvals_unless_exploratory(template, computed, head):
     approved, _ = template
     digests, _ = computed
     with pytest.raises(ValueError, match='not approved'):
-        profiles.require(approved, profiles.TRAINING_KEYS, repo=REPO, commit=HEAD,
+        profiles.require(approved, profiles.TRAINING_KEYS, repo=REPO, commit=head,
                          current=digests)
-    deviations = profiles.require(approved, profiles.TRAINING_KEYS, repo=REPO, commit=HEAD,
+    deviations = profiles.require(approved, profiles.TRAINING_KEYS, repo=REPO, commit=head,
                                   exploratory=True, current=digests)
     assert deviations and all('not approved' in deviation for deviation in deviations)
 
 
-def test_require_admits_matching_digests_and_names_every_drift(template, computed):
+@needs_git
+def test_require_admits_matching_digests_and_names_every_drift(template, computed, head):
     approved, _ = template
     digests, _ = computed
     filled = copy.deepcopy(profiles.json_value(approved))
     filled['code'].update({key: digests[key] for key in profiles.TRAINING_KEYS})
-    assert profiles.require(filled, profiles.TRAINING_KEYS, repo=REPO, commit=HEAD,
+    assert profiles.require(filled, profiles.TRAINING_KEYS, repo=REPO, commit=head,
                             current=digests) == []
     filled['code']['launch_sh'] = 'a' * 64
     with pytest.raises(ValueError, match='launch_sh'):
-        profiles.require(filled, profiles.TRAINING_KEYS, repo=REPO, commit=HEAD,
+        profiles.require(filled, profiles.TRAINING_KEYS, repo=REPO, commit=head,
                          current=digests)
     with pytest.raises(ValueError, match='unknown approval key'):
-        profiles.require(filled, ('invented',), repo=REPO, commit=HEAD, current=digests)
+        profiles.require(filled, ('invented',), repo=REPO, commit=head, current=digests)
 
 
 @pytest.fixture
@@ -153,11 +190,15 @@ def committed(tmp_path):
     (root / 'assets').mkdir(parents=True)
     path = root / 'assets/approved_digests.json'
     path.write_bytes(profiles.TEMPLATE_PATH.read_bytes())
-    for command in (['init', '-q'], ['add', '-A'], ['-c', 'user.email=a@b', '-c', 'user.name=t',
-                                                    'commit', '-q', '-m', 'approvals']):
-        subprocess.run(['git'] + command, cwd=root, check=True)
-    return root, path, subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root,
-                                               text=True).strip()
+    try:
+        for command in (['init', '-q'], ['add', '-A'], ['-c', 'user.email=a@b', '-c',
+                                                        'user.name=t', 'commit', '-q',
+                                                        '-m', 'approvals']):
+            subprocess.run(['git'] + command, cwd=root, check=True)
+        head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True)
+    except OSError:
+        pytest.skip('git is unavailable here')
+    return root, path, head.strip()
 
 
 def test_approvals_can_be_bound_to_their_committed_blob(committed):
@@ -195,3 +236,105 @@ def test_binding_needs_both_a_repository_and_a_commit(committed):
     for repo, commit in ((root, None), (None, head)):
         with pytest.raises(ValueError, match='repository and the commit'):
             profiles.load_approved_digests(path, repo=repo, commit=commit)
+
+
+@pytest.fixture(scope='module')
+def record():
+    """The populated record copy: the approvals a confirmatory run is admitted against."""
+    if not profiles.APPROVED_DIGESTS_PATH.is_file():
+        pytest.skip('the record asset lives in the main tree, not on this branch')
+    return profiles.load_approved_digests(profiles.APPROVED_DIGESTS_PATH)
+
+
+def tracked_at(commit, relative):
+    """Whether that commit's tree carries the path; False when git cannot answer at all."""
+    try:
+        return subprocess.run(['git', 'cat-file', '-e', '{}:{}'.format(commit, relative)],
+                              cwd=REPO, capture_output=True).returncode == 0
+    except OSError:
+        return False
+
+
+def test_the_record_copy_is_schema_valid_and_keyed_like_the_template(record, template):
+    """Plan section 6.4 fills `code` in a second reviewed commit, so the record copy is no
+    longer the null template the tools ship; what must still hold is its schema and its
+    key sets -- an approval the template does not name is one no producer ever reads."""
+    approved, identity = record
+    raw = profiles.APPROVED_DIGESTS_PATH.read_bytes()
+    assert profiles.json_value(approved) == json.loads(raw)
+    assert identity['path'] == str(profiles.APPROVED_DIGESTS_PATH)
+    assert identity['sha256'] == hashlib.sha256(raw).hexdigest()
+    template_value = template[0]
+    assert approved['schema_version'] == template_value['schema_version']
+    assert set(approved) == set(template_value)
+    for section in ('code', 'reused', 'artifacts'):
+        assert set(approved[section]) == set(template_value[section])
+    for name in profiles.NESTED:
+        section, key = name.split('.')
+        assert set(approved[section][key]) == set(template_value[section][key])
+
+
+@needs_git
+def test_the_record_copy_binds_to_the_bytes_committed_at_head(record, head):
+    """Finding 2's binding on the real asset: the approvals a run cites are a reviewed
+    commit's bytes, not a working-tree edit made after the review."""
+    if not tracked_at(head, profiles.APPROVED_RELATIVE):
+        pytest.skip('the record copy is not tracked at HEAD in this checkout')
+    bound, identity = profiles.load_approved_digests(profiles.APPROVED_DIGESTS_PATH,
+                                                     repo=REPO, commit=head)
+    assert identity['repo_relative'] == profiles.APPROVED_RELATIVE
+    assert identity['committed_at'] == head
+    assert identity['sha256'] == record[1]['sha256']
+    assert profiles.json_value(bound) == profiles.json_value(record[0])
+
+
+@needs_git
+def test_every_filled_record_digest_is_the_one_this_checkout_computes(record, computed, head):
+    """A filled key must equal what is here now, and a key this checkout cannot compute --
+    a later round's module, absent rather than named in any list kept here -- must be null.
+    The null `reused` and `artifacts` sections are filled after the runs and stay null."""
+    approved, _ = record
+    digests, _ = computed
+    filled = {key: value for key, value in approved['code'].items() if value is not None}
+    assert filled, 'the record copy carries no approved code digest at all'
+    assert {key: digests.get(key) for key in filled} == filled
+    assert set(profiles.TRAINING_KEYS) <= set(filled)
+    assert profiles.require(approved, profiles.TRAINING_KEYS, repo=REPO, commit=head,
+                            current=digests) == []
+
+
+@pytest.mark.skipif(os.environ.get(CHILD) == '1',
+                    reason='this is the child run that the outside-git regression spawns')
+def test_this_module_still_collects_outside_a_git_checkout(tmp_path):
+    """Finding 1: HEAD used to be resolved at import, so a copy of this module living
+    outside any checkout failed to *collect* (git exits 128) before a skip could run.
+    Collection is the thing under test, so it is exercised the only way it can be: a real
+    pytest process whose rootdir is a directory that is not a git checkout, importing the
+    tools from this worktree through PYTHONPATH."""
+    root = tmp_path / 'not_a_checkout'
+    (root / 'tests').mkdir(parents=True)
+    (root / 'tests/test_exp06_profiles.py').write_bytes(Path(__file__).resolve().read_bytes())
+    report = root / 'report.xml'
+    env = dict(os.environ, PYTHONPATH=str(profiles.REPO), PYTHONDONTWRITEBYTECODE='1',
+               GIT_CEILING_DIRECTORIES=str(tmp_path))
+    env[CHILD] = '1'
+    done = subprocess.run([sys.executable, '-m', 'pytest', 'tests/test_exp06_profiles.py',
+                           '-q', '-p', 'no:cacheprovider', '--junitxml', str(report)],
+                          cwd=str(root), env=env, stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT)
+    output = done.stdout.decode('utf-8', 'replace')
+    assert done.returncode == 0, output[-4000:]
+    outcomes = {}
+    for case in ElementTree.parse(str(report)).iter('testcase'):
+        bad = {child.tag for child in case} & {'skipped', 'failure', 'error'}
+        outcomes[case.get('name')] = bad.pop() if bad else 'passed'
+    passed = {name for name, state in outcomes.items() if state == 'passed'}
+    skipped = {name for name, state in outcomes.items() if state == 'skipped'}
+    assert set(outcomes) == passed | skipped, sorted(set(outcomes) - passed - skipped)
+    assert GIT_DEPENDENT and GIT_DEPENDENT <= skipped, sorted(GIT_DEPENDENT - skipped)
+    assert {'test_the_template_loads_and_round_trips',
+            'test_the_training_keys_are_the_launch_critical_ones',
+            'test_a_malformed_approvals_file_is_refused[bad_schema]'} <= passed
+    if profiles.APPROVED_DIGESTS_PATH.is_file():  # the record's schema check, likewise
+        assert 'test_the_record_copy_is_schema_valid_and_keyed_like_the_template' in passed
+    assert len(passed) > len(GIT_DEPENDENT)
