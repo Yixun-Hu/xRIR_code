@@ -62,6 +62,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 import torch
 
@@ -89,6 +90,9 @@ ENTRY_MODULES = {'full': 'tools.exp06_train', 'haa_train': 'tools.exp06_haa_fine
                  'haa_eval': 'tools.exp06_haa_eval'}
 BACKBONES = tuple(sorted(BACKBONES_EXP06))
 IDENTITY_KEYS = ('train_data_identity', 'data_identity')
+IDENTITY_FIELDS = ('data_root', 'inventory', 'inventory_files', 'inventory_bytes',
+                   'inventory_sha256')
+TRAIN_INVENTORY = REPO / 'ckpt/yaw_aug/train_inventory.json'  # exp_04's cache, read-only
 WIDTH = 512
 EPOCH_CHECKPOINT = 'epoch_{:03d}.pth'.format(exp06_recipe.EXP01_RECIPE['epochs'])
 
@@ -148,6 +152,82 @@ def closure_digest(files):
     """The exp_03-compatible digest over [[path, reviewed blob], ...]."""
     return hashlib.sha256(json.dumps([[f['path'], f['reviewed_blob_sha256']] for f in files],
                                      sort_keys=True).encode()).hexdigest()
+
+
+def inventory_digest(records):
+    """The digest tools.provenance records over [[path, sha256], ...] of an inventory."""
+    return hashlib.sha256(json.dumps([[r['path'], r['sha256']] for r in records],
+                                     sort_keys=True).encode()).hexdigest()
+
+
+def check_identity_schema(identity, key):
+    """The shape ``tools.provenance.train_data_identity`` writes, with consistent totals."""
+    _require(isinstance(identity, dict), '{} is not a record'.format(key))
+    missing = [field for field in IDENTITY_FIELDS if field not in identity]
+    _require(not missing, '{} is incomplete: missing {}'.format(key, ', '.join(missing)))
+    _require(isinstance(identity['data_root'], str) and identity['data_root'],
+             '{} records no data_root'.format(key))
+    entries = identity['inventory']
+    _require(isinstance(entries, list) and entries,
+             '{}: an empty inventory identifies no training data'.format(key))
+    for entry in entries:
+        _require(isinstance(entry, dict) and isinstance(entry.get('path'), str)
+                 and _is_sha256(entry.get('sha256')) and type(entry.get('size')) is int
+                 and type(entry.get('mtime_ns')) is int,
+                 '{}: incomplete inventory entry {!r}'.format(key, entry))
+    _require(type(identity['inventory_files']) is int and identity['inventory_files'] == len(entries),
+             '{}: inventory_files {!r} is not the {} recorded entries'.format(
+                 key, identity['inventory_files'], len(entries)))
+    _require(type(identity['inventory_bytes']) is int
+             and identity['inventory_bytes'] == sum(entry['size'] for entry in entries),
+             '{}: inventory_bytes {!r} is not the size of the recorded entries'.format(
+                 key, identity['inventory_bytes']))
+    _require(identity['inventory_sha256'] == inventory_digest(entries),
+             '{}: inventory_sha256 is not the digest of the recorded entries'.format(key))
+    return entries
+
+
+def train_inventory_paths(data_root, cache_path=None):
+    """The membership the pinned helper derives for one root; never read from the record.
+
+    exp_04's stat-validated cache is reused only when it already describes this root;
+    otherwise the inventory is recomputed into a temporary file, so a finalization never
+    writes under ``ckpt/``.
+    """
+    cache = Path(TRAIN_INVENTORY if cache_path is None else cache_path)
+    reuse = False
+    if cache.is_file():
+        try:
+            reuse = json.loads(cache.read_text()).get('data_root') == str(Path(data_root).resolve())
+        except (OSError, ValueError, AttributeError):
+            reuse = False
+    try:
+        if reuse:
+            identity = provenance.train_data_identity(str(data_root), cache_path=str(cache))
+        else:
+            with tempfile.TemporaryDirectory() as scratch:
+                identity = provenance.train_data_identity(
+                    str(data_root), cache_path=str(Path(scratch) / 'train_inventory.json'))
+        return {entry['path'] for entry in identity['inventory']}
+    except Exception as error:  # the dataset, the cache and the filesystem all refuse alike
+        raise ValueError('cannot derive the training inventory of {}: {}: {}'.format(
+            data_root, type(error).__name__, error)) from error
+
+
+def verify_train_identity(record, key='train_data_identity'):
+    """Blocker 1: the run's own root, and an inventory covering the whole training split."""
+    entries = check_identity_schema(record.get(key), key)
+    resolved = str(Path(record[key]['data_root']).resolve())
+    declared = record.get('data_root')
+    _require(isinstance(declared, str) and declared,
+             'provenance.json records no resolved data_root for the run')
+    _require(str(Path(declared).resolve()) == resolved,
+             '{}: data_root {} is not the {} the run resolved'.format(
+                 key, record[key]['data_root'], declared))
+    absent = sorted(train_inventory_paths(resolved) - {entry['path'] for entry in entries})
+    _require(not absent, '{}: the inventory does not cover the training split ({} files '
+             'missing, e.g. {})'.format(key, len(absent), absent[:2]))
+    return entries
 
 
 def closed_log(log, child_exit):
@@ -236,9 +316,7 @@ def load_provenance(run_dir, run_type):
     present = [key for key in IDENTITY_KEYS if isinstance(record.get(key), dict)]
     _require(present, 'provenance.json records no train_data_identity/data_identity')
     for key in present:
-        identity = record[key]
-        _require(isinstance(identity.get('inventory'), list) and identity.get('data_root'),
-                 'provenance.json records no {} inventory'.format(key))
+        check_identity_schema(record[key], key)
     _require(isinstance(record['effective_args'], dict),
              'provenance.json records no effective_args mapping (startup arguments)')
     return record
@@ -328,6 +406,7 @@ def full_evidence(run_dir, repo):
     hashes = artifacts(run_dir, FULL_ARTIFACTS)  # every file must exist before it is parsed
     record = load_provenance(run_dir, 'full')
     _, closure = verify_source_closure(record, 'full', repo)
+    verify_train_identity(record)
     revalidate_inputs(record, repo)
     args = _read_json(run_dir / 'args.json', 'args.json')
     rows = _history_rows(run_dir / 'history.jsonl', 'history.jsonl')
