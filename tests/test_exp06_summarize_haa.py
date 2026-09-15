@@ -202,3 +202,163 @@ def test_a_receipt_of_an_incomplete_arm_is_never_written(legacy_root, tmp_path):
     (Path(legacy_root) / 'cyl/seed2/eval/metrics_hallway.json').unlink()
     with pytest.raises(ValueError, match='cyl has no cyl/seed2/eval/metrics_hallway'):
         subject.write_legacy_receipt(tmp_path / 'r.json', legacy_root, strict=False)
+
+
+# --- exp_06's own arms ------------------------------------------------------------------
+
+STAMP = '2026-09-15T00:00:00+00:00'
+CLOSURE = 'c' * 64
+HEADING = {room: {'k': subject.HEADING_K, 'phi_deg': -90.0, 'decision': 'estimated',
+                  'path': '/heading/{}.json'.format(room), 'sha256': 'b' * 64}
+           for room in ROOMS}
+
+
+def sha(path):
+    return subject.provenance.sha256_file(path)
+
+
+def new_child(job_dir, name, arm, seed, offset, closure=CLOSURE, invalid=(), heading=None,
+              overrides=None):
+    """One exp_06 child, finalised through the finalizer's own writer and schema."""
+    cfg = subject.ARMS[arm]
+    heading = (HEADING if cfg['frame'] == 'heading' else None) if heading is None else heading
+    role = subject.finalizer.child_role(name)
+    path = Path(job_dir) / name
+    path.mkdir(parents=True, exist_ok=True)
+    rooms = [name.rsplit('/', 1)[-1]] if role == 'haa_eval' or name.startswith('stage2_') \
+        else list(ROOMS)
+    if name.startswith('stage2_'):
+        rooms = [name[len('stage2_'):]]
+    args = {'backbone': cfg['backbone'], 'frame': cfg['frame'], 'seed': seed, 'rooms': rooms,
+            'num_shot': 8, 'eval_seed': 0, 'heading': heading, 'haa_root': str(job_dir),
+            'init': 'ckpt/exp06/init.pth', 'split': 'test'}
+    (path / 'args.json').write_text(json.dumps(args))
+    artifacts = {'args.json': sha(path / 'args.json')}
+    if role == 'haa_eval':
+        room = rooms[0]
+        per = per_sample(room, cfg['backbone'], 'best.pth', offset, invalid)
+        per['meta'].update(frame=cfg['frame'], heading=heading, room=room)
+        per['side_label'] = [1 if i % 2 else -1 for i in per['index']]
+        (path / 'per_sample_{}.json'.format(room)).write_text(json.dumps(per))
+        (path / 'metrics_{}.json'.format(room)).write_text(
+            json.dumps(metrics_file(room, cfg['backbone'], 'best.pth', per)))
+        for item in ('per_sample_{}.json'.format(room), 'metrics_{}.json'.format(room)):
+            artifacts[item] = sha(path / item)
+        extra = {'room': room, 'checkpoint_sha256': 'd' * 64, 'samples': len(per['index']),
+                 'seed': seed}
+    else:
+        (path / 'history.jsonl').write_text('{"epoch": 1}\n')
+        artifacts['history.jsonl'] = sha(path / 'history.jsonl')
+        extra = {'rooms': rooms, 'init_sha256': 'e' * 64, 'best_epoch': 2, 'seed': seed}
+    record = dict({'schema_version': 1, 'run_type': role, 'run_dir': str(path.resolve()),
+                   'child_exit': 0, 'child_exit_time': STAMP, 'diagnostic': False,
+                   'log': {'path': str(path / 'child.log'), 'sha256': 'a' * 64},
+                   'child_exit_receipt': {'path': str(path / 'child_exit.json'),
+                                          'sha256': 'a' * 64, 'child_pid': 999999999},
+                   'admissible_arm': True, 'artifacts': artifacts,
+                   'backbone': cfg['backbone'], 'frame': cfg['frame'], 'heading': heading,
+                   'source_closure_sha256': closure}, **extra)
+    record.update(overrides or {})
+    subject.finalizer.write_completion(path / 'completion.json', record)
+    return record
+
+
+def new_job(base, job, arm, offset, closure=CLOSURE, invalid=(), job_overrides=None, **kwargs):
+    cfg = subject.ARMS[arm]
+    expect = subject.EXPECT_OF[job]
+    job_dir = Path(base) / job
+    job_dir.mkdir(parents=True, exist_ok=True)
+    seed = int(job[len('seed'):]) if job in subject.SEEDS else 0
+    children = {}
+    for name in subject.finalizer.expected_children(expect):
+        new_child(job_dir, name, arm, seed, offset, closure, invalid, **kwargs)
+        children[name] = sha(job_dir / name / 'completion.json')
+    record = {'schema_version': 1, 'run_type': 'haa_job', 'run_dir': str(job_dir.resolve()),
+              'expect': expect, 'children': children, 'job_spec_sha256': 'f' * 64,
+              'owner': {'pid': 4242, 'path': str(job_dir / 'launch.pid'), 'sha256': 'a' * 64},
+              'backbone': cfg['backbone'], 'frame': cfg['frame'],
+              'heading': HEADING if cfg['frame'] == 'heading' else None, 'seed': seed,
+              'init_sha256': 'e' * 64, 'diagnostic': False, 'admissible_arm': True}
+    record.update(job_overrides or {})
+    subject.provenance.write_completion(job_dir / 'completion.json', record)
+    return record
+
+
+NEW_OFFSETS = {'cyl_or': 0.02, 'control_hf': 0.04, 'cyl_hf': 0.06}
+
+
+def build_new_root(root, offsets=None, arms=None):
+    offsets = NEW_OFFSETS if offsets is None else offsets
+    root = Path(root)
+    for arm in (arms or subject.NEW_ARMS):
+        base = root / arm
+        for job in subject.JOBS:
+            number = int(job[len('seed'):]) if job in subject.SEEDS else 5
+            new_job(base, job, arm, offsets[arm] + 0.01 * number, closure=CLOSURE + '')
+    return root
+
+
+@pytest.fixture
+def new_root(tmp_path):
+    return build_new_root(tmp_path / 'exp06_sim2real')
+
+
+def test_the_legacy_branch_admits_the_complete_historical_root(legacy_root, tmp_path):
+    out = tmp_path / 'receipt.json'
+    _, digest = subject.write_legacy_receipt(out, legacy_root, strict=False)
+    data, receipt = subject.load_legacy(legacy_root, out, {'path': str(out), 'sha256': digest})
+    assert sorted(data) == ['control', 'cyl'] and receipt['label'] == 'reconstructed'
+    assert sorted(data['cyl']['per']) == ['seed0', 'seed1', 'seed2', 'zeroshot']
+    assert sorted(data['control']['per']['seed1']) == sorted(ROOMS)
+    assert data['control']['branch'] == 'legacy'
+
+
+def test_an_incomplete_historical_root_is_refused(legacy_root, tmp_path):
+    (Path(legacy_root) / 'released/seed2/eval/per_sample_hallway.json').unlink()
+    with pytest.raises(ValueError, match='incomplete'):
+        subject.load_legacy(legacy_root)
+
+
+def test_a_new_arm_is_admitted_with_one_closure_and_every_room(new_root):
+    arm = subject.load_new_arm(new_root, 'cyl_or')
+    assert arm['closure'] == CLOSURE and arm['branch'] == 'new'
+    assert sorted(arm['per']) == ['seed0', 'seed1', 'seed2', 'zeroshot']
+    assert sorted(arm['per']['zeroshot']) == sorted(ROOMS)
+    assert arm['per']['seed0']['hallway']['meta']['heading']['hallway']['k'] == 128
+    assert len(arm['jobs']['seed0']['children']) == 9
+
+
+NEW_REFUSALS = {
+    'missing_seed': lambda root: (root / 'cyl_or/seed2').rename(root / 'cyl_or/_seed2'),
+    'missing_completion': lambda root: (root / 'cyl_or/seed0/completion.json').unlink(),
+    'missing_child': lambda root: (root / 'cyl_or/seed1/eval/hallway/completion.json').unlink(),
+    'job_receipt': lambda root: (root / 'cyl_or/seed0/child_exit.json').write_text('{}'),
+    'changed_child': lambda root: (
+        root / 'cyl_or/seed0/eval/hallway/per_sample_hallway.json').write_text('{}'),
+}
+
+
+@pytest.mark.parametrize('case', sorted(NEW_REFUSALS))
+def test_a_new_arm_missing_or_changed_evidence_is_refused(new_root, case):
+    NEW_REFUSALS[case](Path(new_root))
+    with pytest.raises(ValueError):
+        subject.load_new_arm(new_root, 'cyl_or')
+
+
+def test_a_wrong_backbone_frame_roll_or_closure_is_refused(tmp_path):
+    root = build_new_root(tmp_path / 'a', arms=('cyl_or',))
+    child = Path(root) / 'cyl_or/seed0/eval/hallway'
+    (child / 'completion.json').unlink()
+    new_child(Path(root) / 'cyl_or/seed0', 'eval/hallway', 'cyl_or', 0, 0.02,
+              overrides={'backbone': 'simple'})
+    with pytest.raises(ValueError, match='backbone'):
+        subject.load_new_arm(root, 'cyl_or')
+    for case, kwargs in (('roll', {'heading': {r: {'k': 0} for r in ROOMS}}),
+                         ('closure', {'closure': 'a' * 64})):
+        fresh = build_new_root(tmp_path / case, arms=('cyl_or',))
+        target = Path(fresh) / 'cyl_or/seed1/eval/complex_room'
+        (target / 'completion.json').unlink()
+        new_child(Path(fresh) / 'cyl_or/seed1', 'eval/complex_room', 'cyl_or', 1, 0.03,
+                  **kwargs)
+        with pytest.raises(ValueError):
+            subject.load_new_arm(fresh, 'cyl_or')
