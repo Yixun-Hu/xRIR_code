@@ -200,3 +200,54 @@ def test_an_empty_cohort_refuses_but_is_listed_in_exploratory_mode(built):
     result, _ = build(built, 'seen_cyl', shots=(8,), exploratory=True)
     assert any('EDT K=8' in item for item in result['deviations']) and result['final'] is False
     assert [cell['metric'] for cell in result['cells']] == ['C50', 'T60', 'loss', 'log_mse']
+
+
+def publish(built, tmp_path, name, **kwargs):
+    result, admitted = build(built, **kwargs)
+    target = tmp_path / name
+    target.mkdir()
+    pairs.write_outputs(result, admitted, str(target / 'pairs.json'),
+                        str(target / 'summary.txt'), pairs.render_summary)
+    return target, result
+
+
+def test_publication_writes_the_json_summary_and_sidecar(built, tmp_path):
+    target, result = publish(built, tmp_path, 'published', shots=(8,))
+    published = json.loads((target / 'pairs.json').read_text())
+    assert published['pairing'] == ['seen_cyl', 'seen_simple'] and published['final'] is True
+    summary = (target / 'summary.txt').read_text()
+    assert 'No verdict' in summary and 'DESCRIPTIVE PAIRS_SEEN_V1' in summary
+    assert published['profile_digest'] in summary and 'NOT FINAL' not in summary
+    for cell in published['cells']:
+        absolute = cell['statistics']['absolute']
+        assert '{} K={}'.format(cell['metric'], cell['num_shot']) in summary
+        assert '{:.8g} {}'.format(absolute['estimate'], absolute['unit']) in summary
+    sidecar = json.loads((target / 'pairs.json.provenance.json').read_text())
+    assert sidecar['profile_digest'] == published['profile_digest']
+    assert sidecar['approved_digests']['sha256'] == built.approved[1]['sha256']
+    assert sidecar['outputs'][str((target / 'summary.txt').resolve())]
+    other, _ = publish(built, tmp_path, 'again', shots=(8,))
+    assert (other / 'pairs.json').read_bytes() == (target / 'pairs.json').read_bytes()
+
+
+def test_the_cli_refuses_runs_outside_the_registered_checkpoints(built, tmp_path):
+    """main() uses the committed profile, whose arms are ckpt/exp07's own checkpoints."""
+    runs_a, runs_b = sides(built, 'seen_aug')
+    with pytest.raises(ValueError, match='unregistered checkpoint'):
+        pairs.main(['--profile', 'PAIRS_SEEN_V1', '--runs-a'] + runs_a + ['--runs-b'] + runs_b +
+                   ['--json', str(tmp_path / 'p.json'), '--summary', str(tmp_path / 's.txt')])
+    assert not (tmp_path / 'p.json').exists() and not (tmp_path / 's.txt').exists()
+
+
+def test_the_cli_passes_both_sides_and_the_renderer_to_the_shared_writer(monkeypatch, tmp_path):
+    captured = {}
+    def fake_build(runs_a, runs_b, exploratory):
+        captured.update(a=runs_a, b=runs_b, exploratory=exploratory)
+        return {'ok': True}, {}
+    monkeypatch.setattr(pairs, 'build_pairs', fake_build)
+    monkeypatch.setattr(pairs, 'write_outputs', lambda *call: captured.update(call=call))
+    pairs.main(['--profile', 'PAIRS_SEEN_V1', '--runs-a', 'x', '--runs-b', 'y', '--json',
+                str(tmp_path / 'p.json'), '--summary', str(tmp_path / 's.txt'), '--exploratory'])
+    assert captured['a'] == ['x'] and captured['b'] == ['y'] and captured['exploratory'] is True
+    assert captured['call'][2:] == (str(tmp_path / 'p.json'), str(tmp_path / 's.txt'),
+                                    pairs.render_summary)

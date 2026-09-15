@@ -14,8 +14,10 @@ These are checkpoint-conditional descriptive intervals: five evaluation seeds do
 estimate training-seed variability, so no cell carries a verdict, a significance marker
 or a superiority/equivalence claim, and ``decision_driving`` is false throughout.
 """
+import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -23,7 +25,7 @@ import numpy as np
 from tools.exp07_profiles import get_profile, json_value
 from tools.exp07_table import admit
 from tools.paired_compare import (REPO, _digest, _samples, cell_mask, convergence,
-                                  five_seed_mean, two_sided_interval)
+                                  five_seed_mean, two_sided_interval, write_outputs)
 from tools.results_table import METRICS
 from tools.summarize_yaw import rooms_from_paths
 
@@ -165,3 +167,50 @@ def build_pairs(runs_a, runs_b, profile=None, approved=None, exploratory=False, 
                 result['reconverge_required'].append(label + ' ' + '/'.join(flagged))
     result['final'] = not result['reconverge_required'] and not result['deviations']
     return result, admitted
+
+
+def render_summary(result):
+    """Every number here is read from the result the canonical JSON is written from."""
+    lines = ['DESCRIPTIVE {} {} - {}'.format(result['profile_name'], *result['pairing']),
+             'Profile sha256: ' + result['profile_digest'],
+             'No verdict. ' + result['verdict_scope']]
+    for cell in result['cells']:
+        absolute, relative = (cell['statistics'][name] for name in ('absolute', 'relative'))
+        lines.append('{} K={}{}: absolute={:.8g} {} {}, relative={:.8g} {}, rooms {} {}, n={}'
+                     .format(cell['metric'], cell['num_shot'],
+                             ' [reference]' if cell['reference'] else '',
+                             absolute['estimate'], absolute['unit'], absolute['interval'],
+                             relative['estimate'], relative['interval'],
+                             cell['n_rooms_retained'], relative['room_cluster_interval'],
+                             cell['paired_cohort']['n_queries']))
+        lines.append('  cohort means: ' + ', '.join(
+            '{}={:.8g}'.format(role, summary['mean'])
+            for role, summary in sorted(cell['arm_means'].items())))
+    lines.extend('Re-run at a larger n_boot: ' + item for item in result['reconverge_required'])
+    lines.extend('Deviation: ' + item for item in result['deviations'])
+    if not result['final']:
+        lines.append('NOT FINAL')
+    return '\n'.join(lines) + '\n'
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--profile', choices=('PAIRS_SEEN_V1',), required=True)
+    parser.add_argument('--runs-a', nargs='+', required=True, help="the pairing's first arm")
+    parser.add_argument('--runs-b', nargs='+', required=True,
+                        help='the ' + BASELINE + ' baseline of every pairing')
+    parser.add_argument('--json', required=True)
+    parser.add_argument('--summary', required=True)
+    parser.add_argument('--exploratory', action='store_true',
+                        help='List unapproved pins and refused cells instead of stopping')
+    args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    result, admitted = build_pairs(args.runs_a, args.runs_b, exploratory=args.exploratory)
+    write_outputs(result, admitted, args.json, args.summary, render_summary)
+    return result
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (ValueError, OSError, RuntimeError, KeyError) as error:
+        raise SystemExit(str(error))
