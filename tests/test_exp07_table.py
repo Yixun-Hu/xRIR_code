@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from exp07_fixture import exp07_approval_template, exp07_fixture  # noqa: F401  (fixtures)
@@ -234,3 +235,99 @@ def test_admission_refuses_and_names_the_deviation(built, mutation):
         admit(built)
     _, admitted = admit(built, exploratory=True)
     assert any(expected in item for item in admitted['deviations']), admitted['deviations']
+
+
+def build(built, **kwargs):
+    return table.build_table(built.directories, built.profile, built.approved,
+                             producer=built.producer, **kwargs)[0]
+
+
+def test_the_table_reports_five_seed_means_per_role_and_shot_count(built):
+    result = build(built)
+    assert [(row['role'], row['num_shot']) for row in result['rows']] == [
+        (role, shot) for role in ('seen_simple', 'seen_cyl', 'seen_aug', 'released_seen')
+        for shot in (8, 1)]
+    assert result['profile_name'] == 'TABLE_SEEN_V1' and result['deviations'] == []
+    assert 'generated_at' not in json.dumps(result)  # the canonical JSON carries no timestamp
+    row = next(r for r in result['rows'] if (r['role'], r['num_shot']) == ('seen_simple', 8))
+    edt = row['metrics']['EDT']
+    assert edt['unit'] == 'ms' and edt['source'] == 'edt'
+    expected = []
+    for directory in built.paths[('seen_simple', 8)]:
+        values = built.read(Path(directory) / 'per_sample_yaw.json')['P']['0']['edt']
+        seed = str(built.read(Path(directory) / 'eval_manifest.json')['manifest_seed'])
+        assert edt['per_seed'][seed]['n_finite'] == 12
+        assert edt['per_seed'][seed]['mean'] == pytest.approx(np.mean(values) * 1000)
+        expected.append(np.mean(values) * 1000)
+    assert edt['mean'] == pytest.approx(np.mean(expected))
+    assert edt['sd'] == pytest.approx(np.std(expected, ddof=1))
+    assert row['protocol']['n_queries'] == 12 and row['protocol']['split'] == 'seen'
+    assert row['protocol']['seeds'] == [42, 43, 44, 45, 46] and row['protocol']['k'] == 0
+
+
+def test_the_released_row_is_marked_a_reference_with_an_unknown_epoch(built):
+    rows = [row for row in build(built)['rows'] if row['role'] == 'released_seen']
+    assert len(rows) == 2 and all(row['reference'] and row['epoch'] is None for row in rows)
+    assert all(row['protocol']['epoch'] == 'unknown (external)' for row in rows)
+    assert all(row['protocol']['training'] == 'external' for row in rows)
+    assert all('reference' in row['label'].lower() for row in rows)
+    trained = [row for row in build(built)['rows'] if row['role'] != 'released_seen']
+    assert all(row['epoch'] == 12 and row['protocol']['training'] == 'internal' for row in trained)
+
+
+def test_a_seed_losing_too_many_queries_refuses_the_cell(built):
+    directory = Path(built.paths[('seen_cyl', 1)][2])
+    sample = built.read(directory / 'per_sample_yaw.json')
+    sample['P']['0']['c50'][:3] = [None, None, None]
+    metrics = built.read(directory / 'metrics_yaw.json')
+    metrics['P'] = built.summaries(sample['P'])
+    built.rebind(directory, sample=sample, metrics=metrics)
+    with pytest.raises(ValueError, match='finite count tolerance exceeded'):
+        build(built)
+
+
+def publish(built, tmp_path, name, **kwargs):
+    result, admitted = table.build_table(built.directories, built.profile, built.approved,
+                                         producer=built.producer, **kwargs)
+    target = tmp_path / name
+    target.mkdir()
+    table.write_outputs(result, admitted, str(target / 'table.json'),
+                        str(target / 'model_comparison_seen.md'), command=['exp07_table.py'])
+    return target
+
+
+def test_publication_is_byte_stable_and_the_markdown_comes_from_the_json(built, tmp_path):
+    first_run, second_run = (publish(built, tmp_path, name) for name in ('one', 'two'))
+    assert (first_run / 'table.json').read_bytes() == (second_run / 'table.json').read_bytes()
+    markdown = (first_run / 'model_comparison_seen.md').read_text()
+    other = (second_run / 'model_comparison_seen.md').read_text()
+    def body(text, run):  # the block names the canonical JSON it was rendered from
+        return text.split(table.results_table.STAMP)[0].replace(str(run), 'RUN')
+    assert body(markdown, first_run) == body(other, second_run)
+    result = json.loads((first_run / 'table.json').read_text())
+    for row in result['rows']:
+        for name, metric in row['metrics'].items():
+            assert '{:.6g} ± {:.6g}'.format(metric['mean'], metric['sd']) in markdown
+        assert row['label'] in markdown
+    assert 'seen' in markdown and '12 queries' in markdown
+    sidecar = json.loads((first_run / 'table.json.provenance.json').read_text())
+    assert sidecar['profile_digest'] == result['profile_digest'] and sidecar['generated_at']
+    assert sidecar['approved_digests']['sha256'] == built.approved[1]['sha256']
+    assert sidecar['outputs'][str((first_run / 'table.json').resolve())]
+
+
+def test_the_cli_refuses_the_unapproved_committed_profile_and_writes_nothing(tmp_path, built):
+    with pytest.raises(ValueError, match='not yet approved'):
+        table.main(['--profile', 'TABLE_SEEN_V1', '--runs'] + built.directories +
+                   ['--json', str(tmp_path / 'table.json'), '--md', str(tmp_path / 'seen.md')])
+    assert not (tmp_path / 'table.json').exists() and not (tmp_path / 'seen.md').exists()
+
+
+def test_the_cli_defaults_the_markdown_to_the_living_seen_table(monkeypatch, tmp_path):
+    captured = {}
+    monkeypatch.setattr(table, 'build_table', lambda runs, exploratory: ({'ok': True}, {}))
+    monkeypatch.setattr(table, 'write_outputs', lambda *a: captured.update(call=a))
+    table.main(['--profile', 'TABLE_SEEN_V1', '--runs', 'a', '--json', str(tmp_path / 't.json')])
+    assert table.MARKDOWN == table.REPO / 'worklog/worklog_yixun/model_comparison_seen.md'
+    assert captured['call'][3] == str(table.MARKDOWN) and captured['call'][4] is False
+    assert captured['call'][5][:4] == ['exp07_table.py', '--profile', 'TABLE_SEEN_V1', '--runs']

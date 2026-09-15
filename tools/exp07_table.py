@@ -11,13 +11,19 @@ equal to the plan's recipe with this arm's backbone and yaw flags).  The release
 checkpoint is an EXTERNAL reference row: digest-only admission and no training bindings,
 with every evaluation check kept.
 """
+import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
 
+import numpy as np
+
 from tools import provenance
-from tools.exp07_profiles import load_approved_digests
+from tools.exp07_profiles import get_profile, json_value, load_approved_digests
 from tools.paired_compare import REPO, _equal, admit_runs, producer_identity
+from tools import results_table
+from tools.results_table import METRICS, write_outputs
 
 TRAINING_BINDINGS = ('train_args', 'train_manifest', 'train_completion')
 BINDING_FILES = {'train_args': 'args.json', 'train_manifest': 'train_manifest.json',
@@ -175,3 +181,94 @@ def admit(directories, profile, approved=None, producer=None, exploratory=False)
         raise ValueError('admission failed: ' + '; '.join(deviations))
     admitted.update(deviations=deviations, contracts=contracts)
     return groups, admitted
+
+
+MARKDOWN = REPO / 'worklog/worklog_yixun/model_comparison_seen.md'
+
+
+def build_table(directories, profile=None, approved=None, exploratory=False, producer=None):
+    """Admit the runs and aggregate them under the TABLE_V1 rules; write no artefacts.
+
+    Each seed mean uses its own finite queries and the row bounds the count differences;
+    EDT is reported in ms.  The released row carries its unknown epoch as such.
+    """
+    profile = json_value(get_profile('TABLE_SEEN_V1')) if profile is None else profile
+    groups, admitted = admit(directories, profile, approved, producer, exploratory)
+    rows = []
+    for (arm, shot, _), runs in zip(groups, admitted['groups']):
+        if not runs:  # exploratory only: admission has already named the missing arm
+            continue
+        cells = [run['P'][str(profile['grid'][0])] for run in runs]
+        names = set().union(*(set(cell) for cell in cells))
+        if names - set(METRICS):
+            raise ValueError('unknown metric names: ' + ', '.join(sorted(names - set(METRICS))))
+        if any(set(cell) != names for cell in cells):
+            raise ValueError('metric coverage differs across seeds')
+        metrics = {}
+        for source, specification in METRICS.items():
+            if specification is None or source not in names:
+                continue
+            name, unit, scale = specification
+            per_seed = {}
+            for run, cell in zip(runs, cells):
+                values = np.asarray(cell[source], dtype=float)
+                finite = values[np.isfinite(values)]
+                if not finite.size:
+                    raise ValueError('zero finite queries: ' + source)
+                per_seed[str(run['meta']['manifest_seed'])] = {
+                    'mean': float(finite.mean() * scale), 'n_finite': int(finite.size)}
+            counts = [item['n_finite'] for item in per_seed.values()]
+            if max(counts) - min(counts) > profile['finite_count_tolerance']:
+                raise ValueError('finite count tolerance exceeded: ' + source)
+            means = np.asarray([item['mean'] for item in per_seed.values()])
+            if not np.isfinite(means).all():
+                raise ValueError('nonfinite seed mean: ' + source)
+            metrics[name] = dict(source=source, unit=unit, mean=float(means.mean()),
+                                 sd=float(means.std(ddof=profile['seed_sd_ddof'])),
+                                 per_seed=per_seed)
+        protocol = dict(num_shot=shot, split=profile['dataset']['split'],
+            n_queries=profile['dataset']['n_queries'], seeds=sorted(profile['seeds'][shot]),
+            epoch=arm['epoch'] if arm['epoch'] is not None else 'unknown (external)',
+            condition=profile['condition'], k=profile['grid'][0], training=arm['training'],
+            batch_size=profile['batch_size'], tf32=profile['tf32'],
+            max_samples=profile['max_samples'])
+        rows.append(dict(role=arm['role'], label=arm['label'], num_shot=shot, epoch=arm['epoch'],
+                         backbone=arm['backbone'], reference=arm['reference'],
+                         protocol=protocol, metrics=metrics))
+    literal = json.loads(json.dumps(json_value(profile)))
+    digest = hashlib.sha256(json.dumps(literal, sort_keys=True, separators=(',', ':'),
+                                       allow_nan=False).encode()).hexdigest()
+    return dict(schema_version=1, profile_name='TABLE_SEEN_V1', profile=literal,
+                profile_digest=digest, exploratory=exploratory, rows=rows,
+                deviations=list(admitted['deviations']), contracts=admitted['contracts'],
+                inputs=admitted['inputs'],
+                producer_closure_sha256=admitted['producer']['sha256']), admitted
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--profile', choices=('TABLE_SEEN_V1',), required=True)
+    parser.add_argument('--runs', nargs='+', required=True)
+    parser.add_argument('--json', required=True)
+    parser.add_argument('--md', default=str(MARKDOWN))
+    parser.add_argument('--force-md', action='store_true',
+                        help='Regenerate the Markdown; the JSON is always exclusive')
+    parser.add_argument('--exploratory', action='store_true',
+                        help='List unapproved pins and deviations instead of refusing')
+    argv = sys.argv[1:] if argv is None else argv
+    args = parser.parse_args(argv)
+    result, admitted = build_table(args.runs, exploratory=args.exploratory)
+    command = ['exp07_table.py', '--profile', args.profile, '--runs']
+    command += [str(Path(item).resolve()) for item in args.runs]
+    command += ['--json', str(Path(args.json).absolute()), '--md', str(Path(args.md).absolute())]
+    command += ['--force-md'] if args.force_md else []
+    command += ['--exploratory'] if args.exploratory else []
+    write_outputs(result, admitted, args.json, args.md, args.force_md, command)
+    return result
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (ValueError, OSError, RuntimeError, KeyError) as error:
+        raise SystemExit(str(error))
