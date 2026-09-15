@@ -592,5 +592,3 @@ def test_the_registered_initialisations_are_exp01s_and_the_approved_epoch(new_ro
     assert inits['cyl_or'] is None and inits['cyl_hf'] == subject.EXP01_CYL['sha256']
     approved = {'artifacts': {'epoch_012': {'sha256': 'c' * 64}}}
     assert subject.expected_inits(approved)['cyl_or'] == 'c' * 64
-
-
