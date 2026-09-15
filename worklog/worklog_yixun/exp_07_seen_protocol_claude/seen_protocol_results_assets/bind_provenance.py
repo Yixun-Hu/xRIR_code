@@ -2,17 +2,23 @@
 
 Binds the three certified training attempts (completion, manifest, inventory sidecar, probe
 receipt, hours ledger and the approved checkpoint) AND every other attempt each arm's
-ledger lists -- aborted full runs with their abort.json, probe attempts, and the arm's
-probe receipts -- so a later change to any of them changes the report.  It also binds the
-released reference checkpoint, the forty evaluation runs with their seen-split bindings,
-the seen alignment audit (protocol, cohort digest, passed, commit), the required
-``--evidence`` artefacts (the GPU parity receipt, whose nine registered cases must all
-have passed, and the released-checkpoint calibration, whose pre-registered acceptance rule
-AND its five-seed operands are recomputed here from the bound runs), the four canonical producer
-outputs revalidated through the generators' own checks with exact per-run input coverage,
-their sidecars and companions, the rendered Markdown/HTML/LaTeX, the exp_04 inputs the
-combined table reuses, the approval blob and git HEAD.  Each arm's ledger must show at
-most one retry.  Run directories are read and never modified.
+ledger lists: each must have ended certified or aborted, and the external logs its own
+records name -- the launcher keeps them outside the attempt directory -- are bound too,
+so a later change to any of them changes the report.  Probe attempts and their receipts
+must correspond one to one.
+
+It also binds the released reference checkpoint, the forty evaluation runs (the registered
+role/K/seed set, each with its seen-split binding, training linkage and an output split
+identity agreeing with its manifest), the seen alignment audit, and the two required
+``--evidence`` receipts: the GPU parity receipt, whose nine registered cases must all have
+passed at the reviewed commit, and the released-checkpoint calibration, whose
+pre-registered acceptance rule AND its five-seed operands are recomputed here from the
+bound runs.  The four canonical producer outputs are revalidated through the generators'
+own checks; each must cover exactly its registered run set, declare every trained arm's
+training evidence, and declare nothing this report does not bind at the digest it binds
+it at.  Finally the rendered Markdown/HTML/LaTeX, the exp_04 inputs the combined table
+reuses, the approval blob and git HEAD.  Each arm's ledger must show at most one retry.
+Run directories are read and never modified.
 """
 import argparse
 import json
@@ -36,7 +42,6 @@ md = load_asset('make_results_md')
 ROOT, require, stamp, snapshot = binder.ROOT, binder.require, binder.stamp, binder.snapshot
 check_ancestor, report_path = binder.check_ancestor, binder.report_path
 TRAINING = ('train_args', 'train_manifest', 'train_completion')
-RUN_FILES = ('eval_manifest.json', 'completion.json', 'metrics_yaw.json', 'per_sample_yaw.json')
 RELEASED = next(arm['checkpoint'] for arm in ARMS if arm['reference'])
 ROLES = tuple(arm['role'] for arm in ARMS)
 NUM_SHOT = tuple(get_profile('TABLE_SEEN_V1')['num_shot'])
