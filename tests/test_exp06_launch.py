@@ -91,6 +91,35 @@ def test_preflight_refuses_a_live_or_unreadable_launch_pid(repo, fake_nvidia_smi
     assert exp06_finalize.preflight('full', 1, head, attempt_root=attempts, repo=root)
 
 
+def test_preflight_scans_every_launch_location(repo, fake_nvidia_smi, tmp_path):
+    """Should-fix 5: smoke pid files live outside the attempt root and count too."""
+    root, head = repo
+    attempts, smoke = tmp_path / 'attempts', tmp_path / '_smoke'
+    (attempts / 'attempt_x').mkdir(parents=True)
+    (smoke / 'exp06_train_t1_x').mkdir(parents=True)
+    (smoke / 'exp06_train_t1_x/launch.pid').write_text(str(os.getpid()) + '\n')
+    assert exp06_finalize.preflight('full', 1, head, attempt_root=attempts, repo=root)
+    with pytest.raises(ValueError, match='launch'):
+        exp06_finalize.preflight('full', 1, head, attempt_root=[attempts, smoke], repo=root)
+    (smoke / 'exp06_train_t1_x/launch.pid').unlink()
+    (smoke / 'exp06_train_t1_x/child.pid').write_text(str(os.getpid()) + '\n')
+    with pytest.raises(ValueError, match='launch'):
+        exp06_finalize.preflight('smoke', 1, head, attempt_root=[attempts, smoke], repo=root)
+
+
+def test_a_live_owner_may_finalize_its_own_attempt(tmp_path):
+    """Should-fix 5: the launcher stays alive through finalisation, others may not."""
+    run = tmp_path / 'attempt'
+    run.mkdir()
+    (run / 'launch.pid').write_text('{}\n'.format(os.getpid()))
+    assert exp06_finalize.refuse_live_launch(run, owner_pid=os.getpid()) == os.getpid()
+    with pytest.raises(ValueError, match='alive'):
+        exp06_finalize.refuse_live_launch(run)
+    (run / 'child.pid').write_text('{}\n'.format(os.getpid()))
+    with pytest.raises(ValueError, match='alive'):
+        exp06_finalize.refuse_live_launch(run, owner_pid=os.getpid())
+
+
 def test_preflight_cli_exits_two_on_refusal(repo, fake_nvidia_smi):
     root, head = repo
     command = [sys.executable, 'tools/exp06_finalize.py', 'preflight', '--mode', 'full',
@@ -135,10 +164,13 @@ def test_launcher_is_valid_bash():
     assert os.access(REPO / LAUNCHER, os.X_OK)
 
 
+PREFLIGHT_ROOTS = ' --attempt-root ' + ROOT + ' --attempt-root ckpt/exp06/_smoke'
+
+
 def test_full_dry_run_matches_the_plan_argv():
     lines = dry_run('full')
     assert ('RUN ' + PYTHON + ' tools/exp06_finalize.py preflight --mode full --gpu 1'
-            ' --reviewed-commit ' + COMMIT + ' --attempt-root ' + ROOT) in lines
+            ' --reviewed-commit ' + COMMIT + PREFLIGHT_ROOTS) in lines
     assert 'MKDIR ' + ATTEMPT in lines
     assert ENV_LINE in lines
     assert 'RUN nohup setsid ' + TRAIN_ARGV in lines
@@ -147,9 +179,11 @@ def test_full_dry_run_matches_the_plan_argv():
     assert 'MARKER EXP06_CHILD_EXIT <code> <iso> >> ' + log in lines
     assert all('tail -f' not in line for line in lines), 'no second reader of the log'
     assert ('RUN ' + PYTHON + ' tools/exp06_finalize.py --run-dir ' + ATTEMPT
-            + ' --run-type full --log ' + log + ' --child-exit <code>') in lines
+            + ' --run-type full --log ' + log + ' --child-exit <code>'
+            + ' --owner-pid <pid>') in lines
     assert 'PROMOTE ' + ROOT + '/final -> attempt_<UTC>' in lines
-    assert 'ABORT ' + ATTEMPT + '_ABORTED_<reason>' in lines
+    assert 'ABORT ' + ATTEMPT + '_ABORTED_child_exit_<code>' in lines
+    assert all('<reason>' not in line for line in lines), 'no placeholder abort reason'
 
 
 def test_probe_dry_run_uses_the_bounded_recipe():
@@ -186,6 +220,7 @@ def test_finalize_mode_and_usage_errors():
     lines = dry_run('finalize', '--attempt', ATTEMPT, '--log', 'some.log', '--child-exit', '0')
     assert ('RUN ' + PYTHON + ' tools/exp06_finalize.py --run-dir ' + ATTEMPT
             + ' --run-type full --log some.log --child-exit 0') in lines
+    assert all('--owner-pid' not in line for line in lines), 'recovery owns no live launch'
     for extra in (['invented'], ['full'], ['full', '--gpu', '1'], ['full', '--gpu', '1',
                   '--reviewed-commit', COMMIT, '--nonsense']):
         completed = subprocess.run(['bash', LAUNCHER] + extra, cwd=REPO, capture_output=True, text=True)
@@ -195,9 +230,10 @@ def test_finalize_mode_and_usage_errors():
 HARNESS = ('set -euo pipefail\n'
            'export EXP06_LAUNCH_LIB=1\n'
            'source tools/exp06_launch.sh\n'
+           'own_launch {attempt}\n'
            'run_child {attempt} {log} {child}\n'
            'close_child {attempt} {log}\n'
-           'echo "HARNESS_STATUS $CHILD_STATUS $CHILD_PID"\n')
+           'echo "HARNESS_STATUS $CHILD_STATUS $CHILD_PID $$"\n')
 
 
 def run_harness(tmp_path, script, child_args=''):
@@ -228,8 +264,17 @@ def test_a_surviving_descendant_cannot_write_past_the_end_marker(tmp_path):
     receipt = json.loads((attempt / 'child_exit.json').read_text())
     assert receipt['status'] == 0 and receipt['ended_at'] == lines[-1].split()[2]
     assert receipt['log_sha256_after_marker'] == hashlib.sha256(log.read_bytes()).hexdigest()
-    assert (attempt / 'launch.pid').read_text().strip() == str(receipt['child_pid'])
     assert not (attempt / 'child.pipe').exists()
+
+
+def test_the_launcher_owns_launch_pid_while_the_child_has_its_own(tmp_path):
+    """Should-fix 5: launch.pid names the launcher that drains and finalizes."""
+    attempt, log, completed = run_harness(tmp_path, '#!/usr/bin/env bash\necho done\n')
+    assert completed.returncode == 0, completed.stderr
+    status, child, launcher = completed.stdout.split('HARNESS_STATUS ')[1].split()
+    receipt = json.loads((attempt / 'child_exit.json').read_text())
+    assert (attempt / 'child.pid').read_text().strip() == child == str(receipt['child_pid'])
+    assert (attempt / 'launch.pid').read_text().strip() == launcher != child
 
 
 SINK_HARNESS = ('set -euo pipefail\n'
@@ -299,11 +344,26 @@ def test_diagnostic_modes_run_the_same_child_lifecycle():
 def test_recovery_finalize_gates_promotes_and_aborts():
     lines = dry_run('finalize', '--attempt', ATTEMPT, '--log', 'some.log', '--child-exit', '0')
     assert ('RUN ' + PYTHON + ' tools/exp06_finalize.py preflight --mode finalize --gpu 1'
-            ' --reviewed-commit ' + COMMIT + ' --attempt-root ' + ROOT) in lines
+            ' --reviewed-commit ' + COMMIT + PREFLIGHT_ROOTS) in lines
     assert ('RUN ' + PYTHON + ' tools/exp06_finalize.py --run-dir ' + ATTEMPT
             + ' --run-type full --log some.log --child-exit 0') in lines
     assert 'PROMOTE ' + ROOT + '/final -> attempt_<UTC>' in lines
-    assert 'ABORT ' + ATTEMPT + '_ABORTED_<reason>' in lines
+    assert 'ABORT ' + ATTEMPT + '_ABORTED_finalize_refused' in lines
+    assert all('<reason>' not in line for line in lines), 'the recovery reason is recorded'
+
+
+def test_a_diagnostic_directory_is_created_exclusively(tmp_path):
+    """Should-fix 5: a repeated stamp must never reuse a diagnostic directory."""
+    existing = tmp_path / 'probe_20260916T130000'
+    existing.mkdir()
+    script = ('set -euo pipefail\nexport EXP06_LAUNCH_LIB=1\nsource tools/exp06_launch.sh\n'
+              'DRY=0\ndiagnostic probe {dir} {log} {receipt} --entry exp06_train\n').format(
+                  dir=existing, log=tmp_path / 'probe.log', receipt=tmp_path / 'probe.json')
+    completed = subprocess.run(['bash', '-c', script], cwd=REPO, capture_output=True, text=True,
+                               env={**os.environ, 'PYTHONPATH': str(REPO)})
+    assert completed.returncode != 0, completed.stdout
+    assert 'File exists' in completed.stderr, completed.stderr
+    assert not (existing / 'child.pid').exists() and not (existing / 'child_exit.json').exists()
 
 
 def test_abort_renames_the_attempt_and_its_log(tmp_path):
