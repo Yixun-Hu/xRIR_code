@@ -158,3 +158,37 @@ def test_run_exp04_keeps_the_frozen_unseen_builder_as_its_default(bound_run, mon
     with pytest.raises(Stop):
         base.run_exp04(args, **({} if factory is None else {'dataset_factory': builder}))
     assert calls == [args.max_samples]
+
+
+@pytest.fixture(scope='module')
+def entry_closure():
+    """The entry point's import-derived closure (a subprocess import; computed once)."""
+    return p.source_closure('tools.exp07_eval', subject.REPO)
+
+
+def test_the_seen_dataset_module_is_bound_by_the_entry_points_closure(entry_closure):
+    """The frozen helper imports it inside a function, so the entry point imports it."""
+    assert subject.SEEN_DATASET_SOURCE == 'treble_multi_room_dataset/treble_xRIR_seen_dataset.py'
+    assert subject.SEEN_DATASET_SOURCE in entry_closure
+    assert 'treble_multi_room_dataset/treble_xRIR_dataset.py' in entry_closure
+
+
+@pytest.mark.parametrize('module', ['tools.exp04_eval', 'tools.exp04_eval_launch'])
+def test_the_unseen_entry_and_the_writer_do_not_gain_the_seen_module(module):
+    """Binding the seen code must not move the exp_04 entry or writer digests."""
+    assert subject.SEEN_DATASET_SOURCE not in p.source_closure(module, subject.REPO)
+
+
+def test_a_changed_seen_dataset_module_is_refused_by_revalidate(tmp_path, entry_closure):
+    """A run bound at the old closure refuses once the seen split's code changes."""
+    files = []
+    for name in entry_closure:
+        copy = tmp_path / name
+        copy.parent.mkdir(parents=True, exist_ok=True)
+        copy.write_bytes((subject.REPO / name).read_bytes())
+        files.append(dict(path=name, working_tree_sha256=p.sha256_file(copy)))
+    manifest = dict(repo=str(tmp_path), source_closures=dict(entrypoint=dict(files=files)))
+    assert p.revalidate(manifest) == []
+    drifted = tmp_path / subject.SEEN_DATASET_SOURCE
+    drifted.write_bytes(drifted.read_bytes() + b'\n# a change to the seen split code\n')
+    assert p.revalidate(manifest) == ['source.entrypoint.' + subject.SEEN_DATASET_SOURCE]

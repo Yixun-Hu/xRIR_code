@@ -12,7 +12,10 @@ seen dataset class at the manifest's ``num_shot``.
 Run it from the repository root: the seen dataset module opens
 ``treble_multi_room_dataset/seen_test_split.pkl`` relative to the working directory.
 That file is bound by digest in the evaluation manifest and in both output metas, and
-re-checked after the run.
+re-checked after the run.  The seen dataset *module* is bound as well: the frozen helper
+imports it inside a function, so this entry point imports it at module scope and
+``source_closure('tools.exp07_eval')`` -- the digest pinned for the evaluator -- covers
+the code that selects and serves the seen queries.
 """
 import sys
 from pathlib import Path
@@ -20,8 +23,11 @@ from pathlib import Path
 from eval_xRIR_backbone import build_dataset
 from tools import exp04_eval as base
 from tools import provenance as p
+from treble_multi_room_dataset import treble_xRIR_seen_dataset as seen_module
 
 REPO = Path(__file__).resolve().parents[1]
+# Derived from the import above, so the binding cannot be dropped as an unused import.
+SEEN_DATASET_SOURCE = str(Path(seen_module.__file__).resolve().relative_to(REPO))
 SPLITS = ('unseen', 'seen')
 SPLIT_ENTRIES = {'unseen': 6337, 'seen': 6217}  # queries of each test split
 MAX_LEN = 9600
