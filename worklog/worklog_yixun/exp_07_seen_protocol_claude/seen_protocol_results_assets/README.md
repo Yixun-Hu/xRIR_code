@@ -17,8 +17,26 @@ They refuse: a JSON whose sidecar does not bind its bytes, its profile digest, i
 its approval identity and this producer's approved closure; an exploratory JSON or one
 carrying admission deviations; a seen table that is not all eight rows with all five
 metrics; a pairing set that is not the three registered pairings, final, descriptive and
-thirty cells; an unseen table whose digest is not the one exp_04's binding report recorded;
-a duplicate input; and an output path that overlaps a canonical input.
+thirty cells; a CELL whose statistics have not both converged, that still asks for a larger
+`n_boot`, that claims to drive a decision or carries a verdict, or whose pairing, grid,
+seed labels, quantiles, statistic set or cohort differ from its parent's; an unseen table
+whose digest is not the one exp_04's binding report recorded; a duplicate input; and an
+output path that overlaps ANY input -- a canonical JSON, a sidecar, an approval blob or
+the exp_04 binding report -- in any spelling.
+
+`tools/exp07_pairs.py --reconverge` is the registered publication retry: each flagged cell
+is recomputed once at the profile's `reconverge_n_boot` (40 000), the first attempt's
+count, diagnostic and both intervals are kept inside the cell under `first_attempt` with a
+`reconverge_attempts` counter, and a statistic that fails again stays flagged so the
+pairing remains non-final and no generator will publish it.
+
+`--evidence gpu_parity=PATH --evidence calibration=PATH` (both required) bind the deferred
+GPU parity log and the released-checkpoint calibration. The calibration JSON must state
+`role: released_seen`, `protocol: seen`, `num_shot: 8`, `passed: true` and, for each of
+EDT (s), C50 (dB) and T60 (%), `mean`, `sd`, `historical` and `passed`; the binder
+recomputes the pre-registered rule
+`|mean - historical| <= 3 * sd + 0.02 * |historical|` against the plan's historical values
+(0.0389 / 1.029 / 7.27) and refuses anything outside it.
 
 `make_results_md.py` writes `seen_protocol_results.md`, `make_results_html.py` writes
 `seen_protocol_01_results.html`, and `make_latex.py` writes `table_seen_unseen.tex`. All
