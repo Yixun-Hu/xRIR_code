@@ -666,6 +666,8 @@ def write_haa_eval(run, args, log, repo, data_root, meta=None, per_sample=None, 
     body.update(per_sample or {})
     if isinstance(body.get('index'), list) and 'ir_path' not in (per_sample or {}):
         body['ir_path'] = ['{}/{}'.format(room, index) for index in body['index']]
+    if room in NO_T60_ROOMS and 't60' not in (per_sample or {}):  # the writer measures none
+        body['t60'] = [float('nan')] * len(body['ir_path'])
     summary = eval_metrics(args, room, body) if metrics is None else metrics
     (run / 'metrics_{}.json'.format(room)).write_text(json.dumps(summary))
     (run / 'per_sample_{}.json'.format(room)).write_text(json.dumps(body))
@@ -809,6 +811,11 @@ METRIC_DAMAGE = {
     'summary_extra_key': (lambda m: dict(m, env_error=dict(m['env_error'], std=0.1)),
                           'env_error'),
     'n_boolean': (lambda m: dict(m, n_samples=True), 'n_samples'),
+    # close-3 finding 2: the counters must agree with the per-sample values they describe
+    'count_c50_under': (lambda m: dict(m, c50_outliers=0), 'c50_outliers'),
+    'count_c50_over': (lambda m: dict(m, c50_outliers=2), 'c50_outliers'),
+    'count_edt_excess': (lambda m: dict(m, edt_invalid=3), 'edt_invalid'),
+    'count_t60_excess': (lambda m: dict(m, t60_invalid=2), 't60_invalid'),
 }
 
 
@@ -1811,6 +1818,62 @@ def test_a_child_artifact_map_must_equal_the_re_run_key_for_key(job_run, closed_
 
     job, children, spec, repo = job_run(mutate=mutate)
     with pytest.raises(ValueError, match='artefact'):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                children=children, expect='finetune', job_spec=spec)
+    assert not (job / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('per_sample,overrides', [
+    ({'t60': [float('nan')] * 3}, {'t60_invalid': 2}),
+    ({'t60': [4.0, 5.0, 6.0]}, {})])
+def test_an_omitted_t60_room_measures_and_counts_nothing(tmp_path, haa_repo, heading_jsons,
+                                                         data_root, per_sample, overrides):
+    """Close-3 finding 2: sim_to_real/eval_haa.py never runs T60 in dampened_room, so every
+    observation is its NaN and t60_invalid can only be zero."""
+    checkpoint = haa_repo / 'stage2_best.pth'
+    torch.save(tiny_state(), checkpoint)
+    args = haa_eval_args(heading_jsons, checkpoint, room='dampened_room')
+    run, log = tmp_path / 'eval' / 'dampened_room', tmp_path / 'child.log'
+    metrics = eval_metrics(args, 'dampened_room', dict(PER_SAMPLE, **per_sample), **overrides)
+    write_haa_eval(run, args, log, haa_repo, data_root, per_sample=per_sample, metrics=metrics,
+                   meta=eval_meta(args, provenance.sha256_file(checkpoint)))
+    with pytest.raises(ValueError, match='t60'):
+        exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)
+    assert not (run / 'completion.json').exists()
+
+
+def test_invalid_measurements_may_be_fewer_than_the_nonfinite_observations(tmp_path, haa_repo,
+                                                                          heading_jsons,
+                                                                          data_root):
+    """Close-3 finding 2: a NaN the writer did not count is a real measurement it read as
+    non-finite, so only contradictions are refused."""
+    checkpoint = haa_repo / 'stage2_best.pth'
+    torch.save(tiny_state(), checkpoint)
+    args = haa_eval_args(heading_jsons, checkpoint)
+    per_sample = {'edt': [0.05, float('nan'), 0.07], 't60': [4.0, float('nan'), 6.0]}
+    metrics = eval_metrics(args, 'hallway', dict(PER_SAMPLE, **per_sample), edt_invalid=1)
+    run, log = tmp_path / 'eval' / 'hallway', tmp_path / 'child.log'
+    write_haa_eval(run, args, log, haa_repo, data_root, per_sample=per_sample, metrics=metrics,
+                   meta=eval_meta(args, provenance.sha256_file(checkpoint)))
+    assert exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)['samples'] == 3
+
+
+@pytest.mark.parametrize('field,value', [('c50_outliers', 0), ('edt_invalid', 3),
+                                         ('t60_invalid', 2)])
+def test_a_job_refuses_counters_that_contradict_the_observations(job_run, closed_log_file,
+                                                                 field, value):
+    """Close-3 finding 2 on the job path: the completion carries the altered file's hash."""
+    def mutate(job, names):
+        path = job / 'eval/hallway/metrics_hallway.json'
+        path.write_text(json.dumps(dict(json.loads(path.read_text()), **{field: value})))
+        record = json.loads((job / 'eval/hallway/completion.json').read_text())
+        record['artifacts']['metrics_hallway.json'] = provenance.sha256_file(path)
+        (job / 'eval/hallway/completion.json').write_text(
+            json.dumps(record, sort_keys=True, indent=2))
+        return names
+
+    job, children, spec, repo = job_run(mutate=mutate)
+    with pytest.raises(ValueError, match=field):
         exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
                                 children=children, expect='finetune', job_spec=spec)
     assert not (job / 'completion.json').exists()
