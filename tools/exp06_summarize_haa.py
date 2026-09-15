@@ -151,18 +151,23 @@ def source_identity(repo=REPO, strict=True):
             'files': records, 'drift': sorted(drift)}
 
 
-def legacy_receipt(root, arms=LEGACY_ARMS, repo=REPO, strict=True):
-    """The reconstructed receipt: what the historical arms are, byte for byte, today."""
-    files = legacy_receipt_files(root, arms)
-    return {'schema_version': 1, 'label': 'reconstructed', 'arms': list(arms),
+def legacy_receipt(root, repo=REPO, strict=True):
+    """The reconstructed receipt: what the historical arms are, byte for byte, today.
+
+    Finding 6: the enumeration is derived from ``LEGACY_ARMS``, never from a caller's or
+    a receipt's own list, so a receipt that omits an arm cannot be written -- nor, in
+    ``verify_legacy_receipt``, accepted for a ``load_legacy`` that returns both arms.
+    """
+    files = legacy_receipt_files(root, LEGACY_ARMS)
+    return {'schema_version': 1, 'label': 'reconstructed', 'arms': list(LEGACY_ARMS),
             'root': str(Path(root).resolve()), 'files': files, 'files_sha256': _digest(files),
             'source_closure': source_identity(repo, strict),
             'timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat()}
 
 
-def write_legacy_receipt(path, root, arms=LEGACY_ARMS, repo=REPO, strict=True):
+def write_legacy_receipt(path, root, repo=REPO, strict=True):
     """Write once; a receipt is never silently replaced."""
-    record = legacy_receipt(root, arms, repo, strict)
+    record = legacy_receipt(root, repo, strict)
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     return record, provenance.write_manifest(path, record)
 
@@ -186,7 +191,10 @@ def verify_legacy_receipt(path, root, approved=None):
     _require(isinstance(files, list) and files, 'the legacy receipt enumerates nothing')
     _require(_digest(files) == record.get('files_sha256'),
              'the legacy receipt enumeration does not hash to its own files_sha256')
-    expected = [item['path'] for item in legacy_receipt_files(root, tuple(record['arms']))]
+    _require(record.get('arms') == list(LEGACY_ARMS),
+             'the legacy receipt declares the arms {!r}, not the registered {}'.format(
+                 record.get('arms'), list(LEGACY_ARMS)))
+    expected = [item['path'] for item in legacy_receipt_files(root, LEGACY_ARMS)]
     _require([item['path'] for item in files] == expected,
              'the legacy receipt does not enumerate exactly the retained artifacts')
     for item in files:
