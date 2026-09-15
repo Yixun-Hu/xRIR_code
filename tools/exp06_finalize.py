@@ -544,6 +544,15 @@ def full_evidence(run_dir, repo):
     state = _state_dict(_load_torch(run_dir / EPOCH_CHECKPOINT, EPOCH_CHECKPOINT), EPOCH_CHECKPOINT)
     model = _state_dict(last['model'], 'last.pth["model"]')
     _require(set(state) == set(model), EPOCH_CHECKPOINT + ' has a different parameter set than last.pth')
+    # Nit 8: torch.equal compares values across dtypes, so a float64 copy of a float32
+    # checkpoint would pass. Identity requires the same dtype and shape as well.
+    for key in sorted(state):
+        _require(state[key].dtype == model[key].dtype,
+                 '{} has dtype {} at {}, not the {} of last.pth["model"]'.format(
+                     EPOCH_CHECKPOINT, state[key].dtype, key, model[key].dtype))
+        _require(tuple(state[key].shape) == tuple(model[key].shape),
+                 '{} has shape {} at {}, not the {} of last.pth["model"]'.format(
+                     EPOCH_CHECKPOINT, tuple(state[key].shape), key, tuple(model[key].shape)))
     _require(all(torch.equal(state[key], model[key]) for key in state),
              EPOCH_CHECKPOINT + ' differs tensor-wise from last.pth["model"]')
     return dict(artifacts=hashes, epochs=len(rows),

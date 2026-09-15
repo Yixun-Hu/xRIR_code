@@ -213,7 +213,7 @@ probe)
         --alarm-seconds 2400 --max-gb 46 -- \
         --backbone cylindrical_oriented --save-dir "$ATTEMPT_ROOT/probe_$STAMP" \
         --epochs 1 --max-train-batches 200 --max-test-batches 20 --no-save --run-type probe \
-        --batch-size 32 --accum-steps 2 --tf32 --num-workers 12
+        --batch-size 32 --accum-steps 2 --tf32 --num-workers 12 --decay-epochs 3 --log-interval 50
     ;;
 smoke)
     preflight
