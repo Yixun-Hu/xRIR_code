@@ -13,7 +13,10 @@ data inventory and mutable inputs.
 ``full``      twelve-epoch pretraining: complete provenance, closure membership and the
               three-way hashes, input revalidation, a training-data identity whose root is
               the one the run resolved and whose inventory covers the membership the pinned
-              ``train_data_identity`` derives for that root, the recipe/production/derived
+              ``train_data_identity`` derives for that root, an exp_06-owned geometry
+              inventory (every metadata JSON and receiver depth map of both splits, with
+              membership derived again here and every file rehashed), the
+              recipe/production/derived
               schema on all three recorded copies of the arguments (``args.json``,
               ``last.pth['args']``, ``provenance.effective_args``) compared type-strictly
               and each ``exp06_*`` field bound to the execution record (run type, HEAD,
@@ -86,12 +89,13 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import time
 
 import torch
 
 from model.xRIR_cyl_oriented import BACKBONES_EXP06, build_xrir_exp06
 from sim_to_real.haa_dataset import NO_T60_ROOMS, ROOMS
-from tools import exp06_heading, exp06_profiles, exp06_recipe, provenance
+from tools import exp06_heading, exp06_profiles, exp06_recipe, exp06_train, provenance
 
 REPO = Path(__file__).resolve().parents[1]
 MARKER = 'EXP06_CHILD_EXIT'
@@ -272,6 +276,44 @@ def verify_train_identity(record, key='train_data_identity'):
     _require(not absent, '{}: the inventory does not cover the training split ({} files '
              'missing, e.g. {})'.format(key, len(absent), absent[:2]))
     return entries
+
+
+def verify_geometry_identity(record, key='geometry_identity'):
+    """Finding 2: the metadata and depth maps the run consumed, rehashed at finalisation.
+
+    Membership is derived here from the pinned dataset's own split logic, never read from
+    the record, and every file is hashed again -- a changed source position or panorama
+    is a refusal even though the IR waveforms are untouched.
+    """
+    entries = check_identity_schema(record.get(key), key)
+    declared = record.get('data_root')
+    _require(isinstance(declared, str) and declared,
+             'provenance.json records no resolved data_root for the {}'.format(key))
+    resolved = str(Path(record[key]['data_root']).resolve())
+    _require(str(Path(declared).resolve()) == resolved,
+             '{}: data_root {} is not the {} the run resolved'.format(
+                 key, record[key]['data_root'], declared))
+    splits = record[key].get('splits') or list(exp06_train.GEOMETRY_SPLITS)
+    _require(isinstance(splits, list) and splits
+             and set(splits) <= set(exp06_train.GEOMETRY_SPLITS),
+             '{}: splits {!r} are not the ones the run reads'.format(key, splits))
+    try:
+        expected, counts = exp06_train.geometry_paths(resolved, tuple(splits))
+    except Exception as error:  # the dataset and the filesystem refuse alike
+        raise ValueError('cannot derive the {} of {}: {}: {}'.format(
+            key, resolved, type(error).__name__, error)) from error
+    recorded = {entry['path'] for entry in entries}
+    difference = sorted(set(expected) ^ recorded)
+    _require(not difference, '{}: membership differs from the split by {} files, e.g. {}'.format(
+        key, len(difference), difference[:2]))
+    started = time.monotonic()
+    fresh = provenance._inventory(expected, resolved, workers=exp06_train.GEOMETRY_WORKERS)
+    seconds = time.monotonic() - started
+    _require(fresh['inventory_sha256'] == record[key]['inventory_sha256'],
+             '{}: the geometry inputs changed since the run started'.format(key))
+    return {'geometry_files': len(entries), 'geometry_bytes': fresh['inventory_bytes'],
+            'geometry_splits': dict(counts), 'geometry_rehash_seconds': round(seconds, 3),
+            'geometry_sha256': fresh['inventory_sha256']}
 
 
 def closed_log(log, child_exit):
@@ -635,6 +677,7 @@ def full_evidence(run_dir, repo):
     _, closure = verify_source_closure(record, 'full', repo)
     admission = verify_approvals(record, repo, 'full')
     verify_train_identity(record)
+    admission.update(verify_geometry_identity(record))
     revalidate_inputs(record, repo)
     args = _read_json(run_dir / 'args.json', 'args.json')
     rows = _history_rows(run_dir / 'history.jsonl', 'history.jsonl')

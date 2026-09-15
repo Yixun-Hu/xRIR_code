@@ -1400,8 +1400,8 @@ def test_changed_training_data_bytes_are_refused(full_run, clone, data_root):
     with pytest.raises(ValueError, match='revalidation'):
         exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
     assert not (run / 'completion.json').exists()
-    (data_root / TRAIN_IRS[0]).unlink()
-    with pytest.raises(ValueError, match='inventory|revalidation'):
+    (data_root / TRAIN_IRS[0]).unlink()  # finding 2: its geometry leaves the split too
+    with pytest.raises(ValueError, match='inventory|revalidation|membership'):
         exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
 
 

@@ -44,6 +44,8 @@ REPO = Path(__file__).resolve().parents[1]
 DATA_ROOT = BASE_DATA_PATH  # exactly what the dataset module resolved; never a second fallback
 TRAIN_INVENTORY = REPO / 'ckpt/yaw_aug/train_inventory.json'
 ENV_KEYS = ('PYTHONHASHSEED', 'XRIR_DATA_PATH', 'OMP_NUM_THREADS', 'CUDA_VISIBLE_DEVICES')
+GEOMETRY_SPLITS = ('train', 'test')
+GEOMETRY_WORKERS = 8
 
 
 def build_parser():
@@ -143,6 +145,46 @@ def resolve_data_root():
     return root
 
 
+def geometry_paths(data_root, splits=GEOMETRY_SPLITS, max_len=9600, num_shot=8):
+    """Every metadata JSON and depth map the pinned dataset reads for these splits.
+
+    Finding 2: ``train_data_identity`` inventories the IR waveforms only, so a changed
+    source position or panorama was not bound to the run. Membership comes from the
+    dataset's own split logic -- ``xRIR_Dataset.file_list`` -- and from what
+    ``__getitem__`` reads for each entry: that pair's ``metadata/.../S00s_R00r.json``
+    and the receiver's ``depth_map/.../r.npy``. The references drawn by
+    ``get_ir_and_location_for_other_sources`` are other sources at the *same* receiver,
+    every one of them an IR of the same room directory and so already in the split's
+    file list, which is why one metadata file per IR covers the reference geometry too.
+
+    Returns ``(sorted relative paths, {split: number of IRs})``.
+    """
+    root = Path(data_root).resolve()
+    files, counts = set(), {}
+    for split in splits:
+        dataset = xRIR_Dataset(split=split, max_len=max_len, num_shot=num_shot,
+                               ir_path=str(root / 'single_channel_ir'),
+                               pano_depth_path=str(root / 'depth_map'),
+                               metadata_path=str(root / 'metadata'))
+        counts[split] = len(dataset.file_list)
+        for wav in dataset.file_list:
+            parts = Path(wav).parts
+            category, room, name = parts[-3], parts[-2], parts[-1]
+            source, receiver = [int(token[1:]) for token in name.split('_')[:2]]
+            files.add('metadata/{}/{}/S00{}_R00{}.json'.format(category, room, source, receiver))
+            files.add('depth_map/{}/{}/{}.npy'.format(category, room, receiver))
+    return sorted(files), counts
+
+
+def geometry_identity(data_root, splits=GEOMETRY_SPLITS, workers=GEOMETRY_WORKERS):
+    """Content-hash every geometry input of the run, in the inventory shape of provenance."""
+    files, counts = geometry_paths(data_root, splits)
+    record = provenance._inventory(files, data_root, workers=workers)
+    return dict(record, splits=list(splits), split_files=counts,
+                metadata_files=sum(1 for name in files if name.startswith('metadata/')),
+                depth_maps=sum(1 for name in files if name.startswith('depth_map/')))
+
+
 def registry_sha256():
     """Digest of the backbone registry as a sorted name -> class path mapping."""
     mapping = {name: cls.__module__ + '.' + cls.__qualname__ for name, cls in BACKBONES_EXP06.items()}
@@ -182,7 +224,7 @@ def orchestration_closures(repo, commit):
 
 
 def provenance_fields(argv, run_type, identity=None, repo=REPO, approved=None,
-                      reviewed_commit=None, exploratory=False):
+                      reviewed_commit=None, exploratory=False, geometry=None):
     """Bind the import closure, HEAD, environment, data inventory and argv of one run."""
     state = provenance.git_state(repo)
     commit = state['HEAD'] if reviewed_commit is None else reviewed_commit
@@ -196,6 +238,7 @@ def provenance_fields(argv, run_type, identity=None, repo=REPO, approved=None,
                 code_digests=exp06_profiles.compute_code_digests(
                     repo, commit, keys=exp06_profiles.TRAINING_KEYS),
                 approvals=approvals_binding(approved), exploratory=bool(exploratory),
+                geometry_identity=geometry,
                 registry_sha256=registry_sha256(), git_state=state,
                 environment=provenance.environment(), train_data_identity=identity,
                 command=list(argv))
@@ -232,8 +275,10 @@ def main(argv=None):
     model = build_model_exp06(args).cuda()
 
     destination = provenance_destination(args)
+    root = resolve_data_root()
     fields = provenance_fields(command, args.run_type,
-                               identity=data_identity(resolve_data_root()) if destination else None,
+                               identity=data_identity(root) if destination else None,
+                               geometry=geometry_identity(root) if destination else None,
                                approved=args.approved, reviewed_commit=args.reviewed_commit,
                                exploratory=args.exploratory)
     prepare_args(args, model, fields, destination)
