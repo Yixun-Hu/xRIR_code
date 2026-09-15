@@ -948,14 +948,48 @@ def _rooms_and_frame(args):
     return rooms, frame
 
 
+def _validation_rooms(args, rooms):
+    """The rooms whose validation loss selects ``best.pth``: --val-rooms, else the rooms.
+
+    Round 2b finding 4: the wrapper's default is the training rooms, and a declared
+    ``val_rooms`` must be a nonempty list of room names -- anything else is unusable and
+    is refused before it can select a checkpoint.
+    """
+    declared = args.get('val_rooms')
+    if declared is None:
+        return list(rooms)
+    _require(isinstance(declared, list) and declared
+             and all(isinstance(room, str) for room in declared),
+             'args.json records val_rooms {!r}, not a nonempty list of rooms'.format(declared))
+    return declared
+
+
 def _heading_binding(args, rooms, frame, repo):
-    """Every room's binding names a heading JSON, and must agree with it in full."""
+    """Every room's binding names a heading JSON, and must agree with it in full.
+
+    Full-train review finding 7: the record is re-read against the cache directory the
+    run itself recorded (``haa_root``/``<room>``), so ``read_heading_json`` rehashes the
+    four inputs the estimate was derived from -- a cache edited afterwards is refused
+    here -- and only a ``confirmatory`` record, one of a clean tree whose closure equals
+    its HEAD blobs, may bind a child.
+
+    Round 2b finding 4: the rooms re-verified are the union of the training rooms and the
+    effective validation rooms, because validation is what selects the checkpoint the next
+    stage starts from. Training-room membership stays checked by ``_rooms_and_frame``.
+    """
     if frame != 'heading':
         _require(not args.get('heading'), 'the room frame must not record a heading')
         return None
     heading = args.get('heading')
+    rooms = sorted(set(rooms) | set(_validation_rooms(args, rooms)))
     _require(isinstance(heading, dict) and set(rooms) <= set(heading),
-             'the heading frame requires a heading record for every room')
+             'the heading frame requires a heading record for every room it trains or '
+             'validates on: {}'.format(', '.join(sorted(set(rooms) - set(heading or ())))))
+    root = args.get('haa_root')
+    _require(isinstance(root, str) and root, 'the heading frame requires the resolved '
+             'haa_root the run read, not {!r}'.format(root))
+    cache = _resolve(root, repo)
+    _require(cache.is_dir(), 'missing HAA cache root {} (args.json haa_root)'.format(cache))
     bound = {}
     for room in rooms:
         entry = heading[room]
@@ -979,9 +1013,11 @@ def _heading_binding(args, rooms, frame, repo):
         _require(provenance.sha256_file(resolved) == entry['sha256'],
                  'heading json for {} does not hash to the recorded sha256'.format(room))
         try:
-            record = exp06_heading.read_heading_json(str(resolved))
+            record = exp06_heading.read_heading_json(str(resolved), room_dir=str(cache / room))
         except (OSError, ValueError) as error:
             raise ValueError('invalid heading json for {}: {}'.format(room, error)) from error
+        _require(record['admissibility'] == 'confirmatory', 'heading json for {} is {}, not '
+                 'the confirmatory record a child may bind'.format(room, record['admissibility']))
         _require(record['room'] == room and record['k'] == k and record['phi_deg'] == phi
                  and record['decision'] == entry['decision'],
                  'heading json for {} disagrees with the recorded binding'.format(room))
@@ -1149,8 +1185,10 @@ def haa_metrics(run_dir, name, room, args, per_sample):
         if key == 't60_error_pct' and room in NO_T60_ROOMS:
             _require(metrics[key] is None, '{}: {} is recorded for a room the paper omits'.format(
                 name, key))
-            _require(not finite, '{} records {} measurements in a room whose T60 the writer '
-                     'never measures'.format(label, len(finite)))
+            measured = [value for value in per_sample[field] if not math.isnan(value)]
+            _require(not measured, '{} records the t60 values {} in a room whose T60 the writer '
+                     'never measures: every observation is its NaN'.format(
+                         label, sorted(map(repr, measured))[:4]))
             _require(metrics[counter] == 0, '{} records {} {}, but nothing measures T60 in '
                      '{}'.format(name, counter, metrics[counter], room))
             continue
@@ -1347,11 +1385,36 @@ def verify_child(path, name, repo, spec):
                  'child {} completion {} {!r} is not the {!r} of the re-run'.format(
                      name, field, record[field], evidence[field]))
     rehash_bound_evidence(record, name, path, repo)
-    check_job_spec(name, role, evidence, spec)
+    check_job_spec(name, role, evidence, spec,
+                   _read_json(Path(path) / 'args.json', 'args.json'))
     return evidence
 
 
-def check_job_spec(name, role, evidence, spec):
+def check_job_identity(name, args, spec):
+    """Round 2b finding 3: the child was launched under this job's own declaration.
+
+    ``tools/exp06_haa_finetune.py`` and ``tools/exp06_haa_eval.py`` record the ``--job-spec``
+    the pipeline passed them -- its digest and the initialisation it declares -- before the
+    first epoch, so an initialisation label is frozen at launch and not merely asserted by
+    the spec at admission. A child that recorded no declaration, or a different one, is
+    never part of this job. The digest is compared last, so a contradicted field names
+    itself first.
+    """
+    for field, declared in (('job_init', spec['init']), ('job_init_sha256', spec['init_sha256'])):
+        recorded = args.get(field)
+        _require(isinstance(recorded, str) and recorded, 'child {} recorded no {}: it was not '
+                 'launched under a job spec'.format(name, field))
+        _require(recorded == declared, 'child {} was launched under the {} {!r}, not the {!r} '
+                 'of this job spec'.format(name, field, recorded, declared))
+    digest = args.get('job_spec_sha256')
+    _require(isinstance(digest, str) and digest,
+             'child {} recorded no job_spec_sha256: it was not launched under a job '
+             'spec'.format(name))
+    _require(digest == spec['job_spec_sha256'], 'child {} was launched under the job spec '
+             '{}, not the {} being admitted'.format(name, digest, spec['job_spec_sha256']))
+
+
+def check_job_spec(name, role, evidence, spec, args):
     """Every child must have run the job the pipeline declared, not one of its own."""
     for field in ('backbone', 'frame', 'seed'):
         _require(evidence[field] == spec[field], 'child {} ran {} {!r}, not the {!r} of the '
@@ -1365,10 +1428,11 @@ def check_job_spec(name, role, evidence, spec):
     if spec['frame'] == 'heading':
         for bound, binding in sorted((evidence['heading'] or {}).items()):
             _require(binding.get('k') == spec['heading'].get(bound),
-                     'child {} rolls {} to {!r}, not the {!r} of the job spec'.format(
-                         name, bound, binding.get('k'), spec['heading'].get(bound)))
+                     'child {} rolls the {} heading to {!r}, not the {!r} of the job '
+                     'spec'.format(name, bound, binding.get('k'), spec['heading'].get(bound)))
     else:
         _require(not evidence['heading'], 'child {} records a heading in the room frame'.format(name))
+    check_job_identity(name, args, spec)
 
 
 def load_job_spec(path, expect):
@@ -1402,6 +1466,8 @@ def load_job_spec(path, expect):
             WIDTH, ', '.join(absent)))
     else:
         _require(not spec.get('heading'), 'a room-frame job spec declares no heading')
+    # Finding 3: the declaration's own digest, which every child must have recorded at launch.
+    spec['job_spec_sha256'] = provenance.sha256_file(path)
     return spec
 
 

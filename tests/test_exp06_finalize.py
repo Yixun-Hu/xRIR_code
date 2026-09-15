@@ -408,13 +408,29 @@ def haa_repo(tmp_path_factory):
     return root
 
 
+def confirmatory(record):
+    """A record of a clean tree whose closure equals its HEAD blobs: what round 3 writes.
+
+    Only such a record binds a confirmatory run, so only such a record may bind a child.
+    """
+    files = [{'path': 'tools/exp06_heading.py', 'sha256': 'a' * 64, 'head_blob_sha256': 'a' * 64}]
+    git = {'HEAD': 'b' * 40, 'dirty': False, 'dirty_outside_worklog': False, 'diff_sha256': None}
+    def digest(key):
+        return hashlib.sha256(json.dumps([[item['path'], item[key]] for item in files],
+                                         sort_keys=True).encode()).hexdigest()
+    return dict(record, admissibility='confirmatory', source_closure=dict(
+        record['source_closure'], files=files, git=git, sha256=digest('sha256'),
+        head_sha256=digest('head_blob_sha256')))
+
+
 @pytest.fixture(scope='session')
 def heading_jsons(tmp_path_factory):
     """One real, validated heading record per room, written where a binding can point."""
     import numpy as np
     from tools import exp06_heading
-    cache = tmp_path_factory.mktemp('heading') / 'synthetic'
-    cache.mkdir()
+    root = tmp_path_factory.mktemp('heading') / 'HAA_xrir'
+    cache = root / 'synthetic'
+    cache.mkdir(parents=True)
     (cache / 'meta.json').write_text(json.dumps(dict(train=list(range(12)), valid=[12],
                                                      test=[12, 13], sr=22050)))
     theta = np.deg2rad([-90] * 4 + [90] * 8)
@@ -427,10 +443,11 @@ def heading_jsons(tmp_path_factory):
     rirs = np.zeros((14, 1200))
     rirs[:12, 10] = 10 ** (np.array([9] * 4 + [0] * 8) / 20) / dist
     np.save(cache / 'rirs.npy', rirs)
-    record = exp06_heading.estimate_room_heading(cache)
-    out = {}
+    record = confirmatory(exp06_heading.estimate_room_heading(cache))
+    out = {'root': str(root)}
     for room in ROOMS:
-        path = cache.parent / (room + '.json')
+        shutil.copytree(str(cache), str(root / room))
+        path = root / (room + '.json')
         exp06_heading.write_heading_json(path, dict(record, room=room))
         out[room] = {'path': str(path), 'sha256': provenance.sha256_file(path),
                      'phi_deg': record['phi_deg'], 'k': record['k'],
@@ -470,6 +487,7 @@ def haa_train_args(heading_jsons, init_sha256, frame='heading', rooms=None, **ov
     args = dict(backbone='cylindrical_oriented', num_shot=8, rooms=rooms, frame=frame,
                 save_dir='stage1', seed=0, epochs=20, val_every=10, lr=1e-4,
                 weight_decay=1e-4, eval_seed=0, init='init.pth', init_sha256=init_sha256,
+                haa_root=heading_jsons['root'],
                 heading={room: dict(heading_jsons[room]) for room in rooms})
     args.update(overrides)
     return args
@@ -706,7 +724,8 @@ def test_haa_train_refusals_are_named(tmp_path, haa_repo, heading_jsons, data_ro
 def haa_eval_args(heading_jsons, checkpoint, frame='heading', room='hallway', **overrides):
     args = dict(backbone='cylindrical_oriented', num_shot=8, rooms=[room], frame=frame,
                 checkpoint=str(checkpoint), eval_seed=0, seed=0, split='test', epochs=20,
-                val_every=10, heading={room: dict(heading_jsons[room])})
+                val_every=10, haa_root=heading_jsons['root'],
+                heading={room: dict(heading_jsons[room])})
     if frame != 'heading':
         args.pop('heading')
     args.update(overrides)
@@ -961,11 +980,22 @@ def job_spec_file(job, init, heading_jsons, **overrides):
     return str(path), spec
 
 
+def job_binding(job):
+    """What a child records at launch from the job spec it was passed (round 2b finding 3)."""
+    spec = Path(job) / 'job_spec.json'
+    if not spec.is_file():
+        return {}
+    declared = json.loads(spec.read_text())
+    return {'job_spec': str(spec), 'job_spec_sha256': provenance.sha256_file(spec),
+            'job_init': declared['init'], 'job_init_sha256': declared['init_sha256']}
+
+
 def make_train_child(job, name, haa_repo, heading_jsons, data_root, rooms, init, tag):
     """One fine-tuning child, certified by this finalizer exactly as the launcher does."""
     run, log = job / name, job / (name.replace('/', '_') + '.log')
     args = haa_train_args(heading_jsons, provenance.sha256_file(init), rooms=rooms,
-                          init=str(init), save_dir=name, epochs=4, val_every=2)
+                          init=str(init), save_dir=name, epochs=4, val_every=2,
+                          **job_binding(job))
     write_haa_train(run, args, log, haa_repo, data_root,
                     state=tiny_state(**{state_keys()[0]: torch.full((1,), float(tag))}))
     exp06_finalize.finalize(run, 'haa_train', log, 0, repo=haa_repo)
@@ -974,7 +1004,7 @@ def make_train_child(job, name, haa_repo, heading_jsons, data_root, rooms, init,
 
 def make_eval_child(job, name, haa_repo, heading_jsons, data_root, room, checkpoint):
     run, log = job / name, job / (name.replace('/', '_') + '.log')
-    args = haa_eval_args(heading_jsons, checkpoint, room=room)
+    args = haa_eval_args(heading_jsons, checkpoint, room=room, **job_binding(job))
     write_haa_eval(run, args, log, haa_repo, data_root,
                    meta=eval_meta(args, provenance.sha256_file(checkpoint)))
     exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)
@@ -988,6 +1018,7 @@ def write_job(tmp_path, haa_repo, heading_jsons, data_root, expect='finetune', l
     job.mkdir(parents=True, exist_ok=True)
     init = tmp_path / 'pretrain.pth'
     torch.save(tiny_state(**{state_keys()[0]: torch.full((1,), 99.0)}), init)
+    spec, _ = job_spec_file(job, init, heading_jsons, expect=expect)  # before the first child
     if log is not None:
         seal(job, log, text='pipeline output\n')
     names = []
@@ -1004,7 +1035,6 @@ def write_job(tmp_path, haa_repo, heading_jsons, data_root, expect='finetune', l
             names.append('stage2_' + room)
         make_eval_child(job, 'eval/' + room, haa_repo, heading_jsons, data_root, room, checkpoint)
         names.append('eval/' + room)
-    spec, _ = job_spec_file(job, init, heading_jsons, expect=expect)
     if mutate is not None:
         names = mutate(job, names)
     return job, [str(job / name) for name in names], spec
@@ -1121,7 +1151,8 @@ def test_job_refusals_are_named(job_run, closed_log_file, tmp_path, haa_repo, he
             run, log = job / 'stage2_hallway', job / 'stage2_hallway.log'
             args = haa_train_args(heading_jsons, provenance.sha256_file(job / 'stage1/best.pth'),
                                   rooms=['hallway'], init=str(job / 'stage1/best.pth'),
-                                  save_dir='stage2_hallway', epochs=4, val_every=2, seed=1)
+                                  save_dir='stage2_hallway', epochs=4, val_every=2, seed=1,
+                                  **job_binding(job))
             write_haa_train(run, args, log, haa_repo, data_root)
             exp06_finalize.finalize(run, 'haa_train', log, 0, repo=haa_repo)
         else:
