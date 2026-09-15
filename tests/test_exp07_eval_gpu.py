@@ -12,12 +12,13 @@ import pytest
 import torch
 
 import eval_yaw_rotation as frozen
-from tools import exp04_eval, exp07_eval, provenance
+from tools import exp04_eval, exp04_eval_launch as launcher, exp07_eval, provenance
 from tools.reference_manifest import build_manifest, manifest_hash, save_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
 GPU = pytest.mark.skipif(not torch.cuda.is_available(), reason='the evaluator needs CUDA')
 CHECKPOINT = ROOT / 'ckpt/xRIR_simple_8_shot/epoch_12.pth'
+SEEN_MANIFESTS = ROOT / 'ckpt/exp07'  # written by tools/exp07_manifests.py
 # The only meta keys tools/exp07_eval.py may add or change (plan section 2).
 EXTRA_META = {'elapsed_min', 'split', 'seen_split_sha256', 'eval_manifest_sha256'}
 
@@ -72,23 +73,38 @@ def test_unseen_32_query_run_is_bit_identical_to_exp04(tmp_path):
         assert new == old  # query order, per-sample arrays, null masks and aggregates
 
 
-def direct_reference(dataset, reference, shots, batch_size=16, gl_seed=42):
-    """The frozen functions called directly on the seen dataset, without the entry point."""
+def direct_reference(dataset, reference, shots, batch_size=16, gl_seed=42, max_samples=0):
+    """The frozen functions called directly on the seen dataset, without the entry point.
+
+    The reference is ``eval_yaw_rotation.evaluate_batch`` -- exp_03's pinned code -- and
+    not ``exp04_eval.evaluate_p_batch``, which is the implementation under test: at k = 0
+    condition P is the same fixed-alignment forward pass, so a common error in the exp_04
+    copy cannot pass both sides.
+    """
     frozen.set_precision(False)
     frozen.torch.set_num_threads(2)
+    torch.backends.cudnn.deterministic = torch.backends.cudnn.benchmark = False
     data = frozen.ManifestDataset(dataset, frozen.load_manifest(str(reference)))
+    if max_samples:
+        data = frozen.SubsetManifestDataset(data, max_samples)
     loader = frozen.DataLoader(data, batch_size=batch_size, shuffle=False, num_workers=0)
     model = frozen.build_xrir('simple', shots)
     model.load_state_dict(frozen.load_model_state(str(CHECKPOINT)), strict=True)
     model.cuda().eval()
     evaluator, queries, parts = frozen.Evaluator(), [], {}
     for batch in loader:
-        keys, results, _ = exp04_eval.evaluate_p_batch(model, batch, evaluator, [0], [0], (),
-                                                       gl_seed, batch_size=batch_size)
+        keys, results, _ = frozen.evaluate_batch(model, batch, evaluator, [0], [0], (),
+                                                 gl_seed, batch_size=batch_size)
         queries.extend(keys)
         for metric, values in results[('P', 0)].items():
             parts.setdefault(metric, []).append(values)
     return queries, {metric: frozen.np.concatenate(chunks) for metric, chunks in parts.items()}
+
+
+def visible_gpu():
+    """The physical index this process evaluates on, so the child uses the same device."""
+    visible = [item for item in os.environ.get('CUDA_VISIBLE_DEVICES', '').split(',') if item]
+    return visible[torch.cuda.current_device()] if visible else str(torch.cuda.current_device())
 
 
 @GPU
@@ -109,6 +125,51 @@ def test_seen_final_batch_matches_a_direct_frozen_call(tmp_path, monkeypatch, sh
     queries, expected = direct_reference(dataset, reference, shots)
     assert per_sample['query'] == queries and len(queries) % 16 == 9
     assert per_sample['meta']['batch_canonical'] is True and per_sample['meta']['n_samples'] == 25
+    assert per_sample['meta']['split'] == 'seen' and per_sample['meta']['tf32'] is False
+    for metric, values in expected.items():
+        assert per_sample['P']['0'][metric] == frozen._json_values(values)
+        assert metrics['P']['0'][metric] == frozen._summarize(values)
+
+
+@GPU
+@pytest.mark.parametrize('shots', [8, 1])
+def test_the_launcher_runs_the_seen_split_and_matches_the_frozen_functions(tmp_path, shots):
+    """The planned invocation: --entry exp07 --split seen, bounded to 16 + a final 9.
+
+    Unlike the parity cases above this goes through tools/exp04_eval_launch.py, so the
+    real handshake, the split bindings and the finalisation gates are exercised.  It
+    needs the seen reference manifests of tools/exp07_manifests.py (the launcher hashes
+    every file the manifest references), so it skips until the Planner has built them.
+    """
+    reference = SEEN_MANIFESTS / 'reference_manifest_seen_k{}_seed42.json'.format(shots)
+    if not reference.exists() or not CHECKPOINT.exists():
+        pytest.skip('requires the seen reference manifests and the K8 checkpoint')
+    from treble_multi_room_dataset import treble_xRIR_seen_dataset as seen
+    manifest = frozen.load_manifest(str(reference))
+    commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(ROOT), text=True).strip()
+    run = tmp_path / 'launched'
+    completion = launcher.main([
+        '--entry', 'exp07', '--split', 'seen', '--backbone', 'simple', '--checkpoint',
+        str(CHECKPOINT), '--manifest', str(reference), '--manifest-hash', manifest_hash(manifest),
+        '--out-dir', str(run), '--log-dir', str(tmp_path / 'logs'), '--run-label', 'seen',
+        '--data-root', exp04_eval.BASE_DATA_PATH, '--reviewed-commit', commit,
+        '--gpu', visible_gpu(), '--num-shot', str(shots), '--max-samples', '25',
+        '--gl-seed', '42', '--conditions', 'P', '--yaw-cols', '0', '--acoustic-cols', '0',
+        '--e-acoustic-cols', '--decomposition-batches', '0', '--num-workers', '0',
+        '--threads', '2'])
+    digest = provenance.sha256_file(ROOT / provenance.SEEN_SPLIT)
+    fields = json.loads((run / 'eval_manifest.json').read_text())
+    assert fields['split'] == 'seen' and fields['seen_split_sha256'] == digest
+    assert fields['mutable_inputs']['seen_split'] == provenance.seen_split_identity(ROOT)
+    assert fields['split_count'] == exp07_eval.SPLIT_ENTRIES['seen'] and fields['n_samples'] == 25
+    assert exp07_eval.SEEN_DATASET_SOURCE in [record['path'] for record
+                                              in fields['source_closures']['entrypoint']['files']]
+    assert completion['split'] == 'seen' and completion['seen_split_sha256'] == digest
+    assert completion['confirmatory'] is False  # 25 of 6 217 queries
+    dataset = seen.xRIR_Dataset(split='test', num_shot=shots, max_len=exp07_eval.MAX_LEN)
+    queries, expected = direct_reference(dataset, reference, shots, max_samples=25)
+    per_sample, metrics = [json.loads((run / name).read_text()) for name in launcher.OUTPUTS]
+    assert per_sample['query'] == queries and len(queries) % 16 == 9  # 16 + a short final batch
     assert per_sample['meta']['split'] == 'seen' and per_sample['meta']['tf32'] is False
     for metric, values in expected.items():
         assert per_sample['P']['0'][metric] == frozen._json_values(values)
