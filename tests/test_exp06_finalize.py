@@ -797,6 +797,17 @@ METRIC_DAMAGE = {
     'metrics_seed': (lambda m: dict(m, eval_seed=7), 'eval_seed'),
     'metrics_checkpoint': (lambda m: dict(m, checkpoint='/elsewhere.pth'), 'checkpoint'),
     'metrics_t60': (lambda m: dict(m, t60_error_pct=None), 't60_error_pct'),
+    'count_string': (lambda m: dict(m, c50_outliers='nonsense'), 'c50_outliers'),
+    'count_negative': (lambda m: dict(m, edt_invalid=-5), 'edt_invalid'),
+    'count_object': (lambda m: dict(m, t60_invalid={}), 't60_invalid'),
+    'count_boolean': (lambda m: dict(m, edt_invalid=True), 'edt_invalid'),
+    'count_above_n': (lambda m: dict(m, c50_outliers=4), 'c50_outliers'),
+    'median_object': (lambda m: dict(m, edt_error_s=dict(m['edt_error_s'],
+                                                         median={'nonsense': True})), 'median'),
+    'median_wrong': (lambda m: dict(m, edt_error_s=dict(m['edt_error_s'], median=9.0)), 'median'),
+    'summary_extra_key': (lambda m: dict(m, env_error=dict(m['env_error'], std=0.1)),
+                          'env_error'),
+    'n_boolean': (lambda m: dict(m, n_samples=True), 'n_samples'),
 }
 
 
@@ -1728,3 +1739,21 @@ def test_a_job_refuses_a_child_evaluated_under_another_protocol(job_run, closed_
         exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
                                 children=children, expect='finetune', job_spec=spec)
     assert not (job / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('values,summary', [
+    (['oops', {}, True], {'mean': None, 'median': None, 'n': 0}),
+    ([float('nan')] * 3, {'mean': 0.5, 'median': 0.5, 'n': 0})])
+def test_corrupt_per_sample_values_never_count_as_missing(tmp_path, haa_repo, heading_jsons,
+                                                          data_root, values, summary):
+    """Finding 4: a string or a dict is not the writer's invalid measurement."""
+    checkpoint = haa_repo / 'stage2_best.pth'
+    torch.save(tiny_state(), checkpoint)
+    args = haa_eval_args(heading_jsons, checkpoint)
+    run, log = tmp_path / 'eval' / 'hallway', tmp_path / 'child.log'
+    metrics = eval_metrics(args, 'hallway', dict(PER_SAMPLE), edt_error_s=summary)
+    write_haa_eval(run, args, log, haa_repo, data_root, per_sample={'edt': values},
+                   meta=eval_meta(args, provenance.sha256_file(checkpoint)), metrics=metrics)
+    with pytest.raises(ValueError, match='edt'):
+        exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)
+    assert not (run / 'completion.json').exists()
