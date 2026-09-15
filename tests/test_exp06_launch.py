@@ -236,3 +236,13 @@ def test_a_failing_child_reports_its_status_through_the_lifecycle(tmp_path):
     lines = log.read_text().splitlines()
     assert lines[0] == 'boom' and lines[-1].startswith('EXP06_CHILD_EXIT 7 ')
     assert json.loads((attempt / 'child_exit.json').read_text())['status'] == 7
+
+
+def test_preflight_supports_the_recovery_mode_without_a_gpu_query(repo, fake_nvidia_smi):
+    """Should-fix 5: recovery finalization is gated by the same commit and pid checks."""
+    root, head = repo
+    fake_nvidia_smi('3141\n')
+    record = exp06_finalize.preflight('finalize', 1, head, repo=root)
+    assert record['mode'] == 'finalize' and record['gpu_compute_apps'] is None
+    with pytest.raises(ValueError, match='reviewed commit'):
+        exp06_finalize.preflight('finalize', 1, 'a' * 40, repo=root)

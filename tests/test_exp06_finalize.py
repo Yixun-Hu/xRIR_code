@@ -207,20 +207,71 @@ def test_non_zero_child_exit_is_refused_for_an_arm(full_run, clone):
     assert not (run / 'completion.json').exists()
 
 
+def smoke_receipt(path, **overrides):
+    record = dict(schema_version=1, diagnostic=True, entry='exp06_train',
+                  module='tools.exp06_train', argv=['--backbone', 'simple', '--no-save'],
+                  alarm_seconds=300.0, max_gb=3.0, entry_status=0, aborted_memory=False,
+                  exit_status=0, outcome='ok', wall_s=12.5, peak_bytes=0,
+                  git_head='c' * 40, timestamp=STAMP)
+    record.update(overrides)
+    Path(path).write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    return path
+
+
 @pytest.mark.parametrize('run_type', ['smoke', 'probe'])
-def test_diagnostic_runs_need_no_artifacts(tmp_path, run_type):
+def test_diagnostic_runs_need_a_receipt_but_no_artifacts(tmp_path, run_type):
     run = tmp_path / run_type
-    run.mkdir()
-    log = seal(run, tmp_path / 'smoke.log', status=3, text='EXP06_SMOKE {"wall_s": 12.5}\n')
-    receipt = tmp_path / 'probe_20260915T040506.json'
-    receipt.write_text(json.dumps({'diagnostic': True, 'entry': 'exp06_train'}))
-    fields = exp06_finalize.finalize(run, run_type, log, 3, repo=REPO, receipt=receipt)
+    log = seal(run, tmp_path / 'smoke.log', text='EXP06_SMOKE {"wall_s": 12.5}\n')
+    receipt = smoke_receipt(tmp_path / 'probe_20260915T040506.json')
+    fields = exp06_finalize.finalize(run, run_type, log, 0, repo=REPO, receipt=receipt)
     assert fields['diagnostic'] is True and fields['admissible_arm'] is False
-    assert fields['artifacts'] == {} and fields['child_exit'] == 3
-    assert fields['receipt'] == {'path': str(receipt.resolve()),
-                                 'sha256': provenance.sha256_file(receipt)}
+    assert fields['passed'] is True and fields['artifacts'] == {} and fields['child_exit'] == 0
+    assert fields['receipt'] == {'path': str(Path(receipt).resolve()),
+                                 'sha256': provenance.sha256_file(receipt),
+                                 'entry': 'exp06_train', 'exit_status': 0, 'outcome': 'ok'}
     assert json.loads((run / 'completion.json').read_text()) == fields
-    assert exp06_finalize.finalize(run, run_type, log, 3, repo=REPO, receipt=receipt) == fields
+    assert exp06_finalize.finalize(run, run_type, log, 0, repo=REPO, receipt=receipt) == fields
+
+
+def test_a_failed_diagnostic_is_recorded_and_never_admissible(tmp_path):
+    """Should-fix 5: a failed smoke still gets a completion, marked passed: false."""
+    run = tmp_path / 'smoke'
+    log = seal(run, tmp_path / 'smoke.log', status=3)
+    receipt = smoke_receipt(tmp_path / 'r.json', exit_status=3, outcome='memory',
+                            aborted_memory=True)
+    fields = exp06_finalize.finalize(run, 'smoke', log, 3, repo=REPO, receipt=receipt)
+    assert fields['passed'] is False and fields['admissible_arm'] is False
+    assert fields['diagnostic'] is True and fields['receipt']['outcome'] == 'memory'
+
+
+@pytest.mark.parametrize('damage,cause', [
+    ('absent', 'receipt'), ('no_receipt_flag', 'receipt'), ('not_json', 'receipt'),
+    ('not_diagnostic', 'diagnostic'), ('no_argv', 'no-save'), ('saving_argv', 'no-save'),
+    ('no_status', 'exit_status'), ('float_status', 'exit_status')])
+def test_invalid_diagnostic_receipts_are_refused(tmp_path, damage, cause):
+    run = tmp_path / 'smoke'
+    log = seal(run, tmp_path / 'smoke.log')
+    path = tmp_path / 'r.json'
+    receipt = path
+    if damage == 'absent':
+        receipt = tmp_path / 'gone.json'
+    elif damage == 'no_receipt_flag':
+        receipt = None
+    elif damage == 'not_json':
+        path.write_text('{ truncated')
+    elif damage == 'not_diagnostic':
+        smoke_receipt(path, diagnostic=False)
+    elif damage == 'no_argv':
+        smoke_receipt(path, argv=['--backbone', 'simple'])
+    elif damage == 'saving_argv':
+        smoke_receipt(path, argv=['--backbone', 'simple', '--save-dir', 'ckpt/x'])
+    elif damage == 'no_status':
+        smoke_receipt(path, exit_status=None)
+    else:
+        smoke_receipt(path, exit_status=0.0)
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(run, 'smoke', log, 0, repo=REPO, receipt=receipt)
+    assert not (run / 'completion.json').exists()
 
 
 def test_unknown_run_type_and_missing_directory_are_refused(tmp_path, full_run, clone):

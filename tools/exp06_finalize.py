@@ -53,7 +53,7 @@ MARKER = 'EXP06_CHILD_EXIT'
 DIAGNOSTIC = ('smoke', 'probe')
 RUN_TYPES = ('full', 'smoke', 'probe', 'haa_train', 'haa_eval', 'haa_job')
 EXPECTATIONS = ('finetune', 'zeroshot')
-LAUNCH_MODES = ('smoke', 'probe', 'full')
+LAUNCH_MODES = ('smoke', 'probe', 'full', 'finalize')
 EXCLUSIVE_GPU_MODES = ('probe', 'full')
 FULL_ARTIFACTS = ('provenance.json', 'args.json', 'history.jsonl', 'last.pth', 'epoch_012.pth')
 HAA_TRAIN_ARTIFACTS = ('provenance.json', 'args.json', 'history.jsonl', 'summary.json',
@@ -327,14 +327,27 @@ def full_evidence(run_dir, repo):
                             'epoch': exp06_recipe.EXP01_RECIPE['epochs']})
 
 
-def diagnostic_evidence(run_dir, receipt):
-    """A smoke or probe proves nothing about an arm; keep its receipt, demand no artifact."""
-    fields = dict(artifacts={})
-    if receipt is not None:
-        path = Path(receipt)
-        _require(path.is_file(), 'missing smoke receipt: {}'.format(receipt))
-        fields['receipt'] = {'path': str(path.resolve()), 'sha256': provenance.sha256_file(path)}
-    return fields
+def diagnostic_evidence(run_dir, receipt, child_exit):
+    """A smoke or probe proves nothing about an arm, but must produce a valid receipt.
+
+    Validity is the receipt's own shape (diagnostic, an integer status, a ``--no-save``
+    argv); ``passed`` then reports whether that diagnostic actually succeeded. A failed
+    diagnostic is still recorded -- it is simply never ``admissible_arm``.
+    """
+    _require(receipt is not None, 'a diagnostic run needs its --receipt')
+    path = Path(receipt)
+    _require(path.is_file(), 'missing smoke receipt: {}'.format(receipt))
+    record = _read_json(path, 'smoke receipt')
+    _require(record.get('diagnostic') is True, 'the smoke receipt is not marked diagnostic')
+    argv = record.get('argv')
+    _require(isinstance(argv, list) and '--no-save' in argv,
+             'a diagnostic must run with --no-save; its receipt records argv {!r}'.format(argv))
+    status = record.get('exit_status')
+    _require(type(status) is int, 'the smoke receipt records exit_status {!r}'.format(status))
+    return dict(artifacts={}, passed=status == 0 and child_exit == 0,
+                receipt={'path': str(path.resolve()), 'sha256': provenance.sha256_file(path),
+                         'entry': record.get('entry'), 'exit_status': status,
+                         'outcome': record.get('outcome')})
 
 
 def _is_sha256(value):
@@ -662,7 +675,7 @@ def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None,
                   child_exit_time=child_exit_time, log=log_record,
                   child_exit_receipt=receipt_record,
                   diagnostic=diagnostic, admissible_arm=not diagnostic)
-    fields.update(diagnostic_evidence(run_dir, receipt) if diagnostic
+    fields.update(diagnostic_evidence(run_dir, receipt, child_exit) if diagnostic
                   else full_evidence(run_dir, repo) if run_type == 'full'
                   else haa_train_evidence(run_dir, repo) if run_type == 'haa_train'
                   else haa_eval_evidence(run_dir, repo) if run_type == 'haa_eval'
