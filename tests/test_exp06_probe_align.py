@@ -21,11 +21,12 @@ def reference(x, src_loc, ref_locs):
         for k in range(shots):
             d_ref = float(np.sqrt((refs[b, k] ** 2).sum()))
             delay = int(np.round((d_src - d_ref) / SPEED_OF_SOUND * SAMPLE_RATE))
+            keep = max(0, length - abs(delay))
             shifted = np.zeros(length)
             if delay > 0:
-                shifted[delay:] = x[b, k, :length - delay]
+                shifted[delay:delay + keep] = x[b, k, :keep]
             elif delay < 0:
-                shifted[:length + delay] = x[b, k, -delay:]
+                shifted[:keep] = x[b, k, -delay:-delay + keep]
             else:
                 shifted[:] = x[b, k]
             out[b, k] = shifted * (d_ref / (d_src + 1e-7))
