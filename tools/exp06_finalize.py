@@ -657,7 +657,17 @@ def haa_child_arguments(run_dir, run_type, repo):
     _require(type(args.get('num_shot')) is int and args['num_shot'] > 0,
              'args.json records no positive integer num_shot')
     _require(type(args.get('seed')) is int, 'args.json records no integer seed')
+    registry = registry_sha256()
+    _require(record['registry_sha256'] == registry, 'provenance registry_sha256 {!r} is not '
+             'the {} of BACKBONES_EXP06 at finalisation'.format(record['registry_sha256'], registry))
     return record, args
+
+
+def child_identity(record):
+    """Finding 2: the execution identity a job compares against its children's records."""
+    return dict(source_closure_sha256=list(record['source_closures'].values())[0]['sha256'],
+                registry_sha256=record['registry_sha256'],
+                git_head=record['git_state']['HEAD'])
 
 
 def haa_history(run_dir, args):
@@ -730,10 +740,9 @@ def haa_train_evidence(run_dir, repo):
     _require(resolved.is_file(), 'missing init checkpoint: {}'.format(resolved))
     _require(provenance.sha256_file(resolved) == args['init_sha256'],
              'init checkpoint {} does not hash to the recorded init_sha256'.format(resolved))
-    return dict(artifacts=hashes, rooms=rooms, frame=frame, heading=heading,
-                backbone=args['backbone'], init_sha256=args['init_sha256'], seed=args['seed'],
-                best_epoch=summary['best_epoch'], epochs=epochs,
-                source_closure_sha256=list(record['source_closures'].values())[0]['sha256'])
+    return dict(child_identity(record), artifacts=hashes, rooms=rooms, frame=frame,
+                heading=heading, backbone=args['backbone'], init_sha256=args['init_sha256'],
+                seed=args['seed'], best_epoch=summary['best_epoch'], epochs=epochs)
 
 
 def haa_metrics(run_dir, name, room, args, per_sample):
@@ -817,9 +826,9 @@ def haa_eval_evidence(run_dir, repo):
     bad = [value for value in side if isinstance(value, bool) or value not in (-1, 1)]
     _require(not bad, 'side_label values must be -1 or 1, not {}'.format(sorted(set(map(repr, bad)))))
     haa_metrics(run_dir, names[2], room, args, per_sample)
-    return dict(artifacts=hashes, room=room, frame=frame, heading=heading, seed=args['seed'],
-                backbone=args['backbone'], checkpoint_sha256=digest, samples=len(index),
-                source_closure_sha256=list(record['source_closures'].values())[0]['sha256'])
+    return dict(child_identity(record), artifacts=hashes, room=room, frame=frame,
+                heading=heading, seed=args['seed'], backbone=args['backbone'],
+                checkpoint_sha256=digest, samples=len(index))
 
 
 def expected_children(expect):
@@ -836,7 +845,6 @@ CHILD_COMPLETION = ('schema_version', 'run_type', 'run_dir', 'child_exit', 'chil
                     'backbone', 'frame', 'heading')
 CHILD_EXTRA = {'haa_train': ('rooms', 'init_sha256', 'best_epoch', 'seed'),
                'haa_eval': ('room', 'checkpoint_sha256', 'samples', 'seed')}
-CHILD_EVIDENCE = ('backbone', 'frame', 'heading')
 JOB_SPEC = ('init', 'backbone', 'frame', 'init_sha256', 'seed', 'rooms', 'expect')
 
 
@@ -876,7 +884,10 @@ def rehash_bound_evidence(record, name, path, repo):
     """Re-validate and rehash the log and receipt the child bound to its completion.
 
     The digests must still be those bytes, and the bytes must still satisfy the closed-log
-    contract: the job never takes a child's word that its writers had gone.
+    contract: the job never takes a child's word that its writers had gone. Finding 2: the
+    receipt whose bytes are hashed must be the canonical ``<child>/child_exit.json`` that is
+    validated, and the pid, timestamps and ``child_exit_time`` the completion recorded must
+    be the ones that validation produced.
     """
     for key in ('log', 'child_exit_receipt'):
         bound = record[key]
@@ -887,9 +898,22 @@ def rehash_bound_evidence(record, name, path, repo):
         _require(file.is_file(), 'child {} {} {} is gone'.format(name, key, bound['path']))
         _require(provenance.sha256_file(file) == bound['sha256'],
                  'child {} {} no longer hashes to its recorded digest'.format(name, key))
-    _, marker_time, digest = closed_log(_resolve(record['log']['path'], repo),
-                                        record['child_exit'])
-    child_exit_receipt(path, record['child_exit'], digest, marker_time)
+    log_record, marker_time, digest = closed_log(_resolve(record['log']['path'], repo),
+                                                 record['child_exit'])
+    _require(log_record['sha256'] == record['log']['sha256'],
+             'child {} log is not the {} it bound'.format(name, record['log']['sha256']))
+    receipt = child_exit_receipt(path, record['child_exit'], digest, marker_time)
+    bound = record['child_exit_receipt']
+    _require(_resolve(bound['path'], repo).resolve() == Path(receipt['path']),
+             'child {} child_exit_receipt binds {}, not its own {}'.format(
+                 name, bound['path'], receipt['path']))
+    for field in ('sha256', 'child_pid', 'started_at', 'ended_at'):
+        _require(exp06_recipe.strict_equal(bound.get(field), receipt[field]),
+                 'child {} child_exit_receipt {} {!r} is not the {!r} of the canonical '
+                 'receipt'.format(name, field, bound.get(field), receipt[field]))
+    _require(record['child_exit_time'] == marker_time == receipt['ended_at'],
+             'child {} records child_exit_time {!r}, not the {!r} of its validated log marker '
+             'and receipt'.format(name, record['child_exit_time'], marker_time))
 
 
 def verify_child(path, name, repo, spec):
@@ -914,7 +938,8 @@ def verify_child(path, name, repo, spec):
     for artefact in sorted(set(recorded) | set(evidence['artifacts'])):
         _require(recorded.get(artefact) == evidence['artifacts'].get(artefact),
                  'child {} artefact {} is not the one the re-run hashed'.format(name, artefact))
-    for field in CHILD_EVIDENCE + CHILD_EXTRA[role]:
+    for field in sorted(set(evidence) - {'artifacts'}):
+        _require(field in record, 'child {} completion records no {}'.format(name, field))
         _require(exp06_recipe.strict_equal(record[field], evidence[field]),
                  'child {} completion {} {!r} is not the {!r} of the re-run'.format(
                      name, field, record[field], evidence[field]))
