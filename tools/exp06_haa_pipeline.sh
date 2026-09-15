@@ -105,13 +105,45 @@ check_spec() {  # check_spec <path> <expect>
     [ "$DRY" -eq 1 ] || "$PYTHON" -c "$CHECK_SPEC_PY" "$1" "$2"
 }
 
+# Nit 8: a refused preparation is a recovery state, not a terminal message. The receipt
+# names the gate that refused, when, and the commit the queue was running.
+PREPARE_FAILURE_PY='
+import datetime, json, sys
+from pathlib import Path
+from tools import provenance
+path, reason, root, aborted = sys.argv[1:5]
+Path(path).write_text(json.dumps({
+    "schema_version": 1, "reason": reason, "job_root": root, "aborted_dir": aborted,
+    "failed_at": datetime.datetime.now().astimezone().isoformat(),
+    "git": provenance.git_state(str(Path(provenance.__file__).resolve().parents[1]))},
+    sort_keys=True, indent=2) + "\n")
+'
+
+# prepare_failed <root> <reason>: the receipt, then the SOP's _ABORTED_ rename, so no
+# refused job root is ever mistaken for a live one. Always returns 1.
+prepare_failed() {
+    local root="$1" reason="$2" target
+    say "REFUSED $reason $root"
+    if [ "$DRY" -eq 0 ]; then
+        target="${root}_ABORTED_prepare_${reason}"
+        [ ! -e "$target" ] || target="${target}_$$"
+        mkdir -p -- "$root" \
+            && "$PYTHON" -c "$PREPARE_FAILURE_PY" "$root/preparation_failure.json" \
+                 "$reason" "$root" "$target" \
+            || say "UNRECORDED preparation failure $root"
+        if [ -e "$root" ] && mv -- "$root" "$target"; then say "ABORT $target"
+        else say "UNABORTED $root"; fi
+    fi
+    return 1
+}
+
 # prepare_job <root> <init> <checkpoint> <seed> <expect> <backbone>: every gate that must
 # pass before the first child of this job starts. A failure here is named and propagated.
 prepare_job() {
-    open_job "$1" || { say "REFUSED open_job $1"; return 1; }
+    open_job "$1" || { prepare_failed "$1" open_job; return 1; }
     job_spec "$1/job_spec.json" "$2" "$3" "$4" "$5" "$6" \
-        || { say "REFUSED job_spec $1"; return 1; }
-    check_spec "$1/job_spec.json" "$5" || { say "REFUSED check_spec $1"; return 1; }
+        || { prepare_failed "$1" job_spec; return 1; }
+    check_spec "$1/job_spec.json" "$5" || { prepare_failed "$1" check_spec; return 1; }
 }
 
 # child <run-type> <dir> <log> <command...>: the launcher's lifecycle for one child.
