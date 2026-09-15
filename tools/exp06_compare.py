@@ -25,7 +25,8 @@ from tools import exp06_approvals_api as approvals_api
 from tools import paired_compare
 from tools import provenance
 from tools.exp04_profiles import CONTROL, CYL
-from tools.summarize_yaw import load_run, rooms_from_paths
+from tools.reference_manifest import load_manifest, manifest_hash
+from tools.summarize_yaw import load_run, rooms_from_paths, _check_metrics_reconciliation
 
 ENTRY_MODULE = 'tools.exp06_compare'
 REPO = Path(__file__).resolve().parents[1]
@@ -43,6 +44,13 @@ BATCH_SIZE = 16
 CONDITIONS = 'P'
 YAW_COLS = [0]
 OUTPUTS = ('per_sample_yaw.json', 'metrics_yaw.json')
+_UNBOUND = object()                # finding 4: a declared null is never "skip this check"
+MUTABLE_INPUTS = frozenset({'control_args', 'train_args', 'train_manifest',
+                            'train_completion', 'probe_receipt', 'heading'})
+TRAINING_BINDINGS = ('train_manifest', 'train_completion')
+REVALIDATE = ('repo', 'checkpoint', 'checkpoint_sha256', 'manifest_path',
+              'manifest_file_sha256', 'evaluator_closure', 'source_closures',
+              'mutable_inputs', 'eval_manifest')
 FILES = ('eval_manifest.json', 'completion.json') + OUTPUTS
 # Role -> what the run must be. C is exp_06's own arm; A and B are reused baselines whose
 # checkpoints are exp_01's, hashed at admission and recorded with the result.
@@ -67,11 +75,12 @@ def _closure_digest(closure):
 
 
 def admit_run(run_dir, role, approved, split=SPLIT, check=None, inputs=None,
-              roles=ROLES):
+              roles=ROLES, stats=None):
     """One evaluation run of one arm, against 6.3's protocol and section 7's admission."""
     directory = Path(run_dir).resolve()
     label = '{} {}'.format(role, directory)
     inputs = {} if inputs is None else inputs
+    stats = {} if stats is None else stats
     if check is None:
         def check(ok, name):
             if not ok:
@@ -80,10 +89,12 @@ def admit_run(run_dir, role, approved, split=SPLIT, check=None, inputs=None,
     def require(ok, name):
         check(ok, label + ': ' + name)
 
-    def bind(path, expected=None):
+    def bind(path, expected=_UNBOUND):
+        """Bind one input. A declared ``None`` is a missing hash, never a free pass."""
         path = str(Path(path).resolve())
         actual = inputs[path] if path in inputs else provenance.sha256_file(path)
-        require(expected is None or actual == expected, 'digest ' + path)
+        require(expected is _UNBOUND or (_is_sha256(expected) and actual == expected),
+                'digest ' + path)
         inputs[path] = actual
         return actual
 
@@ -101,11 +112,18 @@ def admit_run(run_dir, role, approved, split=SPLIT, check=None, inputs=None,
     for name in OUTPUTS:
         require(name in (completion.get('outputs') or {}), 'completion output ' + name)
         bind(directory / name, completion['outputs'][name])
+    for key, value in (('confirmatory', True), ('allow_dirty_used', False)):
+        require(_equal(completion.get(key), value) and _equal(fields.get(key), value), key)
+    log = completion.get('log')
+    require(isinstance(log, dict) and isinstance(log.get('path'), str),
+            'completion records no child log')
+    bind(log['path'], log.get('sha256'))
     expected = {'gl_seed': fields.get('manifest_seed'), 'batch_size': BATCH_SIZE,
                 'batch_canonical': True, 'tf32': False, 'conditions': CONDITIONS,
                 'yaw_cols': list(YAW_COLS), 'split': split['split'],
                 'split_count': split['n_queries'], 'n_samples': split['n_queries'],
-                'max_samples': 0, 'confirmatory': True, 'allow_dirty_used': False}
+                'max_samples': 0, 'confirmatory': True, 'allow_dirty_used': False,
+                'num_shot': NUM_SHOT}
     for key, value in sorted(expected.items()):
         require(key in fields and _equal(fields[key], value), key)
     seed = fields.get('manifest_seed')
@@ -170,14 +188,78 @@ def admit_run(run_dir, role, approved, split=SPLIT, check=None, inputs=None,
                 'metric length ' + metric)
         require(all(value is None or type(value) in (int, float) for value in values),
                 'metric type ' + metric)
-    bind(fields['manifest_path'], fields.get('manifest_file_sha256'))
+    for failure in _check_metrics_reconciliation(label, run):
+        require(False, 'reconciliation ' + failure)
+    check_evidence(fields, directory, digest, require, bind, stats, role, roles)
+    check_reference(fields, run, split, require, bind)
     run['role'], run['seed'], run['manifest_hash'] = role, seed, fields.get('manifest_hash')
     return run
 
 
+def _stamp(path):
+    status = Path(path).stat()
+    return (status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns,
+            status.st_ctime_ns)
+
+
+def check_evidence(fields, directory, digest, require, bind, stats, role, roles):
+    """Finding 4: the applicable `paired_compare.admit_run` evidence, composed here.
+
+    The mutable inputs an arm declares, the declared inputs the launcher revalidated at
+    finalisation, every file of every recorded closure, and the data inventory the run
+    read -- each bound by the bytes it has now, with the stat identity that makes a
+    second read of the same path a contradiction rather than a silent update.
+    """
+    names = set(fields.get('mutable_inputs') or {})
+    require(names <= MUTABLE_INPUTS, 'mutable_inputs names')
+    if roles[role]['exp06'] is True:
+        require(set(TRAINING_BINDINGS) <= names, 'the exp_06 arm binds its training run')
+    declared = dict(fields, eval_manifest={'path': str(directory / 'eval_manifest.json'),
+                                           'sha256': digest})
+    declared.pop('data_identity', None)      # bound below, with its inventory
+    for failure in provenance.revalidate(declared, required=REVALIDATE):
+        require(False, 'revalidate ' + failure)
+    root = Path(fields['repo'])
+    closures = dict(fields['source_closures'], frozen_evaluator=fields['evaluator_closure'])
+    for name in sorted(closures):
+        for record in closures[name]['files']:
+            bind(root / record['path'], record.get('working_tree_sha256'))
+    identity = fields.get('data_identity')
+    require(isinstance(identity, dict), 'data_identity')
+    require(provenance._inventory_digest(identity['inventory'])
+            == identity.get('inventory_sha256'), 'data inventory digest')
+    require(identity.get('manifest_hash') == fields['manifest_hash']
+            and identity.get('manifest_file_sha256') == fields['manifest_file_sha256'],
+            'dataset manifest identity')
+    for record in identity['inventory']:
+        path = str((Path(identity['data_root']) / record['path']).resolve())
+        before = _stamp(path)
+        bind(path, record.get('sha256'))
+        require(before == _stamp(path) and stats.get(path, before) == before,
+                'data changed ' + path)
+        stats[path] = before
+    for record in (fields.get('mutable_inputs') or {}).values():
+        bind(root / record['path'], record.get('sha256'))
+
+
+def check_reference(fields, run, split, require, bind):
+    """Finding 5: the registered K = 8 reference, parsed, and the order it fixes."""
+    path = bind(fields['manifest_path'], fields.get('manifest_file_sha256'))
+    reference = load_manifest(fields['manifest_path'])
+    require(reference.get('num_shot') == NUM_SHOT
+            and reference.get('seed') == fields['manifest_seed'],
+            'reference seed/num_shot')
+    require(manifest_hash(reference) == fields['manifest_hash'], 'reference semantic hash')
+    entries = reference['entries']
+    require(run['query'] == [entry['query'] for entry in entries]
+            and run['index'] == [entry['index'] for entry in entries],
+            'query/index reference order')
+    return path
+
+
 def admit_runs(groups, approved, exploratory=False, split=SPLIT, roles=ROLES):
     """Five seeds per arm, one manifest per seed, one query order across every arm."""
-    deviations, inputs, admitted = [], {}, {}
+    deviations, inputs, admitted, stats = [], {}, {}, {}
 
     def check(ok, name):
         if not ok:
@@ -189,7 +271,7 @@ def admit_runs(groups, approved, exploratory=False, split=SPLIT, roles=ROLES):
         for directory in groups.get(role, ()):
             try:
                 runs.append(admit_run(directory, role, approved, split, check,
-                                      inputs, roles))
+                                      inputs, roles, stats))
             except (KeyError, TypeError, ValueError, OSError, IndexError) as error:
                 check(False, '{}: admission {}'.format(directory, error))
         seeds = [run['seed'] for run in runs]
@@ -207,7 +289,8 @@ def admit_runs(groups, approved, exploratory=False, split=SPLIT, roles=ROLES):
               'the arms do not share one reference manifest per seed')
     if deviations and not exploratory:
         raise ValueError('admission failed: ' + '; '.join(deviations))
-    return {'groups': admitted, 'inputs': inputs, 'deviations': deviations}
+    return {'groups': admitted, 'inputs': inputs, 'deviations': deviations,
+            'data_stats': stats}
 
 
 # --- the statistics of section 7, all of them exp_04's ------------------------------------

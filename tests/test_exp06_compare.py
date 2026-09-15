@@ -227,7 +227,8 @@ def test_every_arm_is_admitted_with_its_five_seeds(runs, approved):
     admitted = subject.admit_runs(runs, approved, split=SPLIT, roles=ROLES)
     assert sorted(admitted['groups']) == ['A', 'B', 'C'] and not admitted['deviations']
     assert [run['seed'] for run in admitted['groups']['C']] == list(subject.SEEDS)
-    assert all(path.endswith(('.json', '.pth')) for path in admitted['inputs'])
+    assert all(path.endswith(('.json', '.pth', '.py', '.log', '.npy'))
+               for path in admitted['inputs'])
     assert len(admitted['groups']['B']) == 5
 
 
@@ -319,7 +320,7 @@ def test_a_changed_source_or_data_file_is_refused(tmp_path, checkpoints, approve
     original = source.read_bytes()
     source.write_bytes(original + b'#')
     try:
-        with pytest.raises(ValueError, match='digest '):
+        with pytest.raises(ValueError, match='(digest |revalidate source)'):
             subject.admit_run(directory, 'C', approved, SPLIT, roles=ROLES)
     finally:
         source.write_bytes(original)
@@ -377,7 +378,10 @@ def test_reversed_queries_with_the_manifest_order_intact_are_refused(tmp_path, c
 
 
 def rewrite(directory, fields):
-    """Re-publish a manifest and the completion and outputs that bind its digest."""
+    """Re-publish a manifest and everything binding it, so one checksum masks nothing."""
+    fields['data_identity'] = dict(fields['data_identity'],
+                                   manifest_hash=fields['manifest_hash'],
+                                   manifest_file_sha256=fields['manifest_file_sha256'])
     (directory / 'eval_manifest.json').write_text(json.dumps(fields, sort_keys=True))
     digest = provenance.sha256_file(directory / 'eval_manifest.json')
     for name in subject.OUTPUTS:
