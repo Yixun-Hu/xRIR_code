@@ -8,9 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from tools import exp06_finalize
+from tools import exp06_finalize, exp06_profiles, provenance
 
 REPO = Path(__file__).resolve().parents[1]
+APPROVED = ('worklog/worklog_yixun/exp_06_oriented_cyl_claude/'
+            'oriented_cyl_results_assets/approved_digests.json')
 
 
 @pytest.fixture
@@ -145,7 +147,8 @@ TRAIN_ARGV = (PYTHON + ' tools/exp06_train.py --backbone cylindrical_oriented --
               + ATTEMPT + ' --num-shot 8 --max-len 9600 --lr 1e-3 --weight-decay 1e-4'
               ' --decay-epochs 3 --lr-gamma 0.1 --epochs 12 --batch-size 32 --accum-steps 2'
               ' --num-workers 12 --seed 0 --tf32 --log-interval 50 --save-every 500'
-              ' --epoch-ckpt-every 1 --run-type full')
+              ' --epoch-ckpt-every 1 --run-type full --approved ' + APPROVED
+              + ' --reviewed-commit ' + COMMIT)
 SMOKE_FLAGS = ('--epochs 1 --max-train-batches 3 --max-test-batches 2 --batch-size 4'
                ' --num-workers 4 --save-every 0 --no-save')
 
@@ -164,7 +167,8 @@ def test_launcher_is_valid_bash():
     assert os.access(REPO / LAUNCHER, os.X_OK)
 
 
-PREFLIGHT_ROOTS = ' --attempt-root ' + ROOT + ' --attempt-root ckpt/exp06/_smoke'
+PREFLIGHT_ROOTS = (' --attempt-root ' + ROOT + ' --attempt-root ckpt/exp06/_smoke'
+                   + ' --approved ' + APPROVED)
 
 
 def test_full_dry_run_matches_the_plan_argv():
@@ -378,3 +382,58 @@ def test_abort_renames_the_attempt_and_its_log(tmp_path):
     assert (tmp_path / 'attempt_20260916T130000_ABORTED_child_exit_7').is_dir()
     assert (tmp_path / 'train.log_ABORTED_child_exit_7').is_file()
     assert not attempt.exists() and not log.exists()
+
+
+def test_preflight_gates_on_the_approved_code_digests(repo, fake_nvidia_smi, tmp_path,
+                                                      monkeypatch):
+    """Finding 1: null approvals refuse a full launch; only a diagnostic may go exploratory."""
+    root, head = repo
+    approvals = tmp_path / 'approved_digests.json'
+    approvals.write_bytes(exp06_profiles.TEMPLATE_PATH.read_bytes())
+    with pytest.raises(ValueError, match='not approved'):
+        exp06_finalize.preflight('full', 1, head, repo=root, approved=approvals)
+    record = exp06_finalize.preflight('smoke', 0, head, repo=root, approved=approvals,
+                                      exploratory=True)
+    assert record['exploratory'] is True and record['approval_deviations']
+    assert record['approved']['sha256'] == provenance.sha256_file(approvals)
+    with pytest.raises(ValueError, match='exploratory'):
+        exp06_finalize.preflight('full', 1, head, repo=root, approved=approvals,
+                                 exploratory=True)
+    with pytest.raises(ValueError, match='approvals'):
+        exp06_finalize.preflight('full', 1, head, repo=root, approved=tmp_path / 'absent.json')
+
+
+def test_preflight_admits_a_full_launch_whose_digests_match(repo, fake_nvidia_smi, tmp_path,
+                                                            monkeypatch):
+    root, head = repo
+    approvals = tmp_path / 'approved_digests.json'
+    value = json.loads(exp06_profiles.TEMPLATE_PATH.read_text())
+    digests = {key: '{:064x}'.format(index)
+               for index, key in enumerate(exp06_profiles.TRAINING_KEYS)}
+    value['code'].update(digests)
+    approvals.write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
+    monkeypatch.setattr(exp06_profiles, 'compute_code_digests', lambda *a, **k: dict(digests))
+    record = exp06_finalize.preflight('full', 1, head, repo=root, approved=approvals)
+    assert record['approval_deviations'] == [] and record['exploratory'] is False
+    assert record['approved'] == {'path': str(approvals.resolve()),
+                                  'sha256': provenance.sha256_file(approvals)}
+    digests['launch_sh'] = 'f' * 64
+    with pytest.raises(ValueError, match='launch_sh'):
+        exp06_finalize.preflight('full', 1, head, repo=root, approved=approvals)
+
+
+def test_the_preflight_cli_takes_the_approvals_path(repo, fake_nvidia_smi, tmp_path):
+    root, head = repo
+    approvals = tmp_path / 'approved_digests.json'
+    approvals.write_bytes(exp06_profiles.TEMPLATE_PATH.read_bytes())
+    command = [sys.executable, 'tools/exp06_finalize.py', 'preflight', '--mode', 'full',
+               '--gpu', '1', '--reviewed-commit', head, '--repo', str(root),
+               '--approved', str(approvals)]
+    env = {**os.environ, 'PYTHONPATH': str(REPO)}
+    refused = subprocess.run(command, cwd=REPO, capture_output=True, text=True, env=env)
+    assert refused.returncode == 2 and 'not approved' in refused.stderr
+    diagnostic = subprocess.run(command[:4] + ['smoke'] + command[5:] + ['--exploratory'],
+                                cwd=REPO, capture_output=True, text=True, env=env)
+    assert diagnostic.returncode == 0, diagnostic.stderr
+    record = json.loads(diagnostic.stdout.split('EXP06_PREFLIGHT_OK ')[1])
+    assert record['exploratory'] is True and record['approval_deviations']
