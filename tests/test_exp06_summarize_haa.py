@@ -1016,6 +1016,36 @@ def test_the_producer_and_approvals_records_are_revalidated_before_publication(a
     assert result['inputs'][str(template.resolve())] == receipt['sha256']
 
 
+@pytest.mark.parametrize('case', ['child_completion', 'job_spec'])
+def test_a_record_that_changed_after_the_job_certified_it_is_refused(real_job, cache,
+                                                                     monkeypatch, case):
+    """Close review 2, finding 2b: the digest the parent completion certified is bound
+    before the child validator is delegated to, and every later read of that file must
+    still hash to it -- a validated identity is never replaced by a fresher one."""
+    root, repo = real_job
+    monkeypatch.setattr(legacy, 'HAA_ROOT', cache['root'])
+    record = json.loads((Path(root) / 'completion.json').read_text())
+    target = (Path(root) / 'stage1' / 'completion.json' if case == 'child_completion'
+              else Path(record['job_spec']['path']))
+    original = target.read_bytes()
+    data = json.loads(original)
+    if case == 'child_completion':          # the review's own probe: its log binding
+        data['log'] = dict(data['log'], sha256='f' * 64)
+    substituted = (json.dumps(data, sort_keys=True, indent=1) + '\n').encode()
+    assert substituted != original
+    inputs = {}
+    try:
+        with monkeypatch.context() as raced:
+            state = read_once(raced, target, substituted)
+            with pytest.raises(ValueError, match='is not the (bytes|completion)'):
+                subject.verify_job(root, 'seed0', 'cyl_or', repo=repo, sensitivity=True,
+                                   inputs=inputs)
+        assert state['fired'], 'the record was never read'
+        assert inputs.get(str(target.resolve()), original) != sha(target)
+    finally:
+        target.write_bytes(original)
+
+
 def test_every_child_artifact_of_a_job_is_bound(real_job, cache, monkeypatch):
     """Finding 2: rehashing a completion never revalidates the files it names."""
     root, repo = real_job
