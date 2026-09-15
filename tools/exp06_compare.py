@@ -674,6 +674,8 @@ def build_parser():
         parser.add_argument('--runs-' + role.lower(), nargs='+', required=(role != 'B'),
                             help='the five evaluation runs of arm ' + role)
     parser.add_argument('--approved')
+    parser.add_argument('--approved-commit',
+                        help='the reviewed commit the approvals must be committed at')
     parser.add_argument('--json', required=True)
     parser.add_argument('--summary', required=True)
     parser.add_argument('--n-boot', type=int, default=N_BOOT)
@@ -681,9 +683,20 @@ def build_parser():
     return parser
 
 
-def approvals(exploratory, path=None):
+def approvals(exploratory, path=None, commit=None, repo=REPO):
+    """Finding 7: a confirmatory run's approvals are the bytes committed at the
+    reviewed HEAD. Plan 6.4 approves a *commit*, so a well-formed record that nobody
+    committed -- or one committed elsewhere -- is refused rather than trusted, and the
+    identity the producer publishes names the tracked path and that commit. Exploratory
+    runs keep the unbound read and record what production would have refused.
+    """
+    binding = {}
+    if not exploratory:
+        binding = {'repo': str(repo),
+                   'commit': provenance.git_state(repo)['HEAD'] if commit is None
+                   else commit}
     try:
-        approved, receipt = approvals_api.load_approved_digests(path)
+        approved, receipt = approvals_api.load_approved_digests(path, **binding)
     except approvals_api.ApprovalsUnavailable as error:
         if not exploratory:
             raise
@@ -694,7 +707,8 @@ def approvals(exploratory, path=None):
 def main(argv=None):
     """0 on success; a refusal exits 1 and an argparse usage error exits 2."""
     args = build_parser().parse_args(argv)
-    approved, receipt, deviations = approvals(args.exploratory, args.approved)
+    approved, receipt, deviations = approvals(args.exploratory, args.approved,
+                                             args.approved_commit)
     groups = {role: getattr(args, 'runs_' + role.lower()) for role in sorted(ROLES)
               if getattr(args, 'runs_' + role.lower())}
     admitted = admit_runs(groups, approved, args.exploratory)
@@ -703,6 +717,8 @@ def main(argv=None):
                               + check_producer_identity(approved, identity,
                                                         args.exploratory)
                               + list(admitted['deviations']))
+    if receipt is not None:          # the approvals are revalidated with every other input
+        admitted['inputs'][str(Path(receipt['path']).resolve())] = receipt['sha256']
     result = analyse(admitted, MARGIN, args.n_boot, args.exploratory)
     result['approved_digests'] = receipt
     result['producer'] = identity

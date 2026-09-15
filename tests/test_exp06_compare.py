@@ -957,8 +957,9 @@ def test_approvals_that_were_not_tracked_at_the_reviewed_commit_are_refused():
 
 def test_the_comparer_records_the_identity_of_the_approvals_it_used(runs, approved,
                                                                     tmp_path, monkeypatch):
-    receipt = {'path': str(subject.REPO / 'tools/exp06_approved_digests_template.json'),
-               'sha256': 'a' * 64, 'repo_relative': 'tools/exp06_approved_digests_template.json',
+    template = subject.REPO / 'tools/exp06_approved_digests_template.json'
+    receipt = {'path': str(template), 'sha256': provenance.sha256_file(template),
+               'repo_relative': 'tools/exp06_approved_digests_template.json',
                'committed_at': repo_head()}
     monkeypatch.setattr(subject, 'approvals',
                         lambda exploratory, path=None, commit=None: (approved, receipt, []))
@@ -968,4 +969,4 @@ def test_the_comparer_records_the_identity_of_the_approvals_it_used(runs, approv
                                 '--n-boot', '200', '--exploratory'])
     record = json.loads(out.read_text())
     assert record['approved_digests']['committed_at'] == repo_head()
-    assert record['inputs'][str(Path(receipt['path']).resolve())] == 'a' * 64
+    assert record['inputs'][str(template.resolve())] == receipt['sha256']

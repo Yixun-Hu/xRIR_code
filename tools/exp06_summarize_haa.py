@@ -801,10 +801,20 @@ def check_reused_identities(approved, receipt, gate_g1):
     return {str(Path(gate_g1).resolve()): digest}
 
 
-def approvals(exploratory, path=None, producer='summarize_haa'):
-    """Section 6.4's producer gate; exploratory records what production would refuse."""
+def approvals(exploratory, path=None, producer='summarize_haa', commit=None, repo=REPO):
+    """Section 6.4's producer gate; exploratory records what production would refuse.
+
+    Finding 7: 6.4 approves the *commit* that fills the record, so a confirmatory run
+    reads approvals that are a tracked path of this repository whose blob at the
+    reviewed commit is byte-identical to the file read, and publishes that identity.
+    """
+    binding = {}
+    if not exploratory:
+        binding = {'repo': str(repo),
+                   'commit': provenance.git_state(repo)['HEAD'] if commit is None
+                   else commit}
     try:
-        approved, receipt = approvals_api.load_approved_digests(path)
+        approved, receipt = approvals_api.load_approved_digests(path, **binding)
     except approvals_api.ApprovalsUnavailable as error:
         if not exploratory:
             raise
@@ -966,6 +976,8 @@ def build_parser():
     parser.add_argument('--legacy-receipt', default='ckpt/exp06/legacy_receipt.json')
     parser.add_argument('--write-legacy-receipt')
     parser.add_argument('--approved')
+    parser.add_argument('--approved-commit',
+                        help='the reviewed commit the approvals must be committed at')
     parser.add_argument('--cache-root')
     parser.add_argument('--gate-g1')
     parser.add_argument('--json')
@@ -981,7 +993,7 @@ def main(argv=None):
     args = build_parser().parse_args(argv)
     producer = 'legacy_receipt' if args.write_legacy_receipt else 'summarize_haa'
     approved, approvals_receipt, deviations = approvals(args.exploratory, args.approved,
-                                                        producer)
+                                                        producer, args.approved_commit)
     identity = source_identity(REPO, strict=not args.exploratory)
     deviations = list(deviations) + check_producer_identity(approved, producer, identity,
                                                             args.exploratory)
