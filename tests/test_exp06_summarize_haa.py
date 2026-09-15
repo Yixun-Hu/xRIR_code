@@ -408,6 +408,78 @@ def test_a_child_outside_the_arm_table_is_refused(tmp_path, case):
         subject.load_new_arm(root, 'cyl_or')
 
 
+# --- the arm's execution identities and the frozen protocol -------------------------------
+
+TRAIN_CLOSURE, EVAL_CLOSURE = 'a' * 64, 'b' * 64
+
+
+def arm_children(train=TRAIN_CLOSURE, evaluate=EVAL_CLOSURE, heading=None):
+    heading = HEADING if heading is None else heading
+    children = {}
+    for name in subject.finalizer.expected_children('finetune'):
+        role = subject.finalizer.child_role(name)
+        children[name] = {'role': role, 'heading': heading,
+                          'source_closure_sha256': train if role == 'haa_train' else evaluate}
+    return children
+
+
+def test_training_and_evaluation_children_carry_their_own_closures():
+    """Finding 1: the two entry points have two closures; one of each is admissible."""
+    children = arm_children()
+    assert subject.arm_closures(children) == {'haa_train': TRAIN_CLOSURE,
+                                              'haa_eval': EVAL_CLOSURE}
+    mixed = dict(children)
+    mixed['stage2_hallway'] = dict(mixed['stage2_hallway'], source_closure_sha256='c' * 64)
+    with pytest.raises(ValueError, match='haa_train children .* do not share'):
+        subject.arm_closures(mixed)
+    assert subject.ROLE_CODE_KEY == {'haa_train': 'haa_finetune', 'haa_eval': 'haa_eval'}
+
+
+def test_the_role_closures_and_heading_records_must_be_the_approved_ones():
+    children = arm_children()
+    closures, headings = subject.arm_closures(children), subject.arm_headings(children)
+    assert headings == {room: HEADING[room]['sha256'] for room in ROOMS}
+    approved = {'code': {'haa_finetune': TRAIN_CLOSURE, 'haa_eval': EVAL_CLOSURE},
+                'artifacts': {'heading': dict(headings)}}
+    subject.check_arm_identities('cyl_or', closures, headings, approved)
+    subject.check_arm_identities('cyl_or', closures, headings, None)
+    with pytest.raises(ValueError, match=r'not the approved code\.haa_eval'):
+        subject.check_arm_identities('cyl_or', closures, headings, {
+            'code': dict(approved['code'], haa_eval='d' * 64),
+            'artifacts': approved['artifacts']})
+    with pytest.raises(ValueError, match=r'not the approved artifacts\.heading'):
+        subject.check_arm_identities('cyl_or', closures, headings, {
+            'code': approved['code'],
+            'artifacts': {'heading': dict(headings, hallway='d' * 64)}})
+
+
+def test_one_heading_record_per_room_across_the_whole_arm():
+    children = arm_children()
+    children['eval/hallway'] = dict(
+        children['eval/hallway'],
+        heading={room: dict(HEADING[room], sha256='d' * 64) for room in ROOMS})
+    with pytest.raises(ValueError, match='two heading records for'):
+        subject.arm_headings(children)
+
+
+def test_the_frozen_evaluation_protocol_is_the_one_exp02_registered():
+    assert subject.PROTOCOL == {'num_shot': 8, 'eval_seed': 0, 'split': 'test'}
+    args = {'num_shot': 8, 'eval_seed': 0, 'split': 'test'}
+    subject.child_protocol(args, 'eval/hallway', 'haa_eval')
+    subject.child_protocol({'num_shot': 8, 'eval_seed': 0}, 'stage1', 'haa_train')
+    for field, value in (('num_shot', 1), ('eval_seed', 3), ('split', 'val')):
+        with pytest.raises(ValueError, match='not the registered'):
+            subject.child_protocol(dict(args, **{field: value}), 'eval/hallway', 'haa_eval')
+
+
+def test_an_evaluation_child_covers_exactly_the_diffrir_test_indices(legacy_root):
+    room = 'hallway'
+    subject.check_test_indices('eval/' + room, room, indices(room))
+    for broken in (indices(room)[:-1], list(reversed(indices(room)))):
+        with pytest.raises(ValueError, match='DiffRIR test indices'):
+            subject.check_test_indices('eval/' + room, room, broken)
+
+
 # --- pairing, the cohort policy and the verdicts -----------------------------------------
 
 REAL_LEGACY = Path(__file__).resolve().parents[1] / 'ckpt/sim2real'
