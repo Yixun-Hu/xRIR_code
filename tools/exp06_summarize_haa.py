@@ -382,9 +382,9 @@ def _heading_rolls(heading, label):
 PROTOCOL = dict(legacy.PROTOCOL)      # K = 8, eval_seed 0, the DiffRIR test split
 # Finding 3: plan 6.2's registered recipe. The finalizer checks that a history completes
 # the budget the run *declared*; only this table says what the experiment requires, so a
-# shortened training or an S1 seeded-phase evaluation cannot enter the primary
-# comparison against exp_02's historical arms. They are admissible only under
-# ``--sensitivity``, which labels every output it produces.
+# shortened training, a changed selection population or an S1 seeded-phase evaluation
+# cannot enter the primary comparison against exp_02's historical arms. They are
+# admissible only under ``--sensitivity``, which labels every output it produces.
 S1_ROOMS = ('class_room', 'complex_room', 'hallway')   # dampened excluded, as in exp_02
 STAGES = {'stage1': {'epochs': 1000, 'val_every': 10},
           'stage2': {'epochs': 200, 'val_every': 2}}
@@ -480,6 +480,13 @@ def child_recipe(args, name, role):
         if rooms != expected:
             deviations.append('child {} trains on the rooms {}, not the registered '
                               '{}'.format(name, rooms, expected))
+        # Close review 2, finding 3: the validation loss selects ``best.pth``, and
+        # ``best.pth`` initialises the next stage, so exp_02's selection population is
+        # part of the recipe. The wrapper defaults ``--val-rooms`` to ``--rooms``.
+        validation = sorted(args.get('val_rooms') or args.get('rooms') or [])
+        if validation != expected:
+            deviations.append('child {} selects best.pth on the validation rooms {}, not '
+                              'the registered {}'.format(name, validation, expected))
         return deviations
     for field, value in sorted(EVAL_RECIPE.items()):
         check(field, value)
