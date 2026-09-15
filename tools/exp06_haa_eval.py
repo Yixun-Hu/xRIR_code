@@ -19,16 +19,27 @@ still hash the cache files it was estimated from.
         --save-dir ckpt/exp06/sim2real/cyl_or/seed0/eval/hallway
 """
 import argparse
+import contextlib
 import hashlib
+import io
 import json
 import os
+import sys
+import time
 import types
 from pathlib import Path
 
+import numpy as np
+import torch
+from torch.utils.data import DataLoader, Subset
+
+from eval_unseen import Evaluator, griffin_lim
+from eval_xRIR_backbone import load_model_state, summarize
 from model.xRIR_cyl_oriented import BACKBONES_EXP06, build_xrir_exp06
-from sim_to_real.haa_dataset import DEFAULT_ROOT, ROOMS
+from sim_to_real.haa_dataset import DEFAULT_ROOT, NO_T60_ROOMS, ROOMS
 from tools import exp06_haa_finetune as records
 from tools import provenance
+from utils.spec_utils import compute_spect_energy_decay_losses, stft_l1_loss
 
 RUN_TYPE = 'haa_eval'
 ENTRY_MODULE = 'tools.exp06_haa_eval'
@@ -97,3 +108,136 @@ def per_sample_meta(args, context, room):
                 git_head=context.fields['git_state']['HEAD'],
                 exp06_source_closure_sha256=context.fields['source_closures']['child']['sha256'])
     return meta
+
+
+def gl_seed(eval_seed, room, idx):
+    """The frozen per-query phase seed of the S1 sensitivity analysis."""
+    payload = 'gl:{}:{}:{}'.format(eval_seed, room, idx).encode()
+    return int.from_bytes(hashlib.sha256(payload).digest()[:8], 'little')
+
+
+def invert(spec, args, room, idx):
+    """The pinned Griffin-Lim inversion; nothing else changes when seeding is off."""
+    if args.gl_seed_per_query:
+        torch.manual_seed(gl_seed(args.eval_seed, room, idx))
+    return griffin_lim(spec).unsqueeze(0)
+
+
+def side_labels(dataset, room, indices):
+    """Room-frame sign of each microphone's y relative to the speaker, before any roll."""
+    labels = [int(dataset.data[room]['src_local'][idx, 1].sign().item()) for idx in indices]
+    undecided = [idx for idx, label in zip(indices, labels) if label not in (-1, 1)]
+    if undecided:
+        raise ValueError('side_label is undefined for {} of {}: the microphone lies on the '
+                         'speaker axis'.format(undecided[:4], room))
+    return labels
+
+
+def room_summary(args, room, per, counts, meta, elapsed_min):
+    """Exactly sim_to_real/eval_haa.py's summary, with this arm's meta attached."""
+    return {"backbone": args.backbone, "checkpoint": args.checkpoint, "room": room,
+            "split": args.split, "num_shot": args.num_shot, "eval_seed": args.eval_seed,
+            "depth_variant": args.depth_variant, "n_samples": len(per["index"]),
+            "edt_error_s": summarize([v for v in per["edt"] if np.isfinite(v)]),
+            "c50_error_db": summarize([v for v in per["c50"] if np.isfinite(v)]),
+            "t60_error_pct": (summarize([v for v in per["t60"] if np.isfinite(v)])
+                              if room not in NO_T60_ROOMS else None),
+            "env_error": summarize(per["env"]), "stft_log_mse": summarize(per["stft_mse"]),
+            "test_loss": summarize(per["loss"]), **counts,
+            "elapsed_min": elapsed_min, "meta": meta}
+
+
+def write_room_outputs(args, room, summary, per, meta):
+    """The pinned file names, so the summariser's readers are unchanged."""
+    with open(os.path.join(args.save_dir, "metrics_{}{}.json".format(room, args.tag)), "w") as f:
+        json.dump(summary, f, indent=2)
+    with open(os.path.join(args.save_dir, "per_sample_{}{}.json".format(room, args.tag)), "w") as f:
+        json.dump(dict(meta=meta, **per), f)
+
+
+def evaluate_room(model, evaluator, args, context, room):
+    """sim_to_real/eval_haa.py's per-room loop, with the room-frame side label per query."""
+    dataset = context.datasets[room]
+    items = dataset.items[: args.max_samples] if args.max_samples else dataset.items
+    loader = DataLoader(Subset(dataset, list(range(len(items)))), batch_size=1, shuffle=False,
+                        num_workers=0)
+    per = {"index": [], "ir_path": [], "edt": [], "c50": [], "t60": [], "stft_mse": [],
+           "loss": [], "env": [], "side_label": []}
+    counts = {"c50_outliers": 0, "t60_invalid": 0, "edt_invalid": 0}
+    started = time.time()
+    with torch.no_grad():
+        for i, data in enumerate(loader):
+            _, src_loc, depth, tgt_wav, ref_irs, ref_locs = data
+            out_spec, tgt_spec = model(depth.cuda(), ref_irs.cuda(), src_loc.cuda(),
+                                       ref_locs.cuda(), tgt_wav.cuda())
+            gt = tgt_spec.permute(0, 2, 3, 1)
+            with contextlib.redirect_stdout(io.StringIO()):
+                decay = compute_spect_energy_decay_losses(gts=gt, preds=torch.exp(out_spec) - 1e-8)
+            loss = float(stft_l1_loss(pred_spect=out_spec, gt_spect=gt) + decay)
+            idx = items[i][1]
+            out_wav = invert((torch.exp(out_spec) - 1e-8)[..., 0].cpu(), args, room, idx)
+            gt_ir = tgt_wav[0, 0].numpy()
+            pred_ir = out_wav[0, 0].numpy()
+            edt = c50 = t60 = float("nan")
+            try:
+                edt = abs(evaluator.measure_edt(gt_ir) - evaluator.measure_edt(pred_ir))
+            except (ValueError, IndexError):
+                counts["edt_invalid"] += 1
+            c = abs(evaluator.measure_clarity(gt_ir) - evaluator.measure_clarity(pred_ir))
+            if np.isfinite(c):
+                c50 = c
+            else:
+                counts["c50_outliers"] += 1
+            if room not in NO_T60_ROOMS:
+                try:
+                    g, pr = evaluator.measure_rt60(gt_ir), evaluator.measure_rt60(pred_ir)
+                    t60 = abs(g - pr) / g * 100.0
+                except (ValueError, IndexError):
+                    counts["t60_invalid"] += 1
+            m = min(len(gt_ir), len(pred_ir))
+            env = evaluator.env_loss(pred_ir[:m], gt_ir[:m])
+            mag = evaluator.stft_loss(out_spec.squeeze(-1).cpu().numpy(),
+                                      torch.log(tgt_spec + 1e-8).squeeze(1).cpu().numpy())
+            per["index"].append(int(idx))
+            per["ir_path"].append("{}/{}".format(room, idx))
+            per["edt"].append(float(edt))
+            per["c50"].append(float(c50))
+            per["t60"].append(float(t60))
+            per["stft_mse"].append(float(mag))
+            per["loss"].append(loss)
+            per["env"].append(float(env))
+    per["side_label"] = side_labels(dataset, room, per["index"])
+    return per, counts, (time.time() - started) / 60
+
+
+def main(argv=None):
+    """sim_to_real/eval_haa.py's main, with the exp_06 records written before the loop."""
+    command = list(sys.argv[1:] if argv is None else argv)
+    args = parse_args(argv)
+    torch.set_num_threads(args.threads)
+    context = prepare(args, command)
+    records.write_records(args, context)
+    model = context.model
+    model.load_state_dict(load_model_state(args.checkpoint), strict=True)
+    model.cuda().eval()
+    evaluator = Evaluator()
+    all_summaries = {}
+    for room in args.rooms:
+        meta = per_sample_meta(args, context, room)
+        per, counts, elapsed = evaluate_room(model, evaluator, args, context, room)
+        summary = room_summary(args, room, per, counts, meta, elapsed)
+        all_summaries[room] = summary
+        write_room_outputs(args, room, summary, per, meta)
+        t60s = ("{:.2f}%".format(summary["t60_error_pct"]["mean"])
+                if summary["t60_error_pct"] else "-")
+        print("{:14s} n={:4d}  EDT {:.4f}s  C50 {:.3f}dB  T60 {}  env {:.2f}  loss {:.4f}  "
+              "({:.1f} min)".format(room, summary["n_samples"], summary["edt_error_s"]["mean"],
+                                    summary["c50_error_db"]["mean"], t60s,
+                                    summary["env_error"]["mean"], summary["test_loss"]["mean"],
+                                    elapsed), flush=True)
+    with open(os.path.join(args.save_dir, "metrics_all{}.json".format(args.tag)), "w") as f:
+        json.dump(all_summaries, f, indent=2)
+
+
+if __name__ == "__main__":
+    main()

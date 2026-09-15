@@ -334,8 +334,11 @@ def test_the_room_summary_is_the_pinned_writers(cache, room):
     summary = evaluator.room_summary(args, room, per, counts, meta, 2.5)
     assert not [key for key in exp06_finalize.METRICS_REQUIRED if key not in summary]
     assert summary['n_samples'] == 2 and summary['meta'] == meta
-    assert summary['edt_error_s'] == {'mean': 0.06, 'median': 0.06, 'n': 2}
+    assert summary['edt_error_s']['n'] == 2
+    assert summary['edt_error_s']['mean'] == pytest.approx(0.06)
+    assert summary['edt_error_s']['median'] == pytest.approx(0.06)
     assert (summary['t60_error_pct'] is None) is (room in evaluator.NO_T60_ROOMS)
+    Path(args.save_dir).mkdir(parents=True, exist_ok=True)  # main's makedirs
     evaluator.write_room_outputs(args, room, summary, per, meta)
     written = json.loads(Path(args.save_dir, 'metrics_{}.json'.format(room)).read_text())
     body = json.loads(Path(args.save_dir, 'per_sample_{}.json'.format(room)).read_text())
