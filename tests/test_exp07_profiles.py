@@ -123,6 +123,16 @@ def test_the_recipe_matches_the_launchers_golden_argv(role, backbone, yaw):
             assert actual == str(expected)
 
 
+def test_the_training_literals_are_the_launchers_own_constants():
+    """The admission contract's counts must be the ones the launcher enforces."""
+    from tools import exp04_launcher as launcher
+    table = profiles.get_profile('TABLE_SEEN_V1')
+    assert table['train_inventory_files'] == launcher.TRAIN_FILES['seen'] == 296454
+    assert table['train_batches_per_epoch'] == launcher.TRAIN_BATCHES['seen'] == 9265
+    assert table['projection_max_hours'] == 60. and table['ceiling_factor'] == 1.5
+    assert profiles.json_value(table['recipe'])['batch_size'] == 32
+
+
 def test_the_pairs_profile_is_descriptive_with_absolute_and_relative_statistics():
     pairs = profiles.get_profile('PAIRS_SEEN_V1')
     table = profiles.get_profile('TABLE_SEEN_V1')
