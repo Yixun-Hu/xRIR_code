@@ -1,0 +1,1688 @@
+Reading additional input from stdin...
+OpenAI Codex v0.154.0
+--------
+workdir: /home/yixunhu/codespace/xRIR_code_wt07
+model: gpt-6-astra
+provider: openai
+approval: on-request
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 01a0a6d4-b648-78c1-adf6-9ba910392ff2
+--------
+user
+Follow the briefing in /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_review_briefing.md (read it first; record folder on the MAIN tree, code in this worktree). TWO reviews in one message, clearly separated: PART A = Coder round 6, PART B = the repeated FINAL INTEGRATIVE review of the whole exp_07 branch before its merge into main and before any GPU work (SOP marker `full`). Your previous combined review (MAIN tree seen_protocol_codex_code_round5_full_review.md — read it in full) returned Part A "request changes" (blockers 1–3, should-fix 4–8) and Part B "not approved" (blockers 9: exp_04's `check_record` re-hashes its evaluator/writer closure files against the live tree; 10: exp_06's parser-contract test and filled approvals pin the shared trainer). The Planner's decision is plan amendment §10a A1 (MAIN-tree plan_seen_protocol.md): **exp_07 edits no pre-existing module** — every shared file is restored to main's bytes and the reviewed behaviour is relocated into exp_07-only modules that import the shared ones unchanged.
+
+PART A — round 6 = the non-merge commits between `2a27144` and `9c3b458` on `exp07-window` (`git log --oneline 2a27144..9c3b458`; two merges of main, `453baf9` and `7194dd1`, are not under review), per the MAIN-tree coder_prompts/round6_prompt.md. HALF 1 (relocation): restores train_xRIR_backbone.py, tools/yaw_aug.py, tools/provenance.py, tools/exp05_{probe,gates}.py, tools/exp04_launcher.py, tools/exp04_eval.py, tools/exp04_eval_launch.py, tools/results_table.py and all pre-existing tests to main's bytes; new tools/exp07_train.py (entry point; the Coder's seam for recording `protocol` is a scoped patch of `trainer.parse_args` so the namespace carries `protocol` — verify it reaches args.json and the XRIR_RUNTIME_ARGS line, consumes no RNG, and that `--protocol unseen` is the trainer's exact namespace plus that key), tools/exp07_audit.py, tools/exp07_provenance.py (keeps the round-2 cache-key formula so the Planner's real `ckpt/exp07/train_inventory_seen.json` — read-only symlink in this worktree — stays readable; a test loads that real file), tools/exp07_probe.py / tools/exp07_gates.py (restated, not wrapped: exp_05's probe hard-codes yaw_aug=0 and its gates pin tier ∈ {S,L}), tools/exp07_launcher.py + tools/exp07_launch.sh (reuses exp_04's `execute_attempt`/`complete_attempt`/`finalize_attempt`/`run_child` through a scoped `patch.multiple` of exp04_launcher's module globals — `seen_overrides()` — because those functions resolve `check_golden`, `check_runtime`, `LogGuard`, `recovery_evidence`, `tier_gates`, `TRAIN_MINIMUM`, `child_environment`, `REPO` as globals; a test asserts every binding is restored), tools/exp07_eval.py (its own run loop from the frozen functions; the split now lives in the eval manifest, hash-bound by `completion.eval_manifest_sha256`, and in both output metas, hash-bound by `completion.outputs` — the completion itself no longer carries `split`/`seen_split_sha256`), tools/exp07_eval_launch.py (`--split seen`; no `--entry` anywhere), tools/exp07_record.py's own Markdown writer, probe line renamed `EXP07_PROBE_RESULT`, six goldens regenerated to invoke tools/exp07_train.py. HALF 2 (your Part A items): (1) `check_cell` per-cell admission shared with the binder via `md.validate()`; (2) binder revalidates each product, exact per-run input coverage, every declared input compared against the bound artefact, approval path+digest+pins; (3) every ledger-listed attempt (aborted with abort.json, probe attempts) and probe receipts bound; `--evidence gpu_parity=PATH --evidence calibration=PATH` (calibration JSON schema role/protocol/num_shot/passed + per-metric mean/sd/historical/passed, binder recomputes |mean − historical| ≤ 3·sd + 0.02·|historical| against 0.0389 / 1.029 / 7.27); audit must be a real exp_07 artefact (protocol seen, loader_batches 9265, cohort digest, passed, ancestor git_head); (4) `tools/exp07_pairs.py --reconverge` (PAIRS_SEEN_V1 gained `reconverge_n_boot: 40000`); (5) generators refuse to overwrite any input incl. `--unseen-binding` and aliases; (6) admission hashes the checkpoint on disk against the runtime pin; (7) K-labelled SD footnotes, adaptive precision; (8) README order. Coder claims: `git diff main --name-only` is new files only (43 files, +7 450, 0 deletions), `tests/test_exp06_train.py::test_shared_flags_and_defaults_equal_the_trainers` passes, static_checks exit 0, 2 527 tests collect (386 exp_07), full suite at an intermediate HEAD 2 417 passed / 46 skipped / 9 failed with the 9 binder tests fixed since (the definitive run at 9c3b458 was still in flight when the Coder reported — run it yourself), 9 GPU-deferred tests; six commits > 200 lines recorded as a deviation. Verify actively (try to break it): (a) the relocation is complete and faithful — for each restored file `git diff main -- <file>` is empty, and every behaviour reviewed in rounds 1–5 (your four earlier reviews list them) still exists in the new modules with its tests (list any lost behaviour or weakened refusal); (b) `seen_overrides()`: what happens on an exception inside the context, on nested use, and when exp04_launcher is imported first by another test in the same process — is exp_04's launcher behaviour outside the context bit-identical (module globals restored, no lingering monkeypatch), and could a bug in the patched set silently run an exp_07 attempt with exp_04's gates (e.g. a global the Coder forgot to override)? enumerate the globals the reused functions resolve and check the override set is exactly right; (c) the `parse_args` seam: closure/provenance consequences (`source_closure('tools.exp07_train')` includes the trainer and both dataset modules? the training-closure digest recorded for exp_07 attempts is derived from which module, and does the launcher's closure check use the same derivation?); (d) the eval split binding: with `split` only in the manifest and output metas, can a seen completion be mistaken for an unseen one anywhere downstream (table/pairs/binder/eval_launch refusals), and is the pickle sha still hash-bound end to end (manifest → completion → binder)?; (e) exp_04's record remains checkable after the merge (yaw_aug_xrir_results_assets/check_record.py / bind_provenance.py against exp_04's recorded closures — now that no shared file changes, confirm by reading the checker that nothing on the branch alters the closures it recomputes; if the sandbox allows, run `python worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results_assets/check_record.py ckpt/yaw_aug` read-only from a clone of the branch); (f) exp_05's and exp_06's approvals/tests unaffected: run tests/test_exp04*, test_exp05*, test_exp06*, test_provenance.py, test_yaw_aug.py, test_results_table.py, test_paired_compare.py and both record-tool collection orders on the branch; (g) replay every mutation from your round-4 and round-5 reviews against the new fixture/binder; (h) hygiene: Python 3.8, no writes outside the worktree, no GPU, no pinned-file edits, `git diff --check`.
+
+PART B — integrative review of `f492613..9c3b458` (whole branch): (1) plan §3 rounds 1–6 all delivered under amendment A1's relocation? list any gap; (2) closure rule: `git diff --name-only f492613..9c3b458` — every path must be a new file (`git cat-file -e f492613:<path>` fails) or a `worklog/` record file; list any exception; (3) merge safety: `--no-ff` dry-run merge of `exp07-window` into `main` (`fc80c49` or later) in a clone: conflicts?; (4) the deferred GPU tests: exact node ids and the artefacts they need; (5) the launch sequence for the Planner with exact commands as the code now fixes them (merge → GPU parity tests → `python tools/exp07_audit.py --protocol seen --out ckpt/exp07/alignment_audit_seen.json …` → released-checkpoint calibration through `tools/exp07_eval_launch.py --split seen` (K = 8, five seeds, `--reviewed-commit <merge>`; how is the calibration JSON with role/protocol/num_shot/passed produced — is there a producer for it or must the Planner write it by hand? if by hand, that is a finding) → per-arm probes `tools/exp07_launch.sh probe --backbone …` → `full` → evaluations with the `--bind-input`s → pin-finalisation commit → producers → generators → bind (with `--evidence`) → check); (6) full-suite count on a clone of the branch (CPU) and `static_checks.sh`.
+
+Report format: numbered findings with severity, file:line, what, why, minimal fix; a "Verified" section; two verdicts (Part A: approve / approve with changes / request changes; Part B: "approved for merge and GPU work" / "not approved"); the exact list of blocking findings. Your final message is the review.
+codex
+I’ll read the briefing and prior reviews first, then inspect the relocation, replay the mutation checks, and run the CPU suite in an isolated clone. I’ll keep the round 6 and whole-branch findings separate.
+exec
+/bin/bash -lc 'cat /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_review_briefing.md' in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 0ms:
+You are the independent code Reviewer (OpenAI Codex, read-only sandbox) for experiment exp_07 "seen_protocol". The code under review lives in the git worktree you are started in (/home/yixunhu/codespace/xRIR_code_wt07, branch exp07-window); the Coder is a Claude Opus 5 subagent (opposite model family — reciprocity rule of the SOP). Read BEFORE judging: worklog/experiment_SOP.md, CLAUDE.md, the approved plan worklog/worklog_yixun/exp_07_seen_protocol_claude/plan_seen_protocol.md (v3; §2 contract, §3 round table, §4 ladder, §9/§10 changelogs), the notebook seen_protocol_worklog.md, the round's Coder prompt under coder_prompts/, the conventions inherited from exp_04 (plan §11 A1–A10) and exp_05 (plan §10a A1–A9), and exp_03's closure rule: eval_yaw_rotation.py, eval_unseen.py, eval_xRIR_backbone.py, model/*.py, tools/yaw_rotation.py, tools/reference_manifest.py, tools/per_sample_metrics.py, treble_multi_room_dataset/*.py, utils/spec_utils.py are never edited (also tools/paired_stats.py, tools/summarize_yaw.py). Environment: /home/yixunhu/miniconda3/envs/xRIR/bin/python, `export PYTHONPATH=<worktree>`, `export XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms`, `export CUDA_VISIBLE_DEVICES=''` (both GPUs run live 40-hour trainings; never use a GPU, never signal any process), `PYTHONDONTWRITEBYTECODE=1`, pytest with `-p no:cacheprovider`; `ckpt/` and `checkpoints/` are read-only symlinks to live data. If the read-only sandbox blocks a test's writes, say which tests could not be run and what you verified by reading instead. Method: read every changed line (`git diff <base>..<head>`), replay the tests, and actively try to break the contract (adversarial inputs, boundary values, the pinned-file rule, the default-path parity claims, closure membership). Report format: numbered findings with severity (blocker / should-fix / nit), file:line, what, why, minimal fix; a "Verified" section with commands and outputs; a verdict "approve" / "approve with changes" / "request changes"; the exact list of blocking findings. Open with the identity header line `**Reviewer:** OpenAI Codex gpt-6-astra (codex exec, read-only sandbox, worktree exp07-window) · **Date:** <date>`.
+
+exec
+/bin/bash -lc 'cat /home/yixunhu/codespace/xRIR_code/CLAUDE.md /home/yixunhu/codespace/xRIR_code/worklog/experiment_SOP.md' in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 0ms:
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Experiment workflow (mandatory)
+
+Follow `worklog/experiment_SOP.md` for all experiment work. Bookkeeping lives in `worklog/worklog_yixun/exp_NN_<name>_claude/` (exp_01 backbone comparison and exp_02 sim-to-real are retrospective records; exp_03 yaw rotation is the first SOP-native experiment). Roles (per Yixun 2026-09-15): Planner = main session (Claude Fable 5.1); **Coder = Claude Opus 5** (Agent tool model `opus`, max effort, working in the experiment's git worktree `/home/yixunhu/codespace/xRIR_code_wt`); **code Reviewer = OpenAI Codex `gpt-6-astra` at Ultra** (`codex exec -s read-only -C <worktree> --skip-git-repo-check "<prompt>" < /dev/null`; stdin must be closed; the config `~/.codex/config.toml` sets the model; the final message is saved as the review with the identity header); plan reviews stay with Codex. From 2026-09-12 to 2026-09-15 the Coder was Codex (`codex exec -s workspace-write …`) and the code Reviewer a Fable subagent (exp_05 rounds, exp_06 round 1); before 2026-09-12 the Coder was an Opus subagent and Codex reviewed code (exp_03 and the exp_04 plan reviews ran on `gpt-5.6-sol`, as their headers say). Save every review with the identity header; log every action in the experiment's `_worklog.md`.
+
+## Repo overview
+
+Unofficial implementation of **xRIR** (CVPR 2025, "Hearing Anywhere in Any Environment"): predict a single-channel room impulse response (RIR) for a query source/receiver pair from a panoramic depth map at the receiver, conditioned on a few-shot support set of measured RIRs from the same room. Data is the Treble-simulated **AcousticRooms** dataset.
+
+The active research question is a **receiver-frame / coordinate-convention ablation** of the baseline. It lives on branches (see "Branches and current experiment"). This CLAUDE.md is gitignored and shared across all checkouts, so run `git branch --show-current` and read `plans/xRIR_v0.md` before assuming which experiment is in play.
+
+## Environment and data
+
+- Use the `xRIR` conda env (Python 3.8, torch 2.0.1+cu117, numpy 1.23). It matches `requirements.txt`. The `base` env is Python 3.13 / torch 2.7 and is **not** compatible.
+- Always set `PYTHONPATH` to the repo root; scripts use bare `from model...` / `from utils...` imports:
+
+```bash
+conda activate xRIR
+export PYTHONPATH=$PYTHONPATH:$(pwd)
+```
+
+- Datasets read from `XRIR_DATA_PATH` if set, else `./data/`. Locally `data/{single_channel_ir,depth_map,metadata}` are symlinks into a CIFS network share (`/media/diskstation/...`); never write into them. That share is far too slow for training: every sample does a 1600-entry `os.listdir` plus ~20 small reads, and 32 loader workers stalled it completely. A local NVMe mirror lives at `/home/yixunhu/data_cache/AcousticRooms/{single_channel_ir,depth_map,metadata}` (~33 GB); run anything heavier than a smoke test with `XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms`.
+- Pretrained checkpoints (gitignored, present locally): `checkpoints/xRIR_unseen.pth`, `checkpoints/xRIR_seen.pth`. The seen checkpoint was saved from `DataParallel`, so `eval_seen.py` strips the `module.` prefix.
+- `train_xRIR_unseen.py` saves to `./ckpt/xRIR_{num_shot}_shot/`; `torch.save` does not create directories, so `mkdir -p` it first.
+
+## Common commands
+
+```bash
+# Original scripts (no argparse; hyperparams, checkpoint paths and num_shot live in __main__)
+python eval_unseen.py          # 8-shot, unseen-room test split, loads checkpoints/xRIR_unseen.pth
+python eval_seen.py            # 8-shot, seen-room test split (treble_multi_room_dataset/seen_test_split.pkl)
+python train_xRIR_unseen.py    # full training run
+
+# Backbone comparison scripts (argparse; --backbone simple = SimpleViT baseline, cylindrical = CylindricalViT)
+python train_xRIR_backbone.py --backbone cylindrical --save-dir ckpt/xRIR_cyl_8_shot \
+    --batch-size 32 --accum-steps 2 --tf32          # batch 64 OOMs on one 48GB GPU; 32x2 = baseline's 64
+python eval_xRIR_backbone.py --backbone cylindrical --split unseen \
+    --checkpoint ckpt/xRIR_cyl_8_shot/best.pth --save-metrics ckpt/xRIR_cyl_8_shot/eval_unseen.json
+python eval_xRIR_backbone.py --backbone simple --split seen --checkpoint checkpoints/xRIR_seen.pth --max-samples 200
+
+# Smoke tests
+python model/xRIR_cyl.py                                            # forward both backbones, prints params/shapes
+python train_xRIR_backbone.py --backbone cylindrical --save-dir ckpt/_smoke \
+    --epochs 1 --max-train-batches 3 --max-test-batches 2 --batch-size 4 --num-workers 4 --save-every 0
+python treble_multi_room_dataset/treble_xRIR_dataset.py             # prints split size
+```
+
+There is no linter config; `tests/` (pytest, 171 tests, ~3 min, `python -m pytest tests -q` in the xRIR env) covers the exp_03 tools (`tools/yaw_rotation.py`, `tools/reference_manifest.py`, `tools/paired_stats.py`, `tools/per_sample_metrics.py`, `eval_yaw_rotation.py`, `tools/summarize_yaw.py`). The original eval scripts run `batch_size=1` with `shuffle=True` over the whole test split and print running averages; use `eval_xRIR_backbone.py` (deterministic order, `--max-samples`, JSON summary, identical metric code) for anything that needs to be compared or bounded. Full-split eval takes about an hour per split at ~1.7 samples/s; training is ~1.4 s/iter at batch 32 with TF32 (~3.6 h/epoch on 296k samples), so budget accordingly and rely on `best.pth` / `last.pth` + `--resume`.
+
+## Architecture
+
+**Data flow** (`treble_multi_room_dataset/treble_xRIR_dataset.py`). `xRIR_Dataset.__getitem__` returns
+`(listener_pos[=0], src_local[3], depth_coord[3,256,512], tgt_wav[1,9600], ref_irs[K,9600], ref_src_local[K,3])`.
+- Everything is in the **query receiver's camera frame**. Rotation is fixed to 0, so `get_3d_point_camera_coord` is plain world-frame subtraction. `convert_equirect_to_camera_coord` turns the equirect depth panorama into per-pixel XYZ.
+- References are the *other sources* recorded at the **same receiver** (`get_ir_and_location_for_other_sources`), drawn with `np.random.choice` on every call, so batches are non-deterministic. Each reference source is expressed relative to *its own* receiver, which in the baseline equals the query receiver.
+- Unseen split = rooms listed in `TEST_ROOMS`; seen split = file list pickled in `seen_test_split.pkl`. `treble_xRIR_seen_dataset.py` is a near-copy of the unseen module with only the split logic changed.
+- File naming: `S00{src}_R00{rec}_hybrid_IR.wav` under `<category>/<room>/`; metadata `S00{src}_R00{rec}.json` with `src_loc`/`rec_loc`; depth map `depth_map/<category>/<room>/<rec>.npy`.
+
+**Model** (`model/xRIR.py`), `xRIR.forward(depth_coord, ref_irs, src_loc, ref_ir_locs, tgt_wav)`:
+1. `shift_and_align` time-shifts and rescales each reference RIR by the direct-path distance difference (22050 Hz and 343 m/s hard-coded).
+2. One shared `SimpleViT` (`model/simple_vit.py`) runs 2+K times per sample on `(src_loc - depth_coord)/5`, `(-depth_coord)/5`, and `(ref_loc_i - depth_coord)/5`. It returns all patch tokens; `lin_proj_0` is a learned linear pool **over the patch axis** (256 → 1), which only works because the patch count `(256/16)*(512/32)` equals `intermediate_ch=256`. Changing image or patch size silently breaks it.
+3. Geometry vectors also go through the sinusoidal `embedding_module_log` (21 channels per scalar → 63 → 256).
+4. `AudioEnc` (ResNet-18 on a log-magnitude STFT) encodes each reference. Reference tokens are `lin_proj_2` over `[recv, ref_geo, ref_src, audio]` (5×256 in); the query token is `lin_proj_1` over `[src, recv, source]` (3×256 in).
+5. Softmax attention over references followed by a time-conditioned weighting yields the output as a **weighted sum of the reference log-spectrograms**. The model never synthesizes a spectrogram from scratch.
+
+Output is `[B, 63, 310, 1]` log-magnitude; the returned `tgt_spec` is `[B, 1, 63, 310]` linear magnitude, and callers permute one to match the other.
+
+**CylindricalViT variant** (`model/cylindrical_vit.py`, `model/xRIR_cyl.py`). `xRIR_Cyl` subclasses `xRIR` and replaces only `source_network` with `CylindricalViT` (per-column gauge alignment `Rz(-theta_c)` of the xyz panorama, elevation-only positional encoding, circular relative-position attention bias). Same dim/depth/heads/mlp_dim and the same `[B, 256, 512]` token output, so everything downstream is shared and a result difference isolates the geometry encoder. `build_xrir(backbone, num_shot)` is the factory used by both backbone scripts. `cylindrical_vit.py` uses PEP 604/585 type hints and needs its `from __future__ import annotations` line to import on Python 3.8.
+
+**Loss** (`utils/spec_utils.py`): `stft_l1_loss` (L1 in log-magnitude space) + `compute_spect_energy_decay_losses` (Schroeder decay-curve L1). The module is a large grab-bag ported from another project; only those two plus `stft` are used.
+
+**Eval** (`eval_unseen.py`): `Evaluator` implements EDT / C50 / T60 on waveforms. The predicted magnitude is inverted with `torchaudio` Griffin-Lim and metrics use the first 8000 samples. `eval_seen.py` is a copy that differs only in dataset import and checkpoint loading; keep the two in sync.
+
+**Sim-to-real** (`sim_to_real/`): two-stage fine-tuning on Hearing-Anything-Anywhere (HAA) rooms. The original scripts (`finetune_all_rooms.py`, `finetune_classroom.py`, `eval_classroom.py`, `haa_*_dataset.py`) carry `/pscratch/...` placeholders and select checkpoints on the test split; keep them as reference only. The runnable pipeline is the parallel set: `prepare_haa.py` (builds `~/data_cache/HAA_xrir/<room>/` from `/media/diskstation/yixunhu/HAA_processed`, normalizing each room by the max amplitude of its 12 DiffRIR training RIRs), `haa_dataset.py` (same tuple as `xRIR_Dataset`; speaker = model "receiver", mics = "sources"; deterministic eval references via `eval_seed`), `finetune_haa.py` (repo recipe, `--backbone`, selection on the DiffRIR validation split), `eval_haa.py` (Table-2 metrics on full 9600-sample waveforms, T60 skipped for `dampened_room`, per-sample JSON), `run_haa_pipeline.sh` (one GPU queue of `<init>:<seed>` jobs into `ckpt/sim2real/`), `summarize_haa.py`. Known asset bugs: the released `sim_to_real/depth_map/complex_room.npy` is byte-identical to `hallway.npy`, and `dampened_room.npy` is misaligned with the pose frame, so the cache uses the HAA_processed renders for those two rooms (`depth_default` in each `meta.json`; `--depth-variant repo` reproduces the released assets). Result (exp_02, 2026-09-06, canonical `ckpt/sim2real/stats.json`): after fine-tuning, the SimpleViT control beats CylindricalViT on 6/11 room×metric cells (hallway by 43–81 %) and loses none; the released checkpoint does not reproduce Table 2 on hallway/complex under this protocol while our control does on EDT. `summarize_haa.py` enforces a strict completeness gate (exact DiffRIR indices, protocol meta, stage `args.json` seed/init/depth_variant) and writes hash-bound `--json`/`--summary` artefacts that the results page consumes.
+
+## Constants kept in lockstep
+
+Change these everywhere at once or shapes stop lining up:
+- Sample rate 22050 (dataset asserts, `shift_and_align`, every `Evaluator` default) and `max_len=9600`.
+- STFT `fft_size=124, hop_size=31, win_length=62` in `xRIR.convert_ir_to_spec` and the `griffin_lim` defined in `eval_*.py` → 63 freq bins × 310 frames (`n_bins=310`). `utils/spec_utils.griffin_lim` has different defaults and is not the one eval uses.
+- Depth panorama `(256, 512)` with ViT `patch_size=(16, 32)`; coord scale `5.0` before every ViT input and sinusoidal embedding.
+- Sinusoidal embedding `num_freqs=10, max_freq=7` → 21 channels per scalar; `intermediate_ch=256`.
+
+## Branches and current experiment
+
+Current experiment (on `main`): test whether swapping SimpleViT for CylindricalViT improves few-shot RIR prediction. The paper's Table 1 (xRIR K=8: seen EDT 0.038 s / C50 0.940 dB / T60 8.13 %, unseen 0.055 / 1.457 / ~10 %) was reproduced on 2026-09-04 with the released checkpoints via `eval_unseen.py` / `eval_seen.py`: seen 0.039 / 1.03 / 7.27, unseen 0.055 / 1.36 / 9.69 (full splits; see `ckpt/baseline_reproduction.json`). Reference selection is random, so expect run-to-run noise of that size. The comparison trains `--backbone cylindrical` and a same-budget `--backbone simple` control with identical flags (`ckpt/xRIR_cyl_8_shot`, `ckpt/xRIR_simple_8_shot`; `train.log`, `history.jsonl`, `args.json` inside each), because the released checkpoints' training budget is unknown. The paper text says a 6-layer ViT; the code and checkpoints use `depth=12`. Result (2026-09-05, canonical `ckpt/backbone_comparison_stats.json` / `summary.txt`): averaged over epochs 5-12 on the unseen split, CylindricalViT beats the same-budget SimpleViT control on EDT (-3.7%, all 8 epochs), the objective (-1.2%) and log-STFT MSE (-1.3%) with query-level CIs excluding 0 (inference about this fixed split); with the 17 rooms as bootstrap unit every interval includes 0; C50/T60 no detected difference. Caveat: evaluation references were NOT identical across models (loader seed drawn after model construction) and Griffin-Lim phases were unseeded; the paired re-evaluation is exp_03's k=0 gate. Per-epoch files: `ckpt/xRIR_{cyl,simple}_8_shot/{epoch_NN.pth, per_sample_unseen_epochNN.json, eval_unseen_epochNN.json}`.
+
+exp_03 (yaw rotation, 2026-09-06, SOP-native, record `worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/`): does jointly rotating the panorama and the source/reference coordinates in yaw substantially degrade synthesis? Evaluator `eval_yaw_rotation.py` (hashed reference manifest `ckpt/yaw_rotation/reference_manifest.json`, TF32 off, every batch padded to 16, per-query seeded Griffin-Lim, condition P = alignment pinned at 0°, E = end-to-end), summariser `tools/summarize_yaw.py --mode full` (paired bootstrap, r_k inside resamples, Bonferroni family 18, room-cluster CIs, TOST, convergence check). Result (canonical `ckpt/yaw_rotation/full_stats.json` / `full_summary.txt`, runs `ckpt/yaw_rotation/sweep_{control,cyl,released}`): **H1 not supported** for the same-budget SimpleViT and the released checkpoint; every adjusted upper bound for EDT/C50 at every angle is below +10 % (max +7.6 %). Degradation is small and peaks at diagonal headings (C50 +4–5 % at ±22.5°/±45°, EDT ≤ +3 %, ~0 at 180° and ±5.6°), i.e. distribution shift from axis-aligned training rooms; E = P to 2e-5. The cylindrical model does not degrade less (EDT D = +2.2 % at −45°); its tokens are equivariant (2e-7) but the learned position pool and the absolute-coordinate embeddings shared by both backbones carry the change. Properly paired k = 0 comparison (same references and phases): cyl EDT −4.4 % with query and room intervals both excluding 0, loss −1.5 %, C50 no difference — supersedes exp_01's unpaired numbers. The k = 0 parity gate needed two pre-specified band amendments (v3: per-model reference-draw, phase, TF32 and batch-shape spreads); the cylindrical model's EDT/C50 are ~2.5× more sensitive to which references it gets. Record committed 2026-09-07 (`4131f7d` + bookkeeping `19a04ef`): every number on the page/results.md comes from the canonical JSON (generators `_results_assets/make_results_{html,md}.py` refuse anything else), all 13 runs are bound post hoc by `_results_assets/bind_provenance.py` (immutable sidecars; report `binding_report.json`) and `check_sweep_acceptance.py` recomputes the gate decision from the bound inputs with the producer pinned at `5febf47`; eight Codex review rounds on the Planner tooling ended with the evidence path confirmed sound and auxiliary items (launcher v3 not certified for a clean re-run, renderer corruption edge cases, non-crash-atomic binder) recorded as open in the analysis. Re-running the acceptance check (~1 min) or the binder is safe and idempotent; do not edit sidecars by hand.
+
+exp_04 (yaw augmentation, started 2026-09-12, SOP-native, record `worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/`, plan v4 + amendments A1–A10 in §11): train the SimpleViT with per-sample active yaw of the whole scene (offsets d ~ U{0..511} from a counter-seeded generator, `tools/yaw_aug.py`, port of FLAC exp_17; audio untouched; alignment on the rotated geometry) and test non-inferiority at k = 0 (H1, +3 %), reduced degradation vs the control at ±22.5°/±45° (H2, C50 primary) and near-invariance (TOST ±2 %), each with five evaluation seeds 42–46 (manifests `ckpt/yaw_aug/reference_manifest_k{8,1}_seed*.json`). **Closure rule:** exp_03's committed record pins 12 files (`eval_yaw_rotation.py`, `eval_unseen.py`, `eval_xRIR_backbone.py`, `model/*.py`, `tools/{yaw_rotation,reference_manifest,per_sample_metrics}.py`, the dataset module, `utils/spec_utils.py`); any later commit touching them fails `tests/test_exp03_record_tools.py`, so new behaviour lives in new modules that import them. Tool chain (all reviewed by Fable subagents, Codex-coded, 785 tests): `train_xRIR_backbone.py --yaw-aug 1 --yaw-aug-seed 0 --yaw-aug-width 512 [--no-save]`; `tools/provenance.py` (hermetic import-derived closures, data inventories, exclusive manifests / atomic completions, revalidate); `tools/exp04_eval.py` (= the frozen evaluator's functions + immutable eval-manifest handshake, `--conditions P`); `tools/exp04_eval_launch.py` (run dir, manifest, tee, finalisation, `--bind-input`, `--gpu`); `tools/exp04_launcher.py` + `tools/exp04_launch.sh` (modes smoke/probe/full/finalize/refuse-test; golden argv in the record's `yaw_aug_xrir_results_assets/`; resource/banner/args guards; `abort.json`, ABORTED renames, 43 h ceiling on `full` attempts, promotion symlink `ckpt/xRIR_simple_yawaug_8_shot/final`); `tools/exp04_profiles.py` (+ runtime-read `yaw_aug_xrir_results_assets/approved_digests.json`, all-null until the second reviewed commit); `tools/paired_compare.py` (profiles H1_K8/H1_K1/H2_K8/TOST_K8, fail-closed admission) and `tools/results_table.py` (TABLE_V1 → canonical JSON → `worklog/worklog_yixun/model_comparison.md`). Result (2026-09-15, canonical `ckpt/yaw_aug/results/{H1_K8,H1_K1,H2_K8,TOST_K8,TABLE_V1,GRID_SEED42,EPOCH9_K8}.json`, bound record `ckpt/yaw_aug/binding_report_*.json`, page `yaw_aug_xrir_01_results.html`, analysis `yaw_aug_xrir_analysis.md`): training 27.43 h at launch commit `f19b9b6`; **H1 "non-inferior on EDT only"** at K = 8 and K = 1 (C50 ≈ 4.5 % worse than the control, outside the +3 % margin; EDT −1.3 % at K = 8), **H2 "partially supported"** (diagonal-heading C50 degradation reduced by 1–2 pp, one of four cells significant), TOST equivalent only at axis-aligned headings. Living table `worklog/worklog_yixun/model_comparison.md` (five-seed means ± SD). Never `pkill -f`/`pgrep -f` a pattern that appears in your own command line (self-kill); the launchers refuse a tree dirty outside `worklog/`, so no Codex writer in the main tree while confirmatory runs launch (use a git worktree). Long Codex/eval jobs: nohup-detached scripts + Monitor (the harness kills background Bash on false low-memory).
+
+- `main` — baseline plus `plans/xRIR_v0.md`, a full plan for a **v0 receiver-origin model**: new `model/xRIR_v0.py`, v0 datasets returning 8-tuples with `d_i = s_i - r_i`, `s_i - r_q`, `r_i - r_q`, `lin_proj_2` widened to 7×256, and parallel train/eval scripts. None of those files exist yet.
+- `receiver-frame-ablation` — a narrower, **eval-only** version of the same question: how much the pretrained baseline degrades when reference RIRs come from *different* receivers than the query, split into a coordinate-frame-mismatch penalty and residual distribution shift. Adds `treble_xRIR_v0_dataset.py::xRIRReceiverFrameDataset` (deterministic per-query reference choice via sha256 of seed+path; returns both `ref_pair_local = s_i - r_i` and `ref_query_local = s_i - r_q`) and rewrites `plans/xRIR_v0.md` to match. Still to do per that plan: an optional `ref_query_locs=None` kwarg on `xRIR.forward` (existing checkpoint must load unchanged, behavior identical when the kwarg is absent) and `eval_xRIR_receiver_frame_ablation.py` running the original / mismatched / aligned conditions from the same batch with `shuffle=False`.
+- `equivariance_ablation` — historical. The shoebox / PairRIR experiment once here was deleted in commit 4c53110; its tip is the baseline plus a `.gitignore` entry for `ckpt/`.
+
+Do not commit checkpoints, logs or result files. Keep the baseline (`xRIR_Dataset`, `xRIR`, `train_xRIR_unseen.py`, `eval_*.py`) reproducible: new conventions go in parallel files or backward-compatible optional arguments.
+# Experiment SOP (portable)
+
+A generalizable standard operating procedure for AI-assisted research experiments. Drop this file into any project and reference it from that project's `CLAUDE.md` (e.g. "Follow `worklog/experiment_SOP.md` for all experiment work"). Written for Claude Code, but the roles are model-agnostic.
+
+## Roles (three-model separation of duties)
+
+| Role | Who | Duty |
+|---|---|---|
+| **Planner / Analyst** | The main-session model (strongest reasoning tier; currently Claude Fable 5.1) | Writes plans, judges reliability, writes analyses. Does NOT write implementation code directly. |
+| **Coder** | The strongest coding model at its highest reasoning setting — **currently Claude Opus 5 at max effort, a separate subagent launched from the main session (Agent tool, model `opus`) working in a dedicated git worktree (per Yixun 2026-09-15; 2026-09-12 → 2026-09-15 it was OpenAI Codex `gpt-6-astra` at Ultra via `codex exec`; before that a Claude Opus 4.8 max-effort subagent)** | Implements exactly what the approved plan specifies. |
+| **Reviewer** | **The opposite model family from the Coder** (mandatory cross-model review; see reciprocity note below). | Reviews all newly written code; review is saved, not just read. If the reviewer is unavailable, say so — never silently substitute. |
+
+> **Reviewer reciprocity — no model reviews its own code.** The Reviewer is always the opposite model family from the **Coder**. With the current roles (Planner Claude Fable 5.1, Coder Claude Opus 5; per Yixun 2026-09-15), the code Reviewer is **OpenAI Codex `gpt-6-astra` at Ultra** (`codex exec -s read-only` in the worktree; its final message is saved as the review file with the identity header). When the Coder was Codex (2026-09-12 → 2026-09-15), the code Reviewer was a separate Claude Fable 5.1 subagent launched from the main session with the reviewer briefing, so the review context was independent of the Planner's. Plan reviews follow the same rule (the Planner is Claude, so plans are reviewed by Codex). The Coder and Reviewer must always be different model families, so review is genuinely independent.
+
+> **Reviewer briefing — load context before judging.** Every review prompt (plan or code) must direct the Reviewer to read, before reviewing: (1) this SOP and all `worklog/worklog_<username>/announcement/` directives; (2) the experiment's `plan_*.md` and `_worklog.md` notebook (what was decided and why, including plan amendments); (3) the results/analyses of the PRIOR experiments the work builds on (e.g. baseline numbers and noise floor); (4) a one-paragraph statement of what the current Coder round was tasked to do and what is explicitly out of scope for this round. A reviewer without this context produces generic reviews, flags out-of-scope "gaps", and misses violations of experiment-specific decisions.
+
+## Directory layout
+
+All experiment bookkeeping lives in `worklog/` at the repo root, **namespaced per user** (rule updated 2026-07-12):
+
+- `worklog/experiment_SOP.md` — **this file lives directly under `worklog/`, NOT inside any user namespace** (it is shared/portable across users).
+- `worklog/worklog_<username>/` — one namespace folder per user; ALL of that user's experiment logging goes inside it (in this project `<username>` = `yixun` → `worklog/worklog_yixun/`). Every logging path that previously sat directly under `worklog/` now sits under `worklog_<username>/`:
+  - `worklog/worklog_<username>/announcement/<NN>_<topic>.md` — standing directives from the user. **Read every announcement before planning or running anything.** New standing instructions get the next number.
+  - `worklog/worklog_<username>/exp_<NN>_<exp name>_claude/` — one folder per experiment, `<NN>` zero-padded and sequential.
+  - `worklog/worklog_<username>/archive_<reason>_<date>/` — archived/superseded code (see Development discipline).
+
+## Per-experiment artifacts (in lifecycle order)
+
+Inside `worklog/worklog_<username>/exp_<NN>_<exp name>_claude/`:
+
+1. `<exp name>_<username>_query.md` — the user's driving queries: each one verbatim, plus a summary, the user's assumption/hypothesis, and why the experiment needs to run. Started at scaffold time, appended as new queries arrive. (`<username>` is the same name as in the `worklog_<username>` namespace folder — here `yixun`, e.g. `<exp name>_yixun_query.md`.)
+2. `plan_<exp name>.md` — written by the Planner BEFORE any code: the English plan AND the planned code laid out per file (each existing file to edit, each new file to create). Surfaced for user approval before implementation.
+3. `<exp name>_<reviewer>_plan_review.md` — the Reviewer's review of the PLAN, before user approval and before any implementation: method soundness, hidden assumptions, missing tests/controls, run design. Same reviewer-naming and identity-header rules as the code review below. Planner addresses the findings (revising the plan) before the user signs off.
+4. *(the implementation itself)* — the code, written by the Coder subagent per the approved plan. No dedicated markdown artifact; this step is the source-code changes.
+5. `<exp name>_<reviewer>_code_<marker>_review.md` — **one small review per Coder round, not one big review at the end**: after EVERY round of Coder output (a TDD red→green cycle, a code snippet, or a coherent commit group), the Reviewer reviews that round's commits BEFORE the next round starts. `<reviewer>` names the reviewing model (`codex` / `opus`); `<marker>` identifies the round — the TDD-cycle or snippet name, or the short name of the main commit (e.g. `<exp name>_codex_code_cyl_pose_review.md`, `<exp name>_codex_code_dispatch_review.md`). **A round is CLOSED only when its full loop has run: code written → review returned → strengthening/fixes applied by the Coder for every blocking finding → fixes re-verified (tests green; re-review or Planner verification of the fix) → loop outcome logged in `_worklog.md` with the fix commit SHAs.** No new round starts, and no run launches, while any round is open. Nits may be batched into the next round; blocking findings may not. A final integrative review of the whole experiment diff (marker `full`) still runs before the first expensive launch. Record "N/A — no code written" for code-free experiments. Every review file MUST open with a header giving the reviewer's exact identity: model/product name and version, invocation method, and review date — e.g. `**Reviewer:** OpenAI Codex (codex-cli 0.144.1, \`codex exec\`, read-only sandbox) · **Date:** 2026-07-10`. **Reviews (plan and code) always use the Reviewer family's strongest available model at its highest reasoning setting** — currently `gpt-6-astra` at Ultra (`model = "gpt-6-astra"`, `model_reasoning_effort = "ultra"` in `~/.codex/config.toml`; per Yixun 2026-09-12; supersedes `gpt-5.6-sol`; requires codex-cli ≥ 0.154 — 0.144.1 rejects the model) for Codex, Claude Fable 5.1 for Claude (per Yixun 2026-09-12; previously Claude Opus 4.8 at max effort). Since 2026-09-15 the Coder is Claude Opus 5, so code reviews are Codex (`<exp name>_codex_code_<marker>_review.md`) and plan reviews stay Codex; a Coder change mid-experiment is logged in the notebook and rounds keep single authorship (an in-flight round of the previous Coder is archived, not mixed).
+6. `<exp name>_params_set_up.md` — full hyperparameters/configuration, written at launch.
+7. `<exp name>_command.md` — exact reproduction command(s). **Rule: EVERY experiment/run launched gets its command added to this file AT LAUNCH TIME, not retroactively** — including reruns, amended iterations, probes that produce run artifacts, and diagnostics; failed/superseded runs stay in the file (marked as such) because reproducing the failure is part of the record. The notebook records *why*, this file records *how to reproduce*.
+8. `<exp name>_worklog.md` — an append-only, timestamped **lab notebook: one entry per action**, not per run. Started at scaffold, appended continuously through implementation, debugging, and every launch. This is where the validation ladder, parity audit, and failure triage (below) get recorded as they happen. Entry format in **Worklog entry template** below. Complements `_results.md` (final numbers) and `_analysis.md` (final judgment) by capturing the decision/debug trail in between.
+9. `<exp name>_<YYYY-MM-DD_HH:MM:SS>.log` — ALL terminal output, one timestamped log per run (tee/redirect every training/eval command into the folder). Aborted runs keep their log, renamed with an `_ABORTED_<reason>` suffix.
+10. `<exp name>_results.md` — results, appended as runs finish.
+11. `<exp name>_analysis.md` — written by the Planner after results land: analyze all code + configuration + results; judge whether the result is reliable; state the outcome and the recommended next step.
+12. `commits_<exp name>.md` — SHA + one-line description of every commit belonging to this experiment.
+13. `<exp name>_<idx>_results.html` — **rich HTML results visualization, produced after the experiment finishes** (alongside, not replacing, `_results.md`): tables, equations (MathJax/KaTeX or clean HTML math), figures/plots, color-coded verdict blocks, run-trajectory charts — use the full expressive range of HTML/CSS to make the results maximally human-readable. `<idx>` is chosen by the author to separate distinct parts of the visualization when one page would overload (e.g. `..._01_results.html` for gate tables, `..._02_results.html` for mechanism decomposition); a single `_01_` page is fine for simple experiments. **All sourced assets (generated plot images, data extracts, JS/CSS) live in a corresponding folder inside the experiment directory** (e.g. `exp_<NN>_<exp name>_claude/<exp name>_results_assets/`) and are referenced relatively, so the HTML renders offline from a repo checkout. Charts follow the project's visualization standards (load the dataviz guidance before writing chart code). The HTML must be self-consistent with `_results.md` numbers — it is a presentation layer, never a place where numbers appear first.
+
+## Worklog entry template
+
+Each `_worklog.md` entry is one action, headed by an ISO-8601 timestamp in **local time with UTC offset** (same clock as the run-log filenames) and a short title, then these fields. Use the full set for substantive actions (code, launches, fixes); a lightweight **Goal / Result / Analysis / Next** is enough for routine monitoring checks.
+
+`## <YYYY-MM-DDThh:mm:ss±hh:mm> — <short title>`
+
+- **Goal** — what this action is for. *(every entry)*
+- **Hypothesis** — the belief being tested, stated *before* the evidence. *(only when testing something)*
+- **Change** — exact files/behavior touched. *(when code changed)*
+- **Version Control** — branch, `base_commit`, `implementation_commit`, push/pull, changed_files. Every SHA inline.
+- **Command / Validation** — exact commands (or static checks), job ids, run dirs, log + artifact paths.
+- **Acceptance criteria** — the exact conditions that count as success, written *before* a launch (see **Running & failure discipline**).
+- **Result** — status (`passed` / `partial` / `in_progress` / `launched` / `fix_ready`) + metrics/artifacts + key evidence.
+- **Analysis** — interpretation; in particular classify any failure as *infrastructure vs. real bug*.
+- **Next** — the immediate next step.
+
+## Development discipline
+
+- Develop **commit by commit, experiment by experiment** from a known-good base commit. No long-lived uncommitted state: an experiment concludes by committing its code and its worklog folder.
+- **Each commit generally < 200 changed lines of code.** Several small commits per experiment are preferred over one large one. Log every SHA in `commits_<exp name>.md`.
+- **Test-driven development (mandatory for all new functions)** — per [TDD](https://en.wikipedia.org/wiki/Test-driven_development): for each small function, write its test FIRST (pytest, in a dedicated `tests/` folder — **ask the user where to place it** the first time tests are added to a project; do not assume repo root), run it to confirm it fails (red), then implement the minimal function that passes (green), then refactor with tests green. Each red→green cycle maps naturally onto one small commit (tests may land in the same commit as the implementation or the commit immediately before it — never after). Tests are permanent regression assets: they stay in `tests/` and must keep passing in later experiments; run the relevant test subset as rung 1½ of the validation ladder.
+- **Universal review coverage (2026-07-06):** EVERY piece of code — Coder-written source, AND Planner-written one-off scripts (page/visual generators, probe drivers, analysis one-offs) — goes through the Reviewer loop before its round closes. Small scripts may be batched into one consolidated review round; nothing executable that informs a decision or artifact ships unreviewed.
+- Superseded or exploratory code is archived (patch + files) under `worklog/worklog_<username>/archive_<reason>_<date>/` before being removed from the working tree — never destroyed.
+
+## Validation ladder (cheapest-first)
+
+Never jump straight to the expensive run. Climb this ladder; advance only when the current rung passes, and record each rung in `_worklog.md`.
+
+1. **Static checks** — `python -m py_compile <changed .py>`, config parse (`yaml.safe_load`), `bash -n <changed .sh>`, `git diff --check` (whitespace). Seconds, no accelerator.
+2. **Tiny synthetic forward** — smallest module instantiation + one forward/step on a small/cheap device with synthetic tensors. Catches graph/mesh/shape/dtype/timestep errors without loading full weights or data.
+3. **Small real-data readback** — parse a few real records; assert shapes, byte lengths, and min/max/std match the schema. Catches data-pipeline mismatches.
+4. **Bounded data build** — if the experiment produces a dataset, build the val split (or a bounded slice) first and read it back before the full build.
+5. **Smoke run** — a few steps at the smallest batch on the target hardware, checkpointing/final-save **disabled** (storage-light), just to reach one completed optimizer step and produce logs.
+6. **Fit / batch-size probe** — find the max batch that fits, still storage-light (no checkpoints), before committing to the full run.
+7. **Full run** — only after 1–6 pass and the parity audit below is clean.
+
+## Parity audit before scaling
+
+Before spending real compute on a new method, audit the implementation **component by component against the reference** (paper code / upstream repo), and diff the *numbers*, not just the shapes:
+
+- **Numeric recipe defaults** — LayerNorm eps, weight decay, betas, LR schedule, loss type, sigma/noise schedule, CFG handling. Silent mismatches (e.g. eps `1e-6` vs `1e-5`, weight decay `0` vs `1e-2`) don't crash; they quietly corrupt results.
+- **Structural parity** — which params are trainable vs frozen, residual/injection points, stop-gradient boundaries, any pinning/masking.
+- **Data parity** — take one concrete source example and its processed/cached counterpart; confirm identical dtype, byte counts, and min/max/std.
+
+Record the audit in `_worklog.md`; launch the full-scale run only from the audited commit.
+
+## Running & failure discipline
+
+- **Pre-launch acceptance criteria.** Before every launch, write in `_worklog.md` the exact conditions that count as success: the commit SHA the worker must report, device/host count, per-device and global batch, parallelism axes, which params are trainable, and "reaches ≥1 optimizer step with no OOM / NaN / parse failure." Judge the run against these, not vibes.
+- **Infrastructure vs. real bug.** In every failure Analysis, classify the cause: *infrastructure* (spot preemption, host maintenance, download/network stall, launch-env/PATH, quota) vs. *real bug* (wrong shape/sharding, wrong objective, bad schedule). Only real bugs get a code fix; infra failures get retry/resume. Prevents thrashing on non-bugs.
+- **Commit + push before running remotely.** Any remote (TPU/cluster) run executes a *pushed* SHA; verify the SHA the worker actually checked out. Never run uncommitted code on a remote.
+- **Never edit a script while it is running.** Wait for a safe boundary, then patch; fix orchestration bugs separately from the data/model path.
+- **Resume from the last safe boundary.** On a mid-pipeline crash, find the last fully-committed unit (contiguous shard / checkpoint) and resume from the next; never duplicate or lose work, never reuse stale staging.
+- **Storage guardrail.** Long data/checkpoint jobs hold only a bounded working set (one batch/segment resident), clean up after each unit, and stay above an explicit free-space floor; contiguous coverage is the correctness check.
+- **Shared-resource etiquette.** Inspect a shared machine's processes before using it; don't interrupt others' jobs without approval; verify zero stale processes/watchers/queued-resources after a failed run before relaunching.
+
+## Evaluation integrity
+
+- Always compare against the baseline method on its **full published evaluation configuration** — the complete split files and dataset configs the baseline's paper used. Never invent new eval configurations (subsampled items, hand-picked examples, reduced splits) for comparisons; subsets are for debugging only and never appear in `_results.md`.
+- Reproduce the baseline's reported numbers (within its reported variance) **before** evaluating any new method, to calibrate the pipeline and establish the noise floor.
+- Match the baseline's aggregation convention (e.g. per-scene means) and its variance protocol (e.g. mean ± std over N generations/seeds).
+- If a run is launched and the code state then changes (revert, edit), kill and relaunch rather than mixing code states across a sweep; document the abort in `_params_set_up.md`.
+
+## Sequencing summary
+
+scaffold folder + `_yixun_query.md` + `_worklog.md` → `plan_*.md` (Planner, incl. per-function test list) → `_<reviewer>_plan_review.md` (Reviewer, strongest model at highest reasoning) → Planner revises → user approves → **TDD loop**, per round: (Coder: test first → red → implement → green, one small commit per cycle) → `_<reviewer>_code_<marker>_review.md` (Reviewer, per-round small review; blocking findings fixed before the next round) → next round … → **validation ladder** (static → tests → smoke → probe) → `_<reviewer>_code_full_review.md` (Reviewer, integrative) → **parity audit** vs reference → `_params_set_up.md` + `_command.md` + **acceptance criteria** → launch with teed timestamped logs, triaging *infra-vs-bug* on failure → `_results.md` → `_analysis.md` (Planner) → **`<exp name>_<idx>_results.html`** (+ assets folder) → commit(s) + `commits_*.md`. Log every action in `_worklog.md` as it happens.
+
+exec
+/bin/bash -lc 'rg --files /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude' in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 0ms:
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/plan_seen_protocol.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round4_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_yixun_query.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round2_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-15_14:59:08_codex_code_round5_full.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-15_16:49:12_codex_code_round6_full.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round1_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_plan_round2_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_plan_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-15_13:32:42_codex_code_round4.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_worklog.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/plan_seen_protocol_v1_superseded.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-15_13:33:09_manifests.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round5_full_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_command.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-15_10:07:05_codex_plan_round2_review.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-15_10:40:49_codex_code_round1.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/coder_prompts/round4_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/coder_prompts/round2_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/coder_prompts/round3_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/coder_prompts/round1_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/coder_prompts/round6_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/coder_prompts/round5_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/xrir_table1_reference.png
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-15_12:27:17_codex_code_round3.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-15_11:42:33_codex_code_round2.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-15_09:59:07_codex_plan_review.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round3_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_round2_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_round3_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_round5_full_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_round1_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_review_briefing.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/plan_round2_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_round4_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/plan_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_round6_full_prompt.md
+
+exec
+/bin/bash -lc 'pwd && git status --short && git log --oneline 2a27144..9c3b458 && git diff --stat main && rg --files -g AGENTS.md -g CLAUDE.md' in /home/yixunhu/codespace/xRIR_code_wt07
+ exited 1 in 0ms:
+/home/yixunhu/codespace/xRIR_code_wt07
+?? checkpoints
+9c3b458 exp_07 round 6 half 1: cover the finalize route through the shared recovery
+7194dd1 Merge main into exp07-window (exp_06 launch-gate merge and bookkeeping)
+94c4ca3 exp_07 round 6 half 2: drop an unused import from tools/exp07_record.py
+fc80c49 exp_07 worklog: note exp_06's launch-gate merge (62a4665/e590b43)
+e590b43 exp06 bookkeeping: launch-gate reviews and fixes, round-3b fix-2 review, approvals-fill verification, params set-up, notebook through the launch-gate closure
+62a4665 exp06: merge exp06-launch-gate (tests-only: validate the populated approvals record; collect outside git) into main
+2e1b3ea exp06: merge main (exp_07 worklog commit) into the launch-gate branch before merging
+d94c739 exp_07 round 6 half 2: tidy tools/exp07_record.py's imports
+16a1981 exp_07 round 6 half 2: document the new refusals, the retry and the evidence interface
+7ffea95 exp_07 round 6 half 2: the binder validates the products and binds every attempt
+16e8e10 exp_07 round 6 half 2: admission hashes the checkpoint the run actually used
+4abf498 exp_07 round 6 half 2: the registered 40 000-resample reconvergence re-run
+4c6e842 exp_07 round 6 half 2: per-cell admission, output protection, labelled SD footnotes
+4ea1b2b exp06: resolve HEAD lazily so this module collects outside a git checkout
+5e0409a exp_07 round 6 half 1: the completion binds the manifest that declares the split
+e93edff exp_07 round 6 half 1: exp_07's own publication writer; results_table restored
+ea3ce0b exp_07 round 6 half 1: the split-bound evaluator and its own launcher
+5db051f exp_07 round 6 half 1: the launcher's run modes, guard, recovery and the probe gate
+2074100 exp_07 round 6 half 1: the seen probe, gates and the launcher's arm decisions
+18dacdc exp_07 round 6 half 1: restore tools/exp05_{probe,gates}.py to main's bytes
+f217d43 exp_07 round 6 half 1: tools/exp07_provenance.py, protocol-isolated inventories
+25b5402 exp_07 round 6 half 1: restore tools/provenance.py to main's bytes
+1dcc5e5 exp_07 round 6 half 1: tools/exp07_audit.py, the seen alignment audit
+9d13581 exp_07 round 6 half 1: tools/exp07_train.py, the seen-protocol entry point
+4dd37ec exp06: validate the populated approvals record instead of the null template
+0a2e518 exp_07 round 6 half 1: restore the trainer and yaw_aug to main's bytes
+453baf9 Merge main into exp07-window (exp_06 merge + exp_07 record commits)
+8cc4fd7 exp_07 worklog: restore two code spans
+3975afe exp_07: integrative review (not approved) → amendment A1 (no shared-module edits); round-6 relocation prompt
+53307b6 exp06: approvals file conforms to the schema (drop the note key added in fc1ee2a); fill provenance recorded in the notebook
+fc1ee2a exp06: fill training-critical code approvals (second reviewed commit): trainer, finalize, recipe, smoke, encoder, factory, heading, profiles, launch_sh + eval/HAA entry points at 4d7a6cb; round-3 keys stay null
+4d7a6cb exp_07: Table-1 reference screenshot moved into the record; exp_06 merge noted
+1b49cfc exp06 bookkeeping: record folder (plan v4 + A1-A3, reviews, prompts, notebook, approvals template), exp_02 hallway diagnostics, Codex round-2a archive, SOP role change (Coder Opus 5, Reviewer Codex)
+eaadb26 exp06: merge exp06-window (rounds 1, 2a, 2b, training gate, A3) into main
+9ccb6ea exp06: merge main (exp_07 record commits, rounds 3-5) into the training branch immediately before the W1 merge
+ec7e649 exp_07: round 5 delivered; Codex round-5 + integrative review prompt
+32ee878 exp_07: Codex round-4 review (request changes) folded into round-5 cycle 0
+77dd586 exp_07: seen reference manifests built (10 + index)
+daba33d exp_07: round 4 delivered; Codex round-4 review prompt
+d992fd5 exp_07: Codex round-3 review (request changes) folded into round-4 cycle 0
+d40c53e exp06: merge main (exp_07 record commits) into the training branch before the W1 merge
+49d4612 exp_07: round 3 delivered; Codex round-3 review prompt
+bf6027e exp_07: Codex round-2 review (request changes) folded into round-3 cycle 0
+5091f6c exp06: a job binds the owner its root records, always (finding 1)
+24085b2 exp_07: seen inventory pre-built; command file
+4f7593c exp_07: round 2 delivered; Codex round-2 review prompt
+17cdb61 exp06: a job root must record the owner it binds (red)
+a40f81b exp06: the pipeline's job finalisation closes no log of its own (A3)
+a498554 exp_07: Codex round-1 review (approve with changes); round 2 prompt
+6429e1c exp06: the queue's job finalisation writes no receipt (red)
+c57bca2 exp06: a job binds its spec, its owner and its children, not a receipt (A3)
+cbeca19 exp_07: round 1 delivered; Codex code review briefing and prompt
+da5eb93 exp06: require the A3 job contract of the finalizer (red)
+c65070d exp_07: round-1 Coder prompt
+786161a exp06: pin the one merge conflict the fixtures must not hide
+d82c31b exp06: the approvals test derives absence from the checkout, not from a round
+a2e2550 exp06: the pipeline fixtures close a child that has really exited
+3a9e86a exp06: merge main (exp_04/exp_03 record commits) into the training branch before the W1 merge
+3f6bb56 exp06: merge round 2b (closed at 3df20b8) into the training branch
+a313253 exp06: regression for the exploratory flag reaching the children (finding 1)
+58ccc27 exp06: derive a diagnostic's pass from consistent evidence (finding 4)
+df6a762 exp06: red tests for diagnostic receipt consistency (finding 4)
+7868207 exp06: bind the held-out waveforms and both geometry splits (finding 3)
+f82c33d exp06: red tests for complete consumed-data coverage (finding 3)
+79b53f0 exp06: finalisation reads approvals from their reviewed blob (finding 2)
+a83f045 exp06: red tests for committed approvals at finalisation (finding 2)
+5201430 exp06: preflight binds the approvals to their reviewed commit (finding 2)
+a74d985 exp06: red tests for approvals bound to a reviewed commit (finding 2)
+b979f0c exp06: the launcher tells the exp_06 child what diagnostic it is (finding 1)
+0f3b79e exp06: red test for the registered smokes' child dispatch (finding 1)
+f18383a exp06: a failed diagnostic aborts the launch with the child's status (finding 5)
+3df20b8 exp06: check the finished outputs against the manifest before a run stands (finding 2)
+5189b0d exp06: red tests for the post-run check of the finished outputs (finding 2)
+163f818 exp06: red tests for a failed diagnostic's status and abort naming (finding 5)
+497824b exp06: make job preparation a gate the queue cannot launch past (finding 1)
+78523b6 exp06: require validated diagnostic evidence and its provenance (finding 6)
+a1a851d exp06: red tests that a failed job preparation launches nothing (finding 1)
+052bf34 exp06: freeze the job declaration each HAA child was launched under (finding 3)
+93b397f exp06: red tests for the job-spec identity a child is launched under (finding 3)
+c1f9829 exp06: revalidate the headings a run validates on, not only those it trains on (finding 4)
+090ab7f exp06: red tests for validated diagnostic evidence at finalisation (finding 6)
+3834d04 exp06: diagnostics record their runner, budgets, timing and provenance (finding 6)
+a49e3a3 exp06: red regressions for the validation-only heading binding (finding 4)
+815f58f exp06: red tests for the diagnostic receipt's identity and budgets (finding 6)
+d5ff641 exp06: inventory and rehash every geometry input of the run (finding 2)
+265be9c exp06: red tests for the geometry-input inventory (finding 2)
+4885e17 exp06: gate every launch on the approved code digests (finding 1)
+eb0a1c9 exp06: red tests for the launcher's approval gate (finding 1)
+7315777 exp06: verify approvals, code digests and orchestration at finalisation (finding 1)
+18e8b5c exp06: red tests for approvals and orchestration at finalisation (finding 1)
+1e04b8b exp06: record the launcher, finalizer and approvals identities at spawn (finding 1)
+54ad12d exp06: red tests for the trainer's orchestration and approvals bindings (finding 1)
+7abc0c6 exp06: recompute code digests and admit runs fail-closed (finding 1)
+04c44c7 exp06: the approvals schema and its null template, both copies (finding 1)
+d6a4f42 exp06: re-verify every bound heading against its cache and require confirmatory
+3154c3b exp06: red tests for the approvals module and its null template (finding 1)
+56dc945 exp06: refuse an exit receipt whose child pid is alive or disagrees (finding 3)
+4b30735 exp06: red tests for the finalizer's heading consumer contract (full-train finding 7)
+e5461a6 exp06: let a HAA child record the repository it was launched from
+2fce9ef exp06: red end-to-end test of the HAA job contract on written artefacts
+439236f exp06: red tests for the exit receipt's child pid liveness (finding 3)
+4120094 exp06: validate operational argument types, bounds and cadence (finding 4)
+140c3c9 exp06: HAA pipeline queue, exclusive children and job-level finalisation
+4957053 exp06: red golden tests for the HAA pipeline queue
+855ec9a exp06: the HAA evaluation loop, per-query seeding, side labels and outputs
+ccb06b5 exp06: red tests for type-strict, bounded operational arguments (finding 4)
+cf7df40 exp06: bind checkpoint dtype/shape and give the probe the registered flags (nits 8, 9)
+4fb3f7c exp06: red tests for checkpoint dtype/shape and the probe's recipe flags (nits 8, 9)
+6262141 exp06: red tests for per-query Griffin-Lim seeding, side labels and the room summary
+d82b126 exp06: HAA evaluation parser, datasets and per-sample meta
+cc77266 exp06: red tests for the HAA evaluation wrapper's parser, datasets and records
+aa61fc4 exp06: HAA fine-tuning wrapper with the heading frame and the child records
+483287b exp06: red tests for the HAA fine-tuning wrapper
+65e099f exp06: evaluation launcher adapter with its own bindings and writer closure
+c5c81c6 exp06: red tests for the evaluation launcher adapter
+5f6d49b exp06: simulated-room evaluation entry point on the exp_06 registry
+ae7ea78 exp06: red tests for the simulated-room evaluation entry point
+f350d51 exp06: an omitted room's T60 must be NaN, never an infinity (close-4 finding 1)
+9e727af exp06: red regressions for infinity in an omitted room's T60 (close-4 finding 1)
+12e06fc exp06: document how the invalid-measurement counters are reconciled (close-3 finding 2)
+f0898a1 exp06: name the refusal when a JSON integer cannot become a float (close-3 nit 3)
+027bd5b exp06: red CLI test for a JSON integer too wide for a float (close-3 nit 3)
+6418e11 exp06: reconcile the invalid-measurement counters with the observations (close-3 finding 2)
+c4ec284 exp06: red tests for invalid counters that contradict the observations (close-3 finding 2)
+c91e014 exp06: compare a child's whole artifact mapping, key set first (close-3 finding 1)
+3eaec27 exp06: red job tests for artifact maps that record an extra null (close-3 finding 1)
+a977a68 exp06: document where a pipeline's launch.pid belongs (finding 1)
+e7fb365 exp06: type the whole job schema before it is used (finding 5)
+4a9f40c exp06: red CLI tests for nested job-schema failures (finding 5)
+d94bf1b exp06: type and recompute every metric value (finding 4)
+32db42a exp06: red tests for malformed metric values (finding 4)
+961d7e0 exp06: bind per-sample results to their room and protocol (finding 3)
+d8005a9 exp06: red tests for unbound per-sample results (finding 3)
+2741f37 exp06: bind every child's receipt and evidence to the re-run (finding 2)
+1be0997 exp06: red tests for unbound child receipts and evidence (finding 2)
+77946c8 exp06: refuse a live child during job admission (finding 1)
+7c5b74f exp06: red tests for a live child inside a job (finding 1)
+bf51484 exp06: document the round-2a contracts in the module headers
+21f7a2c exp06: re-validate each child's closed log and receipt (blocker 3c)
+1571715 exp06: red tests for a child log that was never closed (blocker 3c)
+8300de6 exp06: re-run every child validator inside the job (blocker 3c)
+84596ca exp06: red job-admission counterexamples (blocker 3c, tests)
+4d793c7 exp06: real job children and a declared job spec (blocker 3c, tests)
+eaba017 exp06: parse and cross-check the evaluation metrics (blocker 3b)
+6b15002 exp06: red tests for parsed evaluation metrics (blocker 3b)
+906b694 exp06: validate the pipeline's real HAA history (blocker 3a)
+1b54f37 exp06: red tests for the real HAA history format (blocker 3a)
+d3eeba2 exp06: launcher ownership, every launch location, real reasons (review 5)
+7ac020b exp06: red tests for launch ownership and recovery (review 5)
+846e5b4 exp06: enforce the sink status and the receipt schema (blocker 4)
+1bcc7e9 exp06: red tests for a failing sink and the receipt schema (blocker 4)
+13da458 exp06: type every nested provenance container (review 9)
+aead393 exp06: red tests for malformed nested inputs (review 9)
+2ac4fee exp06: bind the exp06_* arguments to the execution record (blocker 2)
+dddbba3 exp06: red tests binding the exp06_* fields to the record (blocker 2)
+e79fc0f exp06: derive and require the whole training inventory (blocker 1)
+22250f9 exp06: red tests for a complete training-data identity (blocker 1)
+2fe25bf exp06: require each child's role artefacts and refresh the module docstrings
+62655ae exp06: import the backbone registry directly in the finalizer
+1d5e116 exp06: share the child lifecycle with smoke, probe and recovery (review 5b)
+4c66184 exp06: resolve one data root through the dataset module and pin it (review 6)
+373b39f exp06: require a valid diagnostic receipt and gate recovery finalization (review 5a)
+e9e6e6f exp06: derive job admission from child roles, hashes and lineage (blocker 3c)
+cb9a6f3 exp06: bind the evaluation child to its checkpoint, heading and side labels (blocker 3b)
+3721cc8 exp06: enforce provenance, heading and artefact contracts on HAA training (blocker 3a)
+b822695 exp06: drain the child pipe to EOF before closing the log (blocker 4b)
+0ce5d13 exp06: bind the child-exit receipt, the live pid and a stable log (blocker 4a)
+6d1e870 exp06: revalidate the closure, the reviewed blobs and the data inventory (blocker 1)
+e9dd0a5 exp06: bind startup, retained and checkpoint arguments type-strictly (blocker 2)
+7914be7 exp06: name every malformed finalizer input as a refusal (review 9)
+8da3354 exp06: check smoke budgets, entry statuses and the live memory ceiling (review 7)
+975e999 exp06: count parameters inside a forked RNG (review nit 8)
+4f92f54 exp06: launcher modes smoke, probe, full and finalize
+5bd11f8 exp06: launch preflight gate inside the finalizer
+e38f90b exp06: bounded in-process smoke runner and the oriented CPU fixture
+852aebf exp06: job-level completion and the finalizer command line
+c4fdf3a exp06: completion evidence for the HAA fine-tuning and evaluation children
+4d4d95b exp06: finalizer core and the twelve-epoch pretraining contract
+5c89ffc exp06: provenance record and the composed training main
+ef4c654 exp06: parser, model construction and recorded arguments for the training entry
+8470a8d exp06: check derived fields, budget completeness and the whole schema
+0a1dd8d exp06: classify every trainer args field and normalize historical runs
+57b3484 exp06: bind heading records to git identity and separate refusal exit status
+a950605 exp06: reject malformed descriptive heading values
+4066811 exp06: expose heading estimation and overrides through CLI
+419ddf6 exp06: validate heading records and refusal evidence
+dc2d53f exp06: estimate room headings from hashed training inputs
+02fdb1b exp06: preserve HAA draws while rotating geometry
+e6f5366 exp06: require stable two-window heading contrasts
+a960767 exp06: freeze heading energy windows and column quantization
+ddbebd8 exp06: add oriented factory preserving pinned routes
+f9300cf exp06: add heading-conditioned cylindrical encoder
+ tests/exp07_fixture.py                             | 260 ++++++++
+ tests/test_exp07_audit.py                          | 110 ++++
+ tests/test_exp07_eval.py                           | 196 ++++++
+ tests/test_exp07_eval_gpu.py                       | 178 ++++++
+ tests/test_exp07_eval_launch.py                    | 160 +++++
+ tests/test_exp07_launcher.py                       | 171 +++++
+ tests/test_exp07_launcher_run.py                   | 311 ++++++++++
+ tests/test_exp07_manifests.py                      | 150 +++++
+ tests/test_exp07_pairs.py                          | 315 ++++++++++
+ tests/test_exp07_probe.py                          | 224 +++++++
+ tests/test_exp07_profiles.py                       | 367 +++++++++++
+ tests/test_exp07_provenance.py                     | 138 +++++
+ tests/test_exp07_record_tools.py                   | 690 +++++++++++++++++++++
+ tests/test_exp07_table.py                          | 627 +++++++++++++++++++
+ tests/test_exp07_trainer.py                        | 191 ++++++
+ tools/exp07_audit.py                               | 105 ++++
+ tools/exp07_eval.py                                | 189 ++++++
+ tools/exp07_eval_launch.py                         | 118 ++++
+ tools/exp07_gates.py                               | 128 ++++
+ tools/exp07_launch.sh                              |  12 +
+ tools/exp07_launcher.py                            | 517 +++++++++++++++
+ tools/exp07_manifests.py                           | 101 +++
+ tools/exp07_pairs.py                               | 270 ++++++++
+ tools/exp07_probe.py                               | 141 +++++
+ tools/exp07_profiles.py                            | 182 ++++++
+ tools/exp07_provenance.py                          |  89 +++
+ tools/exp07_record.py                              |  77 +++
+ tools/exp07_table.py                               | 408 ++++++++++++
+ tools/exp07_train.py                               | 103 +++
+ .../seen_protocol_results_assets/README.md         |  87 +++
+ .../approved_digests.json                          |   9 +
+ .../argv_golden_seen_aug.txt                       |   1 +
+ .../argv_golden_seen_aug_smoke.txt                 |   1 +
+ .../argv_golden_seen_cyl.txt                       |   1 +
+ .../argv_golden_seen_cyl_smoke.txt                 |   1 +
+ .../argv_golden_seen_simple.txt                    |   1 +
+ .../argv_golden_seen_simple_smoke.txt              |   1 +
+ .../bind_provenance.py                             | 311 ++++++++++
+ .../seen_protocol_results_assets/check_record.py   |  27 +
+ .../seen_protocol_results_assets/make_latex.py     | 127 ++++
+ .../make_results_html.py                           |  31 +
+ .../make_results_md.py                             | 299 +++++++++
+ .../seen_protocol_results_assets/static_checks.sh  |  25 +
+ 43 files changed, 7450 insertions(+)
+
+exec
+/bin/bash -lc 'cat /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round5_full_review.md' in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 0ms:
+**Reviewer:** OpenAI Codex gpt-6-astra (codex exec, read-only sandbox, worktree exp07-window) · **Date:** 2026-09-15 · log `seen_protocol_2026-09-15_14:59:08_codex_code_round5_full.log`
+
+**Reviewer:** OpenAI Codex gpt-6-astra (codex exec, read-only sandbox, worktree exp07-window) · **Date:** 2026-09-15
+
+# PART A — Coder round 5
+
+**Scope:** `7b3ad6c..2a27144`, all 16 commits; **1,724 insertions / 46 deletions across 15 files**.
+
+**Verdict: request changes. Blocking findings: 1, 2, 3.**
+
+The round-4 blockers are closed in producer admission. The new publication and record-binding layers still admit inconsistent or incomplete evidence.
+
+## Findings
+
+### 1. Blocker — generators accept unconverged and contradictory paired cells
+
+[make_results_md.py:87](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/make_results_md.py:87)
+
+`check_pairs()` validates aggregate finality and cell coverage, but omits the corresponding checks inside each cell.
+
+**Reproduced:** with the canonical JSON’s sidecar digest repaired, shared generator admission accepts each independent mutation:
+
+- `statistics.absolute.reconverge_required = true`
+- `statistics.relative.convergence.passed = false`
+- `cell.decision_driving = true`
+- A cell pairing inconsistent with its parent pairing
+
+Markdown, HTML and LaTeX all use this admission path. Thus an interval explicitly requiring reconvergence can reach publication.
+
+**Minimal fix:** validate both statistics’ convergence/finality, every cell’s descriptive status and pairing identity, and their consistency with aggregate flags. Share this validation with the binder.
+
+### 2. Blocker — the binder accepts incomplete products and mismatched producer inputs
+
+[bind_provenance.py:93](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/bind_provenance.py:93)
+
+The binder calls `md.load()` without table/pair completeness validation. Its input check filters selected filenames and accepts a **subset** of bound run inputs. Exp_04’s additional completeness predicate was dropped.
+
+**Reproduced, retaining the genuine approval pins:**
+
+- Nonfinal pairs with a nonempty reconvergence list
+- A table with `rows = []`
+- Removal of one run’s `metrics_yaw.json` provenance input
+- A substituted training-inventory input digest
+- An approval path replaced with `/nonexistent/approved.json`
+
+The altered JSON and sidecar were kept internally consistent; current JSON digests were cited in the synthetic rendered documents. `collect()` accepted all five cases.
+
+**Why:** the resulting report certifies products whose claimed evidence is incomplete or differs from the evidence actually bound. `check_record.py` repeats the same acceptance.
+
+**Minimal fix:** apply complete canonical validation, require exact per-product run/input coverage, and verify every producer dependency and approval identity against its bound artifact. Restore the omitted completeness predicate.
+
+### 3. Blocker — the final record omits required execution evidence
+
+[bind_provenance.py:43](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/bind_provenance.py:43), [bind_provenance.py:146](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/bind_provenance.py:146)
+
+Plan §3 requires parity/calibration/audit evidence and **every attempt, including aborted attempts**. The implementation binds three successful final attempts, receipts and ledger bytes. It does not traverse earlier attempts or probe-attempt evidence, and has no interface for parity/calibration evidence.
+
+**Reproduced:**
+
+- Added a ledger-listed aborted full attempt, bound the record, changed its `abort.json`: recomputation returned an **identical report**.
+- An unrelated audit containing only `{"protocol":"unseen","passed":false}` was accepted.
+
+The maximum-two-full-attempts assertion works on the supplied ledger, but does not establish the promised complete attempt history.
+
+**Minimal fix:** bind lifecycle evidence for every ledger-listed attempt, including aborted/probe attempts; add parity and calibration evidence; validate the actual seen-audit schema, cohort and execution identity.
+
+### 4. Should-fix — the registered 40,000-resample rerun remains unavailable
+
+[tools/exp07_pairs.py:196](/home/yixunhu/codespace/xRIR_code_wt07/tools/exp07_pairs.py:196)
+
+The CLI always uses the fixed 20,000-resample profile. It tells users to rerun flagged cells with a larger count but supplies no reproducible registered path for doing so.
+
+**Why:** plan §2’s publication procedure cannot be completed through the approved interface.
+
+**Minimal fix:** implement the prescribed 40,000-resample retry, retaining the original diagnostic, retry count and provenance. Continued failure must remain nonfinal.
+
+### 5. Should-fix — generator output can overwrite the exp_04 binding report
+
+[make_results_md.py:142](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/make_results_md.py:142)
+
+Output-overlap protection includes canonical products and sidecars but omits `--unseen-binding`.
+
+**Reproduced:** setting `--out` equal to the synthetic exp_04 binding-report path replaced that JSON with Markdown.
+
+**Minimal fix:** protect the resolved binding-report path alongside every other input, including aliases; verify refusal preserves its bytes.
+
+### 6. Should-fix — runtime checkpoint agreement is still not tested
+
+[tests/test_exp07_profiles.py:244](/home/yixunhu/codespace/xRIR_code_wt07/tests/test_exp07_profiles.py:244)
+
+New-arm profile digests remain `None` intentionally. Therefore this assertion:
+
+```python
+assert not path.exists() or prov.sha256_file(path)
+```
+
+accepts any readable checkpoint. It never compares against the filled runtime approval.
+
+**Minimal fix:** load the authoritative runtime pin and compare available checkpoint bytes and completion linkage against it. Exercise matching and substituted checkpoints using isolated fixtures.
+
+Round-4’s lifecycle and inventory-agreement requests are closed; its checkpoint-agreement request remains incomplete.
+
+### 7. Should-fix — LaTeX SD footnotes omit K and can print positive SDs as zero
+
+[make_latex.py:68](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/make_latex.py:68)
+
+`note(name, shot, rows)` ignores `shot`, producing two indistinguishably labelled SD entries for each recipe method. Fixed precision also violates the plan’s nonzero-display requirement: an SD of `0.000001` prints as zero in all three columns.
+
+**Minimal fix:** label every footnote with K and use sufficient precision for positive SDs, while preserving genuine zeros.
+
+### 8. Nit — README publication order cannot complete its first binding
+
+[README.md:53](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/README.md:53)
+
+The instructions run bind/check before generating documents, although binding requires nonempty `--rendered` files containing the canonical digests.
+
+**Minimal fix:** document **producers → generators → bind → check**.
+
+## Verified
+
+### Round-4 closure
+
+| Previous item | Result |
+|---|---|
+| Blocker 1: unchecked training/launcher closure records | Closed. Empty records, unreviewed records and incorrect digest labels refuse. |
+| Blocker 2: training execution/data contract | Closed for every listed mutation: inventory count/digest, smoke mode, dirty flag, effective epochs/backbone/yaw/save directory, and 1,000-hour projection. |
+| Required spectral metrics | Closed; all five registered metrics required. |
+| Exploratory Markdown disclosure | Closed; status and deviations displayed. |
+| Approval lifecycle and inventory agreement | Closed. |
+| Runtime checkpoint agreement | Finding 6 remains. |
+| Recursive approval immutability | Closed. |
+
+The fixture now creates a real reviewed Git commit and represents inventory evidence, receipt-derived limits, normalized args and twelve checkpoint entries. All **40 named admission refusals** pass. This verifies current behavior; it does not independently establish the claimed historical red-before-fix ordering.
+
+### Renderers, statistics and binding
+
+- Table aggregation preserves five-seed means, sample SD (`ddof=1`), EDT units and finite-count tolerance.
+- Paired statistics preserve shared query resampling, whole-room query weighting, paired cohorts, absolute/relative statistics and descriptive status.
+- Normal Markdown/HTML values trace to canonical JSON; generation is deterministic.
+- Top-level exploratory, reconvergence, incomplete-coverage and unbound-unseen refusals work.
+- Combined tables validate exp_04’s JSON through its sidecar and binding-report digest.
+- LaTeX matches the reference’s seven-column seen/unseen structure; mean rounding, unique-minimum bolding, unbolded ties, reference-row exclusion and canonical-JSON caption pointers work. Finding 7 affects its SD footnotes.
+- Valid synthetic binding/checking covers three final attempts, the released checkpoint, forty evaluations, outputs, companions, approval bytes and exp_04 inputs. Findings 2–3 limit what that certification proves.
+- The default exp_04 `write_outputs()` path produced **byte-identical JSON, Markdown and sidecar** against the prechange implementation with time/output location held fixed. The diff contains two behavioral edits plus a docstring: **3 insertions / 2 deletions**.
+
+Dataset pins agree with available artifacts: ten manifest hashes, 6,217-query identity `be5095a8…`, and inventory `251b7d7b…`. Both K values reference the same complete file set. The new literals `296454`, `60`, and `1.5` agree with launcher contracts. Checkpoint/closure approval pins correctly remain unfilled at this stage.
+
+Independent counterexamples and round-4 closure replays are retained in [the review script](/tmp/exp07-review-edgge526/test_review_adversarial.py) and [its log](/tmp/exp07-review-edgge526/adversarial.log).
+
+---
+
+# PART B — FINAL INTEGRATIVE REVIEW (`full`)
+
+**Scope:** `f492613..2a27144`; **5,483 insertions / 116 deletions across 45 files**.
+
+**Verdict: not approved. Blocking findings: 1, 2, 3, 9, 10.**
+
+## Additional blocking findings
+
+### 9. Blocker — merging breaks exp_04’s existing record check through live source validation
+
+Change site: [tools/exp04_eval.py:129](/home/yixunhu/codespace/xRIR_code_wt07/tools/exp04_eval.py:129).
+
+Verification path: [exp_04 check_record.py:20](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results_assets/check_record.py:20) → [snapshot():57](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results_assets/bind_provenance.py:57) → [provenance.revalidate():385](/home/yixunhu/codespace/xRIR_code_wt07/tools/provenance.py:385).
+
+**The precise answer to the producer-pin question:** the checker does **not** recompute the producer closure at HEAD against `6d32a5e2…`. It compares recorded producer/approval identities. Nevertheless, the merge breaks checking because evaluation snapshots rehash recorded evaluator/writer source paths against the **live repository**.
+
+Using an actual bound exp_04 evaluation manifest:
+
+- Source revalidation against main’s premerge files: **no mismatches**.
+- Against the dry-run merged files: mismatches for:
+  - Entry-point closure: `tools/exp04_eval.py`, `tools/provenance.py`
+  - Writer closure: those two files plus `tools/exp04_eval_launch.py`
+
+Passing the report’s recorded HEAD controls ancestry/report identity; it does not restore historical source files.
+
+Separately, fresh `results_table` production changes closure from approved `6d32a5e2…` to `1856f447…`; both `tools/results_table.py` and `tools/provenance.py` contribute.
+
+**Minimal fix:** preserve the historical shared evaluation closures through exp_07-specific implementations, or review a historical-source verification migration that checks complete recorded closures against immutable reviewed Git blobs while retaining strict artifact/data checks. Moving only the renderer hook or repinning only the producer does **not** repair the checker failure. Historical exp_05 M-run reuse needs the same treatment, or new evaluations under the reviewed evaluator.
+
+### 10. Blocker — current main’s exp_06 integration fails, and filled approvals become stale
+
+[train_xRIR_backbone.py:61](/home/yixunhu/codespace/xRIR_code_wt07/train_xRIR_backbone.py:61), [exp_06 parser contract:50](/home/yixunhu/codespace/xRIR_code/tests/test_exp06_train.py:50).
+
+Main advanced during review and now includes exp_06. On main **`53307b6`**, this exact test passes before merging and fails afterward:
+
+```text
+tests/test_exp06_train.py::test_shared_flags_and_defaults_equal_the_trainers
+```
+
+Failure: the shared trainer has the additional `protocol` argument.
+
+Moreover, hashing the merged source files changes these nine filled exp_06 code approvals:
+
+```text
+trainer, finalize, smoke, heading, profiles,
+eval, eval_launch, haa_finetune, haa_eval
+```
+
+For example, its trainer closure changes from `5a2c6df0…` to `cbe84cfb…`. Exp_06’s admission explicitly rejects mismatched code approvals.
+
+**Minimal fix:** review the parser contract’s treatment of exp_06’s fixed unseen protocol, rerun integration checks, and review/refill affected approvals for subsequent exp_06 execution. Preserve any already-started attempt’s original provenance.
+
+Directly disjoint source edits do not establish dependency compatibility.
+
+## Verified
+
+### Plan §3 delivery
+
+| Planned round | Assessment |
+|---|---|
+| 1 — protocol, inventory, audit | Implemented; real split sizes/loading verified. GPU parity, real seen training smoke and audit evidence remain deferred. |
+| 2 — launcher, probes, timing/retry gates | Implemented; CPU contracts and goldens pass. Actual receipts and training evidence await GPU execution. |
+| 3 — evaluator and launcher | Implemented; CPU refusals pass. Five evaluation GPU tests remain deferred. |
+| 4 — profiles and table producer | Implemented; round-4 blockers closed. Finding 6 remains. |
+| 5 — paired producer | Implemented except the prescribed 40,000-resample rerun path. |
+| 6 — renderers and bound record | Implemented but incomplete: findings 1–3 and 5–8. |
+
+Thus **all six implementation areas exist, but the plan is not fully delivered**.
+
+### Frozen closure rule
+
+This command returns **no paths**:
+
+```bash
+git diff --name-only f492613..2a27144 -- \
+  eval_yaw_rotation.py eval_unseen.py eval_xRIR_backbone.py \
+  'model/*.py' tools/yaw_rotation.py tools/reference_manifest.py \
+  tools/per_sample_metrics.py 'treble_multi_room_dataset/*.py' \
+  utils/spec_utils.py tools/paired_stats.py tools/summarize_yaw.py
+```
+
+The exp_03 frozen evaluator closure also retains its approved digest in the latest merged clone.
+
+### Shared-file consequences
+
+All eight specifically named files changed:
+
+| File | Consequence |
+|---|---|
+| `train_xRIR_backbone.py` | Adds protocol dispatch and the seen module to training closure membership. |
+| `tools/provenance.py` | Adds protocol-aware training identity; preserves legacy unseen cache handling, but changes dependent closure digests. |
+| `tools/exp04_launcher.py` | Changes launcher identity; existing attempts retain their recorded spawn identity. |
+| `tools/exp05_gates.py` | Extends receipt/timing validation and seen retry enforcement; historical receipt/launcher identities remain authoritative. |
+| `tools/exp05_probe.py` | Adds M/seen probing; existing unseen receipt schema remains supported. |
+| `tools/exp04_eval.py` | Factory hook changes evaluator/writer identities and triggers finding 9. |
+| `tools/exp04_eval_launch.py` | Seen entry/bindings change writer identity and trigger finding 9. |
+| `tools/results_table.py` | Default output behavior is byte-identical; producer source identity changes. |
+
+`tools/yaw_aug.py` and `tools/exp04_launch.sh` also change shared training/launcher dependencies.
+
+### Exp_05: retain the historical training pin
+
+Fresh imports establish:
+
+| Training closure | Files | Digest |
+|---|---:|---|
+| `f19b9b6` | 11; seen module absent | `5b2da2504e220b63bfc932cf0d83c143261e117edea1838e6907159c3b12eb13` |
+| `2a27144` | 12; seen module included | `dcd3eb1bf8239b709b859aae6ce34721c843cfd071623e9e309adc5628d74c45` |
+
+All four actual exp_05 training manifests record the **old `5b2da250…` closure**:
+
+- S_simple, S_cylindrical and L_cylindrical: reviewed commit `f19b9b6`
+- L_simple: reviewed commit `862923e`
+
+Their recorded launcher digests are:
+
+```text
+f19b9b6 attempts:
+0bff0d4fe270740c1adc411fd3e5d945742c2dcb545290d19e663d610fd8df20
+
+862923e L_simple:
+9dadbef0786a404654f01005fc3c143ba3d114210d41e3cf9f02e0779db657a6
+```
+
+**Exp_05 A9 `closures.training` must therefore remain the old `5b2da250…` value.** [tools/param_curve.py:221](/home/yixunhu/codespace/xRIR_code_wt07/tools/param_curve.py:221) compares the bound training manifests’ recorded launcher/training digests with approval pins; it does not recompute training identity from HEAD.
+
+Consequently:
+
+- Running L attempts retain their spawn closures; A7 records subsequent source drift.
+- Already-certified S artifacts can be admitted into newly reviewed exp_05 evaluations without retraining.
+- New evaluations use `--reviewed-commit <merge>` and their actual new evaluator/writer closures; the producer gets its actual new closure at approval fill.
+- Historical exp_04 M evaluations still encounter finding 9’s live-source validation issue.
+
+### Merge safety
+
+Performed `git merge --no-ff --no-commit 2a27144` in isolated clones of main at `ec7e649`, `4d7a6cb`, and finally **`53307b6`**.
+
+**All three merges were conflict-free.** Main’s notebook/reviews/prompts coexist with the branch’s approval template, six goldens and code. Exp_06’s promised direct edits are disjoint.
+
+The merged tree nevertheless fails the exp_06 parser test described in finding 10. A conflict-free merge is therefore not an integration approval.
+
+### CPU suite and hygiene
+
+All execution used the prescribed interpreter, empty `CUDA_VISIBLE_DEVICES`, disabled bytecode/cache-provider writes, and isolated temporary clones.
+
+| Check | Independent result |
+|---|---|
+| Full branch `pytest tests -q -p no:cacheprovider` | **1,592 passed, 43 skipped**, 600.79 s |
+| Exp_07 → exp_04 → exp_03 collection order | **378 passed, 10 skipped** |
+| Reverse experiment collection order | **378 passed, 10 skipped** |
+| `static_checks.sh` | **Exit 0**: 150 passed; then 118 passed/1 skipped in each record order |
+| Compilation of all changed Python files | **35 passed** |
+| Changed shell scripts, `bash -n` | **2 passed** |
+| `git diff --check f492613..2a27144` | **Exit 0** |
+| Latest-main parser test before/after merge | **1 passed / 1 failed** |
+
+The full-suite result is one pass higher than the Coder’s reported 1,591. [Full log](/tmp/exp07-review-edgge526/full-suite.log), [static log](/tmp/exp07-review-edgge526/static-checks.log), [merged regression log](/tmp/exp07-review-edgge526/final-main-merged.log).
+
+All round-5 co-author trailers are present. The three oversized commits are confirmed at **314, 311 and 208 changed lines**; they are coherent recorded process deviations.
+
+No GPU work or live-artifact mutation occurred. The original worktree retains only its pre-existing untracked `checkpoints` entry.
+
+## Deferred GPU gate — exact nine node IDs
+
+Run on the first free GPU **before any exp_07 probe**:
+
+```text
+tests/test_exp07_trainer.py::test_unseen_step_bit_identical_to_prechange[False-simple-32]
+tests/test_exp07_trainer.py::test_unseen_step_bit_identical_to_prechange[False-cylindrical-32]
+tests/test_exp07_trainer.py::test_unseen_step_bit_identical_to_prechange[True-simple-32]
+tests/test_exp07_trainer.py::test_unseen_step_bit_identical_to_prechange[True-cylindrical-32]
+tests/test_exp07_eval_gpu.py::test_unseen_32_query_run_is_bit_identical_to_exp04
+tests/test_exp07_eval_gpu.py::test_seen_final_batch_matches_a_direct_frozen_call[8]
+tests/test_exp07_eval_gpu.py::test_seen_final_batch_matches_a_direct_frozen_call[1]
+tests/test_exp07_eval_gpu.py::test_the_launcher_runs_the_seen_split_and_matches_the_frozen_functions[8]
+tests/test_exp07_eval_gpu.py::test_the_launcher_runs_the_seen_split_and_matches_the_frozen_functions[1]
+```
+
+Required artifacts:
+
+- Trainer parity: real AcousticRooms unseen batch of 32, K=8, both model constructors, and Git object `f492613`; no trained checkpoint required.
+- Unseen evaluation parity: `ckpt/xRIR_simple_8_shot/epoch_12.pth` and `ckpt/yaw_aug/reference_manifest_k8_seed42.json`.
+- Seen direct/final-batch tests: that checkpoint, seen split pickle and referenced data; the direct tests retain the actual final nine queries.
+- Seen launcher tests: seed-42 seen manifests at K=8/K=1, referenced data, and a clean reviewed merge checkout.
+
+These nine tests were collected, **not executed**.
+
+## Planner launch sequence after the findings are resolved
+
+Use the final reviewed merge SHA throughout. Commands below describe the existing interfaces; findings 3–4 require additional implemented interfaces before publication.
+
+### 1. Merge, then GPU parity
+
+From the merged repository root:
+
+```bash
+PY=/home/yixunhu/miniconda3/envs/xRIR/bin/python
+REC=worklog/worklog_yixun/exp_07_seen_protocol_claude
+ASSETS="$REC/seen_protocol_results_assets"
+export PYTHONPATH="$PWD"
+export XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms
+export PYTHONDONTWRITEBYTECODE=1 PYTHONHASHSEED=0 OMP_NUM_THREADS=2
+```
+
+Set `MERGE` to the reviewed merge SHA and `GPU` to the first free physical GPU.
+
+```bash
+CUDA_VISIBLE_DEVICES="$GPU" "$PY" -m pytest \
+  tests/test_exp07_trainer.py::test_unseen_step_bit_identical_to_prechange \
+  tests/test_exp07_eval_gpu.py -q -p no:cacheprovider
+```
+
+Require **9 passed, 0 skipped**.
+
+### 2. Seen alignment audit
+
+```bash
+CUDA_VISIBLE_DEVICES="$GPU" "$PY" tools/yaw_aug.py \
+  --audit --protocol seen \
+  --out ckpt/exp07/alignment_audit_seen.json --n-batches 3
+```
+
+Retain the audit’s arguments, environment, counts and cohort digest, which incorporates query paths and offsets.
+
+### 3. Released-checkpoint calibration
+
+Run K=8, seeds 42–46 with:
+
+```text
+ROLE=released_seen
+BACKBONE=simple
+CHECKPOINT=checkpoints/xRIR_seen.pth
+```
+
+Use this evaluation command for calibration and subsequent evaluations, substituting the recorded role/K/seed values:
+
+```bash
+MANIFEST="ckpt/exp07/reference_manifest_seen_k${K}_seed${SEED}.json"
+HASH=$("$PY" -c \
+  'import sys; from tools.reference_manifest import load_manifest, manifest_hash; print(manifest_hash(load_manifest(sys.argv[1])))' \
+  "$MANIFEST")
+
+"$PY" tools/exp04_eval_launch.py \
+  --entry exp07 --split seen --backbone "$BACKBONE" \
+  --checkpoint "$CHECKPOINT" --num-shot "$K" \
+  --manifest "$MANIFEST" --manifest-hash "$HASH" --gl-seed "$SEED" \
+  --conditions P --yaw-cols 0 --acoustic-cols 0 --e-acoustic-cols \
+  --decomposition-batches 0 --batch-size 16 --max-samples 0 \
+  --num-workers 12 --threads 2 \
+  --data-root "$XRIR_DATA_PATH" --gpu "$GPU" \
+  --reviewed-commit "$MERGE" --log-dir "$REC" \
+  --run-label "${ROLE}_k${K}_seed${SEED}_k0" \
+  --out-dir "ckpt/exp07/eval/${ROLE}_k${K}_seed${SEED}_k0" \
+  "${TRAIN_BINDS[@]}"
+```
+
+`TRAIN_BINDS=()` for the released checkpoint. Omit `--tf32`; evaluation is TF32 off.
+
+For **each** EDT/C50/T60 metric, require:
+
+```text
+|five-seed mean − historical value|
+    ≤ 3 × five-seed sample SD + 0.02 × historical value
+```
+
+Historical values: **0.0389 s, 1.029 dB, 7.27%**.
+
+If any fails, perform the prescribed matched-reference 200-query investigation within two GPU-hours and record the cause before admitting new-arm evaluations.
+
+### 4. Smoke, probe, then full training for each arm
+
+| Role | Backbone | Yaw |
+|---|---|---:|
+| `seen_simple` | `simple` | 0 |
+| `seen_cyl` | `cylindrical` | 0 |
+| `seen_aug` | `simple` | 1 |
+
+```bash
+tools/exp04_launch.sh smoke --protocol seen \
+  --backbone "$BACKBONE" --yaw-aug "$YAW" \
+  --gpu "$GPU" --reviewed-commit "$MERGE" --log-dir "$REC"
+
+tools/exp04_launch.sh probe --protocol seen \
+  --backbone "$BACKBONE" --yaw-aug "$YAW" \
+  --gpu "$GPU" --reviewed-commit "$MERGE" \
+  --log-dir "$REC" --timestamp "$STAMP"
+```
+
+The receipt is:
+
+```text
+ckpt/exp07/<ROLE>/_probe_<STAMP>_<ROLE>.json
+```
+
+Then launch with that exact receipt:
+
+```bash
+nohup setsid tools/exp04_launch.sh full --protocol seen \
+  --backbone "$BACKBONE" --yaw-aug "$YAW" \
+  --gpu "$GPU" --reviewed-commit "$MERGE" \
+  --probe-json "$RECEIPT" --log-dir "$REC" \
+  > "$REC/${ROLE}_${STAMP}_launcher.log" 2>&1 &
+```
+
+Require projection ≤60 hours, cumulative ceiling `1.5 × T_run`, epoch-1 ≤`1.05 × T_epoch`, twelve checkpoints, certified completion, no resume and at most one retry.
+
+### 5. Complete the forty evaluations
+
+Evaluate each new arm at K=1/8 and seeds 42–46 using its `final/epoch_012.pth`, with:
+
+```bash
+TRAIN_BINDS=(
+  --bind-input "train_args=ckpt/exp07/$ROLE/final/args.json"
+  --bind-input "train_manifest=ckpt/exp07/$ROLE/final/train_manifest.json"
+  --bind-input "train_completion=ckpt/exp07/$ROLE/final/completion.json"
+)
+```
+
+Use the evaluation command above. Add the released checkpoint’s five K=1 evaluations; retain its five K=8 calibration runs. Total: **40**.
+
+### 6. Pin-finalisation commit
+
+Fill the approval atomically with actual epoch-12 checkpoint identities, recorded training/launcher identities, evaluation/writer identities used, and final producer closures. Commit the filled approval before producing canonical results.
+
+### 7. Producers → generators → bind → check
+
+```bash
+"$PY" tools/exp07_table.py --profile TABLE_SEEN_V1 \
+  --runs ckpt/exp07/eval/{seen_simple,seen_cyl,seen_aug,released_seen}_k{1,8}_seed{42..46}_k0 \
+  --json ckpt/exp07/results/TABLE_SEEN_V1.json \
+  --md worklog/worklog_yixun/model_comparison_seen.md
+
+for role in seen_cyl seen_aug released_seen; do
+  "$PY" tools/exp07_pairs.py --profile PAIRS_SEEN_V1 \
+    --runs-a ckpt/exp07/eval/${role}_k{1,8}_seed{42..46}_k0 \
+    --runs-b ckpt/exp07/eval/seen_simple_k{1,8}_seed{42..46}_k0 \
+    --json "ckpt/exp07/results/PAIRS_SEEN_V1_${role}.json" \
+    --summary "ckpt/exp07/results/PAIRS_SEEN_V1_${role}.summary.txt"
+done
+```
+
+Require all 30 paired cells final, including the corrected retry procedure where necessary.
+
+Each generator takes:
+
+```text
+--table <TABLE_SEEN_V1.json>
+--pairs <cyl JSON> <aug JSON> <released JSON>
+--unseen-table ckpt/yaw_aug/results/TABLE_V1.json
+--unseen-binding <verified exp_04 binding report>
+--out <document>
+```
+
+Generate with `make_results_md.py`, `make_results_html.py`, and `make_latex.py`. Then:
+
+```bash
+"$PY" "$ASSETS/bind_provenance.py" \
+  --runs ckpt/exp07/eval/{seen_simple,seen_cyl,seen_aug,released_seen}_k{1,8}_seed{42..46}_k0 \
+  --attempt ckpt/exp07/{seen_simple,seen_cyl,seen_aug}/final \
+  --audit ckpt/exp07/alignment_audit_seen.json \
+  --results <table JSON and three pairing JSONs> \
+  --rendered <Markdown HTML LaTeX> \
+  --unseen-table ckpt/yaw_aug/results/TABLE_V1.json \
+  --unseen-binding <verified exp_04 binding report> \
+  --out ckpt/exp07
+
+"$PY" "$ASSETS/check_record.py" ckpt/exp07
+```
+
+The corrected binder must additionally cover the evidence required by finding 3; those arguments do not exist yet.
+
+## Final verdicts and exact blocking list
+
+- **Part A: request changes.**
+- **Part B: not approved.**
+
+**Blocking findings:**
+
+1. Generators accept unconverged/contradictory paired cells.
+2. Binder accepts incomplete products and mismatched evidence.
+3. Final record omits required attempt, parity and calibration evidence.
+9. Merge invalidates exp_04’s existing record check.
+10. Merge fails exp_06’s parser contract and changes nine filled closure approvals.
+375,403
+**Reviewer:** OpenAI Codex gpt-6-astra (codex exec, read-only sandbox, worktree exp07-window) · **Date:** 2026-09-15
+
+# PART A — Coder round 5
+
+**Scope:** `7b3ad6c..2a27144`, all 16 commits; **1,724 insertions / 46 deletions across 15 files**.
+
+**Verdict: request changes. Blocking findings: 1, 2, 3.**
+
+The round-4 blockers are closed in producer admission. The new publication and record-binding layers still admit inconsistent or incomplete evidence.
+
+## Findings
+
+### 1. Blocker — generators accept unconverged and contradictory paired cells
+
+[make_results_md.py:87](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/make_results_md.py:87)
+
+`check_pairs()` validates aggregate finality and cell coverage, but omits the corresponding checks inside each cell.
+
+**Reproduced:** with the canonical JSON’s sidecar digest repaired, shared generator admission accepts each independent mutation:
+
+- `statistics.absolute.reconverge_required = true`
+- `statistics.relative.convergence.passed = false`
+- `cell.decision_driving = true`
+- A cell pairing inconsistent with its parent pairing
+
+Markdown, HTML and LaTeX all use this admission path. Thus an interval explicitly requiring reconvergence can reach publication.
+
+**Minimal fix:** validate both statistics’ convergence/finality, every cell’s descriptive status and pairing identity, and their consistency with aggregate flags. Share this validation with the binder.
+
+### 2. Blocker — the binder accepts incomplete products and mismatched producer inputs
+
+[bind_provenance.py:93](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/bind_provenance.py:93)
+
+The binder calls `md.load()` without table/pair completeness validation. Its input check filters selected filenames and accepts a **subset** of bound run inputs. Exp_04’s additional completeness predicate was dropped.
+
+**Reproduced, retaining the genuine approval pins:**
+
+- Nonfinal pairs with a nonempty reconvergence list
+- A table with `rows = []`
+- Removal of one run’s `metrics_yaw.json` provenance input
+- A substituted training-inventory input digest
+- An approval path replaced with `/nonexistent/approved.json`
+
+The altered JSON and sidecar were kept internally consistent; current JSON digests were cited in the synthetic rendered documents. `collect()` accepted all five cases.
+
+**Why:** the resulting report certifies products whose claimed evidence is incomplete or differs from the evidence actually bound. `check_record.py` repeats the same acceptance.
+
+**Minimal fix:** apply complete canonical validation, require exact per-product run/input coverage, and verify every producer dependency and approval identity against its bound artifact. Restore the omitted completeness predicate.
+
+### 3. Blocker — the final record omits required execution evidence
+
+[bind_provenance.py:43](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/bind_provenance.py:43), [bind_provenance.py:146](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/bind_provenance.py:146)
+
+Plan §3 requires parity/calibration/audit evidence and **every attempt, including aborted attempts**. The implementation binds three successful final attempts, receipts and ledger bytes. It does not traverse earlier attempts or probe-attempt evidence, and has no interface for parity/calibration evidence.
+
+**Reproduced:**
+
+- Added a ledger-listed aborted full attempt, bound the record, changed its `abort.json`: recomputation returned an **identical report**.
+- An unrelated audit containing only `{"protocol":"unseen","passed":false}` was accepted.
+
+The maximum-two-full-attempts assertion works on the supplied ledger, but does not establish the promised complete attempt history.
+
+**Minimal fix:** bind lifecycle evidence for every ledger-listed attempt, including aborted/probe attempts; add parity and calibration evidence; validate the actual seen-audit schema, cohort and execution identity.
+
+### 4. Should-fix — the registered 40,000-resample rerun remains unavailable
+
+[tools/exp07_pairs.py:196](/home/yixunhu/codespace/xRIR_code_wt07/tools/exp07_pairs.py:196)
+
+The CLI always uses the fixed 20,000-resample profile. It tells users to rerun flagged cells with a larger count but supplies no reproducible registered path for doing so.
+
+**Why:** plan §2’s publication procedure cannot be completed through the approved interface.
+
+**Minimal fix:** implement the prescribed 40,000-resample retry, retaining the original diagnostic, retry count and provenance. Continued failure must remain nonfinal.
+
+### 5. Should-fix — generator output can overwrite the exp_04 binding report
+
+[make_results_md.py:142](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/make_results_md.py:142)
+
+Output-overlap protection includes canonical products and sidecars but omits `--unseen-binding`.
+
+**Reproduced:** setting `--out` equal to the synthetic exp_04 binding-report path replaced that JSON with Markdown.
+
+**Minimal fix:** protect the resolved binding-report path alongside every other input, including aliases; verify refusal preserves its bytes.
+
+### 6. Should-fix — runtime checkpoint agreement is still not tested
+
+[tests/test_exp07_profiles.py:244](/home/yixunhu/codespace/xRIR_code_wt07/tests/test_exp07_profiles.py:244)
+
+New-arm profile digests remain `None` intentionally. Therefore this assertion:
+
+```python
+assert not path.exists() or prov.sha256_file(path)
+```
+
+accepts any readable checkpoint. It never compares against the filled runtime approval.
+
+**Minimal fix:** load the authoritative runtime pin and compare available checkpoint bytes and completion linkage against it. Exercise matching and substituted checkpoints using isolated fixtures.
+
+Round-4’s lifecycle and inventory-agreement requests are closed; its checkpoint-agreement request remains incomplete.
+
+### 7. Should-fix — LaTeX SD footnotes omit K and can print positive SDs as zero
+
+[make_latex.py:68](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/make_latex.py:68)
+
+`note(name, shot, rows)` ignores `shot`, producing two indistinguishably labelled SD entries for each recipe method. Fixed precision also violates the plan’s nonzero-display requirement: an SD of `0.000001` prints as zero in all three columns.
+
+**Minimal fix:** label every footnote with K and use sufficient precision for positive SDs, while preserving genuine zeros.
+
+### 8. Nit — README publication order cannot complete its first binding
+
+[README.md:53](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/README.md:53)
+
+The instructions run bind/check before generating documents, although binding requires nonempty `--rendered` files containing the canonical digests.
+
+**Minimal fix:** document **producers → generators → bind → check**.
+
+## Verified
+
+### Round-4 closure
+
+| Previous item | Result |
+|---|---|
+| Blocker 1: unchecked training/launcher closure records | Closed. Empty records, unreviewed records and incorrect digest labels refuse. |
+| Blocker 2: training execution/data contract | Closed for every listed mutation: inventory count/digest, smoke mode, dirty flag, effective epochs/backbone/yaw/save directory, and 1,000-hour projection. |
+| Required spectral metrics | Closed; all five registered metrics required. |
+| Exploratory Markdown disclosure | Closed; status and deviations displayed. |
+| Approval lifecycle and inventory agreement | Closed. |
+| Runtime checkpoint agreement | Finding 6 remains. |
+| Recursive approval immutability | Closed. |
+
+The fixture now creates a real reviewed Git commit and represents inventory evidence, receipt-derived limits, normalized args and twelve checkpoint entries. All **40 named admission refusals** pass. This verifies current behavior; it does not independently establish the claimed historical red-before-fix ordering.
+
+### Renderers, statistics and binding
+
+- Table aggregation preserves five-seed means, sample SD (`ddof=1`), EDT units and finite-count tolerance.
+- Paired statistics preserve shared query resampling, whole-room query weighting, paired cohorts, absolute/relative statistics and descriptive status.
+- Normal Markdown/HTML values trace to canonical JSON; generation is deterministic.
+- Top-level exploratory, reconvergence, incomplete-coverage and unbound-unseen refusals work.
+- Combined tables validate exp_04’s JSON through its sidecar and binding-report digest.
+- LaTeX matches the reference’s seven-column seen/unseen structure; mean rounding, unique-minimum bolding, unbolded ties, reference-row exclusion and canonical-JSON caption pointers work. Finding 7 affects its SD footnotes.
+- Valid synthetic binding/checking covers three final attempts, the released checkpoint, forty evaluations, outputs, companions, approval bytes and exp_04 inputs. Findings 2–3 limit what that certification proves.
+- The default exp_04 `write_outputs()` path produced **byte-identical JSON, Markdown and sidecar** against the prechange implementation with time/output location held fixed. The diff contains two behavioral edits plus a docstring: **3 insertions / 2 deletions**.
+
+Dataset pins agree with available artifacts: ten manifest hashes, 6,217-query identity `be5095a8…`, and inventory `251b7d7b…`. Both K values reference the same complete file set. The new literals `296454`, `60`, and `1.5` agree with launcher contracts. Checkpoint/closure approval pins correctly remain unfilled at this stage.
+
+Independent counterexamples and round-4 closure replays are retained in [the review script](/tmp/exp07-review-edgge526/test_review_adversarial.py) and [its log](/tmp/exp07-review-edgge526/adversarial.log).
+
+---
+
+# PART B — FINAL INTEGRATIVE REVIEW (`full`)
+
+**Scope:** `f492613..2a27144`; **5,483 insertions / 116 deletions across 45 files**.
+
+**Verdict: not approved. Blocking findings: 1, 2, 3, 9, 10.**
+
+## Additional blocking findings
+
+### 9. Blocker — merging breaks exp_04’s existing record check through live source validation
+
+Change site: [tools/exp04_eval.py:129](/home/yixunhu/codespace/xRIR_code_wt07/tools/exp04_eval.py:129).
+
+Verification path: [exp_04 check_record.py:20](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results_assets/check_record.py:20) → [snapshot():57](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results_assets/bind_provenance.py:57) → [provenance.revalidate():385](/home/yixunhu/codespace/xRIR_code_wt07/tools/provenance.py:385).
+
+**The precise answer to the producer-pin question:** the checker does **not** recompute the producer closure at HEAD against `6d32a5e2…`. It compares recorded producer/approval identities. Nevertheless, the merge breaks checking because evaluation snapshots rehash recorded evaluator/writer source paths against the **live repository**.
+
+Using an actual bound exp_04 evaluation manifest:
+
+- Source revalidation against main’s premerge files: **no mismatches**.
+- Against the dry-run merged files: mismatches for:
+  - Entry-point closure: `tools/exp04_eval.py`, `tools/provenance.py`
+  - Writer closure: those two files plus `tools/exp04_eval_launch.py`
+
+Passing the report’s recorded HEAD controls ancestry/report identity; it does not restore historical source files.
+
+Separately, fresh `results_table` production changes closure from approved `6d32a5e2…` to `1856f447…`; both `tools/results_table.py` and `tools/provenance.py` contribute.
+
+**Minimal fix:** preserve the historical shared evaluation closures through exp_07-specific implementations, or review a historical-source verification migration that checks complete recorded closures against immutable reviewed Git blobs while retaining strict artifact/data checks. Moving only the renderer hook or repinning only the producer does **not** repair the checker failure. Historical exp_05 M-run reuse needs the same treatment, or new evaluations under the reviewed evaluator.
+
+### 10. Blocker — current main’s exp_06 integration fails, and filled approvals become stale
+
+[train_xRIR_backbone.py:61](/home/yixunhu/codespace/xRIR_code_wt07/train_xRIR_backbone.py:61), [exp_06 parser contract:50](/home/yixunhu/codespace/xRIR_code/tests/test_exp06_train.py:50).
+
+Main advanced during review and now includes exp_06. On main **`53307b6`**, this exact test passes before merging and fails afterward:
+
+```text
+tests/test_exp06_train.py::test_shared_flags_and_defaults_equal_the_trainers
+```
+
+Failure: the shared trainer has the additional `protocol` argument.
+
+Moreover, hashing the merged source files changes these nine filled exp_06 code approvals:
+
+```text
+trainer, finalize, smoke, heading, profiles,
+eval, eval_launch, haa_finetune, haa_eval
+```
+
+For example, its trainer closure changes from `5a2c6df0…` to `cbe84cfb…`. Exp_06’s admission explicitly rejects mismatched code approvals.
+
+**Minimal fix:** review the parser contract’s treatment of exp_06’s fixed unseen protocol, rerun integration checks, and review/refill affected approvals for subsequent exp_06 execution. Preserve any already-started attempt’s original provenance.
+
+Directly disjoint source edits do not establish dependency compatibility.
+
+## Verified
+
+### Plan §3 delivery
+
+| Planned round | Assessment |
+|---|---|
+| 1 — protocol, inventory, audit | Implemented; real split sizes/loading verified. GPU parity, real seen training smoke and audit evidence remain deferred. |
+| 2 — launcher, probes, timing/retry gates | Implemented; CPU contracts and goldens pass. Actual receipts and training evidence await GPU execution. |
+| 3 — evaluator and launcher | Implemented; CPU refusals pass. Five evaluation GPU tests remain deferred. |
+| 4 — profiles and table producer | Implemented; round-4 blockers closed. Finding 6 remains. |
+| 5 — paired producer | Implemented except the prescribed 40,000-resample rerun path. |
+| 6 — renderers and bound record | Implemented but incomplete: findings 1–3 and 5–8. |
+
+Thus **all six implementation areas exist, but the plan is not fully delivered**.
+
+### Frozen closure rule
+
+This command returns **no paths**:
+
+```bash
+git diff --name-only f492613..2a27144 -- \
+  eval_yaw_rotation.py eval_unseen.py eval_xRIR_backbone.py \
+  'model/*.py' tools/yaw_rotation.py tools/reference_manifest.py \
+  tools/per_sample_metrics.py 'treble_multi_room_dataset/*.py' \
+  utils/spec_utils.py tools/paired_stats.py tools/summarize_yaw.py
+```
+
+The exp_03 frozen evaluator closure also retains its approved digest in the latest merged clone.
+
+### Shared-file consequences
+
+All eight specifically named files changed:
+
+| File | Consequence |
+|---|---|
+| `train_xRIR_backbone.py` | Adds protocol dispatch and the seen module to training closure membership. |
+| `tools/provenance.py` | Adds protocol-aware training identity; preserves legacy unseen cache handling, but changes dependent closure digests. |
+| `tools/exp04_launcher.py` | Changes launcher identity; existing attempts retain their recorded spawn identity. |
+| `tools/exp05_gates.py` | Extends receipt/timing validation and seen retry enforcement; historical receipt/launcher identities remain authoritative. |
+| `tools/exp05_probe.py` | Adds M/seen probing; existing unseen receipt schema remains supported. |
+| `tools/exp04_eval.py` | Factory hook changes evaluator/writer identities and triggers finding 9. |
+| `tools/exp04_eval_launch.py` | Seen entry/bindings change writer identity and trigger finding 9. |
+| `tools/results_table.py` | Default output behavior is byte-identical; producer source identity changes. |
+
+`tools/yaw_aug.py` and `tools/exp04_launch.sh` also change shared training/launcher dependencies.
+
+### Exp_05: retain the historical training pin
+
+Fresh imports establish:
+
+| Training closure | Files | Digest |
+|---|---:|---|
+| `f19b9b6` | 11; seen module absent | `5b2da2504e220b63bfc932cf0d83c143261e117edea1838e6907159c3b12eb13` |
+| `2a27144` | 12; seen module included | `dcd3eb1bf8239b709b859aae6ce34721c843cfd071623e9e309adc5628d74c45` |
+
+All four actual exp_05 training manifests record the **old `5b2da250…` closure**:
+
+- S_simple, S_cylindrical and L_cylindrical: reviewed commit `f19b9b6`
+- L_simple: reviewed commit `862923e`
+
+Their recorded launcher digests are:
+
+```text
+f19b9b6 attempts:
+0bff0d4fe270740c1adc411fd3e5d945742c2dcb545290d19e663d610fd8df20
+
+862923e L_simple:
+9dadbef0786a404654f01005fc3c143ba3d114210d41e3cf9f02e0779db657a6
+```
+
+**Exp_05 A9 `closures.training` must therefore remain the old `5b2da250…` value.** [tools/param_curve.py:221](/home/yixunhu/codespace/xRIR_code_wt07/tools/param_curve.py:221) compares the bound training manifests’ recorded launcher/training digests with approval pins; it does not recompute training identity from HEAD.
+
+Consequently:
+
+- Running L attempts retain their spawn closures; A7 records subsequent source drift.
+- Already-certified S artifacts can be admitted into newly reviewed exp_05 evaluations without retraining.
+- New evaluations use `--reviewed-commit <merge>` and their actual new evaluator/writer closures; the producer gets its actual new closure at approval fill.
+- Historical exp_04 M evaluations still encounter finding 9’s live-source validation issue.
+
+### Merge safety
+
+Performed `git merge --no-ff --no-commit 2a27144` in isolated clones of main at `ec7e649`, `4d7a6cb`, and finally **`53307b6`**.
+
+**All three merges were conflict-free.** Main’s notebook/reviews/prompts coexist with the branch’s approval template, six goldens and code. Exp_06’s promised direct edits are disjoint.
+
+The merged tree nevertheless fails the exp_06 parser test described in finding 10. A conflict-free merge is therefore not an integration approval.
+
+### CPU suite and hygiene
+
+All execution used the prescribed interpreter, empty `CUDA_VISIBLE_DEVICES`, disabled bytecode/cache-provider writes, and isolated temporary clones.
+
+| Check | Independent result |
+|---|---|
+| Full branch `pytest tests -q -p no:cacheprovider` | **1,592 passed, 43 skipped**, 600.79 s |
+| Exp_07 → exp_04 → exp_03 collection order | **378 passed, 10 skipped** |
+| Reverse experiment collection order | **378 passed, 10 skipped** |
+| `static_checks.sh` | **Exit 0**: 150 passed; then 118 passed/1 skipped in each record order |
+| Compilation of all changed Python files | **35 passed** |
+| Changed shell scripts, `bash -n` | **2 passed** |
+| `git diff --check f492613..2a27144` | **Exit 0** |
+| Latest-main parser test before/after merge | **1 passed / 1 failed** |
+
+The full-suite result is one pass higher than the Coder’s reported 1,591. [Full log](/tmp/exp07-review-edgge526/full-suite.log), [static log](/tmp/exp07-review-edgge526/static-checks.log), [merged regression log](/tmp/exp07-review-edgge526/final-main-merged.log).
+
+All round-5 co-author trailers are present. The three oversized commits are confirmed at **314, 311 and 208 changed lines**; they are coherent recorded process deviations.
+
+No GPU work or live-artifact mutation occurred. The original worktree retains only its pre-existing untracked `checkpoints` entry.
+
+## Deferred GPU gate — exact nine node IDs
+
+Run on the first free GPU **before any exp_07 probe**:
+
+```text
+tests/test_exp07_trainer.py::test_unseen_step_bit_identical_to_prechange[False-simple-32]
+tests/test_exp07_trainer.py::test_unseen_step_bit_identical_to_prechange[False-cylindrical-32]
+tests/test_exp07_trainer.py::test_unseen_step_bit_identical_to_prechange[True-simple-32]
+tests/test_exp07_trainer.py::test_unseen_step_bit_identical_to_prechange[True-cylindrical-32]
+tests/test_exp07_eval_gpu.py::test_unseen_32_query_run_is_bit_identical_to_exp04
+tests/test_exp07_eval_gpu.py::test_seen_final_batch_matches_a_direct_frozen_call[8]
+tests/test_exp07_eval_gpu.py::test_seen_final_batch_matches_a_direct_frozen_call[1]
+tests/test_exp07_eval_gpu.py::test_the_launcher_runs_the_seen_split_and_matches_the_frozen_functions[8]
+tests/test_exp07_eval_gpu.py::test_the_launcher_runs_the_seen_split_and_matches_the_frozen_functions[1]
+```
+
+Required artifacts:
+
+- Trainer parity: real AcousticRooms unseen batch of 32, K=8, both model constructors, and Git object `f492613`; no trained checkpoint required.
+- Unseen evaluation parity: `ckpt/xRIR_simple_8_shot/epoch_12.pth` and `ckpt/yaw_aug/reference_manifest_k8_seed42.json`.
+- Seen direct/final-batch tests: that checkpoint, seen split pickle and referenced data; the direct tests retain the actual final nine queries.
+- Seen launcher tests: seed-42 seen manifests at K=8/K=1, referenced data, and a clean reviewed merge checkout.
+
+These nine tests were collected, **not executed**.
+
+## Planner launch sequence after the findings are resolved
+
+Use the final reviewed merge SHA throughout. Commands below describe the existing interfaces; findings 3–4 require additional implemented interfaces before publication.
+
+### 1. Merge, then GPU parity
+
+From the merged repository root:
+
+```bash
+PY=/home/yixunhu/miniconda3/envs/xRIR/bin/python
+REC=worklog/worklog_yixun/exp_07_seen_protocol_claude
+ASSETS="$REC/seen_protocol_results_assets"
+export PYTHONPATH="$PWD"
+export XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms
+export PYTHONDONTWRITEBYTECODE=1 PYTHONHASHSEED=0 OMP_NUM_THREADS=2
+```
+
+Set `MERGE` to the reviewed merge SHA and `GPU` to the first free physical GPU.
+
+```bash
+CUDA_VISIBLE_DEVICES="$GPU" "$PY" -m pytest \
+  tests/test_exp07_trainer.py::test_unseen_step_bit_identical_to_prechange \
+  tests/test_exp07_eval_gpu.py -q -p no:cacheprovider
+```
+
+Require **9 passed, 0 skipped**.
+
+### 2. Seen alignment audit
+
+```bash
+CUDA_VISIBLE_DEVICES="$GPU" "$PY" tools/yaw_aug.py \
+  --audit --protocol seen \
+  --out ckpt/exp07/alignment_audit_seen.json --n-batches 3
+```
+
+Retain the audit’s arguments, environment, counts and cohort digest, which incorporates query paths and offsets.
+
+### 3. Released-checkpoint calibration
+
+Run K=8, seeds 42–46 with:
+
+```text
+ROLE=released_seen
+BACKBONE=simple
+CHECKPOINT=checkpoints/xRIR_seen.pth
+```
+
+Use this evaluation command for calibration and subsequent evaluations, substituting the recorded role/K/seed values:
+
+```bash
+MANIFEST="ckpt/exp07/reference_manifest_seen_k${K}_seed${SEED}.json"
+HASH=$("$PY" -c \
+  'import sys; from tools.reference_manifest import load_manifest, manifest_hash; print(manifest_hash(load_manifest(sys.argv[1])))' \
+  "$MANIFEST")
+
+"$PY" tools/exp04_eval_launch.py \
+  --entry exp07 --split seen --backbone "$BACKBONE" \
+  --checkpoint "$CHECKPOINT" --num-shot "$K" \
+  --manifest "$MANIFEST" --manifest-hash "$HASH" --gl-seed "$SEED" \
+  --conditions P --yaw-cols 0 --acoustic-cols 0 --e-acoustic-cols \
+  --decomposition-batches 0 --batch-size 16 --max-samples 0 \
+  --num-workers 12 --threads 2 \
+  --data-root "$XRIR_DATA_PATH" --gpu "$GPU" \
+  --reviewed-commit "$MERGE" --log-dir "$REC" \
+  --run-label "${ROLE}_k${K}_seed${SEED}_k0" \
+  --out-dir "ckpt/exp07/eval/${ROLE}_k${K}_seed${SEED}_k0" \
+  "${TRAIN_BINDS[@]}"
+```
+
+`TRAIN_BINDS=()` for the released checkpoint. Omit `--tf32`; evaluation is TF32 off.
+
+For **each** EDT/C50/T60 metric, require:
+
+```text
+|five-seed mean − historical value|
+    ≤ 3 × five-seed sample SD + 0.02 × historical value
+```
+
+Historical values: **0.0389 s, 1.029 dB, 7.27%**.
+
+If any fails, perform the prescribed matched-reference 200-query investigation within two GPU-hours and record the cause before admitting new-arm evaluations.
+
+### 4. Smoke, probe, then full training for each arm
+
+| Role | Backbone | Yaw |
+|---|---|---:|
+| `seen_simple` | `simple` | 0 |
+| `seen_cyl` | `cylindrical` | 0 |
+| `seen_aug` | `simple` | 1 |
+
+```bash
+tools/exp04_launch.sh smoke --protocol seen \
+  --backbone "$BACKBONE" --yaw-aug "$YAW" \
+  --gpu "$GPU" --reviewed-commit "$MERGE" --log-dir "$REC"
+
+tools/exp04_launch.sh probe --protocol seen \
+  --backbone "$BACKBONE" --yaw-aug "$YAW" \
+  --gpu "$GPU" --reviewed-commit "$MERGE" \
+  --log-dir "$REC" --timestamp "$STAMP"
+```
+
+The receipt is:
+
+```text
+ckpt/exp07/<ROLE>/_probe_<STAMP>_<ROLE>.json
+```
+
+Then launch with that exact receipt:
+
+```bash
+nohup setsid tools/exp04_launch.sh full --protocol seen \
+  --backbone "$BACKBONE" --yaw-aug "$YAW" \
+  --gpu "$GPU" --reviewed-commit "$MERGE" \
+  --probe-json "$RECEIPT" --log-dir "$REC" \
+  > "$REC/${ROLE}_${STAMP}_launcher.log" 2>&1 &
+```
+
+Require projection ≤60 hours, cumulative ceiling `1.5 × T_run`, epoch-1 ≤`1.05 × T_epoch`, twelve checkpoints, certified completion, no resume and at most one retry.
+
+### 5. Complete the forty evaluations
+
+Evaluate each new arm at K=1/8 and seeds 42–46 using its `final/epoch_012.pth`, with:
+
+```bash
+TRAIN_BINDS=(
+  --bind-input "train_args=ckpt/exp07/$ROLE/final/args.json"
+  --bind-input "train_manifest=ckpt/exp07/$ROLE/final/train_manifest.json"
+  --bind-input "train_completion=ckpt/exp07/$ROLE/final/completion.json"
+)
+```
+
+Use the evaluation command above. Add the released checkpoint’s five K=1 evaluations; retain its five K=8 calibration runs. Total: **40**.
+
+### 6. Pin-finalisation commit
+
+Fill the approval atomically with actual epoch-12 checkpoint identities, recorded training/launcher identities, evaluation/writer identities used, and final producer closures. Commit the filled approval before producing canonical results.
+
+### 7. Producers → generators → bind → check
+
+```bash
+"$PY" tools/exp07_table.py --profile TABLE_SEEN_V1 \
+  --runs ckpt/exp07/eval/{seen_simple,seen_cyl,seen_aug,released_seen}_k{1,8}_seed{42..46}_k0 \
+  --json ckpt/exp07/results/TABLE_SEEN_V1.json \
+  --md worklog/worklog_yixun/model_comparison_seen.md
+
+for role in seen_cyl seen_aug released_seen; do
+  "$PY" tools/exp07_pairs.py --profile PAIRS_SEEN_V1 \
+    --runs-a ckpt/exp07/eval/${role}_k{1,8}_seed{42..46}_k0 \
+    --runs-b ckpt/exp07/eval/seen_simple_k{1,8}_seed{42..46}_k0 \
+    --json "ckpt/exp07/results/PAIRS_SEEN_V1_${role}.json" \
+    --summary "ckpt/exp07/results/PAIRS_SEEN_V1_${role}.summary.txt"
+done
+```
+
+Require all 30 paired cells final, including the corrected retry procedure where necessary.
+
+Each generator takes:
+
+```text
+--table <TABLE_SEEN_V1.json>
+--pairs <cyl JSON> <aug JSON> <released JSON>
+--unseen-table ckpt/yaw_aug/results/TABLE_V1.json
+--unseen-binding <verified exp_04 binding report>
+--out <document>
+```
+
+Generate with `make_results_md.py`, `make_results_html.py`, and `make_latex.py`. Then:
+
+```bash
+"$PY" "$ASSETS/bind_provenance.py" \
+  --runs ckpt/exp07/eval/{seen_simple,seen_cyl,seen_aug,released_seen}_k{1,8}_seed{42..46}_k0 \
+  --attempt ckpt/exp07/{seen_simple,seen_cyl,seen_aug}/final \
+  --audit ckpt/exp07/alignment_audit_seen.json \
+  --results <table JSON and three pairing JSONs> \
+  --rendered <Markdown HTML LaTeX> \
+  --unseen-table ckpt/yaw_aug/results/TABLE_V1.json \
+  --unseen-binding <verified exp_04 binding report> \
+  --out ckpt/exp07
+
+"$PY" "$ASSETS/check_record.py" ckpt/exp07
+```
+
+The corrected binder must additionally cover the evidence required by finding 3; those arguments do not exist yet.
+
+## Final verdicts and exact blocking list
+
+- **Part A: request changes.**
+- **Part B: not approved.**
+
+**Blocking findings:**
+
+1. Generators accept unconverged/contradictory paired cells.
+2. Binder accepts incomplete products and mismatched evidence.
+3. Final record omits required attempt, parity and calibration evidence.
+9. Merge invalidates exp_04’s existing record check.
+10. Merge fails exp_06’s parser contract and changes nine filled closure approvals.
+
+exec
+/bin/bash -lc 'wc -l /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/{plan_seen_protocol.md,seen_protocol_worklog.md,seen_protocol_codex_code_round5_full_review.md} && cat /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/coder_prompts/round6_prompt.md && ls -ld ckpt checkpoints /tmp/exp07-review-edgge526 && rg --files --hidden -g AGENTS.md /home/yixunhu/codespace /home/yixunhu/.codex 2>/dev/null | head -50' in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 0ms:
+   67 /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/plan_seen_protocol.md
+   47 /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_worklog.md
+ 1067 /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round5_full_review.md
+ 1181 total
+You are the Coder (Claude Opus 5, max effort) for experiment exp_07 "seen_protocol". Standing rules = the first paragraph of coder_prompts/round1_prompt.md (worktree /home/yixunhu/codespace/xRIR_code_wt07 on branch exp07-window only; no GPU; read-only ckpt/; Python 3.8; run from the worktree root; TDD; < 200 changed lines per commit — split into many commits; trailer `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`; never edit the pinned files). FIRST: `git merge main` into your branch (main is at 4d7a6cb or later; it now contains exp_06's merge — new files only — and the exp_07 record commits; resolve any conflict in favour of keeping both sides' record files; no history rewrite). Read the plan's new amendment §10a A1 and the Codex round-5/integrative review /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round5_full_review.md IN FULL (Part A blockers 1–3, should-fix 4–8; Part B blockers 9–10 and its launch-sequence section).
+
+Round 6 has two halves.
+
+HALF 1 — RELOCATION (amendment A1; Part B blockers 9–10). exp_07 must edit NO pre-existing module. Restore these files to main's bytes exactly (`git checkout main -- <file>` for each, then confirm `git diff main -- <file>` is empty): train_xRIR_backbone.py, tools/provenance.py, tools/exp04_eval.py, tools/exp04_eval_launch.py, tools/exp04_launcher.py, tools/exp05_probe.py, tools/exp05_gates.py, tools/results_table.py, tools/yaw_aug.py, and any test file of exp_04/exp_05/exp_06 you changed (tests/test_exp05_launcher.py, tests/test_exp05_gates.py, tests/test_provenance.py, tests/test_yaw_aug.py, tests/test_train_yaw_aug.py, tests/test_exp04_eval.py …) — exp_07 tests live only in tests/test_exp07_*.py and tests/exp07_fixture.py. Relocate the reviewed behaviour into exp_07-specific modules that import the shared ones unchanged: (a) `tools/exp07_train.py` — the training entry point: imports `train_xRIR_backbone` as the trainer, both dataset classes at module level (so `source_closure('tools.exp07_train')` contains the seen module and the trainer's closure), adds `--protocol {unseen,seen}` (parses it, removes it from argv, sets `trainer.xRIR_Dataset` to the selected class BEFORE `trainer.main()`), and records `protocol` into `args.json` and the `XRIR_RUNTIME_ARGS` line (e.g. by wrapping the trainer's writer/printer functions — read the trainer to find the minimal seam; if none exists without editing the trainer, write `args.json`'s `protocol` key after `main()` returns from a post-hook and print an additional `EXP07_PROTOCOL {"protocol": …}` line before the first step; document the choice); parity: with `--protocol unseen` the run is the trainer's run (same RNG consumption; tests as round 1 — the 4 GPU parity tests now compare `tools/exp07_train.py --protocol unseen` against the plain trainer); (b) `tools/exp07_provenance.py` — `train_data_identity(data_root, protocol, cache_path)` (its own cache keyed by protocol; the unseen path is never used by exp_07), `seen_split_identity(repo)`; (c) `tools/exp07_launcher.py` + `tools/exp07_launch.sh` — the seen launcher: import and reuse `tools.exp04_launcher`'s functions (`check_golden`-style logic, `effective_args`, `compare_control`, ledgers, `resource_gate`, `LogGuard`, `execute_attempt`/`complete_attempt`/`finalize_attempt`, `recovery_evidence`) by composition, with exp_07's arms (`seen_simple`, `seen_cyl`, `seen_aug`), goldens (regenerate the six files with the interpreter invoking `tools/exp07_train.py … --protocol seen`), per-arm comparators, `train_batches_per_epoch == 9265`, banner rules, one-retry, `seen_split` binding (captured before the inventory), the seen inventory cache path `ckpt/exp07/train_inventory_seen.json` (already built by the Planner with the round-2 code — keep the cache format compatible or state that it must be rebuilt), training closure derived from `tools.exp07_train`; (d) `tools/exp07_probe.py` / `tools/exp07_gates.py` — the seen M probe/receipt/gates by composition of `tools.exp05_probe`/`tools.exp05_gates` (receipt ↔ completion linkage and identity fields, timing limits for seen arms, `--renew-ceiling`); (e) `tools/exp07_eval.py` — its own `run_exp07` loop composed from `eval_yaw_rotation`'s frozen functions and `tools.exp04_eval`'s helpers (no factory hook in exp04_eval), seen dataset via the pinned `eval_xRIR_backbone.build_dataset` + frozen `ManifestDataset`, `--split`, handshake with `split`/`seen_split_sha256`, cross-split refusals, post-run pickle re-hash; (f) `tools/exp07_eval_launch.py` — exp_07's evaluation launcher by composition of `tools.exp04_eval_launch` (child = `tools/exp07_eval.py`; `seen_split` binding; `confirmatory` = 6217 queries; refusals); (g) `tools/exp07_audit.py` — the seen alignment audit by composition of `tools.yaw_aug`'s audit functions with the seen loader and a required `--out`; (h) `tools/exp07_table.py` writes its own Markdown (no `renderer=` hook in results_table; copy the small writer pattern into `tools/exp07_record.py`). Every test that previously patched shared modules is rewritten against the new modules. After half 1: `git diff main --stat -- tools/ train_xRIR_backbone.py tests/` must list ONLY new exp_07 files (`tools/exp07_*.py`, `tools/exp07_launch.sh`, `tests/test_exp07_*.py`, `tests/exp07_fixture.py`) and `tests/test_exp06_train.py::test_shared_flags_and_defaults_equal_the_trainers` must pass.
+
+HALF 2 — Part A blockers and should-fix items: (1) generators validate every paired cell (both statistics' convergence/finality, `decision_driving == False`, pairing identity consistent with the parent) and share that validation with the binder; (2) the binder applies complete canonical validation, requires exact per-product run/input coverage (no subset), verifies every producer dependency and the approval identity against the bound artefacts, restores exp_04's completeness predicate; (3) the record binds EVERY attempt of each arm (from the ledgers: aborted and probe attempts with their `abort.json`/receipts), the parity/calibration evidence (an `--evidence NAME=PATH` interface for the GPU parity logs, the calibration JSON and the seen audit; the audit must be a real exp_07 audit artefact — protocol `seen`, cohort digest, passed), and changes to any bound attempt's files are detected; (4) `tools/exp07_pairs.py --reconverge` reruns flagged cells at n_boot 40 000 keeping the original diagnostic, retry count and provenance (still non-final if it fails again); (5) the generators protect the resolved `--unseen-binding` path (and aliases) from being overwritten; (6) runtime checkpoint agreement tested against a filled isolated approval (matching vs substituted checkpoints and completion linkage); (7) LaTeX SD footnotes labelled with K and printed with enough precision that a positive SD never shows as zero (genuine zeros preserved); (8) README order producers → generators → bind → check.
+
+After each commit run the touched tests; at the end `CUDA_VISIBLE_DEVICES='' python -m pytest tests -q -p no:cacheprovider` (FULL suite, incl. exp_06's tests), both collection orders for the record-tool files, `py_compile`, `bash -n tools/exp07_launch.sh`, `git diff --check`, and print `git diff main --stat` to prove the relocation. Report: SHAs, per-commit lines, test counts, deferred GPU tests (list the new node ids), discrepancies.
+drwx------ 7 yixunhu yixunhu 4096 Sep 15 15:12 /tmp/exp07-review-edgge526
+lrwxrwxrwx 1 yixunhu yixunhu   45 Sep 15 10:07 checkpoints -> /home/yixunhu/codespace/xRIR_code/checkpoints
+lrwxrwxrwx 1 yixunhu yixunhu   38 Sep 15 10:07 ckpt -> /home/yixunhu/codespace/xRIR_code/ckpt
+/home/yixunhu/.codex/.tmp/plugins/plugins/build-web-apps/skills/supabase-best-practices/AGENTS.md
+/home/yixunhu/.codex/.tmp/plugins/plugins/zoom/AGENTS.md
+/home/yixunhu/.codex/.tmp/plugins/plugins/build-web-apps/skills/react-best-practices/AGENTS.md
+
+exec
+/bin/bash -lc 'cat /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/plan_seen_protocol.md' in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 0ms:
+# Plan — seen_protocol (exp_07), v3 (2026-09-15; v2 amended after the Codex round-2 plan review "approve with changes"; v1 superseded)
+
+Planner: Claude Fable 5.1 (main session). Coder: **Claude Opus 5** (Agent subagent, model `opus`, max effort) working in the dedicated git worktree `/home/yixunhu/codespace/xRIR_code_wt07` (branch `exp07-window`; the main tree runs live launches whose gates refuse a dirty tree, and `/home/yixunhu/codespace/xRIR_code_wt` belongs to exp_06). Code Reviewer: **OpenAI Codex `gpt-6-astra`** (`codex exec -s read-only -C <worktree>`), one review per round, file `seen_protocol_codex_code_<marker>_review.md`. Plan Reviewer: Codex. (Roles per Yixun 2026-09-15, SOP §roles.)
+
+## 1. Question
+
+What are the seen-split errors (EDT, C50, T60; K = 1 and K = 8) of the three same-budget xRIR variants — SimpleViT (xRIR), CylindricalViT and YawAug-xRIR — when each is trained under the authors' **seen protocol**, so that the paper-style table has both split columns for all three rows? No hypothesis is pre-registered beyond the table; the paired differences between arms on the seen split are reported descriptively with intervals.
+
+## 2. Protocol and arms
+
+- **Seen protocol** (authors' `treble_xRIR_seen_dataset.py`, pinned by exp_03 — never edited): test = the 6 217 source–receiver pairs of `seen_test_split.pkl` (131 rooms); train = every other RIR of the dataset = 296 454 files (9 265 micro-batches of 32 per epoch, the last one holding 6 examples instead of the unseen protocol's 14; with the trainer's accumulation rule 4 633 updates per epoch, 12 epochs = 55 596 updates versus the unseen protocol's 55 572, +24 updates = +0.043 %). All 131 test rooms have other receivers in the training set (630 receivers are held out); of the 6 217 test pairs, 5 124 lie in the unseen protocol's training set and 1 093 in its 17 test rooms — under the seen protocol every test room is a trained room. Train/test target overlap is 0.
+- **Arms** (three new 12-epoch trainings, one realisation each; the M tier, dim 512 / depth 12 / heads 8 / mlp 512): `seen_simple` (xRIR control, `--backbone simple`), `seen_cyl` (`--backbone cylindrical`), `seen_aug` (`--backbone simple --yaw-aug 1 --yaw-aug-seed 0 --yaw-aug-width 512`). Recipe otherwise identical to exp_01/exp_04/exp_05: `--num-shot 8 --max-len 9600 --lr 1e-3 --weight-decay 1e-4 --decay-epochs 3 --lr-gamma 0.1 --epochs 12 --batch-size 32 --accum-steps 2 --num-workers 12 --seed 0 --tf32 --log-interval 50 --save-every 0 --epoch-ckpt-every 1`, plus the new `--protocol seen`. `PYTHONHASHSEED=0`, `OMP_NUM_THREADS=2`, interpreter `/home/yixunhu/miniconda3/envs/xRIR/bin/python`. Contract per arm vs its unseen-protocol twin: **same recipe and epoch budget, the protocol (training set) being the intended change**; training trajectories are not paired (single realisation each; unordered-set path listing and worker-local reference draws as before). The trainer's `--protocol unseen` default reproduces the current behaviour bit for bit (parity test as exp_05 §7 item 6). For `seen_aug` the yaw counter is `t = (epoch − 1)·B + batch_idx` with `B = 9 265` (loader length, exp_04 A4), domain 0…111 179, same mixer/seed/overflow guard; offsets at equal (epoch, batch_idx) therefore differ from exp_04's from epoch 2 on — a consequence of the protocol-dependent loader length, recorded, not a defect. Normalised-args comparison, **per arm against its unseen-protocol twin**: `seen_simple` vs exp_01's SimpleViT `ckpt/xRIR_simple_8_shot/args.json`, `seen_cyl` vs exp_01's cylindrical `ckpt/xRIR_cyl_8_shot/args.json`, `seen_aug` vs exp_04's attempt `args.json` (`ckpt/xRIR_simple_yawaug_8_shot/final/args.json`); historical absent fields → the explicitly checked defaults (exp_05 §7 item 6 and its A1: `yaw_aug_seed → seed`); operational exclusions `save_dir, save_every, epoch_ckpt_every, PYTHONHASHSEED, CUDA_VISIBLE_DEVICES`; the single permitted intended difference is `protocol`; derived fields (`train_batches_per_epoch` = 9 265, `param_counts`, `tier` = M, `env`) validated separately, never diffed. The within-seen comparisons (cyl vs simple, aug vs simple) are the descriptive pairs of the estimand, not parity checks.
+- **Evaluation**: the seen split, all 6 217 queries, K = 8 and K = 1, at k = 0 only, condition P, batch 16, TF32 off; **five evaluation seeds {42, 43, 44, 45, 46}** with seen-split reference manifests `ckpt/exp07/reference_manifest_seen_k{8,1}_seed{s}.json` built by `tools.reference_manifest.build_manifest(seen_dataset, seed=s, num_shot=K)` (the seen dataset exposes the same `get_ir_and_location_for_other_sources` interface) and `--gl-seed s`; the evaluator is a NEW entry point `tools/exp07_eval.py` that imports `tools.exp04_eval`'s machinery and the frozen `eval_yaw_rotation` functions unchanged but constructs the **seen** test dataset (`treble_xRIR_seen_dataset.xRIR_Dataset(split='test', num_shot=K, max_len=9600)`, run from the repository root because the frozen module opens `seen_test_split.pkl` relative to the working directory; `run_exp04` gets a dataset-factory parameter with the unseen builder as default so the exp_04 path is unchanged) for `ManifestDataset`'s exact query-list check (the frozen `build_manifest_dataset` hard-codes the unseen dataset and would reject 6 217 ≠ 6 337 queries) and records `split = seen` plus the sha256 of `seen_test_split.pkl` in the eval manifest and metas; the eval launcher (`--entry exp07 --split seen`) binds the same, refuses a seen manifest with the unseen entry point and vice versa (cross-split rejection), keeps canonical padding, and the numerical path is proven identical to `tools/exp04_eval.py` under identical inputs (unseen 32-query parity: per-sample arrays, validity, aggregates and query order bit-identical; metadata exceptions exactly `elapsed_min`, `split`, `seen_split_sha256`, manifest/closure/provenance fields) and to a direct `eval_yaw_rotation`-function call on a seen subset that includes the seen split's final batch (9 real samples padded to 16) at both K. The ten seen manifests are built and indexed by a reviewed entry point `tools/exp07_manifests.py` (`build_manifest(dataset, seed, num_shot)` per K/seed, semantic hash + file sha256 → `ckpt/exp07/reference_manifests_seen_index.json`). Run-level provenance as exp_04 (immutable manifest, completion, `--bind-input train_manifest/train_completion/train_args`). 3 arms × 2 K × 5 seeds = 30 runs plus the released `xRIR_seen.pth` (sha256 `1762c702…`, pinned now) under the same five-seed protocol as a **reference row** (K = 8 and K = 1, 10 runs): 40 runs ≈ 5.3 h. Reference-row policy: external checkpoint, training budget/epoch/realisation/selection unknown, no training bindings, provenance = the file digest and the authors' release; it is a checkpoint-performance reference, not an arm of the recipe comparison. Calibration (pre-registered rule, decided before any new-arm number is read): the released checkpoint's K = 8 five-seed means are compared with the historical full-split reproduction (0.0389 s / 1.029 dB / 7.27 %; exp_01 results.md; authors' script, random references, unseeded phases, batch 1). Acceptance: |difference| ≤ 3 × the five-seed SD + 2 % of the historical value for each of EDT/C50/T60 — if met, the seen loading path is accepted; if not, the discrepancy is INVESTIGATED (a 200-query run of the authors' `eval_seen.py` and of `tools/exp07_eval.py` on the same manifest with the authors' random draw replaced by the manifest's references; budget ≤ 2 GPU-h) and no seen-arm evaluation is admitted until the cause is recorded. Implementation parity (deterministic, above) and this historical calibration are separate checks. The released row's epoch is recorded as unknown; its K = 1 row is an evaluation with one reference, not a separately trained K = 1 model.
+- **Estimand (frozen)**: metrics EDT (s in the LaTeX table, ms in the canonical JSON; SD converted with the mean), C50 (dB), T60 (%), plus loss and log-STFT MSE in the JSON; per arm × K the table cell = mean ± sample SD (ddof 1) over the five seeds of each seed's mean over its finite queries (TABLE_V1 rule; a seed whose finite count differs from the others by > 2 refuses the cell); epoch-12 checkpoints only (no test-selected epoch). Descriptive pairs (`cyl − simple`, `aug − simple`, and `released − simple` labelled reference) at K = 8 and K = 1: per query the five-seed plain mean per arm on the paired cohort (finite for all five seeds in both arms; empty cohort refuses the cell; exclusions reported per arm/seed), statistic = absolute difference of means in native units AND the relative difference (Δ/mean_simple, %) — both recomputed inside each of 20 000 query-level bootstrap resamples (seed 0; two-sided 2.5/97.5 percentile, pointwise), with the existing whole-room cluster bootstrap (`paired_stats`: rooms resampled with replacement, every query of a drawn room retained, query-weighted statistic; retained rooms after masking reported) as the secondary interval around the same query-weighted statistic; both arms' means on each paired cohort are reported next to the table means (which use each arm's own finite set); quantiles are exact order statistics (2.5 / 97.5 % of 20 000); the two-seed (0/1) convergence diagnostic reports the maximum endpoint movement / interval width per cell with tolerance 0.10 — a cell above tolerance is flagged and its interval re-run at n_boot 40 000 before publication. **No verdict, no significance marker, no superiority/equivalence claim**; the intervals are checkpoint-conditional descriptive intervals (five evaluation seeds do not estimate training-seed variability) and permit statements about these checkpoints only, never causal or method-superiority claims; the released row's intervals are reported the same way.
+
+## 3. Code (Opus 5 Coder rounds in the exp_07 worktree; TDD; < 200 lines per commit; Codex review per round; no writes to the main tree)
+
+| round | file | change | tests |
+|---|---|---|---|
+| 1 | `train_xRIR_backbone.py` | `--protocol {unseen,seen}` (default `unseen` = today's behaviour); BOTH dataset modules are imported at module level (so the import-derived training closure contains `treble_xRIR_seen_dataset.py`) and the flag selects the class for train and test; recorded in `args.json`; the exp_04 A4 counter/overflow rule unchanged (`B = len(train_loader)`) | default path bit-identical (state dict, seed-0 init, fixed-seed step on a real batch for both backbones and both yaw paths — GPU test, deferred with an explicit note if no GPU is free, and MUST pass before any launch); `seen`: sizes 296 454 / 6 217, a real batch, one finite step; `tools/yaw_aug.py --audit --protocol seen` (3 batches) |
+| 1 | `tools/provenance.py` | `train_data_identity(data_root, protocol, cache_path)` — the inventory is built from the selected protocol's training dataset (training WAVs only, as before — the metadata/depth files of the training rooms are NOT hashed; disclosed limitation inherited from exp_04/05); cache keyed by protocol (isolated files); `data_identity` unchanged; the seen split file `treble_multi_room_dataset/seen_test_split.pkl` becomes a first-class revalidated input (`mutable_inputs.seen_split` with path + sha256) wherever the protocol is `seen` (training manifest, eval manifest, recovery, producer admission) | inventories: 296 334 (unseen) vs 296 454 (seen) files; stale-cache refusal per protocol; a cache of one protocol never satisfies the other; a modified pickle is refused at every stage |
+| 1 | `tools/yaw_aug.py` | `--audit --protocol seen --out <path> --n-batches 3` (the audit cohort from the seen loader; output path explicit, default refused for exp_07) | cohort digest + offsets digest recorded; artefact `ckpt/exp07/alignment_audit_seen.json` bound in the final report |
+| 2 | `tools/exp04_launcher.py` (+ `exp04_launch.sh`), `tools/exp05_probe.py`, `tools/exp05_gates.py` | `--protocol seen` (M tier): arm roots `ckpt/exp07/seen_{simple,cyl,aug}/`, golden argv files `seen_protocol_results_assets/argv_golden_seen_{simple,cyl,aug}.txt` (plan §2 recipe + `--protocol seen` [+ yaw flags for `seen_aug`]), the normalised-args diff of §2, `train_batches_per_epoch == 9265` asserted for `full`, banner rule (`yaw_aug ENABLED W=512 seed=0 counter=(epoch-1)*9265+batch_idx` for `seen_aug`, `yaw_aug DISABLED` otherwise), protocol-aware training identity and recovery validation (file count 296 454, `seen_test_split.pkl` sha256 and the seen dataset module bound in `train_manifest.json`), M/seen probe: `probe --protocol seen --backbone <b> [--yaw-aug 1]` = the exp_05 single-arm probe generalised to tier M with the yaw flag and the loader-derived batch count (9 265), receipt with `T_epoch/T_run`, `full` requires that receipt (T_run ≤ 60 h, ceiling 1.5 × T_run, epoch-1 ≤ 1.05 × T_epoch), `exp05_gates` returns timing limits for the seen/M arms; the exp_04 M path and the exp_05 tier path byte-for-byte unchanged | guard tests as exp_05 round 1 + `refuse-test` (a seen argv under an unseen root and vice versa; an unseen receipt for a seen arm; wrong batch count); exp_04/exp_05 launcher tests unchanged |
+| 3 | `tools/exp07_eval.py`, `tools/exp04_eval_launch.py` | the seen-capable entry point of §2 (`--split seen`; seen dataset for the query-list check; `split`, `seen_test_split.pkl` sha256 in manifest/metas); launcher `--entry exp07 --split seen` binding the same, cross-split refusals | unseen 32-query parity with `tools/exp04_eval.py` (bit-identical outputs); seen 16-query run through the launcher equals a direct call of the frozen functions on the seen dataset; refusals (unseen manifest + seen entry, seen manifest + exp04 entry, wrong split count, padding) |
+| 4 | `tools/exp07_profiles.py`, `seen_protocol_results_assets/approved_digests.json`, `tools/exp07_table.py` | profile `TABLE_SEEN_V1` (roles `seen_simple`, `seen_cyl`, `seen_aug`, `released_seen`; checkpoint paths; released sha256 pinned; seen dataset identity 6 217 / 131 / query digest / inventory; the ten seen manifest hashes; K, grid [0], P, batch 16, TF32 off; recipe dict) and `PAIRS_SEEN_V1`; approval JSON `{schema_version, closures: {evaluator (tools.exp07_eval), writer, training_launcher (list), training, producer_table, producer_pairs}, checkpoints: {seen_simple, seen_cyl, seen_aug}}` read at runtime (A9, non-circular); `tools/exp07_table.py` = role-aware producer reusing `paired_compare`'s helpers and `results_table`'s aggregation: for each new arm it verifies the approved checkpoint path/sha256/epoch 12, `checkpoint_sha256 == train_completion.outputs['epoch_012.pth']`, the completion binds the right `train_manifest`/`args.json`, protocol/backbone/yaw/recipe/full-run constraints/data identity, equal training closures across the three arms = the approved training pin, launcher closure ∈ the approved list; the released arm is exempt from the TRAINING-provenance checks only (external checkpoint, digest pinned) and subject to every evaluation check (manifest, completion, data identity, split, protocol, K, grids, precision), labelled reference; writes canonical JSON (means/SDs, EDT ms) + sidecar + a Markdown table file `worklog/worklog_yixun/model_comparison_seen.md` (its own file, no multi-block editing of the exp_04 table) | literal/immutable profile; hashes equal the manifest files; synthetic four-role fixture; refusals for every check above |
+| 5 | `tools/exp07_pairs.py` | descriptive paired producer of §2 (admission via `exp07_table`'s layer; absolute + relative statistics; query and room intervals; convergence; `decision_driving: false`, no verdict) | synthetic fixture with a known shift; empty-cohort refusal; determinism |
+| 6 | `seen_protocol_results_assets/{make_results_md,make_results_html,make_latex,bind_provenance,check_record}.py` | exp_07 renderers (exp_04's loaded by path, parameterised): tables from `TABLE_SEEN_V1.json` + `PAIRS_SEEN_V1.json`, the combined seen + unseen LaTeX table (unseen rows read from exp_04's bound `TABLE_V1.json`, validated through its own sidecar and binding report; EDT ms → s for means and SDs; three decimals as the paper), HTML page; binder covering the three attempts, the released checkpoint digest, the 40 runs, the two producer outputs and the exp_04 inputs used; `check_record.py` | every number from JSON; byte-stable; refusals; `check_record` exit 0 |
+
+Rounds are closed per the SOP (review → fixes → re-verification → notebook entry); a final integrative Codex review (`seen_protocol_codex_code_full_review.md`) precedes the first probe. The deferred GPU parity (round 1) runs the moment a GPU is free and must pass before any launch. Pin-finalisation sequence (after the three trainings): pin the three checkpoint sha256 → compute closures at the fill HEAD → fill the JSON → single commit → producers; a missing or unapproved pin refuses production (exploratory mode lists it). The record binds the three probe receipts, the parity/calibration/audit evidence, every attempt including aborted ones, and asserts the one-retry maximum per arm from the ledgers.
+
+## 4. Validation ladder and acceptance
+
+1 static; 2 `pytest tests/` (full, both GPUs visible when they free); 3 default-protocol parity (bit-identical, GPU); 4 seen-protocol readback (sizes, a real batch, finite step) and a 3-batch alignment audit for `seen_aug` through `tools.yaw_aug --audit` on the seen loader (new `--protocol seen` option on the audit CLI); 5 smoke through the launcher for each arm (`--no-save`, 3 micro-batches, banner check); 6 fit/timing probe per arm on a free GPU (receipt; T_run ≤ 60 h; expected ≈ 28–31 h each from the measured unseen-protocol runs: 28.22 h SimpleViT, 31.36 h cylindrical, 27.41 h augmented); 7 launch with the exp_05 acceptance criteria (epoch-1 ≤ 1.05 × T_epoch → `_ABORTED_slow`, `epoch_NNN.pth` × 12, `history.jsonl`, no resume, certified completion; cumulative ceiling 1.5 × T_run per arm and at most one retry). Launch-time record (notebook, `_params_set_up.md`, `_command.md`): commit, GPU, exact argv, receipt digest, resource gate output. Evaluations: 40 runs; the ten seen reference manifests are built, hashed and indexed (`ckpt/exp07/reference_manifests_seen_index.json`) before any evaluation; the evaluator calibration of §2 runs first.
+
+## 5. Schedule and budget
+
+Training ≈ 28.2 + 31.4 + 27.4 ≈ 87 GPU-h (measured unseen-protocol wall times; +24 updates), evaluations ≈ 5.3 GPU-h, probes/validation/finalisation ≈ 2 GPU-h: ≈ 94 GPU-h before contingency; the certified probe projections replace these estimates at launch. GPU availability (as of 2026-09-15 10:30): GPU 0 busy with exp_05 L_simple until ≈ 2026-09-16 23:30 then exp_05 evaluations until ≈ 2026-09-17 08:00; GPU 1 busy with exp_05 L_cylindrical until ≈ 2026-09-16 10:00, its evaluations until ≈ 13:00, then promised to exp_06 (its plan budgets ≈ 42 GPU-h with ≈ 50 reserved: pretraining + HAA). Two orderings, both finishing before the 2026-09-24 deadline:
+- **A (exp_07 before exp_06 on GPU 1)**: GPU 1 `seen_simple` 2026-09-16 13:30 → 09-17 18:00, then `seen_aug` → 09-18 22:00; GPU 0 `seen_cyl` 09-17 08:30 → 09-18 16:00; evaluations 09-18 22:00 → 09-19 04:00; table 09-19. exp_06 takes GPU 0 from 09-18 16:00 (≈ 50 GPU-h → ≈ 09-20 18:00).
+- **B (keep the exp_06 promise; default)**: GPU 1 exp_06 09-16 13:00 → ≈ 09-18 15:00; GPU 0 `seen_cyl` 09-17 08:30 → 09-18 16:00, then `seen_simple` → 09-19 20:30; GPU 1 `seen_aug` 09-18 15:00 → 09-19 19:00; evaluations → 09-20 02:00; table 09-20.
+Both orderings fit before 2026-09-24 at central estimates; the deadline is not guaranteed under the permitted ceilings (one retry per arm), so any abort triggers an immediate re-plan with Yixun.
+Decision requested from Yixun (§7). Cumulative ceiling per arm 1.5 × probe projection; one retry at most.
+
+## 6. Deliverables
+
+`seen_protocol_results.md` (tables from canonical JSON: seen rows ± SD, the released reference row, descriptive paired differences with intervals), `seen_protocol_results_assets/table_seen_unseen.tex` (the combined LaTeX table, both K; unseen rows from exp_04's bound `TABLE_V1.json`; means to three decimals in seconds/dB and two in %, SDs printed with enough digits to be non-zero — EDT SD in ms in a footnote — and a caption pointer to the canonical JSON), `seen_protocol_01_results.html`, `seen_protocol_analysis.md`, `_params_set_up.md`, `_command.md`, `_worklog.md`, `commits_seen_protocol.md`, `seen_protocol_codex_code_<marker>_review.md` per round + `_full`, bound record (`ckpt/exp07/binding_report_*.json`, `check_record.py` exit 0), and the living table `worklog/worklog_yixun/model_comparison_seen.md` (its own file).
+
+## 7. Decisions requested
+
+1. Ordering A or B for GPU 1 (default if no answer by 2026-09-16 12:00: **B**, the promise to exp_06 stands).
+2. Include the released `xRIR_seen.pth` reference row (recommended; five-seed protocol, 10 runs ≈ 1.3 h) — planned unless refused.
+3. K = 1 rows for the seen split (recommended, needed for the table's K = 1 rows; ≈ 1.5 h of evaluation) — planned unless refused.
+
+## 10a. Amendments during implementation (logged in the notebook)
+
+(A1, 2026-09-15 15:5x, from the Codex round-5/integrative review, blockers 9–10) **exp_07 edits no pre-existing module.** The branch's edits to `train_xRIR_backbone.py`, `tools/provenance.py`, `tools/exp04_eval.py`, `tools/exp04_eval_launch.py`, `tools/exp04_launcher.py`, `tools/exp05_probe.py`, `tools/exp05_gates.py`, `tools/results_table.py` and `tools/yaw_aug.py` are reverted to main's bytes, because (i) exp_04's bound record re-hashes its evaluator/writer closure files against the live tree, so any change to those files breaks `check_record.py`, and (ii) exp_06's filled approvals and its parser-contract test pin the shared trainer and evaluation modules. The same reviewed behaviour is relocated to exp_07-specific modules that IMPORT the shared ones unchanged: `tools/exp07_train.py` (entry point: imports the trainer module and both dataset classes, selects the class by `--protocol`, records `protocol` in `args.json`/runtime args, delegates to the trainer's `main()`; the training closure is derived from this entry point and thus contains the seen module), `tools/exp07_provenance.py` (protocol-aware inventory, `seen_split_identity`), `tools/exp07_launcher.py` + `tools/exp07_launch.sh` (the seen arms, goldens calling `tools/exp07_train.py`, per-arm comparators, one-retry, receipts), `tools/exp07_probe.py` / `tools/exp07_gates.py`, `tools/exp07_eval.py` (its own run loop composed from `eval_yaw_rotation`'s and `tools.exp04_eval`'s functions, seen dataset factory, split handshake), `tools/exp07_eval_launch.py` (seen routing and `seen_split` binding), `tools/exp07_audit.py` (the seen alignment audit), and exp_07's own Markdown writer. §3's file table is read with this relocation; the reviewed logic and tests carry over.
+
+## 10. v3 changelog (responses to the Codex round-2 plan review)
+
+1 per-arm historical comparators (unseen twins; exp_05 A1 defaults; `protocol` the only permitted difference); 2 evaluator construction contract (`num_shot=K`, repo-root cwd, dataset-factory hook in `run_exp04`, `tools/exp07_manifests.py`, metadata exception list, final-batch test at both K); 3 pre-registered calibration acceptance/failure rule, released-row and K = 1 labels; 4 room estimand = the existing whole-room query-weighted resampling, cohort means shown, exact quantiles, convergence tolerance and re-run rule, claim wording; 5 `seen_test_split.pkl` as a revalidated input everywhere, released-row exemption limited to training provenance, WAV-only inventory disclosed, `tools/yaw_aug.py` audit row, pin sequence, one-retry check, receipts/evidence bound; 6 LaTeX SD precision.
+
+## 9. v2 changelog (responses to the Codex round-1 plan review)
+
+1 seen-capable entry point `tools/exp07_eval.py` + launcher `--entry exp07 --split seen`, cross-split refusals, parity tests; 2 protocol-aware `train_data_identity` with isolated caches, recovery validation at 296 454, module-level dataset imports so the closure contains the seen module, `seen_test_split.pkl` bound, M/seen probe and gates with loader-derived batch count; 3 exp_07 approval loader + role-aware `tools/exp07_table.py` admission (checkpoint/completion/bindings/protocol/recipe/data identity/closure equality/launcher allowlist), released row as external reference; 4 55 596 updates, counter B = 9 265 with its domain, last micro-batch 6, normalisation and exclusion rules, "same recipe and budget, protocol is the change" wording; 5 frozen estimand (units, finite-count policy, paired masks, absolute + relative statistics, percentile convention, epoch 12, no claims); 6 released-row caveats, sha256 pinned, historical reproduction cited, calibration step; 7 measured per-arm times (87 + 5.3 + 2 GPU-h), schedules recomputed with exp_06's ≈ 50 GPU-h reservation, B default, ceilings/retry stated; 8 separate seen living-table file, EDT ms → s for means and SDs, exp_07 renderers/binder covering three attempts + the external checkpoint + the reused exp_04 inputs; 9 roles per the 2026-09-15 SOP (Opus 5 Coder in `xRIR_code_wt07`, Codex Reviewer), per-round files and test plan, review gates, deferred GPU parity gate, launch-time record.
+
+## 8. Risks
+
+`train_batches_per_epoch` 9 265 ≠ 9 261 changes the `seen_aug` yaw counter (§2; recorded, intended). The released reference row's provenance is external (unknown budget/epoch/realisation/selection) and is never compared inferentially. Host contention with exp_05/exp_06 evaluations is the only timing risk; no gate beyond epoch 1 depends on it.
+
