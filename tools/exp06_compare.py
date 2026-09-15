@@ -17,6 +17,8 @@ import argparse
 import hashlib
 import json
 import math
+import os
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -387,12 +389,21 @@ def contrast_cell(groups, x, y, metric, n_boot=N_BOOT):
 
 
 def analyse(admitted, margin=MARGIN, n_boot=N_BOOT, exploratory=False):
-    """H3 is C vs B; C vs A is the same machinery, reported descriptively."""
+    """H3 is C vs B; C vs A is the same machinery, reported descriptively.
+
+    Finding 9: a decision-bearing verdict needs the complete A/B/C run set and an
+    admission with no deviations. A partial analysis names H3 `unavailable` and an
+    exploratory or unapproved one names it `exploratory`; in both cases every verdict is
+    suppressed, so a report can never carry a decision its evidence does not support.
+    """
     groups = admitted['groups']
+    complete = all(role in groups and len(groups[role]) == len(SEEDS) for role in ROLES)
+    drafted = bool(exploratory or admitted['deviations'])
+    status = 'unavailable' if not complete else ('exploratory' if drafted else 'available')
     result = {'schema_version': 1, 'exploratory': bool(exploratory), 'margin': margin,
               'seeds': list(SEEDS), 'metrics': list(METRICS), 'split': dict(SPLIT),
               'deviations': list(admitted['deviations']), 'inputs': admitted['inputs'],
-              'cells': [], 'verdicts': {}}
+              'cells': [], 'verdicts': {}, 'H3': status, 'complete_arms': complete}
     for x, y in CONTRASTS:
         if x not in groups or y not in groups:
             continue
@@ -401,10 +412,14 @@ def analyse(admitted, margin=MARGIN, n_boot=N_BOOT, exploratory=False):
         bounds = {cell['metric']: cell['upper'] for cell in cells}
         verdict = paired_compare.h1_verdict(bounds['EDT'], bounds['C50'], margin)
         failed = [cell['metric'] for cell in cells if not cell['convergence']['passed']]
+        if failed:
+            verdict = 'not converged'
+        if status != 'available':
+            verdict = ('suppressed (draft)' if drafted
+                       else 'suppressed (no H3 comparator)')
         result['verdicts']['{} - {}'.format(x, y)] = {
-            'verdict': 'not converged' if failed else verdict,
-            'descriptive': (x, y) != CONTRASTS[0], 'not_converged': failed,
-            'upper': bounds}
+            'verdict': verdict, 'descriptive': (x, y) != CONTRASTS[0],
+            'not_converged': failed, 'upper': bounds}
     if not exploratory:
         failed = ['{} {}'.format(cell['contrast'], cell['metric']) for cell in result['cells']
                   if not cell['convergence']['passed']]
@@ -424,6 +439,34 @@ def producer_identity(strict=True):
     records, digest = provenance.closure_record(
         provenance.source_closure(ENTRY_MODULE, REPO), head, REPO)
     return {'sha256': digest, 'files': records, 'commit': head}
+
+
+def check_producer_identity(approved, identity, exploratory=False):
+    """Finding 3: the comparer's own closure, against the approved `code.compare`."""
+    if approved is None:
+        return []
+    pinned = approved['code'].get('compare')
+    if identity['sha256'] == pinned:
+        return []
+    deviation = 'this producer ran the closure {}, not the approved code.compare {}'.format(
+        identity['sha256'], pinned)
+    if not exploratory:
+        raise ValueError(deviation)
+    return [deviation]
+
+
+def recheck_inputs(inputs, stats=None):
+    """Finding 10: every bound byte is still the byte admission read."""
+    stats = {} if stats is None else stats
+    for path in sorted(inputs):
+        expected = stats.get(path)
+        try:
+            unchanged = (_stamp(path) == expected if expected is not None
+                         else provenance.sha256_file(path) == inputs[path])
+        except OSError as error:
+            raise ValueError('input disappeared during analysis: {} ({})'.format(path, error))
+        if not unchanged:
+            raise ValueError('input changed during analysis: ' + path)
 
 
 def _safe(value):
@@ -451,20 +494,45 @@ def render(result):
         entry = result['verdicts'][name]
         lines.append('{}: {}{}'.format(name, entry['verdict'],
                                        ' (descriptive)' if entry['descriptive'] else ''))
+    lines.append('H3 {}{}'.format(result.get('H3', 'available'),
+                                  '' if result.get('complete_arms', True)
+                                  else ' (arm B absent)'))
     lines.extend('Deviation: ' + item for item in result['deviations'])
     return '\n'.join(lines) + '\n'
 
 
-def write_outputs(result, json_path, summary_path):
-    """Exclusive creation; the JSON carries the summary's digest, and no timestamp."""
+def write_outputs(result, json_path, summary_path, stats=None):
+    """Staged publication (finding 12), after a final input recheck (finding 10)."""
+    paths = [Path(summary_path), Path(json_path)]
+    if len({path.resolve() for path in paths}) != 2 or any(
+            os.path.lexists(str(path)) for path in paths):
+        raise FileExistsError('output paths must be distinct and absent')
     text = render(result)
-    for path in (json_path, summary_path):
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-    with open(str(summary_path), 'x') as stream:
-        stream.write(text)
-    record = dict(result, summary_path=str(Path(summary_path).resolve()),
+    record = dict(result, summary_path=str(paths[0].resolve()),
                   summary_sha256=hashlib.sha256(text.encode()).hexdigest())
-    return record, provenance.write_manifest(json_path, _safe(record)), text
+    data = (json.dumps(_safe(record), sort_keys=True, indent=2,
+                       allow_nan=False) + '\n').encode()
+    recheck_inputs(result.get('inputs') or {}, stats)
+    created = []
+    try:
+        for path, payload in zip(paths, (text.encode(), data)):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            handle, temporary = tempfile.mkstemp(prefix='.' + path.name, dir=str(path.parent))
+            try:
+                with os.fdopen(handle, 'wb') as stream:
+                    provenance.apply_umask(stream.fileno())
+                    stream.write(payload)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.link(temporary, str(path))
+                created.append(path)
+            finally:
+                os.unlink(temporary)
+    except BaseException:
+        for path in created:
+            path.unlink()
+        raise
+    return record, hashlib.sha256(data).hexdigest(), text
 
 
 def build_parser():
@@ -497,11 +565,16 @@ def main(argv=None):
     groups = {role: getattr(args, 'runs_' + role.lower()) for role in sorted(ROLES)
               if getattr(args, 'runs_' + role.lower())}
     admitted = admit_runs(groups, approved, args.exploratory)
-    admitted['deviations'] = list(deviations) + list(admitted['deviations'])
+    identity = producer_identity(strict=not args.exploratory)
+    admitted['deviations'] = (list(deviations)
+                              + check_producer_identity(approved, identity,
+                                                        args.exploratory)
+                              + list(admitted['deviations']))
     result = analyse(admitted, MARGIN, args.n_boot, args.exploratory)
     result['approved_digests'] = receipt
-    result['producer'] = producer_identity(strict=not args.exploratory)
-    record, digest, text = write_outputs(result, args.json, args.summary)
+    result['producer'] = identity
+    record, digest, text = write_outputs(result, args.json, args.summary,
+                                         admitted.get('data_stats'))
     print(text)
     print(json.dumps({'json': args.json, 'sha256': digest,
                       'summary_sha256': record['summary_sha256'],
