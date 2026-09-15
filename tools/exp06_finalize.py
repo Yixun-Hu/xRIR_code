@@ -629,13 +629,25 @@ def _rooms_and_frame(args):
 
 
 def _heading_binding(args, rooms, frame, repo):
-    """Every room's binding names a heading JSON, and must agree with it in full."""
+    """Every room's binding names a heading JSON, and must agree with it in full.
+
+    Full-train review finding 7: the record is re-read against the cache directory the
+    run itself recorded (``haa_root``/``<room>``), so ``read_heading_json`` rehashes the
+    four inputs the estimate was derived from -- a cache edited afterwards is refused
+    here -- and only a ``confirmatory`` record, one of a clean tree whose closure equals
+    its HEAD blobs, may bind a child.
+    """
     if frame != 'heading':
         _require(not args.get('heading'), 'the room frame must not record a heading')
         return None
     heading = args.get('heading')
     _require(isinstance(heading, dict) and set(rooms) <= set(heading),
              'the heading frame requires a heading record for every room')
+    root = args.get('haa_root')
+    _require(isinstance(root, str) and root, 'the heading frame requires the resolved '
+             'haa_root the run read, not {!r}'.format(root))
+    cache = _resolve(root, repo)
+    _require(cache.is_dir(), 'missing HAA cache root {} (args.json haa_root)'.format(cache))
     bound = {}
     for room in rooms:
         entry = heading[room]
@@ -659,9 +671,11 @@ def _heading_binding(args, rooms, frame, repo):
         _require(provenance.sha256_file(resolved) == entry['sha256'],
                  'heading json for {} does not hash to the recorded sha256'.format(room))
         try:
-            record = exp06_heading.read_heading_json(str(resolved))
+            record = exp06_heading.read_heading_json(str(resolved), room_dir=str(cache / room))
         except (OSError, ValueError) as error:
             raise ValueError('invalid heading json for {}: {}'.format(room, error)) from error
+        _require(record['admissibility'] == 'confirmatory', 'heading json for {} is {}, not '
+                 'the confirmatory record a child may bind'.format(room, record['admissibility']))
         _require(record['room'] == room and record['k'] == k and record['phi_deg'] == phi
                  and record['decision'] == entry['decision'],
                  'heading json for {} disagrees with the recorded binding'.format(room))
