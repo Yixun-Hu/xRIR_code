@@ -788,6 +788,44 @@ def test_the_dampened_room_records_no_t60(tmp_path, haa_repo, heading_jsons, dat
     assert exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)['room'] == 'dampened_room'
 
 
+INFINITIES = ([float('inf'), float('nan'), float('nan')], [float('-inf')] * 3)
+
+
+@pytest.mark.parametrize('t60', INFINITIES)
+def test_an_omitted_room_measures_only_nan_t60(tmp_path, haa_repo, heading_jsons, data_root, t60):
+    """Close-4 finding 1: infinity is not the writer's skipped-measurement sentinel."""
+    checkpoint = haa_repo / 'stage2_best.pth'
+    torch.save(tiny_state(), checkpoint)
+    args = haa_eval_args(heading_jsons, checkpoint, room='dampened_room')
+    run, log = tmp_path / 'eval' / 'dampened_room', tmp_path / 'child.log'
+    write_haa_eval(run, args, log, haa_repo, data_root, per_sample={'t60': t60},
+                   meta=eval_meta(args, provenance.sha256_file(checkpoint)))
+    with pytest.raises(ValueError, match='t60'):
+        exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)
+    assert not (run / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('t60', INFINITIES)
+def test_a_job_refuses_an_omitted_room_whose_t60_is_infinite(job_run, closed_log_file, t60):
+    """The same sentinel rule at job admission, with the child's hashes refreshed."""
+    def mutate(job, names):
+        path = job / 'eval/dampened_room'
+        name = 'per_sample_dampened_room.json'
+        body = json.loads((path / name).read_text())
+        body['t60'] = list(t60)[: len(body['index'])]
+        (path / name).write_text(json.dumps(body))
+        record = json.loads((path / 'completion.json').read_text())
+        record['artifacts'][name] = provenance.sha256_file(path / name)
+        (path / 'completion.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+        return names
+
+    job, children, spec, repo = job_run(mutate=mutate)
+    with pytest.raises(ValueError, match='t60'):
+        exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                children=children, expect='finetune', job_spec=spec)
+    assert not (job / 'completion.json').exists()
+
+
 METRIC_DAMAGE = {
     'metrics_not_json': ('not JSON', 'metrics_hallway.json'),
     'metrics_key': (lambda m: {k: v for k, v in m.items() if k != 'c50_error_db'},
