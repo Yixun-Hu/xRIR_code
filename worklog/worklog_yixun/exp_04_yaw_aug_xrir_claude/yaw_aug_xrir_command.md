@@ -94,3 +94,17 @@ tools/exp04_launch.sh probe --gpu 0 --reviewed-commit f19b9b6 --log-dir ckpt/xRI
 # confirmatory training, GPU 0, 10:20:51 → attempt_20260913T102051 (launcher pid 566768, child pgid 567308)
 nohup setsid tools/exp04_launch.sh full --gpu 0 --reviewed-commit f19b9b6 --probe-json ckpt/xRIR_simple_yawaug_8_shot/_probe_20260913T101537_probe.json --log-dir ckpt/xRIR_simple_yawaug_8_shot/_logs --timestamp 20260913T102051 > worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_20260913T102051_launcher.log 2>&1 &
 ```
+
+## Evaluations, producers, generators, binding (2026-09-14 13:48 → 2026-09-15 04:42; reviewed commit f19b9b6 for the runs)
+```bash
+# 46 evaluation runs (scratchpad exp04_eval_queue.sh aug|pre; per run):
+python -m tools.exp04_eval_launch --backbone <bb> --checkpoint <ckpt> --manifest ckpt/yaw_aug/reference_manifest_k<K>_seed<s>.json --manifest-hash <hash> --out-dir ckpt/yaw_aug/eval/<label> --yaw-cols <cols> --acoustic-cols <cols> --e-acoustic-cols --conditions P --batch-size 16 --num-workers 6 --threads 4 --decomposition-batches 0 --gl-seed <s> --max-samples 0 --log-interval 10 --num-shot <K> --run-label <label> --reviewed-commit f19b9b6 --data-root $XRIR_DATA_PATH --log-dir <record> --gpu 0 [--bind-input train_manifest=<attempt>/train_manifest.json --bind-input train_completion=<attempt>/completion.json]
+# producers (CPU):
+python -m tools.paired_compare --profile H2_K8 --runs-a <aug blocks ×5> --runs-b <control blocks ×5> --json ckpt/yaw_aug/results/H2_K8.json --summary ckpt/yaw_aug/results/H2_K8.summary.txt
+python -m tools.paired_compare --profile TOST_K8 --runs-a <aug blocks ×5> --json ... ; --profile H1_K8 / H1_K1 with the standalone k=0 runs (aug vs control)
+python -m tools.results_table --profile TABLE_V1 --runs <30 standalone k=0 runs> --json ckpt/yaw_aug/results/TABLE_V1.json --md worklog/worklog_yixun/model_comparison.md
+python -m tools.exp04_descriptive --profile EPOCH9_K8 --runs <aug9 k0 ×5> --json ... ; --profile GRID_SEED42 --runs ckpt/yaw_aug/eval/aug_k8_seed42_grid --json ...
+# record:
+python <assets>/make_results_md.py --h1-k8 ... --h1-k1 ... --h2-k8 ... --tost-k8 ... --table ... --diag GRID_SEED42.json EPOCH9_K8.json --out <record>/yaw_aug_xrir_results.md   (and make_results_html.py → yaw_aug_xrir_01_results.html)
+python <assets>/bind_provenance.py --runs <46 run dirs> --results <7 JSONs> --attempt ckpt/xRIR_simple_yawaug_8_shot/final --probe-receipt <receipt> --audit ckpt/yaw_aug/alignment_audit.json --out ckpt/yaw_aug ; python <assets>/check_record.py ckpt/yaw_aug
+```

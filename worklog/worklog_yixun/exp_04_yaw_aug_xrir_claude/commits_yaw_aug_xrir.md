@@ -83,3 +83,45 @@ All carry the requested Codex trailer; no worklog/ or ckpt/ committed; no push.
 - `80f31461eef12d004b2dfc5f7b9389cf75e9eadb` — exp_04: fail closed on table edits and require augmented training provenance (Codex, trailer gpt-6-astra)
 
 Round map: 3a = `9cd3703`…`fce0035` (provenance helper, `tools/exp04_eval.py`, evaluation launcher); 3b = `38cf05b`…`07f3bc9` (training launcher/probe); 3a-fix = `3e34a73`…`bd50f74`; 4 = `eae21dc`…`b42b559` (profiles, `paired_compare`); 3b-fix = `9b47c7a`…`f7596c0`; 5 = `d750597`…`be5830d` (A9, `results_table`); 6 = `e3decd7`…`80f3146` (pre-launch hardening). Planner bookkeeping commits: `ad19454`, `a367d06`, `37b5f0d`. Every Codex commit < 200 changed lines with the trailer; exp_03's pinned closure untouched (`git log 62c9107..80f3146 -- <12 files>` empty).
+
+## Planner commits, record phase — 2026-09-15T04:50:31-04:00
+- `6dc1821` — exp_04 bookkeeping: round 6 delivery, params set-up draft, commits map through 80f3146
+- `167722c` — Share signal-safe termination across exp04 launchers
+- `ed5f2a1` — Protect exp04 completion transactions and restore recovery logs
+- `7fdff94` — Add frozen exp05 tiers and exact parameter accounting
+- `a3eb253` — Expose trainer ViT tiers with historical M step parity
+- `5ea3d49` — Preserve exp04 launcher parity and validate exp05 tier commands
+- `76c14e9` — feat(exp05): bind tier checkpoints to the shared evaluation loop
+- `6335eb7` — exp_04 bookkeeping: round 7 delivered and approved (launch code state certified), A10 extension
+- `dc0c895` — test(exp05): compare tier evaluation and smoke checkpoints on GPU
+- `6a1a209` — feat(exp05): launch tier evaluation with bound training arguments
+- `449055c` — feat(exp05): measure tier training validation and scratch-save costs
+- `b74d2ec` — feat(exp05): validate tier receipts and cumulative training budgets
+- `287e3ed` — feat(exp05): launch single-arm tier probes and write receipts
+- `a19a2a0` — feat(exp05): enforce receipt-derived full-run and epoch-one limits
+- `0dba2b3` — fix(exp05): reject stale probes resource drift and invalid metadata types
+- `5e8b677` — exp_05 bookkeeping: round 1 delivered and reviewed, goldens, amendments A1-A4, reviewer briefing and prompts
+- `0916864` — feat(exp05): freeze capacity profiles and approval schema
+- `f2b953a` — feat(exp05): compute registered cohorts and paired intervals
+- `6ac01f2` — feat(exp05): gate six-arm conclusions and target ratios
+- `faf3b1c` — test(exp05): bind six-arm synthetic evaluation fixtures
+- `c381184` — feat(exp05): validate tier metadata and explicit M evaluator pins
+- `a3f81d1` — feat(exp05): fail closed on grouped run admission
+- `01de56f` — feat(exp05): publish canonical curves with shared provenance writer
+- `fe0fa94` — fix(exp05): bind tier checks to admitted input bytes
+- `970bc52` — feat(exp05): report descriptive paired yaw changes by tier
+- `860a334` — test(exp05): cover secondary profiles and provenance boundaries
+- `ba2f281` — fix(exp05): bind golden recipes to tier arms and records
+- `0e35e2c` — fix(launchers): certify completion before honoring tail signals
+- `f19b9b6` — fix(exp05): bind probe evidence and audit ceiling renewals
+- `453b8da` — exp_05 bookkeeping: rounds 2-3 reviews, close-out prompts, amendments A5-A8; exp_04 round-7 review final count
+- `1ec0457` — fix(exp05): bind training evidence and complete recipe admission
+- `d1f0d61` — fix(exp05): close producer reporting and boundary review findings
+- `6cfb377` — exp_05 bookkeeping: round-3 close-out delivered
+- `8b85119` — exp_04/exp_05 bookkeeping: launch commit f19b9b6 certified; round-2 close-out review
+- `ca752ea` — exp_05 bookkeeping: round-3 close-out review, round-4 prompt
+- `486a3f0` — exp_04: rung-6 probe passed, confirmatory training launched (attempt_20260913T102051)
+- `3153ad1` — exp_05: fit/timing probes passed for S/L both backbones (L fits at 32x2); command file
+- `b9ea327` — exp_04 epoch 1 accepted; exp_05 training queue launched on GPU 1 (S_simple attempt_20260913T123905)
+- `2066830` — exp_05: S_simple certified (11.41 h), S_cylindrical launched
+- `6792167` — exp_05: S_cylindrical certified (12.00 h), L_cylindrical launched
