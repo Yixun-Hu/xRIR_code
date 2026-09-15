@@ -304,3 +304,32 @@ Round 3b fix cycle (Opus) — delivered 2026-09-15 14:00: merge `90ce3ba` (exp06
 | 6c6a156 | exp06-round2b | exp06: H3 eligibility, producer identity and safe publication (findings 3, 9, 10, 12) |
 | 92c0dec | exp06-round2b | exp06: red -- the checkpoint identity of every arm is published (finding 5) |
 | df7ea24 | exp06-round2b | exp06: publish the checkpoint identity of every arm (finding 5) |
+
+## Merge into main — 2026-09-15 15:04
+| eaadb26 | main | merge --no-ff exp06-window (9ccb6ea) |
+| 1b49cfc | main | bookkeeping: exp_06 record, exp_02 diagnostics, Codex 2a archive, SOP role change |
+| fc1ee2a | main | approvals fill (invalid: extra note key) |
+| 53307b6 | main | approvals file conforms to the schema (corrected fill) |
+
+Round 3b fix cycle 2 (Opus) — delivered 2026-09-15 15:42; Codex close review 2 pending
+| 2e670da | exp06-round2b | exp06: red -- H3 must enforce the registered experiment (finding 1) |
+| 7b19f94 | exp06-round2b | exp06: H3 admits the registered split, inventory and reference (finding 1) |
+| 76a3606 | exp06-round2b | exp06: red -- role, registry, class and epoch identities (finding 4) |
+| 9acdc0c | exp06-round2b | exp06: H3 binds the registered model, registry and epoch of each role (finding 4) |
+| 55e975e | exp06-round2b | exp06: red -- the exp_05 route establishes its args/tier binding (finding 5) |
+| 2fae051 | exp06-round2b | exp06: the exp_05 route re-derives its tier from the checkpoint args.json (finding 5) |
+| cacfa86 | exp06-round2b | exp06: red -- production approvals are bound to the reviewed commit (finding 7) |
+| e391513 | exp06-round2b | exp06: production approvals are the bytes committed at the reviewed HEAD (finding 7) |
+| 48f14a0 | exp06-round2b | exp06: red -- the A3 owner is read from the job root launch.pid (finding 6) |
+| b2361fd | exp06-round2b | exp06: bind the job owner to the root launch.pid (finding 6) |
+| 74fa776 | exp06-round2b | exp06: red -- the registered HAA recipe of plan 6.2 and the sensitivity mode (finding 3) |
+| f0d7963 | exp06-round2b | exp06: admit only plan 6.2's recipe, or label the run a sensitivity analysis (finding 3) |
+| 747f3a6 | exp06-round2b | exp06: red -- parsed bytes, contradictions and the complete revalidated set (finding 2) |
+| e97bcab | exp06-round2b | exp06: bind bytes where they are read and revalidate the complete set (finding 2) |
+| f30ac22 | exp06-round2b | exp06: red -- every HAA child artefact is bound and revalidated (finding 2) |
+| 9b62055 | exp06-round2b | exp06: carry every verified child artefact into the revalidated set (finding 2) |
+| 4617219 | exp06-round2b | exp06: red -- the comparer's own closure is bound and revalidated (finding 2) |
+| 07001a0 | exp06-round2b | exp06: bind the comparer's producer closure for revalidation (finding 2) |
+
+| 4dd37ec | exp06-launch-gate | validate the populated approvals record instead of the null template (tests only) — Codex review pending |
+| 4ea1b2b | exp06-launch-gate | resolve HEAD lazily so the profiles test module collects outside a git checkout (tests only) — Codex close review pending |

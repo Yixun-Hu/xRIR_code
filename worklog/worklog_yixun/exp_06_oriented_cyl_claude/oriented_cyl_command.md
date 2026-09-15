@@ -35,3 +35,8 @@
 - 2026-09-15 12:10 Codex pre-merge CLOSE review (a40f81b..5091f6c) → `oriented_cyl_2026-09-15_12:10:10_codex_code_premerge_close_review.log`.
 - 2026-09-15 12:11 round 3b fix (Opus 5): Agent tool, prompt `coder_prompts/round3b_fix_opus_prompt.md` (wt2b; cycle −1 merges `exp06-window` into `exp06-round2b`).
 - 2026-09-15 14:00 Codex close review of round 3b fixes (0ca806c..df7ea24 incl. merge 90ce3ba, wt2b) → `oriented_cyl_2026-09-15_14:00:27_codex_code_round3b_close_review.log`.
+- 2026-09-15 15:09 heading JSONs (rung 3): for r in class_room dampened_room hallway complex_room: `python tools/exp06_heading.py --room-dir ~/data_cache/HAA_xrir/$r --out ckpt/exp06/heading/$r.json` (HEAD 53307b6, CPU).
+- 2026-09-15 15:10 Codex verification of the approvals fill + heading records (main, 53307b6) → `oriented_cyl_2026-09-15_15:10:13_codex_approvals_fill_review.log`.
+- 2026-09-15 15:42 Codex close review 2 of round 3b (df7ea24..07001a0, wt2b) → `oriented_cyl_2026-09-15_15:42:25_codex_code_round3b_close2_review.log`.
+- 2026-09-15 15:48 Codex review of the launch-gate test fix (4dd37ec on exp06-launch-gate) → `oriented_cyl_2026-09-15_15:48:20_codex_launch_gate_test_review.log`.
+- 2026-09-15 16:29 Codex close review of the launch-gate test fix (4dd37ec..4ea1b2b) → `oriented_cyl_2026-09-15_16:29:03_codex_launch_gate_test_close_review.log`.
