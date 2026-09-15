@@ -223,3 +223,290 @@ def test_the_gate_refuses_incomplete_statistics():
         subject.g1_decision(incomplete)
     with pytest.raises(ValueError):
         subject.g1_decision(stats(cyl_cos=float('nan')))
+
+
+# --- the probe on a real dataset -------------------------------------------------------
+
+import json
+import os
+from pathlib import Path
+
+from sim_to_real.haa_dataset import HAADataset
+from tools import provenance
+from tools.exp06_heading import HeadingFrameDataset, estimate_room_heading, write_heading_json
+from tools.yaw_rotation import rotate_scene_yaw
+
+ROOT = Path(__file__).resolve().parents[1]
+HEADING_K = 128
+NUM_SHOT = 2
+
+
+def write_probe_room(room):
+    """A cache room with a decidable axis and four test microphones on each side."""
+    room.mkdir(parents=True)
+    train, test = list(range(12)), list(range(12, 20))
+    room.joinpath('meta.json').write_text(json.dumps(
+        dict(train=train, valid=[12], test=test, sr=22050)))
+    theta = np.deg2rad([-90] * 4 + [90] * 8)
+    distance = np.arange(1, 13) / 3
+    xyz = np.zeros((20, 3))
+    xyz[:12, :2] = np.stack((np.cos(theta), np.sin(theta)), axis=1) * distance[:, None]
+    for i, (x, y) in enumerate([(2.0, 1.0), (2.5, 2.0), (1.5, 3.0), (3.0, 4.0)]):
+        xyz[12 + i, :2] = (x, y)
+        xyz[16 + i, :2] = (-x, -y)
+    xyz[:, 2] = 0.3
+    np.save(room / 'xyzs.npy', xyz)
+    np.save(room / 'speaker_xyz.npy', np.zeros(3))
+    generator = np.random.default_rng(6)
+    rirs = generator.normal(0, 1e-3, (20, MAX_LEN))
+    rirs[:12, 10] += 10 ** (np.asarray([9] * 4 + [0] * 8) / 20) / distance
+    np.save(room / 'rirs.npy', rirs.astype(np.float32))
+    np.save(room / 'depth.npy', (np.arange(256 * 512) % 7 + 1).reshape(256, 512).astype('float32'))
+    return room
+
+
+@pytest.fixture(scope='module')
+def probe_cache(tmp_path_factory, tiny):
+    """One room, its confirmatory heading record, and checkpoints of the tiny model."""
+    from test_exp06_haa import confirmatory
+    base = tmp_path_factory.mktemp('probe')
+    root = base / 'HAA_xrir'
+    record = estimate_room_heading(write_probe_room(root / 'hallway'))
+    assert record['decision'] == 'estimated' and record['k'] == HEADING_K
+    heading = base / 'hallway.json'
+    write_heading_json(heading, confirmatory(record))
+    checkpoints = {}
+    for name in ('cyl_or', 'cyl', 'control'):
+        path = base / (name + '.pth')
+        torch.save(tiny.state_dict(), path)
+        checkpoints[name] = str(path)
+    return {'root': str(root), 'heading': str(heading), 'checkpoints': checkpoints,
+            'base': base}
+
+
+def probe_factory(backbone, num_shot):
+    torch.manual_seed(6)
+    return build_xrir_exp06('simple', num_shot, n_bins=N_BINS, dim=32, depth=1, heads=1,
+                            mlp_dim=32)
+
+
+def dataset_of(root, k=None):
+    if k is None:
+        return HAADataset(['hallway'], 'test', root=root, num_shot=NUM_SHOT,
+                          max_len=MAX_LEN, eval_seed=0)
+    return HeadingFrameDataset(['hallway'], 'test', root=root, num_shot=NUM_SHOT,
+                               max_len=MAX_LEN, eval_seed=0, k_by_room={'hallway': k})
+
+
+@pytest.mark.parametrize('k', [0, HEADING_K])
+def test_a_mirror_pair_stays_a_mirror_pair_in_the_heading_frame(k):
+    """(-x, -y, z) is Rz(180 deg), which commutes with the frame's own yaw."""
+    positions = torch.tensor([[2.0, 1.0, 0.3], [-1.5, 3.0, 0.3]])
+    depth = torch.ones(1, 3, 256, 512)
+    zero = torch.zeros(1, 3)
+    _, _, rotated = rotate_scene_yaw(depth, zero, positions.unsqueeze(0), k)
+    _, _, rotated_mirror = rotate_scene_yaw(
+        depth, zero, subject.mirror_positions(positions).unsqueeze(0), k)
+    assert torch.allclose(subject.mirror_positions(rotated.squeeze(0)),
+                          rotated_mirror.squeeze(0), atol=1e-6)
+
+
+@torch.no_grad()
+def test_mirror_stats_reports_the_cohort_and_finite_statistics(probe_cache, tiny):
+    dataset = dataset_of(probe_cache['root'])
+    stats = subject.mirror_stats(tiny, dataset, 'hallway', [0, 1, 2, 3], 0, 1, batch=2)
+    assert stats['n_queries'] == 4 and stats['mic_ids'] == [12, 13, 14, 15]
+    assert stats['side_of_query'] == 1 and stats['frame_k'] == 0 and stats['device'] == 'cpu'
+    assert -1.0 <= stats['mirror_cosine'] <= 1.0
+    assert 0.0 <= stats['opposite_side_weight_share'] <= 1.0
+    assert np.isfinite(stats['c50_signed_error_db'])
+    assert 0.0 <= stats['reference_opposite_fraction'] <= 1.0
+
+
+@torch.no_grad()
+def test_mirror_stats_mirror_cosine_matches_the_manual_computation(probe_cache, tiny):
+    dataset = dataset_of(probe_cache['root'])
+    stats = subject.mirror_stats(tiny, dataset, 'hallway', [0, 1], 0, 1, batch=2)
+    data = dataset.data['hallway']
+    query = data['src_local'][[12, 13]]
+    feature = subject.geometry_feature(tiny, query, data['depth_coord'])
+    mirror = subject.geometry_feature(tiny, subject.mirror_positions(query),
+                                      data['depth_coord'])
+    expected = torch.nn.functional.cosine_similarity(feature, mirror, dim=-1).mean()
+    assert stats['mirror_cosine'] == pytest.approx(float(expected), abs=1e-6)
+
+
+@torch.no_grad()
+def test_side_labels_and_references_are_the_same_in_both_frames(probe_cache, tiny):
+    """Side is a room-frame fact: rolling the panorama cannot move a microphone's end."""
+    room_frame = subject.mirror_stats(tiny, dataset_of(probe_cache['root']), 'hallway',
+                                      [0, 1, 2, 3], 0, 1, batch=2)
+    heading = subject.mirror_stats(tiny, dataset_of(probe_cache['root'], HEADING_K),
+                                   'hallway', [0, 1, 2, 3], HEADING_K, 1, batch=2)
+    assert heading['mic_ids'] == room_frame['mic_ids']
+    assert heading['reference_side_counts'] == room_frame['reference_side_counts']
+    assert heading['reference_opposite_fraction'] == room_frame['reference_opposite_fraction']
+    assert heading['frame_k'] == HEADING_K
+
+
+@torch.no_grad()
+@pytest.mark.parametrize('case', ['frame_mismatch', 'room_frame_k', 'wrong_side',
+                                  'unknown_room', 'random_references', 'empty'])
+def test_mirror_stats_refuses_an_inconsistent_request(probe_cache, tiny, case):
+    root = probe_cache['root']
+    dataset, ids, k, side = dataset_of(root), [0, 1], 0, 1
+    if case == 'frame_mismatch':
+        dataset, k = dataset_of(root, HEADING_K), 0
+    elif case == 'room_frame_k':
+        k = HEADING_K
+    elif case == 'wrong_side':
+        side = -1
+    elif case == 'unknown_room':
+        dataset = dataset_of(root)
+    elif case == 'random_references':
+        dataset = HAADataset(['hallway'], 'test', root=root, num_shot=NUM_SHOT,
+                             max_len=MAX_LEN)
+    else:
+        ids = []
+    room = 'class_room' if case == 'unknown_room' else 'hallway'
+    with pytest.raises(ValueError):
+        subject.mirror_stats(tiny, dataset, room, ids, k, side, batch=2)
+
+
+@torch.no_grad()
+def test_the_legacy_reproduction_reports_its_deviation_from_the_anchors(probe_cache):
+    """With a tiny model the anchors cannot reproduce; the report says so, fail-closed."""
+    report = subject.legacy_reproduction(
+        root=probe_cache['root'], room='hallway', cohort_size=4, num_shot=NUM_SHOT,
+        max_len=MAX_LEN, batch=2, model_factory=probe_factory,
+        checkpoints={'cyl': probe_cache['checkpoints']['cyl'],
+                     'control': probe_cache['checkpoints']['control']},
+        verify_frozen_cohort=False)
+    assert set(report['models']) == {'cyl', 'control'}
+    assert report['reproduced'] is False and report['deviations']
+    assert report['cohort']['mic_ids'] == [12, 13, 14, 15]
+    assert report['anchors'] == subject.ANCHORS_LEGACY
+
+
+@torch.no_grad()
+def test_the_full_gate_runs_every_arm_and_decides(probe_cache):
+    gate = subject.full_gate(
+        probe_cache['checkpoints']['cyl_or'], HEADING_K, root=probe_cache['root'],
+        room='hallway', device='cpu', batch=2, num_shot=NUM_SHOT, max_len=MAX_LEN,
+        model_factory=probe_factory,
+        checkpoints={'cyl': probe_cache['checkpoints']['cyl'],
+                     'control': probe_cache['checkpoints']['control']})
+    assert set(gate['stats']) == {'cyl_or', 'cyl', 'control', 'cyl_hf'}
+    assert gate['stats']['cyl_or']['frame_k'] == HEADING_K
+    assert gate['stats']['cyl']['frame_k'] == 0 and gate['stats']['cyl_hf']['frame_k'] == HEADING_K
+    assert gate['cohort']['mic_ids'] == [12, 13, 14, 15]
+    assert gate['decision']['outcome'] in ('pass', 'fail', 'inconclusive')
+    assert gate['device'] == 'cpu'
+
+
+# --- the hash-bound record -------------------------------------------------------------
+
+
+def canned(monkeypatch, outcome='pass', reproduced=True):
+    cells = {'cyl': {'mirror_cosine': 0.97, 'opposite_side_weight_share': 0.85},
+             'control': {'mirror_cosine': 0.44, 'opposite_side_weight_share': 0.24},
+             'cyl_or': {'mirror_cosine': 0.5 if outcome == 'pass' else 0.95,
+                        'opposite_side_weight_share': 0.3},
+             'cyl_hf': {'mirror_cosine': 0.9, 'opposite_side_weight_share': 0.8}}
+    monkeypatch.setattr(subject, 'full_gate', lambda *a, **k: {
+        'stats': cells, 'cohort': {'positions': [0], 'mic_ids': [12], 'side': '+y'},
+        'decision': subject.g1_decision(cells), 'device': 'cpu'})
+    monkeypatch.setattr(subject, 'legacy_reproduction', lambda *a, **k: {
+        'models': {}, 'reproduced': reproduced, 'deviations': [],
+        'anchors': subject.ANCHORS_LEGACY,
+        'cohort': {'positions': [], 'mic_ids': []}})
+
+
+def cli(cache, out, *extra):
+    return ['--cylor-checkpoint', cache['checkpoints']['cyl_or'],
+            '--heading-json', cache['heading'], '--haa-root', cache['root'],
+            '--room', 'hallway', '--device', 'cpu', '--out', str(out),
+            '--cyl-checkpoint', cache['checkpoints']['cyl'],
+            '--control-checkpoint', cache['checkpoints']['control'], *extra]
+
+
+def test_the_record_binds_every_input_and_refuses_to_overwrite(probe_cache, tmp_path,
+                                                               monkeypatch):
+    canned(monkeypatch)
+    out = tmp_path / 'gate_g1.json'
+    assert subject.main(cli(probe_cache, out)) == 0
+    record = json.loads(out.read_text())
+    assert record['decision']['outcome'] == 'pass'
+    for name in ('cyl_or', 'cyl', 'control'):
+        binding = record['checkpoints'][name]
+        assert binding['sha256'] == provenance.sha256_file(
+            probe_cache['checkpoints'][name]) and len(binding['sha256']) == 64
+    assert record['heading']['sha256'] == provenance.sha256_file(probe_cache['heading'])
+    assert record['heading']['k'] == HEADING_K and record['heading']['room'] == 'hallway'
+    assert record['source_closure']['entry_module'] == 'tools.exp06_mirror_probe'
+    assert 'tools/exp06_mirror_probe.py' in [f['path'] for f in
+                                             record['source_closure']['files']]
+    assert record['source_closure']['git']['HEAD'] and record['environment']['torch']
+    assert record['timestamp'] and record['legacy_reproduction']['reproduced'] is True
+    with pytest.raises(FileExistsError):
+        subject.main(cli(probe_cache, out))
+
+
+def test_a_failed_legacy_reproduction_makes_the_gate_inconclusive(probe_cache, tmp_path,
+                                                                  monkeypatch):
+    canned(monkeypatch, reproduced=False)
+    out = tmp_path / 'gate.json'
+    assert subject.main(cli(probe_cache, out)) == 4
+    record = json.loads(out.read_text())
+    assert record['decision']['outcome'] == 'inconclusive'
+    assert any('legacy' in reason for reason in record['decision']['reasons'])
+
+
+def test_legacy_only_writes_no_verdict(probe_cache, tmp_path, monkeypatch):
+    canned(monkeypatch)
+    out = tmp_path / 'legacy.json'
+    assert subject.main(cli(probe_cache, out, '--legacy-only')) == 4
+    record = json.loads(out.read_text())
+    assert record['stats'] is None and record['decision']['outcome'] == 'inconclusive'
+
+
+def test_a_heading_whose_cache_moved_is_refused(probe_cache, tmp_path, monkeypatch):
+    canned(monkeypatch)
+    moved = tmp_path / 'HAA_xrir'
+    moved.mkdir()
+    room = moved / 'hallway'
+    room.mkdir()
+    for name in ('meta.json', 'xyzs.npy', 'speaker_xyz.npy', 'depth.npy'):
+        room.joinpath(name).write_bytes(
+            Path(probe_cache['root'], 'hallway', name).read_bytes())
+    np.save(room / 'rirs.npy', np.zeros((20, MAX_LEN), dtype=np.float32))
+    argv = cli(probe_cache, tmp_path / 'g.json')
+    argv[argv.index('--haa-root') + 1] = str(moved)
+    with pytest.raises(SystemExit):
+        subject.main(argv)
+
+
+# --- the frozen hallway cohort and the published anchors --------------------------------
+
+HALLWAY_CACHE = Path(os.environ.get('HAA_XRIR_ROOT',
+                                    os.path.expanduser('~/data_cache/HAA_xrir')), 'hallway')
+
+
+@pytest.mark.skipif(not HALLWAY_CACHE.is_dir(), reason='needs the HAA cache')
+def test_the_frozen_cohort_is_the_rule_applied_to_the_cache():
+    meta = json.loads((HALLWAY_CACHE / 'meta.json').read_text())
+    xyz = np.load(HALLWAY_CACHE / 'xyzs.npy').astype(np.float32)
+    speaker = np.load(HALLWAY_CACHE / 'speaker_xyz.npy').astype(np.float32)
+    test = np.asarray(meta['test'])
+    cohort = subject.legacy_cohort(test, (xyz - speaker[None])[test, 1])
+    assert cohort == subject.HALLWAY_LEGACY_COHORT
+    assert len(subject.HALLWAY_LEGACY_COHORT['+y']['mic_ids']) == 24
+
+
+@pytest.mark.skipif(os.environ.get('EXP06_REAL_PROBE') != '1',
+                    reason='set EXP06_REAL_PROBE=1 (two minutes of CPU, real checkpoints)')
+@torch.no_grad()
+def test_the_legacy_reproduction_matches_the_published_anchors():
+    report = subject.legacy_reproduction(device='cpu')
+    assert report['cohort']['mic_ids'] == subject.HALLWAY_LEGACY_COHORT['+y']['mic_ids']
+    assert report['reproduced'] is True, report['deviations']
