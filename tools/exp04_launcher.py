@@ -278,6 +278,10 @@ def promote(attempt):
             temporary.unlink()
 
 
+def train_minimum(protocol):
+    return TRAIN_MINIMUM | ({SEEN_MODULE} if protocol == 'seen' else set())
+
+
 TRAIN_MINIMUM = {'train_xRIR_backbone.py', 'treble_multi_room_dataset/treble_xRIR_dataset.py',
     'tools/exp05_params.py',
     'model/xRIR.py', 'model/xRIR_cyl.py', 'model/simple_vit.py', 'model/cylindrical_vit.py',
@@ -291,6 +295,7 @@ CONTROL_EXCLUSIONS = {'save_dir', 'yaw_aug', 'yaw_aug_seed', 'yaw_aug_width', 'n
 
 def compare_control(runtime, control, control_env):
     treatment, baseline = normalize(runtime), normalize(dict(control, env=control_env))
+    protocol = treatment.get('protocol', 'unseen')
     for values in (treatment, baseline):
         for key, value in TIERS['M'].items():
             values.setdefault('vit_' + key, value)
@@ -298,26 +303,33 @@ def compare_control(runtime, control, control_env):
         for key in ('tier', 'param_counts'):
             values.pop(key, None)
         values.setdefault('protocol', 'unseen')  # the historical comparators predate exp_07
-        bpe = values.pop('train_batches_per_epoch', math.ceil(296334 / values['batch_size']))
-        if type(bpe) is not int or bpe != math.ceil(296334 / values['batch_size']):
+        if values['protocol'] not in TRAIN_FILES:
+            raise ValueError('unknown protocol: ' + str(values['protocol']))
+        files = TRAIN_FILES[values['protocol']]
+        bpe = values.pop('train_batches_per_epoch', math.ceil(files / values['batch_size']))
+        if type(bpe) is not int or bpe != math.ceil(files / values['batch_size']):
             raise ValueError('invalid train_batches_per_epoch')
     if tier_of(baseline) != 'M':
         raise ValueError('control requires tier M')
-    exclusions = CONTROL_EXCLUSIONS
-    if tier_of(treatment) != 'M':
+    exclusions, tiered = CONTROL_EXCLUSIONS, tier_of(treatment) != 'M'
+    if tiered or protocol != 'unseen':
         for values in (treatment, baseline):
             for key, value in dict(yaw_aug=0, yaw_aug_seed=values['seed'], yaw_aug_width=512, no_save=False).items():
                 values.setdefault(key, value)
             if values['yaw_aug_seed'] is None:
                 values['yaw_aug_seed'] = values['seed']
-            if type(values['yaw_aug']) is not int or values['yaw_aug'] != 0:
+            if tiered and (type(values['yaw_aug']) is not int or values['yaw_aug'] != 0):
                 raise ValueError('exp05 requires yaw_aug=0')
-        exclusions = (exclusions - {'yaw_aug', 'yaw_aug_seed', 'yaw_aug_width', 'no_save'}) | {'vit_' + key for key in TIERS['M']}
+        exclusions = exclusions - {'yaw_aug', 'yaw_aug_seed', 'yaw_aug_width', 'no_save'}
+        # A seen arm differs from its unseen twin in the protocol and nothing else.
+        exclusions |= {'vit_' + key for key in TIERS['M']} if tiered else {'protocol'}
     missing = object()
     differences = {key: {'treatment': treatment.get(key), 'control': baseline.get(key)}
         for key in treatment.keys() | baseline.keys()
         if type(treatment.get(key, missing)) is not type(baseline.get(key, missing))
         or treatment.get(key, missing) != baseline.get(key, missing)}
+    if protocol != 'unseen' and differences.get('protocol') != dict(treatment=protocol, control='unseen'):
+        raise ValueError('control mismatch: a seen arm requires its unseen-protocol twin')
     refused = differences.keys() - exclusions
     if refused:
         raise ValueError('control mismatch: ' + ', '.join(sorted(refused)))
@@ -326,8 +338,10 @@ def compare_control(runtime, control, control_env):
 
 def build_fields(argv, gpu, reviewed_commit, mode, allow_dirty=False):
     state = p.checked_git_state(REPO, mode == 'full', allow_dirty)
+    provisional = effective_args(argv, gpu, 1)
+    protocol = provisional['protocol']
     files = p.source_closure('train_xRIR_backbone', REPO)
-    if not TRAIN_MINIMUM <= set(files):
+    if not train_minimum(protocol) <= set(files):
         raise ValueError('training closure missing required files')
     closures = {}
     for role, paths in [('training', files), ('launcher',
@@ -339,8 +353,10 @@ def build_fields(argv, gpu, reviewed_commit, mode, allow_dirty=False):
             raise ValueError(role + ' closure differs from reviewed commit')
         closures[role] = {'files': records, 'sha256': digest}
     print('Hashing training data identity...', flush=True)
-    data = p.train_data_identity(DATA_ROOT, cache_path=REPO / 'ckpt/yaw_aug/train_inventory.json')
-    provisional = effective_args(argv, gpu, 1)
+    data = (p.train_data_identity(DATA_ROOT, protocol='seen',
+                                  cache_path=REPO / 'ckpt/exp07/train_inventory_seen.json')
+            if protocol == 'seen' else
+            p.train_data_identity(DATA_ROOT, cache_path=REPO / 'ckpt/yaw_aug/train_inventory.json'))
     bpe = math.ceil(data['inventory_files'] / provisional['batch_size'])
     effective = effective_args(argv, gpu, bpe)
     check_runtime(effective, effective, mode)
@@ -348,13 +364,19 @@ def build_fields(argv, gpu, reviewed_commit, mode, allow_dirty=False):
         source_closures=closures, train_data_identity=data, effective_args=effective,
         command=argv, environment=p.environment(), git_state=state, allow_dirty=allow_dirty,
         env={key: child_environment(gpu)[key] for key in ENV_KEYS})
+    if protocol == 'seen':  # the authors' split file is a first-class revalidated input
+        fields.update(protocol=protocol, mutable_inputs={'seen_split': p.seen_split_identity(REPO)})
     if mode == 'full':
         label = 'cyl' if effective['backbone'] == 'cylindrical' else 'simple'
-        control_path = REPO / ('ckpt/xRIR_' + label + '_8_shot/args.json')
-        control_env = dict(XRIR_DATA_PATH=DATA_ROOT, OMP_NUM_THREADS='2', CUDA_VISIBLE_DEVICES='1')
-        fields['control_excluded_differences'] = compare_control(effective, json.loads(control_path.read_text()), control_env)
+        control_path = REPO / (SEEN_CONTROL if protocol == 'seen' and effective['yaw_aug']
+                               else 'ckpt/xRIR_' + label + '_8_shot/args.json')
+        control = json.loads(control_path.read_text())
+        control_env = control.get('env') or dict(XRIR_DATA_PATH=DATA_ROOT, OMP_NUM_THREADS='2',
+                                                 CUDA_VISIBLE_DEVICES='1')
+        fields['control_excluded_differences'] = compare_control(effective, control, control_env)
         fields['control_env_reconstructed'] = control_env
-        fields['mutable_inputs'] = {'control_args': {'path': str(control_path), 'sha256': p.sha256_file(control_path)}}
+        fields.setdefault('mutable_inputs', {})['control_args'] = {
+            'path': str(control_path), 'sha256': p.sha256_file(control_path)}
     return fields
 
 

@@ -121,3 +121,74 @@ def test_arm_roots_and_ledger_isolation(tmp_path, monkeypatch):
         launch.arm_root('M', 'cylindrical', 'seen', 1)
     launch.account_hours(launch.create_attempt(roots[0], 'attempt_test'), 2, mode='full')
     assert [launch.full_hours(root) for root in roots] == [2, 0, 0]
+def control_of(arm):
+    control = json.loads((launch.REPO / CONTROLS[arm]).read_text())
+    return control, control.get('env') or dict(XRIR_DATA_PATH=launch.DATA_ROOT,
+                                               OMP_NUM_THREADS='2', CUDA_VISIBLE_DEVICES='1')
+
+
+@pytest.mark.parametrize('arm', sorted(ARMS))
+def test_control_parity_against_the_unseen_twin(arm):
+    runtime = launch.effective_args(argv_of(arm), '1', SEEN_BATCHES)
+    assert runtime['protocol'] == 'seen' and runtime['tier'] == 'M'
+    assert runtime['yaw_aug'] == ARMS[arm][1] and runtime['backbone'] == ARMS[arm][0]
+    control, env = control_of(arm)
+    differences = launch.compare_control(runtime, control, env)
+    assert differences['protocol'] == {'treatment': 'seen', 'control': 'unseen'}
+    assert set(differences) <= {'protocol', 'save_dir', 'save_every', 'epoch_ckpt_every',
+                                'PYTHONHASHSEED', 'CUDA_VISIBLE_DEVICES'}
+    launch.compare_control(runtime, dict(control, yaw_aug_seed=None), env)  # exp_05 A1 default
+    for other in sorted(set(ARMS) - {arm}):  # only the arm's own unseen twin is admissible
+        with pytest.raises(ValueError, match='control mismatch'):
+            launch.compare_control(runtime, control_of(other)[0], env)
+    # a seen-protocol comparator is never an unseen twin (seen_aug's recorded 9261 refuses first)
+    with pytest.raises(ValueError, match='twin|train_batches_per_epoch'):
+        launch.compare_control(runtime, dict(control, protocol='seen'), env)
+
+
+@pytest.mark.parametrize('key,value', [('lr', 0.002), ('num_workers', '12'), ('yaw_aug', 1),
+                                       ('no_save', True), ('train_batches_per_epoch', 9261)])
+def test_control_parity_refuses_unregistered_changes(key, value):
+    runtime = launch.effective_args(argv_of('seen_simple'), '1', SEEN_BATCHES)
+    runtime[key] = value
+    with pytest.raises(ValueError, match=key if key != 'train_batches_per_epoch' else 'invalid'):
+        launch.compare_control(runtime, *control_of('seen_simple'))
+
+
+@pytest.fixture
+def stub_inputs(monkeypatch):
+    """Stub the expensive parts of build_fields; the seen bindings stay real."""
+    files = sorted(launch.TRAIN_MINIMUM | {launch.SEEN_MODULE})
+    monkeypatch.setattr(launch.p, 'source_closure', lambda module, repo: files)
+    monkeypatch.setattr(launch.p, 'closure_record', lambda paths, commit, repo: ([
+        dict(path=name, reviewed_blob_sha256='same', working_tree_sha256='same',
+             commits_after_reviewed=[]) for name in paths], 'closure'))
+    monkeypatch.setattr(launch.p, 'environment', lambda: {'executable': launch.PYTHON})
+    monkeypatch.setattr(launch.p, 'git_state', lambda repo: {'dirty_outside_worklog': False})
+    calls = []
+    def inventory(root, protocol='unseen', cache_path=None):
+        calls.append((root, protocol, str(cache_path)))
+        return {'inventory_files': launch.TRAIN_FILES[protocol]}
+    monkeypatch.setattr(launch.p, 'train_data_identity', inventory)
+    return calls
+
+
+@pytest.mark.parametrize('arm', sorted(ARMS))
+def test_seen_fields_bind_split_inventory_and_protocol(stub_inputs, arm):
+    fields = launch.build_fields(argv_of(arm), '1', 'commit', 'full')
+    assert stub_inputs == [(launch.DATA_ROOT, 'seen',
+                            str(launch.REPO / 'ckpt/exp07/train_inventory_seen.json'))]
+    assert fields['protocol'] == 'seen' and fields['effective_args']['protocol'] == 'seen'
+    assert fields['effective_args']['train_batches_per_epoch'] == SEEN_BATCHES
+    assert fields['mutable_inputs']['seen_split'] == p.seen_split_identity(launch.REPO)
+    assert fields['mutable_inputs']['control_args']['path'] == str(launch.REPO / CONTROLS[arm])
+    assert fields['control_excluded_differences']['protocol']['control'] == 'unseen'
+    assert launch.SEEN_MODULE in {r['path'] for r in fields['source_closures']['training']['files']}
+
+
+def test_unseen_fields_keep_the_exp04_inventory_and_no_seen_binding(stub_inputs):
+    fields = launch.build_fields(launch.command('smoke', 'attempt'), '1', 'commit', 'smoke')
+    assert stub_inputs == [(launch.DATA_ROOT, 'unseen',
+                            str(launch.REPO / 'ckpt/yaw_aug/train_inventory.json'))]
+    assert 'protocol' not in fields and fields['effective_args']['protocol'] == 'unseen'
+    assert 'seen_split' not in fields.get('mutable_inputs', {})
