@@ -198,7 +198,8 @@ def test_an_unparseable_junit_xml_is_refused(parity_run):
 def test_an_xml_without_test_cases_is_refused(parity_run):
     def empty(command, **kwargs):
         junit = next(item for item in command if item.startswith('--junitxml='))
-        Path(junit[len('--junitxml='):]).write_text('<testsuites><testsuite tests="9"/></testsuites>')
+        Path(junit[len('--junitxml='):]).write_text(
+            '<testsuites><testsuite tests="9"/></testsuites>')
         return SimpleNamespace(returncode=0, stdout=b'')
     with pytest.raises(ValueError, match='missing parity cases'):
         parity_run.run(empty)

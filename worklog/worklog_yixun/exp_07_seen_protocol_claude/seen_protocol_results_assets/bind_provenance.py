@@ -15,13 +15,14 @@ identity agreeing with its manifest), the seen alignment audit, and the two requ
 ``--evidence`` receipts: the GPU parity receipt, whose nine registered cases must all have
 passed at the reviewed commit, and the released-checkpoint calibration, whose
 pre-registered acceptance rule AND its five-seed operands are recomputed here from the
-bound runs, with its provenance sidecar bound at its own digest.  The four canonical producer outputs are revalidated through the generators'
-own checks; each must cover exactly its registered run set in both its run flags and its
-contracts, each contract being the one the run it is filed under would produce, declare
-every artefact those runs declare plus every trained arm's training evidence, and declare
-nothing outside them at any digest but the bound one.  Finally the rendered Markdown/HTML/LaTeX, the exp_04 inputs the combined table
-reuses, the approval blob and git HEAD.  Each arm's ledger must show at most one retry.
-Run directories are read and never modified.
+bound runs, with its provenance sidecar bound at its own digest.  The four canonical
+producer outputs are revalidated through the generators' own checks; each must cover
+exactly its registered run set in both its run flags and its contracts, each contract
+being the one the run it is filed under would produce, declare every artefact those runs
+declare plus every trained arm's training evidence, and declare nothing outside them at
+any digest but the bound one.  Finally the rendered Markdown/HTML/LaTeX, the exp_04
+inputs the combined table reuses, the approval blob and git HEAD.  Each arm's ledger
+must show at most one retry.  Run directories are read and never modified.
 """
 import argparse
 import json
