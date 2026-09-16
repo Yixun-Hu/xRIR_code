@@ -353,3 +353,10 @@ Round 3b fix cycle 3 (Opus) — delivered 2026-09-15 17:47; Codex close review 3
 | 6ac832c | exp06-round2b | exp06: regression -- a dependency contradicting an earlier binding is refused (finding 2a) |
 
 Round 3b CLOSED 2026-09-15 18:05 at `6ac832c` — Codex close review 3: empty blocking list (deferred: finalizer `load_job_spec` snapshot gap → separate reviewed round before the evaluation/HAA gate).
+
+## Round-3 merge — 2026-09-16 08:04
+| e7555de | exp06-round2b | merge main (1a1f6ba) into the branch |
+| 21a2bf6 | main | merge --no-ff exp06-round2b (rounds 3a + 3b) |
+| d854102 | main | bookkeeping: round-3 reviews/reports, Sep 16 entries |
+| b9f6ebe | main | approvals re-filled at the merge tip (probe_align, all code digests, artifacts.heading) |
+Approvals re-fill VERIFIED 2026-09-16 08:14 (Codex, no blockers) — launch binding b9f6ebe.

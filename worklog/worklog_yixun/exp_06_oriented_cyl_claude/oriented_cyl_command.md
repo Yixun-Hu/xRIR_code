@@ -41,3 +41,7 @@
 - 2026-09-15 15:48 Codex review of the launch-gate test fix (4dd37ec on exp06-launch-gate) → `oriented_cyl_2026-09-15_15:48:20_codex_launch_gate_test_review.log`.
 - 2026-09-15 16:29 Codex close review of the launch-gate test fix (4dd37ec..4ea1b2b) → `oriented_cyl_2026-09-15_16:29:03_codex_launch_gate_test_close_review.log`.
 - 2026-09-15 17:47 Codex close review 3 of round 3b (07001a0..6ac832c, wt2b) → `oriented_cyl_2026-09-15_17:47:15_codex_code_round3b_close3_review.log`.
+- 2026-09-16 08:05 Codex verification of the approvals re-fill at b9f6ebe → `oriented_cyl_2026-09-16_08:05:36_codex_approvals_refill_review.log`.
+- 2026-09-16 08:17 Codex review of the launch-day runbook (Planner one-off) → `oriented_cyl_2026-09-16_08:17:08_codex_runbook_review.log`.
+- 2026-09-16 08:26 Codex close review of the runbook v2 + A4 → `oriented_cyl_2026-09-16_08:26:45_codex_runbook_close_review.log`.
+- 2026-09-16 08:34 Codex close review 2 of the runbook (v3) → `oriented_cyl_2026-09-16_08:34:06_codex_runbook_close2_review.log`.

@@ -458,3 +458,31 @@
 
 ## 2026-09-16T08:02:10-04:00 — Sep 16 window open (peer ping 08:00): `main` 1a1f6ba merged into `exp06-round2b` → `e7555de`; disclosure + merge request sent
 - **Validation** — 0 conflicts; merge-tree preview 0; vs main: 12 new files, 8 modified pre-existing files, all exp_06-owned (`tools/exp06_{eval_launch.py,haa_pipeline.sh,profiles.py,approved_digests_template.json}`, `tests/test_exp06_{eval_launch,finalize,haa,haa_pipeline}.py`), none in the peer's pinned set. Yesterday's request said "new files only" — corrected to the peer with the exact list. `tools/exp06_profiles.py` is a TRAINING_KEYS module → its digest changes → approvals must be re-filled at the merged tip before the launch (planned wiring step; the launch pins that tip). Replay of e7555de running in the background.
+
+## 2026-09-16T08:04:44-04:00 — **round-3 branch MERGED into main** (`21a2bf6`, bookkeeping `d854102`); approvals re-filled at the merge tip (`b9f6ebe`)
+- **Approvals** — schema now the merged template (with `code.probe_align`); every `code` key filled from `compute_code_digests` at HEAD (incl. mirror_probe, bootstrap, summarize_haa, compare, probe_align; `profiles` digest changed with the round-3 edit); `artifacts.heading` = sha256 of the four heading JSONs; `reused` and `artifacts.epoch_012`/`gate_g1` still null (their artefacts do not exist yet); bound to the committed bytes at b9f6ebe; `require(TRAINING_KEYS)` empty. The `.pending` template variant removed (superseded by the merged template).
+- **Next** — Codex verification of this fill (one-off review, in parallel with the branch replay); then the GPU-1 hand-over: rungs 4–5 and `full` pinned at the main tip current then.
+
+## 2026-09-16T08:05:53-04:00 — hand-over timing update from the peer: GPU 1 expected free ≈ 12:00–12:30 (after L_cylindrical certifies ≈ 10:30 and exp_07's ≈ 1.5 h pre-training gate on GPU 1); exp_05's L_cylindrical evaluations move to GPU 0. dc65b26 confirmed as the peer's worklog-only note.
+
+## 2026-09-16T08:06:30-04:00 — heading records vs the re-filled approvals: the heading tool's closure digest is unchanged by the round-3 merge (69e395d0… in all four records == approved `code.heading`), so the records produced at 53307b6 remain admissible for confirmatory use; no regeneration needed. (Codex re-fill verification will confirm.)
+
+## 2026-09-16T08:14:47-04:00 — Codex verification of the approvals re-fill: **approve** (no blocking findings) → launch binding = b9f6ebe (or any later worklog-only tip)
+- **Result** — `oriented_cyl_codex_approvals_refill_review.md`: digests independently recomputed and equal; the finalize/smoke/trainer/eval_launch digest changes explained by import-closure propagation of the `exp06_profiles.py` edit; heading records still admissible (heading closure unchanged); merge modified only exp_06-owned files; pins intact. Reminders: GPU smoke/probe acceptance remains on the ladder; the deferred finalizer snapshot fix precedes the evaluation/HAA gate.
+
+## 2026-09-16T08:17:13-04:00 — launch-day runbook drafted (`oriented_cyl_results_assets/planner_probes/launch_day_runbook.sh`: gate → smoke → haa-smoke → probe → full) and sent to Codex for the SOP one-off review (pid 2299913). HAA smokes use the CPU fixture; `--job-spec` is optional in the wrappers (confirmed), so the diagnostic runs need none.
+
+## 2026-09-16T08:26:45-04:00 — Codex runbook review: **request changes** (1–4) → runbook v2 + plan amendment **A4**
+- **Result** — `oriented_cyl_codex_runbook_review.md` (1 177 words): (1) preflight needs the FULL SHA (`--short` refused: "HEAD … is not the reviewed commit 'b9f6ebe'"); (2) HAA smokes cannot be finalised (`--no-save` required by the smoke contract; wrappers lack it and must keep best.pth) — needs a source change; (3) failures did not stop steps (no `errexit`, printed refusals exit 0); (4) the `full` launcher must itself be detached (it supervises child + sink + finalizer for 31 h); (5) SOP log naming, gate output retained. Verified OK: all flags, fixture path, gate API, heading hashes, budgets.
+- **Change** — runbook v2 (`set -euo pipefail`, explicit refusals with exit 2, full SHA, HAA smokes as unfinalised receipts with per-run exclusive dirs and receipt assertions, detached `full` with pid file and startup check, SOP-named logs incl. gate); plan §10a **A4** (HAA rung-4 smokes = unfinalised diagnostics; finalised HAA diagnostic path + `load_job_spec` fix in one reviewed finalizer round after training, before the HAA stage).
+
+## 2026-09-16T08:27:32-04:00 — Planner replay of the merged exp_06 code (branch tip e7555de == main 21a2bf6 outside worklog)
+    1 failed, 1218 passed, 7 skipped, 120 warnings, 3 errors in 1518.23s (0:25:18)
+    status=0
+- **Analysis** — green suite for the code now on main (rung 1½ for the whole exp_06 code base incl. rounds 3a/3b).
+
+## 2026-09-16T08:29:02-04:00 — the branch replay's 1 failed / 3 errors were `tests/test_exp06_profiles.py`'s record tests on the e7555de snapshot, whose worklog record copy predates the probe_align key (record/template key-set mismatch); on main at b9f6ebe (re-filled record) `tests/test_exp06_profiles.py` + `test_exp06_approvals_api.py` → 62 passed. Definitive full replay on main at b9f6ebe launched (background) so the launch tip has its own green suite.
+
+## 2026-09-16T08:34:11-04:00 — runbook close review 1: **request changes** (GPU-query failure could print GATE OK; approvals refusal exit 1) → runbook v3 (fail-closed queries with exit 2; wrapped approvals pipeline; canonical `preflight --mode full` added to the gate; `OMP_NUM_THREADS=8` exported); Codex close review 2 launched (pid 2331731). Review 1 accepted A4, the detachment, the full SHA and the failure propagation.
+
+## 2026-09-16T08:41:53-04:00 — Codex close review 2 of the runbook: **approve to run** (no blocking findings) → runbook v3 is the launch-day procedure. Remaining prerequisites before `full`: the green full-suite result on main at the launch tip (replay running), the GPU-1 hand-over, and passing smoke/probe acceptance.
