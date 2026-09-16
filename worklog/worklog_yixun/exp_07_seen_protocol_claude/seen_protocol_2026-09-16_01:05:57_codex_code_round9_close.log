@@ -1,0 +1,75 @@
+Reading additional input from stdin...
+OpenAI Codex v0.154.0
+--------
+workdir: /home/yixunhu/codespace/xRIR_code_wt07
+model: gpt-6-astra
+provider: openai
+approval: on-request
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 01a0a89b-806c-7b83-bd18-ba0390fa89d1
+--------
+user
+Follow the briefing in /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_review_briefing.md (read it first; record folder on the MAIN tree, code in this worktree). This is the CLOSE review of Coder round 9 and, if it closes, the repeated FINAL INTEGRATIVE verdict (SOP marker `full`) for the exp_07 branch. Your round-8 close review (MAIN tree seen_protocol_codex_code_round8_close_review.md — re-read it) left exactly two blockers: 1 product dependency maps not exact (ledger/probe receipt optional; unused files of a used arm admissible), 2 calibration's finite-cohort validation covered only EDT/C50/T60. Everything else on the branch is closed and merge preservation is verified. Your adversarial tests sit untracked in `.review-round{6,7,8}/`.
+
+Round 9 = the 3 commits `fd6e521..f39a441` (`git diff fd6e521..f39a441`), per the MAIN-tree coder_prompts/round9_prompt.md: `80f162f` `seed_means` in tools/exp07_calibration.py mirrors `build_table`'s loop over `table.METRICS` — for every registered non-null column (edt, c50, t60, loss, log_mse) it runs `table.seed_finite_means` and asserts finite seed means before selecting the three historical metrics; `measure` routes through it; means kept in native units (EDT in seconds); `d95b04f` `training_dependencies(attempt)` returns the seven keys `run_contract` reads unconditionally (args.json, train_manifest.json, train_inventory.json, completion.json, the inventory sidecar named by the training manifest, `cumulative_hours.json`, the probe receipt); `product_inputs` replaced by `product_dependencies(expected, roles, trained, run_bound, approval)` returning ONE exact map = approval blob + every artefact `run_declarations` binds for each expected run of the used roles + the seven-key training-contract map per trained role + the producer's closure files from the sidecar; `bind_results` requires `declared ⊆ map` with equal digests, the named training-dependency check, and `map ⊆ declared` (equality); `attempt_declarations` / the attempts' `bound` key / `attempt_bound` DELETED so the arm's file inventory can no longer act as an allowlist; unused attempt files stay bound only as evidence in `report['attempts']`; `f39a441` direct invariant test: for all four products `product_dependencies(...) + producer closure == sidecar['inputs']`. Coder claims: coverage matrix re-pointed at `product_dependencies` → 880 cases, unexpected [], `extra allowed 0` for all four products (TABLE 239 inputs / 40 contracts, cyl 131/20, aug 131/20, released 125/20); your round-8 reproductions now refuse (`missing training dependency: cumulative_hours.json …`, `input names an artefact this report does not bind as this product's dependency: abort.json …`, `finite count tolerance exceeded: loss|log_mse`, `zero finite queries: …`); full suite at `f39a441` 2 606 passed / 46 skipped / 0 failed; static_checks exit 0 (318; 221/1 both orders); `TRAINING_DEPENDENCIES` constant deliberately not renamed (names three files; the function returns seven) — say whether you want the rename.
+
+Verify (actively try to break it): replay every reproduction from `.review-round{6,7,8}/` (expect the hole-asserting ones to fail because the holes are closed; list any refusal-asserting one that regressed); rebuild your coverage mutation matrix against the new exact map (omissions AND additions across TABLE and the three PAIRS products, including: an unused epoch checkpoint of a used arm, `history.jsonl`, `effective_args.json`, the probe attempt's own manifest/completion, an aborted attempt's files, another product's producer closure, a data-inventory file of a run the product does not use, the released checkpoint declared by the cyl/simple pairing); check that the deleted allowlist did not weaken anything (does the overall report still bind every attempt's full file inventory and logs, and does check_record still detect edits to those files?); calibration: the 6 217-query fixture with each of the five metrics reduced by the tolerance + 1 and by exactly the tolerance (boundary), zero finite queries per metric, a metric column entirely NaN for one seed, the binder's `measure` route on each; confirm no approval pin is read; `build_table` numerical rows byte-identical vs `fd6e521`; hygiene (Python 3.8, no writes outside the worktree, no GPU, no pinned or pre-existing non-worklog file edits — `git cat-file -e main:<path>` must fail for every non-worklog path in `git diff main --name-only`); full suite on a clone at `f39a441` (create a local `main` first), `static_checks.sh`, both collection orders, `git diff --check`; dry-run `--no-ff` merge into main (`968e46c` or later) in a clone; exp_04's `check_record.py ckpt/yaw_aug` and exp_06's parser-contract test on the merged tree.
+
+Report format: numbered findings with severity, file:line, what, why, minimal fix; a "Verified" section; the round-9 verdict (approve / approve with changes / request changes) and the integrative verdict ("approved for merge and GPU work" / "not approved") with the exact list of blocking findings; if approved, restate the Planner's launch sequence with exact commands as the code now fixes them (merge → `tools/exp07_parity.py` → `tools/exp07_audit.py` → released-checkpoint evaluations → `tools/exp07_calibration.py` → per-arm smoke/probe/full → evaluations → pin fill → producers → generators → bind with `--evidence` → check). Your final message is the review.
+codex
+I’ll read the briefing and round-8 close review first, then replay the reproductions and test round 9’s dependency maps, calibration checks, and merge behavior. I’ll keep review writes inside this worktree.
+exec
+/bin/bash -lc 'cat /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_review_briefing.md' in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 0ms:
+You are the independent code Reviewer (OpenAI Codex, read-only sandbox) for experiment exp_07 "seen_protocol". The code under review lives in the git worktree you are started in (/home/yixunhu/codespace/xRIR_code_wt07, branch exp07-window); the Coder is a Claude Opus 5 subagent (opposite model family — reciprocity rule of the SOP). Read BEFORE judging: worklog/experiment_SOP.md, CLAUDE.md, the approved plan worklog/worklog_yixun/exp_07_seen_protocol_claude/plan_seen_protocol.md (v3; §2 contract, §3 round table, §4 ladder, §9/§10 changelogs), the notebook seen_protocol_worklog.md, the round's Coder prompt under coder_prompts/, the conventions inherited from exp_04 (plan §11 A1–A10) and exp_05 (plan §10a A1–A9), and exp_03's closure rule: eval_yaw_rotation.py, eval_unseen.py, eval_xRIR_backbone.py, model/*.py, tools/yaw_rotation.py, tools/reference_manifest.py, tools/per_sample_metrics.py, treble_multi_room_dataset/*.py, utils/spec_utils.py are never edited (also tools/paired_stats.py, tools/summarize_yaw.py). Environment: /home/yixunhu/miniconda3/envs/xRIR/bin/python, `export PYTHONPATH=<worktree>`, `export XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms`, `export CUDA_VISIBLE_DEVICES=''` (both GPUs run live 40-hour trainings; never use a GPU, never signal any process), `PYTHONDONTWRITEBYTECODE=1`, pytest with `-p no:cacheprovider`; `ckpt/` and `checkpoints/` are read-only symlinks to live data. If the read-only sandbox blocks a test's writes, say which tests could not be run and what you verified by reading instead. Method: read every changed line (`git diff <base>..<head>`), replay the tests, and actively try to break the contract (adversarial inputs, boundary values, the pinned-file rule, the default-path parity claims, closure membership). Report format: numbered findings with severity (blocker / should-fix / nit), file:line, what, why, minimal fix; a "Verified" section with commands and outputs; a verdict "approve" / "approve with changes" / "request changes"; the exact list of blocking findings. Open with the identity header line `**Reviewer:** OpenAI Codex gpt-6-astra (codex exec, read-only sandbox, worktree exp07-window) · **Date:** <date>`.
+
+exec
+/bin/bash -lc "pwd && rg --files -g AGENTS.md -g CLAUDE.md -g '*round8_close_review*' -g '*round9_prompt*' -g '*plan_seen_protocol*' -g '*seen_protocol_worklog*' -g '*experiment_SOP*' -g '*static_checks*' -g '.review-round*/**' -g '"'!ckpt'"' -g '"'!checkpoints'"' . /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude" in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 0ms:
+/home/yixunhu/codespace/xRIR_code_wt07
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_worklog.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round8_close_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/plan_seen_protocol.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/plan_seen_protocol_v1_superseded.md
+./worklog/experiment_SOP.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/coder_prompts/round9_prompt.md
+./worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round8_close_review.md
+./worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_worklog.md
+./worklog/worklog_yixun/exp_07_seen_protocol_claude/plan_seen_protocol.md
+./worklog/worklog_yixun/exp_07_seen_protocol_claude/plan_seen_protocol_v1_superseded.md
+./worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/static_checks.sh
+./worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results_assets/static_checks.sh
+./worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results_assets/static_checks.sh
+./worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_23:25:00_static_checks.log
+./worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_23:49:42_static_checks.log
+./worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-07_00:08:52_static_checks.log
+
+exec
+/bin/bash -lc 'git status --short && git log -5 --oneline && git diff fd6e521..f39a441 --stat && git branch --list' in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 0ms:
+?? .review-round6/
+?? .review-round7/
+?? .review-round8/
+?? checkpoints
+f39a441 exp_07 round 9: the exactness of a product's dependency map, stated directly
+d95b04f exp_07 round 9: each product declares exactly its own dependencies
+80f162f exp_07 round 9: the calibration gate validates every registered metric
+fd6e521 exp_07 round 8: a certified attempt's log is bound at a recorded digest
+da37bb4 exp_07 round 8: reflow two overlong lines the round-8 edits left
+ tests/test_exp07_calibration.py                    | 41 +++++++++
+ tests/test_exp07_record_tools.py                   | 91 +++++++++++++++++++-
+ tools/exp07_calibration.py                         | 26 ++++--
+ .../seen_protocol_results_assets/README.md         | 21 +++--
+ .../bind_provenance.py                             | 97 +++++++++++-----------
+ 5 files changed, 210 insertions(+), 66 deletions(-)
+  archive/codex-round2a-2026-09-15
+  equivariance_ablation
++ exp06-launch-gate
++ exp06-round2b
+  exp06-window
+* exp07-window
++ main
+  receiver-frame-ablation
+
