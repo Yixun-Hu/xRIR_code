@@ -333,3 +333,23 @@ Round 3b fix cycle 2 (Opus) — delivered 2026-09-15 15:42; Codex close review 2
 
 | 4dd37ec | exp06-launch-gate | validate the populated approvals record instead of the null template (tests only) — Codex review pending |
 | 4ea1b2b | exp06-launch-gate | resolve HEAD lazily so the profiles test module collects outside a git checkout (tests only) — Codex close review pending |
+
+## Launch-gate merge — 2026-09-15 16:38
+| 2e1b3ea | exp06-launch-gate | merge main (8cc4fd7) into the branch |
+| 62a4665 | main | merge --no-ff exp06-launch-gate (tests-only) |
+| e590b43 | main | bookkeeping: launch-gate reviews/fixes, 3b close-2 review, fill verification, params set-up, notebook |
+
+Round 3b fix cycle 3 (Opus) — delivered 2026-09-15 17:47; Codex close review 3 pending
+| c0d4753 | exp06-round2b | exp06: red -- the owner pid and its digest come from one read (finding 6) |
+| efe66ea | exp06-round2b | exp06: parse and hash one launch.pid snapshot (finding 6) |
+| 597589a | exp06-round2b | exp06: red -- the exp_05 tier is read from the bytes its digest identifies (finding 5) |
+| 0718c62 | exp06-round2b | exp06: parse and hash one exp_05 args snapshot (finding 5) |
+| 9014b8a | exp06-round2b | exp06: red -- a record that changed after the job certified it is refused (finding 2b) |
+| ee8d1c9 | exp06-round2b | exp06: bind the parent's digest before delegating, and enforce it after (finding 2b) |
+| ed98fe4 | exp06-round2b | exp06: red -- every child-provenance dependency is retained and revalidated (finding 2a) |
+| f668747 | exp06-round2b | exp06: retain every validated child-provenance dependency (finding 2a) |
+| cf9c38b | exp06-round2b | exp06: red -- primary admission registers the effective validation rooms (finding 3) |
+| 93c1a75 | exp06-round2b | exp06: register the effective validation rooms of each stage (finding 3) |
+| 6ac832c | exp06-round2b | exp06: regression -- a dependency contradicting an earlier binding is refused (finding 2a) |
+
+Round 3b CLOSED 2026-09-15 18:05 at `6ac832c` — Codex close review 3: empty blocking list (deferred: finalizer `load_job_spec` snapshot gap → separate reviewed round before the evaluation/HAA gate).
