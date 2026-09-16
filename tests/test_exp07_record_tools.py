@@ -640,6 +640,14 @@ def stripped_abort(bound):
     (directory / 'execution.json').unlink()
 
 
+def unbind_certified_probe_log(bound, role='seen_simple'):
+    """Keep the log path but drop the digest the certified probe recorded for it."""
+    directory = attempt_root(bound, role) / '_probe_t_arm'
+    completion = json.loads((directory / 'completion.json').read_text())
+    completion['log'].pop('sha256')
+    p.write_completion(directory / 'completion.json', completion)
+
+
 def certified_probe_log(bound, role='seen_simple'):
     completion = json.loads((attempt_root(bound, role) / '_probe_t_arm'
                              / 'completion.json').read_text())
@@ -880,6 +888,8 @@ FORGERIES = {
     # the reason, the directory the abort named and the absent renamed log together.
     'certified_probe_log_deleted': (lambda b: certified_probe_log(b).unlink(),
                                     'names a log that is not on disk'),
+    'certified_probe_log_without_a_digest': (unbind_certified_probe_log,
+                                             'records no log'),
     'logless_abort_without_the_setup_failure_shape': (stripped_abort, 'must bind its log'),
     'setup_failure_reason_in_another_abort_directory': (misnamed_setup_failure,
                                                         'must bind its log'),

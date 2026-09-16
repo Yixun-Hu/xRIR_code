@@ -67,8 +67,8 @@ def external_log(reference, digest=None, mandatory=False):
 
     The launcher deliberately keeps logs OUTSIDE the attempt directory, so hashing the
     directory does not cover them; the path comes from the attempt's own completion or
-    abort receipt.  A CERTIFIED attempt's log is the evidence that it ran, so it is
-    mandatory at the digest that attempt recorded; only the two paths an abort receipt
+    abort receipt.  A CERTIFIED attempt's log is the evidence that it ran, so it must be
+    on disk at the digest that attempt recorded; only the two paths an abort receipt
     names may be absent, because the abort itself renames one of them away.
     """
     path = Path(reference)
@@ -106,9 +106,11 @@ def terminal_state(directory, row):
     completion, abort = directory / 'completion.json', directory / 'abort.json'
     if completion.is_file():  # a recovered attempt keeps its abort.json as well
         record = json.loads(completion.read_text()).get('log') or {}
-        require(record.get('path'), 'a certified attempt records no log: ' + row['attempt'])
+        # complete_attempt always writes both; a path without a digest binds nothing.
+        require(record.get('path') and record.get('sha256'),
+                'a certified attempt records no log at a digest: ' + row['attempt'])
         return dict(state='certified', setup_failure=False,
-                    logs=[external_log(record['path'], record.get('sha256'), mandatory=True)])
+                    logs=[external_log(record['path'], record['sha256'], mandatory=True)])
     require(abort.is_file(),
             'the attempt has no terminal state (completion.json or abort.json): ' + row['attempt'])
     record = json.loads(abort.read_text())
