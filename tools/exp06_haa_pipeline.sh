@@ -38,6 +38,7 @@ HEADING_DIR="${EXP06_HEADING_DIR:-ckpt/exp06/heading}"
 HAA_ROOT="${HAA_XRIR_ROOT:-$HOME/data_cache/HAA_xrir}"
 FRAME=heading                       # every exp_06 HAA arm runs in the heading frame
 OWNER=""                            # set to this launcher's pid only at the job root
+OWNED_ROOT=0                        # 1 only when this attempt created the job root itself
 DRY=0
 INIT_BACKBONE=""                    # set by init_of; never word-split out of one string
 INIT_CKPT=""
@@ -106,13 +107,58 @@ check_spec() {  # check_spec <path> <expect>
     [ "$DRY" -eq 1 ] || "$PYTHON" -c "$CHECK_SPEC_PY" "$1" "$2"
 }
 
+# Nit 8: a refused preparation is a recovery state, not a terminal message. The receipt
+# names the gate that refused, when, and the commit the queue was running.
+PREPARE_FAILURE_PY='
+import datetime, json, sys
+from pathlib import Path
+from tools import provenance
+path, reason, root, aborted, owned = sys.argv[1:6]
+Path(path).write_text(json.dumps({
+    "schema_version": 2, "reason": reason, "job_root": root,
+    "aborted_dir": aborted or None, "owned_root": owned == "1",
+    "failed_at": datetime.datetime.now().astimezone().isoformat(),
+    "git": provenance.git_state(str(Path(provenance.__file__).resolve().parents[1]))},
+    sort_keys=True, indent=2) + "\n")
+'
+
+# prepare_failed <root> <reason>: round-3a finding 3. A refused preparation reports itself
+# where it is entitled to write. Only an attempt that created the root itself (OWNED_ROOT)
+# may put its receipt inside and rename it _ABORTED_; a root that pre-existed or was never
+# acquired may belong to another or a finished job, so its failure is recorded beside it
+# and nothing in it is touched. Always returns 1.
+prepare_failed() {
+    local root="$1" reason="$2" target
+    say "REFUSED $reason $root"
+    [ "$DRY" -eq 0 ] || return 1
+    if [ "$OWNED_ROOT" -eq 1 ]; then
+        target="${root}_ABORTED_prepare_${reason}"
+        [ ! -e "$target" ] || target="${target}_$$"
+        mkdir -p -- "$root" \
+            && "$PYTHON" -c "$PREPARE_FAILURE_PY" "$root/preparation_failure.json" \
+                 "$reason" "$root" "$target" 1 \
+            || say "UNRECORDED preparation failure $root"
+        if [ -e "$root" ] && mv -- "$root" "$target"; then say "ABORT $target"
+        else say "UNABORTED $root"; fi
+    else
+        target="${root}_PREPARE_FAILED_$(date -u +%Y%m%dT%H%M%S).json"
+        [ ! -e "$target" ] || target="${target%.json}_$$.json"
+        mkdir -p -- "$(dirname -- "$root")" \
+            && "$PYTHON" -c "$PREPARE_FAILURE_PY" "$target" "$reason" "$root" "" 0 \
+            || say "UNRECORDED preparation failure $root"
+        say "UNOWNED $root"
+    fi
+    return 1
+}
+
 # prepare_job <root> <init> <checkpoint> <seed> <expect> <backbone>: every gate that must
 # pass before the first child of this job starts. A failure here is named and propagated.
 prepare_job() {
-    open_job "$1" || { say "REFUSED open_job $1"; return 1; }
+    OWNED_ROOT=0                     # fail closed: ownership is only ever granted below
+    open_job "$1" || { prepare_failed "$1" open_job; return 1; }
     job_spec "$1/job_spec.json" "$2" "$3" "$4" "$5" "$6" \
-        || { say "REFUSED job_spec $1"; return 1; }
-    check_spec "$1/job_spec.json" "$5" || { say "REFUSED check_spec $1"; return 1; }
+        || { prepare_failed "$1" job_spec; return 1; }
+    check_spec "$1/job_spec.json" "$5" || { prepare_failed "$1" check_spec; return 1; }
 }
 
 # child <run-type> <dir> <log> <command...>: the launcher's lifecycle for one child.
@@ -163,17 +209,21 @@ finalize_job() {
         --job-spec "$root/job_spec.json"
 }
 
-# open_job <root>: this launcher owns the job root, never a child. own_launch records
-# this shell's $$ there whether the root is new or adopted from an interrupted queue, and
-# that launch.pid is the owner the job completion binds: pre-merge finding 1 made it
-# required evidence, so a job root without one is refused rather than certified ownerless.
+# open_job <root>: this launcher owns the job root, never a child. The root is created
+# exclusively, so OWNED_ROOT distinguishes a root this attempt made from one it resumed;
+# an existing root is still adopted (a resumed queue skips its completed children).
+# own_launch records this shell's $$ there whether the root is new or adopted, and that
+# launch.pid is the owner the job completion binds: pre-merge finding 1 made it required
+# evidence, so a job root without one is refused rather than certified ownerless.
 open_job() {
     say "MKDIR $1"
     say "PIDFILE $1/launch.pid"
-    if [ "$DRY" -eq 0 ]; then
-        mkdir -p -- "$1" "$RECORD" || return 1
-        own_launch "$1" || return 1
-    fi
+    OWNED_ROOT=0
+    if [ "$DRY" -eq 1 ]; then OWNED_ROOT=1; return 0; fi
+    mkdir -p -- "$(dirname -- "$1")" "$RECORD" || return 1
+    if mkdir -- "$1" 2>/dev/null; then OWNED_ROOT=1
+    elif [ ! -d "$1" ]; then return 1; fi
+    own_launch "$1" || return 1
 }
 
 run_zeroshot() {  # run_zeroshot <init>

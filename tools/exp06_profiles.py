@@ -50,6 +50,7 @@ CODE_SPECS = MP({
     'encoder': ('model.cylindrical_vit_oriented', ()),
     'factory': ('model.xRIR_cyl_oriented', ()),
     'heading': ('tools.exp06_heading', ()),
+    'probe_align': ('tools.exp06_probe_align', ()),
     'profiles': ('tools.exp06_profiles', ()),
     'launch_sh': (None, ('tools/exp06_launch.sh',)),
     'haa_pipeline_sh': (None, ('tools/exp06_haa_pipeline.sh',)),

@@ -1618,11 +1618,11 @@ def test_the_recorded_data_root_must_be_the_one_the_run_resolved(full_run, clone
     record = json.loads((run / 'provenance.json').read_text())
     record['data_root'] = str(tmp_path / 'another_mirror')
     (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
-    with pytest.raises(ValueError, match='data_root'):
+    with pytest.raises(ValueError, match='is not the .* the run resolved'):
         exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
     record.pop('data_root')
     (run / 'provenance.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
-    with pytest.raises(ValueError, match='data_root'):
+    with pytest.raises(ValueError, match='records no resolved data_root'):
         exp06_finalize.finalize(run, 'full', log, 0, repo=clone)
     assert not (run / 'completion.json').exists()
 
@@ -2070,7 +2070,7 @@ def test_an_omitted_t60_room_measures_and_counts_nothing(tmp_path, haa_repo, hea
     metrics = eval_metrics(args, 'dampened_room', dict(PER_SAMPLE, **per_sample), **overrides)
     write_haa_eval(run, args, log, haa_repo, data_root, per_sample=per_sample, metrics=metrics,
                    meta=eval_meta(args, provenance.sha256_file(checkpoint)))
-    with pytest.raises(ValueError, match='t60'):
+    with pytest.raises(ValueError, match='(never measures|nothing measures T60|the paper omits|contradicts)'):
         exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)
     assert not (run / 'completion.json').exists()
 

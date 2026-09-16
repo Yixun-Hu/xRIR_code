@@ -155,7 +155,9 @@ def test_unusable_heading_records_are_refused(cache, tmp_path, damage):
     args = trainer.build_parser().parse_args(
         train_argv(cache, '--heading-json-dir', str(directory)))
     try:
-        with pytest.raises(ValueError, match='heading'):
+        with pytest.raises(ValueError, match='(missing heading json for|unusable heading '
+                                             'json for|records the room|records the '
+                                             'decision|not confirmatory)'):
             trainer.prepare(args)
     finally:
         if damage == 'changed_input':
@@ -193,7 +195,7 @@ def test_prepare_records_every_field_the_finalizer_binds(cache, tmp_path):
 def test_a_missing_cache_root_is_refused(cache, tmp_path):
     args = trainer.build_parser().parse_args(train_argv(cache, backbone='simple'))
     args.root = str(tmp_path / 'absent')
-    with pytest.raises(ValueError, match='root'):
+    with pytest.raises(ValueError, match='HAA cache root does not exist'):
         trainer.prepare(args)
 
 
