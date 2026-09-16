@@ -441,6 +441,82 @@ def test_adversarial_basis_full_model_is_invariant(name, refs, warm_cyl, env):
         validate.worst(sweep["rows"], "P")["rel_fro"]))
 
 
+def test_directional_degeneracy_is_a_cross_geometry_jump_not_a_rotation_defect(warm_cyl, env):
+    """Review round 3's counterexample, pinned in both directions at once.
+
+    Query ``(5e-4, 0, 1)`` has a horizontal fraction of ``5.0e-4`` -- below the blend band, so the
+    reference aggregate is in full control -- and the references ``(e, 0, z)`` all share one
+    horizontal direction whose magnitude ``e`` can be made arbitrarily small.  Because ``s / R``
+    follows the references' *directions* and not their magnitudes, ``a = (1, 0)`` for **every**
+    ``e > 0`` while ``a = (0, 0)`` at ``e == 0``: the map is discontinuous in the geometry, and
+    shrinking ``e`` does not approach the ``e = 0`` value.
+
+    The test asserts both halves, because only together are they the honest statement:
+
+    * **across geometries** -- neighbouring scenes really do differ, by ~``5.5e-5`` relative;
+      this is recorded, not asserted away;
+    * **across rotations** -- each of those geometries, held fixed, is invariant over all 15 C16
+      angles in both conditions, well inside the ``1e-5`` target.  The discontinuity is therefore
+      a smoothness property of the representation, not an invariance defect.
+    """
+    source = torch.tensor(validate.CODEX_CUSP_SRC, dtype=torch.float32)
+    fraction = float(source[:, :2].norm() / source.norm())
+    assert fraction < BLEND_LO, "the counterexample must sit below the blend band"
+
+    predictions, bases = {}, {}
+    for magnitude in validate.CODEX_CUSP_MAGNITUDES:
+        refs = torch.tensor(validate.cusp_refs(magnitude), dtype=torch.float32)
+        basis, blend = horizontal_basis(source, refs)
+        bases[magnitude] = basis
+        assert float(blend[0]) == 0.0, "the query direction must not participate here"
+
+        batch = validate.adversarial_batch(validate.CODEX_CUSP_SRC,
+                                           validate.cusp_refs(magnitude),
+                                           label="cusp{:g}".format(magnitude))
+        with device_preserving_delay():
+            sweep = validate.angle_sweep(warm_cyl[0], batch, validate.C16_ANGLES,
+                                         conditions=("E", "P"))
+        predictions[magnitude] = sweep["out_0"]
+        for condition in ("E", "P"):
+            row = validate.worst(sweep["rows"], condition)
+            assert row["rel_fro"] <= REL_TARGET, (
+                "e={:g} condition {} k={}: rel {:.3e} -- a FIXED geometry must stay "
+                "rotation-invariant".format(magnitude, condition, row["k"], row["rel_fro"]))
+
+    # The basis does not tend to its e = 0 value as e shrinks: that is the discontinuity.
+    assert torch.equal(bases[0.0], torch.zeros(1, 2))
+    for magnitude in validate.CODEX_CUSP_MAGNITUDES:
+        if magnitude > 0.0:
+            assert torch.allclose(bases[magnitude], torch.tensor([[1.0, 0.0]]), atol=1e-6), \
+                "e={:g} should give a unit basis regardless of how small e is".format(magnitude)
+
+    baseline = predictions[0.0]
+    jumps = {m: float((predictions[m] - baseline).norm() / baseline.norm())
+             for m in validate.CODEX_CUSP_MAGNITUDES if m > 0.0}
+    assert all(1e-5 < jump < 1e-3 for jump in jumps.values()), (
+        "the documented cross-geometry jump moved: {}".format(jumps))
+    print("\ncross-geometry jump at the directional degeneracy: {} "
+          "(each geometry individually rotation-invariant to <= {:.0e})".format(
+              {m: "{:.3e}".format(v) for m, v in jumps.items()}, REL_TARGET))
+
+
+def test_reference_magnitude_does_not_set_the_fallback_direction():
+    """The ratio ``s / R`` is scale-free in the references: only their directions matter.
+
+    Stated as its own property because it is the mechanism behind the discontinuity above, and
+    because it is also what makes the fallback well-conditioned when the sum is small.
+    """
+    source = torch.tensor([[0.0, 0.0, 1.0]])
+    directions = torch.tensor([[[3.0, 4.0, 0.2], [-1.0, 2.0, -0.4]]])
+    reference, _ = horizontal_basis(source, directions)
+    for scale in (1e-6, 1e-3, 1.0, 1e3):
+        scaled = directions.clone()
+        scaled[..., :2] *= scale
+        basis, _ = horizontal_basis(source, scaled)
+        assert torch.allclose(basis, reference, atol=1e-6), \
+            "scaling the references by {:g} moved the basis".format(scale)
+
+
 def test_exactly_cancelling_references_give_exactly_zero_horizontal(warm_cyl, env):
     """The old "all horizontal components vanish" branch is now the continuous limit.
 

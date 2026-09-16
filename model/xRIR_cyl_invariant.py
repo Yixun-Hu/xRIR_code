@@ -201,7 +201,7 @@ def _smoothstep(t: torch.Tensor) -> torch.Tensor:
 
 def horizontal_basis(src_loc: torch.Tensor, ref_locs: torch.Tensor,
                      blend_lo: float = BLEND_LO, blend_hi: float = BLEND_HI):
-    """The horizontal basis ``a = (a_x, a_y)`` of each scene -- **branch-free and smooth**::
+    """The horizontal basis ``a = (a_x, a_y)`` of each scene -- **branch-free**::
 
         w = smoothstep((||q_h|| / ||q|| - lo) / (hi - lo))
         a = w * q_h / max(||q_h||, lo * ||q||)  +  (1 - w) * sum_i p_h_i / sum_i ||p_h_i||
@@ -233,15 +233,45 @@ def horizontal_basis(src_loc: torch.Tensor, ref_locs: torch.Tensor,
     * ``R >= ||s||`` by the triangle inequality, so ``||a|| <= 1`` always and the division never
       amplifies: rounding perturbs ``s`` by ``O(1e-7 * R)``, hence ``a`` by ``O(1e-7)``
       *absolute* and the coordinates by ``O(1e-7 * ||p_h||)`` -- machine level at any scale;
-    * it is smooth wherever ``R > 0``, so the old "all horizontal components vanish" branch is
-      now simply the **continuous limit** ``a -> 0``.  Only an exact ``R == 0`` guard remains,
-      and it returns precisely that limit.
+    * where the reference *directions* cancel, ``||s||`` falls away while ``R`` does not, so the
+      basis attenuates to zero instead of being renormalised back to unit length -- the round-2
+      "all horizontal components vanish" branch is replaced by that behaviour rather than by a
+      test.  A single exact ``R == 0`` guard remains, for the case where there is nothing to
+      divide by at all.
+
+    What is and is not continuous (exp_08 review round 3)
+    ----------------------------------------------------
+    Being branch-free removes the *rotation* hazard.  It does not make the map smooth in the
+    scene geometry, and the earlier draft of this docstring overclaimed that it did:
+
+    * **In the yaw variable -- exactly equivariant at every geometry, without exception.**
+      ``sum_i Rz(D) p_i = Rz(D) sum_i p_i`` and ``R`` is built from norms, which a rotation
+      preserves; the ``R == 0`` guard is rotation invariant because rotating a zero horizontal
+      component leaves it zero.  So for any *fixed* scene the intrinsic coordinates are
+      invariant, which is the C16 guarantee, and nothing below weakens it.
+    * **In the geometry variables -- continuous except where the reference directions are
+      themselves undetermined**, and only Lipschitz (not differentiable) even there:
+
+      - ``R = sum_i ||p_h_i||`` has a **cusp** wherever an individual reference's horizontal
+        component crosses zero, because the Euclidean norm is not differentiable at the origin;
+      - at ``R = 0`` the map is genuinely **discontinuous**, and shrinking the references does
+        not fix it: for a query at ``(5e-4, 0, 1)`` and references ``(e, 0, z_i)``,
+        ``a = (1, 0)`` for *every* ``e > 0`` -- the ratio ``s / R`` depends on the references'
+        directions, not their magnitudes -- while ``a = (0, 0)`` at ``e = 0`` exactly.  On the
+        warm-started model that is a ``5.5e-5`` relative difference between two *neighbouring
+        scenes*.
+
+    The same directional discontinuity exists at ``q = 0`` in the primary term, for the same
+    reason.  These are smoothness properties of the representation **across scenes**; they are
+    not invariance defects, and they are not regularised away here -- doing so would trade an
+    exact symmetry for a cosmetic one.
 
     The same treatment is applied to the *primary* choice, which had the identical defect: a
     hard ``||q_h|| > eps`` test switching between the query direction and the fallback.  The
     smoothstep blend replaces it, and the band is a **fraction** of ``||q||`` rather than an
     absolute length -- the round-2 threshold was ``1e-6`` m, which is meaningless for a scene
-    whose references sit 20-36 m out.
+    whose references sit 20-36 m out.  The blend is C2 in that fraction; it is the fraction's
+    own behaviour at ``q = 0`` that is not.
 
     What it means physically
     ------------------------

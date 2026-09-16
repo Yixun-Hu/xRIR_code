@@ -1,15 +1,17 @@
 # exp_08 validation report — Stage A (structure), CPU, no training
 
-**Round 3** — after Codex review round 2. Round 1 raised two blockers (§11, §12); round 2
+**Round 4** — after Codex review round 3. Round 1 raised two blockers (§11, §12); round 2
 accepted the B2 *implementation* but re-opened **B1** as a P1 (the round-2 fallback was still
-discontinuous, and its threshold was an absolute length in a scene tens of metres across) and
-required three reporting corrections to B2. Both are addressed below and every number has been
-re-measured.
+discontinuous, and its threshold was an absolute length in a scene tens of metres across);
+round 3 confirmed the B1 rotation fixes and left three wording items — a continuity **overclaim**
+in §11 with a counterexample attached, a reversed pair of counts in §12, and one residual
+"measure-zero" in §14. All are corrected below. Round 4 changed no algorithm: the only code
+changes are a docstring and two new tests.
 
 Every number below was produced by `tools/exp08_validate.py` in this worktree and is stored,
 per angle and per sample, in `exp08_validation.json`; the console transcript is
 `exp08_validation.log`. `tests/test_exp08_invariant.py` recomputes the same quantities
-independently and asserts on them (**216 passed, 0 failed, 480 s**; the pre-existing suite is
+independently and asserts on them (**218 passed, 0 failed, 282 s**; the pre-existing suite is
 unaffected — `tests/test_exp06_*`, `test_yaw_rotation`, `test_per_sample_metrics`,
 `test_reference_manifest`, `test_eval_yaw_rotation`: 102 passed, 18 skipped (GPU-only)).
 
@@ -25,7 +27,7 @@ unaffected — `tests/test_exp06_*`, `test_yaw_rotation`, `test_per_sample_metri
 | checkpoints (read-only, main checkout) | `ckpt/xRIR_cyl_8_shot/epoch_12.pth`, `ckpt/xRIR_simple_8_shot/epoch_12.pth` |
 | reference manifest | `ckpt/yaw_rotation/reference_manifest.json`, `manifest_hash = 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d`, file sha256 `5eaea3727dd840b1cb7cd77cb821ff955004c05b0f09c74fc39849e59ba5da2a` — both equal to the values the exp_03 provenance log pinned |
 | real scenes | 3 queries, 3 different room **types**: `Apartments/Apartments_idx_42/S001_R001`, `Auditorium/Auditorium_idx_1/S001_R001`, `Bathrooms/Bathrooms_idx_14/S001_R001` (manifest indices 0, 500, 1500), K = 8 |
-| runtime | validation tool 656 s, exp_08 suite 480 s |
+| runtime | validation tool 346 s, exp_08 suite 282 s |
 
 The criterion is the handoff's: **relative Frobenius residual of the whole predicted
 log-spectrum against `k = 0`, target `<= 1e-5`**, with the absolute residual and the
@@ -40,7 +42,10 @@ denominator `||out_0||_F` reported next to it.
 > adversarial geometry, against a `1e-5` target.
 >
 > The geometry-to-basis map is **branch-free**: no threshold selects a case and no comparison
-> selects a reference, so there is no configuration at which the representation can jump. The
+> selects a reference, and it is **exactly rotation-equivariant at every geometry without
+> exception** — which is what the guarantee rests on. (It is *not* smooth in the *geometry*
+> variables everywhere; §11 states precisely where and quantifies it. That is a property of the
+> representation across scenes and has no bearing on the invariance of any one scene.) The
 > only remaining exactness loss is the **integer direct-path delay**: geometries whose pre-round
 > value `(||src|| - ||ref||) / 343 * 22050` falls inside a narrow band around a `.5` tie can
 > have that delay move by one sample under a rotation that preserves the distances, shifting a
@@ -95,8 +100,9 @@ w = smoothstep((||q_h||/||q|| - lo) / (hi - lo))          lo = 1e-3, hi = 1e-2 (
 a = w * q_h/max(||q_h||, lo*||q||) + (1-w) * sum_i p_h_i / sum_i ||p_h_i||
 ```
 
-`||a|| <= 1` always (triangle inequality), `a` is exactly rotation-equivariant, and it is C2 in
-the inputs wherever the references are not all on the vertical axis.
+`||a|| <= 1` always (triangle inequality) and `a` is **exactly rotation-equivariant at every
+geometry**. It is *not* globally smooth in the scene geometry — see §11, "What is and is not
+continuous" — but that is a cross-scene property and does not touch the rotation guarantee.
 
 * **Joint yaw**: over all 15 C16 angles *and* the off-lattice angles (the transform is exact
   for any yaw), query and reference intrinsic coordinates move by at most `9.5e-7` absolute on
@@ -113,8 +119,7 @@ the inputs wherever the references are not all on the vertical axis.
   yaw-invariant across all 15 angles and cannot be moved by reordering the references
   (`atol 1e-12`); exactly cancelling references give `a = 0`, exactly zero horizontal output and
   bitwise-identical coordinates at every angle; all references on the axis hits the single
-  remaining `R == 0` guard, whose output *is* the continuous limit; a zero-length query (source
-  coincident with the receiver) is finite.
+  remaining `R == 0` guard; a zero-length query (source coincident with the receiver) is finite.
 * **No thresholds remain in the fallback.** The primary/fallback transition is the smoothstep
   band `[1e-3, 1e-2]` on the *dimensionless* ratio `||q_h||/||q||`, so it means the same thing
   at 0.5 m and at 40 m — a test sweeps three ranges and asserts the blend agrees to `1e-9`. The
@@ -360,13 +365,49 @@ rule shipped with one, and both were caught by review rather than by me.
 is exactly equivariant. `R >= \|s\|` by the triangle inequality, so `\|a\| <= 1` and the
 division can never amplify: rounding perturbs `s` by `O(1e-7 R)`, hence `a` by `O(1e-7)`
 **absolute** and the coordinates by `O(1e-7 ||p_h||)` — machine level at any scene scale. It is
-smooth wherever `R > 0`, so round 2's "all horizontal components vanish" branch is now simply
-the continuous limit `a -> 0`; the only guard left is an exact `R == 0`, and it returns precisely
-that limit.
+Where the reference *directions* cancel, `||s||` falls away while `R` does not, so the basis
+attenuates to zero instead of being renormalised back to unit length — round 2's "all horizontal
+components vanish" branch is replaced by that behaviour rather than by a test. One exact
+`R == 0` guard remains, for the case where there is nothing to divide by at all.
 
 **The primary branch had the same defect** — a hard `||q_h|| > eps` test — so it received the
 same treatment: a C2 smoothstep blend on the *dimensionless* `||q_h||/||q||`, band `[1e-3, 1e-2]`.
 The blend saturates exactly at 0 and 1, so outside the band the arithmetic is unchanged.
+
+### What is and is not continuous
+
+Round 3's draft of this section claimed the map is "smooth wherever `R > 0`". **That was wrong**,
+and review round 3 produced the counterexample. The corrected statement, in three parts:
+
+1. **In the yaw variable the basis is exactly equivariant at every geometry, without
+   exception.** `Σᵢ Rz(Δ)pᵢ = Rz(Δ)Σᵢ pᵢ`, `R` is built from norms that a rotation preserves,
+   and the `R == 0` guard is itself rotation-invariant (rotating a zero horizontal component
+   leaves it zero). So the intrinsic coordinates of any *fixed* scene are invariant — the C16
+   guarantee is untouched by everything below.
+2. **In the geometry variables it is continuous only away from directional degeneracy, and only
+   Lipschitz even there.** `R = Σᵢ ||p_h,ᵢ||` has a **cusp** wherever an individual reference's
+   horizontal component crosses zero (the Euclidean norm is not differentiable at the origin),
+   and at `R = 0` the map is genuinely **discontinuous**. Shrinking the references does not
+   remove it: for query `(5e-4, 0, 1)` — a horizontal fraction of `5.0e-4`, below the band, so
+   the fallback is in full control — and references `(e, 0, z)` with `z = (0.3, 1.2, 2)`:
+
+   | `e` | 0 | `1e-12` | `1e-9` | `1e-6` | `1e-3` | `1e-1` |
+   |---|---|---|---|---|---|---|
+   | basis `a` | `(0, 0)` | `(1, 0)` | `(1, 0)` | `(1, 0)` | `(1, 0)` | `(1, 0)` |
+
+   The ratio `s/R` depends on the references' *directions*, not their magnitudes, so it does not
+   vanish as `e → 0⁺`. The same directional discontinuity exists at `q = 0` in the primary term.
+3. **Quantified, and in the right units.** Between the two neighbouring geometries `e = 0` and
+   `e = 1e-9` the warm-started model's prediction differs by **`5.519e-5`** relative
+   (`4.07e-2` absolute on `||out_0||_F = 737.7`); at `e = 1e-6` it is `5.534e-5`. Meanwhile each
+   of those geometries is rotation-invariant to `1.99e-7`, `1.14e-7` and `1.85e-7` respectively
+   over all 15 angles, in **both** conditions, with zero delay flips. The jump is *across
+   scenes*, never across rotations of one scene.
+
+This is not regularised away. Smoothing it would mean perturbing the basis by something that is
+not itself exactly equivariant, trading a real symmetry for a cosmetic one. It is reported
+instead, and `test_directional_degeneracy_is_a_cross_geometry_jump_not_a_rotation_defect` pins
+both halves: the across-geometry difference *and* the per-geometry rotation invariance.
 
 **What it means physically.** When the references' directions cancel there is genuinely no
 horizontal direction the scene distinguishes, and `||a|| < 1` makes the representation
@@ -439,7 +480,7 @@ out optically smaller than the truth. It is superseded by a direct flip count, a
 | float32 | 1602 | 120000000 | 1.335e-05 | 297 / 1000000 |
 | float64 | 1248 | 120000000 | 1.040e-05 | 223 / 1000000 |
 
-shrink factor **1.284**; paired per-scene difference 354 +- 97.18 -> **3.64 sigma**. (An independent-Poisson treatment would claim 6.63 sigma; flips correlate within a scene -- 199 scenes favour float32, 117 favour float64 -- so the paired figure is the honest one.)
+shrink factor **1.284**; paired per-scene difference 354 +- 97.18 -> **3.64 sigma**. (An independent-Poisson treatment would claim 6.63 sigma; flips correlate within a scene -- 199 scenes favour float64, 117 favour float32 -- so the paired figure is the honest one.)
 
 Ensemble: 1000000 scenes x 8 references x 15 angles, seed 12345, positions uniform in a +-6 m box with heights scaled by 0.25. The rate is specific to this sampled distribution, not a universal constant.
 
@@ -497,7 +538,8 @@ delay-flip count in the per-angle tables, which are recorded for exactly that re
    adversarial geometry over 15 angles (15 nodes) and had two 5-way threshold sweeps; round 3
    covers **four** adversarial geometries, each looping all 15 angles inside the test, plus the
    full model in both conditions, two smoothness sweeps, two bitwise regressions and five new
-   degenerate-case tests. Fewer nodes, roughly four times the geometry.
+   degenerate-case tests. Fewer nodes, roughly four times the geometry. Round 4 adds two more
+   (218 total).
 4. **Review B2 says "in `xRIR_CylInvariant` ONLY"; the override is on `xRIR_InvariantBase`**, so
    both invariant arms get it. Reason: `simple_invariant` exists to isolate the *encoder* in the
    2x2 (handoff §5). If only the cylindrical arm reduced in float64, the two invariant arms would
@@ -518,7 +560,13 @@ delay-flip count in the per-angle tables, which are recorded for exactly that re
    closed-form coordinate transform keeps the tighter `1e-6` (measured `1.2e-7`).
 8. **`lin_proj_0` deleted** from the invariant models — fully consumed by the readout, recorded
    in the accounting as `consumed`.
-9. **Unrequested additions** kept because the claim is weaker without them: the non-vacuity
+9. **A continuity overclaim, corrected in round 4.** Round 3's docstring and report said the
+   basis is "smooth wherever `R > 0`" and "C2 in the inputs". Both were false: `R` has cusps at
+   individual zero crossings and the map is discontinuous at `R = 0`, where the limit depends on
+   the direction of approach. §11 now states what actually holds (exact equivariance at every
+   geometry; continuity in yaw always; continuity in geometry only away from directional
+   degeneracy) and quantifies the `5.5e-5` cross-scene effect.
+10. **Unrequested additions** kept because the claim is weaker without them: the non-vacuity
    control, the input-rounding noise floor control, the Griffin-Lim conditioning control, the
    encoder-equivariance check inside the readout test, and the flip-rate ensemble.
 
@@ -549,5 +597,6 @@ And two things Stage A deliberately does **not** license:
   evaluation, and the recipe/checkpoint must not be selected on the 6,337-query test set.
 * **No substitute for GPU validation.** These residuals are CPU/FP32/TF32-off. The invariance
   must be re-measured on the trained model in the production configuration — including the
-  delay-flip count over the whole 6,337-query split, which is the population §12's measure-zero
-  statement should ultimately be checked against.
+  delay-flip count over the whole 6,337-query split, which is the population §12's finite-width
+  band should ultimately be measured against (its `1.04e-5` rate is a property of the sampled
+  ensemble, not of the test split).

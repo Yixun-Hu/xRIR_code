@@ -90,6 +90,22 @@ CODEX_SUM_DEGENERATE_REFS = (((5.0, 0.0, 0.3), (-5.0, 0.0, -0.2), (0.0, 2.0, 0.1
 #: coordinates jumped 35.7 m (spectrum 2.27e-1 at 22.5 deg, in both conditions).
 CODEX_CANCEL_REFS = (((12.0, 16.0, 0.0), (20.0, 0.0, 0.0), (-32.0, -16.0, 0.0)),)
 
+#: exp_08 review round 3: the query's horizontal fraction (5.0e-4) sits below the blend band, so
+#: the fallback is in full control, and the references share one horizontal direction whose
+#: magnitude ``e`` can be made arbitrarily small.  ``a = (1, 0)`` for every ``e > 0`` and
+#: ``(0, 0)`` at ``e == 0`` exactly: the ratio follows the references' *directions*, not their
+#: magnitudes.  A discontinuity **across geometries** -- not across rotations of one geometry,
+#: each of which stays invariant.  See ``validation_report.md`` section 11.
+CODEX_CUSP_SRC = ((5.0e-4, 0.0, 1.0),)
+CODEX_CUSP_HEIGHTS = (0.3, 1.2, 2.0)
+CODEX_CUSP_MAGNITUDES = (0.0, 1.0e-9, 1.0e-6)
+
+
+def cusp_refs(magnitude):
+    """References ``(magnitude, 0, z)`` for the round-3 directional-degeneracy counterexample."""
+    return (tuple((float(magnitude), 0.0, float(z)) for z in CODEX_CUSP_HEIGHTS),)
+
+
 #: exp_08 review round 2, blocker B1(b): a near-cancellation that stayed on one branch, where
 #: normalising by ``||s||`` alone amplified the rounding -- 1.5 m of coordinate motion, spectrum
 #: 5.15e-2 at 45 deg.
@@ -924,6 +940,38 @@ def run(args):
                   report["battery_primary_path"]["basis_bitwise_equals_plain_unit_vector"],
                   report["battery_primary_path"]["horizontal_fraction_min"], BLEND_HI),
               flush=True)
+
+        # --- review round 3: directional degeneracy is a cross-geometry jump, not a
+        # rotation defect.  Both halves are measured: the jump, and the invariance either side.
+        cusp = {"magnitudes": list(CODEX_CUSP_MAGNITUDES), "per_magnitude": {},
+                "across_geometry": {}}
+        baseline_out = None
+        for magnitude in CODEX_CUSP_MAGNITUDES:
+            case = adversarial_batch(CODEX_CUSP_SRC, cusp_refs(magnitude),
+                                     label="cusp{:g}".format(magnitude))
+            sweep = angle_sweep(warm_model, case, C16_ANGLES, conditions=("E", "P"))
+            basis, blend = horizontal_basis(case["src_loc"], case["ref_locs"])
+            cusp["per_magnitude"][repr(magnitude)] = {
+                "basis": [float(v) for v in basis[0]], "blend": float(blend[0]),
+                "worst_E": worst(sweep["rows"], "E"), "worst_P": worst(sweep["rows"], "P"),
+                "delay_flips": sweep["delay_flips"]}
+            if baseline_out is None:
+                baseline_out = sweep["out_0"]
+            else:
+                cusp["across_geometry"][repr(magnitude)] = residual(sweep["out_0"], baseline_out)
+        cusp["query_horizontal_fraction"] = float(
+            torch.tensor(CODEX_CUSP_SRC)[:, :2].norm() / torch.tensor(CODEX_CUSP_SRC).norm())
+        report["directional_degeneracy"] = cusp
+        print("directional degeneracy (query horizontal fraction {:.3e}, below the band):".format(
+            cusp["query_horizontal_fraction"]), flush=True)
+        for magnitude, entry in cusp["per_magnitude"].items():
+            print("  e={:>8s}  basis {}  rotation worst E {:.3e} P {:.3e}  flips {}".format(
+                magnitude, [round(v, 8) for v in entry["basis"]],
+                entry["worst_E"]["rel_fro"], entry["worst_P"]["rel_fro"],
+                sorted(set(entry["delay_flips"].values()))), flush=True)
+        for magnitude, entry in cusp["across_geometry"].items():
+            print("  ACROSS GEOMETRY e=0 vs e={:>8s}: rel {:.6e} (abs {:.4e}, denom {:.4e})".format(
+                magnitude, entry["rel_fro"], entry["abs_fro"], entry["denom_fro"]), flush=True)
 
         # --- blocker B2: the integer-delay rounding boundary ---
         report["preround_deviation"] = {

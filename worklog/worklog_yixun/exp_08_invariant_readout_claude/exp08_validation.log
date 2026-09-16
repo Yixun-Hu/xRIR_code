@@ -237,6 +237,12 @@ B1 adversarial: all_horizontal_zero  (condition E; ||out_0||_F = 662.545)
     480  337.5    6.820e-08    4.519e-05   1.431e-06       0
   blend 0.000, |basis| 0.000000; coords worst |d| 0.000e+00 m (round-2 rule: 0.000e+00 m) on a 5.0 m scene; worst E 1.220e-07, worst P 1.220e-07
 battery primary path: blend in [1.0, 1.0], basis bitwise == q_h/||q_h||: True, min horizontal fraction 0.5957 (band top 1e-02)
+directional degeneracy (query horizontal fraction 5.000e-04, below the band):
+  e=     0.0  basis [0.0, 0.0]  rotation worst E 1.993e-07 P 1.993e-07  flips [0]
+  e=   1e-09  basis [1.0, 0.0]  rotation worst E 1.139e-07 P 1.139e-07  flips [0]
+  e=   1e-06  basis [1.0, 0.0]  rotation worst E 1.852e-07 P 1.852e-07  flips [0]
+  ACROSS GEOMETRY e=0 vs e=   1e-09: rel 5.518743e-05 (abs 4.0713e-02, denom 7.3771e+02)
+  ACROSS GEOMETRY e=0 vs e=   1e-06: rel 5.533734e-05 (abs 4.0823e-02, denom 7.3771e+02)
 pre-round deviation (real): float32 6.104e-05 samples, float64 6.975e-05 (float32 is masked by its own quantisation -- see delay_flip_rate)
 pre-round deviation (codex_case): float32 7.629e-06 samples, float64 9.113e-06 (float32 is masked by its own quantisation -- see delay_flip_rate)
 delay flip rate over 1000000 random scenes x 8 refs x 15 angles = 120000000 comparisons: float32 1602 flips (1.335e-05), float64 1248 flips (1.040e-05), shrink 1.28x
@@ -303,7 +309,7 @@ simple_invariant (no guarantee expected)  (condition E; ||out_0||_F = 1620.12)
     480  337.5    1.722e-03    2.789e+00   1.431e-01       0
 grad step: loss=1.1927 finite=True nonzero_grads=212/216 changed=212
 regression: {"simple": {"class_identity": true, "bitwise_equal": true, "max_abs_diff": 0.0}, "cylindrical": {"class_identity": true, "bitwise_equal": true, "max_abs_diff": 0.0}}
-total 656.2 s
+total 346.0 s
 report -> worklog/worklog_yixun/exp_08_invariant_readout_claude/exp08_validation.json
 /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
   return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
