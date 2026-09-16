@@ -686,6 +686,28 @@ def test_a_passing_diagnostic_leaves_the_launcher_running(tmp_path):
     assert log.read_text().splitlines()[-1].startswith('EXP06_CHILD_EXIT 0 ')
 
 
+GATE_HARNESS = ('set -euo pipefail\n'
+                'export EXP06_LAUNCH_LIB=1\n'
+                'source tools/exp06_launch.sh\n'
+                'DRY=0\nPYTHON={stub}\n'
+                'require_passed {dir} haa_smoke_train\n'
+                'echo LAUNCHER_CONTINUED\n')
+
+
+@pytest.mark.parametrize('status,expected', [('0', 0), ('2', 2)])
+def test_the_passed_gate_stops_the_ladder_when_it_refuses(tmp_path, status, expected):
+    """A4: the evaluation rung must not start behind a diagnostic that did not pass."""
+    stub = tmp_path / 'stub.sh'
+    stub.write_text('#!/usr/bin/env bash\nexit {}\n'.format(status))
+    stub.chmod(0o755)
+    completed = subprocess.run(
+        ['bash', '-c', GATE_HARNESS.format(stub=stub, dir=tmp_path / 'haa_finetune')],
+        cwd=REPO, capture_output=True, text=True, env={**os.environ, 'PYTHONPATH': str(REPO)})
+    assert completed.returncode == expected, completed.stdout + completed.stderr
+    assert ('LAUNCHER_CONTINUED' in completed.stdout) is (expected == 0)
+    assert ('STOP' in completed.stdout) is (expected != 0)
+
+
 class _CudaReached(BaseException):
     """Raised where the real startup would need a GPU; nothing past it is CPU-testable."""
 
