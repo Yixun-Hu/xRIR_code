@@ -47,6 +47,7 @@ check_ancestor, report_path = binder.check_ancestor, binder.report_path
 TRAINING = ('train_args', 'train_manifest', 'train_completion')
 RELEASED = next(arm['checkpoint'] for arm in ARMS if arm['reference'])
 ROLES = tuple(arm['role'] for arm in ARMS)
+REFERENCE_ROLE = next(arm['role'] for arm in ARMS if arm['reference'])
 NUM_SHOT = tuple(get_profile('TABLE_SEEN_V1')['num_shot'])
 # The complete evaluation set the plan registers: four roles x two K x five seeds.
 IDENTITIES = frozenset((role, shot, seed) for role in ROLES
@@ -433,16 +434,25 @@ def run_record(run, attempts, released):
     return dict(record, role=owner['role'], **identity)
 
 
-def known_digests(declarations, approval, released):
-    """Every artefact this report binds, by absolute path, with the digest it was bound at.
+def product_inputs(expected, roles, trained, run_bound, attempt_bound, approval):
+    """(required, allowed) for a product built over exactly these runs.
 
-    These maps are working evidence, not report content: one run declares its whole data
-    inventory, so they are merged here and never serialized into the binding report.
+    REQUIRED is everything each of those runs declares for itself -- its manifest,
+    completion, both outputs, log, checkpoint, reference manifest, data inventory,
+    evaluator and writer closures and mutable bindings -- plus the approval blob.
+    ALLOWED adds the training evidence of the arms the product used: the contract binds
+    the inventory sidecar, the hours ledger and the probe receipt beside the runs, and
+    nothing else may appear, so a dependency on a run this product did not use is refused
+    however well its digest matches.  These maps are working evidence, not report
+    content: one run declares its whole data inventory, so they are never serialized.
     """
-    known = {approval['path']: approval['sha256'], released['path']: released['sha256']}
-    for item in declarations:
-        known.update(item)
-    return known
+    required = {approval['path']: approval['sha256']}
+    for path in sorted(expected):
+        required.update(run_bound[path])
+    allowed = dict(required)
+    for role in sorted(roles & set(trained)):
+        allowed.update(attempt_bound[role])
+    return required, allowed
 
 
 def producer_declarations(producer):
@@ -471,11 +481,11 @@ def run_coverage(runs):
     return coverage
 
 
-def bind_results(paths, head, approval, runs, attempts, released, declarations):
+def bind_results(paths, head, approval, runs, attempts, run_bound, attempt_bound):
     """Every canonical producer output, revalidated, with exact coverage of its inputs."""
-    known = known_digests(declarations, approval, released)
     coverage = run_coverage(runs)
     by_role, trained = {}, {item['role']: item for item in attempts}
+    by_path = {run['path']: run for run in runs}
     for run in runs:
         by_role.setdefault(run['role'], set()).add(run['path'])
     records = []
@@ -499,20 +509,39 @@ def bind_results(paths, head, approval, runs, attempts, released, declarations):
         flags = set(side['run_flags'])
         require(flags == expected,
                 'the product does not declare exactly its runs: ' + path)
+        contracts = data.get('contracts') or {}
+        require(set(contracts) == expected,
+                'the product does not record exactly its run contracts: ' + path)
+        for run_path in sorted(expected):  # and each contract is THIS run's contract
+            run, contract = by_path[run_path], contracts[run_path]
+            require(contract.get('role') == run['role'] and
+                    contract.get('reference') is (run['role'] == REFERENCE_ROLE) and
+                    contract.get('num_shot') == run['num_shot'] and
+                    contract.get('seed') == run['seed'] and
+                    contract.get('eval_manifest_sha256') == run['manifest']['sha256'],
+                    'the contract is not this run: {} in {}'.format(run_path, path))
         for run_path in sorted(flags):  # exact coverage: no subset of a used run's files
             for item, digest in sorted(coverage[run_path].items()):
                 require(side['inputs'].get(item) == digest,
                         'incomplete run coverage: {} in {}'.format(item, path))
-        declared = dict(known, **producer_declarations(side['producer']))
+        required, allowed = product_inputs(expected, roles, trained, run_bound,
+                                           attempt_bound, approval)
+        sources = producer_declarations(side['producer'])
+        required.update(sources)
+        allowed.update(sources)
         for item, digest in sorted(side['inputs'].items()):
-            require(item in declared,
+            require(item in allowed,
                     'input names an artefact this report does not bind: {} in {}'.format(item, path))
-            require(declared[item] == digest,
+            require(allowed[item] == digest,
                     'input differs from the bound artefact: {} in {}'.format(item, path))
         for role in sorted(roles & set(trained)):
-            for required, item in sorted(training_dependencies(trained[role]).items()):
+            for dependency, item in sorted(training_dependencies(trained[role]).items()):
                 require(side['inputs'].get(item['path']) == item['sha256'],
-                        'missing training dependency: {} of {} in {}'.format(required, role, path))
+                        'missing training dependency: {} of {} in {}'.format(
+                            dependency, role, path))
+        for item, digest in sorted(required.items()):
+            require(side['inputs'].get(item) == digest,
+                    'the product omits a required input: {} in {}'.format(item, path))
         check_ancestor(side['producer']['commit'], head)
         records.append(dict(profile=name, pairing=data.get('pairing'), sha256=receipt['sha256'],
                             producer_commit=side['producer']['commit'],
@@ -537,12 +566,12 @@ def collect(runs, attempt, audit, evidence, results, rendered, unseen_table, uns
     attempts = sorted((attempt_record(item, pins) for item in attempt), key=lambda a: a['role'])
     require(sorted(a['role'] for a in attempts) == sorted(pins['checkpoints']),
             'every approved arm must be bound exactly once')
-    declarations = [item.pop('bound') for item in attempts]
+    attempt_bound = {item['role']: item.pop('bound') for item in attempts}
     paths = sorted(str(Path(item).resolve()) for item in runs)
     require(len(paths) == len(set(paths)) and len(paths) == len(IDENTITIES),
             'the forty evaluation runs')
     records = [run_record(item, attempts, released) for item in paths]
-    declarations += [item.pop('bound') for item in records]
+    run_bound = {item['path']: item.pop('bound') for item in records}
     require({(item['role'], item['num_shot'], item['seed']) for item in records} == IDENTITIES,
             'the forty evaluation runs are the registered role/K/seed set')
     head = head or binder.subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT,
@@ -551,7 +580,8 @@ def collect(runs, attempt, audit, evidence, results, rendered, unseen_table, uns
                                   stdout=binder.subprocess.PIPE,
                                   stderr=binder.subprocess.PIPE).returncode == 0,
             'invalid binding HEAD')
-    published = bind_results(results, head, approval, records, attempts, released, declarations)
+    published = bind_results(results, head, approval, records, attempts, run_bound,
+                             attempt_bound)
     audited = audit_record(audit, head)
     evidenced = evidence_record(evidence, records, head)
     unseen, unseen_receipt = md.load_unseen(unseen_table, unseen_binding)

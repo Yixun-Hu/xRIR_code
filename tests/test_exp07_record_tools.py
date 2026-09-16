@@ -472,6 +472,44 @@ def substitute_reference_manifest(bound):
     edit_both(bound, lambda data, side: data['inputs'].__setitem__(reference, 'f' * 64))
 
 
+def reference_manifest(bound, index=0):
+    """The reference manifest the given run was evaluated under, as the report binds it."""
+    fields = bound.built.read(Path(bound.arguments['runs'][index]) / 'eval_manifest.json')
+    return str((Path(fields['repo']) / fields['manifest_path']).resolve())
+
+
+def drop_reference_manifest(bound):
+    """Remove a required reference-manifest dependency from the table's provenance."""
+    reference = reference_manifest(bound)
+    edit_both(bound, lambda data, side: data['inputs'].pop(reference))
+
+
+def released_dependency_in_a_pairing(bound):
+    """Declare a released-run artefact in the cylindrical/simple pairing, which has none."""
+    unrelated = Path(bound.built.paths[('released_seen', 8)][0]) / 'metrics_yaw.json'
+    edit_both(bound, lambda data, side: data['inputs'].__setitem__(
+        str(unrelated), p.sha256_file(unrelated)), 'pairs')
+
+
+def drop_contracts(bound, product='table'):
+    edit_both(bound, lambda data, side: data.update(contracts={}), product)
+
+
+def drop_one_contract(bound):
+    edit_both(bound, lambda data, side: data['contracts'].pop(sorted(data['contracts'])[0]),
+              'pairs')
+
+
+def restate_a_contract(bound, **changes):
+    """Rewrite one field of the table's first contract; sorted() puts released K=1 seed 42
+    there, so every value below names a different evaluation than the contract's own."""
+    def mutate(data, side):
+        key = sorted(data['contracts'])[0]
+        assert data['contracts'][key]['num_shot'] == 1 and data['contracts'][key]['seed'] == 42
+        data['contracts'][key].update(**changes)
+    edit_both(bound, mutate)
+
+
 def unseen_output_metas(bound):
     """Both output metas say unseen while the manifest they echo says seen."""
     run = Path(bound.arguments['runs'][0])
@@ -769,6 +807,24 @@ FORGERIES = {
     # Blocker 1: whole-run omissions, missing training dependencies and inputs that are
     # not the artefacts this report binds (the round-6 reviewer's four reproductions).
     'whole_run_removed_from_a_product': (drop_run, 'does not declare exactly its runs'),
+    # Round-7 blocker 1: complete run flags did not mean complete provenance.  A product
+    # must record exactly one contract per run it used, each one this run's, declare
+    # every artefact those runs declare, and declare nothing outside them.
+    'table_without_any_contract': (drop_contracts, 'does not record exactly its run contracts'),
+    'pairing_missing_one_contract': (drop_one_contract,
+                                     'does not record exactly its run contracts'),
+    'contract_of_another_k': (lambda b: restate_a_contract(b, num_shot=8),
+                              'the contract is not this run'),
+    'contract_of_another_seed': (lambda b: restate_a_contract(b, seed=46),
+                                 'the contract is not this run'),
+    'contract_of_another_role': (lambda b: restate_a_contract(b, role='seen_aug'),
+                                 'the contract is not this run'),
+    'contract_naming_another_manifest': (lambda b: restate_a_contract(
+        b, eval_manifest_sha256='f' * 64), 'the contract is not this run'),
+    'required_reference_manifest_removed': (drop_reference_manifest,
+                                            'omits a required input'),
+    'released_dependency_in_the_cylindrical_pairing': (
+        released_dependency_in_a_pairing, 'names an artefact this report does not bind'),
     'required_training_inventory_removed': (
         lambda b: drop_input(b, 'train_inventory.json'), 'missing training dependency'),
     'reference_manifest_digest_substituted': (substitute_reference_manifest,

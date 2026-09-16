@@ -59,7 +59,10 @@ def run_contract(directory, arm, profile, pins, cache=None):
 
     ``cache`` memoises the training inventory sidecars, which the thirty new-arm runs
     bind to the same three files; the bytes are still bound per run and rehashed by
-    :func:`tools.results_table.write_outputs` before anything is published.
+    :func:`tools.results_table.write_outputs` before anything is published.  The returned
+    contract carries the run's identity -- role, K, evaluation seed and the digest of the
+    evaluation manifest it validated -- so the published contract map can be checked
+    run by run against the record the binder builds independently.
     """
     directory = Path(directory).resolve()
     cache, inputs = {} if cache is None else cache, {}
@@ -69,6 +72,10 @@ def run_contract(directory, arm, profile, pins, cache=None):
         return json.loads(raw)
     fields, completion, sample, metrics = [read(directory / name) for name in (
         'eval_manifest.json', 'completion.json', 'per_sample_yaw.json', 'metrics_yaw.json')]
+    # What this contract is a contract FOR: the record binder checks these against the
+    # run it binds at that path, so a contract cannot be quoted for another evaluation.
+    contracted = dict(num_shot=fields.get('num_shot'), seed=fields.get('manifest_seed'),
+                      eval_manifest_sha256=inputs[str(directory / 'eval_manifest.json')])
     def require(ok, message):
         if not ok:
             raise ValueError(message)
@@ -103,7 +110,8 @@ def run_contract(directory, arm, profile, pins, cache=None):
         require(not names & set(TRAINING_BINDINGS), 'released row has no training provenance')
         require(arm['sha256'] == fields['checkpoint_sha256'], 'released checkpoint digest')
         checkpoint_bytes(root, fields, arm['sha256'], cache, inputs, require)
-        return dict(role=arm['role'], reference=True, training=None, waivers=waivers, inputs=inputs)
+        return dict(role=arm['role'], reference=True, training=None, waivers=waivers,
+                    inputs=inputs, **contracted)
     approved = pins['checkpoints'][arm['role']]
     require(approved['path'] == arm['checkpoint'] and _equal(approved['epoch'], arm['epoch']) and
             _equal(approved['epoch'], 12), 'approved checkpoint path/epoch')
@@ -212,7 +220,8 @@ def run_contract(directory, arm, profile, pins, cache=None):
             'effective_args save_dir')
     require({'epoch_%03d.pth' % epoch for epoch in range(1, 13)} <=
             set(finished.get('directory_listing') or ()), 'training epoch checkpoints')
-    return dict(role=arm['role'], reference=False, training=trainer, waivers=waivers, inputs=inputs)
+    return dict(role=arm['role'], reference=False, training=trainer, waivers=waivers,
+                inputs=inputs, **contracted)
 
 
 def admit(directories, profile, approved=None, producer=None, exploratory=False,
