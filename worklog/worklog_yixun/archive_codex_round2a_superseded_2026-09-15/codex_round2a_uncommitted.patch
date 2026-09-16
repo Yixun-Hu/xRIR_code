@@ -1,0 +1,99 @@
+diff --git a/tests/test_exp06_recipe.py b/tests/test_exp06_recipe.py
+index 4dcdcab..9eef03b 100644
+--- a/tests/test_exp06_recipe.py
++++ b/tests/test_exp06_recipe.py
+@@ -100,3 +100,25 @@ def test_check_all_named_schema_and_metadata_deviations():
+     assert any('batch_idx' in d for d in r.check_budget(history(), dict(epoch=12, batch_idx=1)))
+     del args['env']
+     assert any('env' in d for d in r.check_all(args))
++
++
++def test_parameter_reference_is_isolated_and_preserves_rng():
++    import torch
++    before = torch.random.get_rng_state()
++    counts = r.expected_param_counts('cylindrical_oriented')
++    assert torch.equal(before, torch.random.get_rng_state())
++    expected = counts['encoder']
++    counts['encoder'] = 0
++    assert r.expected_param_counts('cylindrical_oriented')['encoder'] == expected
++
++
++@pytest.mark.parametrize('field,value', [('exp06_run_type', 'probe'),
++    ('exp06_git_head', 'bad'), ('exp06_registry_sha256', 'X' * 64),
++    ('exp06_source_closure_sha256', None), ('exp06_provenance_path', None)])
++def test_provenance_fields(field, value):
++    args = dict(complete_args(), exp06_run_type='full', exp06_git_head='a' * 40,
++                exp06_registry_sha256='b' * 64, exp06_source_closure_sha256='c' * 64,
++                exp06_provenance_path='/tmp/provenance.json')
++    assert r.check_all(args) == []
++    args[field] = value
++    assert any(field in d for d in r.check_all(args))
+diff --git a/tests/test_exp06_train.py b/tests/test_exp06_train.py
+index 017d62a..5600cf1 100644
+--- a/tests/test_exp06_train.py
++++ b/tests/test_exp06_train.py
+@@ -127,3 +127,64 @@ def test_no_save_provenance_path(prepared, output):
+     train.prepare_args(prepared)
+     assert prepared.exp06_run_type == 'probe'
+     assert prepared.exp06_provenance_path == (str(Path(output).resolve()) if output else None)
++
++
++@pytest.fixture
++def simulated_training(monkeypatch):
++    class Tiny(torch.nn.Module):
++        def __init__(self):
++            super().__init__()
++            self.source_network = torch.nn.Linear(1, 1)
++        def cuda(self):
++            return self
++    events = []
++    def epoch(model, loader, optimizer, scheduler, epoch, args, best):
++        events.append((epoch, len(loader), args.train_batches_per_epoch))
++        optimizer.step()
++        scheduler.step()
++        return float(epoch)
++    monkeypatch.setattr(train, 'build_model_exp06', lambda args: Tiny())
++    monkeypatch.setattr(train, '_source_identity', lambda repo: ({'HEAD': 'a' * 40}, [], 'b' * 64))
++    monkeypatch.setattr(train.trainer, 'xRIR_Dataset', lambda split, **kwargs: list(range(5 if split == 'train' else 4)))
++    monkeypatch.setattr(train.trainer, 'train_epoch', epoch)
++    monkeypatch.setattr(train.trainer, 'test_epoch', lambda model, loader, epoch, args: 10.0 / epoch)
++    monkeypatch.setattr(train, 'build_provenance', lambda args, **kwargs: {'runtime_args': dict(vars(args))})
++    return events
++
++
++@pytest.mark.parametrize('no_save,explicit', [(False, False), (True, False), (True, True)])
++def test_main_artifacts_and_no_save(simulated_training, tmp_path, no_save, explicit):
++    destination, output = tmp_path / 'run', tmp_path / 'diagnostic.json'
++    argv = ['--backbone', 'simple', '--save-dir', str(destination), '--epochs', '2',
++            '--batch-size', '2', '--num-workers', '0', '--test-subset', '2', '--epoch-ckpt-every', '1']
++    argv += ['--no-save'] if no_save else []
++    argv += ['--provenance-out', str(output)] if explicit else []
++    train.main(argv)
++    assert simulated_training == [(1, 3, 3), (2, 3, 3)]
++    assert output.exists() == explicit
++    if no_save:
++        assert not destination.exists()
++        return
++    assert sorted(p.name for p in destination.iterdir()) == [
++        'args.json', 'best.pth', 'epoch_001.pth', 'epoch_002.pth', 'history.jsonl', 'last.pth', 'provenance.json']
++    args = json.loads((destination / 'args.json').read_text())
++    last = torch.load(destination / 'last.pth', map_location='cpu')
++    state = torch.load(destination / 'epoch_002.pth', map_location='cpu')
++    assert last['epoch'] == 2 and last['batch_idx'] == 0 and last['args'] == args
++    assert all(torch.equal(state[k], last['model'][k]) for k in state)
++    assert json.loads((destination / 'provenance.json').read_text())['runtime_args'] == args
++    assert [json.loads(line)['epoch'] for line in (destination / 'history.jsonl').read_text().splitlines()] == [1, 2]
++
++
++@pytest.mark.parametrize('batch_idx,epochs', [(0, [3]), (1, [2, 3])])
++def test_main_resume_epoch_rule(simulated_training, tmp_path, batch_idx, epochs):
++    argv = ['--backbone', 'simple', '--save-dir', str(tmp_path / 'first'), '--epochs', '2', '--num-workers', '0']
++    train.main(argv)
++    path = tmp_path / 'first' / 'last.pth'
++    checkpoint = torch.load(path, map_location='cpu')
++    checkpoint['batch_idx'] = batch_idx
++    resume = tmp_path / 'resume.pth'
++    torch.save(checkpoint, resume)
++    simulated_training.clear()
++    train.main(argv + ['--save-dir', str(tmp_path / 'second'), '--epochs', '3', '--resume', str(resume)])
++    assert [item[0] for item in simulated_training] == epochs

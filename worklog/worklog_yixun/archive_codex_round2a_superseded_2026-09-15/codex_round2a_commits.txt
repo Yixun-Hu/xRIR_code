@@ -1,0 +1,10 @@
+edfacd3 exp06: revalidate completion manifests and expose finalizer CLI
+262cbac exp06: bind runtime arguments, source registry, and training data
+582e31b exp06: create seeded oriented smoke fixtures with hash sidecars
+15a083a exp06: preflight reviewed code, live launches, and GPU occupancy
+0543606 exp06: enforce derived arguments and twelve-epoch budget
+e2bff25 exp06: bound in-process smoke runs and record diagnostics
+43e1a2d exp06: publish idempotent diagnostic completion evidence
+d3fca2a exp06: add trainer parser and M-tier model construction
+7454e3b exp06: classify recipe fields and normalize historical arguments
+45abca2 exp06: bind heading records to git and revalidate inputs

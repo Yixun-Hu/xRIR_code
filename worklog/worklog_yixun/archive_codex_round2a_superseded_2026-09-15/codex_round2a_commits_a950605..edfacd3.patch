@@ -1,0 +1,1313 @@
+diff --git a/tests/test_exp06_finalize.py b/tests/test_exp06_finalize.py
+new file mode 100644
+index 0000000..62f338a
+--- /dev/null
++++ b/tests/test_exp06_finalize.py
+@@ -0,0 +1,184 @@
++import json
++import os
++from pathlib import Path
++import subprocess
++
++import pytest
++
++from tools import exp06_finalize as f
++
++
++def write_json(path, value):
++    path.write_text(json.dumps(value))
++
++
++def closed_log(tmp_path, code=0):
++    path = tmp_path / 'child.log'
++    path.write_text('training done\nEXP06_CHILD_EXIT {} 2026-09-15T00:00:00+00:00\n'.format(code))
++    return path
++
++
++@pytest.mark.parametrize('kind', ['smoke', 'probe'])
++def test_diagnostic_without_artifacts(tmp_path, kind):
++    result = f.finalize(tmp_path, kind, tmp_path / 'absent.log', 3)
++    assert result['diagnostic'] is True
++    assert result['admissible_arm'] is False
++    assert result['child_exit'] == 3
++    before = (tmp_path / 'completion.json').read_bytes()
++    assert f.finalize(tmp_path, kind, tmp_path / 'absent.log', 3) == result
++    assert (tmp_path / 'completion.json').read_bytes() == before
++
++
++def test_receipt_binding_and_existing_refusal(tmp_path):
++    receipt = tmp_path / 'receipt.json'
++    write_json(receipt, {'diagnostic': True})
++    result = f.finalize(tmp_path, 'smoke', None, 0, receipt=receipt)
++    assert result['receipt'] == {'path': str(receipt), 'sha256': f.p.sha256_file(receipt)}
++    before = (tmp_path / 'completion.json').read_bytes()
++    with pytest.raises(ValueError, match='existing completion'):
++        f.finalize(tmp_path, 'probe', None, 0, receipt=receipt)
++    assert (tmp_path / 'completion.json').read_bytes() == before
++
++
++@pytest.mark.parametrize('text,code,cause', [
++    ('', 0, 'log marker'), ('running\n', 0, 'log marker'),
++    ('EXP06_CHILD_EXIT 1 2026-09-15T00:00:00+00:00\n', 0, 'log marker'),
++    ('EXP06_CHILD_EXIT 0 invalid\n', 0, 'log marker'),
++    ('EXP06_CHILD_EXIT 0 2026-09-15T00:00:00+00:00\n\n', 0, 'log marker'),
++    ('', 1, 'child_exit'),
++])
++def test_closed_log_refusals(tmp_path, text, code, cause):
++    log = tmp_path / 'child.log'
++    log.write_text(text)
++    with pytest.raises(ValueError, match=cause):
++        f._closed_log(log, code)
++    assert not (tmp_path / 'completion.json').exists()
++
++
++def test_closed_log_and_unknown_run(tmp_path):
++    assert f._closed_log(closed_log(tmp_path), 0)['child_exit'] == 0
++    with pytest.raises(ValueError, match='log'):
++        f._closed_log(tmp_path / 'missing', 0)
++    with pytest.raises(ValueError, match='run_type'):
++        f.finalize(tmp_path, 'unknown', None, 0)
++
++
++@pytest.fixture
++def repository(tmp_path):
++    repo = tmp_path / 'repo'
++    repo.mkdir()
++    subprocess.run(['git', 'init', '-q', str(repo)], check=True)
++    (repo / 'source.py').write_text('VALUE = 1\n')
++    subprocess.run(['git', 'add', 'source.py'], cwd=repo, check=True)
++    subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
++                    'commit', '-qm', 'fixture'], cwd=repo, check=True)
++    return repo, f.p.git_state(repo)['HEAD']
++
++
++def test_preflight_head_dirty_and_worklog(repository, tmp_path):
++    repo, head = repository
++    kwargs = dict(repo=repo, reviewed_commit=head, gpu='0', run_type='smoke',
++                  attempt_root=tmp_path / 'attempts')
++    assert f.preflight(**kwargs)['HEAD'] == head
++    with pytest.raises(ValueError, match='HEAD'):
++        f.preflight(**dict(kwargs, reviewed_commit='0' * 40))
++    (repo / 'worklog').mkdir()
++    (repo / 'worklog/note.md').write_text('allowed')
++    assert f.preflight(**kwargs)['dirty'] is True
++    (repo / 'source.py').write_text('VALUE = 2\n')
++    with pytest.raises(ValueError, match='dirty_outside_worklog'):
++        f.preflight(**kwargs)
++
++
++@pytest.mark.parametrize('global_pid', [False, True])
++def test_preflight_live_pid(repository, tmp_path, global_pid):
++    repo, head = repository
++    root = tmp_path / 'attempts'
++    root.mkdir()
++    path = f.launch_lock_paths(repo)[1] if global_pid else root / 'launch.pid'
++    path.write_text(str(os.getpid()))
++    try:
++        with pytest.raises(ValueError, match='pid alive'):
++            f.preflight(repo, head, '0', 'smoke', root)
++    finally:
++        path.unlink()
++
++
++@pytest.mark.parametrize('mode', ['full', 'probe'])
++def test_preflight_gpu_fake(repository, tmp_path, monkeypatch, mode):
++    repo, head = repository
++    binary = tmp_path / 'nvidia-smi'
++    binary.write_text('#!/bin/sh\nprintf "%s\\n" "$FAKE_GPU_PID"\n')
++    binary.chmod(0o755)
++    monkeypatch.setenv('PATH', str(tmp_path) + os.pathsep + os.environ['PATH'])
++    monkeypatch.setenv('FAKE_GPU_PID', '')
++    assert f.preflight(repo, head, '1', mode, tmp_path / 'attempts')['HEAD'] == head
++    monkeypatch.setenv('FAKE_GPU_PID', '12345')
++    with pytest.raises(ValueError, match='GPU busy'):
++        f.preflight(repo, head, '1', mode, tmp_path / 'attempts')
++
++
++def manifest_for(repo, head, kind='full'):
++    files, digest = f.p.closure_record(['source.py'], head, repo)
++    inventory = [{'path': 'source.py', 'sha256': f.p.sha256_file(repo / 'source.py')}]
++    identity = dict(data_root=str(repo), inventory=inventory,
++                    inventory_sha256=f.p._inventory_digest(inventory))
++    return dict(repo=str(repo), reviewed_commit=head, run_type=kind,
++                source_closure={'files': files, 'sha256': digest},
++                source_closure_sha256=digest, git_state=f.p.git_state(repo),
++                train_data_identity=identity)
++
++
++def test_manifest_revalidation_and_clone_drift(repository, tmp_path):
++    repo, head = repository
++    manifest = manifest_for(repo, head)
++    f._verify_manifest(manifest, repo, 'full')
++    clone = tmp_path / 'clone'
++    subprocess.run(['git', 'clone', '-q', str(repo), str(clone)], check=True)
++    manifest['repo'] = str(clone)
++    f._verify_manifest(manifest, clone, 'full')
++    (clone / 'source.py').write_text('VALUE = 2\n')
++    with pytest.raises(ValueError, match='source_closure.*source.py'):
++        f._verify_manifest(manifest, clone, 'full')
++
++
++@pytest.mark.parametrize('change,cause', [
++    ('run_type', 'run_type'), ('digest', 'source_closure'), ('empty', 'source_closure'),
++    ('head', 'HEAD'), ('data', 'train_data_identity'), ('blob', 'source_closure'),
++])
++def test_manifest_refusals(repository, change, cause):
++    repo, head = repository
++    manifest = manifest_for(repo, head)
++    if change == 'run_type':
++        manifest['run_type'] = 'probe'
++    elif change == 'digest':
++        manifest['source_closure']['sha256'] = '0' * 64
++    elif change == 'empty':
++        manifest['source_closure']['files'] = []
++    elif change == 'head':
++        manifest['git_state']['HEAD'] = '0' * 40
++    elif change == 'data':
++        manifest['train_data_identity']['inventory'][0]['sha256'] = '0' * 64
++    else:
++        manifest['source_closure']['files'][0]['reviewed_blob_sha256'] = '0' * 64
++    with pytest.raises(ValueError, match=cause):
++        f._verify_manifest(manifest, repo, 'full')
++
++
++def test_cli_diagnostic_and_preflight(repository, tmp_path, capsys):
++    repo, head = repository
++    assert f.main(['preflight', '--repo', str(repo), '--reviewed-commit', head,
++                   '--gpu', '0', '--run-type', 'smoke', '--attempt-root', str(tmp_path)]) == 0
++    assert head in capsys.readouterr().out
++    assert f.main(['--run-dir', str(tmp_path), '--run-type', 'smoke',
++                   '--log', str(tmp_path / 'absent.log'), '--child-exit', '0']) == 0
++    assert json.loads(capsys.readouterr().out)['diagnostic'] is True
++
++
++def test_cli_refuses_before_writing(tmp_path, capsys):
++    with pytest.raises(SystemExit) as caught:
++        f.main(['--run-dir', str(tmp_path), '--run-type', 'full',
++                '--log', str(tmp_path / 'absent.log'), '--child-exit', '1'])
++    assert caught.value.code == 2
++    assert 'child_exit' in capsys.readouterr().err
++    assert not (tmp_path / 'completion.json').exists()
+diff --git a/tests/test_exp06_heading.py b/tests/test_exp06_heading.py
+index 017cf20..88b2535 100644
+--- a/tests/test_exp06_heading.py
++++ b/tests/test_exp06_heading.py
+@@ -334,8 +334,54 @@ def test_cli(heading_cache, tmp_path, mode):
+         rirs[:4] /= 10 ** (9 / 20)
+         np.save(heading_cache / 'rirs.npy', rirs)
+     completed = subprocess.run(args, cwd=repo, capture_output=True, text=True)
+-    assert completed.returncode == (2 if mode == 'refuse' else 0), completed.stderr
++    assert completed.returncode == (3 if mode == 'refuse' else 0), completed.stderr
+     assert path.exists()
+     record = read_heading_json(path)
+     assert record['decision'] == {'estimate': 'estimated', 'override': 'override', 'refuse': 'refused'}[mode]
+     assert record['k'] == {'estimate': 128, 'override': 384, 'refuse': None}[mode]
++
++
++def test_heading_git_identity_and_diagnostic(heading_cache, monkeypatch):
++    import tools.exp06_heading as heading
++    from tools.provenance import closure_record, git_state
++    repo = Path(__file__).resolve().parents[1]
++    state = git_state(repo)
++    record = estimate_room_heading(heading_cache)
++    source = record['source_closure']
++    assert source['git'] == state
++    assert source['head_sha256'] == closure_record(source_closure('tools.exp06_heading', repo),
++                                                  state['HEAD'], repo)[1]
++    monkeypatch.setattr(heading, 'git_state', lambda repo: dict(state, dirty=True))
++    dirty = estimate_room_heading(heading_cache)
++    assert dirty['diagnostic'] is True
++    dirty['diagnostic'] = False
++    with pytest.raises(ValueError, match='diagnostic'):
++        write_heading_json(heading_cache / 'bad.json', dirty)
++    for field in ['git', 'head_sha256']:
++        broken = copy.deepcopy(record)
++        del broken['source_closure'][field]
++        with pytest.raises(ValueError):
++            write_heading_json(heading_cache / 'bad.json', broken)
++
++
++@pytest.mark.parametrize('name', ['meta.json', 'xyzs.npy', 'speaker_xyz.npy', 'rirs.npy'])
++def test_heading_input_revalidation(heading_cache, name):
++    from tools.exp06_heading import verify_heading_inputs
++    record = estimate_room_heading(heading_cache)
++    path = heading_cache / 'heading.json'
++    write_heading_json(path, record)
++    assert read_heading_json(path, room_dir=heading_cache) == record
++    with (heading_cache / name).open('ab') as stream:
++        stream.write(b'changed')
++    with pytest.raises(ValueError, match=name):
++        verify_heading_inputs(record, heading_cache)
++    with pytest.raises(ValueError, match=name):
++        read_heading_json(path, room_dir=heading_cache)
++
++
++def test_heading_cli_input_error_writes_nothing(tmp_path):
++    from tools.exp06_heading import main
++    out = tmp_path / 'absent.json'
++    with pytest.raises(SystemExit) as error:
++        main(['--room-dir', str(tmp_path / 'missing'), '--out', str(out)])
++    assert error.value.code == 2 and not out.exists()
+diff --git a/tests/test_exp06_recipe.py b/tests/test_exp06_recipe.py
+new file mode 100644
+index 0000000..4dcdcab
+--- /dev/null
++++ b/tests/test_exp06_recipe.py
+@@ -0,0 +1,102 @@
++"""Recipe and production admission, including read-only historical records."""
++import json
++from pathlib import Path
++
++import pytest
++
++from tools import exp06_recipe as r
++
++REPO = Path(__file__).resolve().parents[1]
++
++
++def test_real_trainer_fields_are_classified():
++    path = REPO / 'ckpt/exp05/S_simple/attempt_20260913T123905/args.json'
++    if not path.exists():
++        pytest.skip('exp05 args absent')
++    args = json.loads(path.read_text())
++    classes = r.classify(args)
++    assert len(classes) == len(args) == 33
++    assert set(classes.values()) == {'RECIPE', 'PRODUCTION', 'OPERATIONAL', 'DERIVED'}
++
++
++@pytest.mark.parametrize('backbone', ['simple', 'cyl'])
++def test_historical_recipe(backbone):
++    path = REPO / ('ckpt/xRIR_' + backbone + '_8_shot/args.json')
++    if not path.exists():
++        pytest.skip('exp01 args absent')
++    original = json.loads(path.read_text())
++    normalized, report = r.normalize_historical(original)
++    assert r.check_recipe(normalized) == []
++    assert report['vit_dim'] == report['yaw_aug_width'] == 'normalized'
++    assert report['param_counts'] == report['env'] == 'not_recorded'
++    assert 'param_counts' not in normalized and 'vit_dim' not in original
++
++
++@pytest.mark.parametrize('field,value', [('tf32', 1), ('batch_size', True), ('lr', 1),
++                                         ('vit_dim', 256)])
++def test_recipe_strict_types(field, value):
++    assert any(field in d for d in r.check_recipe(dict(r.EXP01_RECIPE, **{field: value})))
++
++
++@pytest.mark.parametrize('field,value', [('max_train_batches', 3), ('max_test_batches', 1),
++    ('resume', 'x'), ('no_save', True), ('test_subset', 100), ('yaw_aug', True)])
++def test_production_refusals(field, value):
++    args = dict(r.PRODUCTION, yaw_aug_seed=0, yaw_aug_width=512)
++    assert r.check_production(args) == []
++    args[field] = value
++    assert any(field in d for d in r.check_production(args))
++
++
++def test_unknown_and_missing_fields():
++    with pytest.raises(ValueError, match='typo'):
++        r.classify({'typo': 0})
++    assert 'lr: missing' in r.check_recipe({})
++    assert r.classify({'exp06_git_head': 'a' * 40}) == {'exp06_git_head': 'EXP06'}
++
++
++def complete_args():
++    return dict(r.EXP01_RECIPE, **r.PRODUCTION, yaw_aug_seed=0, yaw_aug_width=512,
++        backbone='simple', save_dir='/tmp/exp06', num_workers=12, log_interval=50,
++        save_every=500, epoch_ckpt_every=1, env={}, train_batches_per_epoch=9261,
++        tier='M', param_counts=r.expected_param_counts('simple'))
++
++
++def history():
++    return [dict(epoch=e, train_loss=1., test_loss=2., epoch_minutes=3.) for e in range(1, 13)]
++
++
++def test_complete_and_truncated_run():
++    args, rows, last = complete_args(), history(), dict(epoch=12, batch_idx=0)
++    assert r.check_all(args, history_rows=rows, last_meta=last) == []
++    args['max_train_batches'] = 3
++    assert any('max_train_batches' in d for d in r.check_all(args, history_rows=rows, last_meta=last))
++
++
++@pytest.mark.parametrize('change,cause', [
++    (lambda rows: rows.pop(6), 'epoch 7'), (lambda rows: rows.insert(3, rows[2]), 'epoch 3'),
++    (lambda rows: rows.reverse(), 'order'),
++    (lambda rows: rows[0].update(train_loss=float('nan')), 'train_loss'),
++    (lambda rows: rows[0].update(test_loss=float('inf')), 'test_loss'),
++    (lambda rows: rows[0].update(epoch_minutes=None), 'epoch_minutes'),
++    (lambda rows: rows[0].update(epoch=True), 'epoch')])
++def test_budget_refusals(change, cause):
++    rows = history()
++    change(rows)
++    assert any(cause in d for d in r.check_budget(rows, dict(epoch=12, batch_idx=0)))
++
++
++@pytest.mark.parametrize('field,value', [('train_batches_per_epoch', 9260), ('tier', 'S'),
++    ('param_counts', {}), ('param_counts', {'encoder': True}), ('backbone', 'typo')])
++def test_derived_refusals(field, value):
++    args = complete_args()
++    args[field] = value
++    assert any(field in d for d in r.check_derived(args, args['backbone']))
++
++
++def test_check_all_named_schema_and_metadata_deviations():
++    args = complete_args()
++    assert any('typo' in d for d in r.check_all(dict(args, typo=3)))
++    assert any('epoch' in d for d in r.check_budget(history(), dict(epoch=11, batch_idx=0)))
++    assert any('batch_idx' in d for d in r.check_budget(history(), dict(epoch=12, batch_idx=1)))
++    del args['env']
++    assert any('env' in d for d in r.check_all(args))
+diff --git a/tests/test_exp06_smoke.py b/tests/test_exp06_smoke.py
+new file mode 100644
+index 0000000..f6f48ab
+--- /dev/null
++++ b/tests/test_exp06_smoke.py
+@@ -0,0 +1,112 @@
++"""Bounded smoke dispatch is tested without sending any process a signal."""
++import json
++import sys
++import types
++
++import pytest
++
++from tools import exp06_smoke as smoke
++
++
++@pytest.fixture(autouse=True)
++def isolated_runtime(monkeypatch):
++    handlers, alarms = {'initial': object()}, []
++    handlers['current'] = handlers['initial']
++    def install(sig, handler):
++        previous, handlers['current'] = handlers['current'], handler
++        handlers.setdefault('run', handler)
++        return previous
++    monkeypatch.setattr(smoke.signal, 'signal', install)
++    monkeypatch.setattr(smoke.signal, 'alarm', lambda seconds: alarms.append(seconds))
++    monkeypatch.setattr(smoke.torch.cuda, 'is_available', lambda: False)
++    monkeypatch.setattr(smoke, 'git_state', lambda repo: {'HEAD': 'a' * 40})
++    return handlers, alarms
++
++
++@pytest.mark.parametrize('entry', ['trainer', 'exp06_train', 'exp06_haa_finetune', 'exp06_haa_eval'])
++def test_entry_dispatch_receipt_and_argv(entry, monkeypatch, tmp_path, capsys, isolated_runtime):
++    seen, original = [], sys.argv
++    main = (lambda: seen.extend(sys.argv[1:])) if entry == 'trainer' else seen.extend
++    monkeypatch.setitem(sys.modules, smoke.ENTRIES[entry], types.SimpleNamespace(main=main))
++    receipt = tmp_path / 'receipt.json'
++    assert smoke.main(['--entry', entry, '--receipt', str(receipt), '--', '--hello', 'world']) == 0
++    record = json.loads(receipt.read_text())
++    assert seen == record['argv'] == ['--hello', 'world'] and sys.argv is original
++    assert record['diagnostic'] is True and record['entry'] == entry
++    assert record['exit_status'] == record['peak_bytes'] == 0
++    assert record['wall_s'] >= 0 and record['git_head'] == 'a' * 40 and record['timestamp']
++    assert json.loads(capsys.readouterr().out.split('EXP06_SMOKE ')[1]) == record
++    assert isolated_runtime[1] == [300, 0]
++    assert isolated_runtime[0]['current'] is isolated_runtime[0]['initial']
++
++
++@pytest.mark.parametrize('failure,status', [('alarm', 3), ('exception', 1), ('exit', 2), ('memory', 3)])
++def test_failure_receipts(failure, status, monkeypatch, tmp_path, isolated_runtime):
++    def entry(argv):
++        if failure == 'alarm':
++            isolated_runtime[0]['run'](smoke.signal.SIGALRM, None)
++        if failure == 'exception':
++            raise RuntimeError('entry broke')
++        if failure == 'exit':
++            raise SystemExit(2)
++    if failure == 'memory':
++        monkeypatch.setattr(smoke.torch.cuda, 'is_available', lambda: True)
++        monkeypatch.setattr(smoke.torch.cuda, 'reset_peak_memory_stats', lambda: None)
++        monkeypatch.setattr(smoke.torch.cuda, 'synchronize', lambda: None)
++        monkeypatch.setattr(smoke.torch.cuda, 'max_memory_allocated', lambda: 4 * 1024**3)
++    monkeypatch.setitem(sys.modules, smoke.ENTRIES['exp06_train'], types.SimpleNamespace(main=entry))
++    receipt = tmp_path / 'receipt.json'
++    with pytest.raises(SystemExit) as caught:
++        smoke.main(['--entry', 'exp06_train', '--receipt', str(receipt)])
++    assert caught.value.code == status
++    assert json.loads(receipt.read_text())['exit_status'] == status
++    assert isolated_runtime[1][-1] == 0
++    assert isolated_runtime[0]['current'] is isolated_runtime[0]['initial']
++
++
++@pytest.mark.parametrize('argv', [['--entry', 'unknown'], ['--entry', 'trainer', '--max-gb', 'nan'],
++                                ['--entry', 'trainer', '--alarm-seconds', '0']])
++def test_invalid_cli(argv):
++    with pytest.raises(SystemExit) as caught:
++        smoke.main(argv)
++    assert caught.value.code == 2
++
++
++def test_cpu_fixture_strict_load_and_identity(tmp_path):
++    from model.xRIR_cyl_oriented import build_xrir_exp06
++    from tools.exp06_train import registry_sha256
++    from tools.provenance import sha256_file
++
++    target = tmp_path / 'fixture.pth'
++    assert smoke.main(['--make-fixture', str(target), '--seed', '5']) == 0
++    state = smoke.torch.load(target, map_location='cpu', weights_only=True)
++    model = build_xrir_exp06('cylindrical_oriented', 8)
++    model.load_state_dict(state, strict=True)
++    assert all(t.device.type == 'cpu' for t in state.values())
++    assert json.loads(target.with_suffix('.pth.json').read_text()) == {
++        'diagnostic': True, 'seed': 5, 'sha256': sha256_file(target),
++        'registry_sha256': registry_sha256()}
++
++
++def test_fixture_seed_and_exclusive_files(tmp_path, monkeypatch):
++    from model import xRIR_cyl_oriented as models
++    monkeypatch.setattr(models, 'build_xrir_exp06',
++                        lambda *a: smoke.torch.nn.Linear(2, 2))
++    first, second = tmp_path / 'first.pth', tmp_path / 'second.pth'
++    before = smoke.torch.get_rng_state()
++    smoke.main(['--make-fixture', str(first)])
++    smoke.main(['--make-fixture', str(second), '--seed', '0'])
++    assert smoke.torch.equal(before, smoke.torch.get_rng_state())
++    left, right = [smoke.torch.load(p, weights_only=True) for p in (first, second)]
++    assert all(smoke.torch.equal(left[k], right[k]) for k in left)
++    with pytest.raises(SystemExit) as caught:
++        smoke.main(['--make-fixture', str(first)])
++    assert caught.value.code == 2
++
++
++@pytest.mark.parametrize('argv', [[], ['--entry', 'trainer', '--make-fixture', 'x'],
++                                ['--make-fixture', 'x', '--', '--child-flag']])
++def test_fixture_cli_refusals(argv):
++    with pytest.raises(SystemExit) as caught:
++        smoke.main(argv)
++    assert caught.value.code == 2
+diff --git a/tests/test_exp06_train.py b/tests/test_exp06_train.py
+new file mode 100644
+index 0000000..017d62a
+--- /dev/null
++++ b/tests/test_exp06_train.py
+@@ -0,0 +1,129 @@
++"""CPU checks for the exp_06 composed trainer and its execution record."""
++import argparse
++import hashlib
++import json
++import sys
++from pathlib import Path
++
++import pytest
++import torch
++
++import train_xRIR_backbone as trainer
++from tools import exp06_train as train
++
++
++def parsed(*extra):
++    return train.build_parser().parse_args(['--backbone', 'simple', '--save-dir', '/unused', *extra])
++
++
++def test_shared_parser_defaults(monkeypatch):
++    parsers = []
++    original = argparse.ArgumentParser.parse_args
++    def capture(parser, *args, **kwargs):
++        parsers.append(parser)
++        return original(parser, *args, **kwargs)
++    monkeypatch.setattr(argparse.ArgumentParser, 'parse_args', capture)
++    monkeypatch.setattr(sys, 'argv', ['trainer', '--backbone', 'simple', '--save-dir', '/unused'])
++    trainer.parse_args()
++    ours = {a.dest: a for a in train.build_parser()._actions}
++    for action in parsers[0]._actions:
++        other = ours[action.dest]
++        assert (other.default, other.type, other.required, other.option_strings) == (
++            action.default, action.type, action.required, action.option_strings)
++
++
++@pytest.mark.parametrize('argv', [('--yaw-aug', '1'), ('--backbone', 'missing')])
++def test_parser_refusals(argv):
++    with pytest.raises(SystemExit) as error:
++        parsed(*argv)
++    assert error.value.code == 2
++
++
++def test_simple_state_is_bit_identical():
++    args = parsed()
++    torch.manual_seed(60)
++    baseline = trainer.build_model(args).state_dict()
++    torch.manual_seed(60)
++    actual = train.build_model_exp06(args).state_dict()
++    assert actual.keys() == baseline.keys()
++    assert all(torch.equal(actual[k], baseline[k]) for k in actual)
++
++
++def test_non_m_tier_refused():
++    with pytest.raises(ValueError, match='vit_'):
++        train.build_model_exp06(parsed('--vit-depth', '6'))
++
++
++def test_registry_digest():
++    mapping = {k: v.__module__ + '.' + v.__qualname__ for k, v in train.BACKBONES_EXP06.items()}
++    assert train.registry_sha256() == hashlib.sha256(json.dumps(mapping, sort_keys=True).encode()).hexdigest()
++
++
++@pytest.fixture
++def prepared(monkeypatch, tmp_path):
++    args = parsed('--decay-epochs', '3', '--epochs', '12', '--batch-size', '32', '--accum-steps', '2', '--tf32')
++    args.save_dir, args.train_batches_per_epoch = str(tmp_path), 9261
++    monkeypatch.setattr(train, '_source_identity', lambda repo: ({'HEAD': 'a' * 40}, [], 'b' * 64))
++    return train.prepare_args(args, repo=tmp_path)
++
++
++def test_prepare_args_schema(prepared):
++    from tools.exp06_recipe import check_all
++    assert check_all(vars(prepared)) == []
++    assert prepared.exp06_provenance_path == str(Path(prepared.save_dir) / 'provenance.json')
++    assert prepared.yaw_aug_seed == 0 and prepared.tier == 'M'
++    assert 'run_type' not in vars(prepared) and 'provenance_out' not in vars(prepared)
++    prepared.lr = 2e-3
++    assert 'lr' in str(check_all(vars(prepared)))
++
++
++def test_provenance_record(prepared, monkeypatch, tmp_path):
++    monkeypatch.setattr(train, 'train_data_identity', lambda root, cache_path: {'inventory_sha256': 'c' * 64})
++    monkeypatch.setattr(train.provenance, 'environment', lambda: {'python': '3.8'})
++    record = train.build_provenance(prepared, repo=tmp_path, argv=['--tf32'])
++    assert set(record) == {'repo', 'reviewed_commit', 'run_type', 'source_closure',
++        'source_closure_sha256', 'registry_sha256', 'git_state', 'environment',
++        'train_data_identity', 'argv', 'runtime_args'}
++    assert record['source_closure'] == {'files': [], 'sha256': 'b' * 64}
++    assert record['run_type'] == 'full' and record['runtime_args'] == vars(prepared)
++    assert record['argv'] == ['--tf32'] and record['reviewed_commit'] == 'a' * 40
++
++
++def test_absent_inventory_cache_never_written(monkeypatch, tmp_path):
++    root, cache = tmp_path / 'data', tmp_path / 'inventory.json'
++    root.mkdir()
++    wav = root / 'tiny.wav'
++    wav.write_bytes(b'fixture')
++    monkeypatch.setattr(train.trainer, 'xRIR_Dataset', lambda **kwargs: argparse.Namespace(file_list=[str(wav)]))
++    record = train.train_data_identity(root, cache)
++    assert not cache.exists() and record['inventory_files'] == 1
++    assert record['inventory'][0]['sha256'] == hashlib.sha256(b'fixture').hexdigest()
++
++
++def test_existing_cache_reused(monkeypatch, tmp_path):
++    cache = tmp_path / 'inventory.json'
++    cache.write_text('retained cache')
++    calls = []
++    monkeypatch.setattr(train.provenance, 'train_data_identity',
++                        lambda *args, **kwargs: calls.append((args, kwargs)) or {'cached': True})
++    assert train.train_data_identity(tmp_path, cache) == {'cached': True}
++    assert calls == [((tmp_path,), {'cache_path': cache, 'workers': 1})]
++    assert cache.read_text() == 'retained cache'
++
++
++def test_source_identity_binds_shell(monkeypatch, tmp_path):
++    monkeypatch.setattr(train.provenance, 'git_state', lambda repo: {'HEAD': 'a' * 40})
++    monkeypatch.setattr(train.provenance, 'source_closure', lambda module, repo: ['tools/exp06_train.py'])
++    calls = []
++    monkeypatch.setattr(train.provenance, 'closure_record',
++                        lambda *args: calls.append(args) or ([], 'b' * 64))
++    train._source_identity(tmp_path)
++    assert calls == [(['tools/exp06_train.py', 'tools/exp06_launch.sh'], 'a' * 40, tmp_path)]
++
++
++@pytest.mark.parametrize('output', [None, 'diagnostic-provenance.json'])
++def test_no_save_provenance_path(prepared, output):
++    prepared.no_save, prepared.run_type, prepared.provenance_out = True, 'probe', output
++    train.prepare_args(prepared)
++    assert prepared.exp06_run_type == 'probe'
++    assert prepared.exp06_provenance_path == (str(Path(output).resolve()) if output else None)
+diff --git a/tools/exp06_finalize.py b/tools/exp06_finalize.py
+new file mode 100644
+index 0000000..160f923
+--- /dev/null
++++ b/tools/exp06_finalize.py
+@@ -0,0 +1,169 @@
++"""Validate completed exp_06 children; refusals raise ValueError (CLI exit 2)."""
++import argparse
++import datetime
++import hashlib
++import json
++import os
++from pathlib import Path
++import re
++import subprocess
++import sys
++import tempfile
++
++from tools import provenance as p
++
++REPO = Path(__file__).resolve().parents[1]
++RUN_TYPES = ('full', 'smoke', 'probe', 'haa_train', 'haa_eval', 'haa_job')
++
++
++def launch_lock_paths(repo):
++    """Shared lock/PID names outside the repository; callers hold the flock."""
++    key = hashlib.sha256(str(Path(repo).resolve()).encode()).hexdigest()[:16]
++    stem = Path(tempfile.gettempdir()) / ('exp06_launch_' + key)
++    return Path(str(stem) + '.lock'), Path(str(stem) + '.pid')
++
++
++def preflight(repo, reviewed_commit, gpu, run_type, attempt_root):
++    """Read-only launch checks. PID liveness uses /proc, never a signal."""
++    _require(run_type in ('full', 'probe', 'smoke', 'finalize'), 'run_type is unknown')
++    try:
++        state = p.checked_git_state(repo, confirmatory=True)
++        _require(state['HEAD'] == reviewed_commit, 'HEAD differs from reviewed_commit')
++        paths = [launch_lock_paths(repo)[1]] + list(Path(attempt_root).rglob('launch.pid'))
++        for path in paths:
++            if not path.exists():
++                continue
++            raw = path.read_text().strip()
++            _require(raw.isdigit() and int(raw) > 0, 'invalid launch pid: ' + str(path))
++            _require(not (Path('/proc') / raw).exists(), 'exp06 launch pid alive: ' + raw)
++        if run_type in ('full', 'probe'):
++            result = subprocess.run(['nvidia-smi', '--query-compute-apps=pid',
++                '--format=csv,noheader', '-i', str(gpu)], capture_output=True, text=True)
++            _require(result.returncode == 0, 'GPU query failed: ' + result.stderr.strip())
++            _require(not result.stdout.strip(), 'GPU busy: ' + result.stdout.strip())
++        return state
++    except (OSError, subprocess.SubprocessError) as error:
++        raise ValueError('preflight: {}'.format(error)) from error
++
++
++def _require(condition, cause):
++    if not condition:
++        raise ValueError(cause)
++
++
++def _json(path):
++    try:
++        return json.loads(Path(path).read_text())
++    except (OSError, ValueError) as error:
++        raise ValueError('{}: {}'.format(path, error)) from error
++
++
++def _binding(path):
++    try:
++        path = Path(path).resolve()
++        return {'path': str(path), 'sha256': p.sha256_file(path)}
++    except (OSError, TypeError) as error:
++        raise ValueError('artifact {}: {}'.format(path, error)) from error
++
++
++def _verify_manifest(manifest, repo, run_type):
++    """Rehash reviewed source bytes and every declared input, including training data."""
++    try:
++        _require(manifest['run_type'] == run_type, 'provenance run_type mismatch')
++        commit = manifest['reviewed_commit']
++        _require(manifest['git_state']['HEAD'] == commit, 'provenance HEAD mismatch')
++        _require(not manifest['git_state'].get('dirty_outside_worklog', True),
++                 'provenance dirty_outside_worklog')
++        closure = manifest['source_closure']
++        stored = closure['files']
++        names = [record['path'] for record in stored]
++        _require(names and len(set(names)) == len(names), 'source_closure empty/duplicate files')
++        current, digest = p.closure_record(names, commit, repo)
++        _require(digest == closure['sha256'] == manifest['source_closure_sha256'],
++                 'source_closure digest mismatch')
++        by_path = {record['path']: record for record in current}
++        for record in stored:
++            now = by_path[record['path']]
++            blob = now['reviewed_blob_sha256']
++            _require(blob is not None and not now['commits_after_reviewed'] and
++                     all(record[key] == now[key] == blob for key in
++                         ('reviewed_blob_sha256', 'working_tree_sha256')),
++                     'source_closure drift: ' + record['path'])
++        fields = dict(manifest, repo=str(repo), source_closures={'training': closure})
++        required = ('train_data_identity',) if run_type == 'full' else ()
++        deviations = p.revalidate(fields, required=required)
++        _require(not deviations, 'input revalidation: ' + ', '.join(deviations))
++    except (OSError, KeyError, TypeError, subprocess.SubprocessError) as error:
++        raise ValueError('provenance/source_closure: {}'.format(error)) from error
++
++
++def _closed_log(log, child_exit):
++    _require(type(child_exit) is int and child_exit == 0, 'child_exit must be 0')
++    try:
++        lines = Path(log).read_text().splitlines()
++        match = re.fullmatch(r'EXP06_CHILD_EXIT (-?\d+) (\S+)', lines[-1] if lines else '')
++        _require(match is not None and int(match[1]) == child_exit, 'log marker mismatch')
++        datetime.datetime.fromisoformat(match[2].replace('Z', '+00:00'))
++    except (OSError, TypeError, ValueError) as error:
++        raise ValueError('log marker: {}'.format(error)) from error
++    return {'child_exit': child_exit, 'closed_at': match[2], 'log': _binding(log)}
++
++
++def _publish(path, record):
++    payload = json.dumps(record, sort_keys=True, indent=2, allow_nan=False).encode() + b'\n'
++    # Hard-link the completed temporary record exclusively; never replace a peer's result.
++    with tempfile.TemporaryDirectory(prefix='.exp06-completion-', dir=str(path.parent)) as directory:
++        temporary = Path(directory) / 'completion.json'
++        p.write_completion(temporary, record)
++        try:
++            os.link(str(temporary), str(path))
++        except FileExistsError:
++            _require(path.read_bytes() == payload, 'existing completion differs')
++
++
++def finalize(run_dir, run_type, log, child_exit, repo=None, receipt=None, children=None, expect=None):
++    """Write one deterministic completion only after all required evidence passes."""
++    _require(run_type in RUN_TYPES, 'run_type is unknown')
++    directory = Path(run_dir).resolve()
++    _require(directory.is_dir(), 'run_dir is missing')
++    record = {'schema_version': 1, 'run_type': run_type, 'child_exit': child_exit}
++    if run_type in ('smoke', 'probe'):
++        record.update(diagnostic=True, admissible_arm=False)
++        if receipt is not None:
++            record['receipt'] = _binding(receipt)
++    else:
++        record.update(_closed_log(log, child_exit))
++        raise ValueError('run_type implementation pending: ' + run_type)
++    _publish(directory / 'completion.json', record)
++    return record
++
++
++def main(argv=None):
++    argv = list(sys.argv[1:] if argv is None else argv)
++    is_preflight = argv[:1] == ['preflight']
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument('--repo', type=Path, default=REPO)
++    if is_preflight:
++        parser.add_argument('--reviewed-commit', required=True)
++        parser.add_argument('--gpu', required=True)
++        parser.add_argument('--run-type', choices=('smoke', 'probe', 'full', 'finalize'), required=True)
++        parser.add_argument('--attempt-root', type=Path, required=True)
++    else:
++        parser.add_argument('--run-dir', type=Path, required=True)
++        parser.add_argument('--run-type', choices=RUN_TYPES, required=True)
++        parser.add_argument('--log', type=Path, required=True)
++        parser.add_argument('--child-exit', type=int, required=True)
++        parser.add_argument('--receipt', type=Path)
++        parser.add_argument('--children', nargs='+', type=Path)
++        parser.add_argument('--expect', choices=('finetune', 'zeroshot'))
++    args = parser.parse_args(argv[1:] if is_preflight else argv)
++    try:
++        record = (preflight if is_preflight else finalize)(**vars(args))
++    except ValueError as error:
++        parser.exit(2, 'REFUSED: {}\n'.format(error))
++    print(json.dumps(record, sort_keys=True))
++    return 0
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+diff --git a/tools/exp06_heading.py b/tools/exp06_heading.py
+index 841318d..d3504fd 100644
+--- a/tools/exp06_heading.py
++++ b/tools/exp06_heading.py
+@@ -1,4 +1,8 @@
+-"""Training-only acoustic heading inference and heading-frame HAA geometry."""
++"""Training-only acoustic heading inference and heading-frame HAA geometry.
++
++CLI status: 0 accepted, 2 usage/input error, 3 heading refusal (evidence written).
++Dirty-tree records are diagnostic only; consumers must revalidate cache inputs.
++"""
+ import math
+ import numbers
+ import argparse
+@@ -11,7 +15,7 @@ import numpy as np
+ 
+ from sim_to_real.haa_dataset import DEFAULT_ROOT, HAADataset
+ from tools.yaw_rotation import rotate_scene_yaw
+-from tools.provenance import sha256_file, source_closure
++from tools.provenance import closure_record, git_state, sha256_file, source_closure
+ 
+ 
+ def _vector(value):
+@@ -236,11 +240,13 @@ def estimate_room_heading(room_dir, override_deg=None, override_reason=None):
+             loo_phi_deg=fits, loo_range_deg=[min(fits), max(fits)],
+             mean_direction_deg=mean_direction(theta, 10 ** ((level - level.max()) / 10)))
+     repo = Path(__file__).resolve().parents[1]
+-    files = [dict(path=name, sha256=sha256_file(repo / name))
+-             for name in source_closure('tools.exp06_heading', repo)]
++    state = git_state(repo)
++    records, head_digest = closure_record(source_closure('tools.exp06_heading', repo), state['HEAD'], repo)
++    files = [dict(path=r['path'], sha256=r['working_tree_sha256'],
++                  head_blob_sha256=r['reviewed_blob_sha256']) for r in records]
+     digest = hashlib.sha256(json.dumps([[f['path'], f['sha256']] for f in files],
+                                      sort_keys=True).encode()).hexdigest()
+-    return dict(schema_version=1, room=room.name, phi_deg=phi,
++    return dict(schema_version=1, diagnostic=state['dirty'], room=room.name, phi_deg=phi,
+         k=heading_roll_k(phi) if phi is not None else None, decision=decision,
+         reason=override_reason if decision == 'override' else reason,
+         override_deg=override_deg, override_reason=override_reason,
+@@ -253,7 +259,7 @@ def estimate_room_heading(room_dir, override_deg=None, override_reason=None):
+         input_sha256={name: sha256_file(room / name) for name in
+                       ['meta.json', 'xyzs.npy', 'speaker_xyz.npy', 'rirs.npy']},
+         source_closure=dict(entry_module='tools.exp06_heading', repo=str(repo), files=files,
+-                            sha256=digest, basis='working_tree'),
++                            sha256=digest, basis='working_tree', head_sha256=head_digest, git=state),
+         timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat())
+ 
+ 
+@@ -261,7 +267,7 @@ def _validate_heading_record(record):
+     """Validate schema and decision evidence; refused records have no usable rotation."""
+     required = {'schema_version', 'room', 'phi_deg', 'k', 'decision', 'reason', 'override_deg',
+                 'override_reason', 'estimator', 'descriptive', 'per_mic', 'input_sha256',
+-                'source_closure', 'timestamp'}
++                'source_closure', 'timestamp', 'diagnostic'}
+     try:
+         if not isinstance(record, dict) or not required <= record.keys():
+             raise ValueError('missing heading fields')
+@@ -296,13 +302,32 @@ def _validate_heading_record(record):
+                 or not Path(source['repo']).is_absolute() or not source['files']):
+             raise ValueError('invalid source closure')
+         pairs = [[f['path'], f['sha256']] for f in source['files']]
+-        hashes = list(inputs.values()) + [source['sha256']] + [h for _, h in pairs]
++        state = source['git']
++        if (not isinstance(state['HEAD'], str) or len(state['HEAD']) != 40
++                or any(c not in '0123456789abcdef' for c in state['HEAD'])
++                or any(type(state[k]) is not bool for k in ['dirty', 'dirty_outside_worklog'])
++                or type(state['untracked']) is not list):
++            raise ValueError('invalid source git identity')
++        if (type(record['diagnostic']) is not bool or (state['dirty'] and not record['diagnostic'])
++                or (state['dirty_outside_worklog'] and not state['dirty'])):
++            raise ValueError('dirty heading records require diagnostic=true')
++        head_pairs = [[f['path'], f['head_blob_sha256']] for f in source['files']]
++        hashes = (list(inputs.values()) + [source['sha256'], source['head_sha256']]
++                  + [h for _, h in pairs] + [h for _, h in head_pairs if h is not None])
++        if state['dirty']:
++            hashes.append(state['diff_sha256'])
++        elif state['diff_sha256'] is not None:
++            raise ValueError('clean source git diff must be null')
+         if any(not isinstance(h, str) or len(h) != 64 or any(c not in '0123456789abcdef' for c in h)
+                for h in hashes):
+             raise ValueError('invalid SHA256')
+         digest = hashlib.sha256(json.dumps(pairs, sort_keys=True).encode()).hexdigest()
+         if source['sha256'] != digest:
+             raise ValueError('source closure digest mismatch')
++        if source['head_sha256'] != hashlib.sha256(json.dumps(head_pairs, sort_keys=True).encode()).hexdigest():
++            raise ValueError('source HEAD closure digest mismatch')
++        if not state['dirty'] and source['sha256'] != source['head_sha256']:
++            raise ValueError('clean source differs from HEAD')
+         mics = record['per_mic']
+         if (len(mics) != 12 or len({m['index'] for m in mics}) != 12
+                 or any(type(m['index']) is not int or m['index'] < 0 or m['distance_m'] <= 0 for m in mics)):
+@@ -346,13 +371,28 @@ def write_heading_json(path, record):
+     Path(path).write_text(json.dumps(record, sort_keys=True, indent=2, allow_nan=False) + '\n')
+ 
+ 
+-def read_heading_json(path):
++def verify_heading_inputs(record, room_dir):
++    """Refuse a heading whose four cache inputs no longer match its evidence."""
++    _validate_heading_record(record)
++    for name, expected in record['input_sha256'].items():
++        try:
++            actual = sha256_file(Path(room_dir) / name)
++        except OSError as error:
++            raise ValueError('heading input missing: ' + name) from error
++        if actual != expected:
++            raise ValueError('heading input sha256 mismatch: ' + name)
++
++
++def read_heading_json(path, room_dir=None):
+     """Read and validate a heading record before its rotation can be used."""
+-    return _validate_heading_record(json.loads(Path(path).read_text()))
++    record = _validate_heading_record(json.loads(Path(path).read_text()))
++    if room_dir is not None:
++        verify_heading_inputs(record, room_dir)
++    return record
+ 
+ 
+ def main(argv=None):
+-    """Write the inferred acoustic axis; refusal writes evidence and exits with status 2."""
++    """Write evidence; return 3 for refusal, while parser/input errors exit 2."""
+     parser = argparse.ArgumentParser(description='Infer an acoustic axis from HAA training RIRs.')
+     parser.add_argument('--room-dir', required=True)
+     parser.add_argument('--out', required=True)
+@@ -365,7 +405,7 @@ def main(argv=None):
+     except (OSError, ValueError) as error:
+         parser.error(str(error))
+     print(json.dumps({key: record[key] for key in ['room', 'decision', 'phi_deg', 'k', 'reason']}))
+-    return 2 if record['decision'] == 'refused' else 0
++    return 3 if record['decision'] == 'refused' else 0
+ 
+ 
+ if __name__ == '__main__':
+diff --git a/tools/exp06_recipe.py b/tools/exp06_recipe.py
+new file mode 100644
+index 0000000..e06e44b
+--- /dev/null
++++ b/tools/exp06_recipe.py
+@@ -0,0 +1,146 @@
++"""Type-strict exp_01 recipe and exp_06 completion admission.
++
++Historical normalization returns (copied arguments, per-field recording status).
++It supplies only the frozen implicit ViT/yaw defaults, never derived evidence.
++Checks return named deviations; classify raises on any unregistered field.
++"""
++import math
++from functools import lru_cache
++
++import torch
++from model.xRIR_cyl_oriented import BACKBONES_EXP06, build_xrir_exp06
++from tools.exp05_params import count_parameters
++
++EXP01_RECIPE = dict(num_shot=8, max_len=9600, lr=1e-3, weight_decay=1e-4,
++    decay_epochs=3, lr_gamma=0.1, epochs=12, batch_size=32, accum_steps=2, seed=0,
++    tf32=True, vit_dim=512, vit_depth=12, vit_heads=8, vit_mlp_dim=512)
++PRODUCTION = dict(max_train_batches=0, max_test_batches=0, test_subset=0,
++                  resume=None, no_save=False, yaw_aug=0)
++OPERATIONAL = {'backbone', 'save_dir', 'num_workers', 'log_interval', 'save_every',
++               'epoch_ckpt_every', 'env'}
++DERIVED = {'train_batches_per_epoch', 'tier', 'param_counts'}
++EXP06 = {'exp06_run_type', 'exp06_registry_sha256', 'exp06_source_closure_sha256',
++         'exp06_git_head', 'exp06_provenance_path'}
++FIELD_CLASSES = {field: label for label, fields in (
++    ('RECIPE', EXP01_RECIPE), ('PRODUCTION', set(PRODUCTION) | {'yaw_aug_seed', 'yaw_aug_width'}),
++    ('OPERATIONAL', OPERATIONAL), ('DERIVED', DERIVED), ('EXP06', EXP06)) for field in fields}
++
++
++def classify(args_dict):
++    for field in args_dict:
++        if field not in FIELD_CLASSES:
++            raise ValueError('unknown field: ' + str(field))
++    return {field: FIELD_CLASSES[field] for field in args_dict}
++
++
++def normalize_historical(args_dict):
++    classify(args_dict)
++    result = dict(args_dict)
++    defaults = {k: v for k, v in EXP01_RECIPE.items() if k.startswith('vit_')}
++    defaults.update(yaw_aug=0, yaw_aug_seed=0, yaw_aug_width=512)
++    report = {k: 'recorded' if k in result else 'not_recorded'
++              for k in FIELD_CLASSES if k not in EXP06}
++    for key, value in defaults.items():
++        if key not in result:
++            result[key], report[key] = value, 'normalized'
++    return result, report
++
++
++def _expected(args, expected):
++    deviations = []
++    for key, value in expected.items():
++        if key not in args:
++            deviations.append(key + ': missing')
++        elif type(args[key]) is not type(value) or args[key] != value:
++            deviations.append('{}: expected {!r} ({}), got {!r}'.format(
++                key, value, type(value).__name__, args[key]))
++    return deviations
++
++
++def check_recipe(args_dict, expected=EXP01_RECIPE):
++    classify(args_dict)
++    return _expected(args_dict, expected)
++
++
++def check_production(args_dict):
++    classify(args_dict)
++    deviations = _expected(args_dict, PRODUCTION)
++    for key in ('yaw_aug_seed', 'yaw_aug_width'):
++        if type(args_dict.get(key)) is not int:
++            deviations.append(key + ': missing or not an integer (recorded inert field)')
++    return deviations
++
++
++@lru_cache(maxsize=None)
++def expected_param_counts(backbone):
++    """Construct the registered M model without advancing the caller's CPU RNG."""
++    with torch.random.fork_rng(devices=[]):
++        return count_parameters(build_xrir_exp06(backbone, 8))
++
++
++def check_derived(args_dict, backbone):
++    deviations = _expected(args_dict, dict(train_batches_per_epoch=9261, tier='M', backbone=backbone))
++    if backbone not in BACKBONES_EXP06:
++        return deviations + ['backbone: unknown ' + str(backbone)]
++    expected, actual = expected_param_counts(backbone), args_dict.get('param_counts')
++    if not isinstance(actual, dict) or set(actual) != set(expected):
++        deviations.append('param_counts: missing or incorrect keys')
++    else:
++        deviations += ['param_counts.' + d for d in _expected(actual, expected)]
++    return deviations
++
++
++def check_budget(history_rows, last_meta):
++    deviations, epochs = [], []
++    if not isinstance(history_rows, list):
++        return ['history: expected parsed rows']
++    for index, row in enumerate(history_rows):
++        if not isinstance(row, dict):
++            deviations.append('history row {}: expected object'.format(index))
++            continue
++        epoch = row.get('epoch')
++        if type(epoch) is not int or epoch not in range(1, 13):
++            deviations.append('history epoch: invalid {!r}'.format(epoch))
++        else:
++            epochs.append(epoch)
++        for key in ('train_loss', 'test_loss', 'epoch_minutes'):
++            value = row.get(key)
++            if type(value) not in (int, float) or not math.isfinite(value):
++                deviations.append('epoch {!r} {}: missing or non-finite'.format(epoch, key))
++    for epoch in range(1, 13):
++        if epochs.count(epoch) != 1:
++            deviations.append('epoch {}: expected once, found {}'.format(epoch, epochs.count(epoch)))
++    if epochs != sorted(epochs):
++        deviations.append('history epoch order: not monotone')
++    if not isinstance(last_meta, dict):
++        deviations.append('last_meta: missing')
++    else:
++        deviations += ['last_meta.' + d for d in _expected(last_meta, dict(epoch=12, batch_idx=0))]
++    return deviations
++
++
++def check_all(args_dict, backbone=None, history_rows=None, last_meta=None):
++    """Validate all recorded fields; validate budget when either evidence item is supplied."""
++    try:
++        classify(args_dict)
++    except ValueError as error:
++        return [str(error)]
++    deviations = check_recipe(args_dict) + check_production(args_dict)
++    deviations += check_derived(args_dict, backbone or args_dict.get('backbone'))
++    for key in sorted(OPERATIONAL):
++        if key not in args_dict:
++            deviations.append(key + ': missing')
++    if EXP06.intersection(args_dict):
++        for key in sorted(EXP06):
++            value = args_dict.get(key)
++            if not isinstance(value, str) or not value:
++                deviations.append(key + ': missing or invalid')
++            elif key.endswith('sha256') or key == 'exp06_git_head':
++                length = 40 if key == 'exp06_git_head' else 64
++                if len(value) != length or any(c not in '0123456789abcdef' for c in value):
++                    deviations.append(key + ': invalid digest')
++        if args_dict.get('exp06_run_type') != 'full':
++            deviations.append('exp06_run_type: diagnostic run is not an arm')
++    if history_rows is not None or last_meta is not None:
++        deviations += check_budget(history_rows, last_meta)
++    return deviations
+diff --git a/tools/exp06_smoke.py b/tools/exp06_smoke.py
+new file mode 100644
+index 0000000..6a4e14e
+--- /dev/null
++++ b/tools/exp06_smoke.py
+@@ -0,0 +1,124 @@
++"""In-process diagnostic runner; usage errors exit 2, exceeded bounds exit 3."""
++import argparse
++from datetime import datetime, timezone
++import importlib
++import json
++import math
++from pathlib import Path
++import signal
++import sys
++import time
++
++import torch
++
++from tools.provenance import git_state, sha256_file, write_manifest
++
++ENTRIES = {'trainer': 'train_xRIR_backbone', 'exp06_train': 'tools.exp06_train',
++           'exp06_haa_finetune': 'tools.exp06_haa_finetune',
++           'exp06_haa_eval': 'tools.exp06_haa_eval'}
++REPO = Path(__file__).resolve().parents[1]
++
++
++def build_parser():
++    parser = argparse.ArgumentParser(description=__doc__)
++    mode = parser.add_mutually_exclusive_group(required=True)
++    mode.add_argument('--entry', choices=sorted(ENTRIES))
++    mode.add_argument('--make-fixture', type=Path)
++    parser.add_argument('--seed', type=int, default=0)
++    parser.add_argument('--receipt', type=Path)
++    parser.add_argument('--alarm-seconds', type=int, default=300)
++    parser.add_argument('--max-gb', type=float, default=3)
++    parser.add_argument('argv', nargs=argparse.REMAINDER)
++    return parser
++
++
++def _alarm(signum, frame):
++    raise TimeoutError('alarm_seconds exceeded')
++
++
++def run(entry, argv, alarm_seconds=300, max_gb=3):
++    """Restore argv/handler on every exit and retain failure evidence."""
++    state, started = git_state(REPO), time.monotonic()
++    cuda = torch.cuda.is_available()
++    old_argv, previous = sys.argv, signal.signal(signal.SIGALRM, _alarm)
++    status, error = 0, None
++    try:
++        signal.alarm(alarm_seconds)
++        if cuda:
++            torch.cuda.reset_peak_memory_stats()
++        module = importlib.import_module(ENTRIES[entry])
++        if entry == 'trainer':
++            sys.argv = [module.__name__ if hasattr(module, '__name__') else ENTRIES[entry]] + argv
++            result = module.main()
++        else:
++            result = module.main(argv)
++        if isinstance(result, int):
++            status = result
++        if cuda:
++            torch.cuda.synchronize()
++    except SystemExit as exc:
++        status = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)
++        error = str(exc)
++    except Exception as exc:
++        status, error = (3 if isinstance(exc, TimeoutError) else 1), str(exc)
++    finally:
++        signal.alarm(0)
++        signal.signal(signal.SIGALRM, previous)
++        sys.argv = old_argv
++    peak = torch.cuda.max_memory_allocated() if cuda else 0
++    if peak > max_gb * 1024**3:
++        status, error = 3, 'max_gb exceeded'
++    record = dict(diagnostic=True, entry=entry, argv=argv, wall_s=time.monotonic() - started,
++                  peak_bytes=peak, exit_status=status, git_head=state['HEAD'],
++                  timestamp=datetime.now(timezone.utc).isoformat())
++    if error is not None:
++        record['error'] = error
++    return record
++
++
++def make_fixture(path, seed=0):
++    """Write an exclusively created CPU state dict and its diagnostic identity."""
++    from model.xRIR_cyl_oriented import build_xrir_exp06
++    from tools.exp06_train import registry_sha256
++
++    path, sidecar = Path(path), Path(str(path) + '.json')
++    if path.exists() or sidecar.exists():
++        raise ValueError('fixture or sidecar already exists')
++    path.parent.mkdir(parents=True, exist_ok=True)
++    with torch.random.fork_rng(devices=[]):
++        torch.manual_seed(seed)
++        model = build_xrir_exp06('cylindrical_oriented', 8).cpu()
++        with path.open('xb') as stream:
++            torch.save(model.state_dict(), stream)
++    record = dict(diagnostic=True, seed=seed, sha256=sha256_file(path),
++                  registry_sha256=registry_sha256())
++    write_manifest(sidecar, record)
++    return record
++
++
++def main(argv=None):
++    parser = build_parser()
++    args = parser.parse_args(argv)
++    if args.alarm_seconds <= 0 or not math.isfinite(args.max_gb) or args.max_gb <= 0:
++        parser.error('alarm_seconds and max_gb must be positive and finite')
++    if args.make_fixture:
++        if args.argv or args.receipt:
++            parser.error('make_fixture does not accept child argv or receipt')
++        try:
++            make_fixture(args.make_fixture, args.seed)
++        except (OSError, ValueError) as exc:
++            parser.error(str(exc))
++        return 0
++    child_argv = args.argv[1:] if args.argv[:1] == ['--'] else args.argv
++    record = run(args.entry, child_argv, args.alarm_seconds, args.max_gb)
++    print('EXP06_SMOKE ' + json.dumps(record, sort_keys=True, allow_nan=False), flush=True)
++    if args.receipt:
++        args.receipt.parent.mkdir(parents=True, exist_ok=True)
++        write_manifest(args.receipt, record)
++    if record['exit_status']:
++        raise SystemExit(record['exit_status'])
++    return 0
++
++
++if __name__ == '__main__':
++    sys.exit(main())
+diff --git a/tools/exp06_train.py b/tools/exp06_train.py
+new file mode 100644
+index 0000000..b0845e6
+--- /dev/null
++++ b/tools/exp06_train.py
+@@ -0,0 +1,106 @@
++"""Exp_06 training entry point composing the pinned trainer's numerical helpers.
++
++Shared defaults match train_xRIR_backbone; the launch script supplies the exp_01
++recipe. Only the external finalizer may publish completion.json.
++"""
++import argparse
++import hashlib
++import json
++import os
++from pathlib import Path
++import sys
++
++import train_xRIR_backbone as trainer
++from model.xRIR_cyl_oriented import BACKBONES_EXP06, build_xrir_exp06
++from tools import provenance
++from tools.exp05_params import TIERS, count_parameters
++
++REPO = Path(__file__).resolve().parents[1]
++
++
++def build_parser():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument('--backbone', choices=sorted(BACKBONES_EXP06), required=True)
++    parser.add_argument('--save-dir', required=True)
++    for name, default in dict(num_shot=8, max_len=9600, decay_epochs=50, epochs=200,
++                              batch_size=64, accum_steps=1, num_workers=16, seed=0,
++                              yaw_aug_width=512, log_interval=20, save_every=500,
++                              epoch_ckpt_every=5, max_train_batches=0,
++                              max_test_batches=0, test_subset=0).items():
++        parser.add_argument('--' + name.replace('_', '-'), type=int, default=default)
++    for name, default in TIERS['M'].items():
++        parser.add_argument('--vit-' + name.replace('_', '-'), type=int, default=default)
++    for name, default in dict(lr=1e-3, weight_decay=1e-4, lr_gamma=0.1).items():
++        parser.add_argument('--' + name.replace('_', '-'), type=float, default=default)
++    parser.add_argument('--yaw-aug', type=int, choices=(0,), default=0)
++    parser.add_argument('--yaw-aug-seed', type=int, default=None)
++    parser.add_argument('--no-save', action='store_true')
++    parser.add_argument('--tf32', action='store_true')
++    parser.add_argument('--resume', default=None)
++    parser.add_argument('--run-type', choices=('full', 'smoke', 'probe'), default='full')
++    parser.add_argument('--provenance-out', default=None)
++    return parser
++
++
++def build_model_exp06(args):
++    config = {key: getattr(args, 'vit_' + key) for key in TIERS['M']}
++    if any(type(config[key]) is not int or config[key] != value for key, value in TIERS['M'].items()):
++        raise ValueError('vit_* must match tier M')
++    return build_xrir_exp06(args.backbone, args.num_shot, **config)
++
++
++def registry_sha256():
++    mapping = {name: cls.__module__ + '.' + cls.__qualname__ for name, cls in BACKBONES_EXP06.items()}
++    return hashlib.sha256(json.dumps(mapping, sort_keys=True).encode()).hexdigest()
++
++
++def _source_identity(repo):
++    state = provenance.git_state(repo)
++    files = provenance.source_closure('tools.exp06_train', repo) + ['tools/exp06_launch.sh']
++    records, digest = provenance.closure_record(files, state['HEAD'], repo)
++    return state, records, digest
++
++
++def prepare_args(args, model=None, repo=None):
++    """Add runtime identity; train_batches_per_epoch must come from the loader."""
++    repo = Path(repo or REPO).resolve()
++    if any(type(getattr(args, 'vit_' + key)) is not int or getattr(args, 'vit_' + key) != value
++           for key, value in TIERS['M'].items()):
++        raise ValueError('vit_* must match tier M')
++    model = build_model_exp06(args) if model is None else model
++    args.tier, args.param_counts = 'M', count_parameters(model)
++    args.yaw_aug_seed = args.seed if args.yaw_aug_seed is None else args.yaw_aug_seed
++    args.env = {key: os.environ.get(key) for key in
++                ('PYTHONHASHSEED', 'XRIR_DATA_PATH', 'OMP_NUM_THREADS', 'CUDA_VISIBLE_DEVICES')}
++    args.exp06_run_type = vars(args).pop('run_type', getattr(args, 'exp06_run_type', 'full'))
++    output = vars(args).pop('provenance_out', getattr(args, 'exp06_provenance_path', None))
++    output = output if args.no_save else Path(args.save_dir) / 'provenance.json'
++    args.exp06_provenance_path = str(Path(output).resolve()) if output else None
++    state, _, digest = _source_identity(repo)
++    args.exp06_git_head, args.exp06_source_closure_sha256 = state['HEAD'], digest
++    args.exp06_registry_sha256 = registry_sha256()
++    return args
++
++
++def train_data_identity(data_root, cache_path):
++    """Reuse the pinned cache read-only, or hash without creating any cache."""
++    if Path(cache_path).exists():
++        return provenance.train_data_identity(data_root, cache_path=cache_path, workers=1)
++    root = Path(data_root).resolve()
++    dataset = trainer.xRIR_Dataset(split='train', ir_path=str(root / 'single_channel_ir'))
++    files = sorted(str(Path(name).resolve().relative_to(root)) for name in dataset.file_list)
++    key = hashlib.sha256(json.dumps([str(root), len(files)]).encode()).hexdigest()
++    return dict(provenance._inventory(files, root, workers=1), split='train', cache_key=key)
++
++
++def build_provenance(args, repo=None, argv=None):
++    repo = Path(repo or REPO).resolve()
++    state, records, digest = _source_identity(repo)
++    if state['HEAD'] != args.exp06_git_head or digest != args.exp06_source_closure_sha256:
++        raise ValueError('source_closure changed while preparing provenance')
++    return dict(repo=str(repo), reviewed_commit=state['HEAD'], run_type=args.exp06_run_type,
++                source_closure=dict(files=records, sha256=digest), source_closure_sha256=digest,
++                registry_sha256=args.exp06_registry_sha256, git_state=state,
++                environment=provenance.environment(), train_data_identity=train_data_identity(
++                    os.environ['XRIR_DATA_PATH'], cache_path=repo / 'ckpt/yaw_aug/train_inventory.json'),
++                argv=list(sys.argv[1:] if argv is None else argv), runtime_args=dict(vars(args)))
