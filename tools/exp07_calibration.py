@@ -41,6 +41,8 @@ CLOSURE_MODULES = (('evaluator', 'tools.exp07_eval'), ('writer', 'tools.exp07_ev
 # The registered historical values, as a module attribute so a synthetic cohort can be
 # calibrated against its own scale in tests; production reads the frozen profile literal.
 HISTORICAL = dict(CALIBRATION['historical'])
+# The cohort rules this gate shares with the publication table (see seed_means).
+FINITE_COUNT_TOLERANCE = get_profile('TABLE_SEEN_V1')['finite_count_tolerance']
 
 
 def require(ok, message):
@@ -102,19 +104,24 @@ def admit(directories, profile, pins, producer):
 
 
 def seed_means(payloads, k=None):
-    """metric -> seed -> that seed's mean over ITS finite queries, in native units."""
+    """metric -> seed -> that seed's mean over ITS finite queries, in native units.
+
+    The cohort is validated with the table producer's OWN functions, so this gate cannot
+    approve an evaluation the publication protocol will later refuse: every registered
+    metric present in every seed's cell (``loss`` and ``log_mse`` included) and per-seed
+    finite counts within the registered tolerance.  Both are pure cohort rules and read
+    no approval pin, which the gate could not use anyway -- it runs before the trainings
+    finish, while the approval file is still all-null.
+    """
     k = CALIBRATION['k'] if k is None else k
+    seeds = sorted(payloads)
+    cells = [payloads[seed]['P'][str(k)] for seed in seeds]
+    table.metric_names(cells)
     result = {}
     for metric in CALIBRATION_METRICS:
-        source, per_seed = CALIBRATION['sources'][metric], {}
-        for seed in sorted(payloads):
-            cell = payloads[seed]['P'][str(k)]
-            require(source in cell, 'missing metric {} for seed {}'.format(metric, seed))
-            values = np.asarray(cell[source], dtype=float)
-            finite = values[np.isfinite(values)]
-            require(finite.size, 'zero finite queries: {} seed {}'.format(metric, seed))
-            per_seed[int(seed)] = float(finite.mean())
-        result[metric] = per_seed
+        per_seed = table.seed_finite_means(cells, seeds, CALIBRATION['sources'][metric],
+                                           FINITE_COUNT_TOLERANCE)
+        result[metric] = {int(seed): cell['mean'] for seed, cell in per_seed.items()}
     return result
 
 

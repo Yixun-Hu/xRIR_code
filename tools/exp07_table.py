@@ -287,6 +287,45 @@ def admit(directories, profile, approved=None, producer=None, exploratory=False,
     return groups, admitted
 
 
+def metric_names(cells):
+    """The metric names these seeds' cells share, under the TABLE_V1 coverage rules.
+
+    Named so the released-checkpoint calibration gate can apply exactly this rule: a
+    cohort that the publication protocol would later refuse must not pass that gate.
+    Nothing here reads an approval pin.
+    """
+    names = set().union(*(set(cell) for cell in cells))
+    if names - set(METRICS):
+        raise ValueError('unknown metric names: ' + ', '.join(sorted(names - set(METRICS))))
+    if any(set(cell) != names for cell in cells):
+        raise ValueError('metric coverage differs across seeds')
+    missing = {source for source, item in METRICS.items() if item} - names
+    if missing:  # plan section 2: every row reports all five, spectral ones included
+        raise ValueError('missing metrics: ' + ', '.join(sorted(missing)))
+    return names
+
+
+def seed_finite_means(cells, labels, source, tolerance, scale=1):
+    """Each seed's mean over ITS OWN finite queries, with the registered count bound.
+
+    The other half of what the calibration gate shares with the table: a seed whose
+    finite cohort differs from its siblings' by more than ``tolerance`` queries is not a
+    comparable row, whichever producer is aggregating it.
+    """
+    per_seed = {}
+    for label, cell in zip(labels, cells):
+        values = np.asarray(cell[source], dtype=float)
+        finite = values[np.isfinite(values)]
+        if not finite.size:
+            raise ValueError('zero finite queries: ' + source)
+        per_seed[str(label)] = {'mean': float(finite.mean() * scale),
+                                'n_finite': int(finite.size)}
+    counts = [item['n_finite'] for item in per_seed.values()]
+    if max(counts) - min(counts) > tolerance:
+        raise ValueError('finite count tolerance exceeded: ' + source)
+    return per_seed
+
+
 MARKDOWN = REPO / 'worklog/worklog_yixun/model_comparison_seen.md'
 
 
@@ -330,30 +369,15 @@ def build_table(directories, profile=None, approved=None, exploratory=False, pro
         if not runs:  # exploratory only: admission has already named the missing arm
             continue
         cells = [run['P'][str(profile['grid'][0])] for run in runs]
-        names = set().union(*(set(cell) for cell in cells))
-        if names - set(METRICS):
-            raise ValueError('unknown metric names: ' + ', '.join(sorted(names - set(METRICS))))
-        if any(set(cell) != names for cell in cells):
-            raise ValueError('metric coverage differs across seeds')
-        missing = {source for source, item in METRICS.items() if item} - names
-        if missing:  # plan section 2: every row reports all five, spectral ones included
-            raise ValueError('missing metrics: ' + ', '.join(sorted(missing)))
+        names = metric_names(cells)
+        labels = [run['meta']['manifest_seed'] for run in runs]
         metrics = {}
         for source, specification in METRICS.items():
             if specification is None or source not in names:
                 continue
             name, unit, scale = specification
-            per_seed = {}
-            for run, cell in zip(runs, cells):
-                values = np.asarray(cell[source], dtype=float)
-                finite = values[np.isfinite(values)]
-                if not finite.size:
-                    raise ValueError('zero finite queries: ' + source)
-                per_seed[str(run['meta']['manifest_seed'])] = {
-                    'mean': float(finite.mean() * scale), 'n_finite': int(finite.size)}
-            counts = [item['n_finite'] for item in per_seed.values()]
-            if max(counts) - min(counts) > profile['finite_count_tolerance']:
-                raise ValueError('finite count tolerance exceeded: ' + source)
+            per_seed = seed_finite_means(cells, labels, source,
+                                         profile['finite_count_tolerance'], scale)
             means = np.asarray([item['mean'] for item in per_seed.values()])
             if not np.isfinite(means).all():
                 raise ValueError('nonfinite seed mean: ' + source)

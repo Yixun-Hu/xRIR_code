@@ -9,6 +9,7 @@ import pytest
 from exp07_fixture import exp07_fixture  # noqa: F401  (fixture)
 from tools import exp07_calibration as calibration
 from tools import exp07_profiles as profiles
+from tools import exp07_table as table
 from tools import provenance as p
 from tools.paired_compare import REPO
 
@@ -179,3 +180,50 @@ def test_an_input_changed_before_publication_stops_the_transaction(calibrated):
 
 def test_the_producer_module_is_the_one_the_record_reads():
     assert Path(calibration.__file__).resolve() == REPO / 'tools/exp07_calibration.py'
+
+
+def strip_metrics(calibrated, names=('loss', 'log_mse')):
+    """Remove metric columns the table producer requires from every released run."""
+    for directory in calibrated.runs:
+        run = Path(directory)
+        sample = calibrated.built.read(run / 'per_sample_yaw.json')
+        metrics = calibrated.built.read(run / 'metrics_yaw.json')
+        for name in names:
+            sample['P']['0'].pop(name)
+            metrics['P']['0'].pop(name)
+        calibrated.built.rebind(run, sample=sample, metrics=metrics)
+
+
+def test_the_gate_applies_the_tables_metric_coverage_rule(calibrated):
+    """Blocker 4: a cohort the publication protocol refuses cannot pass this gate."""
+    strip_metrics(calibrated)
+    with pytest.raises(ValueError, match='missing metrics'):
+        calibrated.build()
+    with pytest.raises(ValueError, match='missing metrics'):
+        calibration.measure(calibrated.runs)
+    with pytest.raises(ValueError, match='missing metrics'):
+        table.build_table(calibrated.built.directories, calibrated.built.profile,
+                          calibrated.built.approved, producer=calibrated.built.producer)
+
+
+def test_the_gate_applies_the_tables_finite_count_tolerance(calibrated):
+    run = Path(calibrated.runs[0])
+    sample = calibrated.built.read(run / 'per_sample_yaw.json')
+    sample['P']['0']['c50'][:4] = [None] * 4
+    metrics = calibrated.built.read(run / 'metrics_yaw.json')
+    metrics['P'] = calibrated.built.summaries(sample['P'])
+    calibrated.built.rebind(run, sample=sample, metrics=metrics)
+    with pytest.raises(ValueError, match='finite count tolerance exceeded'):
+        calibrated.build()
+    with pytest.raises(ValueError, match='finite count tolerance exceeded'):
+        calibration.measure(calibrated.runs)
+
+
+def test_the_shared_checks_never_read_the_trained_arm_approval_pins(calibrated, monkeypatch):
+    """The gate runs before the trainings finish, so the approval file is still all-null."""
+    def never(*args, **kwargs):
+        raise AssertionError('the calibration must not read the approval pins')
+    monkeypatch.setattr(table, 'load_approved_digests', never)
+    result, _ = calibrated.build()
+    assert result['passed'] is True
+    assert calibration.measure(calibrated.runs) == result['metrics']
