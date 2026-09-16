@@ -1524,9 +1524,24 @@ def load_job_spec(path, expect):
 
     Finding 5: every nested value is typed before it is used, so a malformed spec is a
     named refusal (CLI exit 2, nothing written) and never a TypeError out of ``sorted``.
+
+    Round-3b finding 6: the bytes are read once and both the declaration and its digest
+    come from that one buffer, as ``closed_log`` does for a log. Parsing one read and
+    hashing another admitted a spec substituted in between under a digest that identified
+    the bytes nobody had validated; every later consumer compares against the digest
+    returned here, so no second read of the file can enter the evidence.
     """
     _require(path, 'a job needs the pipeline --job-spec it was run from')
-    spec = _mapping(_read_json(path, 'job spec'), 'job spec')
+    try:
+        data = Path(path).read_bytes()
+    except OSError as error:
+        raise ValueError('unreadable job spec: {}'.format(error)) from error
+    try:
+        value = json.loads(data.decode('utf-8'))
+    except (UnicodeDecodeError, ValueError) as error:
+        raise ValueError('unreadable job spec: {}'.format(error)) from error
+    _require(isinstance(value, dict), 'job spec is not a JSON object')
+    spec = _mapping(value, 'job spec')
     missing = [key for key in JOB_SPEC if key not in spec]
     _require(not missing, 'job spec is incomplete: missing ' + ', '.join(missing))
     _require(spec['expect'] == expect,
@@ -1550,8 +1565,9 @@ def load_job_spec(path, expect):
             WIDTH, ', '.join(absent)))
     else:
         _require(not spec.get('heading'), 'a room-frame job spec declares no heading')
-    # Finding 3: the declaration's own digest, which every child must have recorded at launch.
-    spec['job_spec_sha256'] = provenance.sha256_file(path)
+    # Finding 3: the declaration's own digest, which every child must have recorded at
+    # launch -- taken from the snapshot above, never from a second read of the file.
+    spec['job_spec_sha256'] = hashlib.sha256(data).hexdigest()
     return spec
 
 
@@ -1599,7 +1615,7 @@ def haa_job_evidence(run_dir, children, expect, repo, job_spec):
     _require(not missing, 'job is missing children: ' + ', '.join(missing))
     return dict(job_lineage(records, expect, spec), artifacts={}, children=seen, expect=expect,
                 job_spec={'path': str(Path(job_spec).resolve()),
-                          'sha256': provenance.sha256_file(job_spec)})
+                          'sha256': spec['job_spec_sha256']})
 
 
 def write_completion(path, fields):
