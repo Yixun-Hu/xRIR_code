@@ -312,6 +312,36 @@ def test_the_report_does_not_serialize_the_working_dependency_maps(bound):
     assert json.dumps(report, allow_nan=False)
 
 
+def test_each_products_dependency_map_equals_exactly_what_it_declared(bound):
+    """Round-8 blocker 1, stated directly: no slack in either direction, per product.
+
+    The binder derives each product's map from the runs it used, the training evidence
+    those arms' contracts consume and its own producer closure; nothing of the arm's
+    remaining files (epoch checkpoints, history, aborted attempts) is in it.
+    """
+    binder = bound.binder
+    report = binder.collect(**bound.arguments)
+    attempts = [binder.attempt_record(item, bound.built.pins)
+                for item in bound.arguments['attempt']]
+    runs = [binder.run_record(item, attempts, report['released_checkpoint'])
+            for item in bound.arguments['runs']]
+    run_bound = {item['path']: item.pop('bound') for item in runs}
+    trained = {item['role']: item for item in attempts}
+    assert sorted(binder.training_dependencies(trained['seen_cyl'])) == [
+        'args.json', 'completion.json', 'cumulative_hours.json', 'inventory sidecar',
+        'probe receipt', 'train_inventory.json', 'train_manifest.json']
+    for product in bound.arguments['results']:
+        data = json.loads(Path(product).read_text())
+        side = json.loads(sidecar(product).read_text())
+        roles = (set(binder.ROLES) if data['profile_name'] == 'TABLE_SEEN_V1'
+                 else set(data['pairing']))
+        expected = {run['path'] for run in runs if run['role'] in roles}
+        dependencies = binder.product_dependencies(expected, roles, trained, run_bound,
+                                                   report['approved_digests'])
+        dependencies.update(binder.producer_declarations(side['producer']))
+        assert dependencies == side['inputs'], product
+
+
 def test_the_binding_report_covers_the_whole_seen_record(bound):
     report = bound.binder.collect(**bound.arguments)
     assert len(report['runs']) == 40 and len(report['attempts']) == 3
