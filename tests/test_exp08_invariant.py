@@ -39,10 +39,8 @@ from model.exp08_delay import apply_delay_device_preserving, device_preserving_d
 from model.exp08_factory import BACKBONES_EXP08, build_xrir_exp08
 from model.xRIR import xRIR
 from model.xRIR_cyl import xRIR_Cyl
-from model.xRIR_cyl_invariant import (BASIS_DEGENERATE, BASIS_QUERY, BASIS_REFERENCE,
-                                      DEFAULT_BASIS_EPS, InvariantReadout,
-                                      horizontal_basis, intrinsic_scene_coords,
-                                      to_intrinsic, xRIR_CylInvariant,
+from model.xRIR_cyl_invariant import (BLEND_HI, BLEND_LO, InvariantReadout, horizontal_basis,
+                                      intrinsic_scene_coords, to_intrinsic, xRIR_CylInvariant,
                                       xRIR_SimpleInvariant)
 from tools.exp08_warmstart import build_warm_started
 from tools.yaw_rotation import (integer_delays, rotate_scene_yaw, rotate_vectors_z,
@@ -256,8 +254,8 @@ def test_intrinsic_coords_are_invariant_under_a_joint_yaw(k):
     torch.manual_seed(6)
     src = torch.randn(4, 3) * 3.0
     refs = torch.randn(4, 8, 3) * 3.0
-    src_0, refs_0, _, mode = intrinsic_scene_coords(src, refs)
-    assert int(mode.min()) == BASIS_QUERY, "generic positions must use the query basis"
+    src_0, refs_0, _, blend = intrinsic_scene_coords(src, refs)
+    assert float(blend.min()) == 1.0, "generic positions must use the query's own direction"
     angle = yaw_angle_rad(k)
     src_k, refs_k, _, _ = intrinsic_scene_coords(rotate_vectors_z(src, angle),
                                                  rotate_vectors_z(refs, angle))
@@ -315,196 +313,216 @@ def test_both_query_and_references_use_the_same_basis():
     """The query lands on ``(r_q, 0, z)``; references keep their relative azimuth."""
     src = torch.tensor([[3.0, 4.0, 1.25]])
     refs = torch.tensor([[[-4.0, 3.0, -0.5]]])
-    src_i, refs_i, basis, mode = intrinsic_scene_coords(src, refs)
-    assert int(mode[0]) == BASIS_QUERY
+    src_i, refs_i, basis, blend = intrinsic_scene_coords(src, refs)
+    assert float(blend[0]) == 1.0
     assert torch.allclose(basis, torch.tensor([[0.6, 0.8]]), atol=1e-6)
     assert torch.allclose(src_i, torch.tensor([[5.0, 0.0, 1.25]]), atol=1e-6)
     # ref is the query direction rotated by +90 deg, same radius -> (0, 5, -0.5)
     assert torch.allclose(refs_i, torch.tensor([[[0.0, 5.0, -0.5]]]), atol=1e-6)
 
 
-def test_degenerate_query_on_the_vertical_axis_uses_the_aggregate_reference_basis():
-    """Rule 2: a (near-)vertical query falls back to the references' normalised vector sum."""
-    src = torch.tensor([[0.0, 0.0, 2.0]])
-    refs = torch.tensor([[[1.0, 0.0, 0.0], [0.0, 3.0, 0.5], [2.0, 0.0, -1.0]]])
-    _, refs_i, basis, mode = intrinsic_scene_coords(src, refs)
-    assert int(mode[0]) == BASIS_REFERENCE
-    expected = torch.tensor([[3.0, 3.0]]) / math.sqrt(18.0)      # sum of the horizontals
-    assert torch.allclose(basis, expected, atol=1e-6)
-    # The transform still carries each reference's position through the shared basis.
-    assert torch.allclose(refs_i[0, 1, 2], torch.tensor(0.5), atol=1e-6)
-    assert torch.allclose(refs_i.norm(dim=-1), refs.norm(dim=-1), atol=1e-6)
+def test_fallback_basis_is_the_sum_over_the_total_horizontal_radius():
+    """Rule for a (near-)vertical query: ``a = sum_i p_h_i / sum_i ||p_h_i||``.
 
-
-def test_degenerate_fallback_basis_is_also_yaw_invariant():
-    """The fallback must not reintroduce a yaw dependence: the radii and the index are invariant."""
-    src = torch.tensor([[0.0, 0.0, 2.0]])
-    refs = torch.tensor([[[1.0, 0.0, 0.0], [0.0, 3.0, 0.5], [2.0, 0.0, -1.0]]])
-    src_0, refs_0, _, _ = intrinsic_scene_coords(src, refs)
-    for k in validate.C16_ANGLES:
-        angle = yaw_angle_rad(k)
-        src_k, refs_k, _, mode = intrinsic_scene_coords(rotate_vectors_z(src, angle),
-                                                        rotate_vectors_z(refs, angle))
-        assert int(mode[0]) == BASIS_REFERENCE
-        assert float((src_k - src_0).abs().max()) <= 1e-5
-        assert float((refs_k - refs_0).abs().max()) <= 1e-5
-
-
-def test_degenerate_fallback_is_tie_free_and_order_independent():
-    """The fallback is an aggregate, not a selection: no tie exists and order cannot matter.
-
-    Regression guard for review blocker B1 -- the old rule picked the widest reference, so equal
-    radii made the basis depend on float32 rounding and on the reference order.
+    Note ``||a|| < 1`` here: the references do not all point the same way, so the scene's
+    horizontal direction is partly ambiguous and the representation attenuates it accordingly.
     """
+    src = torch.tensor([[0.0, 0.0, 2.0]])
+    refs = torch.tensor([[[1.0, 0.0, 0.0], [0.0, 3.0, 0.5], [2.0, 0.0, -1.0]]])
+    _, refs_i, basis, blend = intrinsic_scene_coords(src, refs)
+    assert float(blend[0]) == 0.0, "a vertical query must not use its own horizontal direction"
+    # R sums the *horizontal* norms: ||(1,0)|| + ||(0,3)|| + ||(2,0)|| = 6, not the 3-D ones.
+    radius = 1.0 + 3.0 + 2.0
+    assert torch.allclose(basis, torch.tensor([[3.0, 3.0]]) / radius, atol=1e-6)
+    assert float(basis.norm()) == pytest.approx(math.sqrt(0.5), abs=1e-6)
+    assert float(basis.norm()) < 1.0
+    # Heights pass through untouched; the horizontal part is scaled by ||a||, not rotated only.
+    assert torch.allclose(refs_i[..., 2], refs[..., 2], atol=0, rtol=0)
+    assert torch.allclose(refs_i[..., :2].norm(dim=-1),
+                          refs[..., :2].norm(dim=-1) * float(basis.norm()), atol=1e-6)
+
+
+def test_fallback_basis_never_exceeds_unit_length():
+    """``||a|| <= 1`` by the triangle inequality -- the property that bounds the conditioning."""
+    generator = torch.Generator().manual_seed(21)
+    src = torch.zeros(500, 3)
+    src[:, 2] = 1.0
+    refs = torch.randn(500, 6, 3, generator=generator) * 7.0
+    basis, blend = horizontal_basis(src, refs)
+    assert torch.equal(blend, torch.zeros(500))
+    assert float(basis.norm(dim=-1).max()) <= 1.0 + 1e-7
+
+
+def test_fallback_basis_is_tie_free_and_order_independent():
+    """An aggregate, not a selection: no tie exists and the reference order cannot matter."""
     src = torch.tensor([[0.0, 0.0, 1.0]])
     tied = torch.tensor([[[0.0, -2.0, 0.0], [2.0, 0.0, 0.0], [-2.0, 0.0, 0.0]]])
-    _, _, basis, mode = intrinsic_scene_coords(src, tied)
-    assert int(mode[0]) == BASIS_REFERENCE
-    assert torch.allclose(basis, torch.tensor([[0.0, -1.0]]), atol=1e-6)   # sum = (0, -2)
+    _, _, basis, _ = intrinsic_scene_coords(src, tied)
     for permutation in ([1, 0, 2], [2, 1, 0], [0, 2, 1]):
         _, _, permuted, _ = intrinsic_scene_coords(src, tied[:, permutation])
         assert torch.allclose(permuted, basis, atol=1e-12), \
             "reordering the references moved the basis: the fallback is still a selection"
 
 
-@pytest.mark.parametrize("k", validate.C16_ANGLES)
-def test_codex_equal_radius_tie_is_rotation_invariant(k):
-    """Review blocker B1, the exact reported case: three references at radius exactly 5.
+def test_basis_has_no_branch_on_the_reference_aggregate():
+    """Sweeping a cancelling reference pair across the old ``1e-6`` m guard must not jump.
 
-    Under the old max-radius selection the winner flipped between angles and the intrinsic
-    reference coordinates jumped by 4.4 m.  The aggregate basis rotates *with* the scene, so
-    nothing can flip.
+    Review blocker B1(a) was exactly this crossing.  The measured contrast against the
+    superseded rule is part of the assertion, so the test states what it is protecting.
+    """
+    sweep = validate.basis_smoothness_sweep()["cancellation"]
+    assert sweep["max_step_round2"] > 0.5, "the superseded rule should visibly jump here"
+    assert sweep["max_step_current"] < 1e-3, (
+        "largest single step {:.3e} over {} configurations in [{:.1e}, {:.1e}]".format(
+            sweep["max_step_current"], sweep["n_steps"], *sweep["range"]))
+
+
+def test_basis_has_no_branch_on_the_query_horizontal_fraction():
+    """The primary choice is a smooth blend, not a threshold -- same check, other branch."""
+    sweep = validate.basis_smoothness_sweep()["query_blend"]
+    assert sweep["blend_min"] == 0.0 and sweep["blend_max"] == 1.0, "the band was not crossed"
+    assert sweep["max_step_round2"] > 0.5, "the superseded rule should visibly jump here"
+    assert sweep["max_step_current"] < 0.15, (
+        "largest single step {:.3e} over {} configurations".format(
+            sweep["max_step_current"], sweep["n_steps"]))
+
+
+@pytest.mark.parametrize("name,refs", [
+    ("equal_radius_tie", validate.CODEX_TIE_REFS),
+    ("sum_exactly_zero", validate.CODEX_CANCEL_REFS),
+    ("near_cancellation", validate.CODEX_NEARCANCEL_REFS),
+    ("all_horizontal_zero", validate.CODEX_SUM_DEGENERATE_REFS),
+])
+def test_adversarial_basis_coordinates_are_rotation_invariant(name, refs):
+    """Every reported adversarial geometry, at the coordinate level, over all 15 C16 angles.
+
+    The bound is *absolute* and scaled to the scene, because that is what the reviews measured:
+    35.7 m, 4.4 m and 1.5 m of coordinate motion under the two superseded rules.
     """
     src = torch.tensor(validate.CODEX_TIE_SRC, dtype=torch.float32)
-    refs = torch.tensor(validate.CODEX_TIE_REFS, dtype=torch.float32)
-    radii = refs[0, :, :2].norm(dim=-1)
-    assert torch.allclose(radii, torch.full_like(radii, 5.0)), "the radii must really be tied"
-    src_0, refs_0, basis_0, mode_0 = intrinsic_scene_coords(src, refs)
-    assert int(mode_0[0]) == BASIS_REFERENCE
-    angle = yaw_angle_rad(k)
-    src_k, refs_k, basis_k, mode_k = intrinsic_scene_coords(rotate_vectors_z(src, angle),
-                                                            rotate_vectors_z(refs, angle))
-    assert int(mode_k[0]) == BASIS_REFERENCE, "the basis branch changed under rotation"
-    scale = float(refs_0.abs().max())
-    assert float((src_k - src_0).abs().max()) / scale <= FP32_INPUT_TOL
-    assert float((refs_k - refs_0).abs().max()) / scale <= FP32_INPUT_TOL
+    refs = torch.tensor(refs, dtype=torch.float32)
+    scale = float(refs.abs().max())
+    src_0, refs_0, _, blend = intrinsic_scene_coords(src, refs)
+    assert float(blend[0]) == 0.0, "these cases must all exercise the fallback"
+    worst = 0.0
+    for k in validate.C16_ANGLES:
+        angle = yaw_angle_rad(k)
+        src_k, refs_k, _, _ = intrinsic_scene_coords(rotate_vectors_z(src, angle),
+                                                     rotate_vectors_z(refs, angle))
+        worst = max(worst, float((src_k - src_0).abs().max()),
+                    float((refs_k - refs_0).abs().max()))
+    assert worst / scale <= FP32_INPUT_TOL, \
+        "{}: coordinates moved {:.3e} m on a {:.1f} m scene".format(name, worst, scale)
 
 
-def test_codex_equal_radius_tie_full_model_is_invariant(warm_cyl, env):
-    """The same case through the whole model: the 1.5e-1 spectral residual must be gone."""
-    batch = validate.adversarial_batch(validate.CODEX_TIE_SRC, validate.CODEX_TIE_REFS,
-                                       label="codexTie")
+@pytest.mark.parametrize("name,refs", [
+    ("equal_radius_tie", validate.CODEX_TIE_REFS),
+    ("sum_exactly_zero", validate.CODEX_CANCEL_REFS),
+    ("near_cancellation", validate.CODEX_NEARCANCEL_REFS),
+    ("all_horizontal_zero", validate.CODEX_SUM_DEGENERATE_REFS),
+])
+def test_adversarial_basis_full_model_is_invariant(name, refs, warm_cyl, env):
+    """The same geometries through the whole warm-started model, both conditions.
+
+    Reference values from the reviews, all at float32 on this same path: equal-radius tie
+    1.478e-1, sum-exactly-zero 2.270e-1, near-cancellation 5.151e-2.
+    """
+    batch = validate.adversarial_batch(validate.CODEX_TIE_SRC, refs, label=name)
     with device_preserving_delay():
-        sweep = validate.angle_sweep(warm_cyl[0], batch, validate.C16_ANGLES, conditions=("E",))
-    worst_row = validate.worst(sweep["rows"], "E")
-    assert worst_row["rel_fro"] <= REL_TARGET, (
-        "equal-radius tie k={}: rel {:.3e} (abs {:.3e}, denom {:.3e})".format(
-            worst_row["k"], worst_row["rel_fro"], worst_row["abs_fro"], worst_row["denom_fro"]))
-    print("\nB1 tie case worst rel {:.3e} at k={} (was 1.478e-1 before the fix)".format(
-        worst_row["rel_fro"], worst_row["k"]))
+        sweep = validate.angle_sweep(warm_cyl[0], batch, validate.C16_ANGLES,
+                                     conditions=("E", "P"))
+    for condition in ("E", "P"):
+        row = validate.worst(sweep["rows"], condition)
+        assert row["rel_fro"] <= REL_TARGET, (
+            "{} condition {} k={}: rel {:.3e} (abs {:.3e}, denom {:.3e})".format(
+                name, condition, row["k"], row["rel_fro"], row["abs_fro"], row["denom_fro"]))
+    print("\n{}: worst E {:.3e}, worst P {:.3e}".format(
+        name, validate.worst(sweep["rows"], "E")["rel_fro"],
+        validate.worst(sweep["rows"], "P")["rel_fro"]))
 
 
-def test_aggregate_sum_cancellation_falls_through_to_zero_horizontal(warm_cyl, env):
-    """A symmetric reference set cancels, so rule 3 takes over -- and rule 3 is invariant.
+def test_exactly_cancelling_references_give_exactly_zero_horizontal(warm_cyl, env):
+    """The old "all horizontal components vanish" branch is now the continuous limit.
 
-    The zero-horizontal output is a *constant*, so it cannot depend on the yaw; this is the
-    branch the aggregate rule degenerates into, and it has to be exercised end to end.
+    It is still reached exactly: a reference set that cancels exactly yields ``a = 0`` and zero
+    horizontal coordinates, bitwise unchanged at every angle.
     """
     src = torch.tensor(validate.CODEX_TIE_SRC, dtype=torch.float32)
     refs = torch.tensor(validate.CODEX_SUM_DEGENERATE_REFS, dtype=torch.float32)
-    assert float(refs[0, :, :2].sum(dim=0).norm()) == 0.0, "the horizontals must really cancel"
-    src_0, refs_0, basis_0, mode_0 = intrinsic_scene_coords(src, refs)
-    assert int(mode_0[0]) == BASIS_DEGENERATE
-    assert torch.equal(basis_0, torch.zeros(1, 2))
+    assert float(refs[0, :, :2].sum(dim=0).norm()) == 0.0
+    src_0, refs_0, basis, _ = intrinsic_scene_coords(src, refs)
+    assert torch.equal(basis, torch.zeros(1, 2))
     assert torch.equal(refs_0[..., :2], torch.zeros_like(refs_0[..., :2]))
+    assert torch.equal(refs_0[..., 2], refs[..., 2])
     for k in validate.C16_ANGLES:
         angle = yaw_angle_rad(k)
-        src_k, refs_k, _, mode_k = intrinsic_scene_coords(rotate_vectors_z(src, angle),
-                                                          rotate_vectors_z(refs, angle))
-        assert int(mode_k[0]) == BASIS_DEGENERATE
+        src_k, refs_k, _, _ = intrinsic_scene_coords(rotate_vectors_z(src, angle),
+                                                     rotate_vectors_z(refs, angle))
         assert torch.equal(src_k, src_0) and torch.equal(refs_k, refs_0)
 
-    batch = validate.adversarial_batch(validate.CODEX_TIE_SRC,
-                                       validate.CODEX_SUM_DEGENERATE_REFS, label="codexSumZero")
-    with device_preserving_delay():
-        sweep = validate.angle_sweep(warm_cyl[0], batch, validate.C16_ANGLES, conditions=("E",))
-    worst_row = validate.worst(sweep["rows"], "E")
-    assert worst_row["rel_fro"] <= REL_TARGET, "degenerate-sum scene: rel {:.3e}".format(
-        worst_row["rel_fro"])
 
-
-@pytest.mark.parametrize("norm,expected", [
-    (DEFAULT_BASIS_EPS * 10.0, BASIS_REFERENCE),    # comfortably above
-    (DEFAULT_BASIS_EPS * 1.5, BASIS_REFERENCE),     # just above
-    (DEFAULT_BASIS_EPS, BASIS_DEGENERATE),          # exactly at the threshold -> falls through
-    (DEFAULT_BASIS_EPS * 0.5, BASIS_DEGENERATE),    # just below
-    (0.0, BASIS_DEGENERATE),                        # exact cancellation
-])
-def test_aggregate_basis_threshold_boundary(norm, expected):
-    """The fallback's own threshold: the aggregate degenerates at the same ``eps``.
-
-    The residual sum is carried by a single reference (the other has no horizontal component),
-    so ``||s||`` is *exactly* ``norm`` -- a near-cancellation of two large vectors could not
-    land on ``eps`` exactly in float64 and would make the boundary case untestable.
-    """
-    src = torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.float64)
-    refs = torch.tensor([[[float(norm), 0.0, 0.5], [0.0, 0.0, -1.0]]], dtype=torch.float64)
-    assert float(refs[0, :, :2].sum(dim=0).norm()) == float(norm), "||s|| must be exact here"
-    _, _, _, mode = intrinsic_scene_coords(src, refs, eps=DEFAULT_BASIS_EPS)
-    assert int(mode[0]) == expected
-
-
-def test_aggregate_basis_degenerates_when_references_nearly_cancel():
-    """The realistic route into rule 3: two large references that almost cancel.
-
-    ``1e-9`` is three orders below ``eps`` and twelve above float64's rounding of ``5.0``, so
-    the branch cannot be decided by arithmetic noise.
-    """
-    src = torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.float64)
-    refs = torch.tensor([[[5.0, 0.0, 0.0], [-5.0 + 1e-9, 0.0, 0.0]]], dtype=torch.float64)
-    residual = float(refs[0, :, :2].sum(dim=0).norm())
-    assert 1e-12 < residual < DEFAULT_BASIS_EPS
-    _, refs_i, basis, mode = intrinsic_scene_coords(src, refs)
-    assert int(mode[0]) == BASIS_DEGENERATE
-    assert torch.equal(basis, torch.zeros(1, 2, dtype=torch.float64))
-    assert torch.equal(refs_i[..., :2], torch.zeros_like(refs_i[..., :2]))
-
-
-def test_degenerate_all_horizontal_zero_gives_zero_horizontal_output():
-    """Rule 3: nothing to point at -> zero horizontal components, no NaN."""
+def test_all_references_on_the_axis_hits_the_exact_zero_guard():
+    """The only remaining guard: ``R == 0``, whose output is exactly the continuous limit."""
     src = torch.tensor([[0.0, 0.0, 1.5]])
     refs = torch.tensor([[[0.0, 0.0, -2.0], [0.0, 0.0, 0.75]]])
-    src_i, refs_i, basis, mode = intrinsic_scene_coords(src, refs)
-    assert int(mode[0]) == BASIS_DEGENERATE
+    src_i, refs_i, basis, blend = intrinsic_scene_coords(src, refs)
     assert torch.equal(basis, torch.zeros(1, 2))
+    assert float(blend[0]) == 0.0
     assert torch.equal(src_i, torch.tensor([[0.0, 0.0, 1.5]]))
     assert torch.equal(refs_i, torch.tensor([[[0.0, 0.0, -2.0], [0.0, 0.0, 0.75]]]))
     assert bool(torch.isfinite(src_i).all()) and bool(torch.isfinite(refs_i).all())
 
 
-@pytest.mark.parametrize("radius,expected", [
-    (DEFAULT_BASIS_EPS * 10.0, BASIS_QUERY),        # comfortably above
-    (DEFAULT_BASIS_EPS * 1.5, BASIS_QUERY),         # just above
-    (DEFAULT_BASIS_EPS, BASIS_REFERENCE),           # exactly at the threshold -> not the query
-    (DEFAULT_BASIS_EPS * 0.5, BASIS_REFERENCE),     # just below
-    (0.0, BASIS_REFERENCE),                         # exactly on the axis
+def test_zero_length_query_is_finite():
+    """A source coincident with the receiver has no direction at all; it must not produce NaN."""
+    src = torch.zeros(1, 3)
+    refs = torch.tensor([[[2.0, 0.0, 0.0], [0.0, 1.0, 0.5]]])
+    src_i, refs_i, basis, blend = intrinsic_scene_coords(src, refs)
+    assert float(blend[0]) == 0.0
+    assert bool(torch.isfinite(basis).all())
+    assert bool(torch.isfinite(src_i).all()) and bool(torch.isfinite(refs_i).all())
+
+
+@pytest.mark.parametrize("fraction,expected", [
+    (1.0, 1.0), (0.5, 1.0), (BLEND_HI * 2, 1.0), (BLEND_HI, 1.0),
+    (BLEND_LO, 0.0), (BLEND_LO / 2, 0.0), (0.0, 0.0),
 ])
-def test_basis_threshold_boundary(radius, expected):
-    """The documented boundary: strictly greater than ``eps`` uses the query, otherwise not."""
-    src = torch.tensor([[float(radius), 0.0, 1.0]], dtype=torch.float64)
-    refs = torch.tensor([[[0.0, 4.0, 0.0]]], dtype=torch.float64)
-    _, _, _, mode = intrinsic_scene_coords(src, refs, eps=DEFAULT_BASIS_EPS)
-    assert int(mode[0]) == expected
+def test_blend_saturates_exactly_outside_the_band(fraction, expected):
+    """Exactly 0 and exactly 1 outside ``[lo, hi]`` -- which is what keeps the primary path exact."""
+    height = math.sqrt(max(1.0 - fraction ** 2, 0.0))
+    src = torch.tensor([[fraction, 0.0, height]], dtype=torch.float64)
+    refs = torch.tensor([[[1.0, 1.0, 0.0]]], dtype=torch.float64)
+    _, blend = horizontal_basis(src, refs)
+    assert float(blend[0]) == expected
 
 
-def test_basis_threshold_is_configurable_and_validated():
-    """``eps`` is an explicit parameter; a non-positive threshold is refused."""
-    src = torch.tensor([[1.0e-3, 0.0, 1.0]])
+def test_blend_band_is_scale_relative():
+    """The band is a fraction of ``||q||``, so the same tilt means the same thing at any range.
+
+    Review blocker B1 noted the round-2 threshold was an absolute ``1e-6`` m while the failing
+    scene lived at 20-36 m.
+    """
+    refs = torch.tensor([[[1.0, 1.0, 0.0]]], dtype=torch.float64)
+    for distance in (0.5, 1.0, 40.0):
+        for fraction in (BLEND_LO / 2, (BLEND_LO + BLEND_HI) / 2, BLEND_HI * 2):
+            height = math.sqrt(max(1.0 - fraction ** 2, 0.0))
+            src = torch.tensor([[fraction * distance, 0.0, height * distance]],
+                               dtype=torch.float64)
+            _, blend = horizontal_basis(src, refs * distance)
+            reference = torch.tensor([[fraction, 0.0, height]], dtype=torch.float64)
+            _, expected = horizontal_basis(reference, refs)
+            assert abs(float(blend[0]) - float(expected[0])) < 1e-9, \
+                "blend depends on the absolute range: {} m".format(distance)
+
+
+def test_blend_rejects_an_invalid_band():
+    """``0 <= lo < hi`` is enforced rather than silently producing a division by zero."""
+    src = torch.tensor([[1.0, 0.0, 1.0]])
     refs = torch.tensor([[[0.0, 4.0, 0.0]]])
-    assert int(horizontal_basis(src, refs, eps=1e-6)[1][0]) == BASIS_QUERY
-    assert int(horizontal_basis(src, refs, eps=1e-2)[1][0]) == BASIS_REFERENCE
     with pytest.raises(ValueError):
-        horizontal_basis(src, refs, eps=0.0)
+        horizontal_basis(src, refs, blend_lo=1e-2, blend_hi=1e-3)
+    with pytest.raises(ValueError):
+        horizontal_basis(src, refs, blend_lo=-1.0, blend_hi=1e-2)
 
 
 def test_to_intrinsic_rejects_mismatched_shapes():
@@ -515,11 +533,58 @@ def test_to_intrinsic_rejects_mismatched_shapes():
         to_intrinsic(torch.zeros(2, 3), torch.zeros(3, 2))
 
 
-def test_model_uses_the_documented_basis_epsilon(random_cyl):
-    """The model's threshold is the documented default and is reachable from the factory."""
-    assert random_cyl.basis_eps == DEFAULT_BASIS_EPS
-    other = build_xrir_exp08("cylindrical_invariant", 2, basis_eps=1e-3)
-    assert other.basis_eps == 1e-3
+def test_model_uses_the_documented_blend_band(random_cyl):
+    """The model's band is the documented default and is reachable from the factory."""
+    assert random_cyl.blend_lo == BLEND_LO and random_cyl.blend_hi == BLEND_HI
+    other = build_xrir_exp08("cylindrical_invariant", 2, blend_lo=0.1, blend_hi=0.2)
+    assert other.blend_lo == 0.1 and other.blend_hi == 0.2
+
+
+def _round2_intrinsic_scene_coords(src_loc, ref_locs, **kwargs):
+    """The round-2 coordinate transform, for the bitwise regression below (never used by a model)."""
+    basis = validate.superseded_round2_basis(src_loc, ref_locs)
+    return (to_intrinsic(src_loc, basis), to_intrinsic(ref_locs, basis), basis,
+            torch.zeros(src_loc.shape[0], dtype=src_loc.dtype))
+
+
+def test_battery_coordinates_are_bitwise_unchanged_by_the_blend(real):
+    """Every real query sits far above the band, so the round-3 basis reproduces round 2 exactly.
+
+    The blend must buy robustness in the degenerate corner without moving the production path by
+    a single ulp.
+    """
+    basis, blend = horizontal_basis(real["src_loc"], real["ref_locs"])
+    assert torch.equal(blend, torch.ones_like(blend)), "a real query fell inside the blend band"
+    legacy = validate.superseded_round2_basis(real["src_loc"], real["ref_locs"])
+    assert torch.equal(basis, legacy), "the basis moved on the battery"
+    for new_out, old_out in zip(intrinsic_scene_coords(real["src_loc"], real["ref_locs"])[:2],
+                                _round2_intrinsic_scene_coords(real["src_loc"],
+                                                               real["ref_locs"])[:2]):
+        assert torch.equal(new_out, old_out)
+    fraction = (real["src_loc"][:, :2].double().norm(dim=-1)
+                / real["src_loc"].double().norm(dim=-1))
+    print("\nbattery horizontal fraction min {:.4f} vs band top {:.0e}".format(
+        float(fraction.min()), BLEND_HI))
+
+
+def test_battery_predictions_are_bitwise_unchanged_by_the_blend(real, warm_cyl, env, monkeypatch):
+    """The same statement end to end: the model's output on the real battery is bit-identical.
+
+    The round-2 coordinate rule is patched into the module the forward pass resolves it from,
+    and the two predictions are compared with ``torch.equal`` -- not a tolerance.
+    """
+    import model.xRIR_cyl_invariant as invariant_module
+
+    model = warm_cyl[0]
+    with device_preserving_delay(), torch.no_grad():
+        current, _ = model(real["depth_coord"], real["ref_irs"], real["src_loc"],
+                           real["ref_locs"], real["tgt_wav"])
+        monkeypatch.setattr(invariant_module, "intrinsic_scene_coords",
+                            _round2_intrinsic_scene_coords)
+        legacy, _ = model(real["depth_coord"], real["ref_irs"], real["src_loc"],
+                          real["ref_locs"], real["tgt_wav"])
+    assert torch.equal(current, legacy), "max |d| {:.3e}".format(
+        float((current - legacy).abs().max()))
 
 
 # --------------------------------------------------------------------------------------
@@ -686,24 +751,31 @@ def test_float64_delay_reduction_lowers_the_flip_rate():
     """Blocker B2's "the boundary shrinks", measured rather than asserted.
 
     A random ensemble is rotated through all 15 C16 angles and the integer delays compared,
-    once per reduction.  Flips are rare, so the counts are Poisson and the test demands the
-    difference clear 3 sigma -- a 1.28x effect on 1e5-ish counts, not a hand-wave.
+    once per reduction.
 
-    It is a *narrowing*, not an elimination: what float64 removes is the arithmetic half of the
-    noise, while the float32 rounding of the rotated input coordinates is irreducible (the model
-    never receives the exactly-rotated scene).
+    Flips **correlate within a scene** -- one scene sitting on a tie flips at most angles -- so
+    the totals are not independent Poisson counts and the naive ``sqrt(n32 + n64)`` overstates
+    the significance (review round 2, B2(i)).  The test uses the **paired per-scene difference**
+    instead, and demands 3 sigma on that.
+
+    It is a *narrowing*, not an elimination: float64 removes the arithmetic half of the noise,
+    while the float32 rounding of the rotated input coordinates is irreducible (the model never
+    receives the exactly-rotated scene).
     """
     result = validate.delay_flip_rate(n_scenes=1000000)
-    f32, f64 = result["float32"], result["float64"]
-    difference = f32["flips"] - f64["flips"]
-    sigma = math.sqrt(f32["flips"] + f64["flips"])
-    assert difference > 3.0 * sigma, (
-        "float32 {} flips vs float64 {} -- difference {} is only {:.1f} sigma".format(
-            f32["flips"], f64["flips"], difference, difference / max(sigma, 1e-9)))
+    f32, f64, paired = result["float32"], result["float64"], result["paired"]
+    assert paired["sigma"] < paired["naive_poisson_sigma"], \
+        "the paired estimate must be the conservative one"
+    assert paired["sigma"] > 3.0, (
+        "float32 {} flips vs float64 {}: paired difference {:.0f} +- {:.2f} is only "
+        "{:.2f} sigma".format(f32["flips"], f64["flips"], paired["total_difference"],
+                              paired["standard_error"], paired["sigma"]))
     print("\ndelay flip rate over {} comparisons: float32 {} ({:.3e}), float64 {} ({:.3e}), "
-          "shrink {:.3f}x at {:.1f} sigma".format(
-              result["comparisons"], f32["flips"], f32["rate"], f64["flips"], f64["rate"],
-              result["shrink_factor"], difference / sigma))
+          "shrink {:.3f}x; paired {:.0f} +- {:.2f} = {:.2f} sigma (naive Poisson would claim "
+          "{:.2f})".format(result["comparisons"], f32["flips"], f32["rate"], f64["flips"],
+                           f64["rate"], result["shrink_factor"], paired["total_difference"],
+                           paired["standard_error"], paired["sigma"],
+                           paired["naive_poisson_sigma"]))
 
 
 def test_codex_delay_boundary_case_is_either_invariant_or_a_documented_flip(warm_cyl, env):

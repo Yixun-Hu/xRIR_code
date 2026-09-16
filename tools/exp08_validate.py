@@ -41,6 +41,7 @@ import argparse
 import contextlib
 import io
 import json
+import math
 import os
 import time
 
@@ -53,7 +54,8 @@ from model.exp08_factory import build_xrir_exp08
 from model.xRIR_cyl_invariant import xRIR_InvariantBase
 from tools.per_sample_metrics import griffin_lim_seeded, sample_seed
 from tools.reference_manifest import load_manifest, manifest_hash
-from model.xRIR_cyl_invariant import intrinsic_scene_coords
+from model.xRIR_cyl_invariant import (BLEND_HI, BLEND_LO, horizontal_basis,
+                                      intrinsic_scene_coords, to_intrinsic)
 from tools.yaw_rotation import (fixed_alignment, rotate_scene_yaw, rotate_vectors_z,
                                 yaw_angle_rad)
 from utils.spec_utils import compute_spect_energy_decay_losses, stft_l1_loss
@@ -78,9 +80,21 @@ CODEX_TIE_SRC = ((0.0, 0.0, 1.0),)
 CODEX_TIE_REFS = (((3.0, 4.0, 0.0), (5.0, 0.0, 0.0), (-3.0, 4.0, 0.0)),)
 
 #: exp_08 review round 1, blocker B1, second case: a reference set whose horizontal components
-#: cancel, so the aggregate basis itself degenerates and rule 3 (zero horizontal) must take over.
+#: cancel, so the aggregate itself vanishes and the basis must degenerate smoothly to zero.
 CODEX_SUM_DEGENERATE_REFS = (((5.0, 0.0, 0.3), (-5.0, 0.0, -0.2), (0.0, 2.0, 0.1),
                               (0.0, -2.0, 0.4)),)
+
+#: exp_08 review round 2, blocker B1(a): the horizontal components sum to *exactly* zero at a
+#: radius of 20-36 m.  Under the round-2 ``s / ||s||`` rule with an absolute ``1e-6`` m guard,
+#: rotation rounding pushed ``||s||`` across the guard, the branch flipped, and the intrinsic
+#: coordinates jumped 35.7 m (spectrum 2.27e-1 at 22.5 deg, in both conditions).
+CODEX_CANCEL_REFS = (((12.0, 16.0, 0.0), (20.0, 0.0, 0.0), (-32.0, -16.0, 0.0)),)
+
+#: exp_08 review round 2, blocker B1(b): a near-cancellation that stayed on one branch, where
+#: normalising by ``||s||`` alone amplified the rounding -- 1.5 m of coordinate motion, spectrum
+#: 5.15e-2 at 45 deg.
+CODEX_NEARCANCEL_REFS = (((3.0, 4.0, 0.0), (5.0, 0.0, 0.0),
+                          (-7.999998092651367, -4.0, 0.0)),)
 
 #: exp_08 review round 1, blocker B2: a query/reference pair whose pre-round direct-path delay
 #: sits on the ``3.5`` rounding tie, so a norm-preserving rotation can move the integer delay.
@@ -237,6 +251,77 @@ def adversarial_batch(src, refs, seed=303, label="adversarial"):
     return batch
 
 
+def superseded_round2_basis(src_loc, ref_locs, eps=1.0e-6):
+    """The **superseded** round-2 basis rule, kept only to measure what replacing it bought.
+
+    ``a = q_h / ||q_h||`` when ``||q_h|| > eps``, else ``s / ||s||`` when ``||s|| > eps``, else
+    zero -- two hard thresholds on absolute lengths, which is what review round 2 rejected.  It
+    is never used by any model; :func:`basis_smoothness_sweep` calls it to quantify the jump the
+    current rule does not have.
+    """
+    q = src_loc[:, :2].double()
+    r_q = torch.linalg.norm(q, dim=-1)
+    total = ref_locs[:, :, :2].double().sum(dim=1)
+    r_total = torch.linalg.norm(total, dim=-1)
+    use_query = r_q > float(eps)
+    use_total = (~use_query) & (r_total > float(eps))
+    q_unit = q / r_q.clamp_min(float(eps)).unsqueeze(-1)
+    total_unit = total / r_total.clamp_min(float(eps)).unsqueeze(-1)
+    return torch.where(use_query.unsqueeze(-1), q_unit,
+                       torch.where(use_total.unsqueeze(-1), total_unit,
+                                   torch.zeros_like(q))).to(src_loc.dtype)
+
+
+def basis_smoothness_sweep(n_steps=400):
+    """Walk two families of configurations across both old thresholds and the new blend band.
+
+    A continuous basis moves a little per step; a thresholded one jumps by O(1) at one step.
+    Reporting the **largest single step** therefore separates the two without needing to know
+    where the threshold was.
+
+    * ``cancellation`` -- two references ``(A, 0, 0)`` and ``(-A + d, 0, 0)`` with ``d``
+      log-spaced across the round-2 ``1e-6`` m guard, at ``A = 20`` m so the guard is absurdly
+      small relative to the scene (blocker B1(a)'s complaint that the threshold was absolute).
+    * ``query_blend`` -- the query tilted from ``||q_h||/||q|| = 1e-8`` to ``1e-1`` at
+      ``||q|| = 1`` m, so it crosses both the new band ``[1e-3, 1e-2]`` and the round-2 absolute
+      ``1e-6`` m guard on the primary branch.
+
+    Returns:
+        ``{family: {"max_step_current", "max_step_round2", "n_steps", "range"}}``.
+    """
+    out = {}
+
+    amplitude = 20.0
+    gaps = torch.logspace(-10, -2, int(n_steps), dtype=torch.float64)
+    src = torch.zeros(int(n_steps), 3, dtype=torch.float64)
+    src[:, 2] = 1.0                                       # query straight up: fallback regime
+    refs = torch.zeros(int(n_steps), 2, 3, dtype=torch.float64)
+    refs[:, 0, 0] = amplitude
+    refs[:, 1, 0] = -amplitude + gaps
+    current, _ = horizontal_basis(src.float(), refs.float())
+    legacy = superseded_round2_basis(src.float(), refs.float())
+    out["cancellation"] = {
+        "n_steps": int(n_steps), "range": [float(gaps[0]), float(gaps[-1])],
+        "max_step_current": float((current[1:] - current[:-1]).norm(dim=-1).max()),
+        "max_step_round2": float((legacy[1:] - legacy[:-1]).norm(dim=-1).max())}
+
+    fractions = torch.logspace(-8, -1, int(n_steps), dtype=torch.float64)
+    src = torch.zeros(int(n_steps), 3, dtype=torch.float64)
+    src[:, 0] = fractions                                 # ||q_h||/||q|| ~ fractions, ||q|| ~ 1
+    src[:, 2] = torch.sqrt((1.0 - fractions ** 2).clamp_min(0.0))
+    refs = torch.zeros(int(n_steps), 2, 3, dtype=torch.float64)
+    refs[:, 0, 1] = 4.0
+    refs[:, 1, 0] = 1.0
+    current, blend = horizontal_basis(src.float(), refs.float())
+    legacy = superseded_round2_basis(src.float(), refs.float())
+    out["query_blend"] = {
+        "n_steps": int(n_steps), "range": [float(fractions[0]), float(fractions[-1])],
+        "max_step_current": float((current[1:] - current[:-1]).norm(dim=-1).max()),
+        "max_step_round2": float((legacy[1:] - legacy[:-1]).norm(dim=-1).max()),
+        "blend_min": float(blend.min()), "blend_max": float(blend.max())}
+    return out
+
+
 def preround_delay(src_loc, ref_locs, dtype=torch.float64, sr=22050, c=343.0):
     """The direct-path delay *before* ``round()``, reduced in ``dtype``.
 
@@ -304,8 +389,12 @@ def delay_flip_rate(n_scenes=200000, n_refs=8, angles=C16_ANGLES, seed=12345, ex
     float32 reduction and once with the invariant arms' float64 reduction.  Counting flips
     sidesteps the quantisation artefact that makes :func:`preround_deviation` unreadable.
 
-    The flips are rare, so the counts are Poisson: the report quotes ``sqrt(n)`` alongside them
-    rather than pretending a ratio of two small integers is precise.
+    Flips are **correlated within a scene** -- one scene whose pre-round delay sits on a tie
+    flips at most angles -- so treating the totals as independent Poisson counts overstates the
+    significance (exp_08 review round 2, B2(i)).  The significance is therefore computed from
+    the **paired per-scene difference**: ``d_i = flips32_i - flips64_i`` over the ensemble, with
+    ``SE = sqrt(n) * sd(d)``.  The Poisson figures are still returned, labelled as the
+    over-optimistic bound they are, so the two can be compared.
 
     Args:
         n_scenes: ensemble size.
@@ -326,22 +415,40 @@ def delay_flip_rate(n_scenes=200000, n_refs=8, angles=C16_ANGLES, seed=12345, ex
     ref[:, :, 2] *= float(height_scale)
 
     out = {"n_scenes": int(n_scenes), "n_refs": int(n_refs), "n_angles": len(angles),
-           "comparisons": int(n_scenes) * int(n_refs) * len(angles), "seed": int(seed)}
+           "comparisons": int(n_scenes) * int(n_refs) * len(angles), "seed": int(seed),
+           "distribution": {"positions": "uniform box", "half_width_m": float(extent),
+                            "height_scale": float(height_scale)}}
+    per_scene = {}
     for name, dtype in (("float32", torch.float32), ("float64", torch.float64)):
         base = torch.round(preround_delay(src, ref, dtype)).int()
-        flips, touched = 0, torch.zeros(int(n_scenes), dtype=torch.bool)
+        counts = torch.zeros(int(n_scenes), dtype=torch.float64)
+        touched = torch.zeros(int(n_scenes), dtype=torch.bool)
         for k in angles:
             angle = yaw_angle_rad(int(k))
             rotated = torch.round(preround_delay(rotate_vectors_z(src, angle),
                                                  rotate_vectors_z(ref, angle), dtype)).int()
             differs = rotated != base
-            flips += int(differs.sum())
+            counts += differs.sum(dim=1).double()
             touched |= differs.any(dim=1)
+        per_scene[name] = counts
+        flips = int(counts.sum())
         out[name] = {"flips": flips, "rate": flips / out["comparisons"],
-                     "poisson_sigma": float(flips) ** 0.5,
+                     "poisson_sigma_optimistic": float(flips) ** 0.5,
                      "scenes_with_flip": int(touched.sum())}
     out["shrink_factor"] = (out["float32"]["flips"] / out["float64"]["flips"]
                             if out["float64"]["flips"] else float("inf"))
+
+    # Paired per-scene difference: this is the honest significance (B2(i)).
+    difference = per_scene["float32"] - per_scene["float64"]
+    total = float(difference.sum())
+    standard_error = float(difference.std(unbiased=True) * math.sqrt(int(n_scenes)))
+    out["paired"] = {
+        "total_difference": total, "standard_error": standard_error,
+        "sigma": total / standard_error if standard_error > 0 else float("inf"),
+        "scenes_where_float32_flips_more": int((difference > 0).sum()),
+        "scenes_where_float64_flips_more": int((difference < 0).sum())}
+    naive = math.sqrt(out["float32"]["flips"] + out["float64"]["flips"])
+    out["paired"]["naive_poisson_sigma"] = total / naive if naive > 0 else float("inf")
     return out
 
 
@@ -748,46 +855,77 @@ def run(args):
                       entry["input_rel_refs"], entry["output"]["rel_fro"],
                       entry["output"]["abs_fro"], entry["output"]["denom_fro"]), flush=True)
 
-        # --- exp_08 review round 1, blocker B1: the degenerate-basis tie ---
-        tie = adversarial_batch(CODEX_TIE_SRC, CODEX_TIE_REFS, label="codexTie")
-        tie_sweep = angle_sweep(warm_model, tie, C16_ANGLES, conditions=("E",))
-        print(format_sweep("B1 adversarial: equal-radius reference tie", tie_sweep), flush=True)
-        entry = strip_tensors(tie_sweep)
-        entry["worst_E"] = worst(tie_sweep["rows"], "E")
-        src_i, ref_i, basis, mode = intrinsic_scene_coords(tie["src_loc"], tie["ref_locs"])
-        coord_worst = 0.0
-        bases = {}
-        for k in C16_ANGLES:
-            angle = yaw_angle_rad(int(k))
-            src_k, ref_k, basis_k, mode_k = intrinsic_scene_coords(
-                rotate_vectors_z(tie["src_loc"], angle), rotate_vectors_z(tie["ref_locs"], angle))
-            coord_worst = max(coord_worst, float((src_k - src_i).abs().max()),
-                              float((ref_k - ref_i).abs().max()))
-            bases[int(k)] = [float(v) for v in basis_k[0]]
-            assert int(mode_k[0]) == int(mode[0]), "the basis branch changed under rotation"
-        entry["basis_mode"] = int(mode[0])
-        entry["basis_k0"] = [float(v) for v in basis[0]]
-        entry["coord_worst_abs"] = coord_worst
-        entry["coord_scale"] = float(ref_i.abs().max())
-        entry["basis_per_angle"] = bases
-        report["adversarial_basis_tie"] = entry
-        print("  intrinsic coords: worst |d| {:.3e} on scale {:.4g}; basis mode {} fixed at "
-              "{}".format(coord_worst, entry["coord_scale"], entry["basis_mode"],
-                          [round(v, 8) for v in entry["basis_k0"]]), flush=True)
+        # --- blocker B1: every adversarial basis configuration, through the whole model ---
+        report["basis_smoothness"] = basis_smoothness_sweep()
+        for family, entry in report["basis_smoothness"].items():
+            print("basis smoothness ({}): largest single step {:.3e} now vs {:.3e} under the "
+                  "superseded round-2 rule, over {} configurations in [{:.1e}, {:.1e}]".format(
+                      family, entry["max_step_current"], entry["max_step_round2"],
+                      entry["n_steps"], entry["range"][0], entry["range"][1]), flush=True)
 
-        degenerate = adversarial_batch(CODEX_TIE_SRC, CODEX_SUM_DEGENERATE_REFS,
-                                       label="codexSumZero")
-        deg_sweep = angle_sweep(warm_model, degenerate, C16_ANGLES, conditions=("E",))
-        print(format_sweep("B1 adversarial: aggregate sum cancels (zero-horizontal branch)",
-                           deg_sweep), flush=True)
-        deg_entry = strip_tensors(deg_sweep)
-        deg_entry["worst_E"] = worst(deg_sweep["rows"], "E")
-        deg_entry["basis_mode"] = int(intrinsic_scene_coords(
-            degenerate["src_loc"], degenerate["ref_locs"])[3][0])
-        report["adversarial_basis_degenerate"] = deg_entry
-        print("  basis mode {} (2 = zero horizontal)".format(deg_entry["basis_mode"]), flush=True)
+        basis_cases = [("equal_radius_tie", CODEX_TIE_REFS, "codexTie"),
+                       ("sum_exactly_zero", CODEX_CANCEL_REFS, "codexCancel"),
+                       ("near_cancellation", CODEX_NEARCANCEL_REFS, "codexNearCancel"),
+                       ("all_horizontal_zero", CODEX_SUM_DEGENERATE_REFS, "codexSumZero")]
+        report["adversarial_basis"] = {}
+        for name, refs, label in basis_cases:
+            case = adversarial_batch(CODEX_TIE_SRC, refs, label=label)
+            sweep = angle_sweep(warm_model, case, C16_ANGLES, conditions=("E", "P"))
+            print(format_sweep("B1 adversarial: {}".format(name), sweep), flush=True)
+            entry = strip_tensors(sweep)
+            entry["worst_E"] = worst(sweep["rows"], "E")
+            entry["worst_P"] = worst(sweep["rows"], "P")
 
-        # --- exp_08 review round 1, blocker B2: the integer-delay rounding boundary ---
+            src_i, ref_i, basis, blend = intrinsic_scene_coords(case["src_loc"],
+                                                               case["ref_locs"])
+            coord_worst, legacy_worst = 0.0, 0.0
+            legacy_basis = superseded_round2_basis(case["src_loc"], case["ref_locs"])
+            legacy_ref = to_intrinsic(case["ref_locs"], legacy_basis)
+            for k in C16_ANGLES:
+                angle = yaw_angle_rad(int(k))
+                src_k, ref_k, _, _ = intrinsic_scene_coords(
+                    rotate_vectors_z(case["src_loc"], angle),
+                    rotate_vectors_z(case["ref_locs"], angle))
+                coord_worst = max(coord_worst, float((src_k - src_i).abs().max()),
+                                  float((ref_k - ref_i).abs().max()))
+                legacy_k = to_intrinsic(rotate_vectors_z(case["ref_locs"], angle),
+                                        superseded_round2_basis(
+                                            rotate_vectors_z(case["src_loc"], angle),
+                                            rotate_vectors_z(case["ref_locs"], angle)))
+                legacy_worst = max(legacy_worst, float((legacy_k - legacy_ref).abs().max()))
+            entry.update({"blend": float(blend[0]),
+                          "basis_k0": [float(v) for v in basis[0]],
+                          "basis_norm": float(basis[0].norm()),
+                          "coord_worst_abs": coord_worst,
+                          "coord_worst_abs_round2": legacy_worst,
+                          "coord_scale": float(ref_i.abs().max()),
+                          "scene_scale": float(case["ref_locs"].abs().max())})
+            report["adversarial_basis"][name] = entry
+            print("  blend {:.3f}, |basis| {:.6f}; coords worst |d| {:.3e} m (round-2 rule: "
+                  "{:.3e} m) on a {:.1f} m scene; worst E {:.3e}, worst P {:.3e}".format(
+                      entry["blend"], entry["basis_norm"], coord_worst, legacy_worst,
+                      entry["scene_scale"], entry["worst_E"]["rel_fro"],
+                      entry["worst_P"]["rel_fro"]), flush=True)
+
+        # The production path must be untouched by the blend: every real query is far above the
+        # band, so the basis is bitwise the plain unit vector and the coordinates are unchanged.
+        real_basis, real_blend = horizontal_basis(real["src_loc"], real["ref_locs"])
+        horizontal = real["src_loc"][:, :2].double()
+        plain_unit = (horizontal / horizontal.norm(dim=-1, keepdim=True)).to(real["src_loc"].dtype)
+        report["battery_primary_path"] = {
+            "blend_min": float(real_blend.min()), "blend_max": float(real_blend.max()),
+            "basis_bitwise_equals_plain_unit_vector": bool(torch.equal(real_basis, plain_unit)),
+            "horizontal_fraction_min": float(
+                (horizontal.norm(dim=-1) / real["src_loc"].double().norm(dim=-1)).min())}
+        print("battery primary path: blend in [{:.1f}, {:.1f}], basis bitwise == q_h/||q_h||: "
+              "{}, min horizontal fraction {:.4f} (band top {:.0e})".format(
+                  report["battery_primary_path"]["blend_min"],
+                  report["battery_primary_path"]["blend_max"],
+                  report["battery_primary_path"]["basis_bitwise_equals_plain_unit_vector"],
+                  report["battery_primary_path"]["horizontal_fraction_min"], BLEND_HI),
+              flush=True)
+
+        # --- blocker B2: the integer-delay rounding boundary ---
         report["preround_deviation"] = {
             "real": preround_deviation(real["src_loc"], real["ref_locs"]),
             "codex_case": preround_deviation(torch.tensor(CODEX_DELAY_SRC),
@@ -804,6 +942,10 @@ def run(args):
                   flip["float32"]["flips"], flip["float32"]["rate"],
                   flip["float64"]["flips"], flip["float64"]["rate"],
                   flip["shrink_factor"]), flush=True)
+        print("  paired per-scene difference {:.0f} +- {:.2f} -> {:.2f} sigma (the independent "
+              "Poisson figure, {:.2f} sigma, overstates it: flips correlate within a scene)"
+              .format(flip["paired"]["total_difference"], flip["paired"]["standard_error"],
+                      flip["paired"]["sigma"], flip["paired"]["naive_poisson_sigma"]), flush=True)
 
         boundary = adversarial_batch(CODEX_DELAY_SRC, CODEX_DELAY_REFS, label="codexDelay")
         boundary_sweep = angle_sweep(warm_model, boundary, C16_ANGLES, conditions=("E", "P"))

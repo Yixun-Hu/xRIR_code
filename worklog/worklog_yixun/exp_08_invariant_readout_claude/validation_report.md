@@ -1,13 +1,15 @@
 # exp_08 validation report — Stage A (structure), CPU, no training
 
-**Round 2** — after Codex review round 1 (`REQUEST_CHANGES`). Two blockers were found and
-fixed; §11 and §12 are the new sections that document them, and every number elsewhere has been
-re-measured with both fixes in place.
+**Round 3** — after Codex review round 2. Round 1 raised two blockers (§11, §12); round 2
+accepted the B2 *implementation* but re-opened **B1** as a P1 (the round-2 fallback was still
+discontinuous, and its threshold was an absolute length in a scene tens of metres across) and
+required three reporting corrections to B2. Both are addressed below and every number has been
+re-measured.
 
 Every number below was produced by `tools/exp08_validate.py` in this worktree and is stored,
 per angle and per sample, in `exp08_validation.json`; the console transcript is
 `exp08_validation.log`. `tests/test_exp08_invariant.py` recomputes the same quantities
-independently and asserts on them (**222 passed, 0 failed, 254 s**; the pre-existing suite is
+independently and asserts on them (**216 passed, 0 failed, 480 s**; the pre-existing suite is
 unaffected — `tests/test_exp06_*`, `test_yaw_rotation`, `test_per_sample_metrics`,
 `test_reference_manifest`, `test_eval_yaw_rotation`: 102 passed, 18 skipped (GPU-only)).
 
@@ -23,7 +25,7 @@ unaffected — `tests/test_exp06_*`, `test_yaw_rotation`, `test_per_sample_metri
 | checkpoints (read-only, main checkout) | `ckpt/xRIR_cyl_8_shot/epoch_12.pth`, `ckpt/xRIR_simple_8_shot/epoch_12.pth` |
 | reference manifest | `ckpt/yaw_rotation/reference_manifest.json`, `manifest_hash = 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d`, file sha256 `5eaea3727dd840b1cb7cd77cb821ff955004c05b0f09c74fc39849e59ba5da2a` — both equal to the values the exp_03 provenance log pinned |
 | real scenes | 3 queries, 3 different room **types**: `Apartments/Apartments_idx_42/S001_R001`, `Auditorium/Auditorium_idx_1/S001_R001`, `Bathrooms/Bathrooms_idx_14/S001_R001` (manifest indices 0, 500, 1500), K = 8 |
-| runtime | validation tool 333 s, exp_08 suite 254 s |
+| runtime | validation tool 656 s, exp_08 suite 480 s |
 
 The criterion is the handoff's: **relative Frobenius residual of the whole predicted
 log-spectrum against `k = 0`, target `<= 1e-5`**, with the absolute residual and the
@@ -34,18 +36,23 @@ denominator `||out_0||_F` reported next to it.
 > With `CylindricalViT` + the azimuth-invariant readout + intrinsic coordinate conditioning, one
 > forward pass of `xRIR_CylInvariant` is invariant under the C16 scene yaw (`k` a multiple of 32
 > panorama columns, i.e. multiples of 22.5°), to the float32 input-rounding floor of the network
-> — measured worst case `2.80e-7` relative, against a `1e-5` target — **except** on the
-> measure-zero set of geometries whose direct-path delay difference
-> `(||src|| - ||ref||) / 343 * 22050` sits within float rounding of a `.5` tie. There, the
-> integer delay can move by one sample under a rotation that preserves the distances exactly,
-> which shifts a whole reference RIR by one sample and breaks exactness on the true end-to-end
-> (condition E) path. §12 measures how large that set is (≈1.0e-5 of (scene, reference, angle)
-> triples; 223 of 1,000,000 random scenes have at least one such triple) and reports an
-> engineered example in full. Across all real validation scenes the set was not hit: **0 delay
-> flips** at every angle. Off-lattice angles are not covered by this statement at all.
+> — measured worst case **`2.80e-7`** relative on the battery and **`2.94e-7`** on the worst
+> adversarial geometry, against a `1e-5` target.
+>
+> The geometry-to-basis map is **branch-free**: no threshold selects a case and no comparison
+> selects a reference, so there is no configuration at which the representation can jump. The
+> only remaining exactness loss is the **integer direct-path delay**: geometries whose pre-round
+> value `(||src|| - ||ref||) / 343 * 22050` falls inside a narrow band around a `.5` tie can
+> have that delay move by one sample under a rotation that preserves the distances, shifting a
+> reference RIR by one sample and breaking exactness on the true end-to-end (condition E) path.
+> That band has **finite width**, not zero: under the sampled ensemble of §12 it catches
+> `1.04e-5` of (scene, reference, angle) triples and `223` of `1,000,000` scenes. Across all
+> real validation scenes it was not hit (**0 delay flips** at every angle). Off-lattice angles
+> are not covered by this statement at all.
 
-That exception is a property of the discretisation, not of the readout or the coordinates: with
-the alignment held fixed (condition P), the same adversarial scene is invariant to `1.25e-7`.
+The delay exception is a property of the discretisation, not of the readout or the coordinates:
+with the alignment held fixed (condition P), the adversarial delay scene is invariant to
+`1.25e-7`.
 
 ## 2. Verdict table
 
@@ -53,12 +60,12 @@ the alignment held fixed (condition P), the same adversarial scene is invariant 
 |---|---|---|
 | 1. readout invariant to azimuth rolls, still sensitive to content/elevation | **PASS** | **bitwise exact** (`torch.equal`) on random tokens for all 15 rolls; rel `7.6e-7` on real warm-started encoder tokens |
 | 2. intrinsic coordinates: joint-yaw invariance, sensitivity, every degenerate branch | **PASS** | rel `1.2e-7` in FP32; `1.8e-15` with FP64 inputs (the maths is exact); all 3 branches, both thresholds, tie-free fallback |
-| 3. whole model, 15 C16 angles, random-init **and** warm-started, real + synthetic, batch > 1, reduced K | **PASS** | **`2.80e-7`** worst over all 8 cases x 15 angles (target `1e-5`) |
+| 3. whole model, 15 C16 angles, random-init **and** warm-started, real + synthetic, batch > 1, reduced K | **PASS** | **`2.80e-7`** worst over all 8 cases x 15 angles (target `1e-5`); **`2.94e-7`** worst over the 4 adversarial geometries |
 | 4. full spectrum **and** seeded-Griffin-Lim waveform, true end-to-end path | **PASS** (waveform: see §6) | spectrum `1.18e-7` on real scenes; waveform rel-L2 `9.57e-5`, *below* the same-size non-rotational control `1.90e-4` |
 | 5. real forward + backward + optimizer step, finite gradients reaching the new parameters | **PASS** | loss `1.1927` finite; 212/216 trainable tensors get a non-zero gradient and move |
 | 6. pinned entries unchanged | **PASS** | `simple` and `cylindrical` **bit-identical** (`max|d| = 0.0`) and `is`-identical classes |
-| **B1** degenerate-basis tie (review round 1) | **FIXED** | the reported case goes from `1.478e-1` to **`2.48e-7`** |
-| **B2** integer-delay boundary (review round 1) | **NARROWED + QUALIFIED** | flip rate `1.335e-5` -> `1.040e-5` (1.284x, 6.6σ); the residual exception is stated in §1 and measured in §12 |
+| **B1** degenerate basis, rounds 1 **and** 2 | **FIXED (branch-free)** | equal-radius tie `1.478e-1` -> `2.07e-7`; sum-exactly-zero `2.270e-1` -> `2.14e-7`; near-cancellation `5.151e-2` -> `2.94e-7`; production path **bitwise unchanged** |
+| **B2** integer-delay boundary | **NARROWED + QUALIFIED** | flip rate `1.335e-5` -> `1.040e-5` (1.284x, **3.64σ** on paired per-scene counts); the exception is stated in §1 and measured in §12 |
 | off-lattice (diagnostic, no pass/fail) | reported separately | rel `5.2e-4 … 1.8e-3` |
 | non-vacuity control | **the harness detects non-invariance** | pinned `cylindrical` scores `4.61e-2`, i.e. `4600x` the target |
 
@@ -81,11 +88,15 @@ the alignment held fixed (condition P), the same adversarial scene is invariant 
 
 ## 4. Item 2 — the intrinsic coordinate representation
 
-The basis rule, after the B1 fix (§11):
+The basis rule, after the round-3 B1 fix (§11) — one expression, no conditionals:
 
-1. `r_q = ||(src_x, src_y)|| > eps` → `a = (src_x, src_y) / r_q`
-2. otherwise `s = sum_i (ref_x_i, ref_y_i)`, `a = s / ||s||` when `||s|| > eps`
-3. otherwise `a = (0, 0)` → zero horizontal components
+```
+w = smoothstep((||q_h||/||q|| - lo) / (hi - lo))          lo = 1e-3, hi = 1e-2 (dimensionless)
+a = w * q_h/max(||q_h||, lo*||q||) + (1-w) * sum_i p_h_i / sum_i ||p_h_i||
+```
+
+`||a|| <= 1` always (triangle inequality), `a` is exactly rotation-equivariant, and it is C2 in
+the inputs wherever the references are not all on the vertical axis.
 
 * **Joint yaw**: over all 15 C16 angles *and* the off-lattice angles (the transform is exact
   for any yaw), query and reference intrinsic coordinates move by at most `9.5e-7` absolute on
@@ -98,17 +109,20 @@ The basis rule, after the B1 fix (§11):
 * **Both sides transformed**: for `src = (3, 4, 1.25)` and `ref = (−4, 3, −0.5)` the query maps
   to `(5, 0, 1.25)` and the reference to `(0, 5, −0.5)` — the reference keeps its +90° relative
   azimuth.
-* **Degenerate branches**, all asserted: vertical query → aggregate reference basis, which is
-  yaw-invariant across all 15 angles; reordering the references cannot move it (`atol 1e-12`);
-  cancelling references → zero-horizontal branch, exactly zero, no NaN.
-* **Thresholds**: `DEFAULT_BASIS_EPS = 1e-6` m, strict `>` in float64, on **both** `r_q` and
-  `||s||`. Parametrised boundary tests on each: `10 eps` and `1.5 eps` take the branch,
-  **exactly `eps`**, `0.5 eps` and `0` fall through. `eps` is a constructor argument and a
-  non-positive value is refused.
-* Two knife edges remain, both measure-zero, both numerical, and — unlike the rule they
-  replaced — both *continuous*: `r_q` or `||s||` within float rounding of `eps`. In both the
-  basis is near-degenerate on either side, so the induced change is proportional to the
-  crossing rather than to the distance between two unrelated references.
+* **Degenerate regime**, all asserted: a vertical query uses the reference aggregate, which is
+  yaw-invariant across all 15 angles and cannot be moved by reordering the references
+  (`atol 1e-12`); exactly cancelling references give `a = 0`, exactly zero horizontal output and
+  bitwise-identical coordinates at every angle; all references on the axis hits the single
+  remaining `R == 0` guard, whose output *is* the continuous limit; a zero-length query (source
+  coincident with the receiver) is finite.
+* **No thresholds remain in the fallback.** The primary/fallback transition is the smoothstep
+  band `[1e-3, 1e-2]` on the *dimensionless* ratio `||q_h||/||q||`, so it means the same thing
+  at 0.5 m and at 40 m — a test sweeps three ranges and asserts the blend agrees to `1e-9`. The
+  blend saturates **exactly** at 0 and 1 outside the band (asserted), which is what keeps the
+  production path bit-exact. An invalid band is refused.
+* **Smoothness is measured, not asserted.** Two 400-configuration sweeps walk across the old
+  thresholds and the new band; the largest single step is reported against the same sweep under
+  the superseded round-2 rule (§11).
 
 ## 5. Item 3 — the whole model at all 15 C16 angles
 
@@ -330,90 +344,116 @@ contains its hard-coded `torch.zeros_like(signal).cuda()` — asserted, because 
 remain a shim. The float64 alignment override lives on the exp_08 invariant arms only, so the
 pinned arms are untouched by it.
 
-## 11. Review blocker B1 (P1) — the degenerate basis was a *selection*, and selections jump
+## 11. Blocker B1 — three rules, two of which had a discontinuity
 
-**What was wrong.** When the query source sits on the vertical axis, the basis fell back to *the
-reference with the largest horizontal radius*, ties broken by the lowest index. That is a
-discrete choice, and a discrete choice of a continuous quantity is discontinuous. Codex's case:
-query `(0, 0, 1)`, references `(3, 4, 0)`, `(5, 0, 0)`, `(-3, 4, 0)` — all three horizontal radii
-are **exactly 5**. Float32 rounding of the rotated coordinates decided the winner, so the basis
-jumped between angles; the intrinsic reference coordinates moved by **4.4 m** and the predicted
-spectrum by **`1.478e-1`** relative at `k = 32`. Reproduced before fixing.
+A discontinuity in the basis *is* a discontinuity in the model's output under rotation, because
+float32 rounding of the rotated coordinates is enough to step across it. Two versions of this
+rule shipped with one, and both were caught by review rather than by me.
 
-**The fix.** The fallback is now the **vector sum of the references' horizontal components,
-normalised**: `s = sum_i (ref_x_i, ref_y_i)`, `a = s / ||s||`. This is *equivariant* rather than
-*selected* — `sum_i Rz(D) p_i = Rz(D) sum_i p_i` exactly — so there is nothing to flip. It is
-continuous in the reference positions, independent of the reference order, and admits no tie
-because nothing is compared. Summing the raw horizontal vectors rather than unit vectors weights
-each reference by its own horizontal radius, so distant references (whose direction is best
-determined) dominate. It degenerates only when `||s|| <= eps`, which falls through to the
-existing zero-horizontal branch — whose output is a constant and therefore trivially invariant.
-The **primary** path (the query's own horizontal vector) is unchanged.
+| version | fallback rule | how it broke |
+|---|---|---|
+| round 1 | the reference with the largest horizontal radius, ties to the lowest index | a **selection**: three references at radius exactly 5, rounding chose the winner — coords jumped **4.4 m**, spectrum `1.478e-1` |
+| round 2 | `s / \|s\|` with `s` the vector sum, guarded by `\|s\| > 1e-6` m | the sum removed the selection, but (i) normalising by its *own* length is ill-conditioned exactly where the sum is small, and (ii) the guard is a hard branch on an **absolute length** — meaningless for a scene 20–36 m across. Sum exactly zero: rounding pushed `\|s\|` across the guard, branch flipped, coords jumped **35.7 m**, spectrum `2.270e-1`. Near-cancellation without a branch flip: conditioning alone moved coords **1.5 m**, spectrum `5.151e-2` |
+| **round 3** | `a = s / R` with `R = sum_i \|p_h_i\|`, blended into the primary by a smoothstep on `\|q_h\|/\|q\|` | — |
 
-basis mode 1 (1 = aggregate reference basis), basis at k=0 = [0.52999896, 0.84799832]
-intrinsic coordinates: worst |d| 4.768e-07 on a coordinate scale of 4.982 (was 4.4 m before the fix)
-full model over the 15 C16 angles: rel min 4.409e-08, median 1.359e-07, **max 2.479e-07** (at k=96, abs 1.606e-04, denom 647.9); was 1.478e-01 before the fix
-aggregate-cancels scene: basis mode 2 (2 = zero horizontal), rel max 1.220e-07 (denom 662.5)
+**Why `R` and not `\|s\|`.** `R` is rotation *invariant* and `s` rotation *equivariant*, so `a`
+is exactly equivariant. `R >= \|s\|` by the triangle inequality, so `\|a\| <= 1` and the
+division can never amplify: rounding perturbs `s` by `O(1e-7 R)`, hence `a` by `O(1e-7)`
+**absolute** and the coordinates by `O(1e-7 ||p_h||)` — machine level at any scene scale. It is
+smooth wherever `R > 0`, so round 2's "all horizontal components vanish" branch is now simply
+the continuous limit `a -> 0`; the only guard left is an exact `R == 0`, and it returns precisely
+that limit.
 
-**Tests added** (all in `tests/test_exp08_invariant.py`):
+**The primary branch had the same defect** — a hard `||q_h|| > eps` test — so it received the
+same treatment: a C2 smoothstep blend on the *dimensionless* `||q_h||/||q||`, band `[1e-3, 1e-2]`.
+The blend saturates exactly at 0 and 1, so outside the band the arithmetic is unchanged.
 
-* `test_codex_equal_radius_tie_is_rotation_invariant` — the exact reported geometry,
-  parametrised over **all 15** C16 angles, asserting the radii really are tied, that the basis
-  branch does not change, and that the intrinsic coordinates hold to the FP32 input floor;
-* `test_codex_equal_radius_tie_full_model_is_invariant` — the same scene through the whole
-  model, against the `1e-5` target;
-* `test_aggregate_sum_cancellation_falls_through_to_zero_horizontal` — a reference set whose
-  horizontals cancel exactly, asserting the degenerate branch is taken, that the output is
-  exactly zero and bitwise unchanged at every angle, and that the full model is invariant;
-* `test_aggregate_basis_threshold_boundary` — `||s||` at `10 eps`, `1.5 eps`, exactly `eps`,
-  `0.5 eps`, `0`, with `||s||` exact by construction;
-* `test_aggregate_basis_degenerates_when_references_nearly_cancel` — the realistic route into
-  rule 3, two large references cancelling to `1e-9`;
-* `test_degenerate_fallback_is_tie_free_and_order_independent` — replaces the old
-  lowest-index test; three reference permutations must give the *same* basis to `1e-12`.
+**What it means physically.** When the references' directions cancel there is genuinely no
+horizontal direction the scene distinguishes, and `||a|| < 1` makes the representation
+*attenuate* its horizontal components in proportion to how ambiguous they are, reaching zero
+exactly when they cancel. Heights pass through untouched and the attenuation is itself rotation
+invariant. That is the honest encoding of "this scene has no preferred azimuth".
 
-## 12. Review blocker B2 (P2) — the integer-delay rounding boundary
+| sweep family | configurations | range | largest single step, **round 3** | largest single step, superseded round-2 rule |
+|---|---|---|---|---|
+| `cancellation` | 400 | [1e-10, 1e-02] | **1.131e-05** | 1.000e+00 |
+| `query_blend` | 400 | [1e-08, 1e-01] | **5.622e-02** | 1.231e+00 |
 
-**What was wrong.** `tests/test_exp08_invariant.py` only asserted that the delay-flip count was
-`>= 0`, and every scene in the battery happened to record 0 — so the assertion could never fail
-and the boundary was never probed. Codex's case: query `(1.054444432258606, 0, 0)`, references
-`(1, 0, 0)`, `(0.7, 1.1, 0.2)`, `(-1.5, 0.3, -0.1)`. The first reference's pre-round delay is
-`3.4999992` samples — within `1e-6` of the `3.5` tie — so at `k = 32` it rounds to 4 instead of
-3, shifting that reference RIR by one sample. Reproduced before fixing: E residual `2.006e-2`
-against a P residual of `8.5e-8`.
+| case | blend | \|a\| | scene scale | coord drift, **round 3** | coord drift, round-2 rule | worst E | worst P |
+|---|---|---|---|---|---|---|---|
+| `equal_radius_tie` | 0.0 | 0.628932 | 5.0 m | **4.768e-07 m** | 4.768e-07 m | 2.073e-07 | 1.426e-07 |
+| `sum_exactly_zero` | 0.0 | 0.000000 | 32.0 m | **8.983e-07 m** | 3.569e+01 m | 2.140e-07 | 2.134e-07 |
+| `near_cancellation` | 0.0 | 0.000000 | 8.0 m | **1.647e-07 m** | 1.491e+00 m | 2.942e-07 | 2.835e-07 |
+| `all_horizontal_zero` | 0.0 | 0.000000 | 5.0 m | **0.000e+00 m** | 0.000e+00 m | 1.220e-07 | 1.220e-07 |
 
-**Fix part (a) — stabilise.** `xRIR_InvariantBase.shift_and_align` now reduces the distances in
-**float64** before rounding (and the direct-path gain likewise, cast back), documented as part
-of the invariant arms' architecture rather than as a test shim. `apply_delay` is still resolved
-from `model.xRIR`'s globals at call time, so the CPU shim reaches it and `model/xRIR.py` stays
-untouched.
+production path untouched: blend in [1.0, 1.0] on the real battery, basis bitwise equal to `q_h/||q_h||`: **True**, smallest horizontal fraction 0.5957 against a band top of 1e-02 (a factor of 60)
 
-*Changes nothing on the battery*: on the real scenes the two reductions give **bitwise identical
-integer delays** and aligned reference audio agreeing to rel `9.1e-8` — a precision change, not a
-behaviour change (`test_invariant_alignment_matches_the_pinned_one_on_the_battery`).
+Every adversarial geometry now sits at the same float32 floor as an ordinary scene, in **both**
+conditions, and the two sweeps show the jump is gone rather than merely moved: the largest
+single step across 400 configurations is `1.1e-5` (cancellation) and `5.6e-2` (query blend),
+against `1.00` and `1.23` for the same sweeps under the round-2 rule.
 
-*The boundary narrows — measured, with the measurement corrected.* My first metric was the
-largest pre-round deviation a rotation induces, and it made float64 look **worse**
-(`6.10e-5` vs `6.97e-5` samples on the real scenes). That metric is not readable: the float32
-value is itself quantised to float32, so two rotated scenes often collapse onto the same
-representable number and the deviation comes out optically smaller than the truth. The operative
-question is how often a delay actually flips, so that is now measured directly over a random
-ensemble:
+**The production path is bit-exact.** Every real query is 60x above the top of the blend band, so
+`w = 1` exactly, the basis is bitwise `q_h/||q_h||`, and two tests assert it: one on the basis
+and coordinates, one **end to end** — the round-2 coordinate rule is patched into the module the
+forward pass resolves it from and the two predictions are compared with `torch.equal`. The whole
+battery in §5 is numerically identical to round 2, angle for angle.
+
+**Tests** (`tests/test_exp08_invariant.py`): the four adversarial geometries at coordinate level
+over all 15 angles and again through the full model in both conditions
+(`test_adversarial_basis_coordinates_are_rotation_invariant`,
+`test_adversarial_basis_full_model_is_invariant`); both smoothness sweeps with the round-2
+contrast built into the assertion (`test_basis_has_no_branch_on_the_reference_aggregate`,
+`..._on_the_query_horizontal_fraction`); `||a|| <= 1` over 500 random reference sets;
+order-independence; exact cancellation and the `R == 0` guard; a zero-length query; exact blend
+saturation outside the band; scale-relativity across 0.5 / 1 / 40 m; and the two bitwise
+regressions above.
+
+## 12. Blocker B2 — the integer-delay rounding boundary
+
+**What was wrong.** The round-1 test only asserted that the delay-flip count was `>= 0`, and
+every battery scene recorded 0 — so it could never fail. Codex's case: query
+`(1.054444432258606, 0, 0)`, references `(1, 0, 0)`, `(0.7, 1.1, 0.2)`, `(-1.5, 0.3, -0.1)`. The
+first reference's pre-round delay is `3.4999992` samples — `7.8e-7` from the `3.5` tie — so at
+`k = 32` it rounds to 4 instead of 3, shifting that reference RIR by one sample. E residual
+`2.006e-2` against a P residual of `8.5e-8`.
+
+**Fix (a) — stabilise.** `xRIR_InvariantBase.shift_and_align` reduces the distances in
+**float64** before rounding (and the direct-path gain likewise, cast back), documented as part of
+the invariant arms' architecture rather than as a test shim. `apply_delay` is still resolved from
+`model.xRIR`'s globals at call time, so the CPU shim reaches it and `model/xRIR.py` stays
+untouched. Review round 2 accepted this implementation.
+
+*Changes nothing on the battery*: bitwise identical integer delays and aligned reference audio
+agreeing to rel `9.1e-8` — a precision change, not a behaviour change.
+
+*The boundary narrows — measured, with two corrections.* My first metric was the largest
+pre-round deviation a rotation induces, and it made float64 look **worse** (`6.10e-5` vs
+`6.97e-5` samples). That metric is unreadable: the float32 value is itself quantised to float32,
+so two rotated scenes often collapse onto the same representable number and the deviation comes
+out optically smaller than the truth. It is superseded by a direct flip count, and the stale
+"roughly 3x" claim it produced has been removed from the code docstring as well.
 
 | reduction | flips | comparisons | rate | scenes with >=1 flip |
 |---|---|---|---|---|
-| float32 | 1602 +- 40 | 120000000 | 1.335e-05 | 297 / 1000000 |
-| float64 | 1248 +- 35 | 120000000 | 1.040e-05 | 223 / 1000000 |
+| float32 | 1602 | 120000000 | 1.335e-05 | 297 / 1000000 |
+| float64 | 1248 | 120000000 | 1.040e-05 | 223 / 1000000 |
 
-shrink factor 1.284 (6.6 sigma from 1.0); ensemble seed 12345, 1000000 scenes x 8 refs x 15 angles
+shrink factor **1.284**; paired per-scene difference 354 +- 97.18 -> **3.64 sigma**. (An independent-Poisson treatment would claim 6.63 sigma; flips correlate within a scene -- 199 scenes favour float32, 117 favour float64 -- so the paired figure is the honest one.)
 
-A **1.284x** reduction at **6.6σ** — real, statistically solid, and modest. It is not an order
-of magnitude, and it was never going to be: float64 removes the *arithmetic* half of the noise,
-while the float32 rounding of the rotated input coordinates is irreducible because the model
-never receives the exactly-rotated scene.
+Ensemble: 1000000 scenes x 8 references x 15 angles, seed 12345, positions uniform in a +-6 m box with heights scaled by 0.25. The rate is specific to this sampled distribution, not a universal constant.
 
-**Fix part (b) — qualify.** The guarantee in §1 now states the exception explicitly. The
-adversarial case is measured in full and reported as the exception rather than smoothed away:
+The second correction is statistical, and it cuts my own claim down. Flips **correlate within a
+scene** — one scene sitting on a tie flips at most of the 15 angles — so treating the two totals
+as independent Poisson counts overstates the significance. Recomputed on the **paired per-scene
+difference**, the result is **3.64σ**, not the 6.63σ an independent treatment would claim. The
+test now asserts on the paired figure and additionally asserts that it is the more conservative
+of the two, so the loose version cannot creep back.
+
+**Fix (b) — qualify.** The guarantee in §1 no longer calls the exception "measure-zero" or places
+it "within float rounding": it is a band of **finite width**, and the frequency quoted for it is
+a property of the sampled ensemble (uniform positions in a ±6 m box, heights scaled by 0.25) —
+not a universal constant. The adversarial case is reported in full rather than smoothed away:
 
 pre-round max deviation (NOT the operative measure -- float32 is masked by its own quantisation):
   real: float32 6.104e-05 samples, float64 6.975e-05
@@ -425,29 +465,25 @@ adversarial 3.5-tie scene: pre-round [3.499999217, -17.012968558, -30.762420547]
   condition E at the flipped angles: 2.006061e-02 .. 2.006063e-02
   condition P (alignment held at k=0) at every angle: max 1.254e-07
 
-Float64 does **not** push this particular case off the boundary — it is engineered to sit
-`7.8e-7` samples from the tie, and the float64 deviation is `9.1e-6`. What the numbers localise
-is *where* the exactness is lost: condition P (alignment held at `k = 0`) is invariant to
-`1.25e-7` at every angle, so the readout, the intrinsic coordinates and the encoder are all
-exactly as invariant here as everywhere else; the entire `2.0e-2` is the one-sample shift of one
-reference RIR. The three angles that do not flip (90°, 180°, 270°, where float32 `Rz` is exact)
-are invariant to `9.1e-8`, which is the normal floor.
+Float64 does **not** push this particular case off the boundary; it is engineered to sit `7.8e-7`
+samples from the tie. What the numbers localise is *where* exactness is lost: condition P is
+invariant to `1.25e-7` at every angle, so the readout, the intrinsic coordinates and the encoder
+are exactly as invariant here as everywhere else, and the entire `2.0e-2` is the one-sample shift
+of one reference RIR. The three non-flipping angles (90°, 180°, 270°, where float32 `Rz` is
+exact) sit at `9.1e-8`, the normal floor.
 
-**Test added.** `test_codex_delay_boundary_case_is_either_invariant_or_a_documented_flip` asserts
-a disjunction per angle — no flip ⇒ the E residual must meet the `1e-5` target; a flip ⇒ it must
-be exactly **one** delay moving by exactly **one** sample, and condition P must still meet the
-target — and then compares the observed flip set against a module constant
-`CODEX_DELAY_EXPECTED_FLIP_ANGLES`. If a future precision change removes the flips, or adds new
-ones, the test **fails** and forces this section to be updated with it. Also added:
-`test_float64_delay_reduction_lowers_the_flip_rate` (the ensemble, demanding the difference clear
-3σ) and `test_delay_flip_counter_follows_the_models_own_reduction`.
+**Test.** `test_codex_delay_boundary_case_is_either_invariant_or_a_documented_flip` asserts a
+disjunction per angle — no flip ⇒ the E residual meets `1e-5`; a flip ⇒ exactly **one** delay
+moving by exactly **one** sample, with condition P still meeting `1e-5` — then compares the
+observed flip set against a pinned constant, so neither a disappearing nor a new flip can pass
+silently.
 
 **What this does not claim.** The C16 guarantee is not exact on the E path for every possible
-geometry, and this report does not say it is. It is exact to the float32 floor off a measure-zero
-set whose size is now measured (≈`1.0e-5` of (scene, reference, angle) triples; 223 of 1,000,000
-random scenes carry at least one), and the set was not hit by any real validation scene. A
-future run that does hit it will show a non-zero delay-flip count in the per-angle tables, which
-are recorded for exactly that reason.
+geometry, and this report does not say it is. It is exact to the float32 floor outside a
+finite-width band whose frequency is now measured under a stated distribution, and the band was
+not hit by any real validation scene. A future run that does hit it will show a non-zero
+delay-flip count in the per-angle tables, which are recorded for exactly that reason.
+
 
 ## 13. Deviations from the brief and from the review, and why
 
@@ -457,26 +493,32 @@ are recorded for exactly that reason.
 2. **File naming.** Repo casing was followed: `model/xRIR_cyl_invariant.py` (the brief wrote
    `xrir_cyl_invariant.py`, mis-casing the exp_06 file the same way). Factory at
    `model/exp08_factory.py`, which the brief allows explicitly.
-3. **Review B2 says "in `xRIR_CylInvariant` ONLY"; the override is on `xRIR_InvariantBase`**, so
+3. **Test-node count went 222 -> 216 while coverage went up.** Round 2 parametrised one
+   adversarial geometry over 15 angles (15 nodes) and had two 5-way threshold sweeps; round 3
+   covers **four** adversarial geometries, each looping all 15 angles inside the test, plus the
+   full model in both conditions, two smoothness sweeps, two bitwise regressions and five new
+   degenerate-case tests. Fewer nodes, roughly four times the geometry.
+4. **Review B2 says "in `xRIR_CylInvariant` ONLY"; the override is on `xRIR_InvariantBase`**, so
    both invariant arms get it. Reason: `simple_invariant` exists to isolate the *encoder* in the
    2x2 (handoff §5). If only the cylindrical arm reduced in float64, the two invariant arms would
    differ in two places at once and the attribution would be muddied. The constraint the review
    was protecting — that the **pinned** `simple` / `cylindrical` keep bit-identical behaviour and
    `model/xRIR.py` stays untouched — is satisfied either way, and §10 re-verifies it. Flagged
    here rather than assumed.
-4. **Review B2 says "the boundary width shrinks accordingly".** It shrinks by **1.284x**, not by
-   a large factor, and my first way of measuring it showed the opposite sign because of a
-   quantisation artefact. Both the corrected measurement and the discarded one are in §12 rather
-   than only the flattering one.
-5. **Waveform target.** "Same order as the spectral residual" is not attainable through
+5. **Review B2 says "the boundary width shrinks accordingly".** It shrinks by **1.284x**, not by
+   a large factor; my first way of measuring it showed the opposite sign because of a
+   quantisation artefact; and the significance I first quoted (6.6σ) was inflated by treating
+   correlated flips as independent. All three corrections are in §12, not just the flattering
+   numbers.
+6. **Waveform target.** "Same order as the spectral residual" is not attainable through
    Griffin-Lim by *any* model (§6), so the test asserts the control comparison instead. Raw
    numbers reported.
-6. **Readout-on-real-tokens tolerance** is the handoff's `1e-5` rather than a self-imposed
+7. **Readout-on-real-tokens tolerance** is the handoff's `1e-5` rather than a self-imposed
    `1e-6`: the measured value is `7.6e-7` and drifts tens of percent with the thread count. The
    closed-form coordinate transform keeps the tighter `1e-6` (measured `1.2e-7`).
-7. **`lin_proj_0` deleted** from the invariant models — fully consumed by the readout, recorded
+8. **`lin_proj_0` deleted** from the invariant models — fully consumed by the readout, recorded
    in the accounting as `consumed`.
-8. **Unrequested additions** kept because the claim is weaker without them: the non-vacuity
+9. **Unrequested additions** kept because the claim is weaker without them: the non-vacuity
    control, the input-rounding noise floor control, the Griffin-Lim conditioning control, the
    encoder-equivariance check inside the readout test, and the flip-rate ensemble.
 

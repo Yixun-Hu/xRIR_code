@@ -27,7 +27,9 @@ This module fixes exactly those two, and nothing else:
   permutation.
 * :func:`intrinsic_scene_coords` replaces the raw xyz fed to ``dist_embedder`` for the
   query *and* every reference (handoff section 3.3).  The geometry encoder keeps its
-  original ``(location - depth_coord) / 5`` input; its semantics are not swapped.
+  original ``(location - depth_coord) / 5`` input; its semantics are not swapped.  The basis
+  is computed **branch-free** -- see :func:`horizontal_basis` for why every thresholded
+  version of it was a rotation hazard.
 
 Why the composition is invariant (exact arithmetic)::
 
@@ -61,14 +63,14 @@ from model.cylindrical_vit import CylindricalViT
 from model.xRIR import xRIR
 
 
-#: Horizontal radius (metres) at or below which a position counts as "on the vertical axis".
-#: Explicit and testable, as the handoff requires; the basis rule below branches on it.
-DEFAULT_BASIS_EPS = 1.0e-6
-
-#: ``mode`` codes returned by :func:`horizontal_basis`.
-BASIS_QUERY = 0        # basis taken from the query source's horizontal direction
-BASIS_REFERENCE = 1    # query is (near-)vertical: basis from the references' vector sum
-BASIS_DEGENERATE = 2   # every horizontal component is (near-)zero: horizontal output is 0
+#: Blend band on the query's horizontal *fraction* ``||q_h|| / ||q||`` -- dimensionless, so it
+#: means the same thing for a source 0.5 m away and one 40 m away.  Below ``BLEND_LO`` the query
+#: direction is ignored entirely, above ``BLEND_HI`` it is used alone, and in between a quintic
+#: smoothstep interpolates.  Every real AcousticRooms query sits far above ``BLEND_HI``
+#: (sources and receivers share a room floor plan), so the production path is the primary one
+#: and is bitwise identical to a hard ``||q_h|| > 0`` rule.
+BLEND_LO = 1.0e-3
+BLEND_HI = 1.0e-2
 
 
 class InvariantReadout(nn.Module):
@@ -186,53 +188,79 @@ def _unpack_token_pool(pool):
 # Intrinsic (yaw-invariant) horizontal coordinates -- handoff section 3.3
 # --------------------------------------------------------------------------------------
 
+def _smoothstep(t: torch.Tensor) -> torch.Tensor:
+    """Quintic smoothstep ``6t^5 - 15t^4 + 10t^3`` on ``[0, 1]``, clamped outside.
+
+    C2: value, first and second derivatives all match at both ends, so blending with it adds
+    no kink anywhere.  It saturates *exactly* at 0 and 1 (not asymptotically), which is what
+    lets the primary branch stay bitwise identical to an unblended unit vector.
+    """
+    t = t.clamp(0.0, 1.0)
+    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+
+
 def horizontal_basis(src_loc: torch.Tensor, ref_locs: torch.Tensor,
-                     eps: float = DEFAULT_BASIS_EPS):
-    """The unit horizontal basis ``a = (a_x, a_y)`` of each scene, with the degenerate rules.
+                     blend_lo: float = BLEND_LO, blend_hi: float = BLEND_HI):
+    """The horizontal basis ``a = (a_x, a_y)`` of each scene -- **branch-free and smooth**::
 
-    Rules, in order (handoff section 3.3, "must cover the degenerate cases"):
+        w = smoothstep((||q_h|| / ||q|| - lo) / (hi - lo))
+        a = w * q_h / max(||q_h||, lo * ||q||)  +  (1 - w) * sum_i p_h_i / sum_i ||p_h_i||
 
-    1. ``r_q = ||(src_x, src_y)|| > eps``  -> ``a = (src_x, src_y) / r_q``   (``BASIS_QUERY``)
-    2. otherwise the **vector sum of the references' horizontal components**, normalised:
-       ``s = sum_i (ref_x_i, ref_y_i)``, ``a = s / ||s||`` when ``||s|| > eps``
-       (``BASIS_REFERENCE``)
-    3. otherwise ``a = (0, 0)``, which makes the transform emit zero horizontal components
-       -- a constant, and therefore trivially yaw-invariant, output  (``BASIS_DEGENERATE``)
+    with ``q_h`` the query source's horizontal component and ``p_h_i`` the references'.  There
+    is **no** conditional anywhere in that expression: no threshold decides which branch is
+    taken, and no comparison decides which reference wins.
 
-    **Why the fallback is a sum and not a choice** (exp_08 review round 1, blocker B1). An
-    earlier version picked the reference with the largest horizontal radius, ties broken by
-    the lowest index.  That is a *selection*, and a selection is discontinuous: for a query on
-    the vertical axis with references at ``(3, 4, 0)``, ``(5, 0, 0)``, ``(-3, 4, 0)`` all three
-    radii are exactly 5, so float32 rounding of the rotated coordinates decided the winner and
-    the basis jumped between angles -- intrinsic reference coordinates moved by 4.4 m and the
-    predicted spectrum by ``1.5e-1`` relative at ``k = 32``.  The vector sum has no such
-    failure mode: ``sum_i Rz(D) p_i = Rz(D) sum_i p_i`` exactly, so the aggregate is
-    *equivariant* rather than *selected*, it is continuous in the reference positions, it is
-    independent of the reference order, and no tie can exist because nothing is compared.
-    Summing the raw horizontal vectors (rather than unit vectors) weights each reference by
-    its own horizontal radius, so distant references -- the ones whose direction is best
-    determined -- dominate.
+    Why it is built this way (exp_08 review rounds 1 and 2)
+    ------------------------------------------------------
+    Two earlier versions each failed on a *discontinuity*, and a discontinuity in the basis is a
+    discontinuity in the model's output under rotation:
 
-    The radii and the sum are computed in float64 so the branch does not depend on float32
-    rounding of a rotated input; the comparison is a strict ``>`` against ``eps``, so a value
-    of exactly ``eps`` does **not** claim that branch -- it falls through to the next rule.
+    * **round 1** -- the fallback picked the reference with the largest horizontal radius.  With
+      three references at radius exactly 5, float32 rounding of the rotated coordinates chose
+      the winner: coordinates jumped 4.4 m, the spectrum by ``1.5e-1``.
+    * **round 2** -- the fallback became ``s / ||s||`` with ``s`` the vector sum, plus an
+      ``||s|| > eps`` guard.  The sum removed the *selection*, but normalising by its own length
+      is ill-conditioned exactly where the sum is small, and the guard reintroduced a hard
+      branch.  For references ``(12,16,0), (20,0,0), (-32,-16,0)`` the sum is exactly zero,
+      rotation rounding pushed ``||s||`` across ``eps``, the branch flipped, and the coordinates
+      jumped **35.7 m** (spectrum ``2.3e-1``); for a merely near-cancelling set the branch held
+      but the conditioning alone moved them **1.5 m** (spectrum ``5.2e-2``).
 
-    Every quantity the rule uses is yaw invariant or yaw equivariant, so the chosen basis
-    rotates with the scene and the resulting coordinates do not.  Two knife edges remain, both
-    measure-zero, both numerical rather than architectural, and both of the same *continuous*
-    kind (a threshold crossing, not a discontinuous jump): ``r_q`` within float rounding of
-    ``eps``, and ``||s||`` within float rounding of ``eps``.  In both the basis is
-    near-degenerate on either side, so the induced change in the transform is proportional to
-    the crossing, not to the distance between two unrelated references.
+    Dividing by ``R = sum_i ||p_h_i||`` instead of by ``||s||`` fixes both at once:
+
+    * ``R`` is **rotation invariant** and ``s`` is **rotation equivariant**, so ``a`` is exactly
+      equivariant -- ``sum_i Rz(D) p_i = Rz(D) sum_i p_i``, and no norm moves;
+    * ``R >= ||s||`` by the triangle inequality, so ``||a|| <= 1`` always and the division never
+      amplifies: rounding perturbs ``s`` by ``O(1e-7 * R)``, hence ``a`` by ``O(1e-7)``
+      *absolute* and the coordinates by ``O(1e-7 * ||p_h||)`` -- machine level at any scale;
+    * it is smooth wherever ``R > 0``, so the old "all horizontal components vanish" branch is
+      now simply the **continuous limit** ``a -> 0``.  Only an exact ``R == 0`` guard remains,
+      and it returns precisely that limit.
+
+    The same treatment is applied to the *primary* choice, which had the identical defect: a
+    hard ``||q_h|| > eps`` test switching between the query direction and the fallback.  The
+    smoothstep blend replaces it, and the band is a **fraction** of ``||q||`` rather than an
+    absolute length -- the round-2 threshold was ``1e-6`` m, which is meaningless for a scene
+    whose references sit 20-36 m out.
+
+    What it means physically
+    ------------------------
+    When the references' directions cancel there is genuinely no horizontal direction the scene
+    distinguishes, and ``||a|| < 1`` makes the representation *attenuate* its horizontal
+    components in proportion to how ambiguous they are, reaching zero exactly when they cancel.
+    That is the honest encoding of "this scene has no preferred azimuth", not a numerical trick:
+    heights pass through untouched, and the attenuation is itself rotation invariant.
 
     Args:
         src_loc: query-source position ``[B, 3]`` in the receiver frame.
         ref_locs: reference-source positions ``[B, K, 3]`` in the receiver frame.
-        eps: horizontal-radius threshold in metres.
+        blend_lo: query horizontal fraction below which the query direction is ignored.
+        blend_hi: fraction above which it is used alone.  Must exceed ``blend_lo``.
 
     Returns:
-        ``(basis, mode)`` -- ``basis`` ``[B, 2]`` in ``src_loc``'s dtype/device, ``mode``
-        ``[B]`` int64 holding ``BASIS_QUERY`` / ``BASIS_REFERENCE`` / ``BASIS_DEGENERATE``.
+        ``(basis, blend)`` -- ``basis`` ``[B, 2]`` with ``\\|basis\\| <= 1``, and ``blend``
+        ``[B]`` the weight ``w`` actually used, both in ``src_loc``'s dtype/device.  ``blend``
+        is a *diagnostic*: nothing in this function or its callers branches on it.
     """
     if src_loc.dim() != 2 or src_loc.shape[-1] != 3:
         raise ValueError("src_loc must be [B, 3], got {}".format(tuple(src_loc.shape)))
@@ -241,30 +269,34 @@ def horizontal_basis(src_loc: torch.Tensor, ref_locs: torch.Tensor,
     if ref_locs.shape[0] != src_loc.shape[0]:
         raise ValueError("src_loc has {} rows but ref_locs has {}".format(
             src_loc.shape[0], ref_locs.shape[0]))
-    if float(eps) <= 0.0:
-        raise ValueError("eps must be positive, got {}".format(eps))
+    if not 0.0 <= float(blend_lo) < float(blend_hi):
+        raise ValueError("need 0 <= blend_lo < blend_hi, got {} and {}".format(
+            blend_lo, blend_hi))
 
-    device = src_loc.device
-    batch = ref_locs.shape[0]
+    tiny = torch.finfo(torch.float64).tiny
+    lo, hi = float(blend_lo), float(blend_hi)
+
+    # --- primary: the query's own horizontal direction, weighted by how horizontal it is ---
     q = src_loc[:, :2].double()                                     # [B, 2]
-    r_q = torch.linalg.norm(q, dim=-1)                              # [B]
-    use_query = r_q > float(eps)
+    q_h = torch.linalg.norm(q, dim=-1)                              # [B]
+    q_full = torch.linalg.norm(src_loc.double(), dim=-1)            # [B]
+    fraction = q_h / q_full.clamp_min(tiny)                         # dimensionless, in [0, 1]
+    blend = _smoothstep((fraction - lo) / (hi - lo))                # [B], exactly 0 or 1 outside
+    q_denominator = torch.maximum(q_h, lo * q_full)
+    q_direction = torch.where((q_denominator > 0).unsqueeze(-1),
+                              q / q_denominator.clamp_min(tiny).unsqueeze(-1),
+                              torch.zeros_like(q))
 
-    # Equivariant aggregate, not a selection: sum over an empty reference axis is zeros, so
-    # K = 0 needs no special case -- it simply falls through to the degenerate branch.
-    aggregate = ref_locs[:, :, :2].double().sum(dim=1)              # [B, 2]
-    r_aggregate = torch.linalg.norm(aggregate, dim=-1)              # [B]
-    use_aggregate = (~use_query) & (r_aggregate > float(eps))
+    # --- fallback: the references' vector sum over their total horizontal radius ---
+    ref_h = ref_locs[:, :, :2].double()                             # [B, K, 2]
+    total = ref_h.sum(dim=1)                                        # [B, 2], equivariant
+    radius = torch.linalg.norm(ref_h, dim=-1).sum(dim=1)            # [B], invariant
+    aggregate = torch.where((radius > 0).unsqueeze(-1),
+                            total / radius.clamp_min(tiny).unsqueeze(-1),
+                            torch.zeros_like(total))
 
-    q_unit = q / r_q.clamp_min(float(eps)).unsqueeze(-1)
-    aggregate_unit = aggregate / r_aggregate.clamp_min(float(eps)).unsqueeze(-1)
-    basis = torch.where(use_query.unsqueeze(-1), q_unit,
-                        torch.where(use_aggregate.unsqueeze(-1), aggregate_unit,
-                                    torch.zeros_like(q_unit)))
-    mode = torch.full((batch,), BASIS_DEGENERATE, dtype=torch.long, device=device)
-    mode = torch.where(use_aggregate, torch.full_like(mode, BASIS_REFERENCE), mode)
-    mode = torch.where(use_query, torch.full_like(mode, BASIS_QUERY), mode)
-    return basis.to(src_loc.dtype), mode
+    basis = blend.unsqueeze(-1) * q_direction + (1.0 - blend).unsqueeze(-1) * aggregate
+    return basis.to(src_loc.dtype), blend.to(src_loc.dtype)
 
 
 def to_intrinsic(positions: torch.Tensor, basis: torch.Tensor) -> torch.Tensor:
@@ -303,7 +335,7 @@ def to_intrinsic(positions: torch.Tensor, basis: torch.Tensor) -> torch.Tensor:
 
 
 def intrinsic_scene_coords(src_loc: torch.Tensor, ref_locs: torch.Tensor,
-                           eps: float = DEFAULT_BASIS_EPS):
+                           blend_lo: float = BLEND_LO, blend_hi: float = BLEND_HI):
     """Query **and** every reference in the scene's intrinsic horizontal frame.
 
     Changing only the query (handoff section 3.3, last line of the rule list) would leave the
@@ -312,13 +344,15 @@ def intrinsic_scene_coords(src_loc: torch.Tensor, ref_locs: torch.Tensor,
     Args:
         src_loc: query-source position ``[B, 3]``.
         ref_locs: reference-source positions ``[B, K, 3]``.
-        eps: horizontal-radius threshold (see :func:`horizontal_basis`).
+        blend_lo: see :func:`horizontal_basis`.
+        blend_hi: see :func:`horizontal_basis`.
 
     Returns:
-        ``(src_intrinsic [B, 3], ref_intrinsic [B, K, 3], basis [B, 2], mode [B])``.
+        ``(src_intrinsic [B, 3], ref_intrinsic [B, K, 3], basis [B, 2], blend [B])``; ``blend``
+        is diagnostic only -- no caller branches on it.
     """
-    basis, mode = horizontal_basis(src_loc, ref_locs, eps=eps)
-    return to_intrinsic(src_loc, basis), to_intrinsic(ref_locs, basis), basis, mode
+    basis, blend = horizontal_basis(src_loc, ref_locs, blend_lo=blend_lo, blend_hi=blend_hi)
+    return to_intrinsic(src_loc, basis), to_intrinsic(ref_locs, basis), basis, blend
 
 
 # --------------------------------------------------------------------------------------
@@ -340,7 +374,7 @@ class xRIR_InvariantBase(xRIR):
 
     def __init__(self, num_channels, n_bins=310, dim=512, intermediate_ch=256,
                  image_size=(256, 512), patch_size=(16, 32), depth=12, mlp_dim=512, heads=8,
-                 basis_eps=DEFAULT_BASIS_EPS):
+                 blend_lo=BLEND_LO, blend_hi=BLEND_HI):
         super().__init__(num_channels, n_bins=n_bins, dim=dim, intermediate_ch=intermediate_ch,
                          image_size=image_size, patch_size=patch_size, depth=depth,
                          mlp_dim=mlp_dim, heads=heads)
@@ -348,7 +382,8 @@ class xRIR_InvariantBase(xRIR):
         patch_height, patch_width = tuple(patch_size)
         self.h_tok = image_height // patch_height
         self.w_tok = image_width // patch_width
-        self.basis_eps = float(basis_eps)
+        self.blend_lo = float(blend_lo)
+        self.blend_hi = float(blend_hi)
         self.invariant_readout = InvariantReadout(h_tok=self.h_tok, w_tok=self.w_tok)
         del self.lin_proj_0
 
@@ -366,14 +401,13 @@ class xRIR_InvariantBase(xRIR):
         by one sample and breaks end-to-end invariance for that scene.  Computing the two
         norms and their difference in float64 removes the *arithmetic* half of that noise;
         what remains is the float32 rounding of the rotated coordinates themselves, which is
-        irreducible because the model never receives the exactly-rotated scene.  Measured on
-        the real validation scenes the boundary half-width -- the largest pre-round deviation a
-        C16 rotation induces, i.e. exactly the window in which a scene can flip -- shrinks by
-        roughly 3x (see ``tools/exp08_validate.delay_boundary_width``).
+        irreducible because the model never receives the exactly-rotated scene.  Measured over a
+        random ensemble by ``tools/exp08_validate.delay_flip_rate``, this lowers how often a
+        rotation moves a delay by a factor of about 1.28 (3.6 sigma on paired per-scene counts).
 
-        This narrows the measure-zero set; it does not empty it.  A configuration engineered
-        to sit within ~1e-6 samples of a tie still flips, and the validation report states that
-        exception explicitly rather than claiming exactness the discretisation cannot deliver.
+        It narrows the band; it does not empty it.  A configuration engineered to sit within
+        ~1e-6 samples of a tie still flips, and the validation report states that exception
+        explicitly rather than claiming exactness the discretisation cannot deliver.
 
         The direct-path gain is reduced in float64 too and cast back, so the whole
         distance-to-audio path has one precision policy.  ``apply_delay`` is resolved from
@@ -415,7 +449,7 @@ class xRIR_InvariantBase(xRIR):
 
         # --- exp_08 change 1 of 2: coordinate-embedding branch sees the intrinsic frame ---
         src_intrinsic, ref_intrinsic, _, _ = intrinsic_scene_coords(
-            src_loc, ref_ir_locs, eps=self.basis_eps)
+            src_loc, ref_ir_locs, blend_lo=self.blend_lo, blend_hi=self.blend_hi)
 
         src_coord_encoding = (src_loc[:, :, None, None] - depth_coord) / 5.
 
@@ -495,10 +529,10 @@ class xRIR_CylInvariant(xRIR_InvariantBase):
 
     def __init__(self, num_channels, n_bins=310, dim=512, intermediate_ch=256,
                  image_size=(256, 512), patch_size=(16, 32), depth=12, mlp_dim=512, heads=8,
-                 basis_eps=DEFAULT_BASIS_EPS):
+                 blend_lo=BLEND_LO, blend_hi=BLEND_HI):
         super().__init__(num_channels, n_bins=n_bins, dim=dim, intermediate_ch=intermediate_ch,
                          image_size=image_size, patch_size=patch_size, depth=depth,
-                         mlp_dim=mlp_dim, heads=heads, basis_eps=basis_eps)
+                         mlp_dim=mlp_dim, heads=heads, blend_lo=blend_lo, blend_hi=blend_hi)
         # Same dim / depth / heads / dim_head / mlp_dim as the SimpleViT it replaces.
         self.source_network = CylindricalViT(
             in_channels=3, image_size=tuple(image_size), patch_size=tuple(patch_size),

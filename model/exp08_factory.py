@@ -40,7 +40,7 @@ def build_xrir_exp08(backbone, num_shot, **kwargs):
         backbone: a key of :data:`BACKBONES_EXP08`.
         num_shot: number of reference RIRs, i.e. the model's ``num_channels``.
         **kwargs: forwarded to the class (``dim``, ``depth``, ``heads``, ``mlp_dim``,
-            ``image_size``, ``patch_size``, and ``basis_eps`` for the invariant arms).
+            ``image_size``, ``patch_size``, and ``blend_lo`` / ``blend_hi`` for the invariant arms).
 
     Returns:
         The constructed model.
