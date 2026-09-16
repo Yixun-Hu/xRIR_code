@@ -263,8 +263,13 @@ def horizontal_basis(src_loc: torch.Tensor, ref_locs: torch.Tensor,
 
     The same directional discontinuity exists at ``q = 0`` in the primary term, for the same
     reason.  These are smoothness properties of the representation **across scenes**; they are
-    not invariance defects, and they are not regularised away here -- doing so would trade an
-    exact symmetry for a cosmetic one.
+    not invariance defects.  They are not regularised away here, and the reason is
+    SCALE-FREENESS, not exactness: a smooth AND exactly yaw-equivariant regularisation does
+    exist (e.g. ``a_eps = sum_i p_h,i / sum_i sqrt(||p_h,i||^2 + eps^2)`` -- its denominator
+    is built from rotation-invariant norms), but any such ``eps`` introduces an absolute
+    length scale, so the representation would no longer commute with a global rescaling of
+    the scene.  The current rule keeps that scale invariance and reports the cross-geometry
+    jump instead.
 
     The same treatment is applied to the *primary* choice, which had the identical defect: a
     hard ``||q_h|| > eps`` test switching between the query direction and the fallback.  The

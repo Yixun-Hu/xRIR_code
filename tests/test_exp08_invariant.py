@@ -538,7 +538,9 @@ def test_exactly_cancelling_references_give_exactly_zero_horizontal(warm_cyl, en
 
 
 def test_all_references_on_the_axis_hits_the_exact_zero_guard():
-    """The only remaining guard: ``R == 0``, whose output is exactly the continuous limit."""
+    """The only remaining guard: ``R == 0`` returns the zero basis -- the rotation-
+    invariant convention, NOT a continuous limit (see the directional-degeneracy
+    counterexample: the ratio follows reference directions, not magnitudes)."""
     src = torch.tensor([[0.0, 0.0, 1.5]])
     refs = torch.tensor([[[0.0, 0.0, -2.0], [0.0, 0.0, 0.75]]])
     src_i, refs_i, basis, blend = intrinsic_scene_coords(src, refs)

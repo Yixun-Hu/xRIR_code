@@ -404,9 +404,13 @@ and review round 3 produced the counterexample. The corrected statement, in thre
    over all 15 angles, in **both** conditions, with zero delay flips. The jump is *across
    scenes*, never across rotations of one scene.
 
-This is not regularised away. Smoothing it would mean perturbing the basis by something that is
-not itself exactly equivariant, trading a real symmetry for a cosmetic one. It is reported
-instead, and `test_directional_degeneracy_is_a_cross_geometry_jump_not_a_rotation_defect` pins
+This is not regularised away — but for the right reason (codex round-4 correction): a smooth
+and exactly yaw-equivariant regularisation does exist, e.g.
+`a_eps = sum p_h / sum sqrt(||p_h||^2 + eps^2)` (denominator rotation-invariant), so smoothing
+would NOT sacrifice yaw-exactness. What it would sacrifice is scale-freeness: any fixed `eps`
+is an absolute length scale, and the representation would stop commuting with a global
+rescaling of the scene. The scale-free rule is kept and the cross-geometry jump is reported
+instead; `test_directional_degeneracy_is_a_cross_geometry_jump_not_a_rotation_defect` pins
 both halves: the across-geometry difference *and* the per-geometry rotation invariance.
 
 **What it means physically.** When the references' directions cancel there is genuinely no
