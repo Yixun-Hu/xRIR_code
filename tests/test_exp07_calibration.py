@@ -227,3 +227,44 @@ def test_the_shared_checks_never_read_the_trained_arm_approval_pins(calibrated, 
     result, _ = calibrated.build()
     assert result['passed'] is True
     assert calibration.measure(calibrated.runs) == result['metrics']
+
+
+def blank(calibrated, source, count, runs=None):
+    """Make the first ``count`` queries of ``source`` nonfinite in each named run."""
+    for directory in calibrated.runs if runs is None else runs:
+        run = Path(directory)
+        sample = calibrated.built.read(run / 'per_sample_yaw.json')
+        sample['P']['0'][source][:count] = [None] * count
+        metrics = calibrated.built.read(run / 'metrics_yaw.json')
+        metrics['P'] = calibrated.built.summaries(sample['P'])
+        calibrated.built.rebind(run, sample=sample, metrics=metrics)
+
+
+@pytest.mark.parametrize('source', ['edt', 'c50', 't60', 'loss', 'log_mse'])
+def test_the_gate_bounds_the_finite_cohort_of_every_registered_metric(calibrated, source):
+    """Round-8 blocker 2: the spectral columns are cohort rules, not only table columns."""
+    blank(calibrated, source, 5, calibrated.runs[:1])
+    with pytest.raises(ValueError, match='finite count tolerance exceeded: ' + source):
+        calibrated.build()
+    with pytest.raises(ValueError, match='finite count tolerance exceeded: ' + source):
+        calibration.measure(calibrated.runs)
+
+
+@pytest.mark.parametrize('source', ['edt', 'c50', 't60', 'loss', 'log_mse'])
+def test_the_gate_refuses_a_registered_metric_with_no_finite_query(calibrated, source):
+    blank(calibrated, source, 12)
+    with pytest.raises(ValueError, match='zero finite queries: ' + source):
+        calibrated.build()
+    with pytest.raises(ValueError, match='zero finite queries: ' + source):
+        calibration.measure(calibrated.runs)
+
+
+@pytest.mark.parametrize('source', ['edt', 'c50', 't60', 'loss', 'log_mse'])
+def test_five_missing_queries_of_a_six_thousand_query_cohort_are_refused(source):
+    """The reviewer's 6 217-query boundary, at the registered tolerance of two."""
+    payloads = {seed: {'P': {'0': {name: [float(seed)] * 6217 for name in
+                                   ('edt', 'c50', 't60', 'loss', 'log_mse')}}}
+                for seed in SEEDS}
+    payloads[42]['P']['0'][source][:5] = [None] * 5
+    with pytest.raises(ValueError, match='finite count tolerance exceeded: ' + source):
+        calibration.seed_means(payloads)

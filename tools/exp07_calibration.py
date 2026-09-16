@@ -108,19 +108,31 @@ def seed_means(payloads, k=None):
 
     The cohort is validated with the table producer's OWN functions, so this gate cannot
     approve an evaluation the publication protocol will later refuse: every registered
-    metric present in every seed's cell (``loss`` and ``log_mse`` included) and per-seed
-    finite counts within the registered tolerance.  Both are pure cohort rules and read
-    no approval pin, which the gate could not use anyway -- it runs before the trainings
-    finish, while the approval file is still all-null.
+    metric present in every seed's cell, and then -- for EVERY one of those five columns,
+    ``loss`` and ``log_mse`` included, not only for the three the rule is applied to -- a
+    nonempty finite cohort per seed, per-seed finite counts within the registered
+    tolerance and a finite seed mean, exactly as :func:`tools.exp07_table.build_table`
+    requires them of a published row.  The three historical metrics are selected only
+    afterwards.  All of it is pure cohort arithmetic that reads no approval pin, which
+    the gate could not use anyway -- it runs before the trainings finish, while the
+    approval file is still all-null.  Means stay in native units (no table scaling), so
+    EDT is compared with the historical value in seconds.
     """
     k = CALIBRATION['k'] if k is None else k
     seeds = sorted(payloads)
     cells = [payloads[seed]['P'][str(k)] for seed in seeds]
-    table.metric_names(cells)
+    names = table.metric_names(cells)
+    validated = {}
+    for source, specification in sorted(table.METRICS.items()):
+        if specification is None or source not in names:  # a recognized diagnostic
+            continue
+        per_seed = table.seed_finite_means(cells, seeds, source, FINITE_COUNT_TOLERANCE)
+        means = np.asarray([item['mean'] for item in per_seed.values()], dtype=float)
+        require(np.isfinite(means).all(), 'nonfinite seed mean: ' + source)
+        validated[source] = per_seed
     result = {}
     for metric in CALIBRATION_METRICS:
-        per_seed = table.seed_finite_means(cells, seeds, CALIBRATION['sources'][metric],
-                                           FINITE_COUNT_TOLERANCE)
+        per_seed = validated[CALIBRATION['sources'][metric]]
         result[metric] = {int(seed): cell['mean'] for seed, cell in per_seed.items()}
     return result
 

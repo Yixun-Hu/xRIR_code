@@ -42,8 +42,10 @@ pre-registered gate of plan section 2. It admits the five released-checkpoint K 
 evaluations through exactly the checks the table producer applies to that role -- including
 the cohort rules `build_table` applies afterwards, `tools.exp07_table.metric_names` (all
 five registered metrics, `loss` and `log_mse` included, in every seed's cell) and
-`tools.exp07_table.seed_finite_means` (per-seed finite counts within the registered
-tolerance), so this gate cannot approve a cohort the publication table will refuse --
+`tools.exp07_table.seed_finite_means` over EVERY one of those five columns (a nonempty
+finite cohort per seed, per-seed finite counts within the registered tolerance and a
+finite seed mean) BEFORE the three historical metrics are selected, so this gate cannot
+approve a cohort the publication table will refuse --
 derives the five-seed means and sample SDs (ddof 1) of EDT (s), C50 (dB) and T60 (%) from
 the runs themselves, applies the registered rule `|mean - historical| <= 3 * sd + 0.02 * |historical|`
 against the registered historical values (0.0389 / 1.029 / 7.27, `tools.exp07_profiles.CALIBRATION`)
