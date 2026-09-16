@@ -76,3 +76,5 @@
 - Sent the merge SHAs to the exp_06 session; their 08:00–10:00 window stands.
 
 ## 2026-09-16T02:33:29-04:00 — Coder round 10 delivered: one test-only commit `cf46275` (23 lines in `tests/test_exp07_parity.py`): the `parity_run` fixture pins the checkout state by monkeypatching `tools.provenance.git_state` one level below `checked_git_state` (the production refusal still fires), `dirty_checkout` kwarg (default True keeps every existing case), new `test_a_clean_checkout_needs_no_override`. 19 passed in the worktree and in a clean clone (previously 2 failed there); static_checks exit 0 (319; 221/1 both orders). Codex close review launched 02:33. (Timestamps of the two previous entries corrected to the commit times.)
+
+## 2026-09-16T02:47:31-04:00 — Codex round-10 close review: **approve, no blocking findings** (deleting the production `raise` in `checked_git_state` makes the dirty test fail → the refusal under test is the production one; 19 passed in the worktree and a clean clone; static_checks 319 / 221+221). Merging `cf46275` into main (test file only; no closure file).

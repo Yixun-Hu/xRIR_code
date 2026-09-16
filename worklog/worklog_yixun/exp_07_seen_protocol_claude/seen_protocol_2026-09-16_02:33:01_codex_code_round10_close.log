@@ -718,3 +718,1166 @@ Decision requested from Yixun (§7). Cumulative ceiling per arm 1.5 × probe pro
 
 `train_batches_per_epoch` 9 265 ≠ 9 261 changes the `seen_aug` yaw counter (§2; recorded, intended). The released reference row's provenance is external (unknown budget/epoch/realisation/selection) and is never compared inferentially. Host contention with exp_05/exp_06 evaluations is the only timing risk; no gate beyond epoch 1 depends on it.
 
+codex
+The diff is limited to the fixture and one new clean-checkout test; all existing assertions are unchanged. The fixture patches `git_state`, leaving `checked_git_state` intact. I’ll verify that boundary by removing the production `raise` in the scratch clone.
+exec
+/bin/bash -lc "sed -n '1,16p' worklog/worklog_yixun/exp_07_seen_protocol_claude/plan_seen_protocol.md
+rg --files worklog/worklog_yixun/announcement worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude worklog/worklog_yixun/exp_05* | rg '(announcement/|plan_.*\\.md"'$)'"'" in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 0ms:
+# Plan — seen_protocol (exp_07), v3 (2026-09-15; v2 amended after the Codex round-2 plan review "approve with changes"; v1 superseded)
+
+Planner: Claude Fable 5.1 (main session). Coder: **Claude Opus 5** (Agent subagent, model `opus`, max effort) working in the dedicated git worktree `/home/yixunhu/codespace/xRIR_code_wt07` (branch `exp07-window`; the main tree runs live launches whose gates refuse a dirty tree, and `/home/yixunhu/codespace/xRIR_code_wt` belongs to exp_06). Code Reviewer: **OpenAI Codex `gpt-6-astra`** (`codex exec -s read-only -C <worktree>`), one review per round, file `seen_protocol_codex_code_<marker>_review.md`. Plan Reviewer: Codex. (Roles per Yixun 2026-09-15, SOP §roles.)
+
+## 1. Question
+
+What are the seen-split errors (EDT, C50, T60; K = 1 and K = 8) of the three same-budget xRIR variants — SimpleViT (xRIR), CylindricalViT and YawAug-xRIR — when each is trained under the authors' **seen protocol**, so that the paper-style table has both split columns for all three rows? No hypothesis is pre-registered beyond the table; the paired differences between arms on the seen split are reported descriptively with intervals.
+
+## 2. Protocol and arms
+
+- **Seen protocol** (authors' `treble_xRIR_seen_dataset.py`, pinned by exp_03 — never edited): test = the 6 217 source–receiver pairs of `seen_test_split.pkl` (131 rooms); train = every other RIR of the dataset = 296 454 files (9 265 micro-batches of 32 per epoch, the last one holding 6 examples instead of the unseen protocol's 14; with the trainer's accumulation rule 4 633 updates per epoch, 12 epochs = 55 596 updates versus the unseen protocol's 55 572, +24 updates = +0.043 %). All 131 test rooms have other receivers in the training set (630 receivers are held out); of the 6 217 test pairs, 5 124 lie in the unseen protocol's training set and 1 093 in its 17 test rooms — under the seen protocol every test room is a trained room. Train/test target overlap is 0.
+- **Arms** (three new 12-epoch trainings, one realisation each; the M tier, dim 512 / depth 12 / heads 8 / mlp 512): `seen_simple` (xRIR control, `--backbone simple`), `seen_cyl` (`--backbone cylindrical`), `seen_aug` (`--backbone simple --yaw-aug 1 --yaw-aug-seed 0 --yaw-aug-width 512`). Recipe otherwise identical to exp_01/exp_04/exp_05: `--num-shot 8 --max-len 9600 --lr 1e-3 --weight-decay 1e-4 --decay-epochs 3 --lr-gamma 0.1 --epochs 12 --batch-size 32 --accum-steps 2 --num-workers 12 --seed 0 --tf32 --log-interval 50 --save-every 0 --epoch-ckpt-every 1`, plus the new `--protocol seen`. `PYTHONHASHSEED=0`, `OMP_NUM_THREADS=2`, interpreter `/home/yixunhu/miniconda3/envs/xRIR/bin/python`. Contract per arm vs its unseen-protocol twin: **same recipe and epoch budget, the protocol (training set) being the intended change**; training trajectories are not paired (single realisation each; unordered-set path listing and worker-local reference draws as before). The trainer's `--protocol unseen` default reproduces the current behaviour bit for bit (parity test as exp_05 §7 item 6). For `seen_aug` the yaw counter is `t = (epoch − 1)·B + batch_idx` with `B = 9 265` (loader length, exp_04 A4), domain 0…111 179, same mixer/seed/overflow guard; offsets at equal (epoch, batch_idx) therefore differ from exp_04's from epoch 2 on — a consequence of the protocol-dependent loader length, recorded, not a defect. Normalised-args comparison, **per arm against its unseen-protocol twin**: `seen_simple` vs exp_01's SimpleViT `ckpt/xRIR_simple_8_shot/args.json`, `seen_cyl` vs exp_01's cylindrical `ckpt/xRIR_cyl_8_shot/args.json`, `seen_aug` vs exp_04's attempt `args.json` (`ckpt/xRIR_simple_yawaug_8_shot/final/args.json`); historical absent fields → the explicitly checked defaults (exp_05 §7 item 6 and its A1: `yaw_aug_seed → seed`); operational exclusions `save_dir, save_every, epoch_ckpt_every, PYTHONHASHSEED, CUDA_VISIBLE_DEVICES`; the single permitted intended difference is `protocol`; derived fields (`train_batches_per_epoch` = 9 265, `param_counts`, `tier` = M, `env`) validated separately, never diffed. The within-seen comparisons (cyl vs simple, aug vs simple) are the descriptive pairs of the estimand, not parity checks.
+- **Evaluation**: the seen split, all 6 217 queries, K = 8 and K = 1, at k = 0 only, condition P, batch 16, TF32 off; **five evaluation seeds {42, 43, 44, 45, 46}** with seen-split reference manifests `ckpt/exp07/reference_manifest_seen_k{8,1}_seed{s}.json` built by `tools.reference_manifest.build_manifest(seen_dataset, seed=s, num_shot=K)` (the seen dataset exposes the same `get_ir_and_location_for_other_sources` interface) and `--gl-seed s`; the evaluator is a NEW entry point `tools/exp07_eval.py` that imports `tools.exp04_eval`'s machinery and the frozen `eval_yaw_rotation` functions unchanged but constructs the **seen** test dataset (`treble_xRIR_seen_dataset.xRIR_Dataset(split='test', num_shot=K, max_len=9600)`, run from the repository root because the frozen module opens `seen_test_split.pkl` relative to the working directory; `run_exp04` gets a dataset-factory parameter with the unseen builder as default so the exp_04 path is unchanged) for `ManifestDataset`'s exact query-list check (the frozen `build_manifest_dataset` hard-codes the unseen dataset and would reject 6 217 ≠ 6 337 queries) and records `split = seen` plus the sha256 of `seen_test_split.pkl` in the eval manifest and metas; the eval launcher (`--entry exp07 --split seen`) binds the same, refuses a seen manifest with the unseen entry point and vice versa (cross-split rejection), keeps canonical padding, and the numerical path is proven identical to `tools/exp04_eval.py` under identical inputs (unseen 32-query parity: per-sample arrays, validity, aggregates and query order bit-identical; metadata exceptions exactly `elapsed_min`, `split`, `seen_split_sha256`, manifest/closure/provenance fields) and to a direct `eval_yaw_rotation`-function call on a seen subset that includes the seen split's final batch (9 real samples padded to 16) at both K. The ten seen manifests are built and indexed by a reviewed entry point `tools/exp07_manifests.py` (`build_manifest(dataset, seed, num_shot)` per K/seed, semantic hash + file sha256 → `ckpt/exp07/reference_manifests_seen_index.json`). Run-level provenance as exp_04 (immutable manifest, completion, `--bind-input train_manifest/train_completion/train_args`). 3 arms × 2 K × 5 seeds = 30 runs plus the released `xRIR_seen.pth` (sha256 `1762c702…`, pinned now) under the same five-seed protocol as a **reference row** (K = 8 and K = 1, 10 runs): 40 runs ≈ 5.3 h. Reference-row policy: external checkpoint, training budget/epoch/realisation/selection unknown, no training bindings, provenance = the file digest and the authors' release; it is a checkpoint-performance reference, not an arm of the recipe comparison. Calibration (pre-registered rule, decided before any new-arm number is read): the released checkpoint's K = 8 five-seed means are compared with the historical full-split reproduction (0.0389 s / 1.029 dB / 7.27 %; exp_01 results.md; authors' script, random references, unseeded phases, batch 1). Acceptance: |difference| ≤ 3 × the five-seed SD + 2 % of the historical value for each of EDT/C50/T60 — if met, the seen loading path is accepted; if not, the discrepancy is INVESTIGATED (a 200-query run of the authors' `eval_seen.py` and of `tools/exp07_eval.py` on the same manifest with the authors' random draw replaced by the manifest's references; budget ≤ 2 GPU-h) and no seen-arm evaluation is admitted until the cause is recorded. Implementation parity (deterministic, above) and this historical calibration are separate checks. The released row's epoch is recorded as unknown; its K = 1 row is an evaluation with one reference, not a separately trained K = 1 model.
+- **Estimand (frozen)**: metrics EDT (s in the LaTeX table, ms in the canonical JSON; SD converted with the mean), C50 (dB), T60 (%), plus loss and log-STFT MSE in the JSON; per arm × K the table cell = mean ± sample SD (ddof 1) over the five seeds of each seed's mean over its finite queries (TABLE_V1 rule; a seed whose finite count differs from the others by > 2 refuses the cell); epoch-12 checkpoints only (no test-selected epoch). Descriptive pairs (`cyl − simple`, `aug − simple`, and `released − simple` labelled reference) at K = 8 and K = 1: per query the five-seed plain mean per arm on the paired cohort (finite for all five seeds in both arms; empty cohort refuses the cell; exclusions reported per arm/seed), statistic = absolute difference of means in native units AND the relative difference (Δ/mean_simple, %) — both recomputed inside each of 20 000 query-level bootstrap resamples (seed 0; two-sided 2.5/97.5 percentile, pointwise), with the existing whole-room cluster bootstrap (`paired_stats`: rooms resampled with replacement, every query of a drawn room retained, query-weighted statistic; retained rooms after masking reported) as the secondary interval around the same query-weighted statistic; both arms' means on each paired cohort are reported next to the table means (which use each arm's own finite set); quantiles are exact order statistics (2.5 / 97.5 % of 20 000); the two-seed (0/1) convergence diagnostic reports the maximum endpoint movement / interval width per cell with tolerance 0.10 — a cell above tolerance is flagged and its interval re-run at n_boot 40 000 before publication. **No verdict, no significance marker, no superiority/equivalence claim**; the intervals are checkpoint-conditional descriptive intervals (five evaluation seeds do not estimate training-seed variability) and permit statements about these checkpoints only, never causal or method-superiority claims; the released row's intervals are reported the same way.
+
+## 3. Code (Opus 5 Coder rounds in the exp_07 worktree; TDD; < 200 lines per commit; Codex review per round; no writes to the main tree)
+rg: worklog/worklog_yixun/announcement: No such file or directory (os error 2)
+worklog/worklog_yixun/exp_05_param_efficiency_claude/plan_param_efficiency_v2_superseded.md
+worklog/worklog_yixun/exp_05_param_efficiency_claude/plan_param_efficiency_v1_superseded.md
+worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_codex_plan_review.md
+worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_codex_plan_round2_review.md
+worklog/worklog_yixun/exp_05_param_efficiency_claude/plan_param_efficiency.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_codex_plan_round3_review.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/plan_yaw_aug_xrir.md
+worklog/worklog_yixun/exp_05_param_efficiency_claude/review_prompts/plan_round2_prompt.md
+worklog/worklog_yixun/exp_05_param_efficiency_claude/review_prompts/plan_prompt.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/plan_yaw_aug_xrir_v2_superseded.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/plan_yaw_aug_xrir_v3_superseded.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/plan_yaw_aug_xrir_v1_superseded.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_codex_plan_v4_verification.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/review_prompts/plan_prompt.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/review_prompts/plan_round3_prompt.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/review_prompts/plan_round2_prompt.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_codex_plan_round2_review.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_codex_plan_review.md
+
+exec
+/bin/bash -lc "nl -ba tests/test_exp07_parity.py
+nl -ba tools/exp07_parity.py
+rg -n -A 18 -B 8 'def checked_git_state|def git_state' tools/provenance.py
+rg -n -A 10 -B 7 \"git_state'|git_state\\\"\" tests/test_exp04_launcher.py tests/test_exp07_launcher_run.py
+cat worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/static_checks.sh" in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 0ms:
+     1	"""The deferred GPU parity gate: run exactly the nine cases, receipt what they did.
+     2	
+     3	CPU-only: the pytest subprocess is replaced by a runner that writes the JUnit XML the
+     4	real one would, so every refusal is exercised without a GPU.
+     5	"""
+     6	import json
+     7	import os
+     8	import subprocess
+     9	import sys
+    10	from pathlib import Path
+    11	from types import SimpleNamespace
+    12	
+    13	import pytest
+    14	
+    15	from tools import exp07_parity as parity
+    16	from tools import provenance as p
+    17	
+    18	REPO = Path(parity.__file__).resolve().parents[1]
+    19	DEVICE = 'NVIDIA RTX A6000'
+    20	SUITE = ('<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest" '
+    21	         'errors="0" failures="0" skipped="0" tests="{n}">{cases}</testsuite></testsuites>')
+    22	BODIES = {'passed': '', 'failed': '<failure message="m">boom</failure>',
+    23	          'error': '<error message="m">boom</error>', 'skipped': '<skipped message="no cuda"/>'}
+    24	
+    25	
+    26	def case(node, outcome):
+    27	    path, _, name = node.partition('::')
+    28	    return ('<testcase classname="{}" file="{}" name="{}" time="1.0">{}</testcase>'
+    29	            .format(path[:-len('.py')].replace('/', '.'), path, name, BODIES[outcome]))
+    30	
+    31	
+    32	def passing():
+    33	    return [(node, 'passed') for node in parity.TESTS]
+    34	
+    35	
+    36	def fake_pytest(cases=None, status=0, output=b'9 passed, 0 skipped\n'):
+    37	    """A stand-in for the pytest subprocess: writes the JUnit XML and returns its status."""
+    38	    cases = passing() if cases is None else cases
+    39	    def runner(command, **kwargs):
+    40	        junit = next(item for item in command if item.startswith('--junitxml='))
+    41	        Path(junit[len('--junitxml='):]).write_text(
+    42	            SUITE.format(n=len(cases), cases=''.join(case(*item) for item in cases)))
+    43	        return SimpleNamespace(returncode=status, stdout=output)
+    44	    return runner
+    45	
+    46	
+    47	@pytest.fixture
+    48	def parity_run(tmp_path, monkeypatch):
+    49	    monkeypatch.setattr(parity, 'cuda_device', lambda: DEVICE)
+    50	    # Whether this checkout happens to be dirty is not what these cases are about: a
+    51	    # worktree carries untracked review artefacts, a fresh clone does not, and either way
+    52	    # the same nine cases must be exercised.  So the fixture pins the precondition instead
+    53	    # of inheriting it.  The refusal is raised INSIDE provenance.checked_git_state, so the
+    54	    # patch goes one level below it -- at the git_state it reads -- and the real refusal,
+    55	    # not a re-implementation of it, is what the dirty cases below exercise.
+    56	    dirty = True
+    57	    monkeypatch.setattr(p, 'git_state', lambda repo: dict(
+    58	        HEAD='f' * 40, dirty=dirty, dirty_outside_worklog=dirty, diff_sha256=None,
+    59	        untracked=['.review-round9/codex.log'] if dirty else []))
+    60	    head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(REPO), text=True).strip()
+    61	    log = tmp_path / ('gpu_parity_' + head + '.log')
+    62	    def run(runner=None, commit=head, extra=('--allow-dirty',), dirty_checkout=True):
+    63	        nonlocal dirty
+    64	        dirty = dirty_checkout  # dirty outside worklog/ by default, hence --allow-dirty
+    65	        argv = ['--log', str(log), '--reviewed-commit', commit] + list(extra)
+    66	        return parity.main(argv, runner=fake_pytest() if runner is None else runner)
+    67	    return SimpleNamespace(log=log, head=head, run=run,
+    68	                           receipt=log.with_suffix('.receipt.json'),
+    69	                           junit=log.with_suffix('.junit.xml'))
+    70	
+    71	
+    72	def test_the_registered_node_ids_are_the_collected_gpu_cases():
+    73	    """The nine ids are real: pytest collects each of them from the two GPU files."""
+    74	    output = subprocess.check_output(
+    75	        [sys.executable, '-m', 'pytest', 'tests/test_exp07_trainer.py',
+    76	         'tests/test_exp07_eval_gpu.py', '--collect-only', '-q', '-p', 'no:cacheprovider'],
+    77	        cwd=str(REPO), text=True,
+    78	        env=dict(os.environ, PYTHONPATH=str(REPO), CUDA_VISIBLE_DEVICES=''))
+    79	    collected = {line.strip() for line in output.splitlines() if '::' in line}
+    80	    assert len(parity.TESTS) == 9 and len(set(parity.TESTS)) == 9
+    81	    assert set(parity.TESTS) <= collected
+    82	    everything = {item for item in collected if item.startswith('tests/test_exp07_eval_gpu.py')}
+    83	    assert everything == {item for item in parity.TESTS if 'eval_gpu' in item}
+    84	    assert sum('test_exp07_trainer.py' in item for item in parity.TESTS) == 4
+    85	
+    86	
+    87	def test_a_clean_nine_case_run_writes_a_bound_receipt(parity_run):
+    88	    receipt = parity_run.run()
+    89	    assert json.loads(parity_run.receipt.read_text()) == receipt
+    90	    assert receipt['passed'] is True and receipt['pytest_exit'] == 0
+    91	    assert receipt['tests'] == {node: 'passed' for node in parity.TESTS}
+    92	    assert receipt['git_head'] == receipt['reviewed_commit'] == parity_run.head
+    93	    assert receipt['cuda_device'] == DEVICE and receipt['schema_version'] == 1
+    94	    for key, path in (('log', parity_run.log), ('junit', parity_run.junit)):
+    95	        assert receipt[key]['path'] == str(path.resolve())
+    96	        assert receipt[key]['sha256'] == p.sha256_file(path)
+    97	    assert parity_run.log.read_bytes() == b'9 passed, 0 skipped\n'
+    98	    assert all(node in receipt['command'] for node in parity.TESTS)
+    99	
+   100	
+   101	@pytest.mark.parametrize('outcome', ['skipped', 'failed', 'error'])
+   102	def test_one_case_that_did_not_pass_is_refused(parity_run, outcome):
+   103	    cases = [(node, outcome if index == 3 else 'passed')
+   104	             for index, node in enumerate(parity.TESTS)]
+   105	    with pytest.raises(ValueError, match='did not pass'):
+   106	        parity_run.run(fake_pytest(cases))
+   107	    assert not parity_run.receipt.exists()
+   108	
+   109	
+   110	def test_a_missing_case_is_refused(parity_run):
+   111	    with pytest.raises(ValueError, match='missing'):
+   112	        parity_run.run(fake_pytest(passing()[:-1]))
+   113	    assert not parity_run.receipt.exists()
+   114	
+   115	
+   116	def test_an_unregistered_case_is_refused(parity_run):
+   117	    with pytest.raises(ValueError, match='unregistered'):
+   118	        parity_run.run(fake_pytest(passing() + [('tests/test_other.py::test_x', 'passed')]))
+   119	    assert not parity_run.receipt.exists()
+   120	
+   121	
+   122	def test_a_nonzero_pytest_exit_is_refused(parity_run):
+   123	    with pytest.raises(ValueError, match='pytest exited'):
+   124	        parity_run.run(fake_pytest(status=2))
+   125	    assert not parity_run.receipt.exists()
+   126	
+   127	
+   128	def test_the_log_and_the_receipt_are_never_overwritten(parity_run):
+   129	    parity_run.log.write_text('an older run')
+   130	    with pytest.raises(FileExistsError):
+   131	        parity_run.run()
+   132	    assert parity_run.log.read_text() == 'an older run' and not parity_run.receipt.exists()
+   133	
+   134	
+   135	def test_parity_must_run_at_the_reviewed_commit(parity_run):
+   136	    with pytest.raises(ValueError, match='reviewed commit'):
+   137	        parity_run.run(commit=parity_run.head + '~1')
+   138	    assert not parity_run.receipt.exists() and not parity_run.log.exists()
+   139	
+   140	
+   141	def test_without_a_visible_cuda_device_nothing_runs(parity_run, monkeypatch):
+   142	    def refuse():
+   143	        raise ValueError('no CUDA device is visible')
+   144	    monkeypatch.setattr(parity, 'cuda_device', refuse)
+   145	    def never(*args, **kwargs):
+   146	        raise AssertionError('pytest must not run without a GPU')
+   147	    with pytest.raises(ValueError, match='CUDA'):
+   148	        parity_run.run(never)
+   149	    assert not parity_run.log.exists() and not parity_run.receipt.exists()
+   150	
+   151	
+   152	def test_a_dirty_checkout_is_refused_without_the_override(parity_run):
+   153	    with pytest.raises(ValueError, match='allow-dirty'):
+   154	        parity_run.run(extra=())
+   155	    assert not parity_run.log.exists() and not parity_run.receipt.exists()
+   156	
+   157	
+   158	def test_a_clean_checkout_needs_no_override(parity_run):
+   159	    """The other half of that gate: nothing to override, so the run proceeds unaided."""
+   160	    receipt = parity_run.run(extra=(), dirty_checkout=False)
+   161	    assert receipt['git_state']['dirty_outside_worklog'] is False
+   162	    assert receipt['allow_dirty_used'] is False and receipt['passed'] is True
+   163	    assert json.loads(parity_run.receipt.read_text())['allow_dirty_used'] is False
+   164	
+   165	
+   166	def test_the_receipt_records_whether_the_override_was_used(parity_run):
+   167	    assert parity_run.run()['allow_dirty_used'] is True
+   168	
+   169	
+   170	def test_a_preexisting_junit_xml_is_refused(parity_run):
+   171	    """Blocker 2: the run owns its evidence, so a planted XML is never reused."""
+   172	    parity_run.junit.write_text(SUITE.format(n=9, cases=''.join(case(*v) for v in passing())))
+   173	    before = parity_run.junit.read_bytes()
+   174	    def never(*args, **kwargs):
+   175	        raise AssertionError('pytest must not run over someone else\'s JUnit XML')
+   176	    with pytest.raises(FileExistsError):
+   177	        parity_run.run(never)
+   178	    assert parity_run.junit.read_bytes() == before
+   179	    assert not parity_run.log.exists() and not parity_run.receipt.exists()
+   180	
+   181	
+   182	def test_the_child_runs_with_no_ambient_pytest_options(parity_run, monkeypatch):
+   183	    """PYTEST_ADDOPTS and any ini addopts are cleared: only these options select cases."""
+   184	    monkeypatch.setenv('PYTEST_ADDOPTS', '--help')
+   185	    seen = {}
+   186	    inner = fake_pytest()
+   187	    def runner(command, **kwargs):
+   188	        seen.update(command=command, env=kwargs['env'])
+   189	        return inner(command, **kwargs)
+   190	    parity_run.run(runner)
+   191	    assert seen['env']['PYTEST_ADDOPTS'] == ''
+   192	    assert seen['command'].count('-o') == 1
+   193	    assert seen['command'][seen['command'].index('-o') + 1] == 'addopts='
+   194	    assert any(item.startswith('--junitxml=') for item in seen['command'])
+   195	    assert seen['command'][-len(parity.TESTS):] == list(parity.TESTS)
+   196	
+   197	
+   198	def test_a_run_that_writes_no_junit_xml_is_refused(parity_run):
+   199	    """The reserved file is still empty: nothing ran, whatever the child's exit status."""
+   200	    def silent(command, **kwargs):
+   201	        return SimpleNamespace(returncode=0, stdout=b'usage: __main__.py [options]\n')
+   202	    with pytest.raises(ValueError, match='no JUnit XML'):
+   203	        parity_run.run(silent)
+   204	    assert not parity_run.receipt.exists()
+   205	
+   206	
+   207	def test_an_unparseable_junit_xml_is_refused(parity_run):
+   208	    def garbage(command, **kwargs):
+   209	        junit = next(item for item in command if item.startswith('--junitxml='))
+   210	        Path(junit[len('--junitxml='):]).write_text('this is not pytest XML')
+   211	        return SimpleNamespace(returncode=0, stdout=b'')
+   212	    with pytest.raises(ValueError, match='not parseable'):
+   213	        parity_run.run(garbage)
+   214	    assert not parity_run.receipt.exists()
+   215	
+   216	
+   217	def test_an_xml_without_test_cases_is_refused(parity_run):
+   218	    def empty(command, **kwargs):
+   219	        junit = next(item for item in command if item.startswith('--junitxml='))
+   220	        Path(junit[len('--junitxml='):]).write_text(
+   221	            '<testsuites><testsuite tests="9"/></testsuites>')
+   222	        return SimpleNamespace(returncode=0, stdout=b'')
+   223	    with pytest.raises(ValueError, match='missing parity cases'):
+   224	        parity_run.run(empty)
+   225	    assert not parity_run.receipt.exists()
+     1	"""Run the deferred GPU parity cases and publish a receipt of exactly what they did.
+     2	
+     3	Plan section 3: the bit-identity gate (four trainer cases) and the evaluator parity
+     4	(five cases) are GPU-only and are deferred until a device is free; they MUST pass before
+     5	any launch.  A log is not evidence of that -- a log saying ``9 failed`` is still a log --
+     6	so this entry point owns the run AND its evidence: it reserves the log and the JUnit XML
+     7	exclusively before spawning pytest (an existing one at either path is refused, never
+     8	reused), clears the ambient pytest options, executes exactly the nine registered node ids
+     9	under that one pytest, refuses anything that is missing, skipped, failed, unregistered or
+    10	that left the reserved XML unwritten, and writes an immutable receipt naming each case
+    11	with the outcome PARSED FROM THAT XML, the
+    12	pytest exit status, the reviewed commit the checkout is at, the CUDA device the cases ran
+    13	on and the digests of the log and the JUnit XML.  The record binder takes that receipt as
+    14	``--evidence gpu_parity=<receipt>`` and re-checks all of it, including that the checkout
+    15	was clean (``--allow-dirty`` exists for rehearsals and is refused as record evidence).
+    16	
+    17	    python tools/exp07_parity.py --log <record>/gpu_parity_<commit>.log \\
+    18	        --reviewed-commit <commit> --gpu 1
+    19	"""
+    20	import argparse
+    21	import json
+    22	import os
+    23	import subprocess
+    24	import sys
+    25	from pathlib import Path
+    26	from xml.etree import ElementTree
+    27	
+    28	from tools import provenance as p
+    29	
+    30	REPO = Path(__file__).resolve().parents[1]
+    31	TRAINER = 'tests/test_exp07_trainer.py::test_unseen_step_bit_identical_to_the_trainer'
+    32	EVAL_GPU = 'tests/test_exp07_eval_gpu.py::'
+    33	# The registered parity set (Codex round-6 review, "Deferred GPU tests"): every id is
+    34	# checked against pytest's own collection by tests/test_exp07_parity.py.
+    35	TESTS = tuple([TRAINER + '[{}-{}-32]'.format(yaw, backbone)
+    36	               for yaw in ('False', 'True') for backbone in ('simple', 'cylindrical')] +
+    37	              [EVAL_GPU + 'test_unseen_32_query_run_is_bit_identical_to_exp04'] +
+    38	              [EVAL_GPU + name + '[{}]'.format(shot)
+    39	               for name in ('test_seen_final_batch_matches_a_direct_frozen_call',
+    40	                            'test_the_launcher_runs_the_seen_split_and_matches_the_frozen_functions')
+    41	               for shot in (8, 1)])
+    42	OUTCOMES = {'failure': 'failed', 'error': 'error', 'skipped': 'skipped'}
+    43	
+    44	
+    45	def require(ok, message):
+    46	    if not ok:
+    47	        raise ValueError(message)
+    48	
+    49	
+    50	def cuda_device():
+    51	    """The device the parity cases will run on; without one they would only skip."""
+    52	    import torch
+    53	    require(torch.cuda.is_available(), 'no CUDA device is visible: parity cannot run')
+    54	    return torch.cuda.get_device_name(torch.cuda.current_device())
+    55	
+    56	
+    57	def command(junit):
+    58	    # -o addopts= together with the cleared PYTEST_ADDOPTS in run(): no ambient option may
+    59	    # turn this into a collection, a help screen or a different set of cases.
+    60	    return [sys.executable, '-m', 'pytest', '-q', '-p', 'no:cacheprovider', '-o', 'addopts=',
+    61	            '--junitxml=' + str(junit)] + list(TESTS)
+    62	
+    63	
+    64	def outcomes(junit):
+    65	    """Node id -> outcome, read from pytest's own JUnit XML rather than from the log."""
+    66	    result = {}
+    67	    for case in ElementTree.parse(str(junit)).getroot().iter('testcase'):
+    68	        name = case.get('file') or (case.get('classname', '').replace('.', '/') + '.py')
+    69	        node = name + '::' + case.get('name')
+    70	        outcome = 'passed'
+    71	        for child in case:
+    72	            outcome = OUTCOMES.get(child.tag, outcome)
+    73	        require(node not in result, 'duplicate test case: ' + node)
+    74	        result[node] = outcome
+    75	    return result
+    76	
+    77	
+    78	def parsed_outcomes(junit):
+    79	    """:func:`outcomes`, refusing a file that is not pytest's own XML at all."""
+    80	    try:
+    81	        return outcomes(junit)
+    82	    except ElementTree.ParseError as error:
+    83	        raise ValueError('the parity JUnit XML is not parseable: ' + str(error))
+    84	
+    85	
+    86	def reserve(*paths):
+    87	    """Claim every output path exclusively, or create none of them; return the earliest mtime.
+    88	
+    89	    ``O_CREAT | O_EXCL`` before pytest is spawned is what makes the evidence this
+    90	    invocation's own: a file left by an earlier run -- or planted by someone who wants a
+    91	    passing receipt without a run -- is refused instead of reused or overwritten.
+    92	    """
+    93	    created, times = [], []
+    94	    try:
+    95	        for path in paths:
+    96	            os.close(os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644))
+    97	            created.append(Path(path))
+    98	            times.append(created[-1].stat().st_mtime)
+    99	    except BaseException:
+   100	        for item in created:
+   101	            item.unlink()
+   102	        raise
+   103	    return min(times)
+   104	
+   105	
+   106	def check(recorded, status):
+   107	    """Exactly the nine registered cases, all passed, under a successful pytest exit."""
+   108	    missing = [node for node in TESTS if node not in recorded]
+   109	    require(not missing, 'missing parity cases: ' + ', '.join(missing))
+   110	    unregistered = sorted(set(recorded) - set(TESTS))
+   111	    require(not unregistered, 'unregistered parity cases: ' + ', '.join(unregistered))
+   112	    refused = sorted(node for node in TESTS if recorded[node] != 'passed')
+   113	    require(not refused, 'parity cases did not pass: ' + ', '.join(
+   114	        '{} ({})'.format(node, recorded[node]) for node in refused))
+   115	    require(status == 0, 'pytest exited ' + str(status))
+   116	
+   117	
+   118	def run(log, junit, gpu, runner):
+   119	    """Run the nine cases once, into output paths this invocation reserved for itself.
+   120	
+   121	    Both the log and the JUnit XML are created exclusively BEFORE pytest is spawned, and
+   122	    the XML the child leaves behind must be newer than that reservation and non-empty, so
+   123	    a run that collected nothing -- the child was turned into ``--help``, say -- cannot be
+   124	    receipted against someone else's passing XML.
+   125	    """
+   126	    reserved = reserve(log, junit)
+   127	    environment = dict(os.environ, PYTHONPATH=str(REPO), PYTHONDONTWRITEBYTECODE='1',
+   128	                       PYTHONHASHSEED='0', OMP_NUM_THREADS='2', PYTEST_ADDOPTS='')
+   129	    if gpu is not None:
+   130	        environment['CUDA_VISIBLE_DEVICES'] = str(gpu)
+   131	    argv = command(junit)
+   132	    completed = runner(argv, cwd=str(REPO), env=environment, stdout=subprocess.PIPE,
+   133	                       stderr=subprocess.STDOUT)
+   134	    output = completed.stdout if isinstance(completed.stdout, bytes) else b''
+   135	    with open(str(log), 'r+b') as stream:  # the reserved, still empty, log of this run
+   136	        stream.write(output)
+   137	        stream.truncate()
+   138	        stream.flush()
+   139	        os.fsync(stream.fileno())
+   140	    print(output.decode('utf-8', 'replace'), flush=True)
+   141	    written = Path(junit).stat()
+   142	    require(written.st_size > 0 and written.st_mtime >= reserved,
+   143	            'pytest wrote no JUnit XML over the reserved one: no parity case ran')
+   144	    return completed.returncode, argv
+   145	
+   146	
+   147	def collect(log, reviewed_commit, gpu=None, junit=None, out=None, allow_dirty=False,
+   148	            runner=subprocess.run):
+   149	    log = Path(log)
+   150	    junit = Path(junit) if junit else log.with_suffix('.junit.xml')
+   151	    out = Path(out) if out else log.with_suffix('.receipt.json')
+   152	    head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(REPO), text=True).strip()
+   153	    commit = subprocess.check_output(['git', 'rev-parse', reviewed_commit + '^{commit}'],
+   154	                                     cwd=str(REPO), text=True).strip()
+   155	    require(commit == head, 'parity must run at the reviewed commit: ' + commit + ' != ' + head)
+   156	    state = p.checked_git_state(REPO, True, allow_dirty)
+   157	    device = cuda_device()
+   158	    status, argv = run(log, junit, gpu, runner)
+   159	    recorded = parsed_outcomes(junit)
+   160	    check(recorded, status)
+   161	    receipt = dict(schema_version=1, passed=True, tests=dict(recorded),
+   162	                   n_tests=len(TESTS), pytest_exit=status, git_head=head,
+   163	                   reviewed_commit=commit, git_state=state, cuda_device=device, gpu=gpu,
+   164	                   allow_dirty_used=bool(allow_dirty and state['dirty_outside_worklog']),
+   165	                   command=argv, python=sys.executable, environment=p.environment(),
+   166	                   log=dict(path=str(log.resolve()), sha256=p.sha256_file(log)),
+   167	                   junit=dict(path=str(junit.resolve()), sha256=p.sha256_file(junit)))
+   168	    p.write_manifest(out, receipt)
+   169	    print('wrote ' + str(out), flush=True)
+   170	    return receipt
+   171	
+   172	
+   173	def main(argv=None, runner=subprocess.run):
+   174	    parser = argparse.ArgumentParser(description=__doc__)
+   175	    parser.add_argument('--log', required=True, help='parity log; created exclusively')
+   176	    parser.add_argument('--reviewed-commit', required=True)
+   177	    parser.add_argument('--gpu', help='physical device for CUDA_VISIBLE_DEVICES')
+   178	    parser.add_argument('--junit', help='default: the log path with a .junit.xml suffix')
+   179	    parser.add_argument('--out', help='default: the log path with a .receipt.json suffix')
+   180	    parser.add_argument('--allow-dirty', action='store_true',
+   181	                        help='run outside a clean checkout; the record binder refuses such evidence')
+   182	    args = parser.parse_args(argv)
+   183	    return collect(args.log, args.reviewed_commit, args.gpu, args.junit, args.out,
+   184	                   args.allow_dirty, runner)
+   185	
+   186	
+   187	if __name__ == '__main__':
+   188	    try:
+   189	        print(json.dumps(main(), sort_keys=True, indent=2, allow_nan=False))
+   190	    except (ValueError, OSError, RuntimeError, KeyError) as error:
+   191	        raise SystemExit(str(error))
+140-            hashlib.sha256(blob.stdout).hexdigest() if blob.returncode == 0 else None,
+141-            'working_tree_sha256': sha256_file(path), 'commits_after_reviewed': later,
+142-            'mtime': datetime.datetime.fromtimestamp(path.stat().st_mtime).astimezone().isoformat()})
+143-    digest = hashlib.sha256(json.dumps([[r['path'], r['reviewed_blob_sha256']]
+144-        for r in records], sort_keys=True).encode()).hexdigest()
+145-    return records, digest
+146-
+147-
+148:def git_state(repo):
+149-    """Record untracked names separately; diff_sha256 hashes tracked changes only."""
+150-    head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=repo, text=True).strip()
+151-    status = subprocess.check_output(['git', 'status', '--porcelain', '-z', '--untracked-files=all'], cwd=repo, text=True)
+152-    paths, untracked, entries = [], [], iter(status.split('\0'))
+153-    for entry in entries:
+154-        if entry:
+155-            paths.append(entry[3:])
+156-            if entry.startswith('?? '):
+157-                untracked.append(entry[3:])
+158-            if 'R' in entry[:2] or 'C' in entry[:2]:
+159-                paths.append(next(entries))  # Include the source path of a rename/copy.
+160-    dirty = bool(status)
+161-    diff = subprocess.check_output(['git', 'diff', 'HEAD'], cwd=repo) if dirty else None
+162-    return {'HEAD': head, 'dirty': dirty, 'untracked': sorted(untracked),
+163-            'dirty_outside_worklog': any(not path.startswith('worklog/') for path in paths),
+164-            'diff_sha256': hashlib.sha256(diff).hexdigest() if dirty else None}
+165-
+166-
+167:def checked_git_state(repo, confirmatory, allow_dirty=False):
+168-    """Gate confirmatory launches, allowing notebook-only edits without an override."""
+169-    state = git_state(repo)
+170-    if state['dirty_outside_worklog']:
+171-        if confirmatory and not allow_dirty:
+172-            raise ValueError('dirty_outside_worklog requires --allow-dirty')
+173-        print('WARNING: dirty_outside_worklog', flush=True)
+174-    return state
+175-
+176-
+177-def environment():
+178-    versions = {name: importlib.import_module(name).__version__ for name in
+179-                ('torch', 'torchaudio', 'torchvision', 'einops', 'numpy', 'scipy')}
+180-    torch = importlib.import_module('torch')
+181-    try:
+182-        driver = subprocess.check_output(['nvidia-smi', '--query-gpu=driver_version',
+183-            '--format=csv,noheader'], stderr=subprocess.DEVNULL, text=True).splitlines()
+184-    except (OSError, subprocess.CalledProcessError):
+185-        driver = None
+tests/test_exp07_launcher_run.py-22-    """Stub the expensive parts of build_fields; the seen bindings stay real."""
+tests/test_exp07_launcher_run.py-23-    files = sorted(launch.train_minimum())
+tests/test_exp07_launcher_run.py-24-    monkeypatch.setattr(launch.p, 'source_closure', lambda module, repo: files)
+tests/test_exp07_launcher_run.py-25-    monkeypatch.setattr(launch.p, 'closure_record', lambda paths, commit, repo: ([
+tests/test_exp07_launcher_run.py-26-        dict(path=name, reviewed_blob_sha256='same', working_tree_sha256='same',
+tests/test_exp07_launcher_run.py-27-             commits_after_reviewed=[]) for name in paths], 'closure'))
+tests/test_exp07_launcher_run.py-28-    monkeypatch.setattr(launch.p, 'environment', lambda: {'executable': launch.PYTHON})
+tests/test_exp07_launcher_run.py:29:    monkeypatch.setattr(launch.p, 'git_state', lambda repo: {'dirty_outside_worklog': False})
+tests/test_exp07_launcher_run.py-30-    calls = []
+tests/test_exp07_launcher_run.py-31-
+tests/test_exp07_launcher_run.py-32-    def inventory(root, protocol='seen', cache_path=None):
+tests/test_exp07_launcher_run.py-33-        calls.append((root, protocol, str(cache_path)))
+tests/test_exp07_launcher_run.py-34-        return {'inventory_files': launch.TRAIN_FILES[protocol]}
+tests/test_exp07_launcher_run.py-35-
+tests/test_exp07_launcher_run.py-36-    monkeypatch.setattr(launch.e7p, 'train_data_identity', inventory)
+tests/test_exp07_launcher_run.py-37-    return calls
+tests/test_exp07_launcher_run.py-38-
+tests/test_exp07_launcher_run.py-39-
+--
+tests/test_exp04_launcher.py-92-@pytest.fixture
+tests/test_exp04_launcher.py-93-def fake_manifest_inputs(monkeypatch):
+tests/test_exp04_launcher.py-94-    monkeypatch.setattr(launch.p, 'source_closure', lambda module, repo: sorted(launch.TRAIN_MINIMUM))
+tests/test_exp04_launcher.py-95-    monkeypatch.setattr(launch.p, 'closure_record', lambda files, commit, repo: ([
+tests/test_exp04_launcher.py-96-        dict(path=name, reviewed_blob_sha256='same', working_tree_sha256='same',
+tests/test_exp04_launcher.py-97-             commits_after_reviewed=[]) for name in files], 'closure'))
+tests/test_exp04_launcher.py-98-    monkeypatch.setattr(launch.p, 'environment', lambda: {'executable': launch.PYTHON})
+tests/test_exp04_launcher.py:99:    monkeypatch.setattr(launch.p, 'git_state', lambda repo: {'HEAD': 'commit', 'dirty_outside_worklog': False})
+tests/test_exp04_launcher.py-100-    def inventory(root, cache_path):
+tests/test_exp04_launcher.py-101-        assert cache_path == launch.REPO / 'ckpt/yaw_aug/train_inventory.json'
+tests/test_exp04_launcher.py-102-        return {'inventory_files': 296334}
+tests/test_exp04_launcher.py-103-    monkeypatch.setattr(launch.p, 'train_data_identity', inventory)
+tests/test_exp04_launcher.py-104-
+tests/test_exp04_launcher.py-105-
+tests/test_exp04_launcher.py-106-def test_manifest_binds_import_closure_data_args_environment(fake_manifest_inputs):
+tests/test_exp04_launcher.py-107-    command = launch.command('smoke', 'attempt')
+tests/test_exp04_launcher.py-108-    fields = launch.build_fields(command, '1', 'commit', 'smoke')
+tests/test_exp04_launcher.py-109-    assert fields['effective_args']['train_batches_per_epoch'] == 74084
+--
+tests/test_exp04_launcher.py-112-    assert fields['env']['CUDA_VISIBLE_DEVICES'] == '1'
+tests/test_exp04_launcher.py-113-    assert {r['path'] for r in fields['source_closures']['training']['files']} >= launch.TRAIN_MINIMUM
+tests/test_exp04_launcher.py-114-
+tests/test_exp04_launcher.py-115-
+tests/test_exp04_launcher.py-116-@pytest.mark.parametrize('mode,allow', [('full', False), ('full', True), ('smoke', False), ('probe', False)])
+tests/test_exp04_launcher.py-117-def test_dirty_training_gate(fake_manifest_inputs, tmp_path, monkeypatch, capsys, mode, allow):
+tests/test_exp04_launcher.py-118-    state = {'dirty_outside_worklog': True}
+tests/test_exp04_launcher.py:119:    monkeypatch.setattr(launch.p, 'git_state', lambda repo: state)
+tests/test_exp04_launcher.py-120-    monkeypatch.setattr(launch, 'REPO', tmp_path)
+tests/test_exp04_launcher.py-121-    control = tmp_path / 'ckpt/xRIR_simple_8_shot/args.json'
+tests/test_exp04_launcher.py-122-    control.parent.mkdir(parents=True)
+tests/test_exp04_launcher.py-123-    control.write_text('{}')
+tests/test_exp04_launcher.py-124-    monkeypatch.setattr(launch, 'compare_control', lambda *a: {})
+tests/test_exp04_launcher.py-125-    command = launch.command('full' if mode == 'full' else 'smoke', 'attempt')
+tests/test_exp04_launcher.py-126-    if mode == 'full' and not allow:
+tests/test_exp04_launcher.py-127-        with pytest.raises(ValueError, match='dirty_outside_worklog'):
+tests/test_exp04_launcher.py-128-            launch.build_fields(command, '1', 'commit', mode, allow)
+tests/test_exp04_launcher.py-129-    else:
+tests/test_exp04_launcher.py-130-        fields = launch.build_fields(command, '1', 'commit', mode, allow)
+tests/test_exp04_launcher.py:131:        assert fields['git_state'] == state and fields['allow_dirty'] == allow
+tests/test_exp04_launcher.py-132-        assert 'WARNING' in capsys.readouterr().out
+tests/test_exp04_launcher.py-133-
+tests/test_exp04_launcher.py-134-
+tests/test_exp04_launcher.py-135-@pytest.mark.parametrize('failure', ['missing', 'modified', 'unreviewed', 'later'])
+tests/test_exp04_launcher.py-136-def test_training_closure_refusal(fake_manifest_inputs, monkeypatch, failure):
+tests/test_exp04_launcher.py-137-    if failure == 'missing':
+tests/test_exp04_launcher.py-138-        monkeypatch.setattr(launch.p, 'source_closure', lambda *a: ['train_xRIR_backbone.py'])
+tests/test_exp04_launcher.py-139-    else:
+tests/test_exp04_launcher.py-140-        record = dict(path='trainer', reviewed_blob_sha256='same', working_tree_sha256='same',
+tests/test_exp04_launcher.py-141-                      commits_after_reviewed=[])
+#!/bin/bash
+set -uo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." || exit 2
+export CUDA_VISIBLE_DEVICES='' PYTHONPATH="$PWD" PYTHONDONTWRITEBYTECODE=1
+export XRIR_DATA_PATH="${XRIR_DATA_PATH:-/home/yixunhu/data_cache/AcousticRooms}"
+record_assets=worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets
+record_producers="tools/exp07_record.py tools/exp07_profiles.py tools/exp07_table.py tools/exp07_pairs.py
+tools/exp07_train.py tools/exp07_provenance.py tools/exp07_launcher.py tools/exp07_probe.py
+tools/exp07_gates.py tools/exp07_eval.py tools/exp07_eval_launch.py tools/exp07_audit.py
+tools/exp07_manifests.py tools/exp07_calibration.py tools/exp07_parity.py"
+record_python=/home/yixunhu/miniconda3/envs/xRIR/bin/python
+record_status=0
+"$record_python" -c 'import py_compile,sys,tempfile; cache=tempfile.TemporaryDirectory(); [py_compile.compile(p,cfile=cache.name+"/"+str(i)+".pyc",doraise=True) for i,p in enumerate(sys.argv[1:])]' \
+    "$record_assets"/{make_results_md,make_results_html,make_latex,bind_provenance,check_record}.py \
+    $record_producers || record_status=1
+git diff --check -- "$record_assets" $record_producers tools/exp07_launch.sh || record_status=1
+bash -n tools/exp07_launch.sh || record_status=1
+"$record_python" -m pytest tests/test_exp07_record_tools.py tests/test_exp07_table.py \
+    tests/test_exp07_pairs.py tests/test_exp07_profiles.py tests/test_exp07_calibration.py \
+    tests/test_exp07_parity.py -q -p no:cacheprovider || record_status=1
+# Both collection orders: the record assets of exp_03, exp_04 and exp_07 share file names.
+"$record_python" -m pytest tests/test_exp07_record_tools.py tests/test_exp04_record_tools.py \
+    tests/test_exp03_record_tools.py -q -p no:cacheprovider || record_status=1
+"$record_python" -m pytest tests/test_exp03_record_tools.py tests/test_exp04_record_tools.py \
+    tests/test_exp07_record_tools.py -q -p no:cacheprovider || record_status=1
+exit "$record_status"
+
+exec
+/bin/bash -lc "rg --files /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/announcement
+sed -n '/"'^## 11'"\\./,"'$p'"' worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/plan_yaw_aug_xrir.md
+sed -n '/"'^## 10a'"\\./,/"'^## 11/p'"' worklog/worklog_yixun/exp_05_param_efficiency_claude/plan_param_efficiency.md" in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 0ms:
+## 11. v4 changelog (responses to the round-3 plan review)
+
+**Amendments during implementation (logged in the notebook):** (A1, 2026-09-12 15:1x) the empirical-uniformity test uses a chi-square sanity bound (χ² < 700 over 512 bins, 511 d.o.f.) instead of a ±5 % per-bin rule, which rejects a correct generator at 10^6 draws. (A2, same time) `rotate_scene_yaw_batch` is implemented in `tools/yaw_aug.py`, not in `tools/yaw_rotation.py`, which stays byte-identical to exp_03's reviewed state so exp_03's committed closure pins remain valid; the exp_04 training closure therefore contains the unchanged `tools/yaw_rotation.py` plus `tools/yaw_aug.py` (the §5 table's first row is read with this relocation). (A3, 2026-09-12 16:0x) The same rule applies to every member of exp_03's pinned closure, in particular `eval_yaw_rotation.py`: the evaluation-manifest handshake, the `--conditions P` mode and the tier/provenance metadata of §4/§5 are implemented in a NEW entry point `tools/exp04_eval.py` that imports `eval_yaw_rotation`'s functions unchanged (same outputs for the same inputs, tested on a 32-query subset), and `eval_yaw_rotation.py` is not edited; the §5 row "`eval_yaw_rotation.py`" is read as "`tools/exp04_eval.py`". (A4, same time) The trainer's counter uses `batches_per_epoch = len(train_loader)` (recorded in `args.json`, injectivity `epochs × batches_per_epoch < 2^20` asserted); the confirmatory run's launcher asserts `batches_per_epoch == 9261`, so the registered counter `t = (epoch−1)·9261 + batch_idx` holds for the reported run while smokes with other loader lengths remain possible. §2's counter sentence and the banner are read as `t = (epoch−1)·B + batch_idx`, `B = len(train_loader)` (banner `counter=(epoch-1)*<B>+batch_idx`; B = 9261 for the confirmatory run). (A5, 2026-09-12 16:3x, from the Fable round-2 review, finding 3) The trainer's `args.json` now carries `train_batches_per_epoch` and `env`, which the exp_01 control's `args.json` lacks; the §2 type-strict `effective_args` diff compares `train_batches_per_epoch` against the value reconstructed for the control by the same loader arithmetic (ceil(296334/32) = 9261) and treats `env` as the schema's environment block (control values reconstructed from the exp_01 record; `PYTHONHASHSEED` excluded as already specified). (A6, 2026-09-12 18:4x, from the Fable round-3b review, finding 2) `CUDA_VISIBLE_DEVICES` is excluded from the control-parity diff: the device index is not a recipe parameter (both cards are identical RTX A6000s; exp_01's control trained on GPU 1), and the treatment trains on whichever card the launcher is given (`--gpu`), recorded in `effective_args.json`; §5/§7's `CUDA_VISIBLE_DEVICES=0` is read as `<gpu>`. (A7, same time, finding 3) Finalisation policy: after the child exits the launcher re-hashes the genuinely mutable inputs strictly (`effective_args.json`, `train_manifest.json`, the control's `args.json`, the bound probe receipt, the training-split inventory) but compares the source closures against the immutable `reviewed_blob_sha256` recorded at spawn; working-tree drift of closure files after spawn cannot affect the running interpreter and is recorded in `completion.json` as `source_drift_after_spawn` instead of aborting; a `finalize <attempt_dir>` mode re-runs output validation → revalidation → completion → promotion for a preserved attempt once the child's process group is gone and the log sink is closed. (A8, same time, finding 10) The 43 h cumulative ceiling of §7 counts `full` attempts only; smoke and probe attempts are recorded in `cumulative_hours.json` with their mode but not summed. (A9, 2026-09-12 19:0x, from the Coder's round-4 report) The approved closure digests (evaluator, manifest writer, launchers, producers) are NOT stored inside `tools/exp04_profiles.py` — the producers import that module, so its own digest would be circular — but in a committed, runtime-read JSON `worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results_assets/approved_digests.json` (not imported, hence outside every import-derived closure); every producer records that file's sha256 and git blob in its provenance sidecar, the profiles keep every other field, and the second reviewed commit fills the JSON. Schema (settled 2026-09-12 19:2x after the Fable round-4 review): `{schema_version, closures: {evaluator, writer, training_launcher, producer_paired_compare, producer_results_table}, checkpoints: {aug: {path, epoch, sha256}}}`; the producers compare `evaluator`, `writer` and their own producer key only — the training launcher's identity reaches the analysis through the augmented checkpoint's sha256 and the train completion bound as `mutable_inputs.train_completion`, so `training_launcher` is recorded, not compared; the augmented checkpoint's sha256 lives in the JSON (not in the profile module) so that the producer closures are independent of the pin. Fill sequence after training: pin the aug sha256 → compute the producer closures → fill the JSON → second reviewed commit. `--exploratory` may run with unapproved pins, each recorded as a listed deviation (diagnostics only; no verdict). (A10, 2026-09-12 19:3x, from the Fable round-3b close-out review, finding 4) An attempt certified by `finalize` after an abort is renamed back to `attempt_<ts>` on success, its abort history (`abort.json`, the `_ABORTED_<reason>` name it carried, recovery timestamp) is recorded in `completion.json` under `recovered_from`, and `final` never points at an `_ABORTED_` directory. (Extension, 2026-09-12 22:3x, round 7: the attempt's log is renamed back alongside the directory; `recovered_from.log` records the aborted log name and `completion.log.path` the canonical one.)
+
+0 (user correction, 2026-09-12) the training source closure now explicitly includes `utils/lr_scheduler.py` (the trainer imports `ExponentialLR` from it) and is computed by importing the trainer, with the enumerated files as a required minimum, so a hand-written list cannot omit a dependency again.
+
+1 complete training argv and environment (`--log-interval 50`, `XRIR_DATA_PATH`, `OMP_NUM_THREADS=2`, interpreter), one normalised args/environment schema with one exclusion list, directory lifecycle (absent → exclusive → whitelisted pre-run files), strict `resume is None` / `save_every == 0` guards; 2 `eval_yaw_rotation.py` and a reusable `tools/provenance.py` added to the file table, launcher-owned finalisation after the log sink closes with full revalidation, execution-bound training manifest/completion before promotion, exp_01 provenance labelled reconstructed, mutation/stale/failure tests; 3 H1's all-seed both-arm mask; 4 profiles pin schema versions, approved closure digests, dataset identity and role-specific grids, producers validate them independently, `results_table.py` given an exact CLI, canonical JSON with sidecar and admission tests, downstream readers verify sidecars; 5 `--conditions P` mode, canonical k = 0 inputs pinned (standalone runs → H1/table; blocks → H2/TOST), descriptive D_k narrowed; 6 alignment audit assigned to a reviewed helper with a hashed artefact and the denominator 12 800; 7 superiority pinned to [Q_0.0125, Q_0.9875] within the convergence gate.
+
+## 12. v3 changelog (responses to the round-2 plan review)
+
+1 the augmented arm's five-seed P block covers the eight-angle union, so every TOST cell has five seeds; TOST declared one-arm; budget 17 h; 2 convergence gate defined on the companion intervals whose upper endpoint is the decision bound, bootstrap seeds 0/1, canonical artefacts withheld until it passes; 3 evaluation manifest made operationally immutable (exclusive directory, evaluator `--eval-manifest` handshake, digest echoed into outputs, post-run recheck, completion sidecar), training/evaluator/writer/producer closures bound, helpers generalised with an exp_04 reviewed commit; 4 producer driven by hard-coded profiles (`tools/exp04_profiles.py`), exact CLI, one-arm TOST, per-cell masks over all seeds, plain averaging, non-self-referential provenance sidecar; 5 exact smoke/full argv with `--save-every 0 --epoch-ckpt-every 1`, native names, immutable attempt directories with `_ABORTED_` preservation and promotion, 43 h cumulative ceiling; 6 alignment policy fixed (rotated geometry, integer-delay-only descriptive audit on a deterministic cohort, no branch); 7 seed boundary tests enumerated, `effective_args` allowlist, `PYTHONHASHSEED=0` pinned by the launcher, numeric GPU/disk gates, epoch-1 gate 2.431 h with 2.6 h as an abort ceiling; golden vectors pinned to the reviewer's independently computed values.
+
+## 13. v2 changelog (responses to the round-1 plan review)
+
+1 seed mapping pinned with the verbatim mixer, golden vectors and a full-domain collision check; 2 no resume for the reportable arm; 3 five-seed paired evaluation, fresh comparators, living table; 4 one-sided quantiles specified, dedicated helper; 5 H2 C50-primary with EDT supportive, TOST angles/family/alpha listed, no omnibus rule, descriptive-only labelled; 6 immutable evaluation manifests; 7 fail-closed producer specification; 8 single-delta wording qualified, operational differences enumerated, `PYTHONHASHSEED` recorded; 9 alignment audit with a pre-registered rule; 10 tests, no-save smoke, overhead gate, launcher preflight, final integrative review; 11 counts and budgets corrected (296 334 / 9 261 / 4 631; 28.2 h), confirmatory matrix pinned, seen split dropped; 12 test count not hard-coded.
+## 10a. Amendments during implementation (logged in the notebook)
+
+(A1, 2026-09-12 22:5x, from the Fable round-1 review, finding 4) §7 item 6's normalisation of fields absent from the historical M records reads `yaw_aug → 0`, `yaw_aug_seed → the run's seed` (the trainer resolves `None` to `args.seed`, so a literal `None` would make the type-strict diff refuse every run), `yaw_aug_width → 512`, `no_save → false`; a nonzero `yaw_aug` is refused outright. (A2, same time, from finding 1) The launcher's golden check ties the `--save-dir` arm root `ckpt/exp05/<tier>_<backbone>/` to the argv's `--backbone` and tier flags; a mismatch is refused before any directory is created. (A3, same time) Golden files are named `argv_golden_{S,L}_{simple,cylindrical}.txt` (one naming convention with the arm directories). (A4, same time, from observation 10) The L tier's fit at micro-batch 32 is at the edge of a 48 GB card (≈ 43.7 GiB extrapolated for one micro-batch step, TF32 on); the §7 fit probe for L runs on a completely free GPU, and §9's redesign branch (L at dim 640 if 32 × 2 does not fit) stays live until that probe passes. (A5, 2026-09-12 23:3x, from the Fable round-2 review, finding 3) §3's "exceeding the cumulative ceiling requires renewed authorisation" has a code path: `tools/exp04_launch.sh full --tier <t> … --renew-ceiling "<notebook entry timestamp>: <reason>"` records a `renewals` entry (timestamp, reason, old ceiling, new ceiling = 1.5 × the NEW clean receipt's T_run, receipt digest) in the arm's `cumulative_hours.json` and resets the ceiling to the new projection; without the flag the ceiling is `min(1.5 × T_run(receipt), recorded ceiling)` as implemented; every renewal is logged in the notebook before launch. (A6, same time, finding 4) The S/L evaluation launches bind the attempt's training completion (`--bind-input train_completion=ckpt/exp05/<arm>/final/completion.json`), and `tools/param_curve.py` admits an S/L run only if the run's `checkpoint_sha256` equals `train_completion.outputs['epoch_012.pth']` of the bound completion (the profile's literal epoch 12 is thereby machine-checked); the M arms are bound through the profile's pinned sha256 as before. (A7, 2026-09-12 23:5x, from the Fable round-3 review, finding 4) §5's generic "Cohorts (registered)" bullet is read as: a plotted curve point and its seed SD use the arm's own cohort (queries finite for all five seeds of that arm and metric); a comparison cell — including the fixed target of an H2 cell — uses the paired cohort (queries finite for all five seeds in both arms of the cell), the baseline's own-cohort mean being shown separately and labelled with both cohort sizes; this is the amended H2 rule the producer implements. (A8, same time, finding 1) The tier curve's single-delta contract is machine-checked: the producer admits an S/L run only with `train_manifest` and `train_completion` bound, requires the four new arms' training-launcher closure digests to equal each other and the approved `closures.training_launcher` pin, and checks the full §3 recipe keys (`num_shot, max_len, lr, weight_decay, decay_epochs, lr_gamma, epochs, batch_size, accum_steps, seed, tf32`) of the bound `args.json`. (A9, 2026-09-14 14:4x, from the Fable round-4 review, item 5) The approval record's `closures.training_launcher` is a LIST of approved training-launcher closure digests — `0bff0d4f…` (launch commit `f19b9b6`: S_simple, S_cylindrical, L_cylindrical) and `efde5a31…` (commit `f7b10b5`, round 4: receipt/arm binding and preflight ordering only; L_simple) — each reviewed; the producer requires every new arm's recorded launcher digest to be in the list and, as the single-delta check proper, the four arms' TRAINING closure digests (trainer + its imports, unchanged since `f19b9b6`) to be equal to each other and to the approved `closures.training` pin, and the §3 recipe dict to match type-strictly.
+
+## 11. v2 changelog (responses to the round-1 plan review)
+
+exec
+/bin/bash -lc "sed -n '150,230p' tests/test_exp07_parity.py
+sed -n '50,118p' tools/exp07_parity.py
+rg --files -g AGENTS.md -g conftest.py -g pytest.ini -g pyproject.toml -g setup.cfg -g tox.ini tests tools .
+git log --oneline e6b70e0..cf46275
+git diff --check e6b70e0..cf46275
+/home/yixunhu/miniconda3/envs/xRIR/bin/python --version
+ps -eo pid,pcpu,comm --sort=-pcpu | head -n 8" in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 0ms:
+
+
+def test_a_dirty_checkout_is_refused_without_the_override(parity_run):
+    with pytest.raises(ValueError, match='allow-dirty'):
+        parity_run.run(extra=())
+    assert not parity_run.log.exists() and not parity_run.receipt.exists()
+
+
+def test_a_clean_checkout_needs_no_override(parity_run):
+    """The other half of that gate: nothing to override, so the run proceeds unaided."""
+    receipt = parity_run.run(extra=(), dirty_checkout=False)
+    assert receipt['git_state']['dirty_outside_worklog'] is False
+    assert receipt['allow_dirty_used'] is False and receipt['passed'] is True
+    assert json.loads(parity_run.receipt.read_text())['allow_dirty_used'] is False
+
+
+def test_the_receipt_records_whether_the_override_was_used(parity_run):
+    assert parity_run.run()['allow_dirty_used'] is True
+
+
+def test_a_preexisting_junit_xml_is_refused(parity_run):
+    """Blocker 2: the run owns its evidence, so a planted XML is never reused."""
+    parity_run.junit.write_text(SUITE.format(n=9, cases=''.join(case(*v) for v in passing())))
+    before = parity_run.junit.read_bytes()
+    def never(*args, **kwargs):
+        raise AssertionError('pytest must not run over someone else\'s JUnit XML')
+    with pytest.raises(FileExistsError):
+        parity_run.run(never)
+    assert parity_run.junit.read_bytes() == before
+    assert not parity_run.log.exists() and not parity_run.receipt.exists()
+
+
+def test_the_child_runs_with_no_ambient_pytest_options(parity_run, monkeypatch):
+    """PYTEST_ADDOPTS and any ini addopts are cleared: only these options select cases."""
+    monkeypatch.setenv('PYTEST_ADDOPTS', '--help')
+    seen = {}
+    inner = fake_pytest()
+    def runner(command, **kwargs):
+        seen.update(command=command, env=kwargs['env'])
+        return inner(command, **kwargs)
+    parity_run.run(runner)
+    assert seen['env']['PYTEST_ADDOPTS'] == ''
+    assert seen['command'].count('-o') == 1
+    assert seen['command'][seen['command'].index('-o') + 1] == 'addopts='
+    assert any(item.startswith('--junitxml=') for item in seen['command'])
+    assert seen['command'][-len(parity.TESTS):] == list(parity.TESTS)
+
+
+def test_a_run_that_writes_no_junit_xml_is_refused(parity_run):
+    """The reserved file is still empty: nothing ran, whatever the child's exit status."""
+    def silent(command, **kwargs):
+        return SimpleNamespace(returncode=0, stdout=b'usage: __main__.py [options]\n')
+    with pytest.raises(ValueError, match='no JUnit XML'):
+        parity_run.run(silent)
+    assert not parity_run.receipt.exists()
+
+
+def test_an_unparseable_junit_xml_is_refused(parity_run):
+    def garbage(command, **kwargs):
+        junit = next(item for item in command if item.startswith('--junitxml='))
+        Path(junit[len('--junitxml='):]).write_text('this is not pytest XML')
+        return SimpleNamespace(returncode=0, stdout=b'')
+    with pytest.raises(ValueError, match='not parseable'):
+        parity_run.run(garbage)
+    assert not parity_run.receipt.exists()
+
+
+def test_an_xml_without_test_cases_is_refused(parity_run):
+    def empty(command, **kwargs):
+        junit = next(item for item in command if item.startswith('--junitxml='))
+        Path(junit[len('--junitxml='):]).write_text(
+            '<testsuites><testsuite tests="9"/></testsuites>')
+        return SimpleNamespace(returncode=0, stdout=b'')
+    with pytest.raises(ValueError, match='missing parity cases'):
+        parity_run.run(empty)
+    assert not parity_run.receipt.exists()
+def cuda_device():
+    """The device the parity cases will run on; without one they would only skip."""
+    import torch
+    require(torch.cuda.is_available(), 'no CUDA device is visible: parity cannot run')
+    return torch.cuda.get_device_name(torch.cuda.current_device())
+
+
+def command(junit):
+    # -o addopts= together with the cleared PYTEST_ADDOPTS in run(): no ambient option may
+    # turn this into a collection, a help screen or a different set of cases.
+    return [sys.executable, '-m', 'pytest', '-q', '-p', 'no:cacheprovider', '-o', 'addopts=',
+            '--junitxml=' + str(junit)] + list(TESTS)
+
+
+def outcomes(junit):
+    """Node id -> outcome, read from pytest's own JUnit XML rather than from the log."""
+    result = {}
+    for case in ElementTree.parse(str(junit)).getroot().iter('testcase'):
+        name = case.get('file') or (case.get('classname', '').replace('.', '/') + '.py')
+        node = name + '::' + case.get('name')
+        outcome = 'passed'
+        for child in case:
+            outcome = OUTCOMES.get(child.tag, outcome)
+        require(node not in result, 'duplicate test case: ' + node)
+        result[node] = outcome
+    return result
+
+
+def parsed_outcomes(junit):
+    """:func:`outcomes`, refusing a file that is not pytest's own XML at all."""
+    try:
+        return outcomes(junit)
+    except ElementTree.ParseError as error:
+        raise ValueError('the parity JUnit XML is not parseable: ' + str(error))
+
+
+def reserve(*paths):
+    """Claim every output path exclusively, or create none of them; return the earliest mtime.
+
+    ``O_CREAT | O_EXCL`` before pytest is spawned is what makes the evidence this
+    invocation's own: a file left by an earlier run -- or planted by someone who wants a
+    passing receipt without a run -- is refused instead of reused or overwritten.
+    """
+    created, times = [], []
+    try:
+        for path in paths:
+            os.close(os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644))
+            created.append(Path(path))
+            times.append(created[-1].stat().st_mtime)
+    except BaseException:
+        for item in created:
+            item.unlink()
+        raise
+    return min(times)
+
+
+def check(recorded, status):
+    """Exactly the nine registered cases, all passed, under a successful pytest exit."""
+    missing = [node for node in TESTS if node not in recorded]
+    require(not missing, 'missing parity cases: ' + ', '.join(missing))
+    unregistered = sorted(set(recorded) - set(TESTS))
+    require(not unregistered, 'unregistered parity cases: ' + ', '.join(unregistered))
+    refused = sorted(node for node in TESTS if recorded[node] != 'passed')
+    require(not refused, 'parity cases did not pass: ' + ', '.join(
+        '{} ({})'.format(node, recorded[node]) for node in refused))
+    require(status == 0, 'pytest exited ' + str(status))
+
+
+def run(log, junit, gpu, runner):
+./tests/conftest.py
+tests/conftest.py
+cf46275 exp_07 round 10: the parity fixture pins its own checkout state
+Python 3.8.20
+    PID %CPU COMMAND
+      1  0.0 codex-linux-san
+      2  0.0 bash
+     22  0.0 ps
+     23  0.0 head
+
+exec
+/bin/bash -lc 'cat tests/conftest.py
+ls -la /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/announcement
+git show --format=fuller --no-patch cf46275
+git diff --name-status e6b70e0..cf46275' in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 0ms:
+"""Pytest configuration for the xRIR test suite.
+
+The project is used as a plain source tree (no installed package), so the repository
+root is prepended to ``sys.path``.  ``XRIR_DATA_PATH`` is defaulted to the local
+AcousticRooms cache: ``treble_multi_room_dataset.treble_xRIR_dataset`` reads that
+variable *at import time*, so it has to be set before any test imports the dataset.
+An externally provided value always wins, and the fallback is applied only when that
+directory actually exists, so the suite stays portable to machines without the cache.
+"""
+import os
+import sys
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
+_DATA_CACHE_FALLBACK = "/home/yixunhu/data_cache/AcousticRooms"
+if "XRIR_DATA_PATH" not in os.environ and os.path.isdir(_DATA_CACHE_FALLBACK):
+    os.environ["XRIR_DATA_PATH"] = _DATA_CACHE_FALLBACK
+
+
+def pytest_collection_modifyitems(items):
+    """The pinned exp_03 live acceptance record requires two visible GPUs."""
+    import pytest
+    import torch
+
+    target = os.path.join(_REPO_ROOT, 'tests', 'test_exp03_record_tools.py')
+    for item in items:
+        if (os.path.realpath(str(item.fspath)) == target and
+                item.nodeid.split('::')[-1] == 'test_skipping_the_gate_recomputation_is_not_acceptance' and
+                torch.cuda.device_count() < 2):
+            item.add_marker(pytest.mark.skip(reason='exp_03 live environment requires two visible GPUs'))
+total 8
+drwxrwxr-x  2 yixunhu yixunhu 4096 Sep  5 22:59 .
+drwxrwxr-x 11 yixunhu yixunhu 4096 Sep 15 09:58 ..
+commit cf46275ee10240afee9efaeabd253799d9958939
+Author:     Yixun-Hu <yixunhu21@gmail.com>
+AuthorDate: Wed Sep 16 02:14:35 2026 -0400
+Commit:     Yixun-Hu <yixunhu21@gmail.com>
+CommitDate: Wed Sep 16 02:14:35 2026 -0400
+
+    exp_07 round 10: the parity fixture pins its own checkout state
+    
+    Two cases read the ambient checkout to get their precondition: the dirty-refusal
+    and the override-recorded cases passed in a worktree (untracked .review-round*/)
+    and failed on a clean main, DID NOT RAISE and allow_dirty_used False.  The gate's
+    refusal is raised inside provenance.checked_git_state, so the fixture patches the
+    git_state that function reads -- one level below the raise, as the exp_04 and
+    exp_07 launcher suites already do -- and the real refusal, not a test-local copy
+    of it, is still what runs.  The clean half of the gate is now a case of its own.
+    
+    Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+M	tests/test_exp07_parity.py
+
+exec
+/bin/bash -lc "/home/yixunhu/miniconda3/envs/xRIR/bin/python - <<'PY'
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+
+root = Path(tempfile.mkdtemp(prefix='exp07-round10-review-'))
+clone = root / 'clone'
+source = '/home/yixunhu/codespace/xRIR_code_wt07'
+subprocess.run(['git', 'clone', '-q', '--no-hardlinks', source, str(clone)], check=True)
+subprocess.run(['git', 'checkout', '-q', '--detach', 'cf46275'], cwd=str(clone), check=True)
+subprocess.run(['git', 'branch', 'main', 'cf46275'], cwd=str(clone), check=True)
+head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(clone), text=True).strip()
+status = subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=all'], cwd=str(clone), text=True)
+assert head == 'cf46275ee10240afee9efaeabd253799d9958939'
+assert not status, status
+print('REVIEW_SCRATCH=' + str(root), flush=True)
+print('HEAD=' + head + '; clean clone; local main created', flush=True)
+PY" in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 752ms:
+REVIEW_SCRATCH=/tmp/exp07-round10-review-y_2nboak
+HEAD=cf46275ee10240afee9efaeabd253799d9958939; clean clone; local main created
+
+exec
+/bin/bash -lc "/home/yixunhu/miniconda3/envs/xRIR/bin/python - <<'PY'
+import ast
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+root = Path('/tmp/exp07-round10-review-y_2nboak')
+clone = root / 'clone'
+worktree = Path('/home/yixunhu/codespace/xRIR_code_wt07')
+test_file = 'tests/test_exp07_parity.py'
+old_text = subprocess.check_output(['git', 'show', 'e6b70e0:' + test_file], cwd=str(clone), text=True)
+new_text = (clone / test_file).read_text()
+old_tests = {n.name: ast.dump(n) for n in ast.parse(old_text).body if isinstance(n, ast.FunctionDef) and n.name.startswith('test_')}
+new_tests = {n.name: ast.dump(n) for n in ast.parse(new_text).body if isinstance(n, ast.FunctionDef) and n.name.startswith('test_')}
+assert all(new_tests[name] == body for name, body in old_tests.items())
+assert set(new_tests) - set(old_tests) == {'test_a_clean_checkout_needs_no_override'}
+compile(new_text, test_file, 'exec')
+print('Python ' + sys.version.split()[0] + ': compile OK; all ' + str(len(old_tests)) + ' existing test-function ASTs unchanged', flush=True)
+for label, repo in [('worktree', worktree), ('clean_clone', clone)]:
+    env = dict(os.environ, PYTHONPATH=str(repo), XRIR_DATA_PATH='/home/yixunhu/data_cache/AcousticRooms', CUDA_VISIBLE_DEVICES='', PYTHONDONTWRITEBYTECODE='1', OMP_NUM_THREADS='2')
+    command = [sys.executable, '-m', 'pytest', test_file, '-q', '-p', 'no:cacheprovider']
+    result = subprocess.run(command, cwd=str(repo), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    (root / (label + '.log')).write_text(result.stdout)
+    print(label + ' exit=' + str(result.returncode) + '\\n' + result.stdout, flush=True)
+    assert result.returncode == 0
+assert not subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=all'], cwd=str(clone), text=True)
+print('Clone remains clean after tests.', flush=True)
+PY" in /home/yixunhu/codespace/xRIR_code_wt07
+exec
+/bin/bash -lc "sed -n '1,22p' worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_worklog.md
+rg -n 'round 10|round-10|cf46275' /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_worklog.md
+sed -n '177,205p' tools/provenance.py" in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 0ms:
+# Worklog — seen_protocol (exp_07)
+
+## 2026-09-15T09:58:57-04:00 — experiment opened after Yixun's "go for the exp_07" (seen columns of the paper table for the three variants)
+- **Goal** — seen-protocol retraining of xRIR / CylindricalViT / YawAug-xRIR (same recipe, `--protocol seen`) and five-seed seen-split evaluation at K = 1, 8; combined LaTeX table.
+- **Facts established** — seen train set 296 454 files (9 265 micro-batches), test 6 217 pairs / 131 rooms; 5 124 of the seen-test pairs lie in the unseen protocol's training set and 1 093 in its 17 test rooms (hence no reuse of the exp_04 models).
+- **Change** — record folder created; `seen_protocol_yixun_query.md`; `plan_seen_protocol.md` v1. Next: Codex read-only plan review.
+
+## 2026-09-15T10:07:07-04:00 — Codex plan review round 1: request changes (3 blockers on tooling reuse, 6 should-fix) → plan v2; round-2 review launched
+- `seen_protocol_codex_plan_review.md`: the frozen evaluator hard-codes the unseen dataset (a seen manifest is rejected: 6 217 ≠ 6 337), `train_data_identity`/launcher recovery assume the unseen inventory, the probe/gates lack M/seen support, the approval/admission layer must be exp_07-specific and role-aware; update count 55 596 (not 55 590), last micro-batch 6, counter domain; estimand to freeze; released-row caveats; measured per-arm times (87 GPU-h); roles per the 2026-09-15 SOP (Opus 5 Coder in a worktree, Codex Reviewer). All applied in v2 (§9 changelog); v1 kept as superseded.
+
+## 2026-09-15T10:13:39-04:00 — Codex plan review round 2: **approve with changes** (5 should-fix, 1 nit; no scientific blocker) → plan v3 (changelog §10); plan approved for implementation (Yixun: "go for the exp_07"); decision on GPU ordering pending (default B)
+- `seen_protocol_codex_plan_round2_review.md`. Worktree `/home/yixunhu/codespace/xRIR_code_wt07` (branch `exp07-window`) created for the Opus 5 Coder; round 1 = trainer `--protocol`, protocol-aware training identity, seen-split binding, yaw-aug audit option.
+
+## 2026-09-15T10:14:15-04:00 — Coder round 1 launched (Claude Opus 5 subagent, worktree `xRIR_code_wt07`): `coder_prompts/round1_prompt.md` (trainer `--protocol`, protocol-aware training identity + seen-split binding, yaw-aug audit option); CPU-only, GPU parity deferred
+
+## 2026-09-15T10:40:51-04:00 — Coder round 1 delivered on `exp07-window` (`6ed7bef` trainer `--protocol`, `e122355` provenance protocol identity + `seen_split_identity`, `d7511fb` audit `--protocol`; 188 passed / 14 skipped CPU; 4 GPU parity tests deferred — must pass before any launch); Codex code review launched (read-only, in the worktree)
+- Coder decisions to adjudicate with the review: unseen cache key left at the legacy encoding (keeps the live 73 MB inventory valid); `xRIR_Dataset` alias kept; `seen_split` allowlist deferred to round 2; real-root inventory test stubs hashing; `PROTOCOLS` duplicated to keep provenance out of the training closure.
+
+## 2026-09-15T10:47:20-04:00 — Codex code review round 1: **approve with changes** (no blockers) → round 1 CLOSED pending the one should-fix in round 2 cycle 0
+- `seen_protocol_codex_code_round1_review.md`: every changed trainer line read; the unseen path preserved (dataset classes/args, construction order, loader options, seeding, model, aug, loss, optimizer, scheduler, banner, counter) — CPU checks with `.cuda()` substituted show identical initial state, dataset order, first batch, RNG checkpoints and runtime args (+`protocol`); the closure now contains the seen module; seen sizes/loader facts confirmed; no cross-protocol cache acceptance found. Should-fix: legacy (pre-exp_07) unseen cache hits return a record without `protocol` → return an in-memory copy with `protocol='unseen'` (cache key and file unchanged). Coder decisions 1–7 accepted. GPU parity (4 tests) still deferred; must pass before any launch.
+- Round 2 launched (cycle 0 = the should-fix above).
+
+75:## 2026-09-16T02:11:00-04:00 — **Merged** `exp07-window` `f39a441` into main: merge commit `c914311` (parent `7de6775`); 33 non-worklog paths, all new (verified with `git cat-file -e` against the pre-merge parent). Post-merge checks on main: exp_04 `check_record.py ckpt/yaw_aug` exit 0; exp_06 `test_shared_flags_and_defaults_equal_the_trainers` passes; exp_07 `static_checks.sh` → both collection orders 221 passed / 1 skipped, publication subset **316 passed / 2 failed**: `tests/test_exp07_parity.py::test_a_dirty_checkout_is_refused_without_the_override` and `::test_the_receipt_records_whether_the_override_was_used`. Cause: the `parity_run` fixture assumes the checkout under test is dirty outside `worklog/` ("this worktree always carries untracked review artefacts"); main is clean outside `worklog/`, so `checked_git_state` reports nothing to refuse and `allow_dirty_used` is False. Environment-dependent test fixture, not a producer defect (the producer behaves correctly in both trees); test-only round 10 assigned to the Coder (make the fixture's dirtiness explicit via monkeypatch) with a Codex close review; no closure or pin is affected (test files are outside every closure).
+78:## 2026-09-16T02:33:29-04:00 — Coder round 10 delivered: one test-only commit `cf46275` (23 lines in `tests/test_exp07_parity.py`): the `parity_run` fixture pins the checkout state by monkeypatching `tools.provenance.git_state` one level below `checked_git_state` (the production refusal still fires), `dirty_checkout` kwarg (default True keeps every existing case), new `test_a_clean_checkout_needs_no_override`. 19 passed in the worktree and in a clean clone (previously 2 failed there); static_checks exit 0 (319; 221/1 both orders). Codex close review launched 02:33. (Timestamps of the two previous entries corrected to the commit times.)
+def environment():
+    versions = {name: importlib.import_module(name).__version__ for name in
+                ('torch', 'torchaudio', 'torchvision', 'einops', 'numpy', 'scipy')}
+    torch = importlib.import_module('torch')
+    try:
+        driver = subprocess.check_output(['nvidia-smi', '--query-gpu=driver_version',
+            '--format=csv,noheader'], stderr=subprocess.DEVNULL, text=True).splitlines()
+    except (OSError, subprocess.CalledProcessError):
+        driver = None
+    return dict(versions, python=platform.python_version(), cuda=torch.version.cuda,
+        cudnn=torch.backends.cudnn.version(), driver=driver, host=platform.node(),
+        executable=sys.executable,
+        gpus=[torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())])
+
+
+def write_manifest(path, fields):
+    """Exclusively create strict JSON; return the digest of exactly those bytes."""
+    payload = json.dumps(fields, sort_keys=True, indent=2, allow_nan=False).encode() + b'\n'
+    with open(path, 'xb') as stream:  # Python's x mode uses O_CREAT | O_EXCL.
+        stream.write(payload)
+        stream.flush()
+        os.fsync(stream.fileno())
+    return hashlib.sha256(payload).hexdigest()
+
+
+def apply_umask(fd):
+    """Give a temporary output the same permissions as an ordinary created file."""
+    mask = os.umask(0)
+    os.umask(mask)
+
+ succeeded in 14349ms:
+worktree exit=0
+...................                                                      [100%]
+19 passed in 5.09s
+
+clean_clone exit=0
+...................                                                      [100%]
+19 passed in 5.24s
+
+Clone remains clean after tests.
+
+exec
+/bin/bash -lc "env CUDA_VISIBLE_DEVICES='' PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/home/yixunhu/codespace/xRIR_code_wt07 XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms OMP_NUM_THREADS=2 bash worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/static_checks.sh" in /home/yixunhu/codespace/xRIR_code_wt07
+exec
+/bin/bash -lc "/home/yixunhu/miniconda3/envs/xRIR/bin/python - <<'PY'
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+root = Path('/tmp/exp07-round10-review-y_2nboak')
+repo = root / 'clone'
+path = repo / 'tools/provenance.py'
+original = path.read_bytes()
+needle = b\"            raise ValueError('dirty_outside_worklog requires --allow-dirty')\"
+assert original.count(needle) == 1
+assert not subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=all'], cwd=str(repo), text=True)
+env = dict(os.environ, PYTHONPATH=str(repo), XRIR_DATA_PATH='/home/yixunhu/data_cache/AcousticRooms', CUDA_VISIBLE_DEVICES='', PYTHONDONTWRITEBYTECODE='1', OMP_NUM_THREADS='2')
+try:
+    path.write_bytes(original.replace(needle, b'            pass  # temporary review mutation: remove the refusal'))
+    diff = subprocess.check_output(['git', 'diff', '--', 'tools/provenance.py'], cwd=str(repo), text=True)
+    print(diff, flush=True)
+    result = subprocess.run([sys.executable, '-m', 'pytest', 'tests/test_exp07_parity.py', '-q', '-p', 'no:cacheprovider'], cwd=str(repo), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    (root / 'mutation.log').write_text(result.stdout)
+    print('MUTATION_EXIT=' + str(result.returncode) + '\\n' + result.stdout, flush=True)
+    assert result.returncode == 1
+    assert '1 failed, 18 passed' in result.stdout
+    assert 'FAILED tests/test_exp07_parity.py::test_a_dirty_checkout_is_refused_without_the_override' in result.stdout
+    assert \"DID NOT RAISE <class 'ValueError'>\" in result.stdout
+finally:
+    path.write_bytes(original)
+assert not subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=all'], cwd=str(repo), text=True)
+print('Original production bytes restored; clone clean at cf46275.', flush=True)
+PY" in /home/yixunhu/codespace/xRIR_code_wt07
+codex
+All 19 tests pass in both the worktree and a clean clone at `cf46275` under Python 3.8.20. All 16 pre-existing test functions are AST-identical to the base version. The mutation check and `static_checks.sh` are running.
+ succeeded in 8088ms:
+MUTATION_EXIT=1
+...........F.......                                                      [100%]
+=================================== FAILURES ===================================
+____________ test_a_dirty_checkout_is_refused_without_the_override _____________
+
+parity_run = namespace(head='cf46275ee10240afee9efaeabd253799d9958939', junit=PosixPath('/tmp/pytest-of-yixunhu/pytest-2889/test_a_...rity_cf46275ee10240afee9efaeabd253799d9958939.receipt.json'), run=<function parity_run.<locals>.run at 0x7596ea9994c0>)
+
+    def test_a_dirty_checkout_is_refused_without_the_override(parity_run):
+        with pytest.raises(ValueError, match='allow-dirty'):
+>           parity_run.run(extra=())
+E           Failed: DID NOT RAISE <class 'ValueError'>
+
+tests/test_exp07_parity.py:154: Failed
+----------------------------- Captured stdout call -----------------------------
+WARNING: dirty_outside_worklog
+9 passed, 0 skipped
+
+wrote /tmp/pytest-of-yixunhu/pytest-2889/test_a_dirty_checkout_is_refus0/gpu_parity_cf46275ee10240afee9efaeabd253799d9958939.receipt.json
+=========================== short test summary info ============================
+FAILED tests/test_exp07_parity.py::test_a_dirty_checkout_is_refused_without_the_override
+1 failed, 18 passed in 5.50s
+
+Original production bytes restored; clone clean at cf46275.
+
+exec
+/bin/bash -lc 'git status --short
+git diff --numstat e6b70e0..cf46275
+git diff --check e6b70e0..cf46275
+git -C /tmp/exp07-round10-review-y_2nboak/clone status --porcelain --untracked-files=all
+git -C /tmp/exp07-round10-review-y_2nboak/clone rev-parse HEAD' in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 0ms:
+?? .review-round6/
+?? .review-round7/
+?? .review-round8/
+?? .review-round9/
+?? checkpoints
+21	2	tests/test_exp07_parity.py
+cf46275ee10240afee9efaeabd253799d9958939
+
+codex
+The mutation check confirms the refusal is still tested: removing `checked_git_state`’s `raise` caused the dirty-checkout refusal test to fail with `DID NOT RAISE`; the other 18 tests passed. I restored the original bytes and confirmed the clone is clean. Only the static checks remain.
+codex
+The targeted checks found no issue: the patch is test-only, preserves every existing test function, and uses Python 3.8-compatible syntax. The broader publication checks are still running with no failures reported so far.
+codex
+The publication subset has reached 45% with no failures. The static script will then check both record-tool collection orders; the clean-clone and mutation checks are complete.
+codex
+The publication subset passed: **319 passed**. The static script is now checking both record-tool collection orders. No blocking finding has emerged.
+codex
+The first collection-order check is still running without failures. The commit’s scope is confirmed: 21 insertions and 2 deletions in `tests/test_exp07_parity.py`, with no production or pinned-file changes.
+codex
+The first collection-order check has passed 32% without failures. These record tests are taking longer than the targeted parity tests; the review and mutation check are complete.
+codex
+The first collection-order check has passed 64% without failures. Approval remains supported by the targeted checks; I’m waiting for the full static-check result before closing the review.
+codex
+The first collection order passed: **221 passed, 1 skipped**. The reverse-order check is now running; this is the final check in the script.
+codex
+The reverse-order check has passed 32% without failures. The mutation edit remains confined to the scratch clone and has been restored; the reviewed worktree is unchanged.
+codex
+The reverse-order check has passed 64% without failures. All requested targeted checks are complete and support approval; the static script is finishing its remaining record tests.
+ succeeded in 718803ms:
+........................................................................ [ 22%]
+........................................................................ [ 45%]
+........................................................................ [ 67%]
+........................................................................ [ 90%]
+...............................                                          [100%]
+=============================== warnings summary ===============================
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+    from pkg_resources import resource_filename
+
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154: DeprecationWarning: Deprecated call to `pkg_resources.declare_namespace('mpl_toolkits')`.
+  Implementing implicit namespace packages (as specified in PEP 420) is preferred to `pkg_resources.declare_namespace`. See https://setuptools.pypa.io/en/latest/references/keywords.html#keyword-namespace-packages
+    declare_namespace(pkg)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+319 passed, 2 warnings in 256.32s (0:04:16)
+........................................................................ [ 32%]
+........................................................................ [ 64%]
+....................................................................s... [ 97%]
+......                                                                   [100%]
+=============================== warnings summary ===============================
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+    from pkg_resources import resource_filename
+
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154: DeprecationWarning: Deprecated call to `pkg_resources.declare_namespace('mpl_toolkits')`.
+  Implementing implicit namespace packages (as specified in PEP 420) is preferred to `pkg_resources.declare_namespace`. See https://setuptools.pypa.io/en/latest/references/keywords.html#keyword-namespace-packages
+    declare_namespace(pkg)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+221 passed, 1 skipped, 2 warnings in 229.14s (0:03:49)
+......................s................................................. [ 32%]
+........................................................................ [ 64%]
+........................................................................ [ 97%]
+......                                                                   [100%]
+=============================== warnings summary ===============================
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+    from pkg_resources import resource_filename
+
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154: DeprecationWarning: Deprecated call to `pkg_resources.declare_namespace('mpl_toolkits')`.
+  Implementing implicit namespace packages (as specified in PEP 420) is preferred to `pkg_resources.declare_namespace`. See https://setuptools.pypa.io/en/latest/references/keywords.html#keyword-namespace-packages
+    declare_namespace(pkg)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+221 passed, 1 skipped, 2 warnings in 229.07s (0:03:49)
+
+exec
+/bin/bash -lc 'git status --short
+git diff --exit-code
+git -C /tmp/exp07-round10-review-y_2nboak/clone status --porcelain --untracked-files=all' in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 0ms:
+?? .review-round6/
+?? .review-round7/
+?? .review-round8/
+?? .review-round9/
+?? checkpoints
+
+codex
+**Reviewer:** OpenAI Codex gpt-6-astra (codex exec, read-only sandbox, worktree exp07-window) · **Date:** 2026-09-16
+
+**Verdict: approve. Blocking findings: none.**
+
+**Verified:**
+
+- `git diff e6b70e0..cf46275`: one commit, 21 insertions / 2 deletions, only `tests/test_exp07_parity.py`. No production or pinned files changed; `git diff --check` passes.
+- All 16 existing test functions are AST-identical to the base version. No existing assertion was weakened.
+- The fixture patches `tools.provenance.git_state`, preserving the production `checked_git_state` refusal. Temporarily replacing its `raise` with `pass` in the clone produced **1 failed, 18 passed**: the dirty-refusal test failed with `DID NOT RAISE`. Original bytes were restored; the clone is clean.
+- Python **3.8.20** compilation passes. `python -m pytest tests/test_exp07_parity.py -q -p no:cacheprovider` produced **19 passed** in both the worktree and a clean clone at `cf46275` with local `main`.
+- `static_checks.sh`: **exit 0**, **319 passed** publication cases; **221 passed / 1 skipped** in each collection order. All runs were CPU-only.
+tokens used
+78,636
+**Reviewer:** OpenAI Codex gpt-6-astra (codex exec, read-only sandbox, worktree exp07-window) · **Date:** 2026-09-16
+
+**Verdict: approve. Blocking findings: none.**
+
+**Verified:**
+
+- `git diff e6b70e0..cf46275`: one commit, 21 insertions / 2 deletions, only `tests/test_exp07_parity.py`. No production or pinned files changed; `git diff --check` passes.
+- All 16 existing test functions are AST-identical to the base version. No existing assertion was weakened.
+- The fixture patches `tools.provenance.git_state`, preserving the production `checked_git_state` refusal. Temporarily replacing its `raise` with `pass` in the clone produced **1 failed, 18 passed**: the dirty-refusal test failed with `DID NOT RAISE`. Original bytes were restored; the clone is clean.
+- Python **3.8.20** compilation passes. `python -m pytest tests/test_exp07_parity.py -q -p no:cacheprovider` produced **19 passed** in both the worktree and a clean clone at `cf46275` with local `main`.
+- `static_checks.sh`: **exit 0**, **319 passed** publication cases; **221 passed / 1 skipped** in each collection order. All runs were CPU-only.
+CODEX_E7R10_DONE exit=0
