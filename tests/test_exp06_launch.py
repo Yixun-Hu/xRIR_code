@@ -63,14 +63,23 @@ def fake_nvidia_smi(tmp_path, monkeypatch):
     binary = tmp_path / 'bin'
     binary.mkdir()
     script = binary / 'nvidia-smi'
-    script.write_text('#!/usr/bin/env bash\ncat "$(dirname "$0")/apps.txt"\n')
+    script.write_text('#!/usr/bin/env bash\ncase "$*" in\n'
+                      '  *memory.free*) cat "$(dirname "$0")/free.txt" ;;\n'
+                      '  *) cat "$(dirname "$0")/apps.txt" ;;\n'
+                      'esac\n')
     script.chmod(0o755)
     monkeypatch.setenv('PATH', str(binary) + os.pathsep + os.environ['PATH'])
 
     def apps(text):
         (binary / 'apps.txt').write_text(text)
 
+    def free(mib):
+        """A5: what --query-gpu=memory.free reports for the card, in MiB."""
+        (binary / 'free.txt').write_text('{}\n'.format(mib))
+
     apps('')
+    free(46000)
+    apps.free = free
     return apps
 
 
@@ -181,11 +190,11 @@ SMOKE_FLAGS = ('--epochs 1 --max-train-batches 3 --max-test-batches 2 --batch-si
 SMOKE_ARGV = ('--backbone simple --save-dir ckpt/exp06/_smoke/t0 ' + SMOKE_FLAGS).split()
 
 
-def dry_run(mode, *extra):
+def dry_run(mode, *extra, **environment):
     command = ['bash', LAUNCHER, mode, '--gpu', '1', '--reviewed-commit', COMMIT, '--dry-run']
     completed = subprocess.run(command + list(extra), cwd=REPO, capture_output=True, text=True,
                                env={**os.environ, 'PYTHONPATH': str(REPO),
-                                    'XRIR_DATA_PATH': DATA_ROOT})
+                                    'XRIR_DATA_PATH': DATA_ROOT, **environment})
     assert completed.returncode == 0, completed.stderr
     return completed.stdout.splitlines()
 
@@ -245,7 +254,7 @@ def test_smoke_dry_run_lists_the_section_nine_commands():
         assert smokes[index].endswith(
             '--receipt ckpt/exp06/_smoke/receipt_{}_<UTC>.json --run-type smoke'
             ' --provenance-out ckpt/exp06/_smoke/{}_<UTC>/provenance.json --approved {}'
-            ' --reviewed-commit {} --entry {} --alarm-seconds 300 --max-gb 3 --'
+            ' --reviewed-commit {} --entry {} --alarm-seconds 300 --max-gb 6 --'
             ' --backbone {} --save-dir ckpt/exp06/_smoke/{} {}{}'.format(
                 name, name, APPROVED, COMMIT, entry, backbone, target, SMOKE_FLAGS, child)), \
             smokes[index]
@@ -254,6 +263,63 @@ def test_smoke_dry_run_lists_the_section_nine_commands():
     assert printed_children(lines)[1][1] == SMOKE_ARGV + ['--run-type', 'smoke']
     assert smokes[3].endswith('--make-fixture ckpt/exp06/_smoke/fixture_cylor.pth')
     assert all('--tf32' not in line for line in smokes)
+
+
+def test_smoke_budgets_are_environment_parameters(*, defaults=('300', '6')):
+    """A5: the rung-4 ceilings move by a recorded environment value, not a source edit."""
+    for alarm, memory in (defaults, ('120', '8')):
+        lines = dry_run('smoke', EXP06_SMOKE_ALARM_S=alarm, EXP06_SMOKE_MAX_GB=memory)
+        budgets = [line for line in lines
+                   if line.startswith('RUN ') and '--alarm-seconds' in line]
+        assert len(budgets) == 3, budgets
+        for line in budgets:
+            assert '--alarm-seconds {} --max-gb {} --'.format(alarm, memory) in line, line
+
+
+def test_the_smoke_preflight_demands_the_budget_free_on_the_card():
+    """A5: a smoke may share a card only while the card can still hold its whole budget."""
+    preflight = [line for line in dry_run('smoke') if 'exp06_finalize.py preflight' in line]
+    assert len(preflight) == 1 and preflight[0].endswith(' --min-free-gb 6'), preflight
+    other = dry_run('smoke', EXP06_SMOKE_MAX_GB='8')
+    assert [line for line in other if 'preflight' in line][0].endswith(' --min-free-gb 8')
+    for mode in ('full', 'probe'):
+        assert all('--min-free-gb' not in line for line in dry_run(mode))
+
+
+def test_preflight_refuses_a_card_that_cannot_hold_the_smoke_budget(repo, fake_nvidia_smi):
+    """The measured peak is 3.63 GB; a card with less free than the budget is refused."""
+    root, head = repo
+    fake_nvidia_smi.free(2048)
+    with pytest.raises(ValueError, match='free'):
+        exp06_finalize.preflight('smoke', 0, head, repo=root, min_free_gb=6)
+    fake_nvidia_smi.free(46000)
+    record = exp06_finalize.preflight('smoke', 0, head, repo=root, min_free_gb=6)
+    assert record['min_free_gb'] == 6 and record['gpu_free_gib'] > 44
+    # Without a floor the query is never made, and the record says so.
+    assert exp06_finalize.preflight('smoke', 0, head, repo=root)['gpu_free_gib'] is None
+
+
+def test_an_unreadable_free_memory_query_refuses_the_smoke(repo, fake_nvidia_smi):
+    """Fail-closed: a card whose free memory cannot be read is not a card to share."""
+    root, head = repo
+    for reply in ('', 'N/A'):
+        fake_nvidia_smi.free(reply)
+        with pytest.raises(ValueError, match='GPU'):
+            exp06_finalize.preflight('smoke', 0, head, repo=root, min_free_gb=6)
+
+
+def test_the_preflight_cli_takes_the_memory_floor(repo, fake_nvidia_smi):
+    root, head = repo
+    fake_nvidia_smi.free(1024)
+    command = [sys.executable, 'tools/exp06_finalize.py', 'preflight', '--mode', 'smoke',
+               '--gpu', '0', '--reviewed-commit', head, '--repo', str(root),
+               '--min-free-gb', '6']
+    env = {**os.environ, 'PYTHONPATH': str(REPO)}
+    refused = subprocess.run(command, cwd=REPO, capture_output=True, text=True, env=env)
+    assert refused.returncode == 2 and 'EXP06_PREFLIGHT_REFUSED' in refused.stderr
+    fake_nvidia_smi.free(46000)
+    admitted = subprocess.run(command, cwd=REPO, capture_output=True, text=True, env=env)
+    assert admitted.returncode == 0, admitted.stderr
 
 
 def test_finalize_mode_and_usage_errors():
