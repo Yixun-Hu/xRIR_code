@@ -10,7 +10,9 @@ launched on GPU 1 (6dc0b8e, 12:14); GPU-0 plan").
 | `0dbc31e` | **Codex review round 1 fixes**: B1 -- replace the max-radius *selection* in the degenerate basis fallback with the normalised **vector sum** of the references' horizontal components (equivariant, continuous, order-independent, tie-free); B2 -- reduce the distance-to-integer-delay computation in **float64** on the invariant arms and **qualify** the C16 statement with the measure-zero rounding-boundary exception, its measured size and the adversarial case. 27 new tests (222 total). |
 | `8ed0bca` | exp_08 worklog: record the review-round-1 SHA and refreshed pass counts. |
 | `193cda6` | **Codex review round 2 fixes**: B1 (re-opened P1) -- the basis is now **one branch-free expression**, dividing the equivariant reference sum by the *invariant* total horizontal radius (so `\|a\| <= 1` and the division can never amplify) and blending into the primary path with a C2 smoothstep on the **dimensionless** `\|q_h\|/\|q\|`; the absolute `1e-6` m thresholds are gone, the degenerate branch became a continuous limit, and the production path is bitwise unchanged. B2 (reporting) -- paired per-scene significance (3.64σ, not 6.6σ), "finite-width band" replacing "measure-zero", flip rate labelled as distribution-specific, stale boundary-width claim removed. |
-| (this file's own commit) | exp_08 worklog: record the review-round-2 SHA. A commit cannot contain its own hash, so read it off `git log --oneline 5c53ee1..HEAD`. |
+| `0d2100a` | exp_08 worklog: record the review-round-2 SHA and refreshed pass counts. |
+| `25f2791` | **Codex review round 3 (wording + tests, no algorithm change)**: correct the continuity **overclaim** — the basis is exactly rotation-equivariant at *every* geometry, but it is not smooth in the *geometry* variables (cusps where a reference's horizontal norm crosses zero; a directional discontinuity at `R = 0` that shrinking the references does not remove), quantified at `5.519e-5` across neighbouring scenes while each scene stays rotation-invariant to `~2e-7`; fix the reversed paired-count directions in §12; replace the last "measure-zero" in §14. Two new tests (218 total). |
+| (this file's own commit) | exp_08 worklog: record the review-round-3 SHA. A commit cannot contain its own hash, so read it off `git log --oneline 5c53ee1..HEAD`. |
 
 Full message of `f033c8d`: `git -C /home/yixunhu/codespace/xRIR_code_wt08 show -s f033c8d`.
 
@@ -19,8 +21,8 @@ Full message of `f033c8d`: `git -C /home/yixunhu/codespace/xRIR_code_wt08 show -
 `f033c8d` adds **only new files** -- no line of the pinned `model/xRIR.py`,
 `model/xRIR_cyl.py`, `model/cylindrical_vit.py`, `model/simple_vit.py`,
 `train_xRIR_backbone.py`, `eval_*.py` or any exp_03/05/06/07 tool was modified
-(`git show --stat f033c8d` lists 11 additions, 0 modifications, 0 deletions).  `0dbc31e`
-and `193cda6` modify only files `f033c8d` created; across the whole branch
+(`git show --stat f033c8d` lists 11 additions, 0 modifications, 0 deletions).  `0dbc31e`,
+`193cda6` and `25f2791` modify only files `f033c8d` created; across the whole branch
 `git diff --name-status 5c53ee1..HEAD` reports **`A` for every path and nothing else**.  The pinned
 `simple` / `cylindrical` entries are re-exported by object identity, and a test asserts both
 that identity and that their predictions on a real batch are bit-identical to the classes'.
@@ -33,10 +35,10 @@ export PYTHONPATH=$(pwd) XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms
 export PYTHONDONTWRITEBYTECODE=1 CUDA_VISIBLE_DEVICES=""
 PY=~/miniconda3/envs/xRIR/bin/python
 
-# the section-4 checklist as tests (216 passed, 480 s)
+# the section-4 checklist as tests (218 passed, 282 s)
 $PY -m pytest tests/test_exp08_invariant.py -q
 
-# the measured report (656 s) -> exp08_validation.{json,log}
+# the measured report (346 s) -> exp08_validation.{json,log}
 $PY -m tools.exp08_validate \
     --out-json worklog/worklog_yixun/exp_08_invariant_readout_claude/exp08_validation.json
 
