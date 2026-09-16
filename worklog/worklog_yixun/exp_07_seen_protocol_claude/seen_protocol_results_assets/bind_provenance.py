@@ -170,7 +170,13 @@ def read_evidence(item, label):
 
 
 def parity_record(item, head):
-    """The deferred GPU parity: exactly the nine registered cases, all passed, at HEAD."""
+    """The deferred GPU parity: exactly the nine registered cases, all passed, at HEAD.
+
+    The receipt is the producer's claim; pytest's own JUnit XML is the evidence for it.
+    Both are read: the XML must itself record exactly the nine registered node ids as
+    passed -- no skip, no error, no extra case, and not an empty or unparseable file --
+    and the receipt must say what the XML says.
+    """
     data = read_evidence(item, 'GPU parity')
     require(data.get('schema_version') == 1 and data.get('passed') is True,
             'parity receipt identity')
@@ -186,6 +192,13 @@ def parity_record(item, head):
     require(data.get('reviewed_commit') == data.get('git_head'),
             'parity did not run at the reviewed commit')
     files = {name: stamp(data[name]['path'], data[name]['sha256']) for name in ('log', 'junit')}
+    recorded = parity.parsed_outcomes(files['junit']['path'])
+    try:
+        parity.check(recorded, data['pytest_exit'])
+    except ValueError as error:
+        raise ValueError('the parity JUnit XML does not record the nine registered passes: '
+                         + str(error))
+    require(recorded == dict(tests), 'the parity receipt disagrees with its JUnit XML')
     return dict(item, tests=dict(tests), pytest_exit=data['pytest_exit'],
                 git_head=data['git_head'], cuda_device=data['cuda_device'], **files)
 

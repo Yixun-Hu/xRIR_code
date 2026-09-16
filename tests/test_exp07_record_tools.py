@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from exp07_fixture import exp07_fixture  # noqa: F401  (fixture)
+from test_exp07_parity import SUITE, case as junit_case, passing
 from test_paired_compare import admission_fixture  # noqa: F401  (table_fixture needs it)
 from test_results_table import table_fixture  # noqa: F401  (exp_04's unseen table)
 from tools import exp07_calibration as calibration, exp07_parity as parity
@@ -192,11 +193,16 @@ def test_the_html_page_refuses_the_same_input_the_markdown_refuses(record_inputs
     assert not out.exists()
 
 
+def junit_xml(cases):
+    """The JUnit XML pytest writes for these (node id, outcome) pairs."""
+    return SUITE.format(n=len(cases), cases=''.join(junit_case(*item) for item in cases))
+
+
 def parity_receipt(path, head, **changes):
     """A GPU parity receipt shaped exactly as tools/exp07_parity.py writes one."""
     log, junit = path.with_suffix('.log'), path.with_suffix('.xml')
     log.write_text('9 passed, 0 skipped in 1200.00s\n')
-    junit.write_text('<testsuites><testsuite tests="9"/></testsuites>')
+    junit.write_text(junit_xml(passing()))
     receipt = dict(schema_version=1, passed=True, pytest_exit=0, n_tests=len(parity.TESTS),
                    tests={node: 'passed' for node in parity.TESTS}, git_head=head,
                    reviewed_commit=head, cuda_device='NVIDIA RTX A6000', gpu='1',
@@ -520,6 +526,17 @@ def rewrite_external_log(bound, which):
     path.write_text('rewritten evidence\n')
 
 
+def rewrite_parity_xml(bound, text):
+    """Replace the JUnit XML the parity receipt names, restating the digest it records."""
+    path = bound.evidence['gpu_parity']
+    data = json.loads(path.read_text())
+    junit = Path(data['junit']['path'])
+    junit.write_text(text)
+    data['junit']['sha256'] = p.sha256_file(junit)
+    path.unlink()
+    p.write_manifest(path, data)
+
+
 def extra_receipt(bound, name, mutate, role='seen_simple'):
     """A second probe receipt in the arm root, not the one the training manifest binds."""
     root = attempt_root(bound, role)
@@ -661,6 +678,25 @@ FORGERIES = {
                               'outside a clean checkout'),
     'parity_log_rewritten': (lambda b: b.evidence['gpu_parity'].with_suffix('.log')
                              .write_text('9 failed, 0 passed\n'), 'digest mismatch'),
+    # Round-7 blocker 2: the receipt is checked against pytest's own XML, not only
+    # against itself, so a receipt that claims nine passes over an XML that records
+    # something else -- or over no test cases at all -- is refused.
+    'parity_xml_case_failed': (lambda b: rewrite_parity_xml(b, junit_xml(
+        [(node, 'failed' if index == 0 else 'passed')
+         for index, node in enumerate(parity.TESTS)])),
+        'JUnit XML does not record the nine registered passes'),
+    'parity_xml_case_skipped': (lambda b: rewrite_parity_xml(b, junit_xml(
+        [(node, 'skipped' if index == 8 else 'passed')
+         for index, node in enumerate(parity.TESTS)])),
+        'JUnit XML does not record the nine registered passes'),
+    'parity_xml_without_cases': (lambda b: rewrite_parity_xml(
+        b, '<testsuites><testsuite tests="9"/></testsuites>'),
+        'JUnit XML does not record the nine registered passes'),
+    'parity_xml_with_an_unregistered_case': (lambda b: rewrite_parity_xml(b, junit_xml(
+        passing() + [('tests/test_other.py::test_x', 'passed')])),
+        'JUnit XML does not record the nine registered passes'),
+    'parity_xml_unparseable': (lambda b: rewrite_parity_xml(b, 'not pytest XML at all'),
+                               'not parseable'),
     'parity_bare_log': (lambda b: b.arguments.__setitem__('evidence', [
         'calibration=' + str(b.evidence['calibration']),
         'gpu_parity=' + str(b.evidence['gpu_parity'].with_suffix('.log'))]),
