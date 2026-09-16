@@ -47,10 +47,21 @@ def fake_pytest(cases=None, status=0, output=b'9 passed, 0 skipped\n'):
 @pytest.fixture
 def parity_run(tmp_path, monkeypatch):
     monkeypatch.setattr(parity, 'cuda_device', lambda: DEVICE)
+    # Whether this checkout happens to be dirty is not what these cases are about: a
+    # worktree carries untracked review artefacts, a fresh clone does not, and either way
+    # the same nine cases must be exercised.  So the fixture pins the precondition instead
+    # of inheriting it.  The refusal is raised INSIDE provenance.checked_git_state, so the
+    # patch goes one level below it -- at the git_state it reads -- and the real refusal,
+    # not a re-implementation of it, is what the dirty cases below exercise.
+    dirty = True
+    monkeypatch.setattr(p, 'git_state', lambda repo: dict(
+        HEAD='f' * 40, dirty=dirty, dirty_outside_worklog=dirty, diff_sha256=None,
+        untracked=['.review-round9/codex.log'] if dirty else []))
     head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(REPO), text=True).strip()
     log = tmp_path / ('gpu_parity_' + head + '.log')
-    def run(runner=None, commit=head, extra=('--allow-dirty',)):
-        # --allow-dirty: this worktree always carries untracked review artefacts.
+    def run(runner=None, commit=head, extra=('--allow-dirty',), dirty_checkout=True):
+        nonlocal dirty
+        dirty = dirty_checkout  # dirty outside worklog/ by default, hence --allow-dirty
         argv = ['--log', str(log), '--reviewed-commit', commit] + list(extra)
         return parity.main(argv, runner=fake_pytest() if runner is None else runner)
     return SimpleNamespace(log=log, head=head, run=run,
@@ -142,6 +153,14 @@ def test_a_dirty_checkout_is_refused_without_the_override(parity_run):
     with pytest.raises(ValueError, match='allow-dirty'):
         parity_run.run(extra=())
     assert not parity_run.log.exists() and not parity_run.receipt.exists()
+
+
+def test_a_clean_checkout_needs_no_override(parity_run):
+    """The other half of that gate: nothing to override, so the run proceeds unaided."""
+    receipt = parity_run.run(extra=(), dirty_checkout=False)
+    assert receipt['git_state']['dirty_outside_worklog'] is False
+    assert receipt['allow_dirty_used'] is False and receipt['passed'] is True
+    assert json.loads(parity_run.receipt.read_text())['allow_dirty_used'] is False
 
 
 def test_the_receipt_records_whether_the_override_was_used(parity_run):
