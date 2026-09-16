@@ -1390,13 +1390,17 @@ def test_the_job_spec_is_required_and_validated(job_run, closed_log_file, tmp_pa
     assert not (job / 'completion.json').exists()
 
 
-def test_a_job_spec_substituted_after_its_parse_is_never_bound(job_run, monkeypatch):
+@pytest.mark.parametrize('substituted', [True, False])
+def test_a_job_spec_substituted_during_its_validation_is_never_bound(job_run, monkeypatch,
+                                                                     substituted):
     """Codex round-3b finding 6: the parse and the digest must be one snapshot.
 
     The reviewer substituted a re-ordered room list between the parse and the hash: the
     schema and lineage checks passed on the parsed value while the retained digest still
     identified the original bytes, so a declaration nobody validated was admitted under a
-    digest naming a different file. One read makes both describe the same bytes.
+    digest naming a different file. Reading once makes both describe the same bytes, and a
+    file that no longer holds them when validation ends is refused -- the stale-log rule of
+    ``finalize``, applied to the declaration.
     """
     job, children, spec, repo = job_run()
     path = Path(spec)
@@ -1410,33 +1414,51 @@ def test_a_job_spec_substituted_after_its_parse_is_never_bound(job_run, monkeypa
         def substituting(self, *args, _real=getattr(Path, name), **kwargs):
             data = _real(self, *args, **kwargs)
             if str(self) == str(path):
-                if not reads:  # only the first read of the spec sees the original bytes
+                if not reads and substituted:  # only the first read sees the original bytes
                     path.write_bytes(substitute)
                 reads.append(data)
             return data
 
         monkeypatch.setattr(Path, name, substituting)
-    loaded = exp06_finalize.load_job_spec(str(path), 'finetune')
-    assert len(reads) == 1, 'the job spec must be read exactly once, not {}'.format(len(reads))
-    parsed = reads[0] if isinstance(reads[0], bytes) else reads[0].encode()
-    assert loaded['job_spec_sha256'] == hashlib.sha256(parsed).hexdigest()
-    assert loaded['rooms'] == json.loads(parsed)['rooms']
+    try:
+        if substituted:
+            with pytest.raises(ValueError, match='changed while it was being validated'):
+                exp06_finalize.load_job_spec(str(path), 'finetune')
+        else:
+            loaded = exp06_finalize.load_job_spec(str(path), 'finetune')
+            parsed = reads[0] if isinstance(reads[0], bytes) else reads[0].encode()
+            assert loaded['job_spec_sha256'] == hashlib.sha256(parsed).hexdigest()
+            assert loaded['rooms'] == json.loads(parsed)['rooms']
+        assert len(reads) == 1, 'the job spec is read once, not {} times'.format(len(reads))
+    finally:
+        path.write_bytes(original)
 
 
-def test_no_consumer_rehashes_the_job_spec(job_run, closed_log_file, monkeypatch):
-    """Finding 6: every later consumer compares against the bound snapshot, not a re-read."""
+def test_the_job_records_the_digest_the_loader_bound(job_run, closed_log_file, monkeypatch):
+    """Finding 6: the recorded digest is the loader's snapshot, never a later re-read.
+
+    The spec is changed the instant ``load_job_spec`` returns -- after its own staleness
+    check has passed -- so anything that hashed the file again on the way to the completion
+    would publish bytes the validation never saw.
+    """
     job, children, spec, repo = job_run()
-    real = provenance.sha256_file
+    path = Path(spec)
+    original = path.read_bytes()
+    real = exp06_finalize.load_job_spec
 
-    def guarded(path):
-        assert Path(path).resolve() != Path(spec).resolve(), \
-            'the job spec was hashed again after load_job_spec bound its snapshot'
-        return real(path)
+    def loader(target, expect):
+        loaded = real(target, expect)
+        path.write_bytes(original + b'\n')
+        return loaded
 
-    monkeypatch.setattr(exp06_finalize.provenance, 'sha256_file', guarded)
-    fields = exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
-                                     children=children, expect='finetune', job_spec=spec)
-    assert fields['job_spec']['sha256'] == hashlib.sha256(Path(spec).read_bytes()).hexdigest()
+    monkeypatch.setattr(exp06_finalize, 'load_job_spec', loader)
+    try:
+        fields = exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                         children=children, expect='finetune', job_spec=spec)
+    finally:
+        path.write_bytes(original)
+    assert fields['job_spec']['sha256'] == hashlib.sha256(original).hexdigest()
+    assert fields['job_spec']['sha256'] != hashlib.sha256(original + b'\n').hexdigest()
 
 
 @pytest.mark.parametrize('damage,cause', [
