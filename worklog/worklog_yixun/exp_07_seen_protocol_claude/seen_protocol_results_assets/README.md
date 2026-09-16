@@ -39,9 +39,13 @@ not logs**, and the binder refuses a bare log.
 
 `tools/exp07_calibration.py --reviewed-commit SHA --runs DIR ... --json OUT` is the
 pre-registered gate of plan section 2. It admits the five released-checkpoint K = 8 seen
-evaluations through exactly the checks the table producer applies to that role, derives the
-five-seed means and sample SDs (ddof 1) of EDT (s), C50 (dB) and T60 (%) from the runs
-themselves, applies the registered rule `|mean - historical| <= 3 * sd + 0.02 * |historical|`
+evaluations through exactly the checks the table producer applies to that role -- including
+the cohort rules `build_table` applies afterwards, `tools.exp07_table.metric_names` (all
+five registered metrics, `loss` and `log_mse` included, in every seed's cell) and
+`tools.exp07_table.seed_finite_means` (per-seed finite counts within the registered
+tolerance), so this gate cannot approve a cohort the publication table will refuse --
+derives the five-seed means and sample SDs (ddof 1) of EDT (s), C50 (dB) and T60 (%) from
+the runs themselves, applies the registered rule `|mean - historical| <= 3 * sd + 0.02 * |historical|`
 against the registered historical values (0.0389 / 1.029 / 7.27, `tools.exp07_profiles.CALIBRATION`)
 and writes a canonical JSON plus sidecar binding the run digests, manifest hashes, the
 released checkpoint digest, the reviewed commit and its own producer closure. It runs
@@ -49,17 +53,25 @@ BEFORE the trainings finish, so the approval file is still all-null: the evaluat
 writer closure pins it needs are computed from the reviewed code at `--reviewed-commit`
 (the identity the launcher itself checked at spawn), and the released row needs no training
 pin. The binder re-derives the means and SDs from the bound runs and refuses a summary that
-does not equal them, so a fabricated finite summary is not evidence. A failing calibration
+does not equal them, so a fabricated finite summary is not evidence. It also binds the
+sidecar at its own digest and revalidates its producer-closure records against the
+recomputed identity, so a rewritten sidecar changes the report. A failing calibration
 still writes its JSON (exit 1) for the investigation the plan requires; the binder refuses it.
 
 `tools/exp07_parity.py --log PATH --reviewed-commit SHA --gpu N` runs the nine registered
 deferred GPU node ids under one pytest with a JUnit XML and writes `<log>.receipt.json`
 naming each case with its outcome, the pytest exit, the reviewed commit (which must be
-HEAD), the CUDA device and the digests of the log and the XML. It refuses a run that is
-missing a case, skipped one, failed one, collected an unregistered one or exited nonzero.
-The binder requires the receipt to cover exactly those nine ids, all passed, exit 0, a
-clean checkout, `git_head == reviewed_commit` and an ancestor of the binding HEAD, and
-re-hashes the log and the XML.
+HEAD), the CUDA device and the digests of the log and the XML. It owns that evidence: the
+log and the XML are created with `O_CREAT|O_EXCL` **before** pytest is spawned (an existing
+file at either path is refused and neither is created), the child runs with `PYTEST_ADDOPTS`
+cleared and `-o addopts=` so no ambient option can turn it into a help screen or another
+set of cases, and the XML must be non-empty and no older than that reservation. It refuses
+a run that is missing a case, skipped one, failed one, collected an unregistered one,
+exited nonzero, or left an unparseable XML. The binder requires the receipt to cover
+exactly those nine ids, all passed, exit 0, a clean checkout, `git_head == reviewed_commit`
+and an ancestor of the binding HEAD; it re-hashes the log and the XML **and parses the XML
+itself** through the producer's own functions, so a receipt that does not say what pytest's
+XML says is refused.
 
 `make_results_md.py` writes `seen_protocol_results.md`, `make_results_html.py` writes
 `seen_protocol_01_results.html`, and `make_latex.py` writes `table_seen_unseen.tex`. All
@@ -76,22 +88,29 @@ marker or superiority claim appears in any rendered cell.
 creates `binding_report_<UTC timestamp>.json` in that existing directory. It binds the
 three certified attempts with their inventory sidecar, probe receipt and hours ledger
 (at most one retry per arm) AND every other attempt each ledger lists -- each must end
-certified (a completion naming its log) or aborted (an `abort.json` with a reason and the
-logs it references, which the launcher keeps OUTSIDE the attempt directory), and every probe
-attempt must correspond to exactly one receipt that records its manifest and completion
-digests -- so a later change to any of those files, logs included, changes the report. The
-one abort without a log on disk is the documented setup failure: `execute_attempt` raised
-before the child was spawned, so `abort.json` carries a null renamed log and the attempt
-holds no `execution.json`; that form is bound with the log recorded absent, and any other
-logless abort is refused. It also binds the released checkpoint at its pinned digest; the
+certified (a completion naming its log, which must be on disk at the recorded digest) or
+aborted (an `abort.json` with a reason and the logs it references, which the launcher keeps
+OUTSIDE the attempt directory), and every probe attempt that COMPLETED must correspond to
+exactly one receipt that records its manifest and completion digests -- so a later change
+to any of those files, logs included, changes the report. A probe whose child failed has no
+receipt to have (`run_probe` writes it only after `execute_attempt` returns) and is
+published through its abort evidence instead. The one abort without a log on disk is the
+documented setup failure, required in the exact shape that produces it: reason
+`setup_failed`, the `_ABORTED_setup_failed` directory the abort itself named, a null
+renamed log beside a named original, no `execution.json` and neither log on disk. That form
+is bound with the log recorded absent; any other logless abort is refused. It also binds the released checkpoint at its pinned digest; the
 forty seen runs with their `seen_split` bindings, training linkage and agreeing split
 identity in both output metas; the seen alignment audit (protocol `seen`, passed, with its
 cohort digest and arguments); the required `--evidence` receipts (`gpu_parity`,
 `calibration`); the four producer outputs, revalidated through the same canonical checks the
 generators apply, each covering EXACTLY its registered run set (the table all forty runs, a
-pairing its two arms' twenty), declaring each trained arm's `args.json`,
-`train_manifest.json`, `train_inventory.json` and `completion.json`, and with every declared
-input validated against the artefact this report binds -- an unknown or differing input is
+pairing its two arms' twenty) in both its `run_flags` and its `contracts`, each contract
+carrying the role, K, evaluation seed and evaluation-manifest digest of the run it is filed
+under, declaring each trained arm's `args.json`, `train_manifest.json`,
+`train_inventory.json` and `completion.json`, declaring every artefact its own runs declare
+(the reference manifest and the data inventory included) and declaring NOTHING outside those
+runs, the arms they used, the approval blob and its own producer closure -- an omission, an
+unknown input, a differing input and a dependency on a run the product did not use are each
 refused; the rendered documents (each must cite every canonical digest); the exp_04 table,
 sidecar and binding report; the approval blob and git HEAD.
 `check_record.py REPORT_DIRECTORY` recomputes the latest report under its own recorded HEAD;
