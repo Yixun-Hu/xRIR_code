@@ -1,0 +1,5 @@
+GATE 2026-09-16_12:05:54 HEAD=bd30c83696dd207b751a77d0cf47998d3819b73b GPU=1
+approvals bound at bd30c83696dd | TRAINING_KEYS mismatches [] | require []
+GPU 1 free: 65 MiB, 49140 MiB
+EXP06_PREFLIGHT_REFUSED HEAD 6dc0b8ec3553c226f0e2e6e1f587eb806f4ff113 is not the reviewed commit 'bd30c83696dd207b751a77d0cf47998d3819b73b' (full 40-hex sha required)
+REFUSE: canonical preflight failed

@@ -360,3 +360,20 @@ Round 3b CLOSED 2026-09-15 18:05 at `6ac832c` — Codex close review 3: empty bl
 | d854102 | main | bookkeeping: round-3 reviews/reports, Sep 16 entries |
 | b9f6ebe | main | approvals re-filled at the merge tip (probe_align, all code digests, artifacts.heading) |
 Approvals re-fill VERIFIED 2026-09-16 08:14 (Codex, no blockers) — launch binding b9f6ebe.
+| 8273943 | main | bookkeeping: runbook v3 + reviews, A4, re-fill verification |
+
+## Pre-launch round (A4/A5; Coder: Claude Opus 5, branch `exp06-prelaunch` from 515136f) — delivered 2026-09-16 12:57; merges AFTER the pretraining completes; Codex review pending
+| c61e86d | exp06-prelaunch | exp06: red tests for the A5 rung-4 smoke budgets |
+| 040f2b1 | exp06-prelaunch | exp06: red tests for the finalised HAA diagnostics (A4) |
+| 0e4b6b2 | exp06-prelaunch | exp06: A5 rung-4 smoke budgets as environment parameters |
+| cd1fc17 | exp06-prelaunch | exp06: finalised HAA diagnostics, run types haa_smoke_train/haa_smoke_eval (A4) |
+| c956a3a | exp06-prelaunch | exp06: red tests for the smoke mode's finalised HAA rungs |
+| 343d7d6 | exp06-prelaunch | exp06: the smoke mode runs and finalises the two HAA rungs (A4) |
+| a6cf010 | exp06-prelaunch | exp06: red regression for the job-spec parse/hash window |
+| 1027101 | exp06-prelaunch | exp06: load_job_spec reads the job spec once (round-3b finding 6) |
+| 7954508 | exp06-prelaunch | exp06: regression for the passed gate between the two HAA rungs |
+| 2664512 | exp06-prelaunch | exp06: red test for a job spec that changes during its validation |
+| 8bc7cf8 | exp06-prelaunch | exp06: a job spec that changed during its validation is stale, not certifiable |
+| 9381b6a | exp06-prelaunch | red: HAA-diagnostic artefacts must be confined to the smoke tree |
+| c867e24 | exp06-prelaunch | confine every registered artefact (lstat walk + resolve) |
+Pre-launch round CLOSED 2026-09-16 14:00 at `c867e24` — Codex close review: approve for the POST-TRAINING merge (no blockers).
