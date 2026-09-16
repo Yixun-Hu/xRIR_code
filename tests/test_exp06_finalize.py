@@ -514,6 +514,46 @@ def test_the_eval_room_files_follow_the_arguments(tmp_path, clone, approvals):
         exp06_finalize.finalize(run, 'haa_smoke_eval', log, 0, repo=clone, receipt=receipt)
 
 
+@pytest.mark.parametrize('run_type,name', [
+    ('haa_smoke_train', 'best.pth'), ('haa_smoke_train', 'args.json'),
+    ('haa_smoke_eval', 'per_sample_hallway.json'), ('haa_smoke_eval', 'provenance.json')])
+def test_an_allow_listed_artefact_may_not_link_outside_the_smoke_tree(
+        tmp_path, clone, approvals, run_type, name):
+    """Codex pre-launch finding 1: the allow-list checked names and hashing followed links.
+
+    An allow-listed name pointing outside ``_smoke`` was hashed and accepted, so a passing
+    training diagnostic could hand the next rung an external checkpoint. Every registered
+    artefact must be a regular file of the disposable tree itself.
+    """
+    run, (_, receipt) = haa_smoke_run(clone, approvals, run_type,
+                                      'link_{}_{}'.format(run_type, name))
+    log = seal(run, tmp_path / 'haa.log', text='EXP06_SMOKE {"wall_s": 30.0}\n')
+    target = run / exp06_finalize.ARTIFACT_DIR / name
+    external = tmp_path / ('external_' + name)
+    external.write_text(target.read_text())
+    target.unlink()
+    target.symlink_to(external)
+    with pytest.raises(ValueError, match='symlink'):
+        exp06_finalize.finalize(run, run_type, log, 0, repo=clone, receipt=receipt)
+    assert not (run / 'completion.json').exists()
+    target.unlink()
+    external.replace(target)  # the same bytes as a regular file are accepted as before
+    assert exp06_finalize.finalize(run, run_type, log, 0, repo=clone,
+                                   receipt=receipt)['passed'] is True
+
+
+def test_a_symlinked_artefact_directory_is_refused(tmp_path, clone, approvals):
+    """Confinement is per path component: a linked ``run/`` leaves the disposable tree."""
+    run, (_, receipt) = haa_smoke_run(clone, approvals, 'haa_smoke_train', 'link_dir')
+    log = seal(run, tmp_path / 'haa.log', text='EXP06_SMOKE {"wall_s": 30.0}\n')
+    artefacts = run / exp06_finalize.ARTIFACT_DIR
+    external = tmp_path / 'external_run'
+    shutil.move(str(artefacts), str(external))
+    artefacts.symlink_to(external)
+    with pytest.raises(ValueError, match='symlink'):
+        exp06_finalize.finalize(run, 'haa_smoke_train', log, 0, repo=clone, receipt=receipt)
+    assert not (run / 'completion.json').exists()
+
 def test_the_passed_subcommand_gates_the_next_rung(tmp_path, clone, approvals, capsys):
     """A4: the evaluation smoke starts only after the training smoke's own completion."""
     run, (_, receipt) = haa_smoke_run(clone, approvals, 'haa_smoke_train', 'gate_train')
