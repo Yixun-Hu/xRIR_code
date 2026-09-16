@@ -146,3 +146,60 @@ def test_a_dirty_checkout_is_refused_without_the_override(parity_run):
 
 def test_the_receipt_records_whether_the_override_was_used(parity_run):
     assert parity_run.run()['allow_dirty_used'] is True
+
+
+def test_a_preexisting_junit_xml_is_refused(parity_run):
+    """Blocker 2: the run owns its evidence, so a planted XML is never reused."""
+    parity_run.junit.write_text(SUITE.format(n=9, cases=''.join(case(*v) for v in passing())))
+    before = parity_run.junit.read_bytes()
+    def never(*args, **kwargs):
+        raise AssertionError('pytest must not run over someone else\'s JUnit XML')
+    with pytest.raises(FileExistsError):
+        parity_run.run(never)
+    assert parity_run.junit.read_bytes() == before
+    assert not parity_run.log.exists() and not parity_run.receipt.exists()
+
+
+def test_the_child_runs_with_no_ambient_pytest_options(parity_run, monkeypatch):
+    """PYTEST_ADDOPTS and any ini addopts are cleared: only these options select cases."""
+    monkeypatch.setenv('PYTEST_ADDOPTS', '--help')
+    seen = {}
+    inner = fake_pytest()
+    def runner(command, **kwargs):
+        seen.update(command=command, env=kwargs['env'])
+        return inner(command, **kwargs)
+    parity_run.run(runner)
+    assert seen['env']['PYTEST_ADDOPTS'] == ''
+    assert seen['command'].count('-o') == 1
+    assert seen['command'][seen['command'].index('-o') + 1] == 'addopts='
+    assert any(item.startswith('--junitxml=') for item in seen['command'])
+    assert seen['command'][-len(parity.TESTS):] == list(parity.TESTS)
+
+
+def test_a_run_that_writes_no_junit_xml_is_refused(parity_run):
+    """The reserved file is still empty: nothing ran, whatever the child's exit status."""
+    def silent(command, **kwargs):
+        return SimpleNamespace(returncode=0, stdout=b'usage: __main__.py [options]\n')
+    with pytest.raises(ValueError, match='no JUnit XML'):
+        parity_run.run(silent)
+    assert not parity_run.receipt.exists()
+
+
+def test_an_unparseable_junit_xml_is_refused(parity_run):
+    def garbage(command, **kwargs):
+        junit = next(item for item in command if item.startswith('--junitxml='))
+        Path(junit[len('--junitxml='):]).write_text('this is not pytest XML')
+        return SimpleNamespace(returncode=0, stdout=b'')
+    with pytest.raises(ValueError, match='not parseable'):
+        parity_run.run(garbage)
+    assert not parity_run.receipt.exists()
+
+
+def test_an_xml_without_test_cases_is_refused(parity_run):
+    def empty(command, **kwargs):
+        junit = next(item for item in command if item.startswith('--junitxml='))
+        Path(junit[len('--junitxml='):]).write_text('<testsuites><testsuite tests="9"/></testsuites>')
+        return SimpleNamespace(returncode=0, stdout=b'')
+    with pytest.raises(ValueError, match='missing parity cases'):
+        parity_run.run(empty)
+    assert not parity_run.receipt.exists()

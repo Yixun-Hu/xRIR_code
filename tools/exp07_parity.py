@@ -3,9 +3,12 @@
 Plan section 3: the bit-identity gate (four trainer cases) and the evaluator parity
 (five cases) are GPU-only and are deferred until a device is free; they MUST pass before
 any launch.  A log is not evidence of that -- a log saying ``9 failed`` is still a log --
-so this entry point owns the run: it executes exactly the nine registered node ids under
-one pytest with a JUnit XML, refuses anything that is missing, skipped, failed or
-unregistered, and writes an immutable receipt naming each case with its outcome, the
+so this entry point owns the run AND its evidence: it reserves the log and the JUnit XML
+exclusively before spawning pytest (an existing one at either path is refused, never
+reused), clears the ambient pytest options, executes exactly the nine registered node ids
+under that one pytest, refuses anything that is missing, skipped, failed, unregistered or
+that left the reserved XML unwritten, and writes an immutable receipt naming each case
+with the outcome PARSED FROM THAT XML, the
 pytest exit status, the reviewed commit the checkout is at, the CUDA device the cases ran
 on and the digests of the log and the JUnit XML.  The record binder takes that receipt as
 ``--evidence gpu_parity=<receipt>`` and re-checks all of it, including that the checkout
@@ -52,7 +55,9 @@ def cuda_device():
 
 
 def command(junit):
-    return [sys.executable, '-m', 'pytest', '-q', '-p', 'no:cacheprovider',
+    # -o addopts= together with the cleared PYTEST_ADDOPTS in run(): no ambient option may
+    # turn this into a collection, a help screen or a different set of cases.
+    return [sys.executable, '-m', 'pytest', '-q', '-p', 'no:cacheprovider', '-o', 'addopts=',
             '--junitxml=' + str(junit)] + list(TESTS)
 
 
@@ -70,6 +75,34 @@ def outcomes(junit):
     return result
 
 
+def parsed_outcomes(junit):
+    """:func:`outcomes`, refusing a file that is not pytest's own XML at all."""
+    try:
+        return outcomes(junit)
+    except ElementTree.ParseError as error:
+        raise ValueError('the parity JUnit XML is not parseable: ' + str(error))
+
+
+def reserve(*paths):
+    """Claim every output path exclusively, or create none of them; return the earliest mtime.
+
+    ``O_CREAT | O_EXCL`` before pytest is spawned is what makes the evidence this
+    invocation's own: a file left by an earlier run -- or planted by someone who wants a
+    passing receipt without a run -- is refused instead of reused or overwritten.
+    """
+    created, times = [], []
+    try:
+        for path in paths:
+            os.close(os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644))
+            created.append(Path(path))
+            times.append(created[-1].stat().st_mtime)
+    except BaseException:
+        for item in created:
+            item.unlink()
+        raise
+    return min(times)
+
+
 def check(recorded, status):
     """Exactly the nine registered cases, all passed, under a successful pytest exit."""
     missing = [node for node in TESTS if node not in recorded]
@@ -83,20 +116,31 @@ def check(recorded, status):
 
 
 def run(log, junit, gpu, runner):
-    """Run the nine cases once; the log is created exclusively and never appended to."""
+    """Run the nine cases once, into output paths this invocation reserved for itself.
+
+    Both the log and the JUnit XML are created exclusively BEFORE pytest is spawned, and
+    the XML the child leaves behind must be newer than that reservation and non-empty, so
+    a run that collected nothing -- the child was turned into ``--help``, say -- cannot be
+    receipted against someone else's passing XML.
+    """
+    reserved = reserve(log, junit)
     environment = dict(os.environ, PYTHONPATH=str(REPO), PYTHONDONTWRITEBYTECODE='1',
-                       PYTHONHASHSEED='0', OMP_NUM_THREADS='2')
+                       PYTHONHASHSEED='0', OMP_NUM_THREADS='2', PYTEST_ADDOPTS='')
     if gpu is not None:
         environment['CUDA_VISIBLE_DEVICES'] = str(gpu)
     argv = command(junit)
     completed = runner(argv, cwd=str(REPO), env=environment, stdout=subprocess.PIPE,
                        stderr=subprocess.STDOUT)
     output = completed.stdout if isinstance(completed.stdout, bytes) else b''
-    with open(str(log), 'xb') as stream:  # x: an existing parity log is never overwritten
+    with open(str(log), 'r+b') as stream:  # the reserved, still empty, log of this run
         stream.write(output)
+        stream.truncate()
         stream.flush()
         os.fsync(stream.fileno())
     print(output.decode('utf-8', 'replace'), flush=True)
+    written = Path(junit).stat()
+    require(written.st_size > 0 and written.st_mtime >= reserved,
+            'pytest wrote no JUnit XML over the reserved one: no parity case ran')
     return completed.returncode, argv
 
 
@@ -112,8 +156,9 @@ def collect(log, reviewed_commit, gpu=None, junit=None, out=None, allow_dirty=Fa
     state = p.checked_git_state(REPO, True, allow_dirty)
     device = cuda_device()
     status, argv = run(log, junit, gpu, runner)
-    check(outcomes(junit), status)
-    receipt = dict(schema_version=1, passed=True, tests=dict(outcomes(junit)),
+    recorded = parsed_outcomes(junit)
+    check(recorded, status)
+    receipt = dict(schema_version=1, passed=True, tests=dict(recorded),
                    n_tests=len(TESTS), pytest_exit=status, git_head=head,
                    reviewed_commit=commit, git_state=state, cuda_device=device, gpu=gpu,
                    allow_dirty_used=bool(allow_dirty and state['dirty_outside_worklog']),
