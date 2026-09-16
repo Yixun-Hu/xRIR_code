@@ -1529,7 +1529,9 @@ def load_job_spec(path, expect):
     come from that one buffer, as ``closed_log`` does for a log. Parsing one read and
     hashing another admitted a spec substituted in between under a digest that identified
     the bytes nobody had validated; every later consumer compares against the digest
-    returned here, so no second read of the file can enter the evidence.
+    returned here, so no second read of the file can supply the evidence. The file is read
+    a second time only to refuse: as ``finalize`` re-hashes the log it validated, a
+    declaration that no longer holds the bytes that were parsed is stale, not certifiable.
     """
     _require(path, 'a job needs the pipeline --job-spec it was run from')
     try:
@@ -1568,6 +1570,9 @@ def load_job_spec(path, expect):
     # Finding 3: the declaration's own digest, which every child must have recorded at
     # launch -- taken from the snapshot above, never from a second read of the file.
     spec['job_spec_sha256'] = hashlib.sha256(data).hexdigest()
+    _require(provenance.sha256_file(path) == spec['job_spec_sha256'],
+             'job spec {} changed while it was being validated: what it holds now is not '
+             'the bytes that were parsed'.format(path))
     return spec
 
 
