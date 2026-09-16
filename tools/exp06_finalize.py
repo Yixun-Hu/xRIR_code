@@ -688,11 +688,17 @@ def revalidate_inputs(record, repo, required=('train_data_identity', 'source_clo
     _require(not mismatches, 'input revalidation failed: ' + ', '.join(sorted(mismatches)[:8]))
 
 
-def artifacts(run_dir, names):
-    """Hash every required artifact; a missing one is refused by name."""
+def artifacts(run_dir, names, root=None):
+    """Hash every required artifact; a missing one is refused by name.
+
+    ``root`` confines the artifacts to one tree: with it, each is required to be a regular
+    file of that tree rather than whatever a link leads to (see ``confined``).
+    """
     hashes = {}
     for name in names:
         path = Path(run_dir) / name
+        if root is not None:
+            confined(path, root, 'artefact')
         _require(path.is_file(), 'missing artifact {} in {}'.format(name, run_dir))
         hashes[name] = provenance.sha256_file(path)
     return hashes
@@ -854,6 +860,28 @@ def smoke_run_dir(run_dir, repo):
     return path
 
 
+def confined(path, root, label):
+    """Codex pre-launch finding 1: a registered artefact is of the tree, not a link out of it.
+
+    ``artifacts()`` hashes whatever a symlink leads to, so an allow-listed *name* pointing
+    outside ``_smoke`` -- an external ``best.pth``, an external ``per_sample_<room>.json`` --
+    would otherwise be hashed and finalised as passed, and a passing training diagnostic
+    could hand the next rung a checkpoint nobody in this experiment produced. Every
+    component below the already resolved ``root`` must therefore be a real directory or
+    file (``lstat``, not ``stat``), which also leaves the path resolving inside ``root``.
+    """
+    path = Path(path)
+    _require(root in path.parents, '{} is not inside {}'.format(path, root))
+    walked = root
+    for part in path.relative_to(root).parts:
+        walked = walked / part
+        _require(not walked.is_symlink(),
+                 'the {} {} is a symlink, not a real entry of {}'.format(label, walked, root))
+    _require(path.resolve() == path,
+             'the {} {} resolves to {}, outside {}'.format(label, path, path.resolve(), root))
+    return path
+
+
 def haa_smoke_files(run_type, args):
     """The names the wrapper writes, derived from its own arguments -- never guessed.
 
@@ -882,10 +910,13 @@ def haa_smoke_artifacts(run_dir, run_type, repo):
     diagnostic contract replaces the argv guard with this allow-list: exactly the files the
     wrapper writes, in the directory its own ``save_dir`` names, inside the disposable
     smoke tree, each hashed into the completion. Anything else there is an unregistered
-    write and refuses.
+    write and refuses, and an allow-listed name is accepted only as a regular file of that
+    tree (``confined``), never as a link to one outside it.
     """
-    directory = smoke_run_dir(run_dir, repo) / ARTIFACT_DIR
+    root = smoke_run_dir(run_dir, repo)
+    directory = confined(root / ARTIFACT_DIR, root, 'artefact directory')
     _require(directory.is_dir(), 'missing artefact directory {}'.format(directory))
+    confined(directory / 'args.json', root, 'artefact')  # read only once confined
     args = _read_json(directory / 'args.json', 'args.json')
     _require(_resolve(args.get('save_dir') or '', repo).resolve() == directory,
              'args.json records the save_dir {!r}, not the {} being finalized'.format(
@@ -894,7 +925,7 @@ def haa_smoke_artifacts(run_dir, run_type, repo):
     unregistered = sorted(set(item.name for item in directory.iterdir()) - set(names))
     _require(not unregistered, '{} holds unregistered artefacts: {}'.format(
         directory, ', '.join(unregistered)))
-    return artifacts(directory, sorted(names))
+    return artifacts(directory, sorted(names), root=root)
 
 
 def check_receipt_consistency(fields, record, window):
