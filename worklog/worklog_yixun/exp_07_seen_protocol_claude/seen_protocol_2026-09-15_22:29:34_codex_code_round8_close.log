@@ -1,0 +1,331 @@
+Reading additional input from stdin...
+OpenAI Codex v0.154.0
+--------
+workdir: /home/yixunhu/codespace/xRIR_code_wt07
+model: gpt-6-astra
+provider: openai
+approval: on-request
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 01a0a80c-51ca-7af0-aec6-c6b91cef0b43
+--------
+user
+Follow the briefing in /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_review_briefing.md (read it first; record folder on the MAIN tree, code in this worktree). This is the CLOSE review of Coder round 8 and, if it closes, the repeated FINAL INTEGRATIVE verdict (SOP marker `full`) for the exp_07 branch. Your round-7 close review (MAIN tree seen_protocol_codex_code_round7_close_review.md — re-read it) returned request changes with blockers 1–4 and should-fix 5; round-6 findings 4–9 were closed; merge preservation verified. Your adversarial tests sit untracked in `.review-round6/` and `.review-round7/` of this worktree (with the `parity-clean` clone).
+
+Round 8 = the 9 commits `d58c2fd..fd6e521` (`git diff d58c2fd..fd6e521`), per the MAIN-tree coder_prompts/round8_prompt.md: `775b9c9` parity producer reserves both evidence paths with O_CREAT|O_EXCL before spawning pytest, writes the log into the reserved handle, clears `PYTEST_ADDOPTS` in the child env AND passes `-o addopts=` (the Coder verified that `-o addopts=` alone is defeated by `PYTEST_ADDOPTS=--help`), requires non-empty XML with mtime ≥ reservation, receipt records parsed outcomes; `217ee14` binder parses the XML with `parity.parsed_outcomes` + `parity.check` and requires equality with the receipt; `7951b9b` + `fd6e521` attempt terminal states: certified/probe logs mandatory at their recorded digest, setup-failure shape requires all five launcher signals (`reason == 'setup_failed'`, directory `.*_ABORTED_setup_failed(_<hex>)?`, `log` with exactly `original` + `aborted is None`, no execution.json, no log on disk), aborted probes retained through abort evidence, completion-linked receipts required only for certified probes; `dcc791e` calibration shares `metric_names(cells)` and `seed_finite_means(...)` extracted into tools/exp07_table.py (build_table now calls them; claimed byte-identical numbers), FINITE_COUNT_TOLERANCE read from TABLE_SEEN_V1, no `load_approved_digests` dependency (test monkeypatches it to raise); `53d6779` exact `contracts` coverage (set equality + per-contract identity check: role/K/seed/manifest digest vs the independently built run record) and dependency check split into `required ⊆ declared ⊆ allowed` (required = every artefact the expected runs declare + approval blob + sidecar producer closure; allowed = required + the used arms' training evidence: inventory sidecar, hours ledger, probe receipt) — the Coder argues exact equality is impossible because attempt declarations contain more than a product declares (twelve epoch checkpoints, history.jsonl, aborted-attempt files) — judge whether `allowed` is tight enough that an unrelated dependency (e.g. a released-run input in the cyl/simple pairing, another arm's checkpoint, an unrelated run's completion) is refused; `9669054` calibration sidecar bound (digest in the report; producer-closure records validated against recomputed `producer_identity('tools.exp07_calibration')`); `a08c4cb`/`da37bb4` README + reflow. Coder claims: full suite at `fd6e521` 2 582 passed / 46 skipped / 0 failed; static_checks exit 0 (294; 212/1 both orders); 57 paths vs main of which the 33 non-worklog paths are all new; the Coder notes two shadowed names it introduced and fixed in bind_provenance.py (`identity` in `run_contract`, `name` in `bind_results`) as the kind of bug that file invites — look for more.
+
+Verify (actively try to break it): replay every reproduction from `.review-round7/test_new_adversarial.py` and your round-6 file; invent new ones for the round-8 surfaces — parity: a pre-existing XML at the path, `PYTEST_ADDOPTS=--help` with a clean clone, a symlinked reservation path, an XML rewritten after the run with the same size, a receipt copied from another commit, a JUnit with nine passes but a different `git_head`; attempts: an aborted attempt whose renamed log was edited, a setup-failure directory with a stray log on disk, a certified probe whose receipt names another probe's completion, two probes where the aborted one carries a forged receipt; calibration: cells with an extra unknown metric, a seed with 6217 − 5 finite queries, calibration run against runs of the wrong role or K; coverage: every omission/addition you can construct across TABLE and the three PAIRS products, including a declared input that is legitimately in `allowed` but belongs to a different product (is that refused or accepted, and should it be?); sidecar: change its generation command / drop its producer closure and confirm the report changes and check_record refuses. Also: is `build_table`'s output byte-identical before/after the helper extraction (diff a synthetic table JSON produced at `d58c2fd` vs `fd6e521`)? hygiene (Python 3.8, no writes outside the worktree, no GPU, no pinned or pre-existing non-worklog file edits — `git cat-file -e main:<path>` must fail for every non-worklog path in `git diff main --name-only`); full suite on a clone at `fd6e521` (create a local `main` branch in the clone first so `test_reviewed_ref_resolution[main]` can run), `static_checks.sh`, both collection orders, `git diff --check`; dry-run `--no-ff` merge into main (`b86bd42` or later) in a clone; exp_04's `check_record.py ckpt/yaw_aug` and exp_06's parser-contract test on the merged tree.
+
+Report format: numbered findings with severity, file:line, what, why, minimal fix; a "Verified" section; the round-8 verdict (approve / approve with changes / request changes) and the integrative verdict ("approved for merge and GPU work" / "not approved") with the exact list of blocking findings; if approved, restate the Planner's launch sequence with exact commands as the code now fixes them (merge → `tools/exp07_parity.py` → `tools/exp07_audit.py` → released-checkpoint evaluations → `tools/exp07_calibration.py` → per-arm smoke/probe/full → evaluations → pin fill → producers → generators → bind with `--evidence` → check). Your final message is the review.
+codex
+I’ll read the briefing and round-7 review first, then replay the adversarial tests, test the round-8 changes, and run the merge checks before writing the final verdict.
+exec
+/bin/bash -lc 'cat /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_review_briefing.md' in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 0ms:
+You are the independent code Reviewer (OpenAI Codex, read-only sandbox) for experiment exp_07 "seen_protocol". The code under review lives in the git worktree you are started in (/home/yixunhu/codespace/xRIR_code_wt07, branch exp07-window); the Coder is a Claude Opus 5 subagent (opposite model family — reciprocity rule of the SOP). Read BEFORE judging: worklog/experiment_SOP.md, CLAUDE.md, the approved plan worklog/worklog_yixun/exp_07_seen_protocol_claude/plan_seen_protocol.md (v3; §2 contract, §3 round table, §4 ladder, §9/§10 changelogs), the notebook seen_protocol_worklog.md, the round's Coder prompt under coder_prompts/, the conventions inherited from exp_04 (plan §11 A1–A10) and exp_05 (plan §10a A1–A9), and exp_03's closure rule: eval_yaw_rotation.py, eval_unseen.py, eval_xRIR_backbone.py, model/*.py, tools/yaw_rotation.py, tools/reference_manifest.py, tools/per_sample_metrics.py, treble_multi_room_dataset/*.py, utils/spec_utils.py are never edited (also tools/paired_stats.py, tools/summarize_yaw.py). Environment: /home/yixunhu/miniconda3/envs/xRIR/bin/python, `export PYTHONPATH=<worktree>`, `export XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms`, `export CUDA_VISIBLE_DEVICES=''` (both GPUs run live 40-hour trainings; never use a GPU, never signal any process), `PYTHONDONTWRITEBYTECODE=1`, pytest with `-p no:cacheprovider`; `ckpt/` and `checkpoints/` are read-only symlinks to live data. If the read-only sandbox blocks a test's writes, say which tests could not be run and what you verified by reading instead. Method: read every changed line (`git diff <base>..<head>`), replay the tests, and actively try to break the contract (adversarial inputs, boundary values, the pinned-file rule, the default-path parity claims, closure membership). Report format: numbered findings with severity (blocker / should-fix / nit), file:line, what, why, minimal fix; a "Verified" section with commands and outputs; a verdict "approve" / "approve with changes" / "request changes"; the exact list of blocking findings. Open with the identity header line `**Reviewer:** OpenAI Codex gpt-6-astra (codex exec, read-only sandbox, worktree exp07-window) · **Date:** <date>`.
+
+exec
+/bin/bash -lc "pwd && rg --files -g AGENTS.md -g CLAUDE.md -g '*round7_close*' -g '*round8*' -g '*review*' .review-round6 .review-round7 worklog /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude && git status --short && git log --oneline -12" in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 60ms:
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06pipe0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_plan_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06pipe0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round3_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06pipe0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_code_manifest_stats_metrics_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06pipe0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round7_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06pipe0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/coder_prompts/round8_fix2_prompt.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06pipe0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/coder_prompts/round8_fix_prompt.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06pipe0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/coder_prompts/round8_prompt.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06pipe0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round8_close_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06pipe0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round8_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06pipe0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_codex_plan_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06pipe0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_branch_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06pipe0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round1_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06pipe0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/review_prompts/oneoffs_round8_prompt.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06pipe0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round8_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06pipe0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round6_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06pipe0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_code_yaw_rotation_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_01_cylvit_vs_simplevit_claude/cylvit_vs_simplevit_codex_code_results_pages_r3_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_01_cylvit_vs_simplevit_claude/cylvit_vs_simplevit_codex_code_results_pages_r2_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_01_cylvit_vs_simplevit_claude/cylvit_vs_simplevit_codex_code_results_pages_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_01_cylvit_vs_simplevit_claude/cylvit_vs_simplevit_codex_code_full_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_01_cylvit_vs_simplevit_claude/cylvit_vs_simplevit_codex_code_results_pages_r4_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_01_cylvit_vs_simplevit_claude/cylvit_vs_simplevit_codex_plan_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_approvals_fill_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round2a_close3_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_07:31:17_codex_code_round2b_close_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round3a_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_16:29:03_codex_launch_gate_test_close_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-14_20:39:27_codex_plan_review_round2.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_premerge_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_premerge_close_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_fable_code_round1_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round2b_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round2a_close4_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_launch_gate_test_close_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round2a_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_03:40:08_codex_code_round2a_close2_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round3b_close_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_launch_gate_test_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_07:32:23_codex_code_full_train2_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round3b_close2_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_05:09:41_codex_code_round2a_close4_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_04:38:18_codex_code_round2a_close3_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_11:08:57_codex_code_round3b_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_plan_round3_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_08:43:17_codex_code_full_train3_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_02:14:34_codex_code_round2a_close_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_11:11:12_codex_code_premerge_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/review_prompts/codex_code_review_briefing.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/review_prompts/code_review_full_prompt.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/review_prompts/code_review_briefing.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_01:00:10_codex_code_round2a_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round3b_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_12:10:10_codex_code_premerge_close_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_15:42:25_codex_code_round3b_close2_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_06:28:41_codex_code_round2b_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round2a_close_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-14_20:27:02_codex_plan_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_plan_round2_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_15:48:20_codex_launch_gate_test_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_14:00:27_codex_code_round3b_close_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_full_train3_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_05:19:04_codex_code_full_train_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round2b_close_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_full_train_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_full_train2_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-14_20:51:46_codex_plan_review_round3.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_15:10:13_codex_approvals_fill_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round3a_close_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round2a_close2_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_plan_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_09:59:28_codex_code_round3a_close_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_08:53:08_codex_code_round3a_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_fable_code_round3_close_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_fable_code_round1_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_codex_plan_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_codex_plan_round2_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_fable_code_round4_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_fable_code_round5_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_fable_code_round2_close_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_fable_code_round3_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_05_param_efficiency_claude/review_prompts/code_review_briefing.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_fable_code_round2_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_02_sim2real_transfer_claude/sim2real_transfer_codex_code_full_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_02_sim2real_transfer_claude/sim2real_transfer_codex_code_results_pages_r3_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_02_sim2real_transfer_claude/sim2real_transfer_codex_code_results_pages_r2_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_02_sim2real_transfer_claude/sim2real_transfer_codex_plan_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_02_sim2real_transfer_claude/sim2real_transfer_codex_code_results_pages_r4_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_02_sim2real_transfer_claude/sim2real_transfer_codex_code_results_pages_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-15_09:59:07_codex_plan_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round5_full_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-15_10:07:05_codex_plan_round2_review.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_review_briefing.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round3_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round4_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round2_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round1_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_plan_round2_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_plan_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/coder_prompts/round8_fix2_prompt.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/coder_prompts/round8_fix_prompt.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/coder_prompts/round8_prompt.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round8_close_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round8_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_codex_plan_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_branch_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round1_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round7_close_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round4_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_codex_plan_round2_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-14_14:36:10_coder_round8fix.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_record_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round3b_close_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/review_prompts/code_review_briefing.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_final_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-14_14:05:00_coder_round8.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round3a_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round5_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round3a_close_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round2_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-14_15:17:27_coder_round8fix2.log
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round3b_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round2_close_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_codex_plan_round3_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_code_full_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round5_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_code_evaluator_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_plan_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round3_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_code_manifest_stats_metrics_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round7_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round4_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round2_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/review_prompts/oneoffs_round8_prompt.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round8_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round6_review.md
+.review-round7/tmp/pytest-of-yixunhu/pytest-0/exp06clone0/repo/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_code_yaw_rotation_review.md
+?? .review-round6/
+?? .review-round7/
+?? checkpoints
+fd6e521 exp_07 round 8: a certified attempt's log is bound at a recorded digest
+da37bb4 exp_07 round 8: reflow two overlong lines the round-8 edits left
+a08c4cb exp_07 round 8: the assets README states what round 8 changed
+9669054 exp_07 round 8: the calibration sidecar is bound and its closure revalidated
+53d6779 exp_07 round 8: exact contract coverage and each product's own dependencies
+dcc791e exp_07 round 8: the calibration gate shares the table's cohort rules
+7951b9b exp_07 round 8: every attempt's terminal state, and only its real evidence
+217ee14 exp_07 round 8: the binder reads the parity XML, not only the receipt
+775b9c9 exp_07 round 8: the parity producer reserves and owns its own evidence
+d58c2fd exp_07 round 7: restate what the binder binds, and drop a dead constant
+112db91 exp_07 round 7: keep the dependency maps out of the binding report
+a423358 exp_07 round 7: document the two new producers and the tightened binding
+
+exec
+/bin/bash -lc 'cat /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round7_close_review.md /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/coder_prompts/round8_prompt.md' in /home/yixunhu/codespace/xRIR_code_wt07
+ succeeded in 0ms:
+# exp_07 seen_protocol — Codex code review, round 7 close + repeated integrative verdict (`full`)
+
+**Reviewer:** OpenAI Codex `gpt-6-astra` (Ultra), `codex exec -s read-only -C /home/yixunhu/codespace/xRIR_code_wt07`, prompt `review_prompts/code_round7_close_prompt.md`, log `seen_protocol_2026-09-15_19:52:57_codex_code_round7_close.log`. **Scope:** exp07-window `9c3b458..d58c2fd` (round 7) and the whole branch for the integrative verdict. **Date:** 2026-09-15 19:53–20:27 EDT.
+
+**Reviewer:** OpenAI Codex gpt-6-astra (codex exec, read-only sandbox, worktree exp07-window) · **Date:** 2026-09-15
+
+Reviewed all changed lines in the 12 commits `9c3b458..d58c2fd`, replayed the round-6 reproductions, and repeated the integration checks.
+
+**Round-7 verdict: request changes. Round 7 remains open.**  
+**FINAL INTEGRATIVE verdict (`full`): not approved.**  
+**Exact blocking findings: 1, 2, 3, and 4 below.**
+
+1. **Blocker — product coverage still permits missing contracts and dependencies.**  
+   [bind_provenance.py:453](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/bind_provenance.py:453)
+
+   The new checks enforce the expected `run_flags` keys, but do not enforce equivalent coverage of `contracts` or all required dependencies. Dependency admission also uses the entire record’s allowed inputs instead of restricting them to the product’s runs.
+
+   Independently reproduced, retaining approval pins and repairing outer hashes:
+
+   - Remove every table contract: accepted.
+   - Remove a required reference-manifest dependency: accepted.
+   - Add a released-run dependency to the cylindrical/simple pairing: accepted.
+
+   **Why:** complete run flags still do not establish complete, accurate product provenance.
+
+   **Minimal fix:** require exact contract coverage and validate contract identities. Derive each product’s required input map from its expected runs, training evidence, approval and producer closure; reject omissions and unrelated dependencies.
+
+2. **Blocker — parity can be certified without the tests running.**  
+   [exp07_parity.py:103](/home/yixunhu/codespace/xRIR_code_wt07/tools/exp07_parity.py:103), [bind_provenance.py:188](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/bind_provenance.py:188)
+
+   The producer accepts a pre-existing JUnit file and inherits `PYTEST_ADDOPTS`. The binder hashes the XML but never verifies its outcomes against the receipt.
+
+   Independently reproduced:
+
+   - XML containing a failed case, with the receipt still claiming nine passes: accepted.
+   - XML containing no test cases: accepted.
+   - From a clean clone, pre-create passing XML and set `PYTEST_ADDOPTS=--help`: the **real pytest subprocess runs zero tests**, exits 0, and the producer writes a passing receipt which the binder accepts.
+
+   Only CUDA availability was stubbed for that last reproduction; the subprocess and evidence checks were real.
+
+   **Minimal fix:** require fresh invocation-owned XML and reserve output paths before launching pytest; control ambient pytest options. In the binder, parse the XML, enforce the registered successful cases, and require agreement with the receipt.
+
+3. **Blocker — attempt-state handling accepts missing evidence and rejects legitimate aborted probes.**  
+   [bind_provenance.py:72](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/bind_provenance.py:72), [bind_provenance.py:124](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/bind_provenance.py:124)
+
+   Three counterexamples remain:
+
+   - Delete a certified probe’s external log: collection succeeds with `present=False`.
+   - Remove the log block and execution receipt from a `guard_epoch_one` abort: it is accepted as a setup failure. Neither `reason == "setup_failed"` nor the documented directory/log shape is required.
+   - Retain a legitimately aborted probe in the ledger: collection refuses it because every probe must have a completion-linked receipt. The launcher writes that receipt only after `execute_attempt` succeeds.
+
+   **Why:** the binder admits incomplete certification evidence while preventing publication of valid failure history.
+
+   **Minimal fix:** require existing certified logs at mandatory recorded digests; validate the documented setup-failure shape explicitly; require completion-linked probe receipts only for successfully completed probes, retaining aborted probes through their abort evidence.
+
+4. **Blocker — calibration bypasses table validation beyond the intended waiver.**  
+   [exp07_calibration.py:104](/home/yixunhu/codespace/xRIR_code_wt07/tools/exp07_calibration.py:104)
+
+   Reusing `run_contract` and `admit_run` preserves their checks, but calibration omits validations performed later by `build_table`.
+
+   Independently reproduced with the synthetic producer fixture:
+
+   - Remove `loss` and `log_mse` from the released runs: calibration passes; the table refuses.
+   - Make one seed’s finite count differ by four: calibration passes; the table refuses the registered tolerance violation.
+
+   **Why:** this gate can approve evaluations that the publication protocol subsequently rejects.
+
+   **Minimal fix:** share the table’s metric-coverage and five-seed cohort validation with calibration, while retaining independence from trained-arm approval pins.
+
+5. **Should-fix — the calibration provenance sidecar is not bound into the report.**  
+   [bind_provenance.py:237](/home/yixunhu/codespace/xRIR_code_wt07/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/bind_provenance.py:237)
+
+   The binder reads the sidecar but does not include its digest in the returned record. Changing its generation command and removing all producer closure records leaves the binding report **identical**.
+
+   **Minimal fix:** include the sidecar’s stamp in the report and validate its producer closure records against the recomputed identity.
+
+## Verified
+
+The original findings close as follows:
+
+| Round-6 finding | Round-7 status |
+|---|---|
+| 1 — coverage/dependencies | Partial; finding 1 above remains |
+| 2 — calibration/parity | Producers added; findings 2 and 4 remain |
+| 3 — attempt history/logs | Partial; finding 3 remains |
+| 4 — split agreement | Closed: launcher and binder refuse disagreement |
+| 5 — trainer parity harness | Closed structurally: actual `run_trainer` route exercised; GPU execution deferred |
+| 6 — hardlink overwrite | Closed for Markdown, HTML and LaTeX |
+| 7 — repeated `--evidence` | Closed, including equals syntax |
+| 8 — positive SD printing | Closed |
+| 9 — redundant `--entry` | Closed |
+
+The unchanged round-6 file produced **17 passed / 6 failed**, correcting the reported 18/5 count. Those six failures are obsolete assertions expecting the holes to remain. Updating those expectations in a separate review copy allowed **all 23 replay cases** to pass, including every reproduction inside the compound tests. The original file remains unchanged.
+
+Additional checks refused an internally consistent calibration summary unrelated to the bound runs, stale parity-log digests, mismatched parity commits, missing ledger directories, wrong probe-completion linkage, and disagreement in just one output meta. Earlier forgery refusals remain effective.
+
+Reproductions and logs: [review tests](/home/yixunhu/codespace/xRIR_code_wt07/.review-round7/test_new_adversarial.py), [replay and adversarial log](/home/yixunhu/codespace/xRIR_code_wt07/.review-round7/adversarial-final.log), [missing-dependency reproduction](/home/yixunhu/codespace/xRIR_code_wt07/.review-round7/missing-dependency.log).
+
+Calibration’s approval independence is sound in principle:
+
+- The real approval file remains all-null.
+- Reviewed evaluator/writer closure derivation succeeds.
+- The calibration producer’s 25-file closure excludes the approval JSON.
+- Synthetic calibration succeeds without accessing the approval loader or trained checkpoint pins.
+- The released checkpoint was rehashed and matches registered SHA-256 `1762c702ee23a8f584e67c4b5b052b7483237e6471bb5e58774b66d514aec2f8`.
+- Failed calibration writes its evidence and exits 1; the binder refuses `passed=False`.
+
+Validation used Python **3.8.20**, empty `CUDA_VISIBLE_DEVICES`, disabled bytecode, and pytest’s cache provider disabled.
+
+| Check | Result |
+|---|---|
+| Full suite in clone at `d58c2fd`: `python -m pytest tests -q -p no:cacheprovider` | **2,551 passed, 46 skipped, 1 clone-setup failure**, 1,774.95 seconds |
+| Setup failure: `test_reviewed_ref_resolution[main]` | Clone lacked local `main`; after `git branch main origin/main`, targeted rerun: **1 passed** |
+| `static_checks.sh` | **Exit 0** |
+| Publication subset | **264 passed** |
+| Both record-test collection orders | **190 passed, 1 skipped each** |
+| Python 3.8 parsing, shell syntax, working-tree and round-7 `git diff --check` | Passed |
+
+Thus every non-skipped suite case passed across the full run and the corrected targeted rerun; the initial full invocation itself was not zero-failure. [Full log](/home/yixunhu/codespace/xRIR_code_wt07/.review-round7/full-suite.log), [targeted rerun](/home/yixunhu/codespace/xRIR_code_wt07/.review-round7/clone-main-rerun.log), [static checks](/home/yixunhu/codespace/xRIR_code_wt07/.review-round7/static-checks.log).
+
+Merge preservation remains verified:
+
+- Dry-run `git merge --no-ff --no-commit d58c2fd` into main **`f35196c`**: no conflicts.
+- On the merged tree, exp_04’s `check_record.py ckpt/yaw_aug`: **exit 0**.
+- Exp_06’s `test_shared_flags_and_defaults_equal_the_trainers`: **1 passed**.
+- Direct comparison of merged-tree bytes: **15 closure files across 46 exp_04 evaluations match**.
+- All nine previously restored shared modules still match main.
+- Against current main, all **33 changed non-worklog paths are new**. Existing-path differences are confined to worklog records.
+- No tracked code edits or GPU work were performed; review writes stayed under `.review-round7/`.
+
+The README’s executable parity/calibration commands and the prior `eval07` helper’s arguments match the current interfaces. The actual default receipt name is `${PARITY%.log}.receipt.json`.
+
+**Round 7: request changes. Integrative `full`: not approved. Blocking findings: 1, 2, 3, 4.**
+You are the Coder (Claude Opus 5, max effort) for experiment exp_07 "seen_protocol". Standing rules = coder_prompts/round7_prompt.md's first paragraph (worktree /home/yixunhu/codespace/xRIR_code_wt07, branch exp07-window, tip d58c2fd; no GPU; read-only ckpt/ and checkpoints/; Python 3.8; TDD; small commits; trailer `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`; never edit pinned files; per amendment A1 never edit ANY pre-existing module or test — `git diff main --name-only` stays new-files-only; never touch `.review-round6/` or `.review-round7/`, the Reviewer's untracked adversarial tests — read `.review-round7/test_new_adversarial.py` and use its cases as red tests).
+
+Read IN FULL the Codex round-7 close review /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round7_close_review.md (request changes; blockers 1–4, should-fix 5; findings 4–9 of round 6 are closed — do not regress them). Round 8 closes every item:
+
+1. (Blocker 1) Product coverage in seen_protocol_results_assets/bind_provenance.py: require EXACT `contracts` coverage (same key set as the expected runs) and validate each contract's identity (role/K/seed/run digest) against the bound run; derive each product's REQUIRED input map from its expected runs (per-run completion, manifest, outputs, checkpoint, training evidence for trained roles: args/train_manifest/completion/train_inventory), the approval blob and the producer closure, and require the declared inputs to equal that map exactly — omissions refused, unrelated dependencies (e.g. a released-run input in the cyl-vs-simple pairing) refused. Red tests = the reviewer's three reproductions (remove every table contract; remove a reference-manifest dependency; add a released-run dependency to the cyl/simple pairing).
+2. (Blocker 2) tools/exp07_parity.py must own its evidence: refuse a pre-existing JUnit XML or log at the output paths (reserve them exclusively — O_CREAT|O_EXCL — before launching pytest), run pytest with a controlled environment (`PYTEST_ADDOPTS` cleared/overridden, `-p no:cacheprovider`, explicit `--junitxml`, `-o addopts=""` or equivalent), and after the run parse the XML and require exactly the nine registered node ids with outcome passed (no skips, no errors, no extra cases, XML timestamp after the reservation); the receipt records the parsed outcomes. The binder must parse the XML itself, enforce the nine registered successful cases and require agreement with the receipt (refuse an XML with a failed case, an empty XML, or a receipt that disagrees with the XML). Red tests = the reviewer's three reproductions (failed case in XML with a passing receipt; XML with no cases; pre-created XML + `PYTEST_ADDOPTS=--help`).
+3. (Blocker 3) Attempt-state handling: certified attempts' external logs are MANDATORY at their recorded digest (a missing certified/probe log refuses, never `present=False`); the setup-failure shape is validated explicitly (`abort.json` with `reason == "setup_failed"`, directory name `_ABORTED_setup_failed…`, no log block, no execution receipt — anything else is refused); a legitimately aborted probe (abort.json present, no completion-linked receipt) is RETAINED through its abort evidence, and completion-linked probe receipts are required only for probes that completed. Red tests = the reviewer's three cases.
+4. (Blocker 4) tools/exp07_calibration.py shares the table's later validations — the metric-coverage check (required metrics incl. `loss`/`log_mse`) and the five-seed cohort/finite-count tolerance check of `build_table` — by importing/reusing the same functions from tools/exp07_table.py (refactor them into named helpers there if needed; that file is exp_07-owned), while staying independent of the trained-arm approval pins. Red tests = the reviewer's two reproductions (missing loss/log_mse; one seed's finite count differing by four).
+5. (Should-fix 5) Bind the calibration sidecar: include its digest/stamp in the binding report and validate its producer-closure records against the recomputed `producer_identity('tools.exp07_calibration')`; a changed sidecar must change the report and be detected by check_record.py.
+
+Also correct the assets README's receipt name if it does not say `${PARITY%.log}.receipt.json`. After each commit run the touched tests; at the end: full suite (`CUDA_VISIBLE_DEVICES='' python -m pytest tests -q -p no:cacheprovider`, nohup-detached), both record-tool collection orders, `static_checks.sh`, `py_compile`, `bash -n`, `git diff --check`, `git diff main --name-only`. Report SHAs with line counts, test counts, deferred GPU node ids, and judgement calls.
+
