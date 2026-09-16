@@ -108,12 +108,15 @@ cohort digest and arguments); the required `--evidence` receipts (`gpu_parity`,
 generators apply, each covering EXACTLY its registered run set (the table all forty runs, a
 pairing its two arms' twenty) in both its `run_flags` and its `contracts`, each contract
 carrying the role, K, evaluation seed and evaluation-manifest digest of the run it is filed
-under, declaring each trained arm's `args.json`, `train_manifest.json`,
-`train_inventory.json` and `completion.json`, declaring every artefact its own runs declare
-(the reference manifest and the data inventory included) and declaring NOTHING outside those
-runs, the arms they used, the approval blob and its own producer closure -- an omission, an
-unknown input, a differing input and a dependency on a run the product did not use are each
-refused; the rendered documents (each must cite every canonical digest); the exp_04 table,
+under, and declaring EXACTLY its own dependencies: every artefact its own runs declare (the
+reference manifest and the data inventory included), everything the contract of each trained
+arm it used reads -- that arm's `args.json`, `train_manifest.json`, `completion.json`, the
+`train_inventory.json` sidecar, the `cumulative_hours.json` ledger and the probe receipt --
+the approval blob and its own producer closure, and nothing else. An omission, an unknown
+input, a differing input, a dependency on a run the product did not use and a file of an arm
+it did use that no contract reads (an unused epoch checkpoint, `history.jsonl`, an aborted
+attempt's records -- all bound in this report's attempt history, none of them an input) are
+each refused; the rendered documents (each must cite every canonical digest); the exp_04 table,
 sidecar and binding report; the approval blob and git HEAD.
 `check_record.py REPORT_DIRECTORY` recomputes the latest report under its own recorded HEAD;
 an invalid latest report fails with no fallback.

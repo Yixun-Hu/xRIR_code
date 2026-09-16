@@ -397,10 +397,17 @@ def edit_json(path, mutate):
     Path(path).write_text(json.dumps(data))
 
 
+def product_json(bound, product='table'):
+    """One product's canonical JSON: the seen table, or a pairing by index ('pairs2')."""
+    if product == 'table':
+        return Path(bound.paths['table'])
+    return Path(bound.paths['pairs'][int(product[len('pairs'):] or 0)])
+
+
 def restamp(bound, product='table'):
     """Repair the sidecar's digest of the canonical JSON after editing both of them."""
     md = load_asset('make_results_md')
-    path = Path(bound.paths[product] if product != 'pairs' else bound.paths['pairs'][0])
+    path = product_json(bound, product)
     side = json.loads(sidecar(path).read_text())
     side['outputs'][str(path.resolve())] = md.sha(path.read_bytes())
     sidecar(path).write_text(json.dumps(side))
@@ -408,7 +415,7 @@ def restamp(bound, product='table'):
 
 def edit_both(bound, mutate, product='table'):
     """Edit a product's inputs in the JSON and its sidecar, keeping them consistent."""
-    path = Path(bound.paths[product] if product != 'pairs' else bound.paths['pairs'][0])
+    path = product_json(bound, product)
     data, side = json.loads(path.read_text()), json.loads(sidecar(path).read_text())
     mutate(data, side)
     side['inputs'] = data['inputs']
@@ -518,6 +525,28 @@ def unseen_output_metas(bound):
     sample['meta']['split'] = metrics['meta']['split'] = 'unseen'
     bound.built.rebind(run, sample=sample, metrics=metrics)
     repair_run_digests(bound, run)
+
+
+def drop_declared(bound, matches, product='table'):
+    """Remove every declared input whose file name matches, from one product."""
+    def mutate(data, side):
+        victims = [item for item in data['inputs'] if matches(Path(item).name)]
+        assert victims, 'the product declares no such input'
+        for item in victims:
+            del data['inputs'][item]
+    edit_both(bound, mutate, product)
+
+
+def declare_unused(bound, path, product='table'):
+    """Declare a file of an arm the product used that no run contract reads.
+
+    Its bytes are bound by the report's attempt history, and its digest here is the real
+    one, so only the product's own dependency map can tell it is not an input.
+    """
+    path = Path(path)
+    assert path.is_file(), path
+    edit_both(bound, lambda data, side: data['inputs'].__setitem__(
+        str(path), p.sha256_file(path)), product)
 
 
 def drop_input(bound, name):
@@ -861,6 +890,34 @@ FORGERIES = {
                                               'input differs from the bound artefact'),
     'nonexistent_dependency_added': (add_dependency,
                                      'names an artefact this report does not bind'),
+    # Round-8 blocker 1: a product's dependencies are EXACTLY its own inputs.  Every
+    # trained arm's contract reads that arm's hours ledger and probe receipt
+    # unconditionally, so a product that used the arm must declare both; the arm's other
+    # files are bound in the attempt history and are not inputs of any product.
+    'table_without_the_consumed_probe_receipts': (
+        lambda b: drop_declared(b, lambda name: name.startswith('_probe_t_')),
+        'missing training dependency'),
+    'table_without_the_consumed_hours_ledgers': (
+        lambda b: drop_declared(b, lambda name: name == 'cumulative_hours.json'),
+        'missing training dependency'),
+    'pairing_without_the_consumed_probe_receipts': (
+        lambda b: drop_declared(b, lambda name: name.startswith('_probe_t_'), 'pairs'),
+        'missing training dependency'),
+    'pairing_without_the_consumed_hours_ledgers': (
+        lambda b: drop_declared(b, lambda name: name == 'cumulative_hours.json', 'pairs'),
+        'missing training dependency'),
+    'released_pairing_without_the_consumed_ledger': (
+        lambda b: drop_declared(b, lambda name: name == 'cumulative_hours.json', 'pairs2'),
+        'missing training dependency'),
+    'aborted_attempt_record_in_a_product': (
+        lambda b: declare_unused(b, aborted_attempt(b) / 'abort.json', 'pairs'),
+        'names an artefact this report does not bind'),
+    'unused_epoch_checkpoint_in_a_product': (
+        lambda b: declare_unused(b, b.built.attempts['seen_cyl'] / 'epoch_001.pth'),
+        'names an artefact this report does not bind'),
+    'training_history_in_a_product': (
+        lambda b: declare_unused(b, b.built.attempts['seen_simple'] / 'history.jsonl',
+                                 'pairs2'), 'names an artefact this report does not bind'),
     # Blocker 4: the binder's own split-agreement check.
     'unseen_output_metas_under_a_seen_manifest': (unseen_output_metas, 'output split identity'),
     # Blocker 3: every ledger-listed attempt's terminal state and external evidence.

@@ -18,9 +18,11 @@ pre-registered acceptance rule AND its five-seed operands are recomputed here fr
 bound runs, with its provenance sidecar bound at its own digest.  The four canonical
 producer outputs are revalidated through the generators' own checks; each must cover
 exactly its registered run set in both its run flags and its contracts, each contract
-being the one the run it is filed under would produce, declare every artefact those runs
-declare plus every trained arm's training evidence, and declare nothing outside them at
-any digest but the bound one.  Finally the rendered Markdown/HTML/LaTeX, the exp_04
+being the one the run it is filed under would produce, and declare EXACTLY its own
+dependencies at the bound digests: every artefact those runs declare, everything the
+contract of each trained arm it used reads, the approval and its producer closure, and
+nothing else -- an arm's unused files are bound in the attempt history below, but they
+are inputs of nothing.  Finally the rendered Markdown/HTML/LaTeX, the exp_04
 inputs the combined table reuses, the approval blob and git HEAD.  Each arm's ledger
 must show at most one retry.  Run directories are read and never modified.
 """
@@ -354,19 +356,7 @@ def attempt_record(attempt, pins):
                   seen_split=stamp(Path(fields['repo']) / bound['seen_split']['path'],
                                    bound['seen_split']['sha256']))
     record['probe_linkage'] = probe_linkage(record['other_attempts'], record['probe_receipts'])
-    return dict(record, bound=attempt_declarations(record))
-
-
-def attempt_declarations(record):
-    """Every artefact this attempt binds, by absolute path and bound digest."""
-    items = [record[key] for key in ('manifest', 'completion', 'log', 'checkpoint', 'ledger',
-                                     'inventory', 'probe_receipt', 'seen_split')]
-    items += list(record['probe_receipts'])
-    items += [item for item in record['outputs'].values() if item]
-    for other in record['other_attempts']:
-        items += list(other['files'])
-        items += [item for item in other['logs'] if item['present']]
-    return {item['path']: item['sha256'] for item in items if item}
+    return record
 
 
 def split_agreement(record, fields):
@@ -442,25 +432,25 @@ def run_record(run, attempts, released):
     return dict(record, role=owner['role'], **identity)
 
 
-def product_inputs(expected, roles, trained, run_bound, attempt_bound, approval):
-    """(required, allowed) for a product built over exactly these runs.
+def product_dependencies(expected, roles, trained, run_bound, approval):
+    """EXACTLY the inputs of a product built over exactly these runs.
 
-    REQUIRED is everything each of those runs declares for itself -- its manifest,
-    completion, both outputs, log, checkpoint, reference manifest, data inventory,
-    evaluator and writer closures and mutable bindings -- plus the approval blob.
-    ALLOWED adds the training evidence of the arms the product used: the contract binds
-    the inventory sidecar, the hours ledger and the probe receipt beside the runs, and
-    nothing else may appear, so a dependency on a run this product did not use is refused
-    however well its digest matches.  These maps are working evidence, not report
-    content: one run declares its whole data inventory, so they are never serialized.
+    Everything each of those runs declares for itself -- its manifest, completion, both
+    outputs, log, checkpoint, reference manifest, data inventory, evaluator and writer
+    closures and mutable bindings -- plus the training evidence every trained arm it used
+    makes it consume (:func:`training_dependencies`) and the approval blob.  Nothing
+    else: neither an artefact of a run this product did not use nor a file of an arm it
+    did use that no contract reads, however well its digest matches.  This map is working
+    evidence, not report content: one run declares its whole data inventory, so it is
+    never serialized.
     """
-    required = {approval['path']: approval['sha256']}
+    dependencies = {approval['path']: approval['sha256']}
     for path in sorted(expected):
-        required.update(run_bound[path])
-    allowed = dict(required)
+        dependencies.update(run_bound[path])
     for role in sorted(roles & set(trained)):
-        allowed.update(attempt_bound[role])
-    return required, allowed
+        for item in training_dependencies(trained[role]).values():
+            dependencies[item['path']] = item['sha256']
+    return dependencies
 
 
 def producer_declarations(producer):
@@ -471,12 +461,24 @@ def producer_declarations(producer):
 
 
 def training_dependencies(attempt):
-    """The training evidence any product that used this arm must declare for itself."""
-    required = dict(attempt['outputs'])
-    missing = [name for name in TRAINING_DEPENDENCIES if not required.get(name)]
+    """Exactly the training evidence a product that used this arm consumes.
+
+    ``tools.exp07_table.run_contract`` reads all of it UNCONDITIONALLY for a trained
+    arm -- args.json, train_manifest.json and completion.json, the inventory sidecar the
+    training manifest names, the hours ledger beside the attempt and the probe receipt
+    the timing limits came from -- so a product that used the arm must declare every one
+    of them.  The arm's remaining files (the eleven unused epoch checkpoints,
+    history.jsonl, an aborted attempt's records and logs) are bound in this report's
+    attempt history and are inputs of nothing.
+    """
+    outputs = dict(attempt['outputs'])
+    missing = [name for name in TRAINING_DEPENDENCIES if not outputs.get(name)]
     require(not missing, 'the attempt has no ' + ', '.join(missing) + ': ' + attempt['role'])
-    items = {name: required[name] for name in TRAINING_DEPENDENCIES}
+    items = {name: outputs[name] for name in TRAINING_DEPENDENCIES}
     items['completion.json'] = attempt['completion']
+    items['inventory sidecar'] = attempt['inventory']
+    items['cumulative_hours.json'] = attempt['ledger']
+    items['probe receipt'] = attempt['probe_receipt']
     return items
 
 
@@ -489,7 +491,7 @@ def run_coverage(runs):
     return coverage
 
 
-def bind_results(paths, head, approval, runs, attempts, run_bound, attempt_bound):
+def bind_results(paths, head, approval, runs, attempts, run_bound):
     """Every canonical producer output, revalidated, with exact coverage of its inputs."""
     coverage = run_coverage(runs)
     by_role, trained = {}, {item['role']: item for item in attempts}
@@ -532,22 +534,21 @@ def bind_results(paths, head, approval, runs, attempts, run_bound, attempt_bound
             for item, digest in sorted(coverage[run_path].items()):
                 require(side['inputs'].get(item) == digest,
                         'incomplete run coverage: {} in {}'.format(item, path))
-        required, allowed = product_inputs(expected, roles, trained, run_bound,
-                                           attempt_bound, approval)
-        sources = producer_declarations(side['producer'])
-        required.update(sources)
-        allowed.update(sources)
+        # The product's inputs must equal this map exactly: every dependency declared at
+        # the bound digest, and nothing else -- not even another artefact of this report.
+        dependencies = product_dependencies(expected, roles, trained, run_bound, approval)
+        dependencies.update(producer_declarations(side['producer']))
         for item, digest in sorted(side['inputs'].items()):
-            require(item in allowed,
-                    'input names an artefact this report does not bind: {} in {}'.format(item, path))
-            require(allowed[item] == digest,
+            require(item in dependencies, 'input names an artefact this report does not '
+                    'bind as this product\'s dependency: {} in {}'.format(item, path))
+            require(dependencies[item] == digest,
                     'input differs from the bound artefact: {} in {}'.format(item, path))
-        for role in sorted(roles & set(trained)):
+        for role in sorted(roles & set(trained)):  # named, before the general omission
             for dependency, item in sorted(training_dependencies(trained[role]).items()):
                 require(side['inputs'].get(item['path']) == item['sha256'],
                         'missing training dependency: {} of {} in {}'.format(
                             dependency, role, path))
-        for item, digest in sorted(required.items()):
+        for item, digest in sorted(dependencies.items()):
             require(side['inputs'].get(item) == digest,
                     'the product omits a required input: {} in {}'.format(item, path))
         check_ancestor(side['producer']['commit'], head)
@@ -574,7 +575,6 @@ def collect(runs, attempt, audit, evidence, results, rendered, unseen_table, uns
     attempts = sorted((attempt_record(item, pins) for item in attempt), key=lambda a: a['role'])
     require(sorted(a['role'] for a in attempts) == sorted(pins['checkpoints']),
             'every approved arm must be bound exactly once')
-    attempt_bound = {item['role']: item.pop('bound') for item in attempts}
     paths = sorted(str(Path(item).resolve()) for item in runs)
     require(len(paths) == len(set(paths)) and len(paths) == len(IDENTITIES),
             'the forty evaluation runs')
@@ -588,8 +588,7 @@ def collect(runs, attempt, audit, evidence, results, rendered, unseen_table, uns
                                   stdout=binder.subprocess.PIPE,
                                   stderr=binder.subprocess.PIPE).returncode == 0,
             'invalid binding HEAD')
-    published = bind_results(results, head, approval, records, attempts, run_bound,
-                             attempt_bound)
+    published = bind_results(results, head, approval, records, attempts, run_bound)
     audited = audit_record(audit, head)
     evidenced = evidence_record(evidence, records, head)
     unseen, unseen_receipt = md.load_unseen(unseen_table, unseen_binding)
