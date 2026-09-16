@@ -564,6 +564,17 @@ def rewrite_external_log(bound, which):
     path.write_text('rewritten evidence\n')
 
 
+def forged_calibration_closure(bound):
+    """Claim another producer closure in the calibration, repairing the sidecar digest."""
+    evidence = bound.evidence['calibration']
+    edit_json(evidence, lambda data: data.update(producer_closure_sha256='f' * 64))
+    side = sidecar(evidence)
+    data = json.loads(side.read_text())
+    data['outputs'] = {str(Path(evidence).resolve()): p.sha256_file(evidence)}
+    side.unlink()
+    p.write_manifest(side, data)
+
+
 def rewrite_parity_xml(bound, text):
     """Replace the JUnit XML the parity receipt names, restating the digest it records."""
     path = bound.evidence['gpu_parity']
@@ -764,6 +775,17 @@ FORGERIES = {
     'calibration_without_a_sidecar': (
         lambda b: Path(str(b.evidence['calibration']) + '.provenance.json').unlink(),
         'no provenance sidecar'),
+    # Round-7 should-fix 5: the sidecar is bound, and its producer closure records are
+    # validated against the recomputed identity rather than trusted.
+    'calibration_sidecar_without_closure_records': (
+        lambda b: edit_json(sidecar(b.evidence['calibration']),
+                            lambda d: d['producer'].update(files=[])), 'closure records'),
+    'calibration_sidecar_closure_digest': (
+        lambda b: edit_json(sidecar(b.evidence['calibration']),
+                            lambda d: d['producer'].update(sha256='f' * 64)),
+        'producer closure records'),
+    'calibration_closure_digest': (forged_calibration_closure,
+                                   'calibration producer closure'),
     'parity_case_failed': (lambda b: edit_json(b.evidence['gpu_parity'], lambda d: d['tests']
                                                .update({sorted(d['tests'])[0]: 'failed'})),
                            'parity cases did not pass'),
@@ -864,6 +886,11 @@ FORGERIES = {
     # Not a refusal: the abort receipt records the path but no digest, so a rewritten
     # aborted log must at least change the report and fail check_record.py.
     'aborted_attempt_external_log': (lambda b: rewrite_external_log(b, 'aborted'), None),
+    # Nor is a rewritten calibration generation command, which the sidecar's digest binds.
+    'calibration_sidecar_generation_command': (
+        lambda b: edit_json(sidecar(b.evidence['calibration']),
+                            lambda d: d.update(generation_command=['made-up invocation'])),
+        None),
 }
 
 

@@ -15,10 +15,11 @@ identity agreeing with its manifest), the seen alignment audit, and the two requ
 ``--evidence`` receipts: the GPU parity receipt, whose nine registered cases must all have
 passed at the reviewed commit, and the released-checkpoint calibration, whose
 pre-registered acceptance rule AND its five-seed operands are recomputed here from the
-bound runs.  The four canonical producer outputs are revalidated through the generators'
-own checks; each must cover exactly its registered run set, declare every trained arm's
-training evidence, and declare nothing this report does not bind at the digest it binds
-it at.  Finally the rendered Markdown/HTML/LaTeX, the exp_04 inputs the combined table
+bound runs, with its provenance sidecar bound at its own digest.  The four canonical producer outputs are revalidated through the generators'
+own checks; each must cover exactly its registered run set in both its run flags and its
+contracts, each contract being the one the run it is filed under would produce, declare
+every artefact those runs declare plus every trained arm's training evidence, and declare
+nothing outside them at any digest but the bound one.  Finally the rendered Markdown/HTML/LaTeX, the exp_04 inputs the combined table
 reuses, the approval blob and git HEAD.  Each arm's ledger must show at most one retry.
 Run directories are read and never modified.
 """
@@ -288,12 +289,16 @@ def calibration_record(item, runs, head):
     require(side.get('inputs') == data.get('inputs') and
             side.get('run_flags') == data.get('run_flags'), 'calibration sidecar bindings')
     producer = calibration_producer()
+    # The sidecar's own closure records must produce the digest it claims, as a product
+    # sidecar's must; a sidecar with its records removed is not evidence of a producer.
+    producer_declarations(side['producer'])
     require(side['producer']['sha256'] == producer['sha256'] ==
             data.get('producer_closure_sha256'), 'calibration producer closure')
     check_ancestor(side['producer']['commit'], head)
     check_ancestor(data.get('reviewed_commit'), head)
     return dict(item, role=data['role'], num_shot=data['num_shot'], metrics=accepted,
-                runs=sorted(expected), producer_closure_sha256=producer['sha256'])
+                runs=sorted(expected), sidecar=stamp(str(sidecar)),
+                producer_closure_sha256=producer['sha256'])
 
 
 def audit_record(path, head):
