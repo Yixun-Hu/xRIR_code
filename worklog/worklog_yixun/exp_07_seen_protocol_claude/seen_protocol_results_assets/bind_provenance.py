@@ -4,8 +4,10 @@ Binds the three certified training attempts (completion, manifest, inventory sid
 receipt, hours ledger and the approved checkpoint) AND every other attempt each arm's
 ledger lists: each must have ended certified or aborted, and the external logs its own
 records name -- the launcher keeps them outside the attempt directory -- are bound too,
-so a later change to any of them changes the report.  Probe attempts and their receipts
-must correspond one to one.
+so a later change to any of them changes the report.  A certified attempt's log is
+mandatory; the one abort without a log is the documented setup failure, in the exact
+shape that produces it.  Every probe attempt that COMPLETED has exactly one receipt; a
+probe whose child failed has none to have, and is published through its abort evidence.
 
 It also binds the released reference checkpoint, the forty evaluation runs (the registered
 role/K/seed set, each with its seen-split binding, training linkage and an output split
@@ -22,6 +24,7 @@ Run directories are read and never modified.
 """
 import argparse
 import json
+import re
 from pathlib import Path
 
 from tools import exp07_calibration as calibration
@@ -56,33 +59,53 @@ CALIBRATION_METRICS = profiles.CALIBRATION_METRICS
 SEEN_BATCHES = launcher.TRAIN_BATCHES['seen']
 
 
-def external_log(reference, digest=None):
+def external_log(reference, digest=None, mandatory=False):
     """Bind a log an attempt's own records point at, wherever the launcher put it.
 
     The launcher deliberately keeps logs OUTSIDE the attempt directory, so hashing the
     directory does not cover them; the path comes from the attempt's own completion or
-    abort receipt, and a log that is not on disk is recorded as absent, never assumed.
+    abort receipt.  A CERTIFIED attempt's log is the evidence that it ran, so it is
+    mandatory at the digest that attempt recorded; only the two paths an abort receipt
+    names may be absent, because the abort itself renames one of them away.
     """
     path = Path(reference)
-    if not path.is_file():
+    if mandatory:
+        require(path.is_file(),
+                'a certified attempt names a log that is not on disk: ' + str(path))
+    elif not path.is_file():
         return dict(path=str(path), present=False)
     return dict(stamp(path, digest) if digest else stamp(path), present=True)
 
 
-def terminal_state(directory, row):
-    """A ledger-listed attempt ended certified or aborted; bind that state's evidence.
+SETUP_FAILURE = re.compile(r'.*_ABORTED_setup_failed(_[0-9a-f]+)?\Z')
 
-    Setup failure is the documented third shape of an abort: ``execute_attempt`` raises
-    before the child is spawned, so ``guard.log_created`` is false, ``abort_log`` renames
-    nothing (``log.aborted`` is null), no ``execution.json`` was ever written and there is
-    no log on disk to hash.  Any other abort must bind a log.
+
+def setup_failure(directory, record, logs):
+    """The one documented abort with no log to hash, in the exact shape that produces it.
+
+    ``execute_attempt`` raises before the child is spawned: ``reason`` is still its
+    initial ``setup_failed``, ``guard`` is None so ``abort_log`` renames nothing and
+    ``log.aborted`` is null, ``abort_attempt`` names the directory after that reason, no
+    ``execution.json`` was ever written and neither named log is on disk.  A logless
+    abort that is not all of that is an abort with its evidence removed.
     """
+    log = record.get('log') or {}
+    return (record.get('reason') == 'setup_failed'
+            and SETUP_FAILURE.match(directory.name) is not None
+            and sorted(log) == ['aborted', 'original'] and log['aborted'] is None
+            and isinstance(log['original'], str) and bool(log['original'])
+            and not (directory / 'execution.json').is_file()
+            and not any(item['present'] for item in logs))
+
+
+def terminal_state(directory, row):
+    """A ledger-listed attempt ended certified or aborted; bind that state's evidence."""
     completion, abort = directory / 'completion.json', directory / 'abort.json'
     if completion.is_file():  # a recovered attempt keeps its abort.json as well
         record = json.loads(completion.read_text()).get('log') or {}
         require(record.get('path'), 'a certified attempt records no log: ' + row['attempt'])
         return dict(state='certified', setup_failure=False,
-                    logs=[external_log(record['path'], record.get('sha256'))])
+                    logs=[external_log(record['path'], record.get('sha256'), mandatory=True)])
     require(abort.is_file(),
             'the attempt has no terminal state (completion.json or abort.json): ' + row['attempt'])
     record = json.loads(abort.read_text())
@@ -91,9 +114,10 @@ def terminal_state(directory, row):
             + row['attempt'])
     log = record.get('log') or {}
     logs = [external_log(log[key]) for key in ('original', 'aborted') if log.get(key)]
-    failure = not log.get('aborted') and not (directory / 'execution.json').is_file()
+    failure = setup_failure(directory, record, logs)
     require(failure or any(item['present'] for item in logs),
-            'an aborted attempt that spawned a child must bind its log: ' + row['attempt'])
+            'an aborted attempt must bind its log unless it is the documented setup '
+            'failure: ' + row['attempt'])
     return dict(state='aborted', setup_failure=failure, reason=reason, logs=logs)
 
 
@@ -122,8 +146,17 @@ def other_attempts(certified, ledger, role):
 
 
 def probe_linkage(records, receipts):
-    """Every probe attempt is named by exactly one receipt, at the bytes it recorded."""
+    """Every COMPLETED probe is named by exactly one receipt, at the bytes it recorded.
+
+    ``tools.exp07_launcher.run_probe`` writes the receipt only after ``execute_attempt``
+    returns, so a probe whose child failed has abort evidence and no receipt at all;
+    demanding one would make the arm's real failure history unpublishable.  That attempt
+    is bound through :func:`terminal_state` instead, and every receipt that does exist
+    must still name a probe attempt of this arm, one each.
+    """
     probes = {item['path'] for item in records if item['mode'] == 'probe'}
+    completed = {item['path'] for item in records
+                 if item['mode'] == 'probe' and item['state'] == 'certified'}
     named = {}
     for receipt in receipts:
         bound = (json.loads(Path(receipt['path']).read_text()).get('probe_attempt') or {})
@@ -136,7 +169,7 @@ def probe_linkage(records, receipts):
             require(bound.get(part + '_sha256') == item['sha256'],
                     'probe receipt {} digest: {}'.format(part, receipt['path']))
         named[path] = receipt['path']
-    missing = sorted(probes - set(named))
+    missing = sorted(completed - set(named))
     require(not missing, 'a probe attempt has no receipt: ' + ', '.join(missing))
     return named
 

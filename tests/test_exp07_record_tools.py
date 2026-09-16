@@ -571,6 +571,71 @@ def setup_failure(bound, spawned=False, role='seen_cyl'):
     add_ledger_row(bound, 'attempt_setup_ABORTED_setup_failed', 'full', build, role)
 
 
+def misnamed_setup_failure(bound, role='seen_cyl'):
+    """The documented reason and log shape in a directory the abort did not name."""
+    def build(directory):
+        directory.mkdir()
+        p.write_completion(directory / 'abort.json', dict(
+            reason='setup_failed', wall_hours=.0, exception_message='GPU is not free',
+            log=dict(original=str(attempt_root(bound, role) / 'never_created.log'),
+                     aborted=None)))
+    add_ledger_row(bound, 'attempt_setup_ABORTED_child_failed', 'full', build, role)
+
+
+def stripped_abort(bound):
+    """Reduce a guard_epoch_one abort to a logless one without the setup-failure shape."""
+    directory = aborted_attempt(bound)
+    record = json.loads((directory / 'abort.json').read_text())
+    record.pop('log')
+    p.write_completion(directory / 'abort.json', record)
+    (directory / 'execution.json').unlink()
+
+
+def certified_probe_log(bound, role='seen_simple'):
+    completion = json.loads((attempt_root(bound, role) / '_probe_t_arm'
+                             / 'completion.json').read_text())
+    return Path(completion['log']['path'])
+
+
+def aborted_probe(bound, role='seen_cyl'):
+    """A probe whose child failed: tools.exp07_launcher.run_probe writes no receipt.
+
+    The receipt is written only after ``execute_attempt`` returns, so this attempt's
+    whole evidence is its abort record and the log the abort renamed.
+    """
+    def build(directory):
+        directory.mkdir()
+        renamed = attempt_root(bound, role) / 'probe_failed_train_ABORTED_child_failed.log'
+        renamed.write_text('the probe child exited nonzero\n')
+        p.write_manifest(directory / 'execution.json',
+                         dict(train_manifest_sha256='f' * 64, child_pgid=1))
+        p.write_completion(directory / 'abort.json', dict(
+            reason='child_failed', wall_hours=.2, exception_message='child exited 1',
+            log=dict(original=str(attempt_root(bound, role) / 'probe_failed_train.log'),
+                     aborted=str(renamed))))
+    add_ledger_row(bound, '_probe_failed_arm_ABORTED_child_failed', 'probe', build, role)
+
+
+def test_a_legitimately_aborted_probe_is_retained_not_refused(bound):
+    """Publishing the failure history is the point; only a COMPLETED probe has a receipt."""
+    before = bound.binder.collect(**bound.arguments)
+    aborted_probe(bound)
+    repair_input(bound, attempt_root(bound, 'seen_cyl') / 'cumulative_hours.json')
+    regenerate_documents(bound)
+    report = bound.binder.collect(**bound.arguments)
+    assert report != before
+    arm = next(item for item in report['attempts'] if item['role'] == 'seen_cyl')
+    rows = {row['attempt']: row for row in arm['other_attempts']}
+    failed = rows['_probe_failed_arm_ABORTED_child_failed']
+    assert failed['mode'] == 'probe' and failed['state'] == 'aborted'
+    assert failed['reason'] == 'child_failed' and failed['setup_failure'] is False
+    assert [item['present'] for item in failed['logs']] == [False, True]
+    assert failed['logs'][1]['sha256'] and failed['files']
+    # The one probe that completed is still the one the single receipt names.
+    assert len(arm['probe_linkage']) == 1
+    assert Path(next(iter(arm['probe_linkage']))).name == '_probe_t_arm'
+
+
 def second_probe(bound, role='seen_cyl'):
     """A complete second probe attempt: certified, logged, and named by no receipt."""
     def build(directory):
@@ -732,6 +797,14 @@ FORGERIES = {
         'probe receipt completion digest'),
     'probe_attempt_external_log': (lambda b: rewrite_external_log(b, 'probe'),
                                    'digest mismatch'),
+    # Round-7 blocker 3: a certified attempt's log is mandatory evidence that it ran, the
+    # logless abort is only ever the documented setup-failure shape, and that shape is
+    # the reason, the directory the abort named and the absent renamed log together.
+    'certified_probe_log_deleted': (lambda b: certified_probe_log(b).unlink(),
+                                    'names a log that is not on disk'),
+    'logless_abort_without_the_setup_failure_shape': (stripped_abort, 'must bind its log'),
+    'setup_failure_reason_in_another_abort_directory': (misnamed_setup_failure,
+                                                        'must bind its log'),
     # Not a refusal: the abort receipt records the path but no digest, so a rewritten
     # aborted log must at least change the report and fail check_record.py.
     'aborted_attempt_external_log': (lambda b: rewrite_external_log(b, 'aborted'), None),
