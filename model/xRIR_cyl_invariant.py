@@ -56,6 +56,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+import model.xRIR as _xrir_module
 from model.cylindrical_vit import CylindricalViT
 from model.xRIR import xRIR
 
@@ -66,7 +67,7 @@ DEFAULT_BASIS_EPS = 1.0e-6
 
 #: ``mode`` codes returned by :func:`horizontal_basis`.
 BASIS_QUERY = 0        # basis taken from the query source's horizontal direction
-BASIS_REFERENCE = 1    # query is (near-)vertical: basis from the widest reference
+BASIS_REFERENCE = 1    # query is (near-)vertical: basis from the references' vector sum
 BASIS_DEGENERATE = 2   # every horizontal component is (near-)zero: horizontal output is 0
 
 
@@ -192,21 +193,37 @@ def horizontal_basis(src_loc: torch.Tensor, ref_locs: torch.Tensor,
     Rules, in order (handoff section 3.3, "must cover the degenerate cases"):
 
     1. ``r_q = ||(src_x, src_y)|| > eps``  -> ``a = (src_x, src_y) / r_q``   (``BASIS_QUERY``)
-    2. otherwise the **reference with the largest horizontal radius**, ties broken by the
-       **lowest reference index** (the manifest's fixed order), provided its radius exceeds
-       ``eps``                                                             (``BASIS_REFERENCE``)
-    3. otherwise every horizontal component is at or below ``eps``: ``a = (0, 0)``, which
-       makes the transform emit zero horizontal components    (``BASIS_DEGENERATE``)
+    2. otherwise the **vector sum of the references' horizontal components**, normalised:
+       ``s = sum_i (ref_x_i, ref_y_i)``, ``a = s / ||s||`` when ``||s|| > eps``
+       (``BASIS_REFERENCE``)
+    3. otherwise ``a = (0, 0)``, which makes the transform emit zero horizontal components
+       -- a constant, and therefore trivially yaw-invariant, output  (``BASIS_DEGENERATE``)
 
-    The radii are computed in float64 so the branch does not depend on float32 rounding of a
-    rotated input; the comparison is a strict ``>`` against ``eps``, so a horizontal radius of
-    exactly ``eps`` does **not** claim the query basis -- it falls through to rule 2.
+    **Why the fallback is a sum and not a choice** (exp_08 review round 1, blocker B1). An
+    earlier version picked the reference with the largest horizontal radius, ties broken by
+    the lowest index.  That is a *selection*, and a selection is discontinuous: for a query on
+    the vertical axis with references at ``(3, 4, 0)``, ``(5, 0, 0)``, ``(-3, 4, 0)`` all three
+    radii are exactly 5, so float32 rounding of the rotated coordinates decided the winner and
+    the basis jumped between angles -- intrinsic reference coordinates moved by 4.4 m and the
+    predicted spectrum by ``1.5e-1`` relative at ``k = 32``.  The vector sum has no such
+    failure mode: ``sum_i Rz(D) p_i = Rz(D) sum_i p_i`` exactly, so the aggregate is
+    *equivariant* rather than *selected*, it is continuous in the reference positions, it is
+    independent of the reference order, and no tie can exist because nothing is compared.
+    Summing the raw horizontal vectors (rather than unit vectors) weights each reference by
+    its own horizontal radius, so distant references -- the ones whose direction is best
+    determined -- dominate.
 
-    Every quantity the rule uses (horizontal radii, reference index) is yaw invariant, so the
-    chosen basis rotates with the scene and the resulting coordinates do not.  Two knife
-    edges remain, both measure-zero and both numerical rather than architectural: ``r_q``
-    within float rounding of ``eps``, and two references whose radii agree to within float
-    rounding (the arg-max could flip).
+    The radii and the sum are computed in float64 so the branch does not depend on float32
+    rounding of a rotated input; the comparison is a strict ``>`` against ``eps``, so a value
+    of exactly ``eps`` does **not** claim that branch -- it falls through to the next rule.
+
+    Every quantity the rule uses is yaw invariant or yaw equivariant, so the chosen basis
+    rotates with the scene and the resulting coordinates do not.  Two knife edges remain, both
+    measure-zero, both numerical rather than architectural, and both of the same *continuous*
+    kind (a threshold crossing, not a discontinuous jump): ``r_q`` within float rounding of
+    ``eps``, and ``||s||`` within float rounding of ``eps``.  In both the basis is
+    near-degenerate on either side, so the induced change in the transform is proportional to
+    the crossing, not to the distance between two unrelated references.
 
     Args:
         src_loc: query-source position ``[B, 3]`` in the receiver frame.
@@ -228,33 +245,24 @@ def horizontal_basis(src_loc: torch.Tensor, ref_locs: torch.Tensor,
         raise ValueError("eps must be positive, got {}".format(eps))
 
     device = src_loc.device
-    batch, n_ref = ref_locs.shape[0], ref_locs.shape[1]
+    batch = ref_locs.shape[0]
     q = src_loc[:, :2].double()                                     # [B, 2]
     r_q = torch.linalg.norm(q, dim=-1)                              # [B]
     use_query = r_q > float(eps)
 
-    if n_ref == 0:                                                  # no fallback available
-        ref_unit = torch.zeros_like(q)
-        use_ref = torch.zeros_like(use_query)
-    else:
-        ref_h = ref_locs[:, :, :2].double()                         # [B, K, 2]
-        r_ref = torch.linalg.norm(ref_h, dim=-1)                    # [B, K]
-        r_max = r_ref.max(dim=1).values                             # [B]
-        # Lowest index among the maximal radii -- spelled out rather than left to argmax,
-        # whose tie-breaking is not part of torch's contract.
-        index = torch.arange(n_ref, device=device).expand(batch, n_ref)
-        is_max = r_ref >= r_max.unsqueeze(1)
-        pick = torch.where(is_max, index, torch.full_like(index, n_ref)).min(dim=1).values
-        chosen = ref_h[torch.arange(batch, device=device), pick]    # [B, 2]
-        r_chosen = r_ref[torch.arange(batch, device=device), pick]  # [B] == r_max
-        ref_unit = chosen / r_chosen.clamp_min(float(eps)).unsqueeze(-1)
-        use_ref = (~use_query) & (r_max > float(eps))
+    # Equivariant aggregate, not a selection: sum over an empty reference axis is zeros, so
+    # K = 0 needs no special case -- it simply falls through to the degenerate branch.
+    aggregate = ref_locs[:, :, :2].double().sum(dim=1)              # [B, 2]
+    r_aggregate = torch.linalg.norm(aggregate, dim=-1)              # [B]
+    use_aggregate = (~use_query) & (r_aggregate > float(eps))
 
     q_unit = q / r_q.clamp_min(float(eps)).unsqueeze(-1)
+    aggregate_unit = aggregate / r_aggregate.clamp_min(float(eps)).unsqueeze(-1)
     basis = torch.where(use_query.unsqueeze(-1), q_unit,
-                        torch.where(use_ref.unsqueeze(-1), ref_unit, torch.zeros_like(q_unit)))
+                        torch.where(use_aggregate.unsqueeze(-1), aggregate_unit,
+                                    torch.zeros_like(q_unit)))
     mode = torch.full((batch,), BASIS_DEGENERATE, dtype=torch.long, device=device)
-    mode = torch.where(use_ref, torch.full_like(mode, BASIS_REFERENCE), mode)
+    mode = torch.where(use_aggregate, torch.full_like(mode, BASIS_REFERENCE), mode)
     mode = torch.where(use_query, torch.full_like(mode, BASIS_QUERY), mode)
     return basis.to(src_loc.dtype), mode
 
@@ -323,9 +331,11 @@ class xRIR_InvariantBase(xRIR):
     Not a registered backbone on its own -- use :class:`xRIR_CylInvariant` (the method) or
     :class:`xRIR_SimpleInvariant` (the control).  ``lin_proj_0`` is **removed**: it is
     consumed by :attr:`invariant_readout` at warm start and would otherwise sit in the
-    state dict as a dead parameter.  Everything else -- ``src_proj``, ``src_coord_proj``,
-    ``dist_embedder``, ``time_proj``, ``audio_enc``, ``lin_proj_1``, ``lin_proj_2``,
-    ``shift_and_align``, ``convert_ir_to_spec`` -- is the pinned module, unmodified.
+    state dict as a dead parameter.  :meth:`shift_and_align` is overridden to reduce the
+    distances in float64 before rounding to an integer delay (see the method; it carries no
+    parameters and changes no semantics beyond precision).  Everything else -- ``src_proj``,
+    ``src_coord_proj``, ``dist_embedder``, ``time_proj``, ``audio_enc``, ``lin_proj_1``,
+    ``lin_proj_2``, ``convert_ir_to_spec`` -- is the pinned module, unmodified.
     """
 
     def __init__(self, num_channels, n_bins=310, dim=512, intermediate_ch=256,
@@ -341,6 +351,55 @@ class xRIR_InvariantBase(xRIR):
         self.basis_eps = float(basis_eps)
         self.invariant_readout = InvariantReadout(h_tok=self.h_tok, w_tok=self.w_tok)
         del self.lin_proj_0
+
+    def shift_and_align(self, x, src_loc, ref_ir_locs):
+        """``xRIR.shift_and_align`` with the distance reduction accumulated in **float64**.
+
+        Part of the invariant arms' architecture, not a test shim (exp_08 review round 1,
+        blocker B2).  The pinned line
+
+            ``delay_unit = round((||src|| - ||ref||) / 343 * 22050)``
+
+        is algebraically yaw invariant but discretised: a scene whose pre-round value sits
+        within the float32 noise of a ``.5`` tie can have its integer delay move by one sample
+        under a rotation that preserves the norms exactly, which shifts a whole reference RIR
+        by one sample and breaks end-to-end invariance for that scene.  Computing the two
+        norms and their difference in float64 removes the *arithmetic* half of that noise;
+        what remains is the float32 rounding of the rotated coordinates themselves, which is
+        irreducible because the model never receives the exactly-rotated scene.  Measured on
+        the real validation scenes the boundary half-width -- the largest pre-round deviation a
+        C16 rotation induces, i.e. exactly the window in which a scene can flip -- shrinks by
+        roughly 3x (see ``tools/exp08_validate.delay_boundary_width``).
+
+        This narrows the measure-zero set; it does not empty it.  A configuration engineered
+        to sit within ~1e-6 samples of a tie still flips, and the validation report states that
+        exception explicitly rather than claiming exactness the discretisation cannot deliver.
+
+        The direct-path gain is reduced in float64 too and cast back, so the whole
+        distance-to-audio path has one precision policy.  ``apply_delay`` is resolved from
+        ``model.xRIR``'s module globals at call time, exactly as the pinned method does, so
+        ``model.exp08_delay.device_preserving_delay`` still reaches it.  The pinned method's
+        unused ``dist_result`` is not recomputed.
+
+        Args:
+            x: reference RIRs ``[B, K, L]``.
+            src_loc: query-source position ``[B, 3]``.
+            ref_ir_locs: reference-source positions ``[B, K, 3]``.
+
+        Returns:
+            ``[B, K, L]`` delayed and gain-scaled references, in ``x``'s dtype.
+        """
+        channel_outputs = []
+        dist_src = torch.linalg.norm(src_loc.double(), dim=1).unsqueeze(1)      # [B, 1]
+        dist_ref = torch.linalg.norm(ref_ir_locs.double(), dim=-1)              # [B, K]
+        direct_energy_ratio = (dist_ref / (dist_src + 1e-7)).to(x.dtype)
+        delay_unit = torch.round((dist_src - dist_ref) / 343. * 22050).int()
+
+        for i in range(x.shape[1]):
+            cur_delayed_x = _xrir_module.apply_delay(x[:, i, :], delay_unit[:, i]).unsqueeze(1)
+            x_channel = cur_delayed_x * direct_energy_ratio[:, i:(i + 1)].unsqueeze(2)
+            channel_outputs.append(x_channel)
+        return torch.cat(channel_outputs, dim=1)
 
     def forward(self, depth_coord, x, src_loc, ref_ir_locs, tgt_wav):
         """``xRIR.forward`` with the two non-invariant paths replaced; nothing else differs.

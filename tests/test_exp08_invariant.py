@@ -45,7 +45,8 @@ from model.xRIR_cyl_invariant import (BASIS_DEGENERATE, BASIS_QUERY, BASIS_REFER
                                       to_intrinsic, xRIR_CylInvariant,
                                       xRIR_SimpleInvariant)
 from tools.exp08_warmstart import build_warm_started
-from tools.yaw_rotation import rotate_scene_yaw, rotate_vectors_z, yaw_angle_rad
+from tools.yaw_rotation import (integer_delays, rotate_scene_yaw, rotate_vectors_z,
+                                yaw_angle_rad)
 
 #: The handoff's initial numerical target on the relative residual.
 REL_TARGET = validate.REL_TARGET
@@ -322,14 +323,17 @@ def test_both_query_and_references_use_the_same_basis():
     assert torch.allclose(refs_i, torch.tensor([[[0.0, 5.0, -0.5]]]), atol=1e-6)
 
 
-def test_degenerate_query_on_the_vertical_axis_uses_the_widest_reference():
-    """Rule 2: a (near-)vertical query falls back to the reference of largest horizontal radius."""
+def test_degenerate_query_on_the_vertical_axis_uses_the_aggregate_reference_basis():
+    """Rule 2: a (near-)vertical query falls back to the references' normalised vector sum."""
     src = torch.tensor([[0.0, 0.0, 2.0]])
     refs = torch.tensor([[[1.0, 0.0, 0.0], [0.0, 3.0, 0.5], [2.0, 0.0, -1.0]]])
     _, refs_i, basis, mode = intrinsic_scene_coords(src, refs)
     assert int(mode[0]) == BASIS_REFERENCE
-    assert torch.allclose(basis, torch.tensor([[0.0, 1.0]]), atol=1e-6)   # the r = 3 reference
-    assert torch.allclose(refs_i[0, 1], torch.tensor([3.0, 0.0, 0.5]), atol=1e-6)
+    expected = torch.tensor([[3.0, 3.0]]) / math.sqrt(18.0)      # sum of the horizontals
+    assert torch.allclose(basis, expected, atol=1e-6)
+    # The transform still carries each reference's position through the shared basis.
+    assert torch.allclose(refs_i[0, 1, 2], torch.tensor(0.5), atol=1e-6)
+    assert torch.allclose(refs_i.norm(dim=-1), refs.norm(dim=-1), atol=1e-6)
 
 
 def test_degenerate_fallback_basis_is_also_yaw_invariant():
@@ -346,17 +350,124 @@ def test_degenerate_fallback_basis_is_also_yaw_invariant():
         assert float((refs_k - refs_0).abs().max()) <= 1e-5
 
 
-def test_degenerate_tie_breaks_to_the_lowest_reference_index():
-    """Rule 2's tie-break: equal radii pick the first reference in the manifest's order."""
+def test_degenerate_fallback_is_tie_free_and_order_independent():
+    """The fallback is an aggregate, not a selection: no tie exists and order cannot matter.
+
+    Regression guard for review blocker B1 -- the old rule picked the widest reference, so equal
+    radii made the basis depend on float32 rounding and on the reference order.
+    """
     src = torch.tensor([[0.0, 0.0, 1.0]])
     tied = torch.tensor([[[0.0, -2.0, 0.0], [2.0, 0.0, 0.0], [-2.0, 0.0, 0.0]]])
     _, _, basis, mode = intrinsic_scene_coords(src, tied)
     assert int(mode[0]) == BASIS_REFERENCE
-    assert torch.allclose(basis, torch.tensor([[0.0, -1.0]]), atol=1e-6)  # index 0, not 1 or 2
-    # Reordering the references changes which one wins -- the rule is about the index.
-    reordered = tied[:, [1, 0, 2]]
-    _, _, basis_r, _ = intrinsic_scene_coords(src, reordered)
-    assert torch.allclose(basis_r, torch.tensor([[1.0, 0.0]]), atol=1e-6)
+    assert torch.allclose(basis, torch.tensor([[0.0, -1.0]]), atol=1e-6)   # sum = (0, -2)
+    for permutation in ([1, 0, 2], [2, 1, 0], [0, 2, 1]):
+        _, _, permuted, _ = intrinsic_scene_coords(src, tied[:, permutation])
+        assert torch.allclose(permuted, basis, atol=1e-12), \
+            "reordering the references moved the basis: the fallback is still a selection"
+
+
+@pytest.mark.parametrize("k", validate.C16_ANGLES)
+def test_codex_equal_radius_tie_is_rotation_invariant(k):
+    """Review blocker B1, the exact reported case: three references at radius exactly 5.
+
+    Under the old max-radius selection the winner flipped between angles and the intrinsic
+    reference coordinates jumped by 4.4 m.  The aggregate basis rotates *with* the scene, so
+    nothing can flip.
+    """
+    src = torch.tensor(validate.CODEX_TIE_SRC, dtype=torch.float32)
+    refs = torch.tensor(validate.CODEX_TIE_REFS, dtype=torch.float32)
+    radii = refs[0, :, :2].norm(dim=-1)
+    assert torch.allclose(radii, torch.full_like(radii, 5.0)), "the radii must really be tied"
+    src_0, refs_0, basis_0, mode_0 = intrinsic_scene_coords(src, refs)
+    assert int(mode_0[0]) == BASIS_REFERENCE
+    angle = yaw_angle_rad(k)
+    src_k, refs_k, basis_k, mode_k = intrinsic_scene_coords(rotate_vectors_z(src, angle),
+                                                            rotate_vectors_z(refs, angle))
+    assert int(mode_k[0]) == BASIS_REFERENCE, "the basis branch changed under rotation"
+    scale = float(refs_0.abs().max())
+    assert float((src_k - src_0).abs().max()) / scale <= FP32_INPUT_TOL
+    assert float((refs_k - refs_0).abs().max()) / scale <= FP32_INPUT_TOL
+
+
+def test_codex_equal_radius_tie_full_model_is_invariant(warm_cyl, env):
+    """The same case through the whole model: the 1.5e-1 spectral residual must be gone."""
+    batch = validate.adversarial_batch(validate.CODEX_TIE_SRC, validate.CODEX_TIE_REFS,
+                                       label="codexTie")
+    with device_preserving_delay():
+        sweep = validate.angle_sweep(warm_cyl[0], batch, validate.C16_ANGLES, conditions=("E",))
+    worst_row = validate.worst(sweep["rows"], "E")
+    assert worst_row["rel_fro"] <= REL_TARGET, (
+        "equal-radius tie k={}: rel {:.3e} (abs {:.3e}, denom {:.3e})".format(
+            worst_row["k"], worst_row["rel_fro"], worst_row["abs_fro"], worst_row["denom_fro"]))
+    print("\nB1 tie case worst rel {:.3e} at k={} (was 1.478e-1 before the fix)".format(
+        worst_row["rel_fro"], worst_row["k"]))
+
+
+def test_aggregate_sum_cancellation_falls_through_to_zero_horizontal(warm_cyl, env):
+    """A symmetric reference set cancels, so rule 3 takes over -- and rule 3 is invariant.
+
+    The zero-horizontal output is a *constant*, so it cannot depend on the yaw; this is the
+    branch the aggregate rule degenerates into, and it has to be exercised end to end.
+    """
+    src = torch.tensor(validate.CODEX_TIE_SRC, dtype=torch.float32)
+    refs = torch.tensor(validate.CODEX_SUM_DEGENERATE_REFS, dtype=torch.float32)
+    assert float(refs[0, :, :2].sum(dim=0).norm()) == 0.0, "the horizontals must really cancel"
+    src_0, refs_0, basis_0, mode_0 = intrinsic_scene_coords(src, refs)
+    assert int(mode_0[0]) == BASIS_DEGENERATE
+    assert torch.equal(basis_0, torch.zeros(1, 2))
+    assert torch.equal(refs_0[..., :2], torch.zeros_like(refs_0[..., :2]))
+    for k in validate.C16_ANGLES:
+        angle = yaw_angle_rad(k)
+        src_k, refs_k, _, mode_k = intrinsic_scene_coords(rotate_vectors_z(src, angle),
+                                                          rotate_vectors_z(refs, angle))
+        assert int(mode_k[0]) == BASIS_DEGENERATE
+        assert torch.equal(src_k, src_0) and torch.equal(refs_k, refs_0)
+
+    batch = validate.adversarial_batch(validate.CODEX_TIE_SRC,
+                                       validate.CODEX_SUM_DEGENERATE_REFS, label="codexSumZero")
+    with device_preserving_delay():
+        sweep = validate.angle_sweep(warm_cyl[0], batch, validate.C16_ANGLES, conditions=("E",))
+    worst_row = validate.worst(sweep["rows"], "E")
+    assert worst_row["rel_fro"] <= REL_TARGET, "degenerate-sum scene: rel {:.3e}".format(
+        worst_row["rel_fro"])
+
+
+@pytest.mark.parametrize("norm,expected", [
+    (DEFAULT_BASIS_EPS * 10.0, BASIS_REFERENCE),    # comfortably above
+    (DEFAULT_BASIS_EPS * 1.5, BASIS_REFERENCE),     # just above
+    (DEFAULT_BASIS_EPS, BASIS_DEGENERATE),          # exactly at the threshold -> falls through
+    (DEFAULT_BASIS_EPS * 0.5, BASIS_DEGENERATE),    # just below
+    (0.0, BASIS_DEGENERATE),                        # exact cancellation
+])
+def test_aggregate_basis_threshold_boundary(norm, expected):
+    """The fallback's own threshold: the aggregate degenerates at the same ``eps``.
+
+    The residual sum is carried by a single reference (the other has no horizontal component),
+    so ``||s||`` is *exactly* ``norm`` -- a near-cancellation of two large vectors could not
+    land on ``eps`` exactly in float64 and would make the boundary case untestable.
+    """
+    src = torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.float64)
+    refs = torch.tensor([[[float(norm), 0.0, 0.5], [0.0, 0.0, -1.0]]], dtype=torch.float64)
+    assert float(refs[0, :, :2].sum(dim=0).norm()) == float(norm), "||s|| must be exact here"
+    _, _, _, mode = intrinsic_scene_coords(src, refs, eps=DEFAULT_BASIS_EPS)
+    assert int(mode[0]) == expected
+
+
+def test_aggregate_basis_degenerates_when_references_nearly_cancel():
+    """The realistic route into rule 3: two large references that almost cancel.
+
+    ``1e-9`` is three orders below ``eps`` and twelve above float64's rounding of ``5.0``, so
+    the branch cannot be decided by arithmetic noise.
+    """
+    src = torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.float64)
+    refs = torch.tensor([[[5.0, 0.0, 0.0], [-5.0 + 1e-9, 0.0, 0.0]]], dtype=torch.float64)
+    residual = float(refs[0, :, :2].sum(dim=0).norm())
+    assert 1e-12 < residual < DEFAULT_BASIS_EPS
+    _, refs_i, basis, mode = intrinsic_scene_coords(src, refs)
+    assert int(mode[0]) == BASIS_DEGENERATE
+    assert torch.equal(basis, torch.zeros(1, 2, dtype=torch.float64))
+    assert torch.equal(refs_i[..., :2], torch.zeros_like(refs_i[..., :2]))
 
 
 def test_degenerate_all_horizontal_zero_gives_zero_horizontal_output():
@@ -539,6 +650,133 @@ def test_condition_E_really_recomputes_the_alignment(real, warm_cyl):
         "the rotated alignment is bit-identical; shift_and_align was not re-run"
     assert torch.allclose(aligned_k, aligned0, atol=1e-5, rtol=1e-4), \
         "the recomputed alignment moved further than float32 rounding"
+
+
+#: Review blocker B2: the angles at which the adversarial 3.5-tie scene's integer delay moves,
+#: measured with the float64 reduction the invariant arms use.  90 / 180 / 270 deg are absent
+#: because ``Rz`` is exact in float32 there, so the coordinates come back unchanged.
+#: If a future precision change empties this set, the test below FAILS -- update it *and* the
+#: qualification in validation_report.md together, never one without the other.
+CODEX_DELAY_EXPECTED_FLIP_ANGLES = (32, 64, 96, 160, 192, 224, 288, 320, 352, 416, 448, 480)
+
+
+def test_invariant_alignment_matches_the_pinned_one_on_the_battery(real, warm_cyl):
+    """The float64 delay reduction changes nothing measurable on non-adversarial geometry.
+
+    Same integer delays bitwise, and the aligned reference audio within float32 rounding of the
+    pinned computation -- so blocker B2's fix is a precision change, not a behaviour change.
+    """
+    from model.xRIR import xRIR as PinnedXRIR
+
+    model = warm_cyl[0]
+    with device_preserving_delay(), torch.no_grad():
+        shimmed = model.shift_and_align(real["ref_irs"], real["src_loc"], real["ref_locs"])
+        pinned = PinnedXRIR.shift_and_align(model, real["ref_irs"], real["src_loc"],
+                                            real["ref_locs"])
+    assert torch.equal(integer_delays(real["src_loc"], real["ref_locs"]),
+                       validate.integer_delays64(real["src_loc"], real["ref_locs"])), \
+        "the two reductions disagree on the real battery's delays"
+    relative = float((shimmed - pinned).norm() / pinned.norm())
+    assert relative <= 1e-6, "aligned audio moved by rel {:.3e}".format(relative)
+    print("\nfloat64 alignment vs pinned on the real battery: rel {:.3e}, delays identical".format(
+        relative))
+
+
+def test_float64_delay_reduction_lowers_the_flip_rate():
+    """Blocker B2's "the boundary shrinks", measured rather than asserted.
+
+    A random ensemble is rotated through all 15 C16 angles and the integer delays compared,
+    once per reduction.  Flips are rare, so the counts are Poisson and the test demands the
+    difference clear 3 sigma -- a 1.28x effect on 1e5-ish counts, not a hand-wave.
+
+    It is a *narrowing*, not an elimination: what float64 removes is the arithmetic half of the
+    noise, while the float32 rounding of the rotated input coordinates is irreducible (the model
+    never receives the exactly-rotated scene).
+    """
+    result = validate.delay_flip_rate(n_scenes=1000000)
+    f32, f64 = result["float32"], result["float64"]
+    difference = f32["flips"] - f64["flips"]
+    sigma = math.sqrt(f32["flips"] + f64["flips"])
+    assert difference > 3.0 * sigma, (
+        "float32 {} flips vs float64 {} -- difference {} is only {:.1f} sigma".format(
+            f32["flips"], f64["flips"], difference, difference / max(sigma, 1e-9)))
+    print("\ndelay flip rate over {} comparisons: float32 {} ({:.3e}), float64 {} ({:.3e}), "
+          "shrink {:.3f}x at {:.1f} sigma".format(
+              result["comparisons"], f32["flips"], f32["rate"], f64["flips"], f64["rate"],
+              result["shrink_factor"], difference / sigma))
+
+
+def test_codex_delay_boundary_case_is_either_invariant_or_a_documented_flip(warm_cyl, env):
+    """Review blocker B2, the exact reported case: a pre-round delay sitting on the 3.5 tie.
+
+    Per angle the outcome must be one of exactly two things, and which one is *pinned*:
+
+    * no integer-delay flip  -> the end-to-end (condition E) residual must meet the C16 target;
+    * a flip                 -> it must be a **one-sample** move, condition P (the alignment
+      held at ``k = 0``) must still meet the target -- proving the whole effect is the integer
+      delay and nothing else -- and the E residual is reported as the documented exception.
+
+    The observed flip set is compared against :data:`CODEX_DELAY_EXPECTED_FLIP_ANGLES`, so the
+    test can neither pass silently if the flips disappear nor if new ones appear.
+    """
+    batch = validate.adversarial_batch(validate.CODEX_DELAY_SRC, validate.CODEX_DELAY_REFS,
+                                       label="codexDelay")
+    preround = validate.preround_delay(batch["src_loc"], batch["ref_locs"])
+    assert abs(float(preround[0, 0]) - 3.5) < 1e-5, "the case no longer sits on the 3.5 tie"
+
+    with device_preserving_delay():
+        sweep = validate.angle_sweep(warm_cyl[0], batch, validate.C16_ANGLES,
+                                     conditions=("E", "P"))
+    base = validate.integer_delays64(batch["src_loc"], batch["ref_locs"])
+
+    # Whatever the integer delay does, everything else is invariant: P holds at every angle.
+    worst_p = validate.worst(sweep["rows"], "P")
+    assert worst_p["rel_fro"] <= REL_TARGET, (
+        "condition P failed at k={} with rel {:.3e}: the effect is NOT confined to the integer "
+        "delay".format(worst_p["k"], worst_p["rel_fro"]))
+
+    observed, exceptions = [], []
+    for k in validate.C16_ANGLES:
+        angle = yaw_angle_rad(k)
+        rotated = validate.integer_delays64(rotate_vectors_z(batch["src_loc"], angle),
+                                            rotate_vectors_z(batch["ref_locs"], angle))
+        n_flips = int((rotated != base).sum())
+        row = next(r for r in sweep["rows"] if r["k"] == k and r["condition"] == "E")
+        if n_flips == 0:
+            assert row["rel_fro"] <= REL_TARGET, (
+                "k={} has no delay flip but rel {:.3e} > {:.0e}".format(
+                    k, row["rel_fro"], REL_TARGET))
+        else:
+            observed.append(k)
+            shift = int((rotated - base).abs().max())
+            assert shift == 1, "k={} moved a delay by {} samples, not 1".format(k, shift)
+            assert n_flips == 1, "k={} flipped {} delays, not 1".format(k, n_flips)
+            exceptions.append((k, row["rel_fro"]))
+
+    assert tuple(observed) == CODEX_DELAY_EXPECTED_FLIP_ANGLES, (
+        "the documented flip set changed: observed {} vs documented {}. Update both this "
+        "constant and the qualification in validation_report.md.".format(
+            tuple(observed), CODEX_DELAY_EXPECTED_FLIP_ANGLES))
+    print("\nB2 boundary case: pre-round {:.9f} samples; {} of 15 angles flip one delay by one "
+          "sample; E residual there {:.3e}..{:.3e}; condition P worst {:.3e}".format(
+              float(preround[0, 0]), len(exceptions), min(e[1] for e in exceptions),
+              max(e[1] for e in exceptions), worst_p["rel_fro"]))
+
+
+def test_delay_flip_counter_follows_the_models_own_reduction(real, warm_cyl, env):
+    """An invariant arm must be audited with float64 delays, a pinned arm with float32."""
+    torch.manual_seed(0)
+    pinned = build_xrir_exp08("cylindrical", 8).eval()
+    boundary = validate.adversarial_batch(validate.CODEX_DELAY_SRC, validate.CODEX_DELAY_REFS,
+                                          label="codexDelay")
+    for model, expect64 in ((warm_cyl[0], True), (pinned, False)):
+        counts = validate.delay_flip_counts_for(model, boundary["src_loc"],
+                                                boundary["ref_locs"], (32,))
+        reference = (validate.integer_delays64 if expect64 else integer_delays)
+        base = reference(boundary["src_loc"], boundary["ref_locs"])
+        rotated = reference(rotate_vectors_z(boundary["src_loc"], yaw_angle_rad(32)),
+                            rotate_vectors_z(boundary["ref_locs"], yaw_angle_rad(32)))
+        assert counts[32] == int((rotated != base).sum())
 
 
 def test_delay_flips_are_recorded(sweeps):

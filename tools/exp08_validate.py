@@ -50,8 +50,10 @@ import torch
 from eval_yaw_rotation import build_manifest_dataset, delay_flip_counts
 from model.exp08_delay import device_preserving_delay
 from model.exp08_factory import build_xrir_exp08
+from model.xRIR_cyl_invariant import xRIR_InvariantBase
 from tools.per_sample_metrics import griffin_lim_seeded, sample_seed
 from tools.reference_manifest import load_manifest, manifest_hash
+from model.xRIR_cyl_invariant import intrinsic_scene_coords
 from tools.yaw_rotation import (fixed_alignment, rotate_scene_yaw, rotate_vectors_z,
                                 yaw_angle_rad)
 from utils.spec_utils import compute_spect_energy_decay_losses, stft_l1_loss
@@ -68,6 +70,22 @@ MANIFEST_HASH = "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153
 
 #: The handoff's initial numerical target on the relative residual (section 4, last block).
 REL_TARGET = 1.0e-5
+
+#: exp_08 review round 1, blocker B1: a query on the vertical axis whose three references have
+#: *exactly* equal horizontal radius (5, 5, 5).  Under the old max-radius selection rule float32
+#: rounding decided the winner and the basis jumped between angles.
+CODEX_TIE_SRC = ((0.0, 0.0, 1.0),)
+CODEX_TIE_REFS = (((3.0, 4.0, 0.0), (5.0, 0.0, 0.0), (-3.0, 4.0, 0.0)),)
+
+#: exp_08 review round 1, blocker B1, second case: a reference set whose horizontal components
+#: cancel, so the aggregate basis itself degenerates and rule 3 (zero horizontal) must take over.
+CODEX_SUM_DEGENERATE_REFS = (((5.0, 0.0, 0.3), (-5.0, 0.0, -0.2), (0.0, 2.0, 0.1),
+                              (0.0, -2.0, 0.4)),)
+
+#: exp_08 review round 1, blocker B2: a query/reference pair whose pre-round direct-path delay
+#: sits on the ``3.5`` rounding tie, so a norm-preserving rotation can move the integer delay.
+CODEX_DELAY_SRC = ((1.054444432258606, 0.0, 0.0),)
+CODEX_DELAY_REFS = (((1.0, 0.0, 0.0), (0.7, 1.1, 0.2), (-1.5, 0.3, -0.1)),)
 
 
 def configure_cpu(threads=8, seed=0):
@@ -198,6 +216,135 @@ def synthetic_batch(seed, batch=2, n_ref=8, length=9600, label="synthetic"):
             "rooms": ["{}#{}".format(label, seed)] * batch, "indices": list(range(batch))}
 
 
+def adversarial_batch(src, refs, seed=303, label="adversarial"):
+    """A synthetic scene with its geometry replaced by a hand-picked adversarial one.
+
+    The panorama, reference RIRs and target keep :func:`synthetic_batch`'s asymmetric random
+    content; only ``src_loc`` / ``ref_locs`` are pinned, which is what the two review blockers
+    are about.
+
+    Args:
+        src: ``[[x, y, z]]`` query position(s).
+        refs: ``[[[x, y, z], ...]]`` reference positions.
+        seed: RNG seed of the surrounding synthetic scene.
+        label: prefix for the Griffin-Lim query keys.
+    """
+    src_t = torch.tensor(src, dtype=torch.float32)
+    refs_t = torch.tensor(refs, dtype=torch.float32)
+    batch = synthetic_batch(seed, batch=src_t.shape[0], n_ref=refs_t.shape[1], label=label)
+    batch["src_loc"] = src_t
+    batch["ref_locs"] = refs_t
+    return batch
+
+
+def preround_delay(src_loc, ref_locs, dtype=torch.float64, sr=22050, c=343.0):
+    """The direct-path delay *before* ``round()``, reduced in ``dtype``.
+
+    The rotation itself always happens in float32 (that is what the model receives); only the
+    norm/difference reduction takes ``dtype``, which is exactly the choice
+    :meth:`model.xRIR_cyl_invariant.xRIR_InvariantBase.shift_and_align` makes.
+    """
+    src, refs = src_loc.to(dtype), ref_locs.to(dtype)
+    return (torch.linalg.norm(src, dim=1).unsqueeze(1)
+            - torch.linalg.norm(refs, dim=-1)) / float(c) * int(sr)
+
+
+def integer_delays64(src_loc, ref_locs, sr=22050, c=343.0):
+    """``tools.yaw_rotation.integer_delays`` with the invariant arms' float64 reduction."""
+    return torch.round(preround_delay(src_loc, ref_locs, torch.float64, sr, c)).int()
+
+
+def delay_flip_counts_for(model, src_loc, ref_locs, angles):
+    """Delay flips counted with the reduction the *model* actually uses.
+
+    The pinned arms reduce in float32 (``tools.yaw_rotation.integer_delays`` mirrors them line
+    for line); the exp_08 invariant arms reduce in float64.  Counting an invariant arm with the
+    float32 helper would report a boundary it no longer has.
+    """
+    if not isinstance(model, xRIR_InvariantBase):
+        return delay_flip_counts(src_loc, ref_locs, angles)
+    baseline = integer_delays64(src_loc, ref_locs)
+    counts = {}
+    for k in angles:
+        angle = yaw_angle_rad(int(k))
+        rotated = integer_delays64(rotate_vectors_z(src_loc, angle),
+                                   rotate_vectors_z(ref_locs, angle))
+        counts[int(k)] = int((rotated != baseline).sum())
+    return counts
+
+
+def preround_deviation(src_loc, ref_locs, angles=C16_ANGLES):
+    """Largest pre-round delay deviation a C16 rotation induces, per reduction dtype.
+
+    **Read this with care.** It is *not* a fair comparison of the two reductions: the float32
+    value is itself quantised to float32, so two rotated scenes often collapse onto the same
+    representable number and the measured deviation comes out optically *smaller* than the true
+    one.  The float64 number is the honest deviation the float32 *inputs* imply.  What actually
+    decides whether a scene flips is :func:`delay_flip_rate`, which counts flips directly.
+    """
+    widths = {}
+    for name, dtype in (("float32", torch.float32), ("float64", torch.float64)):
+        base = preround_delay(src_loc, ref_locs, dtype).double()
+        worst = 0.0
+        for k in angles:
+            angle = yaw_angle_rad(int(k))
+            rotated = preround_delay(rotate_vectors_z(src_loc, angle),
+                                     rotate_vectors_z(ref_locs, angle), dtype).double()
+            worst = max(worst, float((rotated - base).abs().max()))
+        widths[name] = worst
+    return widths
+
+
+def delay_flip_rate(n_scenes=200000, n_refs=8, angles=C16_ANGLES, seed=12345, extent=6.0,
+                    height_scale=0.25):
+    """How often a C16 rotation moves an integer direct-path delay, float32 vs float64.
+
+    This is the operative measure of the rounding boundary: a random ensemble of scenes is
+    rotated through all 15 C16 angles and the integer delays are compared, once with the pinned
+    float32 reduction and once with the invariant arms' float64 reduction.  Counting flips
+    sidesteps the quantisation artefact that makes :func:`preround_deviation` unreadable.
+
+    The flips are rare, so the counts are Poisson: the report quotes ``sqrt(n)`` alongside them
+    rather than pretending a ratio of two small integers is precise.
+
+    Args:
+        n_scenes: ensemble size.
+        n_refs: references per scene.
+        angles: column rolls to test.
+        seed: RNG seed (the ensemble is a pure function of it).
+        extent: half-width of the uniform box the positions are drawn from, in metres.
+        height_scale: vertical extent as a fraction of ``extent`` (rooms are wider than tall).
+
+    Returns:
+        ``{"n_scenes", "n_refs", "n_angles", "comparisons", per-dtype
+        {"flips", "rate", "poisson_sigma", "scenes_with_flip"}, "shrink_factor"}``.
+    """
+    generator = torch.Generator().manual_seed(int(seed))
+    src = torch.rand(int(n_scenes), 3, generator=generator) * (2 * extent) - extent
+    ref = torch.rand(int(n_scenes), int(n_refs), 3, generator=generator) * (2 * extent) - extent
+    src[:, 2] *= float(height_scale)
+    ref[:, :, 2] *= float(height_scale)
+
+    out = {"n_scenes": int(n_scenes), "n_refs": int(n_refs), "n_angles": len(angles),
+           "comparisons": int(n_scenes) * int(n_refs) * len(angles), "seed": int(seed)}
+    for name, dtype in (("float32", torch.float32), ("float64", torch.float64)):
+        base = torch.round(preround_delay(src, ref, dtype)).int()
+        flips, touched = 0, torch.zeros(int(n_scenes), dtype=torch.bool)
+        for k in angles:
+            angle = yaw_angle_rad(int(k))
+            rotated = torch.round(preround_delay(rotate_vectors_z(src, angle),
+                                                 rotate_vectors_z(ref, angle), dtype)).int()
+            differs = rotated != base
+            flips += int(differs.sum())
+            touched |= differs.any(dim=1)
+        out[name] = {"flips": flips, "rate": flips / out["comparisons"],
+                     "poisson_sigma": float(flips) ** 0.5,
+                     "scenes_with_flip": int(touched.sum())}
+    out["shrink_factor"] = (out["float32"]["flips"] / out["float64"]["flips"]
+                            if out["float64"]["flips"] else float("inf"))
+    return out
+
+
 # --------------------------------------------------------------------------------------
 # Forward passes and residuals
 # --------------------------------------------------------------------------------------
@@ -265,7 +412,8 @@ def angle_sweep(model, batch, angles=C16_ANGLES, conditions=("E", "P")):
                          "condition": condition, **residual(out_k, out_0)})
     return {"k0_norm": float(out_0.double().norm()), "rows": rows, "predictions": predictions,
             "out_0": out_0,
-            "delay_flips": delay_flip_counts(batch["src_loc"], batch["ref_locs"], angles),
+            "delay_flips": delay_flip_counts_for(model, batch["src_loc"], batch["ref_locs"],
+                                                 angles),
             "seconds": time.time() - started}
 
 
@@ -600,6 +748,90 @@ def run(args):
                       entry["input_rel_refs"], entry["output"]["rel_fro"],
                       entry["output"]["abs_fro"], entry["output"]["denom_fro"]), flush=True)
 
+        # --- exp_08 review round 1, blocker B1: the degenerate-basis tie ---
+        tie = adversarial_batch(CODEX_TIE_SRC, CODEX_TIE_REFS, label="codexTie")
+        tie_sweep = angle_sweep(warm_model, tie, C16_ANGLES, conditions=("E",))
+        print(format_sweep("B1 adversarial: equal-radius reference tie", tie_sweep), flush=True)
+        entry = strip_tensors(tie_sweep)
+        entry["worst_E"] = worst(tie_sweep["rows"], "E")
+        src_i, ref_i, basis, mode = intrinsic_scene_coords(tie["src_loc"], tie["ref_locs"])
+        coord_worst = 0.0
+        bases = {}
+        for k in C16_ANGLES:
+            angle = yaw_angle_rad(int(k))
+            src_k, ref_k, basis_k, mode_k = intrinsic_scene_coords(
+                rotate_vectors_z(tie["src_loc"], angle), rotate_vectors_z(tie["ref_locs"], angle))
+            coord_worst = max(coord_worst, float((src_k - src_i).abs().max()),
+                              float((ref_k - ref_i).abs().max()))
+            bases[int(k)] = [float(v) for v in basis_k[0]]
+            assert int(mode_k[0]) == int(mode[0]), "the basis branch changed under rotation"
+        entry["basis_mode"] = int(mode[0])
+        entry["basis_k0"] = [float(v) for v in basis[0]]
+        entry["coord_worst_abs"] = coord_worst
+        entry["coord_scale"] = float(ref_i.abs().max())
+        entry["basis_per_angle"] = bases
+        report["adversarial_basis_tie"] = entry
+        print("  intrinsic coords: worst |d| {:.3e} on scale {:.4g}; basis mode {} fixed at "
+              "{}".format(coord_worst, entry["coord_scale"], entry["basis_mode"],
+                          [round(v, 8) for v in entry["basis_k0"]]), flush=True)
+
+        degenerate = adversarial_batch(CODEX_TIE_SRC, CODEX_SUM_DEGENERATE_REFS,
+                                       label="codexSumZero")
+        deg_sweep = angle_sweep(warm_model, degenerate, C16_ANGLES, conditions=("E",))
+        print(format_sweep("B1 adversarial: aggregate sum cancels (zero-horizontal branch)",
+                           deg_sweep), flush=True)
+        deg_entry = strip_tensors(deg_sweep)
+        deg_entry["worst_E"] = worst(deg_sweep["rows"], "E")
+        deg_entry["basis_mode"] = int(intrinsic_scene_coords(
+            degenerate["src_loc"], degenerate["ref_locs"])[3][0])
+        report["adversarial_basis_degenerate"] = deg_entry
+        print("  basis mode {} (2 = zero horizontal)".format(deg_entry["basis_mode"]), flush=True)
+
+        # --- exp_08 review round 1, blocker B2: the integer-delay rounding boundary ---
+        report["preround_deviation"] = {
+            "real": preround_deviation(real["src_loc"], real["ref_locs"]),
+            "codex_case": preround_deviation(torch.tensor(CODEX_DELAY_SRC),
+                                             torch.tensor(CODEX_DELAY_REFS))}
+        report["delay_flip_rate"] = delay_flip_rate(n_scenes=args.flip_ensemble)
+        for name, widths in report["preround_deviation"].items():
+            print("pre-round deviation ({}): float32 {:.3e} samples, float64 {:.3e} "
+                  "(float32 is masked by its own quantisation -- see delay_flip_rate)".format(
+                      name, widths["float32"], widths["float64"]), flush=True)
+        flip = report["delay_flip_rate"]
+        print("delay flip rate over {} random scenes x {} refs x {} angles = {} comparisons: "
+              "float32 {} flips ({:.3e}), float64 {} flips ({:.3e}), shrink {:.2f}x".format(
+                  flip["n_scenes"], flip["n_refs"], flip["n_angles"], flip["comparisons"],
+                  flip["float32"]["flips"], flip["float32"]["rate"],
+                  flip["float64"]["flips"], flip["float64"]["rate"],
+                  flip["shrink_factor"]), flush=True)
+
+        boundary = adversarial_batch(CODEX_DELAY_SRC, CODEX_DELAY_REFS, label="codexDelay")
+        boundary_sweep = angle_sweep(warm_model, boundary, C16_ANGLES, conditions=("E", "P"))
+        print(format_sweep("B2 adversarial: pre-round delay on the 3.5 tie", boundary_sweep),
+              flush=True)
+        b_entry = strip_tensors(boundary_sweep)
+        b_entry["worst_E"] = worst(boundary_sweep["rows"], "E")
+        b_entry["worst_P"] = worst(boundary_sweep["rows"], "P")
+        base64 = integer_delays64(boundary["src_loc"], boundary["ref_locs"])
+        b_entry["delays_k0"] = base64.tolist()
+        b_entry["preround_k0"] = preround_delay(boundary["src_loc"],
+                                                boundary["ref_locs"]).tolist()
+        per_angle = {}
+        for k in C16_ANGLES:
+            angle = yaw_angle_rad(int(k))
+            rotated = integer_delays64(rotate_vectors_z(boundary["src_loc"], angle),
+                                       rotate_vectors_z(boundary["ref_locs"], angle))
+            per_angle[int(k)] = {"delays": rotated.tolist(),
+                                 "flips": int((rotated != base64).sum()),
+                                 "max_abs_shift": int((rotated - base64).abs().max())}
+        b_entry["delays_per_angle"] = per_angle
+        report["adversarial_delay_boundary"] = b_entry
+        print("  k=0 pre-round {} -> delays {}; flips per angle {}; worst E {:.3e}, "
+              "worst P {:.3e}".format(
+                  [round(v, 9) for v in b_entry["preround_k0"][0]], b_entry["delays_k0"],
+                  {k: v["flips"] for k, v in per_angle.items()},
+                  b_entry["worst_E"]["rel_fro"], b_entry["worst_P"]["rel_fro"]), flush=True)
+
         # Off-lattice diagnostic (no pass/fail).
         off = angle_sweep(warm_model, real, OFF_LATTICE_ANGLES, conditions=("E",))
         print(format_sweep("off-lattice diagnostic (warm_start/real)", off), flush=True)
@@ -652,6 +884,8 @@ def main(argv=None):
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--gl-seed", type=int, default=0)
+    parser.add_argument("--flip-ensemble", type=int, default=1000000,
+                        help="scenes in the integer-delay flip-rate ensemble")
     parser.add_argument("--out-json", default=None)
     run(parser.parse_args(argv))
     return 0
