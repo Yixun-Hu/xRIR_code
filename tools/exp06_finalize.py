@@ -83,7 +83,7 @@ is alive: a pipeline's own ``launch.pid`` belongs at the job root, never in a ch
 
     python tools/exp06_finalize.py preflight --mode full --gpu 1 \
         --reviewed-commit <sha> [--attempt-root <dir>]... [--repo <path>] \
-        [--approved <approved_digests.json>] [--exploratory]
+        [--approved <approved_digests.json>] [--exploratory] [--min-free-gb <gib>]
     python tools/exp06_finalize.py child-exit --run-dir <dir> --log <log> \
         --child-pid <pid> --status <n> --started-at <iso>
 
@@ -1651,6 +1651,33 @@ def gpu_compute_apps(gpu):
     return [line.strip() for line in output.splitlines() if line.strip()]
 
 
+def gpu_free_gib(gpu):
+    """Free memory on one card, in GiB; an unreadable or ambiguous reply is refused.
+
+    Plan amendment A5: a rung-4 smoke shares a card with whatever else is on it, so it may
+    start only where the whole budget it is allowed to allocate is still free. The query is
+    separate from the compute-app census, which ``probe``/``full`` use to demand an empty
+    card.
+    """
+    try:
+        output = subprocess.check_output(
+            ['nvidia-smi', '--query-gpu=memory.free', '--format=csv,noheader,nounits',
+             '-i', str(gpu)], text=True, stderr=subprocess.STDOUT)
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ValueError('cannot query the free memory of GPU {}: {}'.format(gpu, error)) from error
+    values = [line.strip() for line in output.splitlines() if line.strip()]
+    _require(len(values) == 1,
+             'GPU {} reported {!r} free, not one measurement'.format(gpu, values))
+    try:
+        mib = float(values[0])
+    except ValueError as error:
+        raise ValueError('GPU {} reported {!r} free, not a number of MiB'.format(
+            gpu, values[0])) from error
+    _require(math.isfinite(mib) and mib >= 0,
+             'GPU {} reported {!r} free'.format(gpu, values[0]))
+    return mib / 1024.0
+
+
 def launch_roots(attempt_root):
     """Every location this launcher writes pid files into, attempts and smokes alike."""
     if attempt_root is None:
@@ -1697,7 +1724,7 @@ def approval_gate(mode, reviewed_commit, approved, exploratory, repo):
 
 
 def preflight(mode, gpu, reviewed_commit, attempt_root=None, repo=REPO, approved=None,
-              exploratory=False):
+              exploratory=False, min_free_gb=None):
     """Gate a launch: reviewed commit, clean tree, no live launch, approvals, a free card."""
     _require(mode in LAUNCH_MODES, 'unknown launch mode: {!r}'.format(mode))
     state = provenance.checked_git_state(repo, confirmatory=True)
@@ -1709,9 +1736,14 @@ def preflight(mode, gpu, reviewed_commit, attempt_root=None, repo=REPO, approved
     admission = approval_gate(mode, reviewed_commit, approved, exploratory, repo)
     apps = gpu_compute_apps(gpu) if mode in EXCLUSIVE_GPU_MODES else None
     _require(not apps, 'GPU {} is busy with compute apps {}'.format(gpu, apps))
+    free = None if min_free_gb is None else gpu_free_gib(gpu)
+    _require(free is None or free >= min_free_gb,
+             'GPU {} has {:.2f} GiB free, below the {} GiB this launch may allocate'.format(
+                 gpu, free or 0.0, min_free_gb))
     return dict(mode=mode, gpu=gpu, reviewed_commit=reviewed_commit, git_state=state,
                 attempt_root=[str(root) for root in launch_roots(attempt_root)],
-                gpu_compute_apps=apps, live_launches=running, **admission)
+                gpu_compute_apps=apps, live_launches=running, min_free_gb=min_free_gb,
+                gpu_free_gib=free, **admission)
 
 
 def preflight_main(argv):
@@ -1727,10 +1759,13 @@ def preflight_main(argv):
                         help='approved_digests.json (default: the record asset)')
     parser.add_argument('--exploratory', action='store_true',
                         help='diagnostic launch on unapproved code; never mode full')
+    parser.add_argument('--min-free-gb', type=float, default=None,
+                        help='A5: GiB this launch may allocate; the card must hold them free')
     args = parser.parse_args(argv)
     try:
         record = preflight(args.mode, args.gpu, args.reviewed_commit, args.attempt_root,
-                           args.repo, approved=args.approved, exploratory=args.exploratory)
+                           args.repo, approved=args.approved, exploratory=args.exploratory,
+                           min_free_gb=args.min_free_gb)
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         print('EXP06_PREFLIGHT_REFUSED ' + str(error), file=sys.stderr, flush=True)
         return 2

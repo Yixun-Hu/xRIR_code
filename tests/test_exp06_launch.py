@@ -308,18 +308,18 @@ def test_an_unreadable_free_memory_query_refuses_the_smoke(repo, fake_nvidia_smi
             exp06_finalize.preflight('smoke', 0, head, repo=root, min_free_gb=6)
 
 
-def test_the_preflight_cli_takes_the_memory_floor(repo, fake_nvidia_smi):
+def test_the_preflight_cli_takes_the_memory_floor(repo, fake_nvidia_smi, capsys):
+    """The launcher passes the floor as a flag, so the CLI must carry it to the gate."""
     root, head = repo
+    argv = ['--mode', 'smoke', '--gpu', '0', '--reviewed-commit', head, '--repo', str(root),
+            '--min-free-gb', '6']
     fake_nvidia_smi.free(1024)
-    command = [sys.executable, 'tools/exp06_finalize.py', 'preflight', '--mode', 'smoke',
-               '--gpu', '0', '--reviewed-commit', head, '--repo', str(root),
-               '--min-free-gb', '6']
-    env = {**os.environ, 'PYTHONPATH': str(REPO)}
-    refused = subprocess.run(command, cwd=REPO, capture_output=True, text=True, env=env)
-    assert refused.returncode == 2 and 'EXP06_PREFLIGHT_REFUSED' in refused.stderr
+    assert exp06_finalize.preflight_main(argv) == 2
+    assert 'EXP06_PREFLIGHT_REFUSED' in capsys.readouterr().err
     fake_nvidia_smi.free(46000)
-    admitted = subprocess.run(command, cwd=REPO, capture_output=True, text=True, env=env)
-    assert admitted.returncode == 0, admitted.stderr
+    assert exp06_finalize.preflight_main(argv) == 0
+    record = json.loads(capsys.readouterr().out.split('EXP06_PREFLIGHT_OK ', 1)[1])
+    assert record['min_free_gb'] == 6.0 and record['gpu_free_gib'] > 44
 
 
 def test_finalize_mode_and_usage_errors():

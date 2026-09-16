@@ -19,6 +19,11 @@ RECORD=worklog/worklog_yixun/exp_06_oriented_cyl_claude
 APPROVED_DEFAULT="$RECORD/oriented_cyl_results_assets/approved_digests.json"
 SMOKE_DIR=ckpt/exp06/_smoke
 SMOKE_FLAGS="--epochs 1 --max-train-batches 3 --max-test-batches 2 --batch-size 4 --num-workers 4 --save-every 0 --no-save"
+# Plan amendment A5: the rung-4 budgets are environment parameters, so a future
+# adjustment is a recorded value rather than a source edit. The 6 GB default replaces the
+# Planner's 3 GB estimate, which the measured 3.63 GB peak at micro-batch 4 exceeded.
+SMOKE_ALARM_S="${EXP06_SMOKE_ALARM_S:-300}"
+SMOKE_MAX_GB="${EXP06_SMOKE_MAX_GB:-6}"
 
 usage() {
     echo "usage: $0 <smoke|probe|full|finalize> --gpu <g> --reviewed-commit <sha40>" >&2
@@ -33,6 +38,9 @@ run() { say "RUN $*"; if [ "${DRY:-0}" -eq 0 ]; then "$@"; fi; }
 preflight() {  # every location this launcher writes a pid file into (review 5)
     local extra=()
     [ "${EXPLORATORY:-0}" -eq 0 ] || extra+=(--exploratory)
+    # A5: probe and full demand an empty card; a smoke may share one only while the card
+    # still holds the whole budget it is allowed to allocate.
+    [ "$MODE" != smoke ] || extra+=(--min-free-gb "$SMOKE_MAX_GB")
     run "$PYTHON" tools/exp06_finalize.py preflight --mode "$MODE" --gpu "$GPU" \
         --reviewed-commit "$COMMIT" --attempt-root "$ATTEMPT_ROOT" --attempt-root "$SMOKE_DIR" \
         --approved "$APPROVED" ${extra[@]+"${extra[@]}"}
@@ -261,7 +269,7 @@ smoke)
         diagnostic smoke "$SMOKE_DIR/${name}_$STAMP" \
             "$RECORD/oriented_cyl_${STAMP}_smoke_${name}.log" \
             "$SMOKE_DIR/receipt_${name}_$STAMP.json" \
-            --entry "$entry" --alarm-seconds 300 --max-gb 3 -- \
+            --entry "$entry" --alarm-seconds "$SMOKE_ALARM_S" --max-gb "$SMOKE_MAX_GB" -- \
             --backbone simple --save-dir "$SMOKE_DIR/t0" $SMOKE_FLAGS \
             ${child[@]+"${child[@]}"}
     done
@@ -269,7 +277,7 @@ smoke)
     diagnostic smoke "$SMOKE_DIR/exp06_train_t1_$STAMP" \
         "$RECORD/oriented_cyl_${STAMP}_smoke_exp06_train_t1.log" \
         "$SMOKE_DIR/receipt_exp06_train_t1_$STAMP.json" \
-        --entry exp06_train --alarm-seconds 300 --max-gb 3 -- \
+        --entry exp06_train --alarm-seconds "$SMOKE_ALARM_S" --max-gb "$SMOKE_MAX_GB" -- \
         --backbone cylindrical_oriented --save-dir "$SMOKE_DIR/t1" $SMOKE_FLAGS \
         --run-type smoke ${CHILD_EXPLORATORY[@]+"${CHILD_EXPLORATORY[@]}"}
     # (c) the CPU fixture the round-2b HAA smokes load (no child, no log, no completion).
