@@ -63,14 +63,23 @@ def fake_nvidia_smi(tmp_path, monkeypatch):
     binary = tmp_path / 'bin'
     binary.mkdir()
     script = binary / 'nvidia-smi'
-    script.write_text('#!/usr/bin/env bash\ncat "$(dirname "$0")/apps.txt"\n')
+    script.write_text('#!/usr/bin/env bash\ncase "$*" in\n'
+                      '  *memory.free*) cat "$(dirname "$0")/free.txt" ;;\n'
+                      '  *) cat "$(dirname "$0")/apps.txt" ;;\n'
+                      'esac\n')
     script.chmod(0o755)
     monkeypatch.setenv('PATH', str(binary) + os.pathsep + os.environ['PATH'])
 
     def apps(text):
         (binary / 'apps.txt').write_text(text)
 
+    def free(mib):
+        """A5: what --query-gpu=memory.free reports for the card, in MiB."""
+        (binary / 'free.txt').write_text('{}\n'.format(mib))
+
     apps('')
+    free(46000)
+    apps.free = free
     return apps
 
 
@@ -181,11 +190,11 @@ SMOKE_FLAGS = ('--epochs 1 --max-train-batches 3 --max-test-batches 2 --batch-si
 SMOKE_ARGV = ('--backbone simple --save-dir ckpt/exp06/_smoke/t0 ' + SMOKE_FLAGS).split()
 
 
-def dry_run(mode, *extra):
+def dry_run(mode, *extra, **environment):
     command = ['bash', LAUNCHER, mode, '--gpu', '1', '--reviewed-commit', COMMIT, '--dry-run']
     completed = subprocess.run(command + list(extra), cwd=REPO, capture_output=True, text=True,
                                env={**os.environ, 'PYTHONPATH': str(REPO),
-                                    'XRIR_DATA_PATH': DATA_ROOT})
+                                    'XRIR_DATA_PATH': DATA_ROOT, **environment})
     assert completed.returncode == 0, completed.stderr
     return completed.stdout.splitlines()
 
@@ -237,7 +246,7 @@ def test_probe_dry_run_uses_the_bounded_recipe():
 def test_smoke_dry_run_lists_the_section_nine_commands():
     lines = dry_run('smoke')
     smokes = [line for line in lines if line.startswith('RUN ') and 'exp06_smoke.py' in line]
-    assert len(smokes) == 4
+    assert len(smokes) == 6
     for index, (entry, name, backbone, target, child) in enumerate([
             ('trainer', 'trainer', 'simple', 't0', ''),
             ('exp06_train', 'exp06_train_t0', 'simple', 't0', ' --run-type smoke'),
@@ -245,7 +254,7 @@ def test_smoke_dry_run_lists_the_section_nine_commands():
         assert smokes[index].endswith(
             '--receipt ckpt/exp06/_smoke/receipt_{}_<UTC>.json --run-type smoke'
             ' --provenance-out ckpt/exp06/_smoke/{}_<UTC>/provenance.json --approved {}'
-            ' --reviewed-commit {} --entry {} --alarm-seconds 300 --max-gb 3 --'
+            ' --reviewed-commit {} --entry {} --alarm-seconds 300 --max-gb 6 --'
             ' --backbone {} --save-dir ckpt/exp06/_smoke/{} {}{}'.format(
                 name, name, APPROVED, COMMIT, entry, backbone, target, SMOKE_FLAGS, child)), \
             smokes[index]
@@ -254,6 +263,127 @@ def test_smoke_dry_run_lists_the_section_nine_commands():
     assert printed_children(lines)[1][1] == SMOKE_ARGV + ['--run-type', 'smoke']
     assert smokes[3].endswith('--make-fixture ckpt/exp06/_smoke/fixture_cylor.pth')
     assert all('--tf32' not in line for line in smokes)
+
+
+def test_smoke_budgets_are_environment_parameters(*, defaults=('300', '6')):
+    """A5: the rung-4 ceilings move by a recorded environment value, not a source edit."""
+    for alarm, memory in (defaults, ('120', '8')):
+        lines = dry_run('smoke', EXP06_SMOKE_ALARM_S=alarm, EXP06_SMOKE_MAX_GB=memory)
+        budgets = [line for line in lines
+                   if line.startswith('RUN ') and '--alarm-seconds' in line]
+        assert len(budgets) == 5, budgets
+        for line in budgets:
+            assert '--alarm-seconds {} --max-gb {} --'.format(alarm, memory) in line, line
+
+
+def test_the_smoke_preflight_demands_the_budget_free_on_the_card():
+    """A5: a smoke may share a card only while the card can still hold its whole budget."""
+    preflight = [line for line in dry_run('smoke') if 'exp06_finalize.py preflight' in line]
+    assert len(preflight) == 1 and preflight[0].endswith(' --min-free-gb 6'), preflight
+    other = dry_run('smoke', EXP06_SMOKE_MAX_GB='8')
+    assert [line for line in other if 'preflight' in line][0].endswith(' --min-free-gb 8')
+    for mode in ('full', 'probe'):
+        assert all('--min-free-gb' not in line for line in dry_run(mode))
+
+
+def test_preflight_refuses_a_card_that_cannot_hold_the_smoke_budget(repo, fake_nvidia_smi):
+    """The measured peak is 3.63 GB; a card with less free than the budget is refused."""
+    root, head = repo
+    fake_nvidia_smi.free(2048)
+    with pytest.raises(ValueError, match='free'):
+        exp06_finalize.preflight('smoke', 0, head, repo=root, min_free_gb=6)
+    fake_nvidia_smi.free(46000)
+    record = exp06_finalize.preflight('smoke', 0, head, repo=root, min_free_gb=6)
+    assert record['min_free_gb'] == 6 and record['gpu_free_gib'] > 44
+    # Without a floor the query is never made, and the record says so.
+    assert exp06_finalize.preflight('smoke', 0, head, repo=root)['gpu_free_gib'] is None
+
+
+def test_an_unreadable_free_memory_query_refuses_the_smoke(repo, fake_nvidia_smi):
+    """Fail-closed: a card whose free memory cannot be read is not a card to share."""
+    root, head = repo
+    for reply in ('', 'N/A'):
+        fake_nvidia_smi.free(reply)
+        with pytest.raises(ValueError, match='GPU'):
+            exp06_finalize.preflight('smoke', 0, head, repo=root, min_free_gb=6)
+
+
+def test_the_preflight_cli_takes_the_memory_floor(repo, fake_nvidia_smi, capsys):
+    """The launcher passes the floor as a flag, so the CLI must carry it to the gate."""
+    root, head = repo
+    argv = ['--mode', 'smoke', '--gpu', '0', '--reviewed-commit', head, '--repo', str(root),
+            '--min-free-gb', '6']
+    fake_nvidia_smi.free(1024)
+    assert exp06_finalize.preflight_main(argv) == 2
+    assert 'EXP06_PREFLIGHT_REFUSED' in capsys.readouterr().err
+    fake_nvidia_smi.free(46000)
+    assert exp06_finalize.preflight_main(argv) == 0
+    record = json.loads(capsys.readouterr().out.split('EXP06_PREFLIGHT_OK ', 1)[1])
+    assert record['min_free_gb'] == 6.0 and record['gpu_free_gib'] > 44
+
+
+HAA_SMOKE_DIR = {'haa_smoke_train': 'ckpt/exp06/_smoke/haa_finetune_<UTC>',
+                 'haa_smoke_eval': 'ckpt/exp06/_smoke/haa_eval_<UTC>'}
+HAA_SMOKE_TAIL = {
+    'haa_smoke_train': (' --entry exp06_haa_finetune --alarm-seconds 300 --max-gb 6 --'
+                        ' --backbone cylindrical_oriented'
+                        ' --init ckpt/exp06/_smoke/fixture_cylor.pth --rooms class_room'
+                        ' --heading-json-dir ckpt/exp06/heading --save-dir '
+                        + HAA_SMOKE_DIR['haa_smoke_train'] + '/run --epochs 2 --val-every 1'
+                        ' --batch-size 4 --val-batch-size 4 --seed 0'),
+    'haa_smoke_eval': (' --entry exp06_haa_eval --alarm-seconds 300 --max-gb 6 --'
+                       ' --backbone cylindrical_oriented --checkpoint '
+                       + HAA_SMOKE_DIR['haa_smoke_train'] + '/run/best.pth'
+                       ' --heading-json-dir ckpt/exp06/heading --rooms hallway'
+                       ' --max-samples 4 --save-dir ' + HAA_SMOKE_DIR['haa_smoke_eval']
+                       + '/run --seed 0')}
+
+
+def test_the_smoke_mode_runs_the_finalised_haa_diagnostics():
+    """Plan amendment A4: section 9 (c)/(d) run the same lifecycle as the other rungs."""
+    lines = dry_run('smoke')
+    for kind, name in (('haa_smoke_train', 'haa_finetune'), ('haa_smoke_eval', 'haa_eval')):
+        directory, receipt = HAA_SMOKE_DIR[kind], 'ckpt/exp06/_smoke/receipt_{}_<UTC>.json'
+        receipt = receipt.format(name)
+        log = ('worklog/worklog_yixun/exp_06_oriented_cyl_claude/'
+               'oriented_cyl_<UTC>_smoke_{}.log'.format(name))
+        assert ('RUN nohup setsid ' + PYTHON + ' tools/exp06_smoke.py --receipt ' + receipt
+                + ' --run-type ' + kind + ' --provenance-out ' + directory
+                + '/provenance.json --approved ' + APPROVED + ' --reviewed-commit ' + COMMIT
+                + HAA_SMOKE_TAIL[kind]) in lines, lines
+        assert 'MKDIR ' + directory in lines and 'SINK cat >> ' + log in lines
+        assert 'PIDFILE ' + directory + '/launch.pid' in lines
+        assert ('RUN ' + PYTHON + ' tools/exp06_finalize.py --run-dir ' + directory
+                + ' --run-type ' + kind + ' --log ' + log + ' --child-exit <code>'
+                ' --owner-pid <pid> --receipt ' + receipt) in lines
+
+
+def test_the_evaluation_smoke_waits_for_the_training_smoke_to_pass():
+    """A4: the eval smoke consumes best.pth, so it starts after that completion passes."""
+    lines = dry_run('smoke')
+    gate = ('RUN ' + PYTHON + ' tools/exp06_finalize.py passed --run-dir '
+            + HAA_SMOKE_DIR['haa_smoke_train'] + ' --run-type haa_smoke_train')
+    assert gate in lines
+    started = [index for index, line in enumerate(lines) if 'exp06_haa_eval' in line]
+    assert started and lines.index(gate) < min(started)
+    fixture = [index for index, line in enumerate(lines) if '--make-fixture' in line]
+    assert fixture and max(fixture) < min(
+        index for index, line in enumerate(lines) if 'exp06_haa_finetune' in line)
+
+
+def test_the_printed_haa_smoke_commands_parse_for_their_wrappers():
+    """Runbook finding 2: the registered argv must be what the HAA wrappers accept."""
+    from tools import exp06_haa_eval, exp06_haa_finetune
+    parsers = {'exp06_haa_finetune': exp06_haa_finetune.build_parser(),
+               'exp06_haa_eval': exp06_haa_eval.build_parser()}
+    children = [pair for pair in printed_children(dry_run('smoke')) if pair[0] in parsers]
+    assert len(children) == 2, children
+    for entry, argv in children:
+        args = parsers[entry].parse_args(argv)
+        assert args.backbone == 'cylindrical_oriented' and args.seed == 0
+        assert args.heading_json_dir == 'ckpt/exp06/heading'
+        assert args.save_dir.startswith('ckpt/exp06/_smoke/') and args.save_dir.endswith('/run')
+        assert args.run_type == ('haa_train' if 'finetune' in entry else 'haa_eval')
 
 
 def test_finalize_mode_and_usage_errors():
@@ -556,6 +686,28 @@ def test_a_passing_diagnostic_leaves_the_launcher_running(tmp_path):
     assert log.read_text().splitlines()[-1].startswith('EXP06_CHILD_EXIT 0 ')
 
 
+GATE_HARNESS = ('set -euo pipefail\n'
+                'export EXP06_LAUNCH_LIB=1\n'
+                'source tools/exp06_launch.sh\n'
+                'DRY=0\nPYTHON={stub}\n'
+                'require_passed {dir} haa_smoke_train\n'
+                'echo LAUNCHER_CONTINUED\n')
+
+
+@pytest.mark.parametrize('status,expected', [('0', 0), ('2', 2)])
+def test_the_passed_gate_stops_the_ladder_when_it_refuses(tmp_path, status, expected):
+    """A4: the evaluation rung must not start behind a diagnostic that did not pass."""
+    stub = tmp_path / 'stub.sh'
+    stub.write_text('#!/usr/bin/env bash\nexit {}\n'.format(status))
+    stub.chmod(0o755)
+    completed = subprocess.run(
+        ['bash', '-c', GATE_HARNESS.format(stub=stub, dir=tmp_path / 'haa_finetune')],
+        cwd=REPO, capture_output=True, text=True, env={**os.environ, 'PYTHONPATH': str(REPO)})
+    assert completed.returncode == expected, completed.stdout + completed.stderr
+    assert ('LAUNCHER_CONTINUED' in completed.stdout) is (expected == 0)
+    assert ('STOP' in completed.stdout) is (expected != 0)
+
+
 class _CudaReached(BaseException):
     """Raised where the real startup would need a GPU; nothing past it is CPU-testable."""
 
@@ -599,6 +751,9 @@ def printed_children(lines):
     return children
 
 
+HAA_ENTRIES = ('exp06_haa_finetune', 'exp06_haa_eval')
+
+
 @pytest.mark.parametrize('mode', ['smoke', 'probe'])
 def test_the_printed_diagnostic_commands_reach_the_real_entry(mode, cpu_startup):
     """Finding 1: the child argv the launcher prints must start the entry it names.
@@ -613,6 +768,8 @@ def test_the_printed_diagnostic_commands_reach_the_real_entry(mode, cpu_startup)
     children = printed_children(dry_run(mode))
     assert children, mode
     for entry, argv in children:
+        if entry in HAA_ENTRIES:  # the HAA wrappers need the cache; their argv is parsed below
+            continue
         module = importlib.import_module(exp06_smoke.ENTRIES[entry])
         with pytest.raises(_CudaReached):
             exp06_smoke._invoke(module, entry, argv)
@@ -624,7 +781,7 @@ def test_an_exploratory_launch_tells_its_children_so(mode, kind):
     children = printed_children(dry_run(mode, '--exploratory'))
     assert children
     for entry, argv in children:
-        if entry == 'trainer':  # the pinned parser knows neither flag
+        if entry == 'trainer' or entry in HAA_ENTRIES:  # these parsers know neither flag
             assert '--run-type' not in argv and '--exploratory' not in argv
             continue
         assert argv[argv.index('--run-type') + 1] == kind and argv[-1] == '--exploratory'

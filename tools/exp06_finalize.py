@@ -83,9 +83,10 @@ is alive: a pipeline's own ``launch.pid`` belongs at the job root, never in a ch
 
     python tools/exp06_finalize.py preflight --mode full --gpu 1 \
         --reviewed-commit <sha> [--attempt-root <dir>]... [--repo <path>] \
-        [--approved <approved_digests.json>] [--exploratory]
+        [--approved <approved_digests.json>] [--exploratory] [--min-free-gb <gib>]
     python tools/exp06_finalize.py child-exit --run-dir <dir> --log <log> \
         --child-pid <pid> --status <n> --started-at <iso>
+    python tools/exp06_finalize.py passed --run-dir <dir> --run-type <type>
 
 Every failure raises ``ValueError`` naming its cause and writes nothing; a re-run
 produces byte-identical bytes, and an existing completion that differs is refused.
@@ -114,8 +115,18 @@ from tools import (exp06_heading, exp06_profiles, exp06_recipe, exp06_smoke, exp
 REPO = Path(__file__).resolve().parents[1]
 MARKER = 'EXP06_CHILD_EXIT'
 RECEIPT_FIELDS = ('child_pid', 'status', 'started_at', 'ended_at', 'log_sha256_after_marker')
-DIAGNOSTIC = ('smoke', 'probe')
-RUN_TYPES = ('full', 'smoke', 'probe', 'haa_train', 'haa_eval', 'haa_job')
+HAA_SMOKE = ('haa_smoke_train', 'haa_smoke_eval')
+DIAGNOSTIC = ('smoke', 'probe') + HAA_SMOKE
+NO_SAVE_REQUIRED = ('smoke', 'probe')  # the HAA wrappers have no such flag (A4)
+RUN_TYPES = ('full', 'smoke', 'probe') + HAA_SMOKE + ('haa_train', 'haa_eval', 'haa_job')
+SMOKE_ROOT = 'ckpt/exp06/_smoke'  # the disposable tree a finalised diagnostic may write in
+ARTIFACT_DIR = 'run'  # the launcher's --save-dir inside a diagnostic's own run directory
+HAA_SMOKE_ENTRY = {'haa_smoke_train': 'exp06_haa_finetune',
+                   'haa_smoke_eval': 'exp06_haa_eval'}
+# A4: instead of --no-save, exactly what each wrapper writes, all of it disposable.
+HAA_SMOKE_ARTIFACTS = {'haa_smoke_train': ('provenance.json', 'args.json', 'history.jsonl',
+                                           'summary.json', 'best.pth', 'last.pth'),
+                       'haa_smoke_eval': ('provenance.json', 'args.json')}
 EXPECTATIONS = ('finetune', 'zeroshot')
 LAUNCH_MODES = ('smoke', 'probe', 'full', 'finalize')
 EXCLUSIVE_GPU_MODES = ('probe', 'full')
@@ -142,7 +153,8 @@ REQUIRED_PROVENANCE = ('run_type', 'repo', 'reviewed_commit', 'source_closures',
                        'effective_args')
 ENTRY_MODULES = {'full': 'tools.exp06_train', 'haa_train': 'tools.exp06_haa_finetune',
                  'haa_eval': 'tools.exp06_haa_eval', 'smoke': 'tools.exp06_smoke',
-                 'probe': 'tools.exp06_smoke'}
+                 'probe': 'tools.exp06_smoke', 'haa_smoke_train': 'tools.exp06_smoke',
+                 'haa_smoke_eval': 'tools.exp06_smoke'}
 DIAGNOSTIC_PROVENANCE = ('run_type', 'repo', 'reviewed_commit', 'source_closures',
                          'registry_sha256', 'git_state', 'environment', 'command')
 # Finding 6: a receipt proves nothing without the runner's identity, its budgets and what
@@ -676,11 +688,17 @@ def revalidate_inputs(record, repo, required=('train_data_identity', 'source_clo
     _require(not mismatches, 'input revalidation failed: ' + ', '.join(sorted(mismatches)[:8]))
 
 
-def artifacts(run_dir, names):
-    """Hash every required artifact; a missing one is refused by name."""
+def artifacts(run_dir, names, root=None):
+    """Hash every required artifact; a missing one is refused by name.
+
+    ``root`` confines the artifacts to one tree: with it, each is required to be a regular
+    file of that tree rather than whatever a link leads to (see ``confined``).
+    """
     hashes = {}
     for name in names:
         path = Path(run_dir) / name
+        if root is not None:
+            confined(path, root, 'artefact')
         _require(path.is_file(), 'missing artifact {} in {}'.format(name, run_dir))
         hashes[name] = provenance.sha256_file(path)
     return hashes
@@ -791,8 +809,13 @@ def diagnostic_receipt(receipt, run_type, provenance_record):
     missing = [key for key in DIAGNOSTIC_RECEIPT if key not in record]
     _require(not missing, 'the smoke receipt is incomplete: missing ' + ', '.join(missing))
     argv = record['argv']
-    _require(isinstance(argv, list) and '--no-save' in argv,
+    _require(isinstance(argv, list), 'the smoke receipt argv {!r} is not a list'.format(argv))
+    _require(run_type not in NO_SAVE_REQUIRED or '--no-save' in argv,
              'a diagnostic must run with --no-save; its receipt records argv {!r}'.format(argv))
+    wrapper = HAA_SMOKE_ENTRY.get(run_type)
+    _require(wrapper is None or record.get('entry') == wrapper,
+             'a {} receipt must record the entry {!r}, not {!r}'.format(
+                 run_type, wrapper, record.get('entry')))
     _require(type(record['exit_status']) is int,
              'the smoke receipt records exit_status {!r}'.format(record['exit_status']))
     _require(record['runner'] == 'tools.exp06_smoke',
@@ -826,6 +849,83 @@ def diagnostic_receipt(receipt, run_type, provenance_record):
     _require(record['exploratory'] == bool(provenance_record.get('exploratory')),
              'the smoke receipt and its provenance disagree about exploratory')
     return record, path
+
+
+def smoke_run_dir(run_dir, repo):
+    """A finalised diagnostic lives in the disposable smoke tree and nowhere else (A4)."""
+    root = _resolve(SMOKE_ROOT, repo).resolve()
+    path = Path(run_dir).resolve()
+    _require(path != root and root in path.parents,
+             '{} is not inside the disposable smoke tree {}'.format(path, root))
+    return path
+
+
+def confined(path, root, label):
+    """Codex pre-launch finding 1: a registered artefact is of the tree, not a link out of it.
+
+    ``artifacts()`` hashes whatever a symlink leads to, so an allow-listed *name* pointing
+    outside ``_smoke`` -- an external ``best.pth``, an external ``per_sample_<room>.json`` --
+    would otherwise be hashed and finalised as passed, and a passing training diagnostic
+    could hand the next rung a checkpoint nobody in this experiment produced. Every
+    component below the already resolved ``root`` must therefore be a real directory or
+    file (``lstat``, not ``stat``), which also leaves the path resolving inside ``root``.
+    """
+    path = Path(path)
+    _require(root in path.parents, '{} is not inside {}'.format(path, root))
+    walked = root
+    for part in path.relative_to(root).parts:
+        walked = walked / part
+        _require(not walked.is_symlink(),
+                 'the {} {} is a symlink, not a real entry of {}'.format(label, walked, root))
+    _require(path.resolve() == path,
+             'the {} {} resolves to {}, outside {}'.format(label, path, path.resolve(), root))
+    return path
+
+
+def haa_smoke_files(run_type, args):
+    """The names the wrapper writes, derived from its own arguments -- never guessed.
+
+    ``tools/exp06_haa_eval.py`` writes one ``metrics_``/``per_sample_`` pair per room plus
+    the ``metrics_all`` roll-up, each suffixed with ``--tag``; the fine-tuning wrapper's
+    output does not depend on its arguments.
+    """
+    names = list(HAA_SMOKE_ARTIFACTS[run_type])
+    if run_type != 'haa_smoke_eval':
+        return names
+    rooms, tag = args.get('rooms'), args.get('tag', '')
+    _require(isinstance(rooms, list) and rooms and all(room in ROOMS for room in rooms),
+             'args.json records the rooms {!r}, not a list of HAA rooms'.format(rooms))
+    _require(isinstance(tag, str), 'args.json records the tag {!r}'.format(tag))
+    names.append('metrics_all{}.json'.format(tag))
+    for room in rooms:
+        names += ['metrics_{}{}.json'.format(room, tag),
+                  'per_sample_{}{}.json'.format(room, tag)]
+    return names
+
+
+def haa_smoke_artifacts(run_dir, run_type, repo):
+    """A4: the HAA wrappers have no ``--no-save``, so their output is enumerated instead.
+
+    Fine-tuning must keep ``best.pth`` for the evaluation smoke that consumes it, so the
+    diagnostic contract replaces the argv guard with this allow-list: exactly the files the
+    wrapper writes, in the directory its own ``save_dir`` names, inside the disposable
+    smoke tree, each hashed into the completion. Anything else there is an unregistered
+    write and refuses, and an allow-listed name is accepted only as a regular file of that
+    tree (``confined``), never as a link to one outside it.
+    """
+    root = smoke_run_dir(run_dir, repo)
+    directory = confined(root / ARTIFACT_DIR, root, 'artefact directory')
+    _require(directory.is_dir(), 'missing artefact directory {}'.format(directory))
+    confined(directory / 'args.json', root, 'artefact')  # read only once confined
+    args = _read_json(directory / 'args.json', 'args.json')
+    _require(_resolve(args.get('save_dir') or '', repo).resolve() == directory,
+             'args.json records the save_dir {!r}, not the {} being finalized'.format(
+                 args.get('save_dir'), directory))
+    names = haa_smoke_files(run_type, args)
+    unregistered = sorted(set(item.name for item in directory.iterdir()) - set(names))
+    _require(not unregistered, '{} holds unregistered artefacts: {}'.format(
+        directory, ', '.join(unregistered)))
+    return artifacts(directory, sorted(names), root=root)
 
 
 def check_receipt_consistency(fields, record, window):
@@ -890,7 +990,15 @@ def diagnostic_evidence(run_dir, receipt, child_exit, run_type, repo, window):
     fields, path = diagnostic_receipt(receipt, run_type, record)
     status = fields['exit_status']
     passed = check_receipt_consistency(fields, record, window) and child_exit == 0
-    return dict(artifacts={}, passed=passed, **admission,
+    hashes = {}
+    if run_type in HAA_SMOKE:
+        # A4: the next rung consumes this one's checkpoint, so a finalised HAA diagnostic
+        # must have succeeded; a failed one leaves its receipt and log, and no completion.
+        _require(passed, 'a finalised HAA diagnostic must have succeeded: the receipt records '
+                 'outcome {!r} with exit_status {}, and the child exited {}'.format(
+                     fields['outcome'], status, child_exit))
+        hashes = haa_smoke_artifacts(run_dir, run_type, repo)
+    return dict(artifacts=hashes, passed=passed, **admission,
                 receipt={'path': str(path.resolve()), 'sha256': provenance.sha256_file(path),
                          'runner': fields['runner'], 'entry': fields['entry'],
                          'exit_status': status, 'outcome': fields['outcome'],
@@ -1447,9 +1555,26 @@ def load_job_spec(path, expect):
 
     Finding 5: every nested value is typed before it is used, so a malformed spec is a
     named refusal (CLI exit 2, nothing written) and never a TypeError out of ``sorted``.
+
+    Round-3b finding 6: the bytes are read once and both the declaration and its digest
+    come from that one buffer, as ``closed_log`` does for a log. Parsing one read and
+    hashing another admitted a spec substituted in between under a digest that identified
+    the bytes nobody had validated; every later consumer compares against the digest
+    returned here, so no second read of the file can supply the evidence. The file is read
+    a second time only to refuse: as ``finalize`` re-hashes the log it validated, a
+    declaration that no longer holds the bytes that were parsed is stale, not certifiable.
     """
     _require(path, 'a job needs the pipeline --job-spec it was run from')
-    spec = _mapping(_read_json(path, 'job spec'), 'job spec')
+    try:
+        data = Path(path).read_bytes()
+    except OSError as error:
+        raise ValueError('unreadable job spec: {}'.format(error)) from error
+    try:
+        value = json.loads(data.decode('utf-8'))
+    except (UnicodeDecodeError, ValueError) as error:
+        raise ValueError('unreadable job spec: {}'.format(error)) from error
+    _require(isinstance(value, dict), 'job spec is not a JSON object')
+    spec = _mapping(value, 'job spec')
     missing = [key for key in JOB_SPEC if key not in spec]
     _require(not missing, 'job spec is incomplete: missing ' + ', '.join(missing))
     _require(spec['expect'] == expect,
@@ -1473,8 +1598,12 @@ def load_job_spec(path, expect):
             WIDTH, ', '.join(absent)))
     else:
         _require(not spec.get('heading'), 'a room-frame job spec declares no heading')
-    # Finding 3: the declaration's own digest, which every child must have recorded at launch.
-    spec['job_spec_sha256'] = provenance.sha256_file(path)
+    # Finding 3: the declaration's own digest, which every child must have recorded at
+    # launch -- taken from the snapshot above, never from a second read of the file.
+    spec['job_spec_sha256'] = hashlib.sha256(data).hexdigest()
+    _require(provenance.sha256_file(path) == spec['job_spec_sha256'],
+             'job spec {} changed while it was being validated: what it holds now is not '
+             'the bytes that were parsed'.format(path))
     return spec
 
 
@@ -1522,7 +1651,7 @@ def haa_job_evidence(run_dir, children, expect, repo, job_spec):
     _require(not missing, 'job is missing children: ' + ', '.join(missing))
     return dict(job_lineage(records, expect, spec), artifacts={}, children=seen, expect=expect,
                 job_spec={'path': str(Path(job_spec).resolve()),
-                          'sha256': provenance.sha256_file(job_spec)})
+                          'sha256': spec['job_spec_sha256']})
 
 
 def write_completion(path, fields):
@@ -1640,6 +1769,27 @@ def child_exit_main(argv):
     return 0
 
 
+def passed_main(argv):
+    """A4: exit 0 only where a diagnostic's own completion certifies that it passed."""
+    parser = argparse.ArgumentParser(description='Gate the next rung on a diagnostic.')
+    parser.add_argument('--run-dir', required=True)
+    parser.add_argument('--run-type', choices=RUN_TYPES, required=True)
+    args = parser.parse_args(argv)
+    try:
+        fields = _read_json(Path(args.run_dir) / 'completion.json', 'completion.json')
+        _require(fields.get('run_type') == args.run_type,
+                 'completion.json records run_type {!r}, not {}'.format(
+                     fields.get('run_type'), args.run_type))
+        _require(fields.get('passed') is True,
+                 '{} did not pass: its completion records passed {!r}'.format(
+                     args.run_dir, fields.get('passed')))
+    except (OSError, ValueError) as error:
+        print('EXP06_PASSED_REFUSED ' + str(error), file=sys.stderr, flush=True)
+        return 2
+    print('EXP06_PASSED_OK ' + str(args.run_dir), flush=True)
+    return 0
+
+
 def gpu_compute_apps(gpu):
     """The pids nvidia-smi reports on one card; an unqueryable card is refused."""
     try:
@@ -1649,6 +1799,33 @@ def gpu_compute_apps(gpu):
     except (OSError, subprocess.CalledProcessError) as error:
         raise ValueError('cannot query GPU {}: {}'.format(gpu, error)) from error
     return [line.strip() for line in output.splitlines() if line.strip()]
+
+
+def gpu_free_gib(gpu):
+    """Free memory on one card, in GiB; an unreadable or ambiguous reply is refused.
+
+    Plan amendment A5: a rung-4 smoke shares a card with whatever else is on it, so it may
+    start only where the whole budget it is allowed to allocate is still free. The query is
+    separate from the compute-app census, which ``probe``/``full`` use to demand an empty
+    card.
+    """
+    try:
+        output = subprocess.check_output(
+            ['nvidia-smi', '--query-gpu=memory.free', '--format=csv,noheader,nounits',
+             '-i', str(gpu)], text=True, stderr=subprocess.STDOUT)
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ValueError('cannot query the free memory of GPU {}: {}'.format(gpu, error)) from error
+    values = [line.strip() for line in output.splitlines() if line.strip()]
+    _require(len(values) == 1,
+             'GPU {} reported {!r} free, not one measurement'.format(gpu, values))
+    try:
+        mib = float(values[0])
+    except ValueError as error:
+        raise ValueError('GPU {} reported {!r} free, not a number of MiB'.format(
+            gpu, values[0])) from error
+    _require(math.isfinite(mib) and mib >= 0,
+             'GPU {} reported {!r} free'.format(gpu, values[0]))
+    return mib / 1024.0
 
 
 def launch_roots(attempt_root):
@@ -1697,7 +1874,7 @@ def approval_gate(mode, reviewed_commit, approved, exploratory, repo):
 
 
 def preflight(mode, gpu, reviewed_commit, attempt_root=None, repo=REPO, approved=None,
-              exploratory=False):
+              exploratory=False, min_free_gb=None):
     """Gate a launch: reviewed commit, clean tree, no live launch, approvals, a free card."""
     _require(mode in LAUNCH_MODES, 'unknown launch mode: {!r}'.format(mode))
     state = provenance.checked_git_state(repo, confirmatory=True)
@@ -1709,9 +1886,14 @@ def preflight(mode, gpu, reviewed_commit, attempt_root=None, repo=REPO, approved
     admission = approval_gate(mode, reviewed_commit, approved, exploratory, repo)
     apps = gpu_compute_apps(gpu) if mode in EXCLUSIVE_GPU_MODES else None
     _require(not apps, 'GPU {} is busy with compute apps {}'.format(gpu, apps))
+    free = None if min_free_gb is None else gpu_free_gib(gpu)
+    _require(free is None or free >= min_free_gb,
+             'GPU {} has {:.2f} GiB free, below the {} GiB this launch may allocate'.format(
+                 gpu, free or 0.0, min_free_gb))
     return dict(mode=mode, gpu=gpu, reviewed_commit=reviewed_commit, git_state=state,
                 attempt_root=[str(root) for root in launch_roots(attempt_root)],
-                gpu_compute_apps=apps, live_launches=running, **admission)
+                gpu_compute_apps=apps, live_launches=running, min_free_gb=min_free_gb,
+                gpu_free_gib=free, **admission)
 
 
 def preflight_main(argv):
@@ -1727,10 +1909,13 @@ def preflight_main(argv):
                         help='approved_digests.json (default: the record asset)')
     parser.add_argument('--exploratory', action='store_true',
                         help='diagnostic launch on unapproved code; never mode full')
+    parser.add_argument('--min-free-gb', type=float, default=None,
+                        help='A5: GiB this launch may allocate; the card must hold them free')
     args = parser.parse_args(argv)
     try:
         record = preflight(args.mode, args.gpu, args.reviewed_commit, args.attempt_root,
-                           args.repo, approved=args.approved, exploratory=args.exploratory)
+                           args.repo, approved=args.approved, exploratory=args.exploratory,
+                           min_free_gb=args.min_free_gb)
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         print('EXP06_PREFLIGHT_REFUSED ' + str(error), file=sys.stderr, flush=True)
         return 2
@@ -1762,6 +1947,8 @@ def main(argv=None):
         return preflight_main(argv[1:])
     if argv[:1] == ['child-exit']:
         return child_exit_main(argv[1:])
+    if argv[:1] == ['passed']:
+        return passed_main(argv[1:])
     if argv[:1] == ['finalize']:
         argv = argv[1:]
     args = build_parser().parse_args(argv)

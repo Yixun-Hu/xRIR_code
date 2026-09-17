@@ -47,7 +47,7 @@ ENTRIES = {'trainer': 'train_xRIR_backbone', 'exp06_train': 'tools.exp06_train',
            'exp06_haa_eval': 'tools.exp06_haa_eval'}
 GIB = 1024 ** 3
 RUNNER = 'tools.exp06_smoke'
-RUN_TYPES = ('smoke', 'probe')
+RUN_TYPES = ('smoke', 'probe', 'haa_smoke_train', 'haa_smoke_eval')  # A4
 OUTCOMES = ('ok', 'failed', 'aborted_alarm', 'aborted_memory')
 
 
@@ -136,7 +136,8 @@ def run_entry(entry, argv, receipt=None, alarm_seconds=300, max_gb=3.0, run_type
     if entry not in ENTRIES:
         raise ValueError('unknown smoke entry {!r}; choose from {}'.format(entry, sorted(ENTRIES)))
     if run_type not in RUN_TYPES:
-        raise ValueError('a diagnostic run_type is smoke or probe, not {!r}'.format(run_type))
+        raise ValueError('a diagnostic run_type is one of {}, not {!r}'.format(
+            sorted(RUN_TYPES), run_type))
     alarm_seconds = check_budget('alarm_seconds', alarm_seconds)
     max_gb = check_budget('max_gb', max_gb)
     module = importlib.import_module(ENTRIES[entry])

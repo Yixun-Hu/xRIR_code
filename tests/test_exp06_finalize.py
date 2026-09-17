@@ -312,18 +312,26 @@ def smoke_receipt(path, record=None, **overrides):
 
 
 @functools.lru_cache(maxsize=None)
-def _diagnostic_record(repo, approved, run_type):
+def _diagnostic_record(repo, approved, run_type, entry, argv):
     from tools import exp06_smoke
-    return exp06_smoke.diagnostic_provenance('exp06_train', ['--backbone', 'simple', '--no-save'],
-                                             run_type, Path(repo), approved, exploratory=False)
+    return exp06_smoke.diagnostic_provenance(entry, list(argv), run_type, Path(repo), approved,
+                                             exploratory=False)
 
 
-def diagnostic_run(directory, run_type, clone, approvals, **overrides):
+SMOKE_ARGV = ('--backbone', 'simple', '--no-save')
+
+
+def diagnostic_run(directory, run_type, clone, approvals, entry='exp06_train',
+                   argv=SMOKE_ARGV, **overrides):
     """A smoke or probe directory as the runner and the launcher leave it."""
-    record = copy.deepcopy(_diagnostic_record(str(clone), str(approvals), run_type))
+    record = copy.deepcopy(_diagnostic_record(str(clone), str(approvals), run_type, entry,
+                                              tuple(argv)))
     Path(directory).mkdir(parents=True, exist_ok=True)
     (Path(directory) / 'provenance.json').write_text(
         json.dumps(record, sort_keys=True, indent=2) + '\n')
+    overrides.setdefault('entry', entry)
+    overrides.setdefault('module', 'tools.' + entry if entry != 'trainer' else entry)
+    overrides.setdefault('argv', list(argv))
     return record, smoke_receipt(Path(directory).parent / (Path(directory).name + '.json'),
                                  record=record, **overrides)
 
@@ -384,6 +392,182 @@ def test_invalid_diagnostic_receipts_are_refused(tmp_path, damage, cause, clone,
     with pytest.raises(ValueError, match=cause):
         exp06_finalize.finalize(run, 'smoke', log, 0, repo=clone, receipt=receipt)
     assert not (run / 'completion.json').exists()
+
+
+# --- Plan amendment A4: the finalised HAA diagnostics of rung 4 ---------------------
+HAA_SMOKE_TYPES = ('haa_smoke_train', 'haa_smoke_eval')
+HAA_SMOKE_ARGV = {
+    'haa_smoke_train': ('--backbone', 'cylindrical_oriented', '--rooms', 'class_room',
+                        '--epochs', '2'),
+    'haa_smoke_eval': ('--backbone', 'cylindrical_oriented', '--rooms', 'hallway',
+                       '--max-samples', '4')}
+HAA_SMOKE_FILES = {
+    'haa_smoke_train': ('provenance.json', 'args.json', 'history.jsonl', 'summary.json',
+                        'best.pth', 'last.pth'),
+    'haa_smoke_eval': ('provenance.json', 'args.json', 'metrics_hallway.json',
+                       'per_sample_hallway.json', 'metrics_all.json')}
+
+
+def haa_smoke_run(clone, approvals, run_type, name, files=None, **overrides):
+    """A rung-4 HAA diagnostic: the runner's records beside the wrapper's own output.
+
+    The wrappers have no ``--no-save`` (fine-tuning must keep ``best.pth`` for the
+    evaluation smoke), so the contract enumerates what they may write instead -- inside the
+    disposable ``ckpt/exp06/_smoke`` tree the launcher gives them.
+    """
+    run = Path(clone) / exp06_finalize.SMOKE_ROOT / name
+    artefacts = run / exp06_finalize.ARTIFACT_DIR
+    if artefacts.exists():
+        shutil.rmtree(str(artefacts))
+    artefacts.mkdir(parents=True)
+    entry = exp06_finalize.HAA_SMOKE_ENTRY[run_type]
+    args = {'save_dir': str(artefacts), 'backbone': 'cylindrical_oriented', 'tag': '',
+            'rooms': ['class_room'] if run_type == 'haa_smoke_train' else ['hallway']}
+    for item in HAA_SMOKE_FILES[run_type] if files is None else files:
+        artefacts.joinpath(item).write_text(
+            json.dumps(args) if item == 'args.json' else '{"smoke": true}\n')
+    return run, diagnostic_run(run, run_type, clone, approvals, entry=entry,
+                               argv=HAA_SMOKE_ARGV[run_type], **overrides)
+
+
+@pytest.mark.parametrize('run_type', HAA_SMOKE_TYPES)
+def test_a_finalised_haa_diagnostic_records_its_disposable_artefacts(
+        tmp_path, clone, approvals, run_type):
+    """A4: no --no-save, but every file the wrapper wrote is enumerated and hashed."""
+    run, (_, receipt) = haa_smoke_run(clone, approvals, run_type, 'ok_' + run_type)
+    log = seal(run, tmp_path / 'haa.log', text='EXP06_SMOKE {"wall_s": 30.0}\n')
+    fields = exp06_finalize.finalize(run, run_type, log, 0, repo=clone, receipt=receipt)
+    assert fields['diagnostic'] is True and fields['admissible_arm'] is False
+    assert fields['passed'] is True and fields['run_type'] == run_type
+    assert set(fields['artifacts']) == set(HAA_SMOKE_FILES[run_type])
+    artefacts = run / exp06_finalize.ARTIFACT_DIR
+    assert fields['artifacts']['args.json'] == provenance.sha256_file(artefacts / 'args.json')
+    assert fields['receipt']['entry'] == exp06_finalize.HAA_SMOKE_ENTRY[run_type]
+    assert json.loads((run / 'completion.json').read_text()) == fields
+    assert exp06_finalize.finalize(run, run_type, log, 0, repo=clone, receipt=receipt) == fields
+
+
+@pytest.mark.parametrize('damage,cause', [
+    ('unregistered', 'unregistered'), ('missing', 'missing artifact'),
+    ('no_artefact_dir', 'artefact directory'), ('outside_smoke', 'smoke tree'),
+    ('failed_receipt', 'succeeded'), ('failed_child', 'succeeded'),
+    ('no_marker', 'marker'), ('wrong_entry', 'entry')])
+def test_haa_diagnostic_refusals_are_named_and_write_nothing(tmp_path, clone, approvals,
+                                                             damage, cause):
+    run_type = 'haa_smoke_train'
+    run, (record, receipt) = haa_smoke_run(clone, approvals, run_type, 'bad_' + damage)
+    log = seal(run, tmp_path / 'haa.log')
+    child_exit = 0
+    artefacts = run / exp06_finalize.ARTIFACT_DIR
+    if damage == 'unregistered':
+        (artefacts / 'epoch_002.pth').write_text('a stray checkpoint\n')
+    elif damage == 'missing':
+        (artefacts / 'best.pth').unlink()
+    elif damage == 'no_artefact_dir':
+        shutil.rmtree(str(artefacts))
+    elif damage == 'outside_smoke':
+        run = Path(shutil.copytree(str(run), str(tmp_path / 'elsewhere')))
+        log = seal(run, tmp_path / 'haa.log')
+    elif damage == 'failed_receipt':
+        smoke_receipt(receipt, record=record, entry=exp06_finalize.HAA_SMOKE_ENTRY[run_type],
+                      argv=list(HAA_SMOKE_ARGV[run_type]), exit_status=3,
+                      outcome='aborted_memory', aborted_memory=True)
+        log = seal(run, tmp_path / 'haa.log', status=3)
+        child_exit = 3
+    elif damage == 'failed_child':
+        log = seal(run, tmp_path / 'haa.log', status=5)
+        child_exit = 5
+    elif damage == 'no_marker':
+        Path(log).write_text('no marker at all\n')
+    else:
+        smoke_receipt(receipt, record=record, entry='exp06_train',
+                      argv=list(HAA_SMOKE_ARGV[run_type]))
+    with pytest.raises(ValueError, match=cause):
+        exp06_finalize.finalize(run, run_type, log, child_exit, repo=clone, receipt=receipt)
+    assert not (run / 'completion.json').exists()
+
+
+def test_a_haa_diagnostic_needs_no_no_save_but_a_training_smoke_still_does(
+        tmp_path, clone, approvals):
+    """The guard the runbook review hit is lifted only for the run types A4 registers."""
+    run, (_, receipt) = haa_smoke_run(clone, approvals, 'haa_smoke_eval', 'nosave_eval')
+    log = seal(run, tmp_path / 'haa.log')
+    assert '--no-save' not in json.loads(Path(receipt).read_text())['argv']
+    assert exp06_finalize.finalize(run, 'haa_smoke_eval', log, 0, repo=clone,
+                                   receipt=receipt)['passed'] is True
+    plain = tmp_path / 'smoke'
+    plain_log = seal(plain, tmp_path / 'smoke.log')
+    record, plain_receipt = diagnostic_run(plain, 'smoke', clone, approvals)
+    smoke_receipt(plain_receipt, record=record, argv=['--backbone', 'simple'])
+    with pytest.raises(ValueError, match='no-save'):
+        exp06_finalize.finalize(plain, 'smoke', plain_log, 0, repo=clone, receipt=plain_receipt)
+
+
+def test_the_eval_room_files_follow_the_arguments(tmp_path, clone, approvals):
+    """The per-room names are derived from the wrapper's own args, never guessed."""
+    run, (_, receipt) = haa_smoke_run(
+        clone, approvals, 'haa_smoke_eval', 'rooms_eval',
+        files=('provenance.json', 'args.json', 'metrics_class_room.json',
+               'per_sample_class_room.json', 'metrics_all.json'))
+    log = seal(run, tmp_path / 'haa.log')
+    with pytest.raises(ValueError, match='unregistered|missing artifact'):
+        exp06_finalize.finalize(run, 'haa_smoke_eval', log, 0, repo=clone, receipt=receipt)
+
+
+@pytest.mark.parametrize('run_type,name', [
+    ('haa_smoke_train', 'best.pth'), ('haa_smoke_train', 'args.json'),
+    ('haa_smoke_eval', 'per_sample_hallway.json'), ('haa_smoke_eval', 'provenance.json')])
+def test_an_allow_listed_artefact_may_not_link_outside_the_smoke_tree(
+        tmp_path, clone, approvals, run_type, name):
+    """Codex pre-launch finding 1: the allow-list checked names and hashing followed links.
+
+    An allow-listed name pointing outside ``_smoke`` was hashed and accepted, so a passing
+    training diagnostic could hand the next rung an external checkpoint. Every registered
+    artefact must be a regular file of the disposable tree itself.
+    """
+    run, (_, receipt) = haa_smoke_run(clone, approvals, run_type,
+                                      'link_{}_{}'.format(run_type, name))
+    log = seal(run, tmp_path / 'haa.log', text='EXP06_SMOKE {"wall_s": 30.0}\n')
+    target = run / exp06_finalize.ARTIFACT_DIR / name
+    external = tmp_path / ('external_' + name)
+    external.write_text(target.read_text())
+    target.unlink()
+    target.symlink_to(external)
+    with pytest.raises(ValueError, match='symlink'):
+        exp06_finalize.finalize(run, run_type, log, 0, repo=clone, receipt=receipt)
+    assert not (run / 'completion.json').exists()
+    target.unlink()
+    external.replace(target)  # the same bytes as a regular file are accepted as before
+    assert exp06_finalize.finalize(run, run_type, log, 0, repo=clone,
+                                   receipt=receipt)['passed'] is True
+
+
+def test_a_symlinked_artefact_directory_is_refused(tmp_path, clone, approvals):
+    """Confinement is per path component: a linked ``run/`` leaves the disposable tree."""
+    run, (_, receipt) = haa_smoke_run(clone, approvals, 'haa_smoke_train', 'link_dir')
+    log = seal(run, tmp_path / 'haa.log', text='EXP06_SMOKE {"wall_s": 30.0}\n')
+    artefacts = run / exp06_finalize.ARTIFACT_DIR
+    external = tmp_path / 'external_run'
+    shutil.move(str(artefacts), str(external))
+    artefacts.symlink_to(external)
+    with pytest.raises(ValueError, match='symlink'):
+        exp06_finalize.finalize(run, 'haa_smoke_train', log, 0, repo=clone, receipt=receipt)
+    assert not (run / 'completion.json').exists()
+
+def test_the_passed_subcommand_gates_the_next_rung(tmp_path, clone, approvals, capsys):
+    """A4: the evaluation smoke starts only after the training smoke's own completion."""
+    run, (_, receipt) = haa_smoke_run(clone, approvals, 'haa_smoke_train', 'gate_train')
+    log = seal(run, tmp_path / 'haa.log')
+    argv = ['--run-dir', str(run), '--run-type', 'haa_smoke_train']
+    assert exp06_finalize.main(['passed'] + argv) == 2
+    exp06_finalize.finalize(run, 'haa_smoke_train', log, 0, repo=clone, receipt=receipt)
+    assert exp06_finalize.main(['passed'] + argv) == 0
+    assert exp06_finalize.main(['passed', '--run-dir', str(run),
+                                '--run-type', 'haa_smoke_eval']) == 2
+    fields = json.loads((run / 'completion.json').read_text())
+    (run / 'completion.json').write_text(json.dumps(dict(fields, passed=False)))
+    assert exp06_finalize.main(['passed'] + argv) == 2
+    assert 'EXP06_PASSED_REFUSED' in capsys.readouterr().err
 
 
 def test_unknown_run_type_and_missing_directory_are_refused(tmp_path, full_run, clone):
@@ -1244,6 +1428,77 @@ def test_the_job_spec_is_required_and_validated(job_run, closed_log_file, tmp_pa
         exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
                                 children=children, expect='finetune', job_spec=spec)
     assert not (job / 'completion.json').exists()
+
+
+@pytest.mark.parametrize('substituted', [True, False])
+def test_a_job_spec_substituted_during_its_validation_is_never_bound(job_run, monkeypatch,
+                                                                     substituted):
+    """Codex round-3b finding 6: the parse and the digest must be one snapshot.
+
+    The reviewer substituted a re-ordered room list between the parse and the hash: the
+    schema and lineage checks passed on the parsed value while the retained digest still
+    identified the original bytes, so a declaration nobody validated was admitted under a
+    digest naming a different file. Reading once makes both describe the same bytes, and a
+    file that no longer holds them when validation ends is refused -- the stale-log rule of
+    ``finalize``, applied to the declaration.
+    """
+    job, children, spec, repo = job_run()
+    path = Path(spec)
+    original = path.read_bytes()
+    record = json.loads(original)
+    substitute = json.dumps(dict(record, rooms=list(reversed(record['rooms']))),
+                            sort_keys=True, indent=2).encode() + b'\n'
+    assert substitute != original
+    reads = []
+    for name in ('read_bytes', 'read_text'):
+        def substituting(self, *args, _real=getattr(Path, name), **kwargs):
+            data = _real(self, *args, **kwargs)
+            if str(self) == str(path):
+                if not reads and substituted:  # only the first read sees the original bytes
+                    path.write_bytes(substitute)
+                reads.append(data)
+            return data
+
+        monkeypatch.setattr(Path, name, substituting)
+    try:
+        if substituted:
+            with pytest.raises(ValueError, match='changed while it was being validated'):
+                exp06_finalize.load_job_spec(str(path), 'finetune')
+        else:
+            loaded = exp06_finalize.load_job_spec(str(path), 'finetune')
+            parsed = reads[0] if isinstance(reads[0], bytes) else reads[0].encode()
+            assert loaded['job_spec_sha256'] == hashlib.sha256(parsed).hexdigest()
+            assert loaded['rooms'] == json.loads(parsed)['rooms']
+        assert len(reads) == 1, 'the job spec is read once, not {} times'.format(len(reads))
+    finally:
+        path.write_bytes(original)
+
+
+def test_the_job_records_the_digest_the_loader_bound(job_run, closed_log_file, monkeypatch):
+    """Finding 6: the recorded digest is the loader's snapshot, never a later re-read.
+
+    The spec is changed the instant ``load_job_spec`` returns -- after its own staleness
+    check has passed -- so anything that hashed the file again on the way to the completion
+    would publish bytes the validation never saw.
+    """
+    job, children, spec, repo = job_run()
+    path = Path(spec)
+    original = path.read_bytes()
+    real = exp06_finalize.load_job_spec
+
+    def loader(target, expect):
+        loaded = real(target, expect)
+        path.write_bytes(original + b'\n')
+        return loaded
+
+    monkeypatch.setattr(exp06_finalize, 'load_job_spec', loader)
+    try:
+        fields = exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                         children=children, expect='finetune', job_spec=spec)
+    finally:
+        path.write_bytes(original)
+    assert fields['job_spec']['sha256'] == hashlib.sha256(original).hexdigest()
+    assert fields['job_spec']['sha256'] != hashlib.sha256(original + b'\n').hexdigest()
 
 
 @pytest.mark.parametrize('damage,cause', [

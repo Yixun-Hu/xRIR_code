@@ -19,6 +19,11 @@ RECORD=worklog/worklog_yixun/exp_06_oriented_cyl_claude
 APPROVED_DEFAULT="$RECORD/oriented_cyl_results_assets/approved_digests.json"
 SMOKE_DIR=ckpt/exp06/_smoke
 SMOKE_FLAGS="--epochs 1 --max-train-batches 3 --max-test-batches 2 --batch-size 4 --num-workers 4 --save-every 0 --no-save"
+# Plan amendment A5: the rung-4 budgets are environment parameters, so a future
+# adjustment is a recorded value rather than a source edit. The 6 GB default replaces the
+# Planner's 3 GB estimate, which the measured 3.63 GB peak at micro-batch 4 exceeded.
+SMOKE_ALARM_S="${EXP06_SMOKE_ALARM_S:-300}"
+SMOKE_MAX_GB="${EXP06_SMOKE_MAX_GB:-6}"
 
 usage() {
     echo "usage: $0 <smoke|probe|full|finalize> --gpu <g> --reviewed-commit <sha40>" >&2
@@ -33,6 +38,9 @@ run() { say "RUN $*"; if [ "${DRY:-0}" -eq 0 ]; then "$@"; fi; }
 preflight() {  # every location this launcher writes a pid file into (review 5)
     local extra=()
     [ "${EXPLORATORY:-0}" -eq 0 ] || extra+=(--exploratory)
+    # A5: probe and full demand an empty card; a smoke may share one only while the card
+    # still holds the whole budget it is allowed to allocate.
+    [ "$MODE" != smoke ] || extra+=(--min-free-gb "$SMOKE_MAX_GB")
     run "$PYTHON" tools/exp06_finalize.py preflight --mode "$MODE" --gpu "$GPU" \
         --reviewed-commit "$COMMIT" --attempt-root "$ATTEMPT_ROOT" --attempt-root "$SMOKE_DIR" \
         --approved "$APPROVED" ${extra[@]+"${extra[@]}"}
@@ -50,6 +58,17 @@ finalize() {  # finalize <attempt> <log> <child-exit> <run-type> [receipt]
     [ $# -lt 5 ] || extra+=(--receipt "$5")
     run "$PYTHON" tools/exp06_finalize.py --run-dir "$1" --run-type "$4" --log "$2" \
         --child-exit "$3" ${extra[@]+"${extra[@]}"}
+}
+
+# require_passed <run dir> <run type>: plan amendment A4. The evaluation smoke loads the
+# fine-tuning smoke's best.pth, so it starts only after that diagnostic's own completion
+# certifies it passed. A refused finalisation already stops the rung; this is the explicit
+# gate the plan registers between the two.
+require_passed() {
+    if ! run "$PYTHON" tools/exp06_finalize.py passed --run-dir "$1" --run-type "$2"; then
+        say "STOP $1 did not pass; the rung that consumes its checkpoint is not started"
+        exit 2
+    fi
 }
 
 promote() {  # promote <attempt basename>
@@ -261,7 +280,7 @@ smoke)
         diagnostic smoke "$SMOKE_DIR/${name}_$STAMP" \
             "$RECORD/oriented_cyl_${STAMP}_smoke_${name}.log" \
             "$SMOKE_DIR/receipt_${name}_$STAMP.json" \
-            --entry "$entry" --alarm-seconds 300 --max-gb 3 -- \
+            --entry "$entry" --alarm-seconds "$SMOKE_ALARM_S" --max-gb "$SMOKE_MAX_GB" -- \
             --backbone simple --save-dir "$SMOKE_DIR/t0" $SMOKE_FLAGS \
             ${child[@]+"${child[@]}"}
     done
@@ -269,11 +288,33 @@ smoke)
     diagnostic smoke "$SMOKE_DIR/exp06_train_t1_$STAMP" \
         "$RECORD/oriented_cyl_${STAMP}_smoke_exp06_train_t1.log" \
         "$SMOKE_DIR/receipt_exp06_train_t1_$STAMP.json" \
-        --entry exp06_train --alarm-seconds 300 --max-gb 3 -- \
+        --entry exp06_train --alarm-seconds "$SMOKE_ALARM_S" --max-gb "$SMOKE_MAX_GB" -- \
         --backbone cylindrical_oriented --save-dir "$SMOKE_DIR/t1" $SMOKE_FLAGS \
         --run-type smoke ${CHILD_EXPLORATORY[@]+"${CHILD_EXPLORATORY[@]}"}
-    # (c) the CPU fixture the round-2b HAA smokes load (no child, no log, no completion).
+    # (c) the CPU fixture the HAA smokes load (no child, no log, no completion).
     run "$PYTHON" tools/exp06_smoke.py --make-fixture "$SMOKE_DIR/fixture_cylor.pth"
+    # Plan section 9 (c)/(d) under amendment A4: the HAA fine-tuning and evaluation smokes
+    # run the same lifecycle as the rungs above and are finalised as the diagnostic run
+    # types haa_smoke_train / haa_smoke_eval, whose contract enumerates the disposable
+    # output the wrappers keep instead of demanding a --no-save neither of them has. The
+    # wrappers know no --run-type or --exploratory of their own: those are the runner's.
+    h1="$SMOKE_DIR/haa_finetune_$STAMP"
+    diagnostic haa_smoke_train "$h1" \
+        "$RECORD/oriented_cyl_${STAMP}_smoke_haa_finetune.log" \
+        "$SMOKE_DIR/receipt_haa_finetune_$STAMP.json" \
+        --entry exp06_haa_finetune --alarm-seconds "$SMOKE_ALARM_S" --max-gb "$SMOKE_MAX_GB" -- \
+        --backbone cylindrical_oriented --init "$SMOKE_DIR/fixture_cylor.pth" \
+        --rooms class_room --heading-json-dir ckpt/exp06/heading --save-dir "$h1/run" \
+        --epochs 2 --val-every 1 --batch-size 4 --val-batch-size 4 --seed 0
+    require_passed "$h1" haa_smoke_train
+    h2="$SMOKE_DIR/haa_eval_$STAMP"
+    diagnostic haa_smoke_eval "$h2" \
+        "$RECORD/oriented_cyl_${STAMP}_smoke_haa_eval.log" \
+        "$SMOKE_DIR/receipt_haa_eval_$STAMP.json" \
+        --entry exp06_haa_eval --alarm-seconds "$SMOKE_ALARM_S" --max-gb "$SMOKE_MAX_GB" -- \
+        --backbone cylindrical_oriented --checkpoint "$h1/run/best.pth" \
+        --heading-json-dir ckpt/exp06/heading --rooms hallway --max-samples 4 \
+        --save-dir "$h2/run" --seed 0
     ;;
 finalize)
     preflight  # recovery is gated by the same reviewed commit, clean tree and live-pid checks
