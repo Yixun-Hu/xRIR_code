@@ -1,9 +1,9 @@
 {
   "artifacts": {
     "epoch_012": {
-      "epoch": null,
-      "path": null,
-      "sha256": null
+      "epoch": 12,
+      "path": "ckpt/exp06/pretrain/xRIR_cylor_8_shot/attempt_20260916T161415/epoch_012.pth",
+      "sha256": "3df2ceb53d1be1402cb6672f05ded092187f1ba871b53fc1114ca088612296c1"
     },
     "gate_g1": null,
     "heading": {
@@ -21,31 +21,31 @@
     "eval_launch": "b6c72faef9bd3cd1afe3d4a986fee7f24df1d846d24ecd9abec619e5116fe24c",
     "evaluator_exp03": "5ba818d83eddc6e71055926ea64cb104ebb8d3a1c347ab1bc12dd95866c1be48",
     "factory": "41ad2ee7e4d4948b37d8100b629bdc6fea4ee32bf6aaa1a6caee0de4af289830",
-    "finalize": "3da0479ab2629ebca4ff2cfafe193481bd13b6c2f1b7e1addb8ba9a3926a060c",
+    "finalize": "5ef318e8da734e6076f89237014d1e2366078692b1da83ef93b304d1dc609399",
     "haa_eval": "1f20e36bfb29b557de020321c30ba083d5631ae6e2f1b3fbfd94ecb0e77f1134",
     "haa_finetune": "9288884b4034d4510c16ee081e95855e1229aa19a23b94f22e46ce90e6b0458b",
     "haa_pipeline_sh": "92b077d8eb8a4f55decf3bc86a8cb186109a6139869d098f9b73c2d0ba9b6636",
     "heading": "69e395d0ba0bcfbe28d803553904c5fdd26bbda3dcd75ea700944802497102ae",
-    "launch_sh": "157e2435ba717eb97e9046cf0120ddbaa0ea03860daaf55e303c2396164eb3a8",
+    "launch_sh": "c64b60df4632b83617c1343f0d0a56c6ac7cbab24db95719a2aa8734f3977773",
     "mirror_probe": "13ab5ff6f9d7af435971c8c96cac3900399a69f42270afd16dccf8e467068d54",
     "probe_align": "23c79920c68726c087fa52966863a48cd09558aeb7f3edf7cc95ccb2b2e52643",
     "profiles": "f7617631294a6d6416afb5053d4b76f397e0da13909c50eb19d554959e914257",
     "recipe": "c8303ebc792f84f95921723657d0bb35005ed002b112514a2605c56643c467e4",
-    "smoke": "eebc949a2ebfa5bf63ca4cf7603c5bf60256fc3ca7d10acbe7743daee813abaa",
-    "summarize_haa": "774c6868691d2521e665caa8bd9ee88ffb389ba81117247a66e144c894a3a5c1",
+    "smoke": "00e3b91b8289cc0f1fda8c2ab2ce3b151ca897f4a4c746f93863e3d338091d00",
+    "summarize_haa": "2ad63b6dea015f996f1568a4e6e8d1513d356c83246b96dd19cc98c3fa4cefb4",
     "trainer": "d97d5dbcdd3278ee623b6001c277aeb0fa976c729ace08efbef648b185ab633d"
   },
   "reused": {
-    "approved_digests_exp04": null,
-    "approved_digests_exp05": null,
-    "evaluator_exp04": null,
-    "exp02_stats_sha256": null,
-    "exp02_summary_sha256": null,
+    "approved_digests_exp04": "2e4521173bb230fc8114116ba0c94b4afd0ccdd3b0b034faaf54516461ee0314",
+    "approved_digests_exp05": "293c56832c60b9be2e51276c6c2e6ace74eacddfedd375852c377b8ddd004d74",
+    "evaluator_exp04": "0b05245c3e02511f1985d0bc833cc9e424e99facee875a0f33bdf737baf4bd8b",
+    "exp02_stats_sha256": "98062d76755a8e2a9f9cf6eb086c29e5e5286c8dd47846f887f36ba86f564759",
+    "exp02_summary_sha256": "736f9fb8f4392c1fdbd9caf5aca5c047b3e3febcb83c6babab44270447f3eebd",
     "legacy_receipt": {
       "path": null,
       "sha256": null
     },
-    "writer_exp04": null
+    "writer_exp04": "15f9c984561de9ec3caac905d97ce0a6d1e23c00fb7d4a39e0b157de2b0a458d"
   },
   "schema_version": 1
 }
