@@ -23,3 +23,11 @@ cd /home/yixunhu/codespace/xRIR_code_wt07 && PYTHONPATH=$(pwd) CUDA_VISIBLE_DEVI
 ```bash
 cd /home/yixunhu/codespace/xRIR_code_wt07 && PYTHONPATH=$(pwd) XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms CUDA_VISIBLE_DEVICES='' PYTHONHASHSEED=0 python -m tools.exp07_manifests --data-root $XRIR_DATA_PATH --out-dir ckpt/exp07 --seeds 42 43 44 45 46 --num-shots 8 1   # log seen_protocol_2026-09-15_13:22:*_manifests.log
 ```
+
+## seen_simple full (chain, 2026-09-17 03:45–03:50, GPU 0, reviewed 076cd40)
+```
+tools/exp07_launch.sh smoke --backbone simple --yaw-aug 0 --gpu 0 --reviewed-commit 076cd4072bc3d5349914cb0eff1775cb6730f829 --log-dir worklog/worklog_yixun/exp_07_seen_protocol_claude --timestamp 20260917T034540smoke
+tools/exp07_launch.sh probe --backbone simple --yaw-aug 0 --gpu 0 --reviewed-commit 076cd4072bc3d5349914cb0eff1775cb6730f829 --log-dir worklog/worklog_yixun/exp_07_seen_protocol_claude --timestamp 20260917T034540probe
+tools/exp07_launch.sh full  --backbone simple --yaw-aug 0 --gpu 0 --reviewed-commit 076cd4072bc3d5349914cb0eff1775cb6730f829 --log-dir worklog/worklog_yixun/exp_07_seen_protocol_claude --timestamp 20260917T034540full --probe-json ckpt/exp07/seen_simple/_probe_20260917T034540probe_seen_simple.json
+```
+(run inside the detached chain `gpu0_chain.sh`, env PYTHONHASHSEED=0 OMP_NUM_THREADS=2 XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms)
