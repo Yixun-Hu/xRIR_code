@@ -357,3 +357,24 @@ def test_an_exploratory_producer_reads_the_approvals_unbound(monkeypatch):
         subject.enforce_producer('compare', '/repo', 'c' * 40)
     record = subject.enforce_producer('compare', '/repo', 'c' * 40, exploratory=True)
     assert record['deviations'] == [] and ('load', None, None, None) in module.seen
+
+
+def test_a_producer_of_every_room_may_not_omit_its_headings(monkeypatch, tmp_path):
+    """R5: mandatory coverage was waived by passing no headings at all.
+
+    `HEADING_COMPLETE` says a producer that runs every room offers every room's heading.
+    The check lived inside `if headings is not None`, so `headings={}` was refused and
+    `headings=None` -- the same claim, spelled as an omission -- was admitted.
+    """
+    stub(monkeypatch)
+    for offered in (None, {}):
+        with pytest.raises(ValueError, match='no heading given for class_room'):
+            subject.enforce_producer('haa_children', '/repo', 'c' * 40, headings=offered)
+        record = subject.enforce_producer('haa_children', '/repo', 'c' * 40,
+                                          headings=offered, exploratory=True)
+        assert record['deviations'] == ['artifacts.heading: no heading given for ' + room
+                                        for room in subject.ROOMS]
+        assert record['admissibility'] == 'diagnostic'
+    # A producer of one room is not one of them: it offers the room it runs, and no more.
+    assert 'mirror_probe' not in subject.HEADING_COMPLETE
+    assert subject.enforce_producer('mirror_probe', '/repo', 'c' * 40)['deviations'] == []
