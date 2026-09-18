@@ -298,8 +298,9 @@ def enforce_producer(producer, repo, commit, approved_path=None, checkpoint=None
     records them and labels its output diagnostic.
 
     ``headings`` is ``{room: path}``; every room offered must be a registered one and match,
-    and a producer of :data:`HEADING_COMPLETE` must offer all four. Returns the receipt a
-    producer records with its output.
+    and a producer of :data:`HEADING_COMPLETE` must offer all four -- omitting the mapping
+    is the claim that there are none, never a waiver of that coverage (R5). Returns the
+    receipt a producer records with its output.
     """
     keys = producer_code_keys(producer)
     module = approvals_module()
@@ -322,6 +323,8 @@ def enforce_producer(producer, repo, commit, approved_path=None, checkpoint=None
         if pinned is None or artifacts['epoch_012']['sha256'] != pinned:
             deviations.append('artifacts.epoch_012: {} hashes to {}, not the approved {}'
                               .format(checkpoint, artifacts['epoch_012']['sha256'], pinned))
+    if headings is None and producer in HEADING_COMPLETE:
+        headings = {}
     if headings is not None:
         artifacts['heading'] = {}
         for room in sorted(set(headings) | set(ROOMS)):
