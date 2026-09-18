@@ -19,7 +19,7 @@ import json
 import sys
 from pathlib import Path
 
-from tools.exp05_profiles import ARMS, PROFILES, get_profile
+from tools.exp05_profiles import ARMS, PROFILES, get_profile, profile_digest
 
 ASSETS = Path(__file__).resolve().parents[1] / ('worklog/worklog_yixun/'
     'exp_05_param_efficiency_claude/param_efficiency_results_assets')
@@ -31,6 +31,9 @@ UNITS = dict(EDT='s', C50='dB', T60='%')
 TARGET_FIELDS = ('target', 'tost_interval', 'equivalent', 'reaches_target')
 ROLES = {arm['role']: arm for arm in ARMS}
 TRAINED = tuple(arm['role'] for arm in ARMS if arm['tier'] != 'M')
+# The registered specification every product must have been computed under: a product
+# that embeds a consistent but relaxed profile passes its own validation, not this one.
+REGISTERED = {name: profile_digest(name) for name in PROFILES}
 
 
 def load_asset(name):
@@ -78,6 +81,8 @@ def load(path, name):
            and approval['sha256'] == data['inputs'].get(approval['path'])
            and producer == approval['pins']['closures'][KEYS[name]],
            'provenance sidecar mismatch: ' + str(path))
+    refuse(profile_digest == REGISTERED[name],
+           'the product was not computed under the registered profile: ' + str(path))
     refuse(data.get('exploratory', False) is False and side.get('exploratory', False) is False,
            'exploratory JSON refused: ' + str(path))
     refuse(not data.get('deviations'), 'admission deviations refused: ' + str(path))

@@ -18,6 +18,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from tools import exp05_record as record
 from tools import param_curve as pc
 from tools import provenance as p
 from tools.exp05_profiles import get_profile, json_value
@@ -70,7 +71,7 @@ def _values(role, seed, angle, n_queries):
 
 
 @pytest.fixture
-def exp05_record_fixture(tmp_path):
+def exp05_record_fixture(tmp_path, monkeypatch):
     def build(n_queries=12, invalid=None):
         # {role: {metric: [query index]}}: the queries that arm loses for that metric in
         # every k = 0 run, so one arm's three metrics have three different cohorts.
@@ -194,6 +195,9 @@ def exp05_record_fixture(tmp_path):
             result.update(profile_name=name, compatibility=admitted['compatibility'])
             json_path = directory / (name + '.json')
             pc.publish(result, admitted, str(json_path), str(directory / (name + '.txt')))
+            # This world's profile is not the one exp05_profiles registers, so the shared
+            # admission is given the synthetic registration here, at the fixture boundary.
+            monkeypatch.setitem(record.REGISTERED, name, result['profile_digest'])
             return json_path
 
         return SimpleNamespace(root=root, arms=arms, queries=queries, runs=runs,

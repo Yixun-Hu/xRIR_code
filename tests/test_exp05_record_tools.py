@@ -272,6 +272,27 @@ def test_markdown_six_arm_rows_come_from_exp05_m_reevaluations(rendered, tmp_pat
     assert {'M_simple_k8_seed42_k0', 'M_cyl_k8_seed46_k0'} <= runs
 
 
+def test_every_reader_refuses_a_product_that_left_the_registered_profile(rendered, tmp_path):
+    """A self-consistent product computed under a DIFFERENT profile is not canonical."""
+    f, argv = rendered
+    product = f.results / 'CURVE_K8.json'
+    data = json.loads(product.read_text())
+    data['profile']['num_shot'] = 123
+    data['profile_digest'] = record.sha(json.dumps(
+        data['profile'], sort_keys=True, separators=(',', ':'), allow_nan=False).encode())
+    side = _rewrite(product, data)
+    side['profile_digest'] = data['profile_digest']
+    Path(str(product) + '.provenance.json').write_text(
+        json.dumps(side, sort_keys=True, indent=2) + '\n')
+    for main in (md.main, page.main):
+        with pytest.raises(ValueError, match='registered profile'):
+            main(argv + ['--out', str(tmp_path / 'out')])
+    with pytest.raises(ValueError, match='registered profile'):
+        figures.main(['--curve', str(product), '--outdir', str(tmp_path)])
+    with pytest.raises(ValueError, match='registered profile'):
+        record.load(product, 'CURVE_K8')
+
+
 def test_markdown_reports_each_metrics_own_cohort_and_exclusions(exp05_record_fixture, tmp_path):
     """A7: EDT, C50 and T60 are three cohorts of one arm, and each is reported as its own."""
     f = exp05_record_fixture(invalid=dict(S_cyl=dict(c50=[0], t60=[0, 1, 2, 3])))
@@ -466,9 +487,6 @@ def bound(rendered, tmp_path, monkeypatch):
     binder = record.load_asset('bind_provenance')
     monkeypatch.setattr(binder, 'load_approved_digests', lambda path=None: f.approved)
     monkeypatch.setattr(binder, 'live_producer', f.producer_now)
-    monkeypatch.setattr(binder, 'REGISTERED', {
-        name: json.loads((f.results / (name + '.json')).read_text())['profile_digest']
-        for name in NAMES})
     monkeypatch.setattr(binder, 'HISTORICAL', {
         arm['role']: dict(path=arm['checkpoint'], sha256=arm['sha256'], epoch=arm['epoch'])
         for arm in f.arms if arm['tier'] == 'M'})
