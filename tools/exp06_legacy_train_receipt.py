@@ -27,7 +27,9 @@ binds it to an evaluation. Full-review R3: it also re-derives what the receipt *
 enumerate from :func:`receipt_names`, re-validates the args/history/registered-arm
 contract against the retained artefacts, and refuses a receipt whose producer closure
 drifted or was written with ``--allow-dirty`` -- a self-consistent enumeration of two of
-eighteen artefacts is not complete evidence of a training run.
+eighteen artefacts is not complete evidence of a training run. The close review's R3
+adds the producer closure itself (:func:`check_producer`), because a receipt that merely
+*claims* a clean producer claims nothing.
 """
 import argparse
 import datetime
@@ -191,6 +193,9 @@ def check_producer(closure, repo=REPO):
     names = [item['path'] for item in files]
     _require(names == sorted(set(names)),
              'the producer closure enumerates its sources out of order or twice')
+    own = ENTRY_MODULE.replace('.', '/') + '.py'
+    _require(own in names,
+             'the producer closure does not record the writer itself ({})'.format(own))
     declared = closure.get('drift') or []
     _require(isinstance(declared, list), 'the producer closure records a malformed drift')
     # R3: drift is what the records say, not what the receipt claims about them.
