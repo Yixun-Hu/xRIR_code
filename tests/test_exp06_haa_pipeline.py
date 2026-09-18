@@ -137,20 +137,70 @@ def test_the_script_parses():
     assert subprocess.run(['bash', '-n', str(SCRIPT)]).returncode == 0
 
 
-def test_the_dry_run_of_one_finetune_seed_is_the_golden_queue():
-    result = run('7', 'cyl_or:0', '--dry-run')
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.splitlines() == (header('7', ['cyl_or:0'])
-                                          + finetune_job('cyl_or', 0) + ['QUEUE_DONE gpu=7'])
+# --- the golden queue, printed against an output root the test owns -------------------
+#
+# The CLI path's OUT is the live ckpt/exp06/sim2real. Now that confirmatory runs exist
+# there, child() finds their completion.json and prints one `SKIP <dir>` in place of the
+# six lines that child's block records, so a golden comparison against the CLI asserts
+# the state of one machine's tree instead of what the queue prints. EXP06_PIPELINE_LIB=1
+# defines the same functions and returns before the CLI path, so the queue below runs the
+# very function that path calls -- run_queue -- with the same dry-run placeholders over a
+# temporary root, and the printed paths are substituted back: the golden lines stay
+# exactly what a first run of this queue prints, wherever it is run.
+
+DRY_ADAPTER = '''EXP06_PIPELINE_LIB=1 source tools/exp06_haa_pipeline.sh
+DRY=1; STAMP='<UTC>'; OWNER='<pid>'      # the placeholders the CLI dry-run path sets
+GPU="$QUEUE_GPU"; OUT="$WORK/sim2real"; RECORD="$WORK/record"
+run_queue $QUEUE_JOBS
+'''
 
 
-def test_the_dry_run_of_the_zeroshot_job_covers_every_init():
-    result = run('1', 'zeroshot', '--dry-run')
+def run_dry(work, *jobs, gpu='7', **environment):
+    """One queue's dry run, with the private output and record roots printed as the real ones."""
+    env = {**_base_env(), 'WORK': str(work), 'QUEUE_GPU': gpu, 'QUEUE_JOBS': ' '.join(jobs),
+           'HAA_XRIR_ROOT': HAA_ROOT, **environment}
+    result = subprocess.run(['bash', '-c', DRY_ADAPTER], cwd=str(ROOT), text=True,
+                            capture_output=True, env=env)
     assert result.returncode == 0, result.stderr
-    expected = header('1', ['zeroshot'])
+    return result.stdout.replace('{}/sim2real'.format(work), OUT).replace(
+        '{}/record'.format(work), RECORD).splitlines()
+
+
+def test_the_dry_run_of_one_finetune_seed_is_the_golden_queue(tmp_path):
+    assert run_dry(tmp_path, 'cyl_or:0') == finetune_job('cyl_or', 0) + ['QUEUE_DONE gpu=7']
+
+
+def test_a_completed_child_is_skipped_and_the_rest_of_the_queue_is_unchanged(tmp_path):
+    """A resumed queue prints one SKIP line where that child's six lines stood.
+
+    This is what a live output root does to the comparison above, asserted on a tree the
+    test owns rather than on whichever confirmatory runs happen to have finished.
+    """
+    completed = tmp_path / 'sim2real/cyl_or/seed0/stage1'
+    completed.mkdir(parents=True)
+    (completed / 'completion.json').write_text('{"already": "finalized"}')
+    golden = finetune_job('cyl_or', 0) + ['QUEUE_DONE gpu=7']
+    stage1 = '{}/cyl_or/seed0/stage1'.format(OUT)
+    start = golden.index('MKDIR ' + stage1)
+    width = len(child_block(stage1, 'log', 'command', 'haa_train'))
+    assert run_dry(tmp_path, 'cyl_or:0') == (golden[:start] + ['SKIP ' + stage1]
+                                             + golden[start + width:])
+
+
+def test_the_dry_run_of_the_zeroshot_job_covers_every_init(tmp_path):
+    expected = []
     for name in ('cyl_or', 'control_hf', 'cyl_hf'):
         expected += zeroshot_job(name)
-    assert result.stdout.splitlines() == expected + ['QUEUE_DONE gpu=1']
+    assert run_dry(tmp_path, 'zeroshot', gpu='1') == expected + ['QUEUE_DONE gpu=1']
+
+
+def test_the_cli_announces_the_gpu_the_jobs_and_the_output_root():
+    """The header the CLI prints before the queue: the part of its output that no state
+    under the output root can change, and the only golden line still asserted of the
+    script as the runbook invokes it."""
+    result = run('7', 'cyl_or:0', '--dry-run')
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[:2] == header('7', ['cyl_or:0'])
 
 
 @pytest.mark.parametrize('job', ['invented:0', 'cyl_or', 'cyl_or:x', 'cyl_or:', ':0',
@@ -167,13 +217,13 @@ def test_usage_is_refused_without_a_job():
     assert run().returncode == 2
 
 
-def test_the_heading_directory_and_pretrained_checkpoint_are_overridable():
-    result = run('0', 'cyl_or:2', '--dry-run', EXP06_HEADING_DIR='alt/heading',
-                 EXP06_CYLOR_CKPT='alt/epoch_012.pth')
-    assert result.returncode == 0, result.stderr
-    assert 'alt/heading' in result.stdout and 'alt/epoch_012.pth' in result.stdout
-    assert HEADING not in result.stdout and CYLOR not in result.stdout
-    assert OUT + '/cyl_or/seed2/stage1' in result.stdout
+def test_the_heading_directory_and_pretrained_checkpoint_are_overridable(tmp_path):
+    printed = '\n'.join(run_dry(tmp_path, 'cyl_or:2', gpu='0',
+                                EXP06_HEADING_DIR='alt/heading',
+                                EXP06_CYLOR_CKPT='alt/epoch_012.pth'))
+    assert 'alt/heading' in printed and 'alt/epoch_012.pth' in printed
+    assert HEADING not in printed and CYLOR not in printed
+    assert OUT + '/cyl_or/seed2/stage1' in printed
 
 
 # --- preparation is a gate: a failed job never reaches a child (round 2b finding 1) ----
@@ -396,12 +446,16 @@ def test_the_queue_counts_every_failure_and_never_reports_done(tmp_path):
 
 
 def test_a_checkpoint_path_with_spaces_is_never_split(tmp_path):
-    """Nit 5: the override is one path, not two arguments."""
+    """Nit 5: the override is one path, not two arguments.
+
+    Asserted of the stage-1 command line, which a completed stage 1 in a live output
+    root would replace with a single SKIP -- so this queue, too, runs against a root
+    the test owns.
+    """
     override = str(tmp_path / 'path with spaces' / 'epoch_012.pth')
-    result = run('0', 'cyl_or:2', '--dry-run', EXP06_CYLOR_CKPT=override)
-    assert result.returncode == 0, result.stderr
-    assert 'init=' + override in result.stdout
-    assert '--init ' + override + ' --rooms' in result.stdout
+    printed = '\n'.join(run_dry(tmp_path, 'cyl_or:2', gpu='0', EXP06_CYLOR_CKPT=override))
+    assert 'init=' + override in printed
+    assert '--init ' + override + ' --rooms' in printed
 
 
 # --- end-to-end: the finalizer on artefacts these wrappers actually write -------------

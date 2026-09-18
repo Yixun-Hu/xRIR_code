@@ -9,6 +9,7 @@ the two `--bind-input` flags the post-review round adds -- pushes it through
 check_fields`` with no GPU and no child, then writes the run directory the way the comparer
 fixtures do and requires ``exp06_compare.admit_run`` to admit it.
 """
+import copy
 import hashlib
 import json
 import subprocess
@@ -20,10 +21,13 @@ from tools import exp06_approvals_api as approvals_api
 from tools import exp06_compare as comparer
 from tools import exp06_eval as evaluator
 from tools import exp06_eval_launch as launcher
+from tools import exp06_legacy_train_receipt as receipt_tool
 from tools import provenance as p
 
 from test_exp06_compare import (ROLES, SPLIT, approved_digests, checkpoints,  # noqa: F401
                                 training_inputs, write_run)
+from test_exp06_legacy_train_receipt import (PRODUCER, altered, closure_digest,  # noqa: F401
+                                            git_object, rewritten)
 
 # tools/exp06_eval_launch.py ... (the runbook's `sim` step, one line per arm and seed)
 ARMS = {'C': ('cyl_or', 'cylindrical_oriented', 'arm'),
@@ -251,3 +255,100 @@ def test_the_runbook_names_the_approvals_the_producer_gate_reads(checkpoints,  #
     other.approved_commit = 'b' * 40
     REAL_APPROVALS_RECEIPT(other, REPO)
     assert seen['a'][2] == 'b' * 40 and seen['k']['checkpoint'] is None
+
+
+# --- close review R3: arm B's producer evidence, at the launcher and at the comparer --------
+
+
+REAL_TRAIN = REPO / 'ckpt/xRIR_cyl_8_shot'
+REAL_CHECKPOINT = REAL_TRAIN / 'epoch_12.pth'
+# Every producer closure Codex got past `verify`, and so past `build_fields` and `admit_run`.
+CLOSURE_DAMAGE = {
+    'strict_only': ({'strict': True}, 'produced by'),
+    'wrong_producer': (dict(PRODUCER, entry_module='tools.exp06_finalize'), 'produced by'),
+    'empty_membership': (dict(PRODUCER, files=[], sha256=closure_digest([])),
+                         'no source file'),
+    'corrupt_digest': (dict(PRODUCER, sha256='f' * 64), 'does not hash'),
+    'contradictory': (altered(PRODUCER, working_tree_sha256='c' * 64),
+                      'differs from its own sources'),
+    'missing_reviewed': (altered(PRODUCER, reviewed_blob_sha256=None),
+                         'no reviewed and working-tree hashes'),
+    'unreviewed_blob': (altered(PRODUCER, reviewed_blob_sha256='c' * 64,
+                                working_tree_sha256='c' * 64), 'reviewed source'),
+    # Close review 2: the recorded commit was forty hex digits and nothing more, so the
+    # repository's own tree object -- whose blobs are HEAD's -- was admitted as the producer.
+    'tree_object': (dict(PRODUCER, commit=git_object(PRODUCER['commit'] + '^{tree}')),
+                    'not a commit'),
+    'blob_object': (dict(PRODUCER, commit=git_object(
+        PRODUCER['commit'] + ':tools/exp06_legacy_train_receipt.py')), 'not a commit'),
+}
+
+
+def rebind(fields, name, path):
+    """The launcher's own fields, with one training binding pointing at `path`."""
+    record = {'path': str(path), 'sha256': p.sha256_file(path)}
+    fields['mutable_inputs'] = dict(fields['mutable_inputs'], **{name: record})
+    fields['training_evidence'] = dict(fields['training_evidence'], **{name: record})
+    return fields
+
+
+@pytest.mark.parametrize('case', sorted(CLOSURE_DAMAGE))
+def test_a_receipt_without_producer_evidence_neither_launches_nor_admits_arm_b(
+        case, checkpoints, tmp_path, approved, bound):                  # noqa: F811
+    """R3: the `{'strict': true}` receipt passed `build_fields()` and `admit_run()` as B."""
+    closure, cause = CLOSURE_DAMAGE[case]
+    _, receipt = checkpoints['train_B']
+    damaged = rewritten(json.loads(Path(receipt).read_text()), tmp_path / 'damaged.json',
+                        source_closure=closure)
+    bindings = dict(bindings_for(checkpoints, 'B'), train_completion=str(damaged))
+    args = launcher.parse_args(argv_for('B', checkpoints, tmp_path, bindings=bindings))
+    with pytest.raises(ValueError, match=cause):
+        launcher.training_evidence(args)
+    good = launcher.parse_args(argv_for('B', checkpoints, tmp_path))
+    fields = launcher.build_fields(good, launcher.child_command(good, REPO), REPO,
+                                   launcher.training_evidence(good))
+    directory = write_run(tmp_path / 'admit', 'B', 42, checkpoints, SPLIT, route='exp06',
+                          launched=rebind(fields, 'train_completion', damaged))
+    with pytest.raises(ValueError, match='training evidence'):
+        comparer.admit_run(directory, 'B', approved, SPLIT, roles=ROLES)
+
+
+@pytest.fixture(scope='module')
+def real_receipt(tmp_path_factory):
+    """The writer's own default path -- strict, no stubs -- on the retained exp_01 run.
+
+    Module scoped so that it is written before any test's `monkeypatch` stands in for
+    `tools.provenance`: this is the receipt the runbook's `breceipt` step writes.
+    """
+    if not REAL_CHECKPOINT.is_file():
+        pytest.skip("needs exp_01's retained cylindrical training directory")
+    out = tmp_path_factory.mktemp('breceipt') / 'train_receipt_cyl.json'
+    receipt_tool.write_receipt(out, REAL_TRAIN, REAL_CHECKPOINT)
+    return out
+
+
+def test_the_real_exp01_receipt_still_launches_and_admits_arm_b(real_receipt, checkpoints,
+                                                                tmp_path, approved, bound,
+                                                                monkeypatch):  # noqa: F811
+    """R3 keeps the one receipt that is evidence: exp_01's, of its registered arm."""
+    from tools import exp04_profiles
+    from tools import exp06_train_evidence as evidence
+    from test_exp06_compare import reference_manifest, reference_hash
+    monkeypatch.setattr(evidence, 'REGISTERED', {'baseline': exp04_profiles.CYL})
+    reference = tmp_path / 'reference_manifest_k8_seed42.json'
+    declared = reference_manifest(reference, 42, SPLIT)
+    args = launcher.parse_args(runbook_argv(
+        'B', 42, REAL_CHECKPOINT, reference, reference_hash(declared), tmp_path / 'run',
+        tmp_path / 'logs', checkpoints['repo'], HEAD,
+        {'train_manifest': REAL_TRAIN / 'args.json', 'train_completion': real_receipt}))
+    training = launcher.training_evidence(args)
+    assert training['route'] == 'reconstructed' and training['epochs'] == 12
+    assert training['checkpoint_sha256'] == exp04_profiles.CYL['sha256']
+    fields = launcher.build_fields(args, launcher.child_command(args, REPO), REPO, training)
+    directory = write_run(tmp_path / 'admit', 'B', 42, checkpoints, SPLIT, route='exp06',
+                          launched=fields)
+    roles = copy.deepcopy(ROLES)          # arm B is exp_01's registered cylindrical run
+    roles['B']['checkpoint'] = dict(exp04_profiles.CYL)
+    run = comparer.admit_run(directory, 'B', approved, SPLIT, roles=roles)
+    assert run['role'] == 'B' and run['checkpoint']['route'] == 'exp06'
+    assert run['checkpoint']['sha256'] == exp04_profiles.CYL['sha256']
