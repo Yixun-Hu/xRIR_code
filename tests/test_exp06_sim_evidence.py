@@ -55,6 +55,15 @@ def approved(checkpoints):                                          # noqa: F811
 
 
 @pytest.fixture(autouse=True)
+def registered_baseline(checkpoints, monkeypatch):                  # noqa: F811
+    """R2: arm B's registration, on the synthetic exp_01 weights this fixture stands for."""
+    from tools import exp04_profiles
+    from tools import exp06_train_evidence as evidence
+    monkeypatch.setattr(evidence, 'REGISTERED', {'baseline': dict(
+        exp04_profiles.CYL, sha256=p.sha256_file(checkpoints['B']))})
+
+
+@pytest.fixture(autouse=True)
 def approvals_gate(monkeypatch):
     """F3's producer gate has its own tests; here the runbook's argv is under test."""
     monkeypatch.setattr(launcher, 'approvals_receipt', lambda args, repo: {

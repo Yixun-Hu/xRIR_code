@@ -114,6 +114,10 @@ def training_evidence(args, hasher=p.sha256_file):
     hashes whatever file a binding names, so the semantics live here and run **before**
     ``execute_run`` creates anything. A ``diagnostic`` evaluation is never an arm and binds
     no training run.
+
+    R2: the registration the evidence must certify is ``exp06_train_evidence``'s own rule --
+    the same one the comparer applies -- so arm B's receipt must be of exp_01's registered
+    cylindrical arm here, and not only at admission.
     """
     if args.checkpoint_role not in ('arm', 'baseline'):
         return None
@@ -122,7 +126,9 @@ def training_evidence(args, hasher=p.sha256_file):
         name, separator, path = binding.partition('=')
         if separator and name in TRAINING_INPUTS:
             bound[name] = path
-    return evidence.check(args.checkpoint_role, bound, hasher(args.checkpoint))
+    return evidence.check(args.checkpoint_role, bound, hasher(args.checkpoint),
+                          registered_sha256=evidence.registered_checkpoint(
+                              args.checkpoint_role))
 
 
 def approvals_receipt(args, repo):

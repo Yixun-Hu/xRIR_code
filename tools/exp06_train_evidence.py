@@ -15,7 +15,8 @@ comparer (at admission), so one rule decides both:
   completion bound, recording the same ``run_type`` and the reviewed commit the completion
   was approved at. A ``best.pth`` or any other epoch offered as the checkpoint fails on the
   artifact hash.
-* ``baseline`` -- the exp_01 checkpoint. ``train_completion`` is the ``reconstructed``
+* ``baseline`` -- the exp_01 checkpoint, and only the **registered** cylindrical one
+  (:func:`registered_checkpoint`). ``train_completion`` is the ``reconstructed``
   receipt of ``tools.exp06_legacy_train_receipt`` and ``train_manifest`` the ``args.json``
   that receipt enumerates: the historical run's own startup record, so the two names keep
   the meaning they have for arm C (what the run declared, and what certified it).
@@ -24,10 +25,15 @@ comparer (at admission), so one rule decides both:
 import json
 from pathlib import Path
 
+from tools import exp04_profiles
 from tools import exp06_legacy_train_receipt as receipt_tool
 from tools import provenance
 
 TRAINING_BINDINGS = ('train_manifest', 'train_completion')
+# Full-review R2: which weights a role's evidence may certify, in one place. `baseline` is
+# exp_01's registered cylindrical arm -- the only exp_01 checkpoint arm B evaluates -- and
+# `arm` is the approved `artifacts.epoch_012`, which exists only once the pretraining has.
+REGISTERED = {'baseline': exp04_profiles.CYL}
 EPOCHS = 12                        # section 5's twelve-epoch contract, shared by both arms
 EPOCH_ARTIFACT = 'epoch_012.pth'
 FULL_RUN_TYPE = 'full'
@@ -144,12 +150,35 @@ def check_baseline(bindings, checkpoint_sha256, registered_sha256=None, epochs=E
             'inputs': record['inputs']}
 
 
-def check(role, bindings, checkpoint_sha256, epoch_sha256=None, registered_sha256=None,
-          epochs=EPOCHS, hasher=provenance.sha256_file):
-    """6.3's two admissible training-evidence branches, by the checkpoint's declared role."""
+def registered_checkpoint(role, approved=None):
+    """The sha256 this role's weights must have, or ``None`` where a role registers none.
+
+    Full-review R2: the launcher called ``check`` without a registration and the comparer
+    with one, so a receipt of the control arm was admitted at launch and refused at
+    admission. The rule is here, and :func:`check` applies it to any caller that does not
+    name one, so the two can no longer disagree.
+    """
     _require(role in ROLES, 'unknown checkpoint role: {!r}'.format(role))
     if role == 'arm':
+        return (((approved or {}).get('artifacts') or {}).get('epoch_012') or {}).get('sha256')
+    registered = REGISTERED.get(role)
+    return None if registered is None else registered['sha256']
+
+
+def check(role, bindings, checkpoint_sha256, epoch_sha256=None, registered_sha256=None,
+          epochs=EPOCHS, hasher=provenance.sha256_file, approved=None):
+    """6.3's two admissible training-evidence branches, by the checkpoint's declared role.
+
+    A caller that names no registration gets :func:`registered_checkpoint`'s, so the
+    registered arm is enforced wherever this rule is applied (R2).
+    """
+    _require(role in ROLES, 'unknown checkpoint role: {!r}'.format(role))
+    if role == 'arm':
+        if epoch_sha256 is None:
+            epoch_sha256 = registered_checkpoint(role, approved)
         return check_arm(bindings, checkpoint_sha256, epoch_sha256, epochs, hasher)
     if role == 'baseline':
+        if registered_sha256 is None:
+            registered_sha256 = registered_checkpoint(role, approved)
         return check_baseline(bindings, checkpoint_sha256, registered_sha256, epochs, hasher)
     return None                      # a diagnostic evaluation is never admissible as an arm

@@ -443,8 +443,13 @@ def test_the_arm_route_binds_the_finalised_pretraining(launch_args, pretraining)
     assert record['train_manifest']['path'] == str((pretraining / 'provenance.json').resolve())
 
 
-def test_the_baseline_route_binds_the_reconstructed_receipt(launch_args, tmp_path):
+def test_the_baseline_route_binds_the_reconstructed_receipt(launch_args, tmp_path,
+                                                            monkeypatch):
     args = launch_args('--checkpoint-role', 'baseline')
+    # R2: the registration is exp_01's cylindrical sha; these are the synthetic weights it
+    # stands for here, so the rule is exercised rather than stubbed out of the call.
+    monkeypatch.setattr(evidence, 'REGISTERED', {'baseline': dict(
+        exp04_profiles.CYL, sha256=p.sha256_file(args.checkpoint))})
     train, receipt = receipt_for(tmp_path / 'legacy', Path(args.checkpoint))
     args = launch_args('--checkpoint-role', 'baseline',
                        '--bind-input', 'train_manifest=' + str(train / 'args.json'),
