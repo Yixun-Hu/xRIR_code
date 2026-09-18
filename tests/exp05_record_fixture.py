@@ -78,15 +78,22 @@ def exp05_record_fixture(tmp_path):
                          for i in range(n_queries))
         entry, writer, launcher, training, frozen = [_source(root, name) for name in SOURCES]
         commit = _commit_sources(root, SOURCES)
-        # One REAL repository file as the producer closure: the binder validates the
-        # product's declared producer sources against the bytes on disk at HEAD.
-        repo = Path(__file__).resolve().parents[1]
-        own = 'tools/param_curve.py'
-        own_digest = p.sha256_file(repo / own)
-        files = [dict(path=own, reviewed_blob_sha256=own_digest, working_tree_sha256=own_digest,
-                      commits_after_reviewed=[], mtime='2026-09-18T00:00:00+00:00')]
-        producer = dict(sha256=_closure_digest(dict(files=files)), files=files,
-                        commit=_git(repo, 'rev-parse', 'HEAD'))
+        # The producer's source lives in the world, not in the repository: the binder
+        # recomputes the producer's identity from the bytes on disk, so a test must be
+        # able to drift it without touching a reviewed file.  ``producer_now`` is the
+        # synthetic registration injected where the real one would be recomputed.
+        head = _git(Path(__file__).resolve().parents[1], 'rev-parse', 'HEAD')
+        own = root / 'producer' / 'param_curve.py'
+        own.parent.mkdir()
+        own.write_text('# synthetic fixture producer tools/param_curve.py\n')
+
+        def producer_now():
+            digest = p.sha256_file(own)
+            files = [dict(path=str(own), reviewed_blob_sha256=digest, working_tree_sha256=digest,
+                          commits_after_reviewed=[], mtime='2026-09-18T00:00:00+00:00')]
+            return dict(sha256=_closure_digest(dict(files=files)), files=files, commit=head)
+
+        producer = producer_now()
         pins = dict(schema_version=1, closures=dict(
             evaluator=entry['sha256'], writer=writer['sha256'],
             training_launcher=[launcher['sha256']], training=training['sha256'],
@@ -186,6 +193,7 @@ def exp05_record_fixture(tmp_path):
             return json_path
 
         return SimpleNamespace(root=root, arms=arms, queries=queries, runs=runs,
+            producer_now=producer_now, producer_source=own,
             attempts=attempts, ledgers=ledgers, receipts=receipts, pins=pins, producer=producer,
             approved=(pins, receipt), approval=receipt, results=results, references=references,
             data_root=data_root, commit=commit, profile_for=profile_for, run_paths=run_paths,

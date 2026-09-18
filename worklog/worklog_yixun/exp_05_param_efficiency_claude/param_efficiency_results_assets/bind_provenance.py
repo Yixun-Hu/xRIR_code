@@ -35,7 +35,7 @@ from tools import exp05_record as record
 from tools import provenance as p
 from tools.exp04_record import load_asset as exp04_asset
 from tools.exp05_profiles import ARMS, get_profile, load_approved_digests, profile_digest
-from tools.paired_compare import _closure_digest
+from tools.paired_compare import _closure_digest, producer_identity
 
 binder = exp04_asset('bind_provenance')
 ROOT, require, stamp, snapshot = binder.ROOT, binder.require, binder.stamp, binder.snapshot
@@ -344,11 +344,31 @@ def run_coverage(runs):
     return coverage
 
 
-def producer_declarations(producer):
-    """The producer's own source files; the approved closure digest pins the list."""
+def live_producer():
+    """Recompute the producer's identity from the working tree at this commit.
+
+    ``producer_identity`` reads every file of the import closure and refuses any that
+    differs from its reviewed blob, so a producer edited after publication cannot agree
+    with the digest its own products recorded.
+    """
+    return producer_identity('tools.param_curve')
+
+
+def producer_declarations(producer, approved=None):
+    """The producer's own source files, recomputed live and verified byte for byte.
+
+    A sidecar's closure records are the producer's claim about itself; the list they pin
+    is evidence only while the sources they name still hash to the digests they gave
+    them, so the closure is recomputed here, required to agree with the approval pin and
+    with the sidecar, and every declared file is stamped at its declared digest.
+    """
     require(_closure_digest(producer) == producer['sha256'], 'producer closure records')
-    return {str((ROOT / item['path']).resolve()): item['working_tree_sha256']
-            for item in producer['files']}
+    require(live_producer()['sha256'] == producer['sha256'],
+            'the producer source is not the one this product was written by')
+    require(approved is None or approved == producer['sha256'],
+            'the producer closure is not the approved one')
+    return {stamp(ROOT / item['path'], item['working_tree_sha256'])['path']:
+            item['working_tree_sha256'] for item in producer['files']}
 
 
 def product_dependencies(expected, roles, trained, run_bound, approval):
@@ -419,7 +439,8 @@ def bind_results(paths, head, approval, runs, attempts, run_bound):
         # The product's inputs must equal this map exactly: every dependency declared at
         # the bound digest, and nothing else -- not even another artefact of this report.
         dependencies = product_dependencies(expected, roles, trained, run_bound, approval)
-        dependencies.update(producer_declarations(side['producer']))
+        dependencies.update(producer_declarations(
+            side['producer'], approval['blob']['closures'][record.KEYS[name]]))
         for item, digest in sorted(side['inputs'].items()):
             require(item in dependencies, 'input names an artefact this report does not '
                     'bind as this product\'s dependency: {} in {}'.format(item, path))

@@ -439,6 +439,7 @@ def bound(rendered, tmp_path, monkeypatch):
     f, argv = rendered
     binder = record.load_asset('bind_provenance')
     monkeypatch.setattr(binder, 'load_approved_digests', lambda path=None: f.approved)
+    monkeypatch.setattr(binder, 'live_producer', f.producer_now)
     monkeypatch.setattr(binder, 'REGISTERED', {
         name: json.loads((f.results / (name + '.json')).read_text())['profile_digest']
         for name in NAMES})
@@ -518,6 +519,19 @@ def test_check_record_recomputes_the_latest_report(bound):
     report['runs'][0]['completion']['sha256'] = 'f' * 64
     reports[0].write_text(json.dumps(report, indent=2))
     with pytest.raises(ValueError, match='binding report mismatch'):
+        checker.main([str(bound.reports)])
+
+
+def test_a_drifting_producer_source_leaves_the_record_unbindable(bound):
+    """A declared producer file that changes after publication is not the bound one."""
+    checker = record.load_asset('check_record')
+    bound.binder.main(bound.arguments_argv())
+    checker.main([str(bound.reports)])
+    source = bound.f.producer_source
+    source.write_text(source.read_text() + '# appended after publication\n')
+    with pytest.raises(ValueError, match='producer source'):
+        bound.binder.collect(**bound.arguments)
+    with pytest.raises(ValueError, match='producer source'):
         checker.main([str(bound.reports)])
 
 
