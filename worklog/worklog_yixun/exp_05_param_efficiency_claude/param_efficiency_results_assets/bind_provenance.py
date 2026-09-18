@@ -34,7 +34,7 @@ from pathlib import Path
 from tools import exp05_record as record
 from tools import provenance as p
 from tools.exp04_record import load_asset as exp04_asset
-from tools.exp05_profiles import ARMS, get_profile, load_approved_digests
+from tools.exp05_profiles import ARMS, get_profile, load_approved_digests, profile_digest
 from tools.paired_compare import _closure_digest
 
 binder = exp04_asset('bind_provenance')
@@ -62,6 +62,9 @@ TRAINING = ('train_manifest', 'train_completion')
 TRAINING_DEPENDENCIES = ('args.json', 'train_manifest.json')
 CONTRACTS = {True: ('tools.exp05_eval', 'bound args.json'),
              False: ('tools.exp04_eval', 'pinned historical M checkpoint')}
+# The registered specification each product must have been computed under: a product
+# that embeds a consistent but relaxed profile passes its own validation, not this.
+REGISTERED = {name: profile_digest(name) for name in record.KEYS}
 SETUP_FAILURE = re.compile(r'.*_ABORTED_setup_failed(_[0-9a-f]+)?\Z')
 
 
@@ -379,6 +382,8 @@ def bind_results(paths, head, approval, runs, attempts, run_bound):
         require(name in record.KEYS, 'unregistered producer output: ' + path)
         data, receipt = record.load(path, name)
         record.validate(data, name)  # the same canonical validation the generators apply
+        require(receipt['profile_digest'] == REGISTERED[name],
+                'the product was not computed under the registered profile: ' + path)
         side = json.loads(Path(path + '.provenance.json').read_text())
         require(all(side['approved_digests'][key] == approval[key]
                     for key in ('path', 'sha256', 'git_blob'))

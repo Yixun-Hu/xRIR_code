@@ -397,6 +397,9 @@ def bound(rendered, tmp_path, monkeypatch):
     f, argv = rendered
     binder = record.load_asset('bind_provenance')
     monkeypatch.setattr(binder, 'load_approved_digests', lambda path=None: f.approved)
+    monkeypatch.setattr(binder, 'REGISTERED', {
+        name: json.loads((f.results / (name + '.json')).read_text())['profile_digest']
+        for name in NAMES})
     monkeypatch.setattr(binder, 'HISTORICAL', {
         arm['role']: dict(path=arm['checkpoint'], sha256=arm['sha256'], epoch=arm['epoch'])
         for arm in f.arms if arm['tier'] == 'M'})
@@ -490,6 +493,7 @@ def test_check_record_recomputes_the_latest_report(bound):
     ('foreign_probe_receipt', 'does not list'),
     ('stale_approval', 'approval digest mismatch'),
     ('unpinned_checkpoint', 'approved checkpoint'),
+    ('relaxed_profile', 'not computed under the registered profile'),
     ('exploratory_product', 'exploratory JSON refused'),
     ('unconverged_cell', 'did not converge'),
     ('uncited_document', 'does not cite every canonical digest'),
@@ -548,6 +552,14 @@ def test_the_binder_refuses_a_forged_record(bound, forgery, message):
         path.write_text(path.read_text() + '\n')
     elif forgery == 'unpinned_checkpoint':
         f.pins['checkpoints']['S_simple'] = dict(f.pins['checkpoints']['S_simple'], epoch=11)
+    elif forgery == 'relaxed_profile':
+        data = json.loads(product.read_text())
+        data['profile']['margin'] = .5
+        data['profile_digest'] = record.sha(json.dumps(
+            data['profile'], sort_keys=True, separators=(',', ':')).encode())
+        side = json.loads(Path(str(product) + '.provenance.json').read_text())
+        side['profile_digest'] = data['profile_digest']
+        _republish(product, data, side)
     elif forgery in ('exploratory_product', 'unconverged_cell'):
         data = json.loads(product.read_text())
         if forgery == 'exploratory_product':
