@@ -1,0 +1,13 @@
+K,backbone,tier,encoder_parameters,status,EDT_ms,C50_dB,T60_percent,source
+8,SimpleViT,S,2766080,hypothetical_forecast,47.075000,1.256500,9.560000,flat-capacity M/L midpoint
+8,SimpleViT,M,19703296,reported_preview_mean,47.020000,1.238000,9.580000,user-pasted summary
+8,SimpleViT,L,43709184,reported_preview_mean,47.130000,1.275000,9.540000,user-pasted summary
+8,CylindricalViT,S,2777984,hypothetical_forecast,45.570000,1.237000,9.405000,flat-capacity M/L midpoint
+8,CylindricalViT,M,19750912,reported_preview_mean,45.060000,1.231000,9.440000,user-pasted summary
+8,CylindricalViT,L,43780608,reported_preview_mean,46.080000,1.243000,9.370000,user-pasted summary
+1,SimpleViT,S,2766080,hypothetical_forecast,68.000000,1.896500,13.275000,flat-capacity M/L midpoint
+1,SimpleViT,M,19703296,reported_preview_mean,68.280000,1.890000,13.380000,user-pasted summary
+1,SimpleViT,L,43709184,reported_preview_mean,67.720000,1.903000,13.170000,user-pasted summary
+1,CylindricalViT,S,2777984,hypothetical_forecast,68.935000,1.930000,13.415000,flat-capacity M/L midpoint
+1,CylindricalViT,M,19750912,reported_preview_mean,69.760000,1.942000,13.580000,user-pasted summary
+1,CylindricalViT,L,43780608,reported_preview_mean,68.110000,1.918000,13.250000,user-pasted summary

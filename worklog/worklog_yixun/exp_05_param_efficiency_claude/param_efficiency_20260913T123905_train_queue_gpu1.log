@@ -3,3 +3,5 @@
 2026-09-14T00:03:33-04:00 START S_cylindrical receipt=ckpt/exp05/S_cylindrical/_probe_20260913T102428_S_cylindrical.json ts=20260914T000333
 2026-09-14T12:03:22-04:00 CERTIFIED S_cylindrical -> attempt_20260914T000333
 2026-09-14T12:03:22-04:00 START L_cylindrical receipt=ckpt/exp05/L_cylindrical/_probe_20260913T103057_L_cylindrical.json ts=20260914T120322
+2026-09-16T10:09:13-04:00 CERTIFIED L_cylindrical -> attempt_20260914T120322
+TRAIN_QUEUE_DONE gpu=1 2026-09-16T10:09:13-04:00
