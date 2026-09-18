@@ -77,13 +77,19 @@ M_CYL = next(arm for arm in exp05_profiles.ARMS if arm['role'] == 'M_cyl')
 # Finding 5: arm B's exp_05 route evaluates one registered tier arm, and that
 # registration -- not the run's own declaration -- says which counts it must record.
 EXP05_M = {'role': M_CYL['role'], 'tier': M_CYL['tier'], 'backbone': M_CYL['backbone'],
-           'sha256': M_CYL['sha256'],
+           'sha256': M_CYL['sha256'], 'epoch': M_CYL['epoch'],
            'counts': exp05_profiles.json_value(M_CYL['counts'])}
+# Full-review F4: `routes` is the closed set 6.3 registers for each role. A is exp_04's
+# reused control evaluation, C is exp_06's own arm, and B is *either* exp_05's M tier or an
+# exp_06 evaluation of the exp_01 cylindrical checkpoint -- never a descriptive exp_04 run.
 ROLES = {'C': {'arm': 'cyl_or', 'checkpoint': None, 'route': 'exp06', 'role': 'arm',
+               'routes': ('exp06',),
                'backbone': 'cylindrical_oriented', 'epoch': EPOCH},
          'A': {'arm': 'control', 'checkpoint': CONTROL, 'route': 'exp04', 'role': 'arm',
+               'routes': ('exp04',),
                'backbone': CONTROL['backbone'], 'epoch': CONTROL['epoch']},
          'B': {'arm': 'cyl', 'checkpoint': CYL, 'route': None, 'role': 'baseline',
+               'routes': ('exp05', 'exp06'),
                'backbone': CYL['backbone'], 'epoch': CYL['epoch'], 'exp05': EXP05_M}}
 CONTRASTS = (('C', 'B'), ('C', 'A'))
 
@@ -230,6 +236,15 @@ def admit_run(run_dir, role, approved, split=SPLIT, check=None, inputs=None,
             'gl_seed == manifest_seed')
     checkpoint = roles[role]['checkpoint']
     epoch = roles[role]['epoch']
+    # Full-review F4: which evaluator wrote this run decides what evidence it must carry, so
+    # the route is established before the checkpoint block that depends on it.
+    route = route_of(fields, roles[role]['route'])
+    require(route in ROUTES, 'unknown evaluator route: ' + str(route))
+    registered = tuple(roles[role]['routes'])
+    require(route in registered, 'arm {} is admitted only through the registered route{} {},'
+            ' not {}'.format(role, '' if len(registered) == 1 else 's',
+                             '/'.join(registered), route))
+    exp06 = route == 'exp06'
     actual = bind(fields['checkpoint'], fields.get('checkpoint_sha256'))
     require(fields.get('backbone') == roles[role]['backbone'],
             'backbone is not the registered {} of arm {}'.format(roles[role]['backbone'],
@@ -246,16 +261,16 @@ def admit_run(run_dir, role, approved, split=SPLIT, check=None, inputs=None,
                 'checkpoint path')
         # Finding 4: a historical manifest records no epoch; its registration does, and a
         # declared one that contradicts the registration is never published as the arm's.
-        require(fields.get('checkpoint_epoch', epoch) == epoch, 'checkpoint_epoch')
+        # Full-review F4: that exception is the reused exp_04/exp_05 routes'. An exp_06
+        # evaluation writes `checkpoint_epoch` itself, so an absent one is a refusal.
+        require(fields.get('checkpoint_epoch', None if exp06 else epoch) == epoch,
+                'checkpoint_epoch')
     closures = fields.get('source_closures') or {}
     evaluator = fields.get('evaluator_closure') or {}
     require(_closure_digest(evaluator) == evaluator.get('sha256'), 'evaluator closure digest')
     pinned = (approved or {}).get('code', {})
     require(evaluator.get('sha256') == pinned.get('evaluator_exp03'),
             'evaluator closure is not the pinned exp_03 one')
-    route = route_of(fields, roles[role]['route'])
-    require(route in ROUTES, 'unknown evaluator route: ' + str(route))
-    exp06 = route == 'exp06'
     names = ('entrypoint', 'writer', 'writer_exp06') if exp06 else ('entrypoint', 'writer')
     require(set(closures) >= set(names), 'source_closures ' + ', '.join(names))
     for name in names:
@@ -394,6 +409,10 @@ def check_exp05_tier(fields, run, completion, digest, spec, require, bind):
     """
     from tools import exp05_params
     require(isinstance(spec, dict), 'this role has no registered exp_05 tier arm')
+    # Full-review F4: exp_05's evaluator records no `checkpoint_epoch`; the registration it
+    # pins does, so the twelfth-epoch requirement of 6.3 is established from the registry.
+    require(str((spec or {}).get('epoch')) == str(EPOCH),
+            'the registered exp_05 arm is not the twelfth-epoch one')
     require(digest == (spec or {}).get('sha256'),
             'the checkpoint is not the registered exp_05 {}'.format((spec or {}).get('role')))
     require(_equal(fields.get('tier'), (spec or {}).get('tier')),

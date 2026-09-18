@@ -75,15 +75,17 @@ REGISTRY = exp06_eval.registry_sha256()
 MODEL_CLASSES = {name: cls.__name__ for name, cls in BACKBONES_EXP06.items()}
 META_FIELDS = tuple(exp06_eval.METADATA_FIELDS)
 ROLES = {'C': {'arm': 'cyl_or', 'checkpoint': None, 'route': 'exp06', 'role': 'arm',
-               'backbone': 'cylindrical_oriented', 'epoch': EPOCH},
+               'backbone': 'cylindrical_oriented', 'epoch': EPOCH, 'routes': ('exp06',)},
          'A': {'arm': 'control', 'checkpoint': {'sha256': None, 'checkpoint': 'simple.pth',
                                                 'backbone': 'simple', 'epoch': 12},
-               'route': 'exp04', 'role': 'arm', 'backbone': 'simple', 'epoch': 12},
+               'route': 'exp04', 'role': 'arm', 'backbone': 'simple', 'epoch': 12,
+               'routes': ('exp04',)},
          'B': {'arm': 'cyl', 'checkpoint': {'sha256': None, 'checkpoint': 'cyl.pth',
                                             'backbone': 'cylindrical', 'epoch': 12},
                'route': None, 'role': 'baseline', 'backbone': 'cylindrical', 'epoch': 12,
+               'routes': ('exp05', 'exp06'),
                'exp05': {'role': 'M_cyl', 'tier': 'M', 'backbone': 'cylindrical',
-                         'sha256': None, 'counts': dict(M_COUNTS)}}}
+                         'sha256': None, 'epoch': '12', 'counts': dict(M_COUNTS)}}}
 EXP04_DIGEST = provenance.sha256_file(
     __import__('tools.exp04_profiles', fromlist=['x']).APPROVED_DIGESTS_PATH)
 EXP05_DIGEST = 'a5' * 32
@@ -1079,3 +1081,72 @@ def test_identical_arms_withhold_the_h3_verdict(tmp_path, checkpoints, approved)
         assert cell['convergence']['status'] == 'not_converged'
         assert [attempt['n_boot'] for attempt in cell['convergence']['attempts']] == [100, 400]
     assert any('convergence gate failed' in item for item in result['deviations'])
+
+
+# --- F4: arm B has exactly two registered routes ------------------------------------------
+
+
+def test_each_role_declares_the_routes_section_6_3_registers_for_it():
+    assert subject.ROLES['C']['routes'] == ('exp06',)
+    assert subject.ROLES['A']['routes'] == ('exp04',)
+    assert subject.ROLES['B']['routes'] == ('exp05', 'exp06')
+    assert set(subject.ROUTES) == {'exp04', 'exp05', 'exp06'}
+
+
+def test_a_descriptive_exp04_cylindrical_run_is_not_arm_b(tmp_path, checkpoints, approved):
+    """Full-review F4: B's unrestricted route fell back to exp_04 and was admitted."""
+    directory = write_run(tmp_path / 'descriptive', 'B', 42, checkpoints, SPLIT, route='exp04')
+    fields = json.loads((directory / 'eval_manifest.json').read_text())
+    assert 'checkpoint_role' not in fields and 'checkpoint_epoch' not in fields
+    assert subject.route_of(fields, None) == 'exp04'
+    with pytest.raises(ValueError, match='registered route'):
+        subject.admit_run(directory, 'B', approved, SPLIT, roles=ROLES)
+
+
+def test_an_exp06_arm_must_record_its_checkpoint_epoch(tmp_path, checkpoints, approved):
+    """The historical missing-epoch exception is arm A's; an exp_06 run declares one."""
+    for role in ('B', 'C'):
+        directory = write_run(tmp_path / ('epoch' + role), role, 42, checkpoints, SPLIT,
+                              route='exp06')
+        fields = json.loads((directory / 'eval_manifest.json').read_text())
+        fields.pop('checkpoint_epoch')
+        rewrite(directory, fields)
+        with pytest.raises(ValueError) as failure:
+            subject.admit_run(directory, role, approved, SPLIT, roles=ROLES)
+        # The checkpoint block refuses it, before the weaker `meta checkpoint_epoch`.
+        assert str(failure.value).endswith(': checkpoint_epoch')
+
+
+def test_the_exp05_route_is_the_registered_twelfth_epoch_arm(tmp_path, checkpoints, approved,
+                                                             exp05):
+    """B's exp_05 route takes its epoch from the registration, which must be epoch 12."""
+    assert str(subject.EXP05_M['epoch']) == str(subject.EPOCH)
+    directory = write_run(tmp_path / 'm12', 'B', 42, checkpoints, SPLIT, route='exp05')
+    roles = copy.deepcopy(ROLES)
+    roles['B']['exp05'] = dict(ROLES['B']['exp05'], epoch=9)
+    with pytest.raises(ValueError, match='twelfth-epoch'):
+        subject.admit_run(directory, 'B', approved, SPLIT, roles=roles)
+
+
+REAL_B = Path(__file__).resolve().parents[1] / 'ckpt/yaw_aug/eval/cyl_k8_seed42_k0'
+
+
+@pytest.mark.skipif(not REAL_B.is_dir(),
+                    reason="needs exp_04's descriptive cylindrical evaluation")
+def test_the_real_descriptive_cylindrical_run_is_refused_as_arm_b():
+    """The exact counterexample of the Codex full review: 6337 queries were admitted."""
+    fields = json.loads((REAL_B / 'eval_manifest.json').read_text())
+    approved = approvals_api.validate({
+        'schema_version': 1,
+        'code': dict({key: 'a' * 64 for key in approvals_api.CODE_KEYS},
+                     evaluator_exp03=fields['evaluator_closure']['sha256']),
+        'reused': dict({key: 'a' * 64 for key in approvals_api.REUSED_DIGESTS},
+                       exp04_evaluator_closure=fields['source_closures']['entrypoint']['sha256'],
+                       exp04_writer_closure=fields['source_closures']['writer']['sha256'],
+                       exp04_approved_digests_sha256=EXP04_DIGEST,
+                       legacy_receipt={'path': 'r.json', 'sha256': 'a' * 64}),
+        'artifacts': {'epoch_012': {'path': 'p', 'epoch': 12, 'sha256': 'a' * 64},
+                      'heading': {room: 'a' * 64 for room in approvals_api.ROOMS},
+                      'gate_g1_sha256': 'a' * 64}})
+    with pytest.raises(ValueError, match='registered route'):
+        subject.admit_runs({'B': [str(REAL_B)]}, approved)
