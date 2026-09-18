@@ -105,6 +105,9 @@ PRODUCER_CODE_KEYS = {
     'compare': ('compare',),
     'pages': (),
 }
+# Producers that run every room, and so must offer every approved heading. A producer of
+# one room (the hallway mirror probe) offers that room's heading and is checked on it.
+HEADING_COMPLETE = ('haa_children',)
 # Evidence beyond the approvals each producer binds as well (run directories, not pins).
 PRODUCER_EVIDENCE = {
     'summarize_haa': ('haa job completion.json of every new-arm child',),
@@ -268,6 +271,15 @@ def producer_code_keys(producer):
     return PRODUCER_CODE_KEYS[producer]
 
 
+def approved_path_default():
+    """The record's committed approvals file, which every production producer reads.
+
+    ``load_approved_digests(None)`` reads the all-null *template*; a producer that meant
+    the record would then refuse for the wrong reason, so the default is named here once.
+    """
+    return str(approvals_module().APPROVED_DIGESTS_PATH)
+
+
 def _sha256_file(path):
     from tools import provenance
     return provenance.sha256_file(path)
@@ -316,7 +328,8 @@ def enforce_producer(producer, repo, commit, approved_path=None, checkpoint=None
                 deviations.append('artifacts.heading: {} is not a registered room'.format(room))
                 continue
             if room not in headings:
-                deviations.append('artifacts.heading: no heading given for ' + room)
+                if producer in HEADING_COMPLETE:
+                    deviations.append('artifacts.heading: no heading given for ' + room)
                 continue
             pinned = approved['artifacts']['heading'][room]
             digest = _sha256_file(headings[room])
