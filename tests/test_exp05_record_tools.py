@@ -272,6 +272,32 @@ def test_markdown_six_arm_rows_come_from_exp05_m_reevaluations(rendered, tmp_pat
     assert {'M_simple_k8_seed42_k0', 'M_cyl_k8_seed46_k0'} <= runs
 
 
+def test_markdown_reports_each_metrics_own_cohort_and_exclusions(exp05_record_fixture, tmp_path):
+    """A7: EDT, C50 and T60 are three cohorts of one arm, and each is reported as its own."""
+    f = exp05_record_fixture(invalid=dict(S_cyl=dict(c50=[0], t60=[0, 1, 2, 3])))
+    argv = []
+    for flag, name in md.INPUTS:
+        argv += [flag, str(f.produce(name))]
+    argv += ['--attempt'] + [str(f.attempts[role]) for role in md.TRAINED]
+    out = tmp_path / 'results.md'
+    md.main(argv + ['--out', str(out)])
+    text = out.read_text()
+    known = {(point['arm'], point['metric']): point for point
+             in json.loads((f.results / 'CURVE_K8.json').read_text())['curves'] if point['k'] == 0}
+    assert [known[('S_cyl', m)]['cohort']['n_queries'] for m in md.ACOUSTIC] == [12, 11, 8]
+    assert [known[('S_cyl', m)]['cohort']['n_rooms'] for m in md.ACOUSTIC] == [3, 3, 2]
+    row = next(line for line in text.splitlines() if line.startswith('| S_cyl | S |'))
+    for queries, rooms, lost in ((12, 3, 0), (11, 3, 1), (8, 2, 4)):
+        assert '| {} | {} | {} |'.format(queries, rooms, '; '.join(
+            '{}: {}'.format(seed, lost) for seed in (42, 43, 44, 45, 46))) in row
+    cell = next(item for item in json.loads((f.results / 'TARGETS_K8.json').read_text())['cells']
+                if item['pairing'] == ['S_cyl', 'M_simple'] and item['metric'] == 'C50')
+    assert cell['paired_cohort']['n_queries'] == 11          # H2 inherits the same exclusion
+    assert '| {} | {} |'.format(cell['baseline_own']['cohort']['n_queries'],
+                                cell['baseline_own']['cohort']['n_rooms']) in text
+    assert md.percent(cell['room_cluster_interval']) in text
+
+
 @pytest.mark.parametrize('damage', ['duplicate', 'missing_arm', 'extra_attempt', 'wrong_profile'])
 def test_markdown_refuses_an_incomplete_input_set(rendered, tmp_path, damage):
     f, argv = rendered

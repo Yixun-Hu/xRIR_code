@@ -111,7 +111,8 @@ def curve_rows(record_data, name):
                          native(metric, means[pairing[0]]['mean']),
                          native(metric, means[pairing[1]]['mean']),
                          '{} / {}'.format(arm['counts']['encoder'], base['counts']['encoder']),
-                         known[(pairing[0], metric)]['cohort']['n_queries']])
+                         known[(pairing[0], metric)]['cohort']['n_queries'],
+                         known[(pairing[0], metric)]['cohort']['n_rooms']])
     return rows
 
 
@@ -129,24 +130,40 @@ def target_rows(record_data, name):
                          native(metric, cell['target']),
                          native(metric, cell['paired_means'][pairing[0]]['mean']),
                          percent(cell['estimate']), percent(cell['companion_interval']),
+                         percent(cell['room_cluster_interval']),
                          cell['superior'], percent(cell['tost_interval']), cell['equivalent'],
                          cell['reaches_target'], cell['paired_cohort']['n_queries'],
                          cell['paired_cohort']['n_rooms'], native(metric, own['mean']),
-                         own['cohort']['n_queries'], gate(cell), gate(cell, 'tost')])
+                         own['cohort']['n_queries'], own['cohort']['n_rooms'],
+                         gate(cell), gate(cell, 'tost')])
     return rows
 
 
+def lost(point):
+    """The queries this arm's metric has no value for, seed by seed, in seed order."""
+    excluded = point['excluded']
+    return '; '.join('{}: {}'.format(seed, len(excluded[str(seed)]))
+                     for seed in point['seed_labels'])
+
+
 def arm_rows(data):
-    """The six-arm table of one K: each arm's own cohort, in the metric's own units."""
+    """The six-arm table of one K: EACH METRIC's own cohort, in the metric's own units.
+
+    A query with no finite value for one metric is excluded from that metric alone, so
+    the three cohorts of one arm can differ; reporting EDT's size for all three would
+    misstate the cohort every other number on the row was computed on.
+    """
     known = points(data)
     rows = []
     for role, arm in sorted(ROLES.items(), key=lambda item: item[1]['counts']['encoder']):
-        cohort = known[(role, 'EDT')]['cohort']
         rows.append([role, arm['tier'], arm['backbone'], arm['counts']['encoder'],
                      arm['counts']['full'],
                      display(known[(role, 'EDT')]['mean'] * 1000, 'EDT')] +
                     [mean_sd(known[(role, metric)]) for metric in ACOUSTIC] +
-                    [cohort['n_queries'], cohort['n_rooms']])
+                    [value for metric in ACOUSTIC
+                     for value in (known[(role, metric)]['cohort']['n_queries'],
+                                   known[(role, metric)]['cohort']['n_rooms'],
+                                   lost(known[(role, metric)]))])
     return rows
 
 
@@ -192,13 +209,16 @@ def tables(data, head):
            ['Family', 'Tier', 'Pairing', 'Metric', 'ρ (%)', 'Adjusted query interval (%)',
             'Room-cluster interval (%)', 'Paired queries', 'Rooms', 'Superior',
             'Convergence ratio (%)', 'Cyl paired-cohort mean', 'Base paired-cohort mean',
-            'Encoder parameters (cyl / base)', 'Own-cohort queries (cyl)'],
+            'Encoder parameters (cyl / base)', 'Own-cohort queries (cyl)',
+            'Own-cohort rooms (cyl)'],
            [row for name in CURVES for row in curve_rows(data, name)])
     yield ('H2 — fixed targets (one four-cell family per K; cohort-scoped)',
            ['Family', 'Pairing', 'Metric', 'Target (paired cohort)', 'Cyl paired-cohort mean',
-            'ρ (%)', 'Superiority interval (%)', 'Superior', 'TOST interval (%)', 'Equivalent',
-            'Reaches target', 'Paired queries', 'Rooms', 'Baseline own-cohort mean',
-            'Baseline own-cohort queries', 'Convergence ratio (%)', 'TOST convergence ratio (%)'],
+            'ρ (%)', 'Superiority interval (%)', 'Room-cluster interval (%)', 'Superior',
+            'TOST interval (%)', 'Equivalent', 'Reaches target', 'Paired queries', 'Rooms',
+            'Baseline own-cohort mean', 'Baseline own-cohort queries',
+            'Baseline own-cohort rooms', 'Convergence ratio (%)',
+            'TOST convergence ratio (%)'],
            [row for name in TARGETS for row in target_rows(data, name)])
     yield ('H2 — encoder parameter ratios (published only where both metric cells reach)',
            ['Family', 'Pairing', 'Cyl encoder', 'Base encoder', 'Ratio', 'Reduction factor', 'Scope'],
@@ -211,7 +231,9 @@ def tables(data, head):
         yield ('Six arms at K = {} — mean ± seed SD on each arm\'s own cohort'.format(
                    product['profile']['num_shot']),
                ['Arm', 'Tier', 'Backbone', 'Encoder parameters', 'Full parameters', 'EDT (ms)',
-                'EDT (s)', 'C50 (dB)', 'T60 (%)', 'Queries', 'Rooms'], arm_rows(product))
+                'EDT (s)', 'C50 (dB)', 'T60 (%)']
+               + [label.format(metric) for metric in ACOUSTIC for label in
+                  ('{} queries', '{} rooms', '{} excluded per seed')], arm_rows(product))
     yield ('Parameters — measured with tools/exp05_params.count_parameters',
            ['Arm', 'Tier', 'Backbone', 'dim / depth / heads / mlp', 'Encoder', 'Full',
             'Trainable', 'Non-encoder', 'Cylindrical encoder overhead (%)'],

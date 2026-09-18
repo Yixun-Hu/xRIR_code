@@ -71,7 +71,10 @@ def _values(role, seed, angle, n_queries):
 
 @pytest.fixture
 def exp05_record_fixture(tmp_path):
-    def build(n_queries=12):
+    def build(n_queries=12, invalid=None):
+        # {role: {metric: [query index]}}: the queries that arm loses for that metric in
+        # every k = 0 run, so one arm's three metrics have three different cohorts.
+        invalid = invalid or {}
         root = tmp_path / 'world'
         root.mkdir()
         queries = sorted('Rooms/room_{}/S00{}_R001_hybrid_IR.wav'.format(i // 4, i + 1)
@@ -159,7 +162,8 @@ def exp05_record_fixture(tmp_path):
                         runs[(role, shot, seed, kind)] = _eval_run(
                             root, role, arm, shot, seed, kind, grid, queries, commit,
                             references, bindings, tier, dict(entrypoint=entry, writer=writer),
-                            frozen, identity, data_root)
+                            frozen, identity, data_root,
+                            invalid.get(role, {}) if kind == 'k0' else {})
         approval_path = root / 'approved.json'
         p.write_manifest(approval_path, pins)
         receipt = dict(path=str(approval_path), sha256=p.sha256_file(approval_path),
@@ -276,7 +280,7 @@ def _train_attempt(root, attempt, arm, args, commit, launcher, training, trained
 
 
 def _eval_run(root, role, arm, shot, seed, kind, grid, queries, commit, references, bindings,
-              tier, closures, frozen, identity, data_root):
+              tier, closures, frozen, identity, data_root, invalid=None):
     """One evaluation run directory, exactly as tools/exp05_eval.py's launcher writes it."""
     directory = root / 'eval' / '{}_k{}_seed{}_{}'.format(role, shot, seed, kind)
     directory.mkdir(parents=True)
@@ -302,6 +306,10 @@ def _eval_run(root, role, arm, shot, seed, kind, grid, queries, commit, referenc
                 elapsed_min=.1, **tier)
     cells = {str(angle): {metric: _values(role, seed, angle, len(queries)) for metric in METRICS}
              for angle in grid}
+    for metric, indices in (invalid or {}).items():   # a query this metric has no value for
+        for values in (cell[metric] for cell in cells.values()):
+            for index in indices:
+                values[index] = None
     sample = dict(meta=meta, query=queries, index=list(range(len(queries))), P=cells,
                   delay_flips={str(angle): 0 for angle in grid}, decomposition=None)
     p.write_manifest(directory / 'per_sample_yaw.json', sample)
