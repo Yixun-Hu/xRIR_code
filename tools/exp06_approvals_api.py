@@ -297,8 +297,9 @@ def enforce_producer(producer, repo, commit, approved_path=None, checkpoint=None
     ``artifacts.heading``. A production caller refuses on any deviation; an exploratory one
     records them and labels its output diagnostic.
 
-    ``headings`` is ``{room: path}`` and must cover every room of ``ROOMS`` when given.
-    Returns the receipt a producer records with its output.
+    ``headings`` is ``{room: path}``; every room offered must be a registered one and match,
+    and a producer of :data:`HEADING_COMPLETE` must offer all four. Returns the receipt a
+    producer records with its output.
     """
     keys = producer_code_keys(producer)
     module = approvals_module()
