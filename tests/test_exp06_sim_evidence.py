@@ -9,12 +9,14 @@ the two `--bind-input` flags the post-review round adds -- pushes it through
 check_fields`` with no GPU and no child, then writes the run directory the way the comparer
 fixtures do and requires ``exp06_compare.admit_run`` to admit it.
 """
+import hashlib
 import json
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from tools import exp06_approvals_api as approvals_api
 from tools import exp06_compare as comparer
 from tools import exp06_eval as evaluator
 from tools import exp06_eval_launch as launcher
@@ -31,7 +33,7 @@ HEAD = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(REPO), text
 
 
 def runbook_argv(role, seed, checkpoint, manifest, manifest_hash, out_dir, log_dir,
-                 data_root, commit, bindings):
+                 data_root, commit, bindings, approved=None):
     """Exactly the flags `posttrain_runbook.sh` step `sim` writes, plus F2's bindings."""
     name, backbone, checkpoint_role = ARMS[role]
     argv = ['--backbone', backbone, '--checkpoint', str(checkpoint),
@@ -46,12 +48,44 @@ def runbook_argv(role, seed, checkpoint, manifest, manifest_hash, out_dir, log_d
             '--decomposition-batches', '0', '--gpu', '1']
     for name, path in sorted(bindings.items()):
         argv += ['--bind-input', '{}={}'.format(name, path)]
-    return argv
+    # R4: the runbook names the approvals and the commit they are committed at; the
+    # defaults were what the helper exercised.
+    return argv + ['--approved', approved or approvals_api.approved_path_default(),
+                   '--approved-commit', commit]
+
+
+ENTRY_FILES = {'eval_yaw_rotation': 'eval_yaw_rotation.py',
+               'tools.exp06_eval': 'tools/exp06_eval.py',
+               'tools.exp04_eval_launch': 'tools/exp04_eval_launch.py',
+               'tools.exp06_eval_launch': 'tools/exp06_eval_launch.py'}
+
+
+def closure_of(files, commit, repo):
+    """`closure_record`'s shape over the real bytes of the files a closure names.
+
+    R4: the manifest the launcher builds is the one admitted, so its closures must be
+    self-consistent and re-bindable -- the comparer re-hashes every file they record.
+    """
+    records = [{'path': name, 'reviewed_blob_sha256': p.sha256_file(Path(repo) / name),
+                'working_tree_sha256': p.sha256_file(Path(repo) / name),
+                'commits_after_reviewed': []} for name in sorted(set(files))]
+    return records, hashlib.sha256(json.dumps(
+        [[item['path'], item['reviewed_blob_sha256']] for item in records],
+        sort_keys=True).encode()).hexdigest()
 
 
 @pytest.fixture
 def approved(checkpoints):                                          # noqa: F811
-    return approved_digests(p.sha256_file(checkpoints['C']))
+    """The approvals of 6.4, filled with the closures this launcher really records."""
+    value = approved_digests(p.sha256_file(checkpoints['C']))
+    value['code'] = dict(value['code'], **{
+        key: closure_of([ENTRY_FILES[module]], None, REPO)[1] for key, module in
+        (('eval', 'tools.exp06_eval'), ('eval_launch', 'tools.exp06_eval_launch'),
+         ('evaluator_exp03', 'eval_yaw_rotation'))})
+    return value
+
+
+REAL_APPROVALS_RECEIPT = launcher.approvals_receipt
 
 
 @pytest.fixture(autouse=True)
@@ -74,13 +108,18 @@ def approvals_gate(monkeypatch):
 
 
 @pytest.fixture
-def bound(monkeypatch):
-    """exp_04's fixture pattern: real field assembly, stubbed git, closures and inventory."""
-    monkeypatch.setattr(p, 'source_closure', lambda module, repo: [module + '.py'])
-    monkeypatch.setattr(p, 'closure_record', lambda files, commit, repo: (
-        [{'path': path, 'reviewed_blob_sha256': 'sha', 'working_tree_sha256': 'sha',
-          'commits_after_reviewed': []} for path in files], 'closure-sha'))
-    monkeypatch.setattr(p, 'data_identity', lambda path, root: {'inventory_sha256': 'data-sha'})
+def bound(monkeypatch, checkpoints):                                # noqa: F811
+    """Real field assembly; only git state and the environment capture are stubbed.
+
+    The closures are the real files of this repository and the data identity is the
+    fixture split's, so the fields the launcher builds are admissible evidence rather
+    than placeholders the comparer would have to be told to ignore.
+    """
+    from test_exp06_compare import data_identity
+    monkeypatch.setattr(p, 'source_closure', lambda module, repo: [ENTRY_FILES[module]])
+    monkeypatch.setattr(p, 'closure_record', closure_of)
+    monkeypatch.setattr(p, 'data_identity', lambda path, root: data_identity(
+        checkpoints['repo'], path, json.loads(Path(path).read_text()), p.sha256_file(path)))
     monkeypatch.setattr(p, 'git_state', lambda repo: {'dirty_outside_worklog': False})
     from tools import exp04_eval_launch as inherited
     monkeypatch.setattr(inherited, '_capture_environment', lambda *a: {'python': '3.8'})
@@ -132,14 +171,16 @@ def test_the_runbook_argv_builds_fields_that_the_comparer_admits(role, checkpoin
     assert fields['training_evidence'] == training
     assert set(fields['mutable_inputs']) == set(comparer.TRAINING_BINDINGS)
     assert fields['checkpoint_role'] == ARMS[role][2] and fields['checkpoint_epoch'] == 12
-    # The same evidence, in a run directory shaped like the ones the evaluator writes.
+    # R4: these fields are the evaluation manifest, and the outputs and completion are
+    # written around them, so the comparer admits what the launcher would have written.
     directory = write_run(tmp_path / 'admit' / role, role, 42, checkpoints, SPLIT,
-                          route='exp06')
+                          route='exp06', launched=fields)
     recorded = json.loads((directory / 'eval_manifest.json').read_text())
-    assert recorded['mutable_inputs'] == fields['mutable_inputs']
+    assert recorded == json.loads(json.dumps(fields, sort_keys=True))
     run = comparer.admit_run(directory, role, approved, SPLIT, roles=ROLES)
     assert run['role'] == role and run['checkpoint']['route'] == 'exp06'
     assert run['checkpoint']['epoch'] == 12
+    assert run['checkpoint']['sha256'] == fields['checkpoint_sha256']
 
 
 @pytest.mark.parametrize('role', ['C', 'B'])
@@ -190,3 +231,23 @@ def test_a_receipt_with_a_stale_artefact_never_launches_arm_b(checkpoints, tmp_p
             launcher.training_evidence(args)
     finally:
         (train / 'history.jsonl').write_bytes(original)
+
+
+def test_the_runbook_names_the_approvals_the_producer_gate_reads(checkpoints,  # noqa: F811
+                                                                 tmp_path, monkeypatch):
+    """R4: the runbook supplies --approved and --approved-commit, and both reach 6.4."""
+    seen = {}
+    monkeypatch.setattr(launcher.approvals_api, 'enforce_producer',
+                        lambda *a, **k: seen.update(a=a, k=k) or {'deviations': []})
+    args = launcher.parse_args(argv_for('C', checkpoints, tmp_path))
+    assert args.approved == str(Path(approvals_api.approved_path_default()).resolve())
+    assert args.approved_commit == HEAD
+    assert REAL_APPROVALS_RECEIPT(args, REPO) == {'deviations': []}
+    assert seen['a'] == ('sim_eval', REPO, HEAD)
+    assert seen['k'] == {'approved_path': args.approved, 'checkpoint': args.checkpoint}
+    # Arm B's weights are not the approved epoch_012, and its approvals may be named at
+    # any reviewed commit the runbook passes.
+    other = launcher.parse_args(argv_for('B', checkpoints, tmp_path))
+    other.approved_commit = 'b' * 40
+    REAL_APPROVALS_RECEIPT(other, REPO)
+    assert seen['a'][2] == 'b' * 40 and seen['k']['checkpoint'] is None

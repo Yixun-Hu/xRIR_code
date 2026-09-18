@@ -137,8 +137,13 @@ def data_identity(repo, reference, manifest, digest):
 
 def write_run(directory, role, seed, checkpoints, split=SPLIT, manifest_hash=None,
               manifest=None, per_sample=None, completion=None, bad=(), repo=None,
-              queries=None, route=None):
-    """One admissible evaluation run of arm `role`, before the caller's mutations."""
+              queries=None, route=None, launched=None):
+    """One admissible evaluation run of arm `role`, before the caller's mutations.
+
+    `launched` is a manifest the exp_06 launcher built itself (full-review R4): the run is
+    then written around those fields rather than around this fixture's reconstruction of
+    them, so a launcher/comparer disagreement cannot hide between the two.
+    """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     route = (ROLES[role]['route'] or 'exp06') if route is None else route
@@ -194,6 +199,8 @@ def write_run(directory, role, seed, checkpoints, split=SPLIT, manifest_hash=Non
                       mutable_inputs={'train_args': {
                           'path': str(train_args),
                           'sha256': provenance.sha256_file(train_args)}})
+    if launched is not None:
+        fields = copy.deepcopy(launched)      # R4: the launcher's own fields, unedited
     fields.update(manifest or {})
     keys = ('backbone', 'checkpoint', 'manifest_hash', 'gl_seed', 'batch_size', 'tf32',
             'manifest_seed', 'yaw_cols', 'conditions', 'n_samples')
