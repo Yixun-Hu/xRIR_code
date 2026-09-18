@@ -22,6 +22,7 @@ tables below and normalised, so no committed key has to be renamed; the missing
 from collections.abc import Mapping
 import functools
 import importlib
+from pathlib import Path
 import re
 
 MODULE = 'tools.exp06_profiles'
@@ -91,6 +92,23 @@ PRODUCER_OUTPUTS = {
     'compare': (),
     'pages': (),
 }
+# Full-review F3: the `code` keys each producer *executes*, and so must equal at its own
+# reviewed commit. The section matrix above says which leaves must be filled; this says
+# which of them are this producer's own running bytes, so a refusal can name the key.
+PRODUCER_CODE_KEYS = {
+    'heading': ('heading',),
+    'legacy_receipt': ('summarize_haa',),
+    'mirror_probe': ('mirror_probe', 'probe_align', 'encoder', 'factory', 'heading'),
+    'haa_children': ('haa_finetune', 'haa_eval', 'haa_pipeline_sh', 'finalize',
+                     'encoder', 'factory', 'heading', 'recipe'),
+    'summarize_haa': ('summarize_haa',),
+    'sim_eval': ('eval', 'eval_launch', 'encoder', 'factory', 'evaluator_exp03'),
+    'compare': ('compare',),
+    'pages': (),
+}
+# Producers that run every room, and so must offer every approved heading. A producer of
+# one room (the hallway mirror probe) offers that room's heading and is checked on it.
+HEADING_COMPLETE = ('haa_children',)
 # Evidence beyond the approvals each producer binds as well (run directories, not pins).
 PRODUCER_EVIDENCE = {
     'summarize_haa': ('haa job completion.json of every new-arm child',),
@@ -247,20 +265,147 @@ def require_producer(approved, producer, exploratory=False):
     return require(approved, producer_sections(producer), exploratory)
 
 
+def producer_code_keys(producer):
+    """The `code` keys one producer runs; every producer is registered, even with none."""
+    if producer not in PRODUCER_CODE_KEYS:
+        raise ValueError('unknown producer: ' + str(producer))
+    return PRODUCER_CODE_KEYS[producer]
+
+
+def approved_path_default():
+    """The record's committed approvals file, which every production producer reads.
+
+    ``load_approved_digests(None)`` reads the all-null *template*; a producer that meant
+    the record would then refuse for the wrong reason, so the default is named here once.
+    """
+    return str(approvals_module().APPROVED_DIGESTS_PATH)
+
+
+def _sha256_file(path):
+    from tools import provenance
+    return provenance.sha256_file(path)
+
+
+def enforce_producer(producer, repo, commit, approved_path=None, checkpoint=None,
+                     headings=None, exploratory=False):
+    """6.4's fail-closed gate: the committed approvals, and the identities about to run.
+
+    Full-review F3: ``require_producer`` establishes that the leaves a producer needs are
+    *filled*; nothing established that they are **these** bytes. This recomputes the
+    producer's own ``code`` closures at ``commit`` and compares them with the approvals a
+    reviewer committed there, requires every file of those closures to be committed at
+    ``commit`` and to hold **on disk** the bytes that were reviewed there (R1: the digest
+    identifies the blobs, never the checkout that runs), hashes the checkpoint an arm-C
+    producer is about to load
+    against ``artifacts.epoch_012``, and hashes each heading JSON against
+    ``artifacts.heading``. A production caller refuses on any deviation; an exploratory one
+    records them and labels its output diagnostic.
+
+    ``headings`` is ``{room: path}``; every room offered must be a registered one and match,
+    and a producer of :data:`HEADING_COMPLETE` must offer all four -- omitting the mapping
+    is the claim that there are none, never a waiver of that coverage (R5). Returns the
+    receipt a producer records with its output.
+    """
+    keys = producer_code_keys(producer)
+    module = approvals_module()
+    binding = {} if exploratory else {'repo': str(repo), 'commit': commit}
+    approved, receipt = load_approved_digests(approved_path, module=module, **binding)
+    deviations = list(require_producer(approved, producer, exploratory=True))
+    current = code_closures(keys, repo, commit) if keys else {}
+    for key in keys:
+        pinned = approved['code'].get(key)
+        if key not in current:
+            deviations.append('code.{}: not in the checkout at {}'.format(key, commit))
+            continue
+        if pinned is not None and current[key]['sha256'] != pinned:
+            deviations.append('code.{}: this run would execute {}, not the approved {}'
+                              .format(key, current[key]['sha256'], pinned))
+        for record in current[key]['files']:
+            if record.get('reviewed_blob_sha256') is None:
+                deviations.append('code.{}: {} is not committed at {}'.format(
+                    key, record['path'], commit))
+            elif record.get('working_tree_sha256') != record['reviewed_blob_sha256']:
+                deviations.append('code.{}: {} on disk is not the reviewed blob at {}'
+                                  .format(key, record['path'], commit))
+    artifacts = {}
+    if checkpoint is not None:
+        pinned = approved['artifacts']['epoch_012']['sha256']
+        artifacts['epoch_012'] = {'path': str(checkpoint),
+                                  'sha256': _sha256_file(checkpoint)}
+        if pinned is None or artifacts['epoch_012']['sha256'] != pinned:
+            deviations.append('artifacts.epoch_012: {} hashes to {}, not the approved {}'
+                              .format(checkpoint, artifacts['epoch_012']['sha256'], pinned))
+    if headings is None and producer in HEADING_COMPLETE:
+        headings = {}
+    if headings is not None:
+        artifacts['heading'] = {}
+        for room in sorted(set(headings) | set(ROOMS)):
+            if room not in ROOMS:
+                deviations.append('artifacts.heading: {} is not a registered room'.format(room))
+                continue
+            if room not in headings:
+                if producer in HEADING_COMPLETE:
+                    deviations.append('artifacts.heading: no heading given for ' + room)
+                continue
+            pinned = approved['artifacts']['heading'][room]
+            digest = _sha256_file(headings[room])
+            artifacts['heading'][room] = {'path': str(headings[room]), 'sha256': digest}
+            if pinned is None or digest != pinned:
+                deviations.append('artifacts.heading.{}: {} hashes to {}, not the approved '
+                                  '{}'.format(room, headings[room], digest, pinned))
+    record = {'producer': producer, 'keys_checked': list(keys),
+              'approvals': {'path': receipt.get('path'), 'sha256': receipt.get('sha256'),
+                            'committed_at': receipt.get('committed_at')},
+              'artifacts': artifacts, 'deviations': deviations,
+              'exploratory': bool(exploratory),
+              'admissibility': 'diagnostic' if exploratory else 'confirmatory'}
+    if deviations and not exploratory:
+        raise ValueError('the approvals do not admit this {}: {}'.format(
+            producer, '; '.join(deviations)))
+    return record
+
+
 @functools.lru_cache(maxsize=None)
 def _closure(module, repo):
     from tools import provenance
     return tuple(provenance.source_closure(module, repo))
 
 
-def code_digest(key, repo, commit):
-    """``closure_record(source_closure(module) [+ shell files], commit, repo)[1]``."""
+def code_files(key, repo):
+    """The files one ``code`` key's identity is taken over, or a refusal naming the key."""
     if key not in CODE_SOURCES:
         raise ValueError('unknown code key: ' + str(key))
-    from tools import provenance
     module, extra = CODE_SOURCES[key]
-    files = list(_closure(module, str(repo))) if module else []
-    return provenance.closure_record(files + list(extra), commit, repo)[1]
+    return (list(_closure(module, str(repo))) if module else []) + list(extra)
+
+
+def present_code_key(key, repo):
+    """Whether this checkout has the module a key names; a later round's does not."""
+    module, extra = CODE_SOURCES[key]
+    entries = ([module.replace('.', '/') + '.py'] if module else []) + list(extra)
+    return all((Path(repo) / name).is_file() for name in entries)
+
+
+def code_closure(key, repo, commit):
+    """``(file records, digest)``: the reviewed blobs, and the bytes each file has now."""
+    from tools import provenance
+    return provenance.closure_record(code_files(key, repo), commit, repo)
+
+
+def code_closures(keys, repo, commit):
+    """``{key: {'files', 'sha256'}}`` for every requested key this checkout has.
+
+    Full-review R1: the digest alone is an identity of the *reviewed blobs*. The records
+    are what say whether the checkout that is about to execute holds those same bytes, so
+    the gate below reads both from one closure rather than a digest on its own.
+    """
+    return {key: dict(zip(('files', 'sha256'), code_closure(key, repo, commit)))
+            for key in keys if present_code_key(key, repo)}
+
+
+def code_digest(key, repo, commit):
+    """``closure_record(source_closure(module) [+ shell files], commit, repo)[1]``."""
+    return code_closure(key, repo, commit)[1]
 
 
 def compute_code_digests(repo, commit, keys=None):

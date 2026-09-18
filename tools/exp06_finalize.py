@@ -1140,10 +1140,38 @@ def _heading_binding(args, rooms, frame, repo):
     return bound
 
 
+HAA_CODE_KEY = {'haa_train': 'haa_finetune', 'haa_eval': 'haa_eval'}
+
+
+def haa_approvals(closure, run_type, commit, repo, path=None):
+    """Full-review F3: the child ran the approved entry point, at its own reviewed commit.
+
+    ``full_evidence`` binds the approvals through ``verify_approvals``; an HAA child records
+    no ``code_digests`` block of its own, so its single entry-point closure is compared here
+    with the approved ``code.haa_finetune`` / ``code.haa_eval`` committed at the commit the
+    child was reviewed against, and the same binding is recorded in its completion.
+    """
+    # The approvals of the repository being finalised, at the child's own reviewed commit:
+    # `load_approved_digests` refuses anything outside it or untracked there.
+    path = Path(repo) / exp06_profiles.APPROVED_RELATIVE if path is None else Path(path)
+    _require(path.is_file(), 'missing approvals file: {}'.format(path))
+    approved, identity = exp06_profiles.load_approved_digests(path, repo=repo, commit=commit)
+    key = HAA_CODE_KEY[run_type]
+    pinned = approved['code'][key]
+    _require(pinned is not None,
+             'code.{} is not approved at {}'.format(key, commit))
+    _require(closure['sha256'] == pinned, 'the child ran the {} closure {}, not the approved '
+             'code.{} {}'.format(run_type, closure['sha256'], key, pinned))
+    return {'approvals': {'path': str(path), 'sha256': identity['sha256'],
+                          'committed_at': identity.get('committed_at')},
+            'code_digests': {key: pinned}}
+
+
 def haa_child_arguments(run_dir, run_type, repo):
-    """Provenance, closure and argument agreement, shared by both HAA child types."""
+    """Provenance, closure, approvals and argument agreement, shared by both child types."""
     record = load_provenance(run_dir, run_type)
-    verify_source_closure(record, run_type, repo)
+    _, closure = verify_source_closure(record, run_type, repo)
+    admission = haa_approvals(closure, run_type, record['reviewed_commit'], repo)
     revalidate_inputs(record, repo, required=('source_closures',))
     args = _read_json(Path(run_dir) / 'args.json', 'args.json')
     disagreements = exp06_recipe.compare_sources(
@@ -1157,7 +1185,7 @@ def haa_child_arguments(run_dir, run_type, repo):
     registry = registry_sha256()
     _require(record['registry_sha256'] == registry, 'provenance registry_sha256 {!r} is not '
              'the {} of BACKBONES_EXP06 at finalisation'.format(record['registry_sha256'], registry))
-    return record, args
+    return record, args, admission
 
 
 def child_identity(record):
@@ -1223,7 +1251,7 @@ def haa_history(run_dir, args):
 def haa_train_evidence(run_dir, repo):
     """One fine-tuning child of the HAA pipeline (plan section 6.2)."""
     hashes = artifacts(run_dir, HAA_TRAIN_ARTIFACTS)
-    record, args = haa_child_arguments(run_dir, 'haa_train', repo)
+    record, args, admission = haa_child_arguments(run_dir, 'haa_train', repo)
     rooms, frame = _rooms_and_frame(args)
     heading = _heading_binding(args, rooms, frame, repo)
     epochs, summary = haa_history(run_dir, args)
@@ -1239,7 +1267,8 @@ def haa_train_evidence(run_dir, repo):
              'init checkpoint {} does not hash to the recorded init_sha256'.format(resolved))
     return dict(child_identity(record), artifacts=hashes, rooms=rooms, frame=frame,
                 heading=heading, backbone=args['backbone'], init_sha256=args['init_sha256'],
-                seed=args['seed'], best_epoch=summary['best_epoch'], epochs=epochs)
+                seed=args['seed'], best_epoch=summary['best_epoch'], epochs=epochs,
+                **admission)
 
 
 def _numbers(label, values, count):
@@ -1317,7 +1346,7 @@ def haa_metrics(run_dir, name, room, args, per_sample):
 
 def haa_eval_evidence(run_dir, repo):
     """One evaluation child: exactly one room, bound to the checkpoint it actually ran."""
-    record, args = haa_child_arguments(run_dir, 'haa_eval', repo)
+    record, args, admission = haa_child_arguments(run_dir, 'haa_eval', repo)
     rooms, frame = _rooms_and_frame(args)
     _require(len(rooms) == 1, 'an evaluation child covers exactly one room, not {}'.format(rooms))
     room, tag = rooms[0], args.get('tag', '')
@@ -1377,7 +1406,7 @@ def haa_eval_evidence(run_dir, repo):
     haa_metrics(run_dir, names[2], room, args, per_sample)
     return dict(child_identity(record), artifacts=hashes, room=room, frame=frame,
                 heading=heading, seed=args['seed'], backbone=args['backbone'],
-                checkpoint_sha256=digest, samples=len(index))
+                checkpoint_sha256=digest, samples=len(index), **admission)
 
 
 def expected_children(expect):

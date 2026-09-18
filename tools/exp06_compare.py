@@ -25,6 +25,8 @@ from pathlib import Path
 import numpy as np
 
 from tools import exp06_approvals_api as approvals_api
+from tools import exp06_bootstrap
+from tools import exp06_train_evidence
 from tools import paired_compare
 from tools import provenance
 from tools import exp04_profiles, exp05_profiles
@@ -43,6 +45,7 @@ COMPANION_ALPHA = 0.05
 N_BOOT = 20000
 BOOT_SEEDS = (0, 1)
 CONVERGENCE_TOL = 0.10
+CONVERGENCE_FACTOR = 4             # section 7: the draws are quadrupled once, then withheld
 # Finding 1: the registered experiment, taken from exp_04's own frozen registration --
 # the split and its size, the room population, the canonical query digest, the data
 # inventory every run must have read, and the seed-specific K = 8 reference manifests.
@@ -75,13 +78,19 @@ M_CYL = next(arm for arm in exp05_profiles.ARMS if arm['role'] == 'M_cyl')
 # Finding 5: arm B's exp_05 route evaluates one registered tier arm, and that
 # registration -- not the run's own declaration -- says which counts it must record.
 EXP05_M = {'role': M_CYL['role'], 'tier': M_CYL['tier'], 'backbone': M_CYL['backbone'],
-           'sha256': M_CYL['sha256'],
+           'sha256': M_CYL['sha256'], 'epoch': M_CYL['epoch'],
            'counts': exp05_profiles.json_value(M_CYL['counts'])}
+# Full-review F4: `routes` is the closed set 6.3 registers for each role. A is exp_04's
+# reused control evaluation, C is exp_06's own arm, and B is *either* exp_05's M tier or an
+# exp_06 evaluation of the exp_01 cylindrical checkpoint -- never a descriptive exp_04 run.
 ROLES = {'C': {'arm': 'cyl_or', 'checkpoint': None, 'route': 'exp06', 'role': 'arm',
+               'routes': ('exp06',),
                'backbone': 'cylindrical_oriented', 'epoch': EPOCH},
          'A': {'arm': 'control', 'checkpoint': CONTROL, 'route': 'exp04', 'role': 'arm',
+               'routes': ('exp04',),
                'backbone': CONTROL['backbone'], 'epoch': CONTROL['epoch']},
          'B': {'arm': 'cyl', 'checkpoint': CYL, 'route': None, 'role': 'baseline',
+               'routes': ('exp05', 'exp06'),
                'backbone': CYL['backbone'], 'epoch': CYL['epoch'], 'exp05': EXP05_M}}
 CONTRASTS = (('C', 'B'), ('C', 'A'))
 
@@ -228,6 +237,15 @@ def admit_run(run_dir, role, approved, split=SPLIT, check=None, inputs=None,
             'gl_seed == manifest_seed')
     checkpoint = roles[role]['checkpoint']
     epoch = roles[role]['epoch']
+    # Full-review F4: which evaluator wrote this run decides what evidence it must carry, so
+    # the route is established before the checkpoint block that depends on it.
+    route = route_of(fields, roles[role]['route'])
+    require(route in ROUTES, 'unknown evaluator route: ' + str(route))
+    registered = tuple(roles[role]['routes'])
+    require(route in registered, 'arm {} is admitted only through the registered route{} {},'
+            ' not {}'.format(role, '' if len(registered) == 1 else 's',
+                             '/'.join(registered), route))
+    exp06 = route == 'exp06'
     actual = bind(fields['checkpoint'], fields.get('checkpoint_sha256'))
     require(fields.get('backbone') == roles[role]['backbone'],
             'backbone is not the registered {} of arm {}'.format(roles[role]['backbone'],
@@ -244,16 +262,16 @@ def admit_run(run_dir, role, approved, split=SPLIT, check=None, inputs=None,
                 'checkpoint path')
         # Finding 4: a historical manifest records no epoch; its registration does, and a
         # declared one that contradicts the registration is never published as the arm's.
-        require(fields.get('checkpoint_epoch', epoch) == epoch, 'checkpoint_epoch')
+        # Full-review F4: that exception is the reused exp_04/exp_05 routes'. An exp_06
+        # evaluation writes `checkpoint_epoch` itself, so an absent one is a refusal.
+        require(fields.get('checkpoint_epoch', None if exp06 else epoch) == epoch,
+                'checkpoint_epoch')
     closures = fields.get('source_closures') or {}
     evaluator = fields.get('evaluator_closure') or {}
     require(_closure_digest(evaluator) == evaluator.get('sha256'), 'evaluator closure digest')
     pinned = (approved or {}).get('code', {})
     require(evaluator.get('sha256') == pinned.get('evaluator_exp03'),
             'evaluator closure is not the pinned exp_03 one')
-    route = route_of(fields, roles[role]['route'])
-    require(route in ROUTES, 'unknown evaluator route: ' + str(route))
-    exp06 = route == 'exp06'
     names = ('entrypoint', 'writer', 'writer_exp06') if exp06 else ('entrypoint', 'writer')
     require(set(closures) >= set(names), 'source_closures ' + ', '.join(names))
     for name in names:
@@ -291,7 +309,15 @@ def admit_run(run_dir, role, approved, split=SPLIT, check=None, inputs=None,
                 'metric type ' + metric)
     for failure in _check_metrics_reconciliation(label, run):
         require(False, 'reconciliation ' + failure)
-    check_evidence(fields, directory, digest, require, bind, stats, route, split)
+    # Full-review F2: which training run this arm's weights came out of, and how it is
+    # established -- the approved epoch_012 artifact for C, the registered exp_01 arm for B.
+    training = None if not exp06 else {
+        'role': roles[role]['role'],
+        'epoch_sha256': None if checkpoint is not None else
+        ((approved or {}).get('artifacts', {}).get('epoch_012', {}) or {}).get('sha256'),
+        'registered_sha256': None if checkpoint is None else checkpoint['sha256']}
+    check_evidence(fields, directory, digest, require, bind, stats, route,
+                   training=training, split=split)
     check_reference(fields, run, split, require, bind)
     if route == 'exp05':
         run['tier'] = check_exp05_tier(fields, run, completion, actual,
@@ -309,7 +335,8 @@ def _stamp(path):
             status.st_ctime_ns)
 
 
-def check_evidence(fields, directory, digest, require, bind, stats, route, split=SPLIT):
+def check_evidence(fields, directory, digest, require, bind, stats, route, training=None,
+                   split=SPLIT):
     """Finding 4: the applicable `paired_compare.admit_run` evidence, composed here.
 
     The mutable inputs an arm declares, the declared inputs the launcher revalidated at
@@ -349,6 +376,19 @@ def check_evidence(fields, directory, digest, require, bind, stats, route, split
         stats[path] = before
     for record in (fields.get('mutable_inputs') or {}).values():
         bind(root / record['path'], record.get('sha256'))
+    if training is not None and set(TRAINING_BINDINGS) <= names:
+        # Full-review F2: the names were satisfied by any file at all. They are now the same
+        # records tools.exp06_eval_launch validated, re-checked here against this run's own
+        # checkpoint digest, and every artefact the evidence enumerates is bound with it.
+        bound = {name: str(root / (fields['mutable_inputs'][name] or {}).get('path', ''))
+                 for name in TRAINING_BINDINGS}
+        try:
+            exp06_train_evidence.check(
+                training['role'], bound, fields.get('checkpoint_sha256'),
+                epoch_sha256=training.get('epoch_sha256'),
+                registered_sha256=training.get('registered_sha256'), hasher=bind)
+        except (OSError, ValueError, KeyError, TypeError, IndexError) as error:
+            require(False, 'training evidence: {}'.format(error))
 
 
 def check_reference(fields, run, split, require, bind):
@@ -392,6 +432,10 @@ def check_exp05_tier(fields, run, completion, digest, spec, require, bind):
     """
     from tools import exp05_params
     require(isinstance(spec, dict), 'this role has no registered exp_05 tier arm')
+    # Full-review F4: exp_05's evaluator records no `checkpoint_epoch`; the registration it
+    # pins does, so the twelfth-epoch requirement of 6.3 is established from the registry.
+    require(str((spec or {}).get('epoch')) == str(EPOCH),
+            'the registered exp_05 arm is not the twelfth-epoch one')
     require(digest == (spec or {}).get('sha256'),
             'the checkpoint is not the registered exp_05 {}'.format((spec or {}).get('role')))
     require(_equal(fields.get('tier'), (spec or {}).get('tier')),
@@ -482,6 +526,48 @@ def _arrays(runs, metric):
     return np.asarray([run['P']['0'][metric.lower()] for run in runs], dtype=float)
 
 
+def convergence_attempt(draws, n_boot, tol=CONVERGENCE_TOL, alpha=COMPANION_ALPHA):
+    """One attempt of section 7's rule: both companions, the endpoint ratio, and why it failed.
+
+    Full-review F5: ``paired_compare.convergence`` lets two identical zero-width intervals
+    pass, and a ratio of 0/0 is not evidence of convergence. ``exp06_bootstrap`` already
+    implements the plan's stricter endpoint rule (zero width refused), so it decides here
+    while both intervals are recorded either way.
+    """
+    intervals = {seed: tuple(paired_compare.two_sided_interval(draws[seed], alpha))
+                 for seed in BOOT_SEEDS}
+    record = {'n_boot': int(n_boot), 'tolerance': float(tol), 'companion_alpha': alpha,
+              'seed_a': {'seed': BOOT_SEEDS[0], 'lo': float(intervals[BOOT_SEEDS[0]][0]),
+                         'hi': float(intervals[BOOT_SEEDS[0]][1])},
+              'seed_b': {'seed': BOOT_SEEDS[1], 'lo': float(intervals[BOOT_SEEDS[1]][0]),
+                         'hi': float(intervals[BOOT_SEEDS[1]][1])}}
+    try:
+        check = exp06_bootstrap.convergence_endpoints(intervals.get, BOOT_SEEDS[0],
+                                                      BOOT_SEEDS[1], tol)
+    except ValueError as error:
+        return dict(record, passed=False, movement=None, ratio=None, reason=str(error),
+                    width=record['seed_a']['hi'] - record['seed_a']['lo'])
+    return dict(record, passed=bool(check['passed']), movement=check['movement'],
+                ratio=check['ratio'], width=check['width'], reason=None)
+
+
+def converged_draws(draws_for, n_boot=N_BOOT, tol=CONVERGENCE_TOL,
+                    factor=CONVERGENCE_FACTOR, alpha=COMPANION_ALPHA):
+    """Section 7's policy around the inherited resampling; ``tools.paired_compare`` is pinned.
+
+    ``draws_for(seed, n_boot)`` returns that seed's bootstrap samples. A zero-width companion
+    carries no verdict and is refused; on any failure the draws are quadrupled **once**, and a
+    second failure withholds the verdict. Every attempt is recorded for the published JSON.
+    """
+    attempts, draws, size = [], None, int(n_boot)
+    for size in (int(n_boot), int(n_boot) * int(factor)):
+        draws = {seed: draws_for(seed, size) for seed in BOOT_SEEDS}
+        attempts.append(convergence_attempt(draws, size, tol, alpha))
+        if attempts[-1]['passed']:
+            break
+    return draws, size, attempts
+
+
 def contrast_cell(groups, x, y, metric, n_boot=N_BOOT):
     """rho = (mean(x) - mean(y)) / mean(y) on the five-seed means of the shared cohort."""
     a, b = _arrays(groups[x], metric), _arrays(groups[y], metric)
@@ -489,19 +575,22 @@ def contrast_cell(groups, x, y, metric, n_boot=N_BOOT):
     mean_a = paired_compare.five_seed_mean(a)[mask]
     mean_b = paired_compare.five_seed_mean(b)[mask]
     rooms = rooms_from_paths(groups[x][0]['query'])[mask]
+    results = {}
 
-    def compute(seed, clusters=None):
-        return paired_compare.rho_bootstrap(mean_a, mean_b, n_boot=n_boot, seed=seed,
+    def compute(seed, size, clusters=None):
+        return paired_compare.rho_bootstrap(mean_a, mean_b, n_boot=size, seed=seed,
                                             clusters=clusters)
 
-    result = compute(BOOT_SEEDS[0])
-    draws = {BOOT_SEEDS[0]: result.pop('samples')}
-    draws[BOOT_SEEDS[1]] = compute(BOOT_SEEDS[1])['samples']
-    cluster = compute(BOOT_SEEDS[0], rooms)
-    convergence = paired_compare.convergence(
-        lambda seed: paired_compare.two_sided_interval(draws[seed], COMPANION_ALPHA),
-        BOOT_SEEDS[0], BOOT_SEEDS[1], CONVERGENCE_TOL)
-    return {'contrast': '{} - {}'.format(x, y), 'metric': metric, 'rho': result['rho'],
+    def draws_for(seed, size):
+        results[seed] = compute(seed, size)
+        return results[seed].pop('samples')
+
+    draws, size, attempts = converged_draws(draws_for, n_boot)
+    cluster = compute(BOOT_SEEDS[0], size, rooms)
+    convergence = dict(attempts[-1], attempts=attempts,
+                       status='converged' if attempts[-1]['passed'] else 'not_converged')
+    return {'contrast': '{} - {}'.format(x, y), 'metric': metric,
+            'rho': results[BOOT_SEEDS[0]]['rho'],
             'upper': paired_compare.one_sided_upper(draws[BOOT_SEEDS[0]], SUPERIORITY_ALPHA),
             'alpha': SUPERIORITY_ALPHA, 'companion_alpha': COMPANION_ALPHA,
             'companion_interval': list(paired_compare.two_sided_interval(
@@ -509,7 +598,7 @@ def contrast_cell(groups, x, y, metric, n_boot=N_BOOT):
             'room_cluster_interval': list(paired_compare.two_sided_interval(
                 cluster['samples'], COMPANION_ALPHA)),
             'n_rooms_retained': int(len(set(rooms))), 'n': int(mask.sum()),
-            'exclusions': exclusions, 'n_boot': n_boot,
+            'exclusions': exclusions, 'n_boot': size,
             'bootstrap_seeds': list(BOOT_SEEDS), 'convergence': convergence,
             'seed_means': {role: _arrays(groups[role], metric)[:, mask].mean(axis=1).tolist()
                            for role in (x, y)}}

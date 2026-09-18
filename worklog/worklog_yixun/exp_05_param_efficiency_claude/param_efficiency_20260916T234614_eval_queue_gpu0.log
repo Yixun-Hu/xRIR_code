@@ -1,0 +1,45 @@
+2026-09-16T23:46:14-04:00 START L_cylindrical_k8_seed42_k0
+2026-09-16T23:56:37-04:00 END L_cylindrical_k8_seed42_k0 exit=0
+2026-09-16T23:56:37-04:00 START L_cylindrical_k8_seed43_k0
+2026-09-17T00:07:02-04:00 END L_cylindrical_k8_seed43_k0 exit=0
+2026-09-17T00:07:02-04:00 START L_cylindrical_k8_seed44_k0
+2026-09-17T00:17:25-04:00 END L_cylindrical_k8_seed44_k0 exit=0
+2026-09-17T00:17:25-04:00 START L_cylindrical_k8_seed45_k0
+2026-09-17T00:27:51-04:00 END L_cylindrical_k8_seed45_k0 exit=0
+2026-09-17T00:27:51-04:00 START L_cylindrical_k8_seed46_k0
+2026-09-17T00:38:22-04:00 END L_cylindrical_k8_seed46_k0 exit=0
+2026-09-17T00:38:22-04:00 START L_cylindrical_k1_seed42_k0
+2026-09-17T00:44:42-04:00 END L_cylindrical_k1_seed42_k0 exit=0
+2026-09-17T00:44:42-04:00 START L_cylindrical_k1_seed43_k0
+2026-09-17T00:51:00-04:00 END L_cylindrical_k1_seed43_k0 exit=0
+2026-09-17T00:51:00-04:00 START L_cylindrical_k1_seed44_k0
+2026-09-17T00:57:16-04:00 END L_cylindrical_k1_seed44_k0 exit=0
+2026-09-17T00:57:16-04:00 START L_cylindrical_k1_seed45_k0
+2026-09-17T01:03:37-04:00 END L_cylindrical_k1_seed45_k0 exit=0
+2026-09-17T01:03:37-04:00 START L_cylindrical_k1_seed46_k0
+2026-09-17T01:09:53-04:00 END L_cylindrical_k1_seed46_k0 exit=0
+2026-09-17T01:09:53-04:00 START L_cylindrical_k8_seed42_yaw
+2026-09-17T01:47:45-04:00 END L_cylindrical_k8_seed42_yaw exit=0
+2026-09-17T01:47:45-04:00 START L_simple_k8_seed42_k0
+2026-09-17T01:57:48-04:00 END L_simple_k8_seed42_k0 exit=0
+2026-09-17T01:57:48-04:00 START L_simple_k8_seed43_k0
+2026-09-17T02:07:50-04:00 END L_simple_k8_seed43_k0 exit=0
+2026-09-17T02:07:50-04:00 START L_simple_k8_seed44_k0
+2026-09-17T02:17:51-04:00 END L_simple_k8_seed44_k0 exit=0
+2026-09-17T02:17:51-04:00 START L_simple_k8_seed45_k0
+2026-09-17T02:27:53-04:00 END L_simple_k8_seed45_k0 exit=0
+2026-09-17T02:27:53-04:00 START L_simple_k8_seed46_k0
+2026-09-17T02:37:54-04:00 END L_simple_k8_seed46_k0 exit=0
+2026-09-17T02:37:54-04:00 START L_simple_k1_seed42_k0
+2026-09-17T02:44:04-04:00 END L_simple_k1_seed42_k0 exit=0
+2026-09-17T02:44:04-04:00 START L_simple_k1_seed43_k0
+2026-09-17T02:50:15-04:00 END L_simple_k1_seed43_k0 exit=0
+2026-09-17T02:50:15-04:00 START L_simple_k1_seed44_k0
+2026-09-17T02:56:26-04:00 END L_simple_k1_seed44_k0 exit=0
+2026-09-17T02:56:26-04:00 START L_simple_k1_seed45_k0
+2026-09-17T03:02:35-04:00 END L_simple_k1_seed45_k0 exit=0
+2026-09-17T03:02:35-04:00 START L_simple_k1_seed46_k0
+2026-09-17T03:08:45-04:00 END L_simple_k1_seed46_k0 exit=0
+2026-09-17T03:08:45-04:00 START L_simple_k8_seed42_yaw
+2026-09-17T03:45:40-04:00 END L_simple_k8_seed42_yaw exit=0
+EVAL_QUEUE_DONE gpu=0 2026-09-17T03:45:40-04:00

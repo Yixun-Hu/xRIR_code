@@ -412,6 +412,24 @@ def test_the_full_gate_runs_every_arm_and_decides(probe_cache):
 # --- the hash-bound record -------------------------------------------------------------
 
 
+REAL_ENFORCE_APPROVALS = subject.enforce_approvals
+STUB_RECEIPT = {'producer': 'mirror_probe',
+                'keys_checked': list(subject.approvals_api.producer_code_keys('mirror_probe')),
+                'approvals': {'path': 'approved_digests.json', 'sha256': 'a' * 64,
+                              'committed_at': 'c' * 40},
+                'artifacts': {}, 'deviations': [], 'exploratory': False,
+                'admissibility': 'confirmatory'}
+
+
+@pytest.fixture(autouse=True)
+def approvals_gate(monkeypatch):
+    """F3: these tests are about the probe, so 6.4's producer gate is stubbed past.
+
+    The gate itself is exercised below, through ``REAL_ENFORCE_APPROVALS``.
+    """
+    monkeypatch.setattr(subject, 'enforce_approvals', lambda args: dict(STUB_RECEIPT))
+
+
 def canned(monkeypatch, outcome='pass', reproduced=True, during=None):
     cells = {'cyl': {'mirror_cosine': 0.97, 'opposite_side_weight_share': 0.85},
              'control': {'mirror_cosine': 0.44, 'opposite_side_weight_share': 0.24},
@@ -700,3 +718,52 @@ def test_a_handled_input_refusal_exits_one_and_says_so(probe_cache, tmp_path, mo
     with pytest.raises(SystemExit) as usage:
         subject.main(['--not-a-flag'])
     assert usage.value.code == 2
+
+
+# --- F3: 6.4's producer gate runs before any checkpoint is read ---------------------------
+
+
+def test_the_record_publishes_the_approvals_receipt(probe_cache, tmp_path, monkeypatch):
+    canned(monkeypatch)
+    out = tmp_path / 'gate.json'
+    assert subject.main(cli(probe_cache, out)) == 0
+    record = json.loads(out.read_text())
+    assert record['approvals'] == STUB_RECEIPT
+    assert record['admissibility'] == 'confirmatory'
+
+
+def test_the_producer_gate_refuses_before_any_model_is_loaded(probe_cache, tmp_path,
+                                                              monkeypatch):
+    """The committed approvals do not name this synthetic checkpoint, so nothing runs."""
+    monkeypatch.setattr(subject, 'enforce_approvals', REAL_ENFORCE_APPROVALS)
+    loaded = []
+    monkeypatch.setattr(subject, 'state_from_blob',
+                        lambda blob: loaded.append(blob) or {})
+    out = tmp_path / 'gate.json'
+    with pytest.raises(SystemExit) as failure:
+        subject.main(cli(probe_cache, out))
+    assert 'the approvals do not admit this mirror_probe' in str(failure.value)
+    assert loaded == [] and not out.exists()
+
+
+def test_an_exploratory_probe_records_its_deviations_and_is_diagnostic(probe_cache, tmp_path,
+                                                                       monkeypatch):
+    canned(monkeypatch)
+    monkeypatch.setattr(subject, 'enforce_approvals', REAL_ENFORCE_APPROVALS)
+    out = tmp_path / 'gate.json'
+    assert subject.main(cli(probe_cache, out, '--exploratory')) == 0
+    record = json.loads(out.read_text())
+    assert record['admissibility'] == 'diagnostic'
+    assert record['approvals']['exploratory'] is True
+    assert any('artifacts.epoch_012' in item for item in record['approvals']['deviations'])
+    assert record['approvals']['producer'] == 'mirror_probe'
+
+
+def test_the_gate_checks_the_heading_of_the_room_the_probe_runs(probe_cache, tmp_path,
+                                                                monkeypatch):
+    """One room's probe offers one heading; the four-room requirement is the pipeline's."""
+    monkeypatch.setattr(subject, 'enforce_approvals', REAL_ENFORCE_APPROVALS)
+    args = subject.parse_args(cli(probe_cache, tmp_path / 'g.json', '--exploratory'))
+    record = REAL_ENFORCE_APPROVALS(args)
+    assert set(record['artifacts']['heading']) == {'hallway'}
+    assert not any('no heading given' in item for item in record['deviations'])

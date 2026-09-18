@@ -23,6 +23,7 @@ import torch.nn.functional as F
 
 from eval_xRIR_backbone import load_model_state
 from model.xRIR_cyl_oriented import build_xrir_exp06
+from tools import exp06_approvals_api as approvals_api
 from sim_to_real.haa_dataset import DEFAULT_ROOT, HAADataset
 from tools.exp06_heading import GIT_FIELDS, HeadingFrameDataset
 from tools.exp06_heading import _closure_digest as closure_digest
@@ -453,7 +454,34 @@ def parse_args(argv=None):
     parser.add_argument('--num-shot', type=int, default=8)
     parser.add_argument('--cyl-checkpoint', default=LEGACY_CHECKPOINTS['cyl'])
     parser.add_argument('--control-checkpoint', default=LEGACY_CHECKPOINTS['control'])
+    # Full-review F3: 6.4's producer gate. The default approvals are the record's committed
+    # file, never the all-null template; the default commit is this checkout's HEAD.
+    parser.add_argument('--approved', default=None,
+                        help='approvals file (default: the record asset)')
+    parser.add_argument('--approved-commit', default=None,
+                        help='the reviewed commit the approvals must be committed at')
+    parser.add_argument('--exploratory', action='store_true',
+                        help='record approval deviations and label the record diagnostic')
     return parser.parse_args(argv)
+
+
+def enforce_approvals(args):
+    """§6.4: refuse unless the committed approvals are this probe's code and artifacts.
+
+    Run before any checkpoint is read, so an unapproved probe never loads a model, and the
+    receipt it returns is published with the record.
+    """
+    path = (approvals_api.approved_path_default() if args.approved is None
+            else args.approved)
+    commit = (git_state(REPO)['HEAD'] if args.approved_commit is None
+              else args.approved_commit)
+    try:
+        return approvals_api.enforce_producer(
+            'mirror_probe', REPO, commit, approved_path=path,
+            checkpoint=args.cylor_checkpoint, headings={args.room: args.heading_json},
+            exploratory=args.exploratory)
+    except (OSError, ValueError) as error:
+        raise SystemExit('refusing: ' + str(error))
 
 
 def _verified_heading(captured):
@@ -565,7 +593,7 @@ def _source_record():
                 git={key: state[key] for key in GIT_FIELDS}, basis='working_tree')
 
 
-def build_record(args, captured=None):
+def build_record(args, captured=None, approvals=None):
     """Run both parts of 6.1 between one capture of every input and its re-check."""
     captured = capture_inputs(args) if captured is None else captured
     heading = _verified_heading(captured)
@@ -615,6 +643,8 @@ def build_record(args, captured=None):
                'anchors': ANCHORS_LEGACY, 'anchor_tolerance': ANCHOR_TOLERANCE,
                'legacy_reproduction': legacy, 'stats': (gate or {}).get('stats'),
                'decision': decision, 'source_closure': captured['source_closure'],
+               'approvals': approvals,
+               'admissibility': (approvals or {}).get('admissibility', 'confirmatory'),
                'environment': env,
                'timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat()}
     revalidate_inputs(captured)   # no record stands on inputs that moved under it
@@ -628,13 +658,16 @@ def main(argv=None):
     **1 for input refusals**; **2 for argparse usage errors** is argparse's own.
     """
     args = parse_args(argv)
+    approvals = enforce_approvals(args)           # F3: before any checkpoint is read
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)  # prepared before the record's last check
-    record = build_record(args)
+    record = build_record(args, approvals=approvals)
     digest = write_manifest(out, record)          # exclusive create: never an overwrite
     outcome = record['decision']['outcome']
     print(json.dumps({'outcome': outcome, 'out': str(out), 'sha256': digest,
                       'legacy_reproduced': record['legacy_reproduction']['reproduced'],
+                      'admissibility': record['admissibility'],
+                      'approval_deviations': (approvals or {}).get('deviations', []),
                       'reasons': record['decision']['reasons']}))
     return {'pass': EXIT_PASS, 'fail': EXIT_FAIL}.get(outcome, EXIT_INCONCLUSIVE)
 
