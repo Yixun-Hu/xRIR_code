@@ -26,6 +26,7 @@ import numpy as np
 
 from tools import exp06_approvals_api as approvals_api
 from tools import exp06_bootstrap
+from tools import exp06_train_evidence
 from tools import paired_compare
 from tools import provenance
 from tools import exp04_profiles, exp05_profiles
@@ -308,7 +309,15 @@ def admit_run(run_dir, role, approved, split=SPLIT, check=None, inputs=None,
                 'metric type ' + metric)
     for failure in _check_metrics_reconciliation(label, run):
         require(False, 'reconciliation ' + failure)
-    check_evidence(fields, directory, digest, require, bind, stats, route, split)
+    # Full-review F2: which training run this arm's weights came out of, and how it is
+    # established -- the approved epoch_012 artifact for C, the registered exp_01 arm for B.
+    training = None if not exp06 else {
+        'role': roles[role]['role'],
+        'epoch_sha256': None if checkpoint is not None else
+        ((approved or {}).get('artifacts', {}).get('epoch_012', {}) or {}).get('sha256'),
+        'registered_sha256': None if checkpoint is None else checkpoint['sha256']}
+    check_evidence(fields, directory, digest, require, bind, stats, route,
+                   training=training, split=split)
     check_reference(fields, run, split, require, bind)
     if route == 'exp05':
         run['tier'] = check_exp05_tier(fields, run, completion, actual,
@@ -326,7 +335,8 @@ def _stamp(path):
             status.st_ctime_ns)
 
 
-def check_evidence(fields, directory, digest, require, bind, stats, route, split=SPLIT):
+def check_evidence(fields, directory, digest, require, bind, stats, route, training=None,
+                   split=SPLIT):
     """Finding 4: the applicable `paired_compare.admit_run` evidence, composed here.
 
     The mutable inputs an arm declares, the declared inputs the launcher revalidated at
@@ -366,6 +376,19 @@ def check_evidence(fields, directory, digest, require, bind, stats, route, split
         stats[path] = before
     for record in (fields.get('mutable_inputs') or {}).values():
         bind(root / record['path'], record.get('sha256'))
+    if training is not None and set(TRAINING_BINDINGS) <= names:
+        # Full-review F2: the names were satisfied by any file at all. They are now the same
+        # records tools.exp06_eval_launch validated, re-checked here against this run's own
+        # checkpoint digest, and every artefact the evidence enumerates is bound with it.
+        bound = {name: str(root / (fields['mutable_inputs'][name] or {}).get('path', ''))
+                 for name in TRAINING_BINDINGS}
+        try:
+            exp06_train_evidence.check(
+                training['role'], bound, fields.get('checkpoint_sha256'),
+                epoch_sha256=training.get('epoch_sha256'),
+                registered_sha256=training.get('registered_sha256'), hasher=bind)
+        except (OSError, ValueError, KeyError, TypeError, IndexError) as error:
+            require(False, 'training evidence: {}'.format(error))
 
 
 def check_reference(fields, run, split, require, bind):
