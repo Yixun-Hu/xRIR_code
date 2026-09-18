@@ -18,9 +18,11 @@ bash -n tools/exp07_launch.sh || record_status=1
 "$record_python" -m pytest tests/test_exp07_record_tools.py tests/test_exp07_table.py \
     tests/test_exp07_pairs.py tests/test_exp07_profiles.py tests/test_exp07_calibration.py \
     tests/test_exp07_parity.py -q -p no:cacheprovider || record_status=1
-# Both collection orders: the record assets of exp_03, exp_04 and exp_07 share file names.
-"$record_python" -m pytest tests/test_exp07_record_tools.py tests/test_exp04_record_tools.py \
-    tests/test_exp03_record_tools.py -q -p no:cacheprovider || record_status=1
+# Both collection orders: the record assets of exp_03..exp_07 share file names.
+"$record_python" -m pytest tests/test_exp07_record_tools.py tests/test_exp05_record_tools.py \
+    tests/test_exp04_record_tools.py tests/test_exp03_record_tools.py \
+    -q -p no:cacheprovider || record_status=1
 "$record_python" -m pytest tests/test_exp03_record_tools.py tests/test_exp04_record_tools.py \
-    tests/test_exp07_record_tools.py -q -p no:cacheprovider || record_status=1
+    tests/test_exp05_record_tools.py tests/test_exp07_record_tools.py \
+    -q -p no:cacheprovider || record_status=1
 exit "$record_status"

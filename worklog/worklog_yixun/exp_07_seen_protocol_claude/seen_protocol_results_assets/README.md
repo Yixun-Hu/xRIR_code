@@ -159,7 +159,31 @@ Order of operations (the Planner launch sequence; only the steps this directory 
    canonical JSONs, the rendered documents and the parity/calibration/audit evidence, then
    run `check_record.py` and keep its exit 0 with the report.
 
+## Archiving evidence after the record is bound
+
+A certified attempt directory may be moved off this disk -- to the NAS, say -- provided a
+**directory symlink** is left at the path the record published. Identity here is the
+logical path the approval, the manifests, the completions, the products' sidecars and the
+binding report all name, never the resolved one, so `check_record.py` and a fresh bind
+reproduce the report byte for byte after the move and a regenerated document names the
+published path. Digests are unaffected: the bytes are still read, and hashed, through
+that name. An attempt's published name is the one its launcher wrote into
+`train_manifest.json` as `attempt_path`, so binding `ckpt/exp07/<role>/final` and binding
+`ckpt/exp07/<role>/attempt_<ts>full` produce the same record; the approval pins each
+checkpoint through `final`, and the binder matches that pin to the attempt's own output
+by inode.
+
+The same holds for any ancestor: the arm directory (which keeps its `cumulative_hours.json`,
+its `_probe_*.json` receipts, its other attempts and its `final` symlink -- CIFS holds no
+symlinks, so leave that directory where it is if the archive cannot), an evaluation run
+directory, `ckpt/exp07/results` with the products, or `ckpt/exp07` entire. exp_04's table
+and binding report live in that experiment's own directory and are not moved by this.
+What must keep working is reading through the published name, so leave the symlink in
+place and keep each product beside its companion and its sidecar. Archive a directory,
+never its individual files: an entry inside an attempt or run directory that resolves
+outside it is still refused, and so is any change to the bytes.
+
 Run `bash static_checks.sh` from this directory or by its full path: it compiles the assets
 and the exp_07 producers, checks whitespace, and runs the exp_07 suite plus the record-tool
-tests in both collection orders (exp_03, exp_04 and exp_07 ship files of the same name, so
-each experiment loads its own by path under its own `sys.modules` key).
+tests in both collection orders (exp_03, exp_04, exp_05 and exp_07 ship files of the same
+name, so each experiment loads its own by path under its own `sys.modules` key).
