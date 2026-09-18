@@ -150,6 +150,13 @@ def _closure_digest(files):
                                       for item in files], sort_keys=True).encode()).hexdigest()
 
 
+def _object_type(repo, identifier):
+    """What git calls this object in ``repo``: ``commit``, ``tree``, ``blob`` or nothing."""
+    found = subprocess.run(['git', 'cat-file', '-t', identifier],
+                           cwd=str(repo), capture_output=True, text=True)
+    return found.stdout.strip() if found.returncode == 0 else None
+
+
 def _reviewed_blob(repo, commit, path):
     """The blob of ``path`` at ``commit``, hashed as ``closure_record`` hashes it."""
     blob = subprocess.run(['git', 'show', '{}:{}'.format(commit, path)],
@@ -163,7 +170,9 @@ def check_producer(closure, repo=REPO):
     ``verify`` used to read two summary flags -- ``strict`` and ``drift`` -- so a receipt
     carrying ``{"strict": true}`` and nothing else claimed a clean producer it never had.
     A producer closure is evidence only if it *is* one: this tool's own entry module, a
-    real commit, the non-empty membership :func:`source_identity` records, the digest
+    real commit -- a git **commit** object, since forty hex digits name a tree or a blob
+    just as well and ``git show <tree>:<path>`` reads the very same reviewed blobs (close
+    review 2) -- the non-empty membership :func:`source_identity` records, the digest
     ``closure_record`` computes over it, records that do not differ from the reviewed
     blobs, and reviewed blobs that are the blobs of those paths **at that commit** -- a
     historical commit as readily as HEAD, since a receipt is written once and read later.
@@ -180,6 +189,9 @@ def check_producer(closure, repo=REPO):
     commit = closure.get('commit')
     _require(isinstance(commit, str) and COMMIT.match(commit),
              'the producer closure records no commit ({!r})'.format(commit))
+    kind = _object_type(repo, commit)
+    _require(kind == 'commit', 'the producer closure records {}, which is not a commit in '
+             '{} but {}'.format(commit[:12], repo, kind or 'no object at all'))
     files = closure.get('files')
     _require(isinstance(files, list) and files,
              'the producer closure enumerates no source file of ' + ENTRY_MODULE)
