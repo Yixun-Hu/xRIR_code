@@ -36,6 +36,7 @@ import uuid
 from pathlib import Path
 
 from tools import exp04_eval_launch as launcher
+from tools import exp06_approvals_api as approvals_api
 from tools import exp06_eval as evaluator
 from tools import exp06_heading
 from tools import exp06_train_evidence as evidence
@@ -61,11 +62,19 @@ def parse_args(argv=None):
     parser.add_argument('--gpu', default='1')
     parser.add_argument('--allow-dirty', action='store_true')
     parser.add_argument('--bind-input', action='append', default=[], metavar='NAME=PATH')
+    # Full-review F3: 6.4's producer gate. The default approvals are the record's committed
+    # file, never the all-null template; the default commit is this run's reviewed one.
+    parser.add_argument('--approved', default=None,
+                        help='approvals file (default: the record asset)')
+    parser.add_argument('--approved-commit', default=None,
+                        help='the reviewed commit the approvals must be committed at')
     args = parser.parse_args(argv)
     if args.eval_manifest is not None:
         parser.error('eval-manifest is created by the launcher')
     for key in ('out_dir', 'checkpoint', 'manifest', 'data_root', 'log_dir'):
         setattr(args, key, str(Path(getattr(args, key)).resolve()))
+    if args.approved is not None:
+        args.approved = str(Path(args.approved).resolve())
     args.eval_manifest = str(Path(args.out_dir) / 'eval_manifest.json')
     return args
 
@@ -116,6 +125,23 @@ def training_evidence(args, hasher=p.sha256_file):
     return evidence.check(args.checkpoint_role, bound, hasher(args.checkpoint))
 
 
+def approvals_receipt(args, repo):
+    """Full-review F3: 6.4's `sim_eval` gate, before execute_run creates anything.
+
+    The evaluator, the launcher, the encoder, the factory and the pinned exp_03 evaluator
+    must be the approved closures at this run's reviewed commit, and arm C's weights must
+    be the approved ``artifacts.epoch_012``. Arm B evaluates exp_01's published checkpoint,
+    which is not that artifact: its identity is the registered sha the comparer pins and
+    the reconstructed receipt ``training_evidence`` validates.
+    """
+    path = (approvals_api.approved_path_default() if args.approved is None
+            else args.approved)
+    commit = args.approved_commit or args.reviewed_commit
+    return approvals_api.enforce_producer(
+        'sim_eval', repo, commit, approved_path=path,
+        checkpoint=args.checkpoint if args.checkpoint_role == 'arm' else None)
+
+
 def child_command(args, repo):
     """Serialize only evaluator arguments, retaining empty grids and bool flags."""
     command = [sys.executable, str(Path(repo) / (evaluator.__name__.replace('.', '/') + '.py'))]
@@ -145,10 +171,11 @@ def check_fields(args, fields):
     return fields
 
 
-def build_fields(args, command, repo, training=None):
-    """exp_04's fields, plus this launcher's closure, bindings and training evidence."""
+def build_fields(args, command, repo, training=None, approvals=None):
+    """exp_04's fields, plus this launcher's closure, bindings and both F2/F3 receipts."""
     inherited, own = split_bindings(args)
     training = training_evidence(args) if training is None else training
+    approvals = approvals_receipt(args, repo) if approvals is None else approvals
     delegate = copy.copy(args)
     delegate.bind_input = inherited
     fields = evaluator.build_fields(delegate, command, repo)
@@ -164,6 +191,7 @@ def build_fields(args, command, repo, training=None):
             raise ValueError('duplicate mutable input: ' + name)
         fields['mutable_inputs'][name] = binding
     fields['training_evidence'] = training
+    fields['approvals'] = approvals
     return check_fields(args, fields)
 
 
@@ -276,9 +304,10 @@ def main(argv=None):
     repo = Path(__file__).resolve().parents[1]
     split_bindings(args)                     # refuse a bad binding before anything is created
     training = training_evidence(args)       # F2: and before execute_run makes the run dir
+    approvals = approvals_receipt(args, repo)  # F3: 6.4's gate, before anything is created
     command = child_command(args, repo)
     completion = launcher.execute_run(
-        args, command, lambda: build_fields(args, command, repo, training), repo)
+        args, command, lambda: build_fields(args, command, repo, training, approvals), repo)
     quarantined = certify_outputs(Path(args.out_dir), completion)
     if quarantined is not None:
         print('EXP06_EVAL_QUARANTINED ' + str(quarantined), file=sys.stderr, flush=True)

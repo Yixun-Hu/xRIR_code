@@ -96,6 +96,25 @@ def training_bindings(run):
             '--bind-input', 'train_completion=' + str(run / 'completion.json')]
 
 
+REAL_APPROVALS_RECEIPT = subject.approvals_receipt
+STUB_RECEIPT = {'producer': 'sim_eval',
+                'keys_checked': list(subject.approvals_api.producer_code_keys('sim_eval')),
+                'approvals': {'path': 'approved_digests.json', 'sha256': 'a' * 64,
+                              'committed_at': 'c' * 40},
+                'artifacts': {}, 'deviations': [], 'exploratory': False,
+                'admissibility': 'confirmatory'}
+
+
+@pytest.fixture(autouse=True)
+def approvals_gate(monkeypatch):
+    """F3: these tests are about the launcher, so 6.4's producer gate is stubbed past.
+
+    The gate itself is exercised below, through ``REAL_APPROVALS_RECEIPT``.
+    """
+    monkeypatch.setattr(subject, 'approvals_receipt',
+                        lambda args, repo: dict(STUB_RECEIPT))
+
+
 @pytest.fixture
 def bound(monkeypatch):
     """exp_04's own fixture pattern: real field assembly, stubbed git and inventory."""
@@ -491,3 +510,46 @@ def test_a_provenance_that_is_not_the_one_the_completion_bound_is_refused(launch
     args = launch_args(*training_bindings(pretraining))
     with pytest.raises(ValueError, match='the completion bound'):
         subject.training_evidence(args)
+
+
+# --- F3: 6.4's `sim_eval` gate runs before the run directory exists -----------------------
+
+
+def test_the_manifest_publishes_the_approvals_receipt(launch_args, pretraining, bound):
+    args = launch_args(*training_bindings(pretraining))
+    fields = subject.build_fields(args, subject.child_command(args, ROOT), ROOT)
+    assert fields['approvals'] == STUB_RECEIPT
+
+
+def test_the_producer_gate_refuses_an_unapproved_sim_evaluation(launch_args, pretraining,
+                                                                monkeypatch):
+    """The committed approvals do not name this synthetic checkpoint, so nothing is made."""
+    monkeypatch.setattr(subject, 'approvals_receipt', REAL_APPROVALS_RECEIPT)
+    created = []
+    monkeypatch.setattr(subject.launcher, 'execute_run',
+                        lambda *arguments: created.append(arguments) or {})
+    args = launch_args(*training_bindings(pretraining))
+    with pytest.raises(ValueError, match='the approvals do not admit this sim_eval'):
+        subject.main(['--backbone', args.backbone, '--checkpoint', args.checkpoint,
+                      '--manifest', args.manifest, '--manifest-hash', args.manifest_hash,
+                      '--out-dir', args.out_dir, '--log-dir', args.log_dir,
+                      '--data-root', args.data_root, '--run-label', 'x',
+                      '--reviewed-commit', 'HEAD', '--num-shot', '8',
+                      '--checkpoint-epoch', '12'] + training_bindings(pretraining))
+    assert created == [] and not Path(args.out_dir).exists()
+
+
+def test_the_baseline_arm_is_not_gated_on_the_epoch_012_artifact(launch_args, monkeypatch):
+    """Arm B evaluates exp_01's weights; its identity is the registered sha, not epoch_012."""
+    monkeypatch.setattr(subject, 'approvals_receipt', REAL_APPROVALS_RECEIPT)
+    seen = {}
+    monkeypatch.setattr(subject.approvals_api, 'enforce_producer',
+                        lambda *a, **k: seen.update(a=a, k=k) or dict(STUB_RECEIPT))
+    args = launch_args('--checkpoint-role', 'baseline')
+    assert subject.approvals_receipt(args, ROOT) == STUB_RECEIPT
+    assert seen['a'][:3] == ('sim_eval', ROOT, args.reviewed_commit)
+    assert seen['k']['checkpoint'] is None
+    assert seen['k']['approved_path'] == subject.approvals_api.approved_path_default()
+    arm = launch_args('--checkpoint-role', 'arm')
+    subject.approvals_receipt(arm, ROOT)
+    assert seen['k']['checkpoint'] == arm.checkpoint

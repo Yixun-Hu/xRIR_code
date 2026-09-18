@@ -54,6 +54,16 @@ def approved(checkpoints):                                          # noqa: F811
     return approved_digests(p.sha256_file(checkpoints['C']))
 
 
+@pytest.fixture(autouse=True)
+def approvals_gate(monkeypatch):
+    """F3's producer gate has its own tests; here the runbook's argv is under test."""
+    monkeypatch.setattr(launcher, 'approvals_receipt', lambda args, repo: {
+        'producer': 'sim_eval', 'keys_checked': [], 'deviations': [], 'artifacts': {},
+        'approvals': {'path': 'approved_digests.json', 'sha256': 'a' * 64,
+                      'committed_at': 'c' * 40},
+        'exploratory': False, 'admissibility': 'confirmatory'})
+
+
 @pytest.fixture
 def bound(monkeypatch):
     """exp_04's fixture pattern: real field assembly, stubbed git, closures and inventory."""
