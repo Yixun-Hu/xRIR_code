@@ -412,3 +412,20 @@ def test_a_receipt_written_at_an_older_commit_is_still_evidence(train, tmp_path)
     identity = producer_identity(commit=history[-1])
     build(train, tmp_path / 'receipt.json', identity)
     assert subject.verify(tmp_path / 'receipt.json')['epochs'] == EPOCHS
+
+
+def test_a_closure_that_does_not_record_the_writer_itself_is_refused(train, tmp_path,
+                                                                     identity):
+    """The floor of membership: whatever else it lists, it lists the producer's own source.
+
+    A closure of `tools/provenance.py` alone is internally consistent and its blob is real,
+    and it says nothing about the bytes that wrote the receipt.
+    """
+    files = [item for item in identity['files']
+             if item['path'] != 'tools/exp06_legacy_train_receipt.py']
+    assert files and len(files) < len(identity['files'])
+    closure = dict(identity, files=files, sha256=closure_digest(files))
+    record, _ = build(train, tmp_path / 'receipt.json', identity)
+    damaged = rewritten(record, tmp_path / 'truncated.json', source_closure=closure)
+    with pytest.raises(ValueError, match='exp06_legacy_train_receipt.py'):
+        subject.verify(damaged)
