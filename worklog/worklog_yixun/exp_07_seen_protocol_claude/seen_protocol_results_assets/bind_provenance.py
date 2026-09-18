@@ -41,12 +41,12 @@ from tools.exp04_record import load_asset as exp04_asset
 from tools.exp07_eval_launch import OUTPUTS as EVAL_OUTPUTS, SPLIT_FIELDS
 from tools.exp07_profiles import (ARMS, EVAL_SEEDS, RELEASED_SHA256, get_profile,
                                   load_approved_digests)
-from tools.exp07_record import load_asset
+from tools.exp07_record import identical, load_asset, logical
 from tools.paired_compare import _closure_digest, producer_identity
 
 binder = exp04_asset('bind_provenance')
 md = load_asset('make_results_md')
-ROOT, require, stamp, snapshot = binder.ROOT, binder.require, binder.stamp, binder.snapshot
+ROOT, require = binder.ROOT, binder.require
 check_ancestor, report_path = binder.check_ancestor, binder.report_path
 TRAINING = ('train_args', 'train_manifest', 'train_completion')
 RELEASED = next(arm['checkpoint'] for arm in ARMS if arm['reference'])
@@ -62,6 +62,39 @@ EVIDENCE = ('gpu_parity', 'calibration')  # --evidence NAME=PATH, both required
 CALIBRATION = profiles.CALIBRATION
 CALIBRATION_METRICS = profiles.CALIBRATION_METRICS
 SEEN_BATCHES = launcher.TRAIN_BATCHES['seen']
+
+
+def stamp(path, *expected):
+    """The inherited digest check, recorded at the logical path."""
+    return dict(binder.stamp(path, *expected), path=str(logical(path)))
+
+
+def snapshot(directory, kind):
+    """The inherited snapshot -- listing, outputs, revalidation -- recorded logically.
+
+    Everything it validates (a directory listing that is exactly the completion's, no
+    output entry resolving outside the directory, every declared input at its recorded
+    digest) is unchanged; only the names it hands back are, so a relocated run keeps the
+    paths its own manifest, completion and consumers already name.  A training attempt is
+    reached through the arm's `final` symlink and, once archived, through a directory
+    symlink as well, so neither route is its name: the launcher wrote that name into the
+    manifest, the completion hash-binds the manifest, and it must still be this very
+    directory -- which is a question about inodes, not about spelling.
+    """
+    bound_record, fields = binder.snapshot(directory, kind)
+    named = fields.get('attempt_path') if kind == 'train' else None
+    directory = logical(named or directory)
+    require(named is None or identical(directory, bound_record['path']),
+            'the manifest does not name this attempt directory: ' + str(directory))
+    log = json.loads(Path(bound_record['completion']['path']).read_text())['log']
+    return dict(bound_record, path=str(directory),
+                manifest=dict(bound_record['manifest'],
+                              path=str(directory / (kind + '_manifest.json'))),
+                completion=dict(bound_record['completion'],
+                                path=str(directory / 'completion.json')),
+                outputs={name: item and dict(item, path=str(directory / name))
+                         for name, item in bound_record['outputs'].items()},
+                log=stamp(Path(fields['repo']) / log['path'], log['sha256'])), fields
 
 
 def external_log(reference, digest=None, mandatory=False):
@@ -136,11 +169,11 @@ def other_attempts(certified, ledger, role):
     here at their current bytes, so a later change to any of them changes the report and
     check_record.py fails.
     """
-    root = Path(certified).parent
+    root = logical(certified).parent
     records = []
     for row in sorted(ledger['attempts'], key=lambda item: item['attempt']):
-        directory = (root / row['attempt']).resolve()
-        if directory == Path(certified).resolve():
+        directory = logical(root / row['attempt'])
+        if directory == logical(certified):
             continue
         require(directory.is_dir(), 'the ledger names a missing attempt: ' + row['attempt'])
         files = sorted(item for item in directory.rglob('*') if item.is_file())
@@ -167,7 +200,7 @@ def probe_linkage(records, receipts):
     named = {}
     for receipt in receipts:
         bound = (json.loads(Path(receipt['path']).read_text()).get('probe_attempt') or {})
-        path = str(Path(bound.get('path', 'absent')).resolve())
+        path = str(logical(bound.get('path', 'absent')))
         require(path in probes,
                 'a probe receipt names an attempt this arm does not list: ' + receipt['path'])
         require(path not in named, 'two probe receipts name one attempt: ' + path)
@@ -325,14 +358,21 @@ def audit_record(path, head):
 
 
 def attempt_record(attempt, pins):
-    """One arm's full run, the evidence its limits came from, and its hours ledger."""
+    """One arm's full run, the evidence its limits came from, and its hours ledger.
+
+    tools/exp07_profiles.py pins each checkpoint through the arm's `final` symlink while
+    this report binds the attempt the launcher named: whether the pin and the attempt's
+    own output are one file is the filesystem's question, asked by inode, and the path
+    recorded is the attempt's.  A pin spelled any other way is honoured the same way.
+    """
     record, fields = snapshot(attempt, 'train')
     directory = Path(record['path'])
-    roles = [role for role, pin in pins['checkpoints'].items()
-             if (ROOT / pin['path']).resolve().parent == directory]
+    roles = [role for role, pin in sorted(pins['checkpoints'].items())
+             if identical(ROOT / pin['path'], directory / Path(pin['path']).name)]
     require(len(roles) == 1, 'attempt is not exactly one approved arm: ' + str(directory))
     role = roles[0]
-    checkpoint = stamp(ROOT / pins['checkpoints'][role]['path'], pins['checkpoints'][role]['sha256'])
+    checkpoint = stamp(directory / Path(pins['checkpoints'][role]['path']).name,
+                       pins['checkpoints'][role]['sha256'])
     require(record['outputs'].get(Path(checkpoint['path']).name) == checkpoint,
             'approved checkpoint is not this attempt\'s output: ' + role)
     require(fields.get('protocol') == 'seen' and
@@ -387,17 +427,17 @@ def run_declarations(record, fields):
              [item for item in record['outputs'].values() if item]}
     for path_key, digest_key in (('checkpoint', 'checkpoint_sha256'),
                                  ('manifest_path', 'manifest_file_sha256')):
-        bound[str((root / fields[path_key]).resolve())] = fields[digest_key]
+        bound[str(logical(root / fields[path_key]))] = fields[digest_key]
     identity = fields['data_identity']
     if 'manifest_path' in identity:
-        bound[str(Path(identity['manifest_path']).resolve())] = identity['manifest_file_sha256']
+        bound[str(logical(identity['manifest_path']))] = identity['manifest_file_sha256']
     for item in identity['inventory']:
-        bound[str((Path(identity['data_root']) / item['path']).resolve())] = item['sha256']
+        bound[str(logical(Path(identity['data_root']) / item['path']))] = item['sha256']
     for closure in [fields['evaluator_closure']] + list(fields['source_closures'].values()):
         for item in closure['files']:
-            bound[str((root / item['path']).resolve())] = item['working_tree_sha256']
+            bound[str(logical(root / item['path']))] = item['working_tree_sha256']
     for item in fields['mutable_inputs'].values():
-        bound[str((root / item['path']).resolve())] = item['sha256']
+        bound[str(logical(root / item['path']))] = item['sha256']
     return bound
 
 
@@ -413,7 +453,7 @@ def run_record(run, attempts, released):
     require(type(seed) is int and type(shot) is int, 'run K/seed identity: ' + str(run))
     identity = dict(seen_split=split, num_shot=shot, seed=seed,
                     bound=run_declarations(record, fields))
-    checkpoint = (Path(fields['repo']) / fields['checkpoint']).resolve()
+    checkpoint = logical(Path(fields['repo']) / fields['checkpoint'])
     owners = [item for item in attempts if Path(item['checkpoint']['path']) == checkpoint]
     if not owners:
         require(Path(released['path']) == checkpoint and
@@ -427,7 +467,7 @@ def run_record(run, attempts, released):
                           ('train_completion', owner['completion'])):
         require(stamp(Path(fields['repo']) / bound[key]['path'], bound[key]['sha256']) == expected,
                 'training linkage: ' + str(run))
-    require(Path(bound['train_args']['path']).resolve().parent == Path(owner['path']),
+    require(logical(bound['train_args']['path']).parent == Path(owner['path']),
             'train_args linkage: ' + str(run))
     return dict(record, role=owner['role'], **identity)
 
@@ -456,7 +496,7 @@ def product_dependencies(expected, roles, trained, run_bound, approval):
 def producer_declarations(producer):
     """The producer's own source files; the approved closure digest pins the list."""
     require(_closure_digest(producer) == producer['sha256'], 'producer closure records')
-    return {str((ROOT / item['path']).resolve()): item['working_tree_sha256']
+    return {str(logical(ROOT / item['path'])): item['working_tree_sha256']
             for item in producer['files']}
 
 
@@ -499,7 +539,7 @@ def bind_results(paths, head, approval, runs, attempts, run_bound):
     for run in runs:
         by_role.setdefault(run['role'], set()).add(run['path'])
     records = []
-    for path in sorted(str(Path(item).resolve()) for item in paths):
+    for path in sorted(str(logical(item)) for item in paths):
         name = json.loads(Path(path).read_bytes()).get('profile_name')
         require(name in md.KEYS, 'unregistered producer output: ' + path)
         data, receipt = md.load(path, name)
@@ -571,11 +611,11 @@ def collect(runs, attempt, audit, evidence, results, rendered, unseen_table, uns
     require(pins['schema_version'] == 1, 'approval pins are not final')
     approval = dict(identity, blob=json.loads(Path(identity['path']).read_text()))
     require(stamp(identity['path'])['sha256'] == identity['sha256'], 'approval digest mismatch')
-    released = stamp((ROOT / RELEASED).resolve(), RELEASED_SHA256)
+    released = stamp(ROOT / RELEASED, RELEASED_SHA256)
     attempts = sorted((attempt_record(item, pins) for item in attempt), key=lambda a: a['role'])
     require(sorted(a['role'] for a in attempts) == sorted(pins['checkpoints']),
             'every approved arm must be bound exactly once')
-    paths = sorted(str(Path(item).resolve()) for item in runs)
+    paths = sorted(str(logical(item)) for item in runs)
     require(len(paths) == len(set(paths)) and len(paths) == len(IDENTITIES),
             'the forty evaluation runs')
     records = [run_record(item, attempts, released) for item in paths]
@@ -594,7 +634,7 @@ def collect(runs, attempt, audit, evidence, results, rendered, unseen_table, uns
     unseen, unseen_receipt = md.load_unseen(unseen_table, unseen_binding)
     cited = [item['sha256'] for item in published] + [unseen_receipt['sha256']]
     documents = []
-    for path in sorted(str(Path(item).resolve()) for item in rendered):
+    for path in sorted(str(logical(item)) for item in rendered):
         text = Path(path).read_text(errors='replace')
         require(all(digest in text for digest in cited),
                 'a rendered document does not cite every canonical digest: ' + path)
@@ -608,12 +648,12 @@ def collect(runs, attempt, audit, evidence, results, rendered, unseen_table, uns
                             binding_report=stamp(unseen_binding,
                                                  unseen_receipt['binding_report']['sha256'])),
                 inputs=dict(runs=paths, attempt=[item['path'] for item in attempts],
-                            audit=str(Path(audit).resolve()), evidence=sorted(evidence),
+                            audit=str(logical(audit)), evidence=sorted(evidence),
                             approved=identity['path'],
-                            unseen_table=str(Path(unseen_table).resolve()),
-                            unseen_binding=str(Path(unseen_binding).resolve()),
-                            rendered=sorted(str(Path(item).resolve()) for item in rendered),
-                            results=sorted(str(Path(item).resolve()) for item in results)))
+                            unseen_table=str(logical(unseen_table)),
+                            unseen_binding=str(logical(unseen_binding)),
+                            rendered=sorted(str(logical(item)) for item in rendered),
+                            results=sorted(str(logical(item)) for item in results)))
 
 
 def main(argv=None):

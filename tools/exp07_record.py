@@ -27,6 +27,26 @@ def load_asset(name):
     return sys.modules[key]
 
 
+def logical(path):
+    """A path as the record spells it: absolute and normalised, never resolved.
+
+    A certified attempt -- or any ancestor of one, the products directory included -- is
+    archived behind a directory symlink once the record is published, so the name the
+    approval, the manifests, the sidecars and the binding report all give a file stays
+    its name here too, and the documents this evidence is written into keep saying what
+    the report says.  The bytes are still read, and digest-checked, through it.
+    """
+    return Path(os.path.abspath(str(path)))
+
+
+def identical(one, other):
+    """Two names for one file: relocation, and `final`, keep the inode, not the spelling."""
+    try:
+        return Path(one).samefile(Path(other))
+    except OSError:
+        return False
+
+
 def write_outputs(result, admitted, json_path, md_path, renderer, force_md=False, command=()):
     """exp_04's publication transaction with the document renderer supplied by the caller.
 

@@ -21,6 +21,8 @@ from tools.paired_compare import _closure_digest
 from test_paired_compare import _canonical_digest, _read, _replace, _rebind, _summaries
 
 METRICS = ('edt', 'c50', 't60', 'loss', 'log_mse')
+# The certified attempt directory, named as tools/exp07_launch.sh full names one.
+ATTEMPT = 'attempt_20260917T034540full'
 SCALES = dict(seen_simple=1.0, seen_cyl=.94, seen_aug=1.08, released_seen=1.21)
 
 
@@ -116,7 +118,9 @@ def exp07_fixture(tmp_path):
         paths, attempts = {}, {}
         for arm in profile['arms']:
             role = arm['role']
-            attempt = root / role / 'final'
+            # tools.exp04_launcher names the attempt and promotes `final` to it; the
+            # released reference has no attempt, only a directory holding its checkpoint.
+            attempt = root / role / ('release' if arm['reference'] else ATTEMPT)
             attempt.mkdir(parents=True)
             attempts[role] = attempt
             checkpoint = attempt / 'epoch_012.pth'
@@ -126,7 +130,13 @@ def exp07_fixture(tmp_path):
             if arm['reference']:
                 p.write_manifest(attempt / 'release_note.json', dict(source='authors'))
             else:
-                pins['checkpoints'][role] = dict(path=str(checkpoint), epoch=12, sha256=arm['sha256'])
+                (attempt.parent / 'final').symlink_to(attempt.name, target_is_directory=True)
+                # tools/exp07_profiles.py routes the profile's arm and the approval's pin
+                # through the arm's `final` symlink (admission compares the two spellings),
+                # while every evaluation names the attempt its launcher resolved.
+                arm['checkpoint'] = str(attempt.parent / 'final' / checkpoint.name)
+                pins['checkpoints'][role] = dict(path=arm['checkpoint'], epoch=12,
+                                                 sha256=arm['sha256'])
                 for epoch in range(1, 12):  # the full run's twelve epoch checkpoints
                     (attempt / ('epoch_%03d.pth' % epoch)).write_bytes(
                         'synthetic {} epoch {}'.format(role, epoch).encode())

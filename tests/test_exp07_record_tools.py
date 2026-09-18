@@ -378,14 +378,20 @@ def test_the_binding_report_covers_the_whole_seen_record(bound):
     assert report['audit']['sha256'] and len(report['git_HEAD']) == 40
 
 
-def test_the_report_is_written_exclusively_and_verified_by_check_record(bound):
-    checker = load_asset('check_record')
+def write_report(bound):
+    """Publish the binding report exclusively, as the launch sequence does, and read it."""
     arguments = sum(([('--' + key.replace('_', '-')), *([value] if isinstance(value, str)
                                                         else value)]
                      for key, value in bound.arguments.items()), [])
     bound.binder.main(arguments + ['--out', str(bound.reports)])
-    reports = list(bound.reports.glob('binding_report_*.json'))
+    reports = sorted(bound.reports.glob('binding_report_*.json'))
     assert len(reports) == 1
+    return json.loads(reports[-1].read_text())
+
+
+def test_the_report_is_written_exclusively_and_verified_by_check_record(bound):
+    checker = load_asset('check_record')
+    write_report(bound)
     checker.main([str(bound.reports)])
     modified = Path(bound.built.paths[('seen_cyl', 8)][0]) / 'metrics_yaw.json'
     modified.write_text(modified.read_text() + '\n')
@@ -775,7 +781,25 @@ def orphan_ledger_row(bound, role='seen_cyl'):
     path.write_text(json.dumps(ledger))
 
 
+def misnamed_attempt(bound, role='seen_cyl'):
+    """The launcher's own record of this attempt's name made to say another attempt.
+
+    ``attempt_path`` is the published name of the bound directory, so the report is only
+    this attempt's if the manifest that names it is this directory's manifest.
+    """
+    attempt = bound.built.attempts[role]
+    manifest = bound.built.read(attempt / 'train_manifest.json')
+    manifest['attempt_path'] = str(bound.built.attempts['seen_aug'])
+    digest = bound.built.replace(attempt / 'train_manifest.json', manifest)
+    completion = bound.built.read(attempt / 'completion.json')
+    completion['train_manifest_sha256'] = digest
+    for key in ('outputs', 'directory_listing'):
+        completion[key]['train_manifest.json'] = digest
+    bound.built.replace(attempt / 'completion.json', completion)
+
+
 FORGERIES = {
+    'misnamed_attempt': (misnamed_attempt, 'does not name this attempt directory'),
     'retried_twice': (lambda b: replace_ledger(b, 'seen_simple', 3),
                       'more than one retry recorded'),
     'released_training_binding': (bind_released, 'released row has no training provenance'),
@@ -1287,3 +1311,68 @@ def test_both_documented_evidence_syntaxes_reach_the_binder(monkeypatch, tmp_pat
                  '--audit', 'audit', '--unseen-table', 'u', '--unseen-binding', 'ub',
                  '--out', str(tmp_path)] + spelling)
     assert parsed['evidence'] == ['gpu_parity=g.log', 'calibration=c.json']
+
+
+def relocate(directory, destination):
+    """Move a bound directory away and leave a directory symlink where it was.
+
+    Exactly the migration the Planner performs once an attempt is certified: the bytes go
+    to the NAS, the arm directory keeps its ledger, its probe receipts and its `final`
+    symlink (CIFS holds no symlinks), and every path the record published still names the
+    evidence it published.
+    """
+    directory, destination = Path(directory), Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    directory.rename(destination)
+    directory.symlink_to(destination, target_is_directory=True)
+    return destination
+
+
+def test_the_attempt_is_the_one_its_launcher_named_not_the_route_to_it(bound):
+    """The live bind names `ckpt/exp07/<role>/final`; the record spells the attempt."""
+    report = bound.binder.collect(**bound.arguments)
+    assert all(Path(item['path']).name.startswith('attempt_') for item in report['attempts'])
+    through_final = [str(Path(item).parent / 'final') for item in bound.arguments['attempt']]
+    assert bound.binder.collect(**dict(bound.arguments, attempt=through_final)) == report
+
+
+@pytest.mark.parametrize('moved', ['attempt', 'arm', 'root'])
+def test_a_relocated_attempt_leaves_the_record_verifiable(bound, tmp_path, moved):
+    """Nothing changed but where the bytes live, so nothing about the record changes."""
+    checker = load_asset('check_record')
+    report = write_report(bound)
+    attempt = Path(bound.built.attempts['seen_simple'])
+    directory = dict(attempt=attempt, arm=attempt.parent, root=bound.built.root)[moved]
+    destination = relocate(directory, tmp_path / 'nas' / directory.name)
+    checker.main([str(bound.reports)])
+    assert bound.binder.collect(**bound.arguments) == report
+    # and the published name is the identity, whichever route the binder is given
+    relocated = (destination if moved == 'attempt'
+                 else destination / attempt.relative_to(directory))
+    assert bound.binder.collect(**dict(bound.arguments, attempt=sorted(
+        [str(relocated)] + [item for item in bound.arguments['attempt']
+                            if item != str(attempt)]))) == report
+
+
+def test_a_relocated_attempt_that_changed_is_still_refused(bound, tmp_path):
+    checker = load_asset('check_record')
+    write_report(bound)
+    attempt = Path(bound.built.attempts['seen_cyl'])
+    destination = relocate(attempt, tmp_path / 'nas' / attempt.name)
+    history = destination / 'history.jsonl'
+    history.write_text(history.read_text() + json.dumps(dict(epoch=13)) + '\n')
+    for call in (lambda: bound.binder.collect(**bound.arguments),
+                 lambda: checker.main([str(bound.reports)])):
+        with pytest.raises(ValueError, match='digest mismatch'):
+            call()
+
+
+def test_a_relocated_arm_still_refuses_a_final_symlink_naming_another_attempt(bound, tmp_path):
+    """`final` is the approval's route to the checkpoint: it must be this attempt."""
+    attempt = Path(bound.built.attempts['seen_simple'])
+    destination = relocate(attempt.parent, tmp_path / 'nas' / attempt.parent.name)
+    final = destination / 'final'
+    final.unlink()
+    final.symlink_to('attempt_first_ABORTED_slow', target_is_directory=True)
+    with pytest.raises(ValueError, match='not exactly one approved arm'):
+        bound.binder.collect(**bound.arguments)
