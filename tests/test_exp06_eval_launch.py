@@ -425,12 +425,12 @@ def receipt_for(tmp_path, checkpoint, epochs=12, role='cyl', backbone='cylindric
     weights = train / 'epoch_{}.pth'.format(epochs)
     weights.write_bytes(checkpoint.read_bytes())
     out = tmp_path / 'train_receipt.json'
+    from test_exp06_legacy_train_receipt import producer_identity
     receipts.write_receipt(out, train, weights, strict=False, registry=(
         {'role': role, 'backbone': backbone, 'epoch': epochs,
          'checkpoint': 'ckpt/xRIR_{}_8_shot/epoch_12.pth'.format(role),
-         'sha256': p.sha256_file(weights)},), identity={'entry_module': 'x', 'commit': 'a' * 40,
-                                                        'sha256': 'b' * 64, 'files': [],
-                                                        'drift': [], 'strict': True})
+         'sha256': p.sha256_file(weights)},),
+        identity=producer_identity())      # R3: the writer's real closure, not a stub
     return train, out
 
 
