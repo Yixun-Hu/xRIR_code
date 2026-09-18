@@ -121,6 +121,23 @@ Recomputes the latest timestamped report from its own recorded inputs, at its ow
 recorded git HEAD, and refuses any drift. Retain earlier reports unchanged; the checker
 verifies only the latest.
 
+## Archiving an attempt after the record is bound
+
+A certified attempt directory may be moved off this disk — to the NAS, say — provided a
+**directory symlink** is left at the path the record published. Identity here is the
+logical path the approval, the manifests, the completions and the products' sidecars all
+name, never the resolved one, so `check_record.py` and a fresh bind reproduce the report
+byte for byte after the move, and a fresh document names the published path. Digests are
+unaffected: the bytes are still read, and hashed, through that name.
+
+The same holds for any ancestor: the whole arm directory (its `cumulative_hours.json`, its
+`_probe_*.json` receipts, its other attempts and its `final` symlink, which may stay
+relative), an evaluation run directory, the products directory, or `ckpt/exp05` entire.
+What must keep working is reading through the published name — so leave the symlink in
+place and keep each product beside its summary and sidecar. Archive a directory, never its
+individual files: an entry inside an attempt or run directory that resolves outside it is
+still refused, and so is any change to the bytes.
+
 ## Order and re-runs
 
 Producers → generators → figures → bind → check, and **regenerate the documents after any

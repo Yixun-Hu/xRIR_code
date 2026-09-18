@@ -784,3 +784,28 @@ def test_the_document_names_a_relocated_attempt_where_the_record_does(rendered, 
     # and the archived bytes are still what the generator refuses to write over
     with pytest.raises(ValueError, match='output overlaps canonical input'):
         md.main(argv + ['--out', str(destination / 'history.jsonl')])
+
+
+def test_a_relocated_products_directory_leaves_the_record_verifiable(bound, tmp_path):
+    """An archived ancestor takes the products with it; they keep their published names."""
+    checker = record.load_asset('check_record')
+    bound.binder.main(bound.arguments_argv())
+    report = json.loads(sorted(bound.reports.glob('binding_report_*.json'))[0].read_text())
+    _relocate(bound.f.results, tmp_path / 'nas' / 'results')
+    checker.main([str(bound.reports)])
+    assert bound.binder.collect(**bound.arguments) == report
+
+
+def test_the_figures_of_a_relocated_products_directory_are_the_same_figures(rendered, tmp_path):
+    f, argv = rendered
+    outdirs = [tmp_path / 'before', tmp_path / 'after']
+    curve = str(f.results / 'CURVE_K8.json')
+    drawn = []
+    for index, outdir in enumerate(outdirs):
+        outdir.mkdir()
+        if index:
+            _relocate(f.results, tmp_path / 'nas' / 'results')
+        drawn.append(sorted(figures.main(['--curve', curve, '--outdir', str(outdir),
+                                          '--format', 'png'])))
+    assert [item.name for item in drawn[0]] == [item.name for item in drawn[1]]
+    assert all(one.read_bytes() == other.read_bytes() for one, other in zip(*drawn))

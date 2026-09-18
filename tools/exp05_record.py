@@ -75,7 +75,7 @@ def refuse(ok, message):
 def load(path, name):
     """Return the canonical data and its bound identity, or refuse it."""
     refuse(name in KEYS, 'unregistered profile: ' + str(name))
-    path = Path(path).resolve()
+    path = logical(path)
     raw = path.read_bytes()
     data, digest = json.loads(raw), sha(raw)
     side = json.loads(Path(str(path) + '.provenance.json').read_text())

@@ -81,9 +81,10 @@ def main(argv=None):
     parser.add_argument('--outdir', required=True)
     parser.add_argument('--format', nargs='+', default=['png', 'pdf'], choices=('png', 'pdf'))
     args = parser.parse_args(argv)
-    sources = [Path(item).resolve() for item in args.curve]
-    record.refuse(len(set(sources)) == len(sources), 'duplicate canonical input')
-    outdir = Path(args.outdir).resolve()
+    sources = [record.logical(item) for item in args.curve]
+    record.refuse(len({item.resolve() for item in sources}) == len(sources),
+                  'duplicate canonical input')
+    outdir = record.logical(args.outdir)
     record.refuse(outdir.is_dir(), 'output directory does not exist: ' + str(outdir))
     record.refuse(all(item.parent != outdir for item in sources),
                   'the output directory holds a canonical input: ' + str(outdir))
