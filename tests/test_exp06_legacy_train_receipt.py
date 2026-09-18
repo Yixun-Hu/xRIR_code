@@ -1,6 +1,8 @@
 """exp_06's reconstructed training receipt for arm B (plan 6.4, Codex full review F2)."""
+import copy
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -40,11 +42,31 @@ def registry_for(path, role='cyl', backbone='cylindrical', epoch=EPOCHS):
              'sha256': provenance.sha256_file(path)},)
 
 
+def producer_identity(repo=REPO, commit=None):
+    """The writer's real producer closure: its own reviewed sources at a real commit.
+
+    Close-review R3: the reader validates the closure a receipt records -- the producer,
+    the commit, the membership, the digest and the blobs at that commit -- so the stub
+    this fixture used (`files: []`, a placeholder digest) is no longer producer evidence,
+    here or in the launcher/comparer fixtures that import this helper. The working-tree
+    hashes are the reviewed blobs: a receipt written from a clean checkout of `commit`,
+    which is the only kind that was ever confirmatory.
+    """
+    commit = provenance.git_state(repo)['HEAD'] if commit is None else commit
+    records, digest = provenance.closure_record(
+        provenance.source_closure(subject.ENTRY_MODULE, repo), commit, repo)
+    return {'entry_module': subject.ENTRY_MODULE, 'commit': commit, 'sha256': digest,
+            'files': [dict(record, working_tree_sha256=record['reviewed_blob_sha256'])
+                      for record in records], 'drift': [], 'strict': True}
+
+
+PRODUCER = producer_identity()      # at import, before any test patches `tools.provenance`
+
+
 @pytest.fixture
 def identity():
-    """The producer closure, stubbed: these tests are about the receipt, not about git."""
-    return {'entry_module': subject.ENTRY_MODULE, 'commit': 'a' * 40,
-            'sha256': 'b' * 64, 'files': [], 'drift': [], 'strict': True}
+    """The producer closure of a receipt written from a clean checkout of HEAD."""
+    return copy.deepcopy(PRODUCER)
 
 
 @pytest.fixture
@@ -316,3 +338,106 @@ def test_the_membership_rule_is_the_writers_own(train, tmp_path, identity):
     finally:
         (train / 'epoch_13.pth').unlink()
     assert subject.verify(tmp_path / 'receipt.json')['epochs'] == EPOCHS
+
+
+# --- close review R3: the producer closure is evidence, not a pair of summary flags ---------
+
+
+def closure_digest(files):
+    """`provenance.closure_record`'s own rule: the digest of [[path, reviewed blob], ...]."""
+    return hashlib.sha256(json.dumps([[item['path'], item['reviewed_blob_sha256']]
+                                      for item in files], sort_keys=True).encode()).hexdigest()
+
+
+def altered(identity, index=0, **fields):
+    """The closure with one source record changed and its digest re-derived, as a forger."""
+    files = copy.deepcopy(identity['files'])
+    files[index] = dict(files[index], **fields)
+    return dict(identity, files=files, sha256=closure_digest(files))
+
+
+CLOSURE_CASES = ('blob_object', 'contradictory', 'corrupt_digest', 'empty_membership',
+                 'missing_reviewed', 'no_commit', 'strict_only', 'tree_object',
+                 'unreviewed_blob', 'wrong_producer')
+
+
+def git_object(spec, repo=REPO):
+    """The object id `spec` names in this repository -- a tree or a blob as readily as a commit."""
+    return subprocess.check_output(['git', 'rev-parse', spec], cwd=str(repo), text=True).strip()
+
+
+@pytest.fixture
+def closure_cases(identity):
+    """Every producer closure Codex got past the reader, with the first source it names."""
+    first = identity['files'][0]['path']
+    return {
+        'strict_only': ({'strict': True}, 'produced by'),
+        'wrong_producer': (dict(identity, entry_module='tools.exp06_summarize_haa'),
+                           'produced by'),
+        'no_commit': (dict(identity, commit='HEAD'), 'no commit'),
+        # Close review 2: forty hex digits also name a tree, and `git show <tree>:<path>`
+        # reads the very same blobs, so the whole closure validated against one.
+        'tree_object': (dict(identity, commit=git_object(identity['commit'] + '^{tree}')),
+                        'not a commit'),
+        'blob_object': (dict(identity, commit=git_object(
+            identity['commit'] + ':tools/exp06_legacy_train_receipt.py')), 'not a commit'),
+        'empty_membership': (dict(identity, files=[], sha256=closure_digest([])),
+                             'no source file'),
+        'corrupt_digest': (dict(identity, sha256='f' * 64), 'does not hash'),
+        'contradictory': (altered(identity, working_tree_sha256='c' * 64), first),
+        'missing_reviewed': (altered(identity, reviewed_blob_sha256=None), first),
+        'unreviewed_blob': (altered(identity, reviewed_blob_sha256='c' * 64,
+                                    working_tree_sha256='c' * 64), 'reviewed source'),
+    }
+
+
+@pytest.mark.parametrize('case', CLOSURE_CASES)
+def test_a_receipt_without_substantive_producer_evidence_is_refused(train, tmp_path, identity,
+                                                                    closure_cases, case):
+    """R3: `{'strict': true}` in place of the closure was admitted everywhere it was read."""
+    closure, cause = closure_cases[case]
+    record, _ = build(train, tmp_path / 'receipt.json', identity)
+    damaged = rewritten(record, tmp_path / (case + '.json'), source_closure=closure)
+    with pytest.raises(ValueError, match=cause):
+        subject.verify(damaged)
+
+
+def test_the_producer_closure_is_read_with_the_writers_own_digest_rule(identity):
+    """One rule: what `closure_record` digested is what the reader recomputes."""
+    records, digest = provenance.closure_record(
+        provenance.source_closure(subject.ENTRY_MODULE, REPO), identity['commit'], REPO)
+    assert digest == identity['sha256'] == closure_digest(identity['files'])
+    assert subject._closure_digest(identity['files']) == digest
+    # The closure is this tool's imports, so a dirty worklog file is never one of them:
+    # 6.4's allowance for the notebook needs no exception here.
+    assert [item['path'] for item in identity['files']] == [r['path'] for r in records]
+    assert all(item['path'].startswith('tools/') for item in identity['files'])
+
+
+def test_a_receipt_written_at_an_older_commit_is_still_evidence(train, tmp_path):
+    """The reviewed blobs are validated at the commit the receipt records, not at HEAD."""
+    history = subprocess.check_output(
+        ['git', 'log', '--format=%H', '--', 'tools/exp06_legacy_train_receipt.py'],
+        cwd=str(REPO), text=True).split()
+    if not history or history[-1] == PRODUCER['commit']:
+        pytest.skip('the writer was added by HEAD; there is no older commit to bind')
+    identity = producer_identity(commit=history[-1])
+    build(train, tmp_path / 'receipt.json', identity)
+    assert subject.verify(tmp_path / 'receipt.json')['epochs'] == EPOCHS
+
+
+def test_a_closure_that_does_not_record_the_writer_itself_is_refused(train, tmp_path,
+                                                                     identity):
+    """The floor of membership: whatever else it lists, it lists the producer's own source.
+
+    A closure of `tools/provenance.py` alone is internally consistent and its blob is real,
+    and it says nothing about the bytes that wrote the receipt.
+    """
+    files = [item for item in identity['files']
+             if item['path'] != 'tools/exp06_legacy_train_receipt.py']
+    assert files and len(files) < len(identity['files'])
+    closure = dict(identity, files=files, sha256=closure_digest(files))
+    record, _ = build(train, tmp_path / 'receipt.json', identity)
+    damaged = rewritten(record, tmp_path / 'truncated.json', source_closure=closure)
+    with pytest.raises(ValueError, match='exp06_legacy_train_receipt.py'):
+        subject.verify(damaged)

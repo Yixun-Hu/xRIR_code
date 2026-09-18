@@ -268,12 +268,12 @@ def legacy_record(root, checkpoint, epochs=EPOCH):
     weights = train / 'epoch_{}.pth'.format(epochs)
     weights.write_bytes(Path(checkpoint).read_bytes())
     receipt = root / 'train_receipt.json'
+    from test_exp06_legacy_train_receipt import producer_identity
     receipts.write_receipt(receipt, train, weights, strict=False, registry=(
         {'role': 'cyl', 'backbone': 'cylindrical', 'epoch': epochs,
          'checkpoint': 'ckpt/xRIR_cyl_8_shot/epoch_12.pth',
          'sha256': provenance.sha256_file(weights)},),
-        identity={'entry_module': 'x', 'commit': 'a' * 40, 'sha256': 'b' * 64,
-                  'files': [], 'drift': [], 'strict': True})
+        identity=producer_identity())      # R3: the writer's real closure, not a stub
     return train, receipt
 
 
