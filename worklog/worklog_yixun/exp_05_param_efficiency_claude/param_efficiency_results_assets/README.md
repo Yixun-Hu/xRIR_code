@@ -54,10 +54,13 @@ python $A/make_results_md.py   $FLAGS --attempt $ATTEMPTS --out $W/param_efficie
 python $A/make_results_html.py $FLAGS --attempt $ATTEMPTS --out $W/param_efficiency_01_results.html
 ```
 
-Both refuse an exploratory or deviating product, a product read as the wrong profile, a
-duplicate canonical input, an attempt set that is not exactly the four trained arms, and
-an `--out` that names any input — by resolved path and by device/inode, so a hardlink to
-an input cannot be truncated open.
+Both refuse an exploratory or deviating product, a product read as the wrong profile or
+computed under anything but the registered one, a duplicate canonical input, an attempt
+set that is not exactly the four trained arms, and an `--out` that names any file they
+read — the five products, their summaries and sidecars, the approval, and each attempt's
+`completion.json`, `train_manifest.json`, `args.json`, `history.jsonl` and probe receipt —
+by resolved path and by device/inode, so neither a hardlink nor a symlink to an input can
+be truncated open.
 
 ## 3. Figures (PNG and PDF for the paper)
 
@@ -70,7 +73,8 @@ Writes `param_curve_<PROFILE>_<METRIC>.{png,pdf}` — four figures, each a two-p
 (encoder parameters, then full-system parameters, both logarithmic) of the two backbone
 curves with their seed SD and bootstrap intervals. The plot model is the page's
 (`make_results_html.series`), so a figure can only show what the page shows. It refuses a
-non-curve product and an `--outdir` that holds a canonical input.
+non-curve product, an `--outdir` that holds a canonical input, and — before it draws
+anything — every predicted figure file that names an input by path, hardlink or symlink.
 
 ## 4. Bind
 
@@ -87,17 +91,19 @@ match the sidecars). The binder exclusively creates
 and never modifies them, and binds: the four certified attempts with every attempt their
 ledgers list and the external logs those name; the M pair's historical exp_01 checkpoints
 at the profile's pinned digests; the sixty-six evaluation runs as the registered
-arm/K/seed set with their tier metadata and training linkage; the five products with
-exact per-product input coverage; the rendered documents (each must cite every canonical
-digest and every bound attempt completion digest); the figures; the approval blob; git
-HEAD.
+arm/K/seed set with their tier metadata, their approved evaluator and writer closures and
+their training linkage; the five products with exact per-product input coverage and a
+producer closure recomputed from the working tree; the rendered documents (each must cite
+every canonical digest and every bound attempt completion digest); the figures; the
+approval blob; git HEAD.
 
 **Run it from this checkout.** Every artefact records the absolute paths of the checkout
 the producers ran in, and the binder compares them: the approval identity, the producer's
-own source files and each product's declared inputs. Binding the same record from a git
-worktree therefore fails on `result approval identity or pins` even though every digest
-matches. Run producers, generators and binder in one checkout, or pass `--approved` the
-path the products recorded.
+own source files — whose closure it recomputes from the working tree — and each product's
+declared inputs. Binding the same record from a git worktree therefore fails on `result
+approval identity or pins` even though every digest matches, and pointing `--approved` at
+the main checkout does not rescue it: the producer's dependencies are still rooted in the
+worktree. Run producers, generators and binder in one checkout.
 
 **Runtime.** `tools/provenance.revalidate` rehashes every input a manifest declares, so a
 real bind reads about 1 GiB of AcousticRooms per evaluation run and the 12.2 GiB training
