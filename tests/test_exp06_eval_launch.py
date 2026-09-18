@@ -8,9 +8,11 @@ import numpy as np
 import pytest
 
 from tools import exp04_eval_launch as inherited
+from tools import exp04_profiles
 from tools import exp06_eval as evaluator
 from tools import exp06_eval_launch as subject
 from tools import exp06_heading
+from tools import exp06_train_evidence as evidence
 from tools import provenance as p
 from tools.reference_manifest import manifest_hash
 
@@ -407,12 +409,16 @@ def test_main_fails_when_the_outputs_are_quarantined(launch_args, pretraining, m
 # --- F2: the evaluated weights are the output of the training run this run binds ----------
 
 
-def receipt_for(tmp_path, checkpoint, epochs=12):
-    """Arm B's historical evidence: the reconstructed receipt and its enumerated args.json."""
+def receipt_for(tmp_path, checkpoint, epochs=12, role='cyl', backbone='cylindrical'):
+    """Arm B's historical evidence: the reconstructed receipt and its enumerated args.json.
+
+    ``role`` names which registered exp_01 arm the receipt is of; R2's regression offers
+    the launcher a receipt of the *control* training directory, as the review did.
+    """
     from tools import exp06_legacy_train_receipt as receipts
-    train = tmp_path / 'xRIR_cyl_8_shot'
+    train = tmp_path / 'xRIR_{}_8_shot'.format(role)
     train.mkdir(parents=True, exist_ok=True)
-    (train / 'args.json').write_text(json.dumps({'backbone': 'cylindrical', 'epochs': epochs}))
+    (train / 'args.json').write_text(json.dumps({'backbone': backbone, 'epochs': epochs}))
     (train / 'history.jsonl').write_text(''.join(
         json.dumps({'epoch': epoch}) + '\n' for epoch in range(1, epochs + 1)))
     (train / 'train.log').write_text('exp_01\n')
@@ -420,8 +426,8 @@ def receipt_for(tmp_path, checkpoint, epochs=12):
     weights.write_bytes(checkpoint.read_bytes())
     out = tmp_path / 'train_receipt.json'
     receipts.write_receipt(out, train, weights, strict=False, registry=(
-        {'role': 'cyl', 'backbone': 'cylindrical', 'epoch': epochs,
-         'checkpoint': 'ckpt/xRIR_cyl_8_shot/epoch_12.pth',
+        {'role': role, 'backbone': backbone, 'epoch': epochs,
+         'checkpoint': 'ckpt/xRIR_{}_8_shot/epoch_12.pth'.format(role),
          'sha256': p.sha256_file(weights)},), identity={'entry_module': 'x', 'commit': 'a' * 40,
                                                         'sha256': 'b' * 64, 'files': [],
                                                         'drift': []})
@@ -553,3 +559,37 @@ def test_the_baseline_arm_is_not_gated_on_the_epoch_012_artifact(launch_args, mo
     arm = launch_args('--checkpoint-role', 'arm')
     subject.approvals_receipt(arm, ROOT)
     assert seen['k']['checkpoint'] == arm.checkpoint
+
+
+# --- R2: one role -> registration rule, at the launcher and at the comparer ---------------
+
+
+def test_a_receipt_for_another_exp01_arm_never_launches_the_baseline(launch_args, tmp_path,
+                                                                     monkeypatch):
+    """R2: the launcher took any receipt; the comparer takes only the registered cyl arm.
+
+    Codex built a valid receipt from the real SimpleViT **control** training directory and
+    the baseline evidence check accepted it, so the run would have been produced and then
+    refused at admission. The registration is one rule, and it is applied here.
+    """
+    created = []
+    monkeypatch.setattr(subject.launcher, 'execute_run',
+                        lambda *arguments: created.append(arguments) or {})
+    args = launch_args('--checkpoint-role', 'baseline')
+    train, receipt = receipt_for(tmp_path / 'control', Path(args.checkpoint), role='control',
+                                 backbone='simple')
+    argv = ['--backbone', 'cylindrical_oriented', '--checkpoint', args.checkpoint,
+            '--manifest', args.manifest, '--manifest-hash', args.manifest_hash,
+            '--out-dir', args.out_dir, '--log-dir', args.log_dir,
+            '--data-root', args.data_root, '--run-label', 'cyl_seed42',
+            '--reviewed-commit', 'HEAD', '--num-shot', '8', '--checkpoint-epoch', '12',
+            '--checkpoint-role', 'baseline',
+            '--bind-input', 'train_manifest=' + str(train / 'args.json'),
+            '--bind-input', 'train_completion=' + str(receipt)]
+    with pytest.raises(ValueError, match='not the registered exp_01'):
+        subject.main(argv)
+    assert created == [] and not Path(args.out_dir).exists()
+    assert evidence.registered_checkpoint('baseline') == exp04_profiles.CYL['sha256']
+    assert evidence.registered_checkpoint('arm') is None
+    assert evidence.registered_checkpoint('arm', {'artifacts': {'epoch_012': {
+        'sha256': 'f' * 64}}}) == 'f' * 64
