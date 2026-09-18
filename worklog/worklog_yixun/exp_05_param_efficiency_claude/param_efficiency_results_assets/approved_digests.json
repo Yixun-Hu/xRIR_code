@@ -1,10 +1,35 @@
 {
-  "schema_version": null,
-  "closures": {"evaluator": null, "writer": null, "training_launcher": [], "training": null, "producer_param_curve": null, "evaluator_exp04": null},
   "checkpoints": {
-    "S_simple": {"path": null, "epoch": null, "sha256": null},
-    "S_cyl": {"path": null, "epoch": null, "sha256": null},
-    "L_simple": {"path": null, "epoch": null, "sha256": null},
-    "L_cyl": {"path": null, "epoch": null, "sha256": null}
-  }
+    "L_cyl": {
+      "epoch": 12,
+      "path": "ckpt/exp05/L_cylindrical/final/epoch_012.pth",
+      "sha256": "485cc629a570f3268553d882a622432dd2ecb2b11d4784253e20270d372361e1"
+    },
+    "L_simple": {
+      "epoch": 12,
+      "path": "ckpt/exp05/L_simple/final/epoch_012.pth",
+      "sha256": "774dfab3b0350e6a56498df1833fdd9f44de325e1084043e1f629e6600171eba"
+    },
+    "S_cyl": {
+      "epoch": 12,
+      "path": "ckpt/exp05/S_cylindrical/final/epoch_012.pth",
+      "sha256": "6086872524ec176918b334c397e661810ac42d4f99c5bc4250c43bbb11ed8d2b"
+    },
+    "S_simple": {
+      "epoch": 12,
+      "path": "ckpt/exp05/S_simple/final/epoch_012.pth",
+      "sha256": "9f93f1ad87d5883d027e10e546988033ea6596327f50c8e2a78e5cc7376c55cc"
+    }
+  },
+  "closures": {
+    "evaluator": "a2ffbb382426e669964db190810c62f279d06734dee5501bdc8bab40c6c112fa",
+    "producer_param_curve": "10484795c5613180437fa03d69e0c8feee6ca8e70a1c2793f55aecf0855f49ff",
+    "training": "5b2da2504e220b63bfc932cf0d83c143261e117edea1838e6907159c3b12eb13",
+    "training_launcher": [
+      "0bff0d4fe270740c1adc411fd3e5d945742c2dcb545290d19e663d610fd8df20",
+      "9dadbef0786a404654f01005fc3c143ba3d114210d41e3cf9f02e0779db657a6"
+    ],
+    "writer": "15f9c984561de9ec3caac905d97ce0a6d1e23c00fb7d4a39e0b157de2b0a458d"
+  },
+  "schema_version": 1
 }
