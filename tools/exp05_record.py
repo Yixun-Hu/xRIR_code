@@ -16,6 +16,7 @@ read from is checked against the digest the attempt's own completion sidecar rec
 import hashlib
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -49,6 +50,17 @@ def load_asset(name):
             del sys.modules[key]
             raise
     return sys.modules[key]
+
+
+def logical(path):
+    """A path as the record spells it: absolute and normalised, never resolved.
+
+    A certified attempt is archived behind a directory symlink once the record is
+    published, so the name the approval, the manifests and the binding report all give
+    it stays its name here too, and the document this evidence is written into keeps
+    saying what the report says.  The bytes are read, and digest-checked, through it.
+    """
+    return Path(os.path.abspath(str(path)))
 
 
 def sha(raw):
@@ -222,14 +234,14 @@ def attempt_evidence(directory):
     ``consumed`` names every file this evidence was read from, so a caller protects
     exactly what it consumed rather than a hand-kept list that can fall behind.
     """
-    directory = Path(directory).resolve()
+    directory = logical(directory)
     completion_path = directory / 'completion.json'
     completion = json.loads(completion_path.read_text())
     outputs = completion['outputs']
     consumed = [str(completion_path)]
 
     def bound(path, expected, label):
-        path = Path(path).resolve()
+        path = logical(path)
         raw = path.read_bytes()
         refuse(sha(raw) == expected, '{} digest: {}'.format(label, path))
         consumed.append(str(path))

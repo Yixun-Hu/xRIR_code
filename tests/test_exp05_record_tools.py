@@ -769,3 +769,18 @@ def test_a_relocated_arm_still_refuses_a_final_symlink_naming_another_attempt(bo
     final.symlink_to(sorted(destination.glob('_probe_*/'))[0].name, target_is_directory=True)
     with pytest.raises(ValueError, match='final symlink is not this attempt'):
         bound.binder.collect(**bound.arguments)
+
+
+def test_the_document_names_a_relocated_attempt_where_the_record_does(rendered, tmp_path):
+    """The record's own provenance table is the approval's path, not the archive's."""
+    f, argv = rendered
+    before, after = tmp_path / 'before.md', tmp_path / 'after.md'
+    md.main(argv + ['--out', str(before)])
+    attempt = Path(f.attempts['S_simple'])
+    destination = _relocate(attempt, tmp_path / 'nas' / attempt.name)
+    md.main(argv + ['--out', str(after)])
+    assert str(attempt) in before.read_text() and str(destination) not in before.read_text()
+    assert after.read_text() == before.read_text()
+    # and the archived bytes are still what the generator refuses to write over
+    with pytest.raises(ValueError, match='output overlaps canonical input'):
+        md.main(argv + ['--out', str(destination / 'history.jsonl')])
