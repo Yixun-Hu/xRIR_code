@@ -5,7 +5,7 @@
       "path": "ckpt/exp06/pretrain/xRIR_cylor_8_shot/attempt_20260916T161415/epoch_012.pth",
       "sha256": "3df2ceb53d1be1402cb6672f05ded092187f1ba871b53fc1114ca088612296c1"
     },
-    "gate_g1": null,
+    "gate_g1": "57c46d2c7791076ca4a36ecbf18844bf74209a614cb23153574365855bb8fd40",
     "heading": {
       "class_room": "c37053c34d9503f6762b0129d98572315892a362f5025b6b218651838fbd562d",
       "complex_room": "c34959101f37672b988c2aad35982e15c290125bd46c63ac7be22581ac5d8a40",
