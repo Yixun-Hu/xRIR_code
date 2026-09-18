@@ -266,7 +266,7 @@ def legacy_record(root, checkpoint, epochs=EPOCH):
          'checkpoint': 'ckpt/xRIR_cyl_8_shot/epoch_12.pth',
          'sha256': provenance.sha256_file(weights)},),
         identity={'entry_module': 'x', 'commit': 'a' * 40, 'sha256': 'b' * 64,
-                  'files': [], 'drift': []})
+                  'files': [], 'drift': [], 'strict': True})
     return train, receipt
 
 

@@ -44,7 +44,7 @@ def registry_for(path, role='cyl', backbone='cylindrical', epoch=EPOCHS):
 def identity():
     """The producer closure, stubbed: these tests are about the receipt, not about git."""
     return {'entry_module': subject.ENTRY_MODULE, 'commit': 'a' * 40,
-            'sha256': 'b' * 64, 'files': [], 'drift': []}
+            'sha256': 'b' * 64, 'files': [], 'drift': [], 'strict': True}
 
 
 @pytest.fixture
@@ -236,3 +236,83 @@ def test_the_real_exp01_cylindrical_training_gets_a_receipt(tmp_path, identity):
                              registered_sha256=exp04_profiles.CYL['sha256'], epochs=12)
     assert checked['sha256'] == digest
     assert hashlib.sha256(out.read_bytes()).hexdigest() == digest
+
+
+# --- R3: the receipt's own enumeration is not evidence of complete retention ----------------
+
+
+def rewritten(record, out, **fields):
+    """The receipt with `fields` replaced, its enumeration re-hashed as a forger would."""
+    record = dict(record, **fields)
+    record['files_sha256'] = subject._digest(record['files'])
+    Path(out).write_text(json.dumps(record))
+    return out
+
+
+def test_a_receipt_that_omits_retained_artefacts_is_refused(train, tmp_path, identity):
+    """R3: Codex kept two of eighteen files, re-hashed the list, and was admitted."""
+    record, _ = build(train, tmp_path / 'receipt.json', identity)
+    kept = [item for item in record['files']
+            if item['path'] in ('args.json', 'epoch_12.pth')]
+    two = rewritten(record, tmp_path / 'two.json', files=kept)
+    with pytest.raises(ValueError, match='history.jsonl'):
+        subject.verify(two)
+    assert subject.receipt_names(train) == [item['path'] for item in record['files']]
+    # An artefact the directory never held is the same refusal, from the other side.
+    more = rewritten(record, tmp_path / 'more.json',
+                     files=record['files'] + [{'path': 'epoch_13.pth', 'sha256': 'c' * 64}])
+    with pytest.raises(ValueError, match='epoch_13.pth'):
+        subject.verify(more)
+
+
+def test_a_receipt_produced_from_a_drifting_or_dirty_tree_is_refused(train, tmp_path,
+                                                                     identity):
+    """`--allow-dirty` says the receipt is never confirmatory; the reader now agrees."""
+    record, _ = build(train, tmp_path / 'receipt.json', identity)
+    drifted = rewritten(record, tmp_path / 'drift.json',
+                        source_closure=dict(identity, drift=['tools/edited.py']))
+    with pytest.raises(ValueError, match='tools/edited.py'):
+        subject.verify(drifted)
+    dirty = rewritten(record, tmp_path / 'dirty.json',
+                      source_closure=dict(identity, strict=False))
+    with pytest.raises(ValueError, match='allow-dirty'):
+        subject.verify(dirty)
+    none = rewritten(record, tmp_path / 'none.json', source_closure=None)
+    with pytest.raises(ValueError, match='no producer closure'):
+        subject.verify(none)
+
+
+CONTRADICTIONS = {
+    'epochs': ({'epochs': 9, 'checkpoint': {'path': 'epoch_12.pth', 'epoch': 9}},
+               'not the 9 of the receipt'),
+    'backbone': ({'backbone': 'simple'}, 'backbone'),
+    'arm': ({'arm': 'control'}, 'registered'),
+    'registered_weights': ({'registered': {'role': 'cyl', 'backbone': 'cylindrical',
+                                           'epoch': 12, 'checkpoint': 'x',
+                                           'sha256': 'c' * 64}}, 'registered'),
+}
+
+
+@pytest.mark.parametrize('case', sorted(CONTRADICTIONS))
+def test_a_receipt_that_contradicts_the_retained_training_is_refused(train, tmp_path,
+                                                                     identity, case):
+    """R3: the args/history/registered-arm contract is re-checked, not taken on trust."""
+    fields, cause = CONTRADICTIONS[case]
+    record, _ = build(train, tmp_path / 'receipt.json', identity)
+    if 'checkpoint' in fields:
+        fields = dict(fields, checkpoint=dict(record['checkpoint'], **fields['checkpoint']))
+    damaged = rewritten(record, tmp_path / (case + '.json'), **fields)
+    with pytest.raises(ValueError, match=cause):
+        subject.verify(damaged)
+
+
+def test_the_membership_rule_is_the_writers_own(train, tmp_path, identity):
+    """A file retained after the receipt was written is a refusal, not a silent extra."""
+    build(train, tmp_path / 'receipt.json', identity)
+    (train / 'epoch_13.pth').write_bytes(b'a thirteenth epoch, retained later')
+    try:
+        with pytest.raises(ValueError, match='epoch_13.pth'):
+            subject.verify(tmp_path / 'receipt.json')
+    finally:
+        (train / 'epoch_13.pth').unlink()
+    assert subject.verify(tmp_path / 'receipt.json')['epochs'] == EPOCHS

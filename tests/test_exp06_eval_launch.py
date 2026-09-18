@@ -430,7 +430,7 @@ def receipt_for(tmp_path, checkpoint, epochs=12, role='cyl', backbone='cylindric
          'checkpoint': 'ckpt/xRIR_{}_8_shot/epoch_12.pth'.format(role),
          'sha256': p.sha256_file(weights)},), identity={'entry_module': 'x', 'commit': 'a' * 40,
                                                         'sha256': 'b' * 64, 'files': [],
-                                                        'drift': []})
+                                                        'drift': [], 'strict': True})
     return train, out
 
 
