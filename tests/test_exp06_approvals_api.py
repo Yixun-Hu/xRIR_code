@@ -225,3 +225,135 @@ def test_a_shell_key_binds_its_own_file_and_no_python_closure():
     assert subject.CODE_SOURCES['launch_sh'] == (None, ('tools/exp06_launch.sh',))
     assert subject.CODE_SOURCES['haa_pipeline_sh'] == (None, ('tools/exp06_haa_pipeline.sh',))
     assert subject.CODE_SOURCES['evaluator_exp03'][0] == 'eval_yaw_rotation'
+
+
+# --- F3: the approvals must be the identities about to run, not merely populated ----------
+
+
+class StubModule(object):
+    """A ``tools.exp06_profiles`` stand-in: what it approves, and what is really here."""
+
+    def __init__(self, value, digests, path='approved_digests.json', commit='c' * 40):
+        self.value, self.digests, self.path, self.commit = value, digests, path, commit
+        self.seen = []
+
+    def load_approved_digests(self, path=None, repo=None, commit=None):
+        self.seen.append(('load', path, repo, commit))
+        if repo is not None and commit != self.commit:
+            raise ValueError('approvals are not tracked at {}'.format(commit))
+        return copy.deepcopy(self.value), {'path': str(path or self.path), 'sha256': HEX,
+                                           'committed_at': commit}
+
+    def compute_code_digests(self, repo, commit, keys=None):
+        self.seen.append(('digests', repo, commit, tuple(keys or ())))
+        return {key: self.digests[key] for key in (keys or self.digests)
+                if key in self.digests}
+
+
+def stub(monkeypatch, value=None, digests=None, **named):
+    value = filled() if value is None else value
+    digests = ({key: value['code'][key] for key in subject.CODE_KEYS}
+               if digests is None else digests)
+    module = StubModule(value, digests, **named)
+    monkeypatch.setattr(subject, 'approvals_module', lambda: module)
+    return module
+
+
+def test_the_producer_code_key_map_is_registered():
+    assert set(subject.PRODUCER_CODE_KEYS) == set(subject.PRODUCER_REQUIREMENTS)
+    assert subject.producer_code_keys('sim_eval') == (
+        'eval', 'eval_launch', 'encoder', 'factory', 'evaluator_exp03')
+    assert subject.producer_code_keys('mirror_probe') == (
+        'mirror_probe', 'probe_align', 'encoder', 'factory', 'heading')
+    assert subject.producer_code_keys('haa_children') == (
+        'haa_finetune', 'haa_eval', 'haa_pipeline_sh', 'finalize', 'encoder', 'factory',
+        'heading', 'recipe')
+    assert subject.producer_code_keys('pages') == ()
+    for producer, keys in subject.PRODUCER_CODE_KEYS.items():
+        assert set(keys) <= set(subject.CODE_KEYS), producer
+    with pytest.raises(ValueError, match='unknown producer'):
+        subject.producer_code_keys('nobody')
+
+
+def test_enforce_binds_the_committed_approvals_and_returns_a_receipt(monkeypatch, tmp_path):
+    module = stub(monkeypatch)
+    checkpoint = tmp_path / 'epoch_012.pth'
+    checkpoint.write_bytes(b'weights')
+    module.value['artifacts']['epoch_012']['sha256'] = _digest_of(checkpoint)
+    record = subject.enforce_producer('sim_eval', '/repo', 'c' * 40, checkpoint=checkpoint)
+    assert record['deviations'] == [] and record['admissibility'] == 'confirmatory'
+    assert record['producer'] == 'sim_eval'
+    assert record['keys_checked'] == list(subject.producer_code_keys('sim_eval'))
+    assert record['approvals'] == {'path': 'approved_digests.json', 'sha256': HEX,
+                                   'committed_at': 'c' * 40}
+    assert record['artifacts']['epoch_012']['sha256'] == _digest_of(checkpoint)
+    assert ('load', None, '/repo', 'c' * 40) in module.seen
+
+
+def _digest_of(path):
+    from tools import provenance
+    return provenance.sha256_file(path)
+
+
+def test_a_well_formed_but_wrong_digest_is_refused_by_name(monkeypatch):
+    module = stub(monkeypatch)
+    module.digests['mirror_probe'] = 'b' * 64
+    with pytest.raises(ValueError, match=r'code\.mirror_probe'):
+        subject.enforce_producer('mirror_probe', '/repo', 'c' * 40)
+    deviations = subject.enforce_producer('mirror_probe', '/repo', 'c' * 40,
+                                          exploratory=True)['deviations']
+    assert len(deviations) == 1 and 'not the approved' in deviations[0]
+    # A key outside this producer's map is not its business.
+    module.digests['bootstrap'] = 'd' * 64
+    assert subject.enforce_producer('mirror_probe', '/repo', 'c' * 40,
+                                    exploratory=True)['deviations'] == deviations
+
+
+def test_a_checkpoint_or_heading_that_is_not_the_approved_artifact_is_refused(monkeypatch,
+                                                                              tmp_path):
+    stub(monkeypatch)
+    checkpoint = tmp_path / 'epoch_012.pth'
+    checkpoint.write_bytes(b'other weights')
+    with pytest.raises(ValueError, match=r'artifacts\.epoch_012'):
+        subject.enforce_producer('sim_eval', '/repo', 'c' * 40, checkpoint=checkpoint)
+    headings = {}
+    for room in subject.ROOMS:
+        path = tmp_path / (room + '.json')
+        path.write_text('{"room": "%s"}' % room)
+        headings[room] = path
+    with pytest.raises(ValueError, match=r'artifacts\.heading\.'):
+        subject.enforce_producer('haa_children', '/repo', 'c' * 40, headings=headings)
+    with pytest.raises(ValueError, match='no heading given for hallway'):
+        subject.enforce_producer('haa_children', '/repo', 'c' * 40,
+                                 headings={room: headings[room] for room in subject.ROOMS
+                                           if room != 'hallway'})
+
+
+def test_every_approved_artifact_admits_the_producer_that_matches_it(monkeypatch, tmp_path):
+    module = stub(monkeypatch)
+    headings = {}
+    for room in subject.ROOMS:
+        path = tmp_path / (room + '.json')
+        path.write_text('{"room": "%s"}' % room)
+        headings[room] = path
+        module.value['artifacts']['heading'][room] = _digest_of(path)
+    record = subject.enforce_producer('haa_children', '/repo', 'c' * 40, headings=headings)
+    assert record['deviations'] == []
+    assert set(record['artifacts']['heading']) == set(subject.ROOMS)
+
+
+def test_a_null_approval_still_refuses_and_is_named(monkeypatch):
+    stub(monkeypatch, value=template(), digests={key: None for key in subject.CODE_KEYS})
+    with pytest.raises(ValueError, match='not approved: code.'):
+        subject.enforce_producer('compare', '/repo', 'c' * 40)
+    record = subject.enforce_producer('compare', '/repo', 'c' * 40, exploratory=True)
+    assert record['admissibility'] == 'diagnostic'
+    assert any(item.startswith('not approved: code.') for item in record['deviations'])
+
+
+def test_an_exploratory_producer_reads_the_approvals_unbound(monkeypatch):
+    module = stub(monkeypatch, commit='d' * 40)
+    with pytest.raises(ValueError, match='not tracked at'):
+        subject.enforce_producer('compare', '/repo', 'c' * 40)
+    record = subject.enforce_producer('compare', '/repo', 'c' * 40, exploratory=True)
+    assert record['deviations'] == [] and ('load', None, None, None) in module.seen

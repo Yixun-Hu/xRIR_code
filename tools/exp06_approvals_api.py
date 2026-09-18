@@ -91,6 +91,20 @@ PRODUCER_OUTPUTS = {
     'compare': (),
     'pages': (),
 }
+# Full-review F3: the `code` keys each producer *executes*, and so must equal at its own
+# reviewed commit. The section matrix above says which leaves must be filled; this says
+# which of them are this producer's own running bytes, so a refusal can name the key.
+PRODUCER_CODE_KEYS = {
+    'heading': ('heading',),
+    'legacy_receipt': ('summarize_haa',),
+    'mirror_probe': ('mirror_probe', 'probe_align', 'encoder', 'factory', 'heading'),
+    'haa_children': ('haa_finetune', 'haa_eval', 'haa_pipeline_sh', 'finalize',
+                     'encoder', 'factory', 'heading', 'recipe'),
+    'summarize_haa': ('summarize_haa',),
+    'sim_eval': ('eval', 'eval_launch', 'encoder', 'factory', 'evaluator_exp03'),
+    'compare': ('compare',),
+    'pages': (),
+}
 # Evidence beyond the approvals each producer binds as well (run directories, not pins).
 PRODUCER_EVIDENCE = {
     'summarize_haa': ('haa job completion.json of every new-arm child',),
@@ -245,6 +259,81 @@ def producer_sections(producer):
 def require_producer(approved, producer, exploratory=False):
     """6.4's matrix for one producer; a producer never requires its own outputs."""
     return require(approved, producer_sections(producer), exploratory)
+
+
+def producer_code_keys(producer):
+    """The `code` keys one producer runs; every producer is registered, even with none."""
+    if producer not in PRODUCER_CODE_KEYS:
+        raise ValueError('unknown producer: ' + str(producer))
+    return PRODUCER_CODE_KEYS[producer]
+
+
+def _sha256_file(path):
+    from tools import provenance
+    return provenance.sha256_file(path)
+
+
+def enforce_producer(producer, repo, commit, approved_path=None, checkpoint=None,
+                     headings=None, exploratory=False):
+    """6.4's fail-closed gate: the committed approvals, and the identities about to run.
+
+    Full-review F3: ``require_producer`` establishes that the leaves a producer needs are
+    *filled*; nothing established that they are **these** bytes. This recomputes the
+    producer's own ``code`` closures at ``commit`` and compares them with the approvals a
+    reviewer committed there, hashes the checkpoint an arm-C producer is about to load
+    against ``artifacts.epoch_012``, and hashes each heading JSON against
+    ``artifacts.heading``. A production caller refuses on any deviation; an exploratory one
+    records them and labels its output diagnostic.
+
+    ``headings`` is ``{room: path}`` and must cover every room of ``ROOMS`` when given.
+    Returns the receipt a producer records with its output.
+    """
+    keys = producer_code_keys(producer)
+    module = approvals_module()
+    binding = {} if exploratory else {'repo': str(repo), 'commit': commit}
+    approved, receipt = load_approved_digests(approved_path, module=module, **binding)
+    deviations = list(require_producer(approved, producer, exploratory=True))
+    current = module.compute_code_digests(repo, commit, keys=keys) if keys else {}
+    for key in keys:
+        pinned = approved['code'].get(key)
+        if key not in current:
+            deviations.append('code.{}: not in the checkout at {}'.format(key, commit))
+        elif pinned is not None and current[key] != pinned:
+            deviations.append('code.{}: this run would execute {}, not the approved {}'
+                              .format(key, current[key], pinned))
+    artifacts = {}
+    if checkpoint is not None:
+        pinned = approved['artifacts']['epoch_012']['sha256']
+        artifacts['epoch_012'] = {'path': str(checkpoint),
+                                  'sha256': _sha256_file(checkpoint)}
+        if pinned is None or artifacts['epoch_012']['sha256'] != pinned:
+            deviations.append('artifacts.epoch_012: {} hashes to {}, not the approved {}'
+                              .format(checkpoint, artifacts['epoch_012']['sha256'], pinned))
+    if headings is not None:
+        artifacts['heading'] = {}
+        for room in sorted(set(headings) | set(ROOMS)):
+            if room not in ROOMS:
+                deviations.append('artifacts.heading: {} is not a registered room'.format(room))
+                continue
+            if room not in headings:
+                deviations.append('artifacts.heading: no heading given for ' + room)
+                continue
+            pinned = approved['artifacts']['heading'][room]
+            digest = _sha256_file(headings[room])
+            artifacts['heading'][room] = {'path': str(headings[room]), 'sha256': digest}
+            if pinned is None or digest != pinned:
+                deviations.append('artifacts.heading.{}: {} hashes to {}, not the approved '
+                                  '{}'.format(room, headings[room], digest, pinned))
+    record = {'producer': producer, 'keys_checked': list(keys),
+              'approvals': {'path': receipt.get('path'), 'sha256': receipt.get('sha256'),
+                            'committed_at': receipt.get('committed_at')},
+              'artifacts': artifacts, 'deviations': deviations,
+              'exploratory': bool(exploratory),
+              'admissibility': 'diagnostic' if exploratory else 'confirmatory'}
+    if deviations and not exploratory:
+        raise ValueError('the approvals do not admit this {}: {}'.format(
+            producer, '; '.join(deviations)))
+    return record
 
 
 @functools.lru_cache(maxsize=None)
