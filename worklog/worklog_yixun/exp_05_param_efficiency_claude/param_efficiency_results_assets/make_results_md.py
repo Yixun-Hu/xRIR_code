@@ -266,6 +266,31 @@ def same_file(target, published):
     return False
 
 
+def protected_inputs(receipts, attempts=()):
+    """EVERY file consumed here, named by the readers that consumed it.
+
+    Each product's JSON, its text companion and its sidecar, the approval blob it is
+    bound to, and -- for the document generators -- the completion, training manifest,
+    args.json, history.jsonl and probe receipt `attempt_evidence` read for each arm.
+    """
+    protected = set()
+    for receipt in receipts:
+        protected |= set(receipt['outputs'])
+        protected |= {receipt['path'], receipt['path'] + '.provenance.json',
+                      str(Path(receipt['approved_digests']['path']).resolve())}
+    for item in attempts:
+        protected |= set(item['consumed'])
+    return protected
+
+
+def refuse_overlap(destinations, protected):
+    """Refuse EVERY concrete destination that names an input, before anything is written."""
+    for target in destinations:
+        record.refuse(str(Path(target).resolve()) not in protected
+                      and not same_file(target, protected),
+                      'output overlaps canonical input: ' + str(target))
+
+
 def arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     for flag, name in INPUTS:
@@ -287,14 +312,7 @@ def arguments(argv=None):
     roles = sorted(item['role'] for item in attempts)
     if roles != sorted(TRAINED):
         raise ValueError('every trained arm must be bound exactly once: ' + ', '.join(roles))
-    protected = {str(Path(item).resolve()) for item in sources}
-    protected |= {item + '.provenance.json' for item in protected}
-    protected |= {output for receipt in receipts for output in receipt['outputs']}
-    protected |= {str(Path(receipt['approved_digests']['path']).resolve()) for receipt in receipts}
-    for item in attempts:
-        protected |= {item['completion']['path'], item['probe']['path']}
-    if str(Path(args.out).resolve()) in protected or same_file(args.out, protected):
-        raise ValueError('output overlaps canonical input')
+    refuse_overlap([args.out], protected_inputs(receipts, attempts))
     head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=REPO, text=True).strip()
     return args, dict(products=products, receipts=receipts, attempts=attempts), head
 

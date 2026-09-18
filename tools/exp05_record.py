@@ -213,15 +213,21 @@ def attempt_evidence(directory):
     manifest; the manifest names the probe receipt the arm's limits came from, at its
     digest.  Nothing below is read without checking those bytes, so no published number
     can come from a file that changed after the launcher certified the run.
+
+    ``consumed`` names every file this evidence was read from, so a caller protects
+    exactly what it consumed rather than a hand-kept list that can fall behind.
     """
     directory = Path(directory).resolve()
     completion_path = directory / 'completion.json'
     completion = json.loads(completion_path.read_text())
     outputs = completion['outputs']
+    consumed = [str(completion_path)]
 
     def bound(path, expected, label):
-        raw = Path(path).read_bytes()
+        path = Path(path).resolve()
+        raw = path.read_bytes()
         refuse(sha(raw) == expected, '{} digest: {}'.format(label, path))
+        consumed.append(str(path))
         return raw
 
     manifest = json.loads(bound(directory / 'train_manifest.json',
@@ -240,6 +246,7 @@ def attempt_evidence(directory):
            'attempt parameter counts: ' + roles[0])
     return dict(role=roles[0], tier=args['tier'], backbone=args['backbone'], path=str(directory),
                 counts=args['param_counts'], wall_hours=completion['wall_hours'], history=history,
+                consumed=sorted(set(consumed)),
                 completion=dict(path=str(completion_path), sha256=sha(completion_path.read_bytes())),
                 probe=dict(binding, **{key: receipt[key] for key in (
                     'mean_iteration_seconds', 'median_iteration_seconds', 'T_epoch', 'T_run',

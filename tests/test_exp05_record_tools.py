@@ -301,6 +301,50 @@ def test_markdown_refuses_to_overwrite_any_input(rendered, tmp_path):
         md.main(argv + ['--out', str(link)])
 
 
+def _consumed(f):
+    """Every file the generators read: products, companions, sidecars, approval, attempts."""
+    attempt = Path(f.attempts['S_simple'])
+    return ([f.results / name for name in
+             ('CURVE_K8.json', 'CURVE_K8.txt', 'CURVE_K8.json.provenance.json')]
+            + [attempt / name for name in
+               ('completion.json', 'train_manifest.json', 'args.json', 'history.jsonl')]
+            + [Path(f.receipts['S_simple']), Path(f.approval['path'])])
+
+
+@pytest.mark.parametrize('generator', ['md', 'html'])
+@pytest.mark.parametrize('kind', ['direct', 'hardlink', 'symlink'])
+def test_generators_never_overwrite_a_consumed_input(rendered, tmp_path, generator, kind):
+    """A destination naming an input by path, by hardlink or by symlink is refused."""
+    f, argv = rendered
+    main = dict(md=md.main, html=page.main)[generator]
+    targets = _consumed(f)
+    before = {str(item): item.read_bytes() for item in targets}
+    for index, target in enumerate(targets):
+        out = target
+        if kind != 'direct':
+            out = tmp_path / '{}_{}_{}'.format(generator, kind, index)
+            os.link(str(target), str(out)) if kind == 'hardlink' else out.symlink_to(target)
+        with pytest.raises(ValueError, match='output overlaps'):
+            main(argv + ['--out', str(out)])
+    assert {str(item): item.read_bytes() for item in targets} == before
+
+
+@pytest.mark.parametrize('kind', ['hardlink', 'symlink'])
+def test_figures_never_overwrite_a_consumed_input(rendered, tmp_path, kind):
+    """A predicted figure destination that is a second name for an input is refused."""
+    f, argv = rendered
+    outdir = tmp_path / ('figures_' + kind)
+    outdir.mkdir()
+    target = f.results / 'CURVE_K8.json'
+    before = target.read_bytes()
+    destination = outdir / 'param_curve_CURVE_K8_EDT.png'
+    os.link(str(target), str(destination)) if kind == 'hardlink' else destination.symlink_to(target)
+    with pytest.raises(ValueError, match='output overlaps'):
+        figures.main(['--curve', str(target), '--outdir', str(outdir)])
+    assert target.read_bytes() == before
+    assert sorted(item.name for item in outdir.iterdir()) == [destination.name]
+
+
 def test_markdown_refuses_measured_counts_that_left_the_register(rendered, tmp_path, monkeypatch):
     f, argv = rendered
     monkeypatch.setattr(md, 'MEASURED', {})   # the per-process cache, restored on teardown

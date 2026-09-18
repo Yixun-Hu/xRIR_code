@@ -54,6 +54,11 @@ def draw(data, metric, axes):
     axes[0].legend(fontsize=7, loc='best')
 
 
+def destination(data, metric, outdir, suffix):
+    """The one concrete file a panel is written to; preflighted before anything is drawn."""
+    return Path(outdir) / 'param_curve_{}_{}.{}'.format(data['profile_name'], metric, suffix)
+
+
 def figure(data, metric, outdir, formats):
     fig, axes = plt.subplots(1, 2, figsize=(10, 4), constrained_layout=True)
     try:
@@ -62,8 +67,7 @@ def figure(data, metric, outdir, formats):
             data['profile_name'], metric, data['profile']['num_shot']), fontsize=11)
         written = []
         for suffix in formats:
-            path = Path(outdir) / 'param_curve_{}_{}.{}'.format(
-                data['profile_name'], metric, suffix)
+            path = destination(data, metric, outdir, suffix)
             fig.savefig(str(path), dpi=200)
             written.append(path)
         return written
@@ -83,9 +87,15 @@ def main(argv=None):
     record.refuse(outdir.is_dir(), 'output directory does not exist: ' + str(outdir))
     record.refuse(all(item.parent != outdir for item in sources),
                   'the output directory holds a canonical input: ' + str(outdir))
+    # Admit every product, then preflight EVERY predicted file: a destination that is a
+    # second name for an input -- by path, hardlink or symlink -- would truncate it open.
+    curves = [load_curve(path) for path in sources]
+    protected = md.protected_inputs([receipt for _, receipt in curves])
+    md.refuse_overlap([destination(data, metric, outdir, suffix) for data, _ in curves
+                       for metric in data['profile']['metrics']['primary']
+                       for suffix in args.format], protected)
     written = []
-    for path in sources:
-        data, _ = load_curve(path)
+    for data, _ in curves:
         for metric in data['profile']['metrics']['primary']:
             written.extend(figure(data, metric, outdir, args.format))
     return written
