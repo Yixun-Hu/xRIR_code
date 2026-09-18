@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 
 from tools.exp04_record import load_asset
+from tools.exp07_record import logical
 
 exp04 = load_asset('make_results_md')
 display, percent, sha = exp04.display, exp04.percent, exp04.sha
@@ -36,8 +37,13 @@ KEYS = {'TABLE_SEEN_V1': 'producer_table', 'PAIRS_SEEN_V1': 'producer_pairs'}
 
 
 def load(path, name):
-    """Return the canonical data and its bound identity, or refuse it."""
-    path = Path(path).resolve()
+    """Return the canonical data and its bound identity, or refuse it.
+
+    The product is read at its logical name -- the one its own sidecar records and the
+    binding report binds -- so that archiving the products directory behind a directory
+    symlink changes neither this admission nor the documents written from it.
+    """
+    path = logical(path)
     raw = path.read_bytes()
     data, digest = json.loads(raw), sha(raw)
     side = json.loads(Path(str(path) + '.provenance.json').read_text())
@@ -154,11 +160,11 @@ def load_unseen(table, binding):
     if len(records) != 1:
         raise ValueError('the exp_04 binding report does not bind TABLE_V1')
     bound = {item['path']: item['sha256'] for item in records[0]['outputs']}
-    sidecar = Path(str(Path(table).resolve()) + '.provenance.json')
+    sidecar = Path(str(logical(table)) + '.provenance.json')
     if (bound.get(receipt['path']) != receipt['sha256']
             or records[0]['sidecar']['sha256'] != sha(sidecar.read_bytes())):
         raise ValueError('the unseen table is not the one the exp_04 report binds')
-    receipt = dict(receipt, binding_report=dict(path=str(Path(binding).resolve()),
+    receipt = dict(receipt, binding_report=dict(path=str(logical(binding)),
                                                 sha256=sha(Path(binding).read_bytes())))
     return data, receipt
 
@@ -190,15 +196,18 @@ def arguments(argv=None):
                 raise ValueError('the unseen table has no {} row at K = {}'.format(unseen_role, shot))
     receipts = [table_receipt] + [receipt for _, receipt in pairs] + [unseen_receipt]
     published = {output for receipt in receipts for output in receipt['outputs']}
-    published |= {str(Path(item).resolve()) + '.provenance.json' for item in sources}
-    published |= {str(Path(item).resolve()) for item in sources}
+    published |= {str(logical(item)) + '.provenance.json' for item in sources}
+    published |= {str(logical(item)) for item in sources}
     # The exp_04 binding report and every approval blob are inputs too: refuse to write
     # a document over any of them, whatever spelling named them on the command line.
-    published |= {str(Path(args.unseen_binding).resolve())}
-    published |= {str(Path(receipt['approved_digests']['path']).resolve())
+    published |= {str(logical(args.unseen_binding))}
+    published |= {str(logical(receipt['approved_digests']['path']))
                   for receipt in receipts if receipt.get('approved_digests')}
-    published |= {str(Path(unseen_receipt['binding_report']['path']).resolve())}
-    if str(Path(args.out).resolve()) in published or same_file(args.out, published):
+    published |= {str(logical(unseen_receipt['binding_report']['path']))}
+    # Either spelling of the destination names a protected input, and so does its inode:
+    # an archived input is reachable under its published name and under the archive's.
+    if ({str(logical(args.out)), str(Path(args.out).resolve())} & published
+            or same_file(args.out, published)):
         raise ValueError('output overlaps canonical input')
     head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=REPO, text=True).strip()
     record = dict(table=table, pairs=[data for data, _ in pairs], unseen=unseen, receipts=receipts)

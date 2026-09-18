@@ -54,10 +54,15 @@ def record_inputs(exp07_fixture, table_fixture, tmp_path):  # noqa: F811
                                      str(results / (role + '.summary.txt')),
                                      pairs_producer.render_summary)
     unseen, admitted = rt.build_table(table_fixture.directories)
-    paths['unseen'] = results / 'TABLE_V1.json'
-    rt.write_outputs(unseen, admitted, str(paths['unseen']), str(results / 'model_comparison.md'))
+    # exp_04's table and binding report are that experiment's own record directory
+    # (live: ckpt/yaw_aug/results), not part of what archiving ckpt/exp07 moves.
+    unseen_dir = tmp_path / 'unseen'
+    unseen_dir.mkdir()
+    paths['unseen'] = unseen_dir / 'TABLE_V1.json'
+    rt.write_outputs(unseen, admitted, str(paths['unseen']),
+                     str(unseen_dir / 'model_comparison.md'))
     published = json.loads(sidecar(paths['unseen']).read_text())['outputs']
-    paths['binding'] = results / 'binding_report_20260915T000000000000Z.json'
+    paths['binding'] = unseen_dir / 'binding_report_20260915T000000000000Z.json'
     paths['binding'].write_text(json.dumps(dict(schema_version=1, git_HEAD='b' * 40, results=[
         dict(profile='TABLE_V1', producer_commit='b' * 40,
              sidecar=dict(path=str(sidecar(paths['unseen'])),
@@ -1376,3 +1381,33 @@ def test_a_relocated_arm_still_refuses_a_final_symlink_naming_another_attempt(bo
     final.symlink_to('attempt_first_ABORTED_slow', target_is_directory=True)
     with pytest.raises(ValueError, match='not exactly one approved arm'):
         bound.binder.collect(**bound.arguments)
+
+
+def test_a_relocated_products_directory_leaves_the_record_verifiable(bound, tmp_path):
+    """An archived ancestor takes the products with it; they keep their published names."""
+    checker = load_asset('check_record')
+    report = write_report(bound)
+    relocate(bound.paths['table'].parent, tmp_path / 'nas' / 'results')
+    checker.main([str(bound.reports)])
+    assert bound.binder.collect(**bound.arguments) == report
+
+
+def test_the_documents_name_a_relocated_product_where_the_record_does(record_inputs, tmp_path):
+    """The provenance table is the published path, not the archive's."""
+    generators = [(load_asset('make_results_md'), '.md'),
+                  (load_asset('make_latex'), '.tex')]
+    before = {}
+    for module, suffix in generators:
+        out = tmp_path / ('before' + suffix)
+        module.main(argv(record_inputs, out=out))
+        before[suffix] = out.read_text()
+    assert str(record_inputs['table']) in before['.md']
+    destination = relocate(record_inputs['table'].parent, tmp_path / 'nas' / 'results')
+    assert str(destination) not in before['.md']
+    for module, suffix in generators:
+        out = tmp_path / ('after' + suffix)
+        module.main(argv(record_inputs, out=out))
+        assert out.read_text() == before[suffix]
+    # and the archived bytes are still what the generators refuse to write over
+    with pytest.raises(ValueError, match='output overlaps canonical input'):
+        generators[0][0].main(argv(record_inputs, out=destination / 'TABLE_SEEN_V1.json'))

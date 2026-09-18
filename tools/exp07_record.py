@@ -58,14 +58,17 @@ def write_outputs(result, admitted, json_path, md_path, renderer, force_md=False
     (with any manual section preserved), then the provenance sidecar; and every created
     file rolled back, the Markdown restored to its previous bytes, on any failure.
     """
-    paths = [Path(json_path).absolute(), Path(md_path).absolute(),
-             Path(str(json_path) + '.provenance.json').absolute()]
+    # The published names -- what the sidecar records and every reader of this product
+    # then spells -- are logical; distinctness and overlap remain questions about files,
+    # so both spellings of each destination are checked against the admitted inputs.
+    paths = [logical(json_path), logical(md_path), logical(str(json_path) + '.provenance.json')]
     if (len({item.resolve() for item in paths}) != 3 or any(item.is_symlink() for item in paths)
             or any(os.path.lexists(paths[i]) for i in (0, 2))
             or (os.path.lexists(paths[1]) and not force_md)):
         raise FileExistsError('output paths must be distinct and absent; '
                               '--force-md permits Markdown only')
-    if any(str(item.resolve()) in admitted['inputs'] for item in paths):
+    if any(str(spelling) in admitted['inputs'] for item in paths
+           for spelling in (item, item.resolve())):
         raise ValueError('output overlaps an input')
     previous = paths[1].read_bytes() if paths[1].exists() else None
     data, created = _json_bytes(result), []
