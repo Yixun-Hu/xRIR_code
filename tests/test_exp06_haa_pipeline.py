@@ -74,11 +74,18 @@ def header(gpu, jobs):
             'HAA_XRIR_ROOT={}'.format(gpu, HAA_ROOT)]
 
 
+def approvals_line(name, checkpoint):
+    """F3: 6.4's producer gate, printed before the job root is acquired."""
+    return 'APPROVALS {} checkpoint={} heading={} producer=haa_children'.format(
+        name, checkpoint, HEADING)
+
+
 def finetune_job(name, seed):
     backbone, init = INITS[name]
     root = '{}/{}/seed{}'.format(OUT, name, seed)
     tag = 'seed{}'.format(seed)
     lines = ['JOB {} {} backbone={} init={} expect=finetune'.format(name, tag, backbone, init),
+             approvals_line(name, init),
              'MKDIR ' + root, 'PIDFILE ' + root + '/launch.pid',
              'JOBSPEC {}/job_spec.json init={} checkpoint={} seed={} expect=finetune '
              'backbone={} frame=heading heading={}'.format(root, name, init, seed, backbone,
@@ -109,6 +116,7 @@ def zeroshot_job(name):
     backbone, init = INITS[name]
     root = '{}/{}/zeroshot'.format(OUT, name)
     lines = ['JOB {} zeroshot backbone={} init={} expect=zeroshot'.format(name, backbone, init),
+             approvals_line(name, init),
              'MKDIR ' + root, 'PIDFILE ' + root + '/launch.pid',
              'JOBSPEC {}/job_spec.json init={} checkpoint={} seed=0 expect=zeroshot '
              'backbone={} frame=heading heading={}'.format(root, name, init, backbone, HEADING),
@@ -176,6 +184,7 @@ mkdir -p -- "$RECORD" "$OUT"
 : > "$WORK/events"
 child() { printf 'CHILD %s\\n' "$2" >> "$WORK/events"; }
 finalize_job() { printf 'FINALIZE %s\\n' "$1" >> "$WORK/events"; }
+approvals_ok() { return 0; }          # F3: the gate has its own tests below
 '''
 INVOKE = 'if {}; then echo "STATUS 0"; else echo "STATUS $?"; fi\n'
 
@@ -252,6 +261,7 @@ def flat_dampened(tmp_path_factory):
 
 
 @pytest.mark.parametrize('fault,cause', [
+    ('approvals_ok() { return 5; }', 'REFUSED approvals'),
     ('open_job() { return 3; }', 'REFUSED open_job'),
     ('job_spec() { return 2; }', 'REFUSED job_spec'),
     ('job_spec() { return 0; }\ncheck_spec() { return 2; }', 'REFUSED check_spec')])
@@ -644,3 +654,47 @@ def test_a_receipt_at_the_job_root_is_refused(finetune_seed, clone):
         assert not completion.exists()
     finally:
         receipt.unlink()
+
+
+# --- F3: 6.4's producer gate refuses before the job root is acquired -----------------------
+
+
+REAL_ADAPTER = ''.join(line + '\n' for line in ADAPTER.splitlines()
+                       if not line.startswith('approvals_ok()'))
+
+
+def test_the_real_approvals_gate_refuses_an_unapproved_init(tmp_path):
+    """An initialisation the approvals do not name stops the job before anything is made."""
+    init = tmp_path / 'not_the_approved_epoch_012.pth'
+    init.write_bytes(b'weights nobody approved')
+    result, events = run_lib(INVOKE.format('run_finetune cyl_or 0'), tmp_path,
+                             adapter=REAL_ADAPTER, EXP06_CYLOR_CKPT=str(init))
+    assert events == [] and 'STATUS 1' in result.stdout
+    assert 'REFUSED approvals' in result.stdout
+    assert 'refusing:' in result.stderr and 'artifacts.epoch_012' in result.stderr
+    assert not (tmp_path / 'out/cyl_or/seed0').exists()
+    assert not sorted(Path(tmp_path, 'out/cyl_or').glob('seed0_ABORTED_*'))
+    failure = sorted(Path(tmp_path, 'out/cyl_or').glob('seed0_PREPARE_FAILED_*.json'))
+    assert len(failure) == 1
+    assert json.loads(failure[0].read_text())['reason'] == 'approvals'
+
+
+def test_the_real_approvals_gate_pins_the_historical_initialisations(tmp_path):
+    """control_hf and cyl_hf start from exp_01's published weights, pinned by their sha."""
+    other = tmp_path / 'epoch_12.pth'
+    other.write_bytes(b'not the exp_01 control')
+    script = ('init_of() { INIT_BACKBONE=simple; INIT_CKPT=%s; }\n' % other
+              + INVOKE.format('run_finetune control_hf 0'))
+    result, events = run_lib(script, tmp_path, adapter=REAL_ADAPTER)
+    assert events == [] and 'REFUSED approvals' in result.stdout
+    assert 'not the registered exp_01' in result.stderr
+
+
+def test_the_gate_runs_before_the_job_root_is_opened(tmp_path):
+    """A refusal must not acquire, adopt or rename anything: order is the guarantee."""
+    script = ('approvals_ok() { echo GATE; return 4; }\n'
+              'open_job() { echo OPENED; return 0; }\n'
+              + INVOKE.format('run_finetune cyl_or 0'))
+    result, events = run_lib(script, tmp_path)
+    assert 'GATE' in result.stdout and 'OPENED' not in result.stdout
+    assert events == [] and 'REFUSED approvals' in result.stdout

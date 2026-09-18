@@ -107,6 +107,45 @@ check_spec() {  # check_spec <path> <expect>
     [ "$DRY" -eq 1 ] || "$PYTHON" -c "$CHECK_SPEC_PY" "$1" "$2"
 }
 
+# Full-review F3: 6.4 says every producer refuses unless the recorded digests match the
+# approved ones. This is that gate for the HAA children -- the eight code keys they run,
+# recomputed at the queue HEAD and compared with the committed approvals, the init
+# checkpoint (artifacts.epoch_012 for cyl_or, the registered exp_01 sha otherwise) and the
+# four heading JSONs. It runs before the job root is acquired, so a refusal touches nothing.
+APPROVALS_PY='
+import sys
+from pathlib import Path
+from tools import exp04_profiles, provenance
+from tools import exp06_approvals_api as api
+init, checkpoint, heading_dir = sys.argv[1:4]
+rooms = ["class_room", "complex_room", "dampened_room", "hallway"]
+repo = str(Path(api.__file__).resolve().parents[1])
+try:
+    head = provenance.git_state(repo)["HEAD"]
+    registered = {"control_hf": exp04_profiles.CONTROL, "cyl_hf": exp04_profiles.CYL}.get(init)
+    if registered is not None:
+        digest = provenance.sha256_file(checkpoint)
+        if digest != registered["sha256"]:
+            raise ValueError("the {} init {} hashes to {}, not the registered exp_01 {}".format(
+                init, checkpoint, digest, registered["sha256"]))
+    record = api.enforce_producer(
+        "haa_children", repo, head, approved_path=api.approved_path_default(),
+        checkpoint=None if registered is not None else checkpoint,
+        headings={room: heading_dir + "/" + room + ".json" for room in rooms})
+except (OSError, ValueError, KeyError) as error:
+    raise SystemExit("refusing: " + str(error))
+print("APPROVALS ok producer={} commit={} keys={}".format(
+    record["producer"], str(record["approvals"].get("committed_at"))[:12],
+    ",".join(record["keys_checked"])))
+'
+
+# approvals_ok <init> <checkpoint>: the producer gate, on the CPU and before any acquisition.
+approvals_ok() {
+    say "APPROVALS $1 checkpoint=$2 heading=$HEADING_DIR producer=haa_children"
+    [ "$DRY" -eq 1 ] || CUDA_VISIBLE_DEVICES="" "$PYTHON" -c "$APPROVALS_PY" "$1" "$2" \
+        "$HEADING_DIR"
+}
+
 # Nit 8: a refused preparation is a recovery state, not a terminal message. The receipt
 # names the gate that refused, when, and the commit the queue was running.
 PREPARE_FAILURE_PY='
@@ -155,6 +194,7 @@ prepare_failed() {
 # pass before the first child of this job starts. A failure here is named and propagated.
 prepare_job() {
     OWNED_ROOT=0                     # fail closed: ownership is only ever granted below
+    approvals_ok "$2" "$3" || { prepare_failed "$1" approvals; return 1; }
     open_job "$1" || { prepare_failed "$1" open_job; return 1; }
     job_spec "$1/job_spec.json" "$2" "$3" "$4" "$5" "$6" \
         || { prepare_failed "$1" job_spec; return 1; }

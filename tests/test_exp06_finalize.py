@@ -578,6 +578,35 @@ def test_unknown_run_type_and_missing_directory_are_refused(tmp_path, full_run, 
         exp06_finalize.finalize(tmp_path / 'absent', 'full', log, 0, repo=clone)
 
 
+def stub_approvals(root, keys):
+    """F3: the approvals of a stub repository, approving exactly its own entry closures.
+
+    The HAA children are admitted against ``code.haa_finetune`` / ``code.haa_eval``
+    committed in the repository being finalised, so a stub repository carries a stub
+    approvals file whose two relevant digests are its own.
+    """
+    from tools import exp06_profiles
+    head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(root),
+                                   text=True).strip()
+    value = {'schema_version': 1,
+             'code': {key: None for key in exp06_profiles.CODE_KEYS},
+             'reused': dict({key: None for key in exp06_profiles.REUSED_KEYS
+                             if key != 'legacy_receipt'},
+                            legacy_receipt={'path': None, 'sha256': None}),
+             'artifacts': {'epoch_012': {'epoch': None, 'path': None, 'sha256': None},
+                           'heading': {room: None for room in exp06_profiles.HEADING_ROOMS},
+                           'gate_g1': None}}
+    for key in keys:
+        value['code'][key] = exp06_profiles.code_digest(key, str(root), head)
+    path = Path(root) / exp06_profiles.APPROVED_RELATIVE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, sort_keys=True, indent=2) + '\n')
+    subprocess.run(['git', 'add', '-A'], cwd=str(root), check=True)
+    subprocess.run(['git', '-c', 'user.email=a@b', '-c', 'user.name=t', 'commit', '-q',
+                    '-m', 'stub approvals'], cwd=str(root), check=True)
+    return path
+
+
 @pytest.fixture(scope='session')
 def haa_repo(tmp_path_factory):
     """Round 2b's entries do not exist yet: a stub repo supplies a resolvable closure."""
@@ -589,6 +618,7 @@ def haa_repo(tmp_path_factory):
     for command in (['init', '-q'], ['add', '-A'], ['-c', 'user.email=a@b', '-c', 'user.name=t',
                                                     'commit', '-q', '-m', 'stub entries']):
         subprocess.run(['git'] + command, cwd=root, check=True)
+    stub_approvals(root, ('haa_finetune', 'haa_eval'))
     return root
 
 
@@ -2386,3 +2416,74 @@ def test_an_integer_too_wide_for_a_float_is_a_named_refusal(tmp_path, haa_repo, 
                                   str(log), '--child-exit', '0', '--repo', str(haa_repo)])
     assert status == 2 and cause in capsys.readouterr().err
     assert not (run / 'completion.json').exists()
+
+
+# --- F3: an HAA child ran the approved entry point of its reviewed commit -----------------
+
+
+def stub_haa_repo(root, digests):
+    """A stub repository whose committed approvals carry exactly the given code digests."""
+    from tools import exp06_profiles
+    (root / 'tools').mkdir(parents=True)
+    (root / 'tools/__init__.py').write_text('')
+    for name in ('exp06_haa_finetune', 'exp06_haa_eval'):
+        (root / 'tools' / (name + '.py')).write_text('"""round 2b stub"""\nimport json\n')
+    for command in (['init', '-q'], ['add', '-A'],
+                    ['-c', 'user.email=a@b', '-c', 'user.name=t', 'commit', '-q', '-m', 's']):
+        subprocess.run(['git'] + command, cwd=str(root), check=True)
+    stub_approvals(root, ())
+    path = root / exp06_profiles.APPROVED_RELATIVE
+    value = json.loads(path.read_text())
+    value['code'].update(digests)
+    path.write_text(json.dumps(value, sort_keys=True, indent=2) + '\n')
+    subprocess.run(['git', 'add', '-A'], cwd=str(root), check=True)
+    subprocess.run(['git', '-c', 'user.email=a@b', '-c', 'user.name=t', 'commit', '-q',
+                    '--allow-empty', '-m', 'approve'], cwd=str(root), check=True)
+    return subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(root),
+                                   text=True).strip()
+
+
+def test_an_haa_child_that_ran_an_unapproved_entry_point_is_refused(tmp_path):
+    """Full-review F3: the closure was captured and compared with nothing."""
+    root = tmp_path / 'stub'
+    head = stub_haa_repo(root, {'haa_finetune': 'b' * 64, 'haa_eval': 'b' * 64})
+    with pytest.raises(ValueError, match=r'not the approved code\.haa_finetune'):
+        exp06_finalize.haa_approvals({'sha256': 'a' * 64}, 'haa_train', head, root)
+    with pytest.raises(ValueError, match=r'not the approved code\.haa_eval'):
+        exp06_finalize.haa_approvals({'sha256': 'a' * 64}, 'haa_eval', head, root)
+    record = exp06_finalize.haa_approvals({'sha256': 'b' * 64}, 'haa_train', head, root)
+    assert record['code_digests'] == {'haa_finetune': 'b' * 64}
+    assert record['approvals']['committed_at'] == head
+
+
+def test_an_unapproved_haa_key_is_refused_rather_than_skipped(tmp_path):
+    root = tmp_path / 'null'
+    head = stub_haa_repo(root, {})
+    with pytest.raises(ValueError, match=r'code\.haa_finetune is not approved'):
+        exp06_finalize.haa_approvals({'sha256': 'a' * 64}, 'haa_train', head, root)
+
+
+def test_an_absent_approvals_file_refuses_an_haa_child(tmp_path):
+    root = tmp_path / 'bare'
+    (root / 'tools').mkdir(parents=True)
+    for command in (['init', '-q'], ['-c', 'user.email=a@b', '-c', 'user.name=t', 'commit',
+                                     '-q', '--allow-empty', '-m', 'empty']):
+        subprocess.run(['git'] + command, cwd=str(root), check=True)
+    head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(root),
+                                   text=True).strip()
+    with pytest.raises(ValueError, match='missing approvals file'):
+        exp06_finalize.haa_approvals({'sha256': 'a' * 64}, 'haa_train', head, root)
+
+
+def test_the_haa_completion_records_the_approvals_binding(haa_train_run, haa_repo):
+    from tools import exp06_profiles
+    run, log, _ = haa_train_run
+    fields = exp06_finalize.finalize(run, 'haa_train', log, 0, repo=haa_repo)
+    path = Path(haa_repo) / exp06_profiles.APPROVED_RELATIVE
+    assert fields['approvals']['path'] == str(path)
+    assert fields['approvals']['sha256'] == provenance.sha256_file(path)
+    assert fields['approvals']['committed_at'] == json.loads(
+        (run / 'provenance.json').read_text())['reviewed_commit']
+    assert set(fields['code_digests']) == {'haa_finetune'}
+    assert fields['code_digests']['haa_finetune'] == \
+        fields['source_closure_sha256']

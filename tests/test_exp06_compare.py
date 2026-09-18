@@ -75,15 +75,17 @@ REGISTRY = exp06_eval.registry_sha256()
 MODEL_CLASSES = {name: cls.__name__ for name, cls in BACKBONES_EXP06.items()}
 META_FIELDS = tuple(exp06_eval.METADATA_FIELDS)
 ROLES = {'C': {'arm': 'cyl_or', 'checkpoint': None, 'route': 'exp06', 'role': 'arm',
-               'backbone': 'cylindrical_oriented', 'epoch': EPOCH},
+               'backbone': 'cylindrical_oriented', 'epoch': EPOCH, 'routes': ('exp06',)},
          'A': {'arm': 'control', 'checkpoint': {'sha256': None, 'checkpoint': 'simple.pth',
                                                 'backbone': 'simple', 'epoch': 12},
-               'route': 'exp04', 'role': 'arm', 'backbone': 'simple', 'epoch': 12},
+               'route': 'exp04', 'role': 'arm', 'backbone': 'simple', 'epoch': 12,
+               'routes': ('exp04',)},
          'B': {'arm': 'cyl', 'checkpoint': {'sha256': None, 'checkpoint': 'cyl.pth',
                                             'backbone': 'cylindrical', 'epoch': 12},
                'route': None, 'role': 'baseline', 'backbone': 'cylindrical', 'epoch': 12,
+               'routes': ('exp05', 'exp06'),
                'exp05': {'role': 'M_cyl', 'tier': 'M', 'backbone': 'cylindrical',
-                         'sha256': None, 'counts': dict(M_COUNTS)}}}
+                         'sha256': None, 'epoch': '12', 'counts': dict(M_COUNTS)}}}
 EXP04_DIGEST = provenance.sha256_file(
     __import__('tools.exp04_profiles', fromlist=['x']).APPROVED_DIGESTS_PATH)
 EXP05_DIGEST = 'a5' * 32
@@ -135,8 +137,13 @@ def data_identity(repo, reference, manifest, digest):
 
 def write_run(directory, role, seed, checkpoints, split=SPLIT, manifest_hash=None,
               manifest=None, per_sample=None, completion=None, bad=(), repo=None,
-              queries=None, route=None):
-    """One admissible evaluation run of arm `role`, before the caller's mutations."""
+              queries=None, route=None, launched=None):
+    """One admissible evaluation run of arm `role`, before the caller's mutations.
+
+    `launched` is a manifest the exp_06 launcher built itself (full-review R4): the run is
+    then written around those fields rather than around this fixture's reconstruction of
+    them, so a launcher/comparer disagreement cannot hide between the two.
+    """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     route = (ROLES[role]['route'] or 'exp06') if route is None else route
@@ -178,8 +185,8 @@ def write_run(directory, role, seed, checkpoints, split=SPLIT, manifest_hash=Non
                                             fields['manifest_file_sha256'])
     binding = {'path': str(log), 'sha256': provenance.sha256_file(log)}
     if exp06:
-        fields['mutable_inputs'] = {name: dict(binding) for name in
-                                    ('train_manifest', 'train_completion')}
+        # Full-review F2: the names used to be satisfied by this evaluation's own log.
+        fields['mutable_inputs'] = training_inputs(checkpoints, role)
     elif route == 'exp05':
         # The checkpoint-adjacent args.json exp_05's own tier rules read.
         train_args = Path(checkpoint).resolve().parent / 'args.json'
@@ -192,6 +199,8 @@ def write_run(directory, role, seed, checkpoints, split=SPLIT, manifest_hash=Non
                       mutable_inputs={'train_args': {
                           'path': str(train_args),
                           'sha256': provenance.sha256_file(train_args)}})
+    if launched is not None:
+        fields = copy.deepcopy(launched)      # R4: the launcher's own fields, unedited
     fields.update(manifest or {})
     keys = ('backbone', 'checkpoint', 'manifest_hash', 'gl_seed', 'batch_size', 'tf32',
             'manifest_seed', 'yaw_cols', 'conditions', 'n_samples')
@@ -230,6 +239,57 @@ def summarise(values):
             'n_valid': len(finite), 'n_nan': len(values) - len(finite)}
 
 
+def pretraining_record(root, checkpoint, epochs=EPOCH):
+    """Arm C's finalised attempt: the completion and provenance its evaluations bind."""
+    root.mkdir(parents=True, exist_ok=True)
+    commit = 'c' * 40
+    (root / 'provenance.json').write_text(json.dumps(
+        {'run_type': 'full', 'reviewed_commit': commit}, sort_keys=True))
+    (root / 'completion.json').write_text(json.dumps(
+        {'schema_version': 1, 'run_type': 'full', 'admissible_arm': True, 'epochs': epochs,
+         'diagnostic': False, 'exploratory': False, 'run_dir': str(root.resolve()),
+         'approvals': {'committed_at': commit},
+         'artifacts': {'epoch_012.pth': provenance.sha256_file(checkpoint),
+                       'provenance.json': provenance.sha256_file(root / 'provenance.json')},
+         'checkpoint': {'path': 'epoch_012.pth', 'epoch': epochs,
+                        'sha256': provenance.sha256_file(checkpoint)}}, sort_keys=True))
+    return root
+
+
+def legacy_record(root, checkpoint, epochs=EPOCH):
+    """Arm B's historical evidence: the reconstructed exp_01 receipt and its args.json."""
+    from tools import exp06_legacy_train_receipt as receipts
+    train = root / 'xRIR_cyl_8_shot'
+    train.mkdir(parents=True, exist_ok=True)
+    (train / 'args.json').write_text(json.dumps({'backbone': 'cylindrical', 'epochs': epochs}))
+    (train / 'history.jsonl').write_text(''.join(
+        json.dumps({'epoch': epoch}) + '\n' for epoch in range(1, epochs + 1)))
+    (train / 'train.log').write_text('exp_01 cylindrical\n')
+    weights = train / 'epoch_{}.pth'.format(epochs)
+    weights.write_bytes(Path(checkpoint).read_bytes())
+    receipt = root / 'train_receipt.json'
+    receipts.write_receipt(receipt, train, weights, strict=False, registry=(
+        {'role': 'cyl', 'backbone': 'cylindrical', 'epoch': epochs,
+         'checkpoint': 'ckpt/xRIR_cyl_8_shot/epoch_12.pth',
+         'sha256': provenance.sha256_file(weights)},),
+        identity={'entry_module': 'x', 'commit': 'a' * 40, 'sha256': 'b' * 64,
+                  'files': [], 'drift': [], 'strict': True})
+    return train, receipt
+
+
+def training_inputs(checkpoints, role):
+    """The `train_manifest` / `train_completion` bindings of one exp_06-route arm."""
+    if role == 'C':
+        root = checkpoints['train_C']
+        paths = {'train_manifest': root / 'provenance.json',
+                 'train_completion': root / 'completion.json'}
+    else:
+        train, receipt = checkpoints['train_B']
+        paths = {'train_manifest': train / 'args.json', 'train_completion': receipt}
+    return {name: {'path': str(path), 'sha256': provenance.sha256_file(path)}
+            for name, path in paths.items()}
+
+
 @pytest.fixture(scope='module')
 def checkpoints(tmp_path_factory):
     base = tmp_path_factory.mktemp('ckpt')
@@ -248,6 +308,8 @@ def checkpoints(tmp_path_factory):
             ROLES[role]['checkpoint']['sha256'] = provenance.sha256_file(path)
         if role == 'B':
             ROLES[role]['exp05']['sha256'] = provenance.sha256_file(path)
+    paths['train_C'] = pretraining_record(base / 'pretrain' / 'attempt', paths['C'])
+    paths['train_B'] = legacy_record(base / 'exp01', paths['B'])
     return paths
 
 
@@ -288,7 +350,7 @@ def test_every_arm_is_admitted_with_its_five_seeds(runs, approved):
     admitted = subject.admit_runs(runs, approved, split=SPLIT, roles=ROLES)
     assert sorted(admitted['groups']) == ['A', 'B', 'C'] and not admitted['deviations']
     assert [run['seed'] for run in admitted['groups']['C']] == list(subject.SEEDS)
-    assert all(path.endswith(('.json', '.pth', '.py', '.log', '.npy'))
+    assert all(path.endswith(('.json', '.jsonl', '.pth', '.py', '.log', '.npy'))
                for path in admitted['inputs'])
     assert len(admitted['groups']['B']) == 5
 
@@ -548,7 +610,13 @@ def test_h3_is_c_against_b_with_c_against_a_descriptive(runs, approved):
     assert result['verdicts']['C - A']['descriptive'] is True
     for cell in result['cells']:
         assert cell['n'] == N and cell['n_rooms_retained'] == 3
-        assert len(cell['room_cluster_interval']) == 2 and cell['n_boot'] == 400
+        assert len(cell['room_cluster_interval']) == 2
+        # F5: the published n_boot is the size the convergence rule stopped at.
+        attempts = cell['convergence']['attempts']
+        assert [attempt['n_boot'] for attempt in attempts] == [400, 1600][:len(attempts)]
+        assert cell['n_boot'] == attempts[-1]['n_boot'] == cell['convergence']['n_boot']
+        assert cell['convergence']['passed'] is (
+            cell['convergence']['status'] == 'converged')
         assert len(cell['seed_means'][cell['contrast'][0]]) == 5
         assert cell['companion_interval'][0] <= cell['upper']
     assert result['verdicts']['C - B']['verdict'] in (
@@ -643,7 +711,10 @@ def test_an_input_changed_during_analysis_is_refused(runs, approved, tmp_path):
     """Finding 10: the inputs are rechecked after the bootstrap, before publication."""
     admitted = subject.admit_runs(runs, approved, split=SPLIT, roles=ROLES)
     result = subject.analyse(admitted, subject.MARGIN, 400)
-    log = next(Path(path) for path in sorted(result['inputs']) if path.endswith('.log'))
+    # One of this run's own evaluation logs: the shared training artefacts the receipt
+    # enumerates belong to the module fixture and are never edited by a test.
+    log = next(Path(path) for path in sorted(result['inputs'])
+               if Path(path).name == 'C_seed42.log')
     log.write_text(log.read_text() + 'appended after admission\n')
     with pytest.raises(ValueError, match='input changed during analysis'):
         subject.write_outputs(result, tmp_path / 'j.json', tmp_path / 's.txt')
@@ -1009,3 +1080,215 @@ def test_the_comparers_own_closure_is_bound_and_revalidated(runs, approved, tmp_
     for item in record['producer']['files']:
         path = (Path(subject.REPO) / item['path']).resolve()
         assert record['inputs'][str(path)] == item['working_tree_sha256'], item['path']
+
+
+# --- F5: section 7's convergence rule around the inherited H3 resampling -------------------
+
+
+CONSTANT = {'edt': [0.10] * N, 'c50': [1.2] * N, 't60': [7.0] * N,
+            'loss': [0.5] * N, 'log_mse': [0.3] * N}
+
+
+def test_the_convergence_policy_refuses_zero_width_and_retries_once():
+    """Full-review F5: identical draws are not a converged interval, they are no interval."""
+    import numpy as np
+
+    def constant(seed, n_boot):
+        return np.zeros(n_boot)
+
+    draws, size, attempts = subject.converged_draws(constant, 100)
+    assert [attempt['n_boot'] for attempt in attempts] == [100, 400]
+    assert not any(attempt['passed'] for attempt in attempts) and size == 400
+    assert all('zero-width' in (attempt['reason'] or '') for attempt in attempts)
+    assert all(attempt['seed_a']['lo'] == attempt['seed_a']['hi'] == 0.0
+               for attempt in attempts)
+
+
+def test_a_first_attempt_that_converges_is_not_quadrupled():
+    import numpy as np
+
+    def stable(seed, n_boot):
+        return np.linspace(0.0, 1.0, n_boot) + 0.001 * seed
+
+    draws, size, attempts = subject.converged_draws(stable, 100)
+    assert len(attempts) == 1 and attempts[0]['passed'] and size == 100
+    assert attempts[0]['ratio'] <= subject.CONVERGENCE_TOL
+    assert len(draws[subject.BOOT_SEEDS[0]]) == 100
+
+
+def test_a_failed_attempt_is_retried_once_at_four_times_the_draws():
+    import numpy as np
+
+    def improving(seed, n_boot):
+        shift = 0.0 if seed == subject.BOOT_SEEDS[0] else (0.5 if n_boot == 100 else 0.001)
+        return np.linspace(0.0, 1.0, n_boot) + shift
+
+    draws, size, attempts = subject.converged_draws(improving, 100)
+    assert [attempt['n_boot'] for attempt in attempts] == [100, 400]
+    assert [attempt['passed'] for attempt in attempts] == [False, True]
+    assert size == 400 and attempts[0]['ratio'] > subject.CONVERGENCE_TOL
+
+
+def test_identical_arms_withhold_the_h3_verdict(tmp_path, checkpoints, approved):
+    """Full-review F5: rho = 0 on a zero-width interval used to publish `non-inferior`."""
+    groups = {}
+    for role in ('C', 'A', 'B'):
+        groups[role] = [str(write_run(tmp_path / role / str(seed), role, seed, checkpoints,
+                                      SPLIT, per_sample={'P': {'0': dict(CONSTANT)}}))
+                        for seed in subject.SEEDS]
+    result = analysis(groups, approved, n_boot=100)
+    assert result['verdicts']['C - B']['verdict'] == 'not converged'
+    assert result['verdicts']['C - A']['verdict'] == 'not converged'
+    for cell in result['cells']:
+        assert cell['rho'] == 0.0 and cell['convergence']['passed'] is False
+        assert cell['convergence']['status'] == 'not_converged'
+        assert [attempt['n_boot'] for attempt in cell['convergence']['attempts']] == [100, 400]
+    assert any('convergence gate failed' in item for item in result['deviations'])
+
+
+# --- F4: arm B has exactly two registered routes ------------------------------------------
+
+
+def test_each_role_declares_the_routes_section_6_3_registers_for_it():
+    assert subject.ROLES['C']['routes'] == ('exp06',)
+    assert subject.ROLES['A']['routes'] == ('exp04',)
+    assert subject.ROLES['B']['routes'] == ('exp05', 'exp06')
+    assert set(subject.ROUTES) == {'exp04', 'exp05', 'exp06'}
+
+
+def test_a_descriptive_exp04_cylindrical_run_is_not_arm_b(tmp_path, checkpoints, approved):
+    """Full-review F4: B's unrestricted route fell back to exp_04 and was admitted."""
+    directory = write_run(tmp_path / 'descriptive', 'B', 42, checkpoints, SPLIT, route='exp04')
+    fields = json.loads((directory / 'eval_manifest.json').read_text())
+    assert 'checkpoint_role' not in fields and 'checkpoint_epoch' not in fields
+    assert subject.route_of(fields, None) == 'exp04'
+    with pytest.raises(ValueError, match='registered route'):
+        subject.admit_run(directory, 'B', approved, SPLIT, roles=ROLES)
+
+
+def test_an_exp06_arm_must_record_its_checkpoint_epoch(tmp_path, checkpoints, approved):
+    """The historical missing-epoch exception is arm A's; an exp_06 run declares one."""
+    for role in ('B', 'C'):
+        directory = write_run(tmp_path / ('epoch' + role), role, 42, checkpoints, SPLIT,
+                              route='exp06')
+        fields = json.loads((directory / 'eval_manifest.json').read_text())
+        fields.pop('checkpoint_epoch')
+        rewrite(directory, fields)
+        with pytest.raises(ValueError) as failure:
+            subject.admit_run(directory, role, approved, SPLIT, roles=ROLES)
+        # The checkpoint block refuses it, before the weaker `meta checkpoint_epoch`.
+        assert str(failure.value).endswith(': checkpoint_epoch')
+
+
+def test_the_exp05_route_is_the_registered_twelfth_epoch_arm(tmp_path, checkpoints, approved,
+                                                             exp05):
+    """B's exp_05 route takes its epoch from the registration, which must be epoch 12."""
+    assert str(subject.EXP05_M['epoch']) == str(subject.EPOCH)
+    directory = write_run(tmp_path / 'm12', 'B', 42, checkpoints, SPLIT, route='exp05')
+    roles = copy.deepcopy(ROLES)
+    roles['B']['exp05'] = dict(ROLES['B']['exp05'], epoch=9)
+    with pytest.raises(ValueError, match='twelfth-epoch'):
+        subject.admit_run(directory, 'B', approved, SPLIT, roles=roles)
+
+
+REAL_B = Path(__file__).resolve().parents[1] / 'ckpt/yaw_aug/eval/cyl_k8_seed42_k0'
+
+
+@pytest.mark.skipif(not REAL_B.is_dir(),
+                    reason="needs exp_04's descriptive cylindrical evaluation")
+def test_the_real_descriptive_cylindrical_run_is_refused_as_arm_b():
+    """The exact counterexample of the Codex full review: 6337 queries were admitted."""
+    fields = json.loads((REAL_B / 'eval_manifest.json').read_text())
+    approved = approvals_api.validate({
+        'schema_version': 1,
+        'code': dict({key: 'a' * 64 for key in approvals_api.CODE_KEYS},
+                     evaluator_exp03=fields['evaluator_closure']['sha256']),
+        'reused': dict({key: 'a' * 64 for key in approvals_api.REUSED_DIGESTS},
+                       exp04_evaluator_closure=fields['source_closures']['entrypoint']['sha256'],
+                       exp04_writer_closure=fields['source_closures']['writer']['sha256'],
+                       exp04_approved_digests_sha256=EXP04_DIGEST,
+                       legacy_receipt={'path': 'r.json', 'sha256': 'a' * 64}),
+        'artifacts': {'epoch_012': {'path': 'p', 'epoch': 12, 'sha256': 'a' * 64},
+                      'heading': {room: 'a' * 64 for room in approvals_api.ROOMS},
+                      'gate_g1_sha256': 'a' * 64}})
+    with pytest.raises(ValueError, match='registered route'):
+        subject.admit_runs({'B': [str(REAL_B)]}, approved)
+
+
+# --- F2: the training evidence is re-validated at admission --------------------------------
+
+
+def test_an_exp06_run_publishes_the_training_run_it_binds(tmp_path, checkpoints, approved):
+    for role in ('C', 'B'):
+        directory = write_run(tmp_path / role, role, 42, checkpoints, SPLIT, route='exp06')
+        fields = json.loads((directory / 'eval_manifest.json').read_text())
+        assert set(fields['mutable_inputs']) == set(subject.TRAINING_BINDINGS)
+        bound = fields['mutable_inputs']['train_completion']['path']
+        assert Path(bound).name == ('completion.json' if role == 'C'
+                                    else 'train_receipt.json')
+        subject.admit_run(directory, role, approved, SPLIT, roles=ROLES)
+
+
+def test_an_evaluation_log_bound_as_training_evidence_is_refused(tmp_path, checkpoints,
+                                                                  approved):
+    """The fixture used to satisfy both names with this run's own log; so did the runbook."""
+    directory = write_run(tmp_path / 'log', 'C', 42, checkpoints, SPLIT)
+    fields = json.loads((directory / 'eval_manifest.json').read_text())
+    log = directory.parent / 'C_seed42.log'
+    fields['mutable_inputs'] = {name: {'path': str(log), 'sha256': provenance.sha256_file(log)}
+                                for name in subject.TRAINING_BINDINGS}
+    rewrite(directory, fields)
+    with pytest.raises(ValueError, match='training evidence'):
+        subject.admit_run(directory, 'C', approved, SPLIT, roles=ROLES)
+
+
+EVIDENCE_DAMAGE = {
+    'other_weights': ('C', {'artifacts': {'epoch_012.pth': 'f' * 64}}, 'epoch_012.pth'),
+    'not_admissible': ('C', {'admissible_arm': False}, 'not admissible as an arm'),
+    'not_full': ('C', {'run_type': 'probe'}, 'run_type'),
+    'short_budget': ('C', {'epochs': 9}, 'not the registered 12'),
+}
+
+
+@pytest.mark.parametrize('case', sorted(EVIDENCE_DAMAGE))
+def test_a_completion_that_does_not_certify_these_weights_is_refused(tmp_path, checkpoints,
+                                                                     approved, case):
+    role, fields, cause = EVIDENCE_DAMAGE[case]
+    directory = write_run(tmp_path / case, role, 42, checkpoints, SPLIT)
+    completion = Path(checkpoints['train_C']) / 'completion.json'
+    original = completion.read_text()
+    record = json.loads(original)
+    if 'artifacts' in fields:
+        fields = dict(fields, artifacts=dict(record['artifacts'], **fields['artifacts']))
+    completion.write_text(json.dumps(dict(record, **fields), sort_keys=True))
+    manifest = json.loads((directory / 'eval_manifest.json').read_text())
+    manifest['mutable_inputs']['train_completion']['sha256'] = \
+        provenance.sha256_file(completion)
+    rewrite(directory, manifest)
+    try:
+        with pytest.raises(ValueError, match=cause):
+            subject.admit_run(directory, 'C', approved, SPLIT, roles=ROLES)
+    finally:
+        completion.write_text(original)
+
+
+def test_a_receipt_whose_artefacts_moved_is_refused(tmp_path, checkpoints, approved):
+    """Arm B's evidence is the retained exp_01 artefacts, re-hashed at every admission."""
+    directory = write_run(tmp_path / 'stale', 'B', 42, checkpoints, SPLIT, route='exp06')
+    train, _ = checkpoints['train_B']
+    original = (train / 'train.log').read_bytes()
+    (train / 'train.log').write_bytes(original + b'appended after the receipt\n')
+    try:
+        with pytest.raises(ValueError, match='changed since the receipt'):
+            subject.admit_run(directory, 'B', approved, SPLIT, roles=ROLES)
+    finally:
+        (train / 'train.log').write_bytes(original)
+
+
+def test_arm_c_must_evaluate_the_approved_epoch_012(tmp_path, checkpoints, approved):
+    """The completion, the run's own digest and the approvals must name one checkpoint."""
+    directory = write_run(tmp_path / 'approved', 'C', 42, checkpoints, SPLIT)
+    wrong = copy.deepcopy(approved)
+    wrong['artifacts']['epoch_012']['sha256'] = 'f' * 64
+    with pytest.raises(ValueError, match='approved epoch_012'):
+        subject.admit_run(directory, 'C', wrong, SPLIT, roles=ROLES)
