@@ -34,6 +34,7 @@ import datetime
 import hashlib
 import json
 import re
+import subprocess
 from pathlib import Path
 
 from tools import exp04_profiles
@@ -50,6 +51,9 @@ REQUIRED_FILES = ('args.json', 'history.jsonl', 'train.log')
 # Enumerated when present; exp_01 kept both, but neither is evidence on its own.
 OPTIONAL_FILES = ('best.pth', 'last.pth')
 EPOCH_FILE = re.compile(r'epoch_(\d+)\.pth\Z')
+COMMIT = re.compile(r'[0-9a-f]{40}\Z')
+# `closure_record` writes git's own object hash (40 hex) or a sha256 of the bytes (64).
+FILE_HASH = re.compile(r'([0-9a-f]{40}|[0-9a-f]{64})\Z')
 # The arms exp_04 registers by hash; a receipt is written only for weights among them.
 REGISTERED = (exp04_profiles.CONTROL, exp04_profiles.CYL)
 
@@ -138,6 +142,74 @@ def source_identity(repo=REPO, strict=True):
             'files': records, 'drift': drift, 'strict': bool(strict)}
 
 
+def _closure_digest(files):
+    """``provenance.closure_record``'s own digest: [[path, reviewed blob], ...]."""
+    return hashlib.sha256(json.dumps([[item['path'], item['reviewed_blob_sha256']]
+                                      for item in files], sort_keys=True).encode()).hexdigest()
+
+
+def _reviewed_blob(repo, commit, path):
+    """The blob of ``path`` at ``commit``, hashed as ``closure_record`` hashes it."""
+    blob = subprocess.run(['git', 'show', '{}:{}'.format(commit, path)],
+                          cwd=str(repo), capture_output=True)
+    return hashlib.sha256(blob.stdout).hexdigest() if blob.returncode == 0 else None
+
+
+def check_producer(closure, repo=REPO):
+    """Close-review R3: what wrote the receipt, re-derived from the closure's own records.
+
+    ``verify`` used to read two summary flags -- ``strict`` and ``drift`` -- so a receipt
+    carrying ``{"strict": true}`` and nothing else claimed a clean producer it never had.
+    A producer closure is evidence only if it *is* one: this tool's own entry module, a
+    real commit, the non-empty membership :func:`source_identity` records, the digest
+    ``closure_record`` computes over it, records that do not differ from the reviewed
+    blobs, and reviewed blobs that are the blobs of those paths **at that commit** -- a
+    historical commit as readily as HEAD, since a receipt is written once and read later.
+
+    The closure is this tool's import closure, which never contains a ``worklog/`` path,
+    so 6.4's allowance for a dirty notebook needs no exception here: a dirty worklog file
+    is not a source of ``tools.exp06_legacy_train_receipt`` and can never be drift.
+    """
+    _require(isinstance(closure, dict), 'the training receipt records no producer closure')
+    _require(closure.get('strict') is True, 'the training receipt was produced with '
+             '--allow-dirty, and is never confirmatory')
+    _require(closure.get('entry_module') == ENTRY_MODULE, 'the training receipt was '
+             'produced by {!r}, not {}'.format(closure.get('entry_module'), ENTRY_MODULE))
+    commit = closure.get('commit')
+    _require(isinstance(commit, str) and COMMIT.match(commit),
+             'the producer closure records no commit ({!r})'.format(commit))
+    files = closure.get('files')
+    _require(isinstance(files, list) and files,
+             'the producer closure enumerates no source file of ' + ENTRY_MODULE)
+    for item in files:
+        item = item if isinstance(item, dict) else {}
+        _require(isinstance(item.get('path'), str)
+                 and FILE_HASH.match(str(item.get('reviewed_blob_sha256')))
+                 and FILE_HASH.match(str(item.get('working_tree_sha256'))),
+                 'the producer closure records no reviewed and working-tree hashes for '
+                 '{!r}'.format(item.get('path')))
+    names = [item['path'] for item in files]
+    _require(names == sorted(set(names)),
+             'the producer closure enumerates its sources out of order or twice')
+    declared = closure.get('drift') or []
+    _require(isinstance(declared, list), 'the producer closure records a malformed drift')
+    # R3: drift is what the records say, not what the receipt claims about them.
+    drift = sorted(set(str(name) for name in declared)
+                   | {item['path'] for item in files
+                      if item['working_tree_sha256'] != item['reviewed_blob_sha256']})
+    _require(not drift, 'the training receipt was produced from a tree that differs from '
+             'its own sources ({}), and is never confirmatory'.format(', '.join(drift)))
+    _require(_closure_digest(files) == closure.get('sha256'),
+             'the producer closure does not hash to its own sha256')
+    unreviewed = [item['path'] for item in files
+                  if _reviewed_blob(repo, commit, item['path'])
+                  != item['reviewed_blob_sha256']]
+    _require(not unreviewed, 'the producer closure is not the reviewed source of {} at {}: '
+             '{}'.format(ENTRY_MODULE, commit[:12], ', '.join(unreviewed)))
+    return {'entry_module': ENTRY_MODULE, 'commit': commit, 'sha256': closure['sha256'],
+            'files': len(files)}
+
+
 def registered_arm(digest, registry=None):
     """The exp_01 arm these weights are, or a refusal naming what was offered."""
     registry = REGISTERED if registry is None else registry
@@ -204,13 +276,16 @@ def write_receipt(path, train_dir, checkpoint, repo=REPO, strict=True, registry=
 
 
 def verify(path, checkpoint_sha256=None, registered_sha256=None, epochs=None,
-           hasher=provenance.sha256_file):
+           hasher=provenance.sha256_file, repo=None):
     """Re-read the receipt and re-hash every artefact it enumerates.
 
     ``hasher(path)`` lets a caller route the reads through its own input binding, so the
     same artefact hashed for several runs is read once and a contradictory second read is
-    refused where every other input is.
+    refused where every other input is. ``repo`` is the checkout the producer closure's
+    reviewed blobs are read from; a receipt is written and read in the same repository,
+    and its commit stays readable there once it is merged.
     """
+    repo = REPO if repo is None else repo
     path = Path(path)
     _require(path.is_file(), 'missing training receipt: {}'.format(path))
     digest = provenance.sha256_file(path)
@@ -232,13 +307,8 @@ def verify(path, checkpoint_sha256=None, registered_sha256=None, epochs=None,
     root = Path(record.get('train_dir') or '')
     _require(root.is_dir(), 'the receipt\'s training directory {} is gone'.format(root))
     # R3: a receipt written from a drifting or --allow-dirty tree is diagnostic by its own
-    # contract, and no reader may promote it.
-    closure = record.get('source_closure')
-    _require(isinstance(closure, dict), 'the training receipt records no producer closure')
-    drift = closure.get('drift')
-    _require(closure.get('strict') is True and not drift,
-             'the training receipt was produced with {}, and is never confirmatory'.format(
-                 ', '.join(drift or []) or '--allow-dirty'))
+    # contract, and no reader may promote it -- and the closure must say so with records.
+    check_producer(record.get('source_closure'), repo)
     # R3: and its enumeration is the writer's membership rule, applied to the directory now
     # -- not whatever list the receipt happens to carry.
     expected = receipt_names(root)
