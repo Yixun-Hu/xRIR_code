@@ -42,8 +42,8 @@
     "exp02_stats_sha256": "98062d76755a8e2a9f9cf6eb086c29e5e5286c8dd47846f887f36ba86f564759",
     "exp02_summary_sha256": "736f9fb8f4392c1fdbd9caf5aca5c047b3e3febcb83c6babab44270447f3eebd",
     "legacy_receipt": {
-      "path": null,
-      "sha256": null
+      "path": "ckpt/exp06/legacy_receipt.json",
+      "sha256": "5a12494657665d336cf5f952c6ef918abbeae44e451f28821790ac5c46232540"
     },
     "writer_exp04": "15f9c984561de9ec3caac905d97ce0a6d1e23c00fb7d4a39e0b157de2b0a458d"
   },
