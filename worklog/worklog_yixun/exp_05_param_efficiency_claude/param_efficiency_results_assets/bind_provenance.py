@@ -80,8 +80,8 @@ def logical(path):
     return Path(os.path.abspath(str(path)))
 
 
-def same_directory(one, other):
-    """One directory under two names: relocation keeps the inode, not the spelling."""
+def identical(one, other):
+    """Two names for one file: relocation, and `final`, keep the inode not the spelling."""
     try:
         return Path(one).samefile(Path(other))
     except OSError:
@@ -102,7 +102,13 @@ def snapshot(directory, kind):
     paths its own manifest, completion and consumers already name.
     """
     bound_record, fields = binder.snapshot(directory, kind)
-    directory = logical(directory)
+    # A training attempt is reached through the arm's `final` symlink and, once archived,
+    # through a directory symlink as well, so neither route is its name: the launcher
+    # wrote that name into the manifest, and it is the one every other record spells.
+    named = fields.get('attempt_path') if kind == 'train' else None
+    directory = logical(named or directory)
+    require(named is None or identical(directory, bound_record['path']),
+            'the manifest does not name this attempt directory: ' + str(directory))
     log = json.loads(Path(bound_record['completion']['path']).read_text())['log']
     return dict(bound_record, path=str(directory),
                 manifest=dict(bound_record['manifest'],
@@ -227,27 +233,20 @@ def probe_linkage(records, receipts):
     return named
 
 
-def approved_attempt(attempt, pins):
-    """Which approved arm this directory is, and the logical path the approval gives it.
-
-    Whether the bytes are still here or behind a directory symlink is the filesystem's
-    question, so the directory is recognised by inode; what the report then binds,
-    compares and publishes is the approval's own path, which is also the one the
-    manifests, the completions and the products' sidecars name.
-    """
-    given = logical(attempt)
-    roles = [role for role, pin in sorted(pins['checkpoints'].items())
-             if same_directory(logical(ROOT / pin['path']).parent, given)]
-    require(len(roles) == 1, 'attempt is not exactly one approved arm: ' + str(given))
-    return roles[0], logical(ROOT / pins['checkpoints'][roles[0]]['path']).parent
-
-
 def attempt_record(attempt, pins):
-    """One arm's full run, the evidence its limits came from, and its hours ledger."""
-    role, directory = approved_attempt(attempt, pins)
-    bound_record, fields = snapshot(directory, 'train')
-    pin = pins['checkpoints'][role]
-    checkpoint = stamp(ROOT / pin['path'], pin['sha256'])
+    """One arm's full run, the evidence its limits came from, and its hours ledger.
+
+    The approval pins each checkpoint through the arm's `final` symlink, and the report
+    binds the attempt the launcher named: whether those two are one file is the
+    filesystem's question, asked by inode, while the path recorded is the attempt's own.
+    """
+    bound_record, fields = snapshot(attempt, 'train')
+    directory = Path(bound_record['path'])
+    roles = [role for role, pin in sorted(pins['checkpoints'].items())
+             if identical(ROOT / pin['path'], directory / Path(pin['path']).name)]
+    require(len(roles) == 1, 'attempt is not exactly one approved arm: ' + str(directory))
+    pin = pins['checkpoints'][roles[0]]
+    role, checkpoint = roles[0], stamp(directory / Path(pin['path']).name, pin['sha256'])
     require(bound_record['outputs'].get(Path(checkpoint['path']).name) == checkpoint,
             'approved checkpoint is not this attempt\'s output: ' + role)
     require(pin['epoch'] == ROLES[role]['epoch']
@@ -277,7 +276,7 @@ def attempt_record(attempt, pins):
         **{name: stamp(Path(fields['repo']) / bound[name]['path'], bound[name]['sha256'])
            for name in ('probe_receipt', 'control_args', 'effective_args')})
     final = directory.parent / 'final'
-    require(final.is_symlink() and same_directory(final, directory),
+    require(final.is_symlink() and identical(final, directory),
             'the arm\'s final symlink is not this attempt: ' + role)
     bound_record['probe_linkage'] = probe_linkage(bound_record['other_attempts'],
                                                   bound_record['probe_receipts'])

@@ -150,21 +150,24 @@ def exp05_record_fixture(tmp_path, monkeypatch):
             if legacy:
                 attempts[role] = None
             else:
-                pins['checkpoints'][role] = dict(path=str(checkpoint), epoch=12,
-                                                 sha256=arm['sha256'])
                 attempts[role] = attempt
                 bindings.update(_train_attempt(root, attempt, arm, args, commit, launcher,
                                                training, trained_data, ledgers, receipts))
+                # The approval pins the checkpoint through the arm's `final` symlink, as
+                # the live one does, while every evaluation names the attempt itself.
+                arm['checkpoint'] = str(attempt.parent / 'final' / checkpoint.name)
+                pins['checkpoints'][role] = dict(path=arm['checkpoint'], epoch=12,
+                                                 sha256=arm['sha256'])
             for shot in (8, 1):
                 for seed in (42, 43, 44, 45, 46):
                     for kind, grid in (('k0', (0,)), ('yaw', YAW_GRID)):
                         if kind == 'yaw' and (shot != 8 or seed != 42):
                             continue
                         runs[(role, shot, seed, kind)] = _eval_run(
-                            root, role, arm, shot, seed, kind, grid, queries, commit,
-                            references, bindings, tier, dict(entrypoint=entry, writer=writer),
-                            frozen, identity, data_root,
-                            invalid.get(role, {}) if kind == 'k0' else {})
+                            root, role, arm, str(checkpoint), shot, seed, kind, grid,
+                            queries, commit, references, bindings, tier,
+                            dict(entrypoint=entry, writer=writer), frozen, identity,
+                            data_root, invalid.get(role, {}) if kind == 'k0' else {})
         approval_path = root / 'approved.json'
         p.write_manifest(approval_path, pins)
         receipt = dict(path=str(approval_path), sha256=p.sha256_file(approval_path),
@@ -283,14 +286,14 @@ def _train_attempt(root, attempt, arm, args, commit, launcher, training, trained
             (('train_manifest', train_manifest), ('train_completion', attempt / 'completion.json'))}
 
 
-def _eval_run(root, role, arm, shot, seed, kind, grid, queries, commit, references, bindings,
-              tier, closures, frozen, identity, data_root, invalid=None):
+def _eval_run(root, role, arm, checkpoint, shot, seed, kind, grid, queries, commit, references,
+              bindings, tier, closures, frozen, identity, data_root, invalid=None):
     """One evaluation run directory, exactly as tools/exp05_eval.py's launcher writes it."""
     directory = root / 'eval' / '{}_k{}_seed{}_{}'.format(role, shot, seed, kind)
     directory.mkdir(parents=True)
     reference_path, reference = references[(shot, seed)]
     fields = dict(schema_version=1, repo=str(root), reviewed_commit=commit,
-        checkpoint=arm['checkpoint'], checkpoint_sha256=arm['sha256'],
+        checkpoint=checkpoint, checkpoint_sha256=arm['sha256'],
         manifest_path=str(reference_path), manifest_file_sha256=p.sha256_file(reference_path),
         manifest_hash=manifest_hash(reference), manifest_seed=seed, gl_seed=seed, num_shot=shot,
         backbone=arm['backbone'], batch_size=16, batch_canonical=True, max_samples=0, tf32=False,

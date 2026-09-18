@@ -619,6 +619,7 @@ def test_a_drifting_producer_source_leaves_the_record_unbindable(bound):
     ('swapped_writer', 'writer closure is not the approved one'),
     ('forged_closure_record', 'closure records'),
     ('missing_training_linkage', 'training linkage'),
+    ('misnamed_attempt', 'does not name this attempt directory'),
 ])
 def test_the_binder_refuses_a_forged_record(bound, forgery, message):
     f, arguments = bound.f, dict(bound.arguments)
@@ -702,6 +703,16 @@ def test_the_binder_refuses_a_forged_record(bound, forgery, message):
         else:
             closures['writer'] = dict(closures['writer'], sha256='a' * 64)
         f.rebind(run, manifest=manifest)
+    elif forgery == 'misnamed_attempt':
+        attempt = Path(f.attempts['S_cyl'])
+        manifest = f.read(attempt / 'train_manifest.json')
+        manifest['attempt_path'] = str(f.attempts['L_cyl'])
+        digest = f.replace(attempt / 'train_manifest.json', manifest)
+        completion = f.read(attempt / 'completion.json')
+        completion['train_manifest_sha256'] = digest
+        for key in ('outputs', 'directory_listing'):
+            completion[key]['train_manifest.json'] = digest
+        f.replace(attempt / 'completion.json', completion)
     elif forgery == 'two_retries':
         ledger = f.read(f.ledgers['L_simple'])
         ledger['attempts'].append(dict(attempt='attempt_first_ABORTED_slow', hours=1., mode='full'))
@@ -762,12 +773,13 @@ def test_a_relocated_attempt_that_changed_is_still_refused(bound, tmp_path):
 
 
 def test_a_relocated_arm_still_refuses_a_final_symlink_naming_another_attempt(bound, tmp_path):
+    """`final` is both the approval's route to the checkpoint and the attempt's seal."""
     attempt = Path(bound.f.attempts['L_simple'])
     destination = _relocate(attempt.parent, tmp_path / 'nas' / attempt.parent.name)
     final = destination / 'final'
     final.unlink()
     final.symlink_to(sorted(destination.glob('_probe_*/'))[0].name, target_is_directory=True)
-    with pytest.raises(ValueError, match='final symlink is not this attempt'):
+    with pytest.raises(ValueError, match='approved arm|final symlink is not this attempt'):
         bound.binder.collect(**bound.arguments)
 
 
