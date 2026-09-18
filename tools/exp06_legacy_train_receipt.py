@@ -23,7 +23,11 @@ created exclusively and never replaced.
 
 ``verify`` re-reads it and re-hashes every file it enumerates, so it is evidence only
 while those artefacts are unchanged; ``tools.exp06_train_evidence`` is the caller that
-binds it to an evaluation.
+binds it to an evaluation. Full-review R3: it also re-derives what the receipt *must*
+enumerate from :func:`receipt_names`, re-validates the args/history/registered-arm
+contract against the retained artefacts, and refuses a receipt whose producer closure
+drifted or was written with ``--allow-dirty`` -- a self-consistent enumeration of two of
+eighteen artefacts is not complete evidence of a training run.
 """
 import argparse
 import datetime
@@ -96,8 +100,13 @@ def history_epochs(path):
     return len(rows)
 
 
-def receipt_files(train_dir, checkpoints=None):
-    """The receipt's ordered enumeration, relative to the training directory."""
+def receipt_names(train_dir, checkpoints=None):
+    """The membership rule: which artefacts of a training directory a receipt enumerates.
+
+    One rule, written once and applied twice -- by the writer, to enumerate, and by
+    :func:`verify`, to require that a receipt enumerates all of them (R3: a receipt cut
+    down to two files and re-hashed is self-consistent, and is not complete evidence).
+    """
     train_dir = Path(train_dir)
     _require(train_dir.is_dir(), 'no training directory at {}'.format(train_dir))
     names = list(REQUIRED_FILES)
@@ -106,8 +115,13 @@ def receipt_files(train_dir, checkpoints=None):
                  'the training directory {} has no {}'.format(train_dir, name))
     names += list(epoch_checkpoints(train_dir) if checkpoints is None else checkpoints)
     names += [name for name in OPTIONAL_FILES if (train_dir / name).is_file()]
-    return [{'path': name, 'sha256': provenance.sha256_file(train_dir / name)}
-            for name in names]
+    return names
+
+
+def receipt_files(train_dir, checkpoints=None):
+    """The receipt's ordered enumeration, relative to the training directory."""
+    return [{'path': name, 'sha256': provenance.sha256_file(Path(train_dir) / name)}
+            for name in receipt_names(train_dir, checkpoints)]
 
 
 def source_identity(repo=REPO, strict=True):
@@ -121,7 +135,7 @@ def source_identity(repo=REPO, strict=True):
     _require(not (strict and drift),
              'the producer closure differs from HEAD: ' + ', '.join(drift))
     return {'entry_module': ENTRY_MODULE, 'commit': head, 'sha256': digest,
-            'files': records, 'drift': drift}
+            'files': records, 'drift': drift, 'strict': bool(strict)}
 
 
 def registered_arm(digest, registry=None):
@@ -217,6 +231,23 @@ def verify(path, checkpoint_sha256=None, registered_sha256=None, epochs=None,
              'the training receipt names no checkpoint')
     root = Path(record.get('train_dir') or '')
     _require(root.is_dir(), 'the receipt\'s training directory {} is gone'.format(root))
+    # R3: a receipt written from a drifting or --allow-dirty tree is diagnostic by its own
+    # contract, and no reader may promote it.
+    closure = record.get('source_closure')
+    _require(isinstance(closure, dict), 'the training receipt records no producer closure')
+    drift = closure.get('drift')
+    _require(closure.get('strict') is True and not drift,
+             'the training receipt was produced with {}, and is never confirmatory'.format(
+                 ', '.join(drift or []) or '--allow-dirty'))
+    # R3: and its enumeration is the writer's membership rule, applied to the directory now
+    # -- not whatever list the receipt happens to carry.
+    expected = receipt_names(root)
+    names = [item.get('path') for item in files if isinstance(item, dict)]
+    _require(names == expected, 'the training receipt enumerates {} artefacts, not the {} '
+             '{} retains (missing {}; unexpected {})'.format(
+                 len(names), len(expected), root,
+                 ', '.join(name for name in expected if name not in names) or 'none',
+                 ', '.join(str(name) for name in names if name not in expected) or 'none'))
     inputs = {str(path.resolve()): digest}
     for item in files:
         _require(isinstance(item, dict) and isinstance(item.get('path'), str),
@@ -235,6 +266,29 @@ def verify(path, checkpoint_sha256=None, registered_sha256=None, epochs=None,
                  checkpoint.get('epoch'), record.get('epochs')))
     _require(enumerated.get('args.json') == (record.get('args') or {}).get('sha256'),
              'the receipt args.json is not the enumerated artefact')
+    # R3: the args/history/registered-arm contract the writer applied, re-derived from the
+    # retained artefacts this verification has just re-hashed.
+    args = _read_json(root / 'args.json', 'args.json')
+    _require(isinstance(args, dict), 'args.json is not a record')
+    history = history_epochs(root / 'history.jsonl')
+    _require(args.get('epochs') == history == record.get('epochs'),
+             'the retained args.json and history.jsonl record {} and {} epochs, not the {} '
+             'of the receipt'.format(args.get('epochs'), history, record.get('epochs')))
+    match = EPOCH_FILE.match(checkpoint['path'])
+    _require(match is not None and int(match.group(1)) == history,
+             'the receipt certifies {}, not the last of the {} epochs the history '
+             'records'.format(checkpoint['path'], history))
+    _require(args.get('backbone') == record.get('backbone'),
+             'the retained args.json records the backbone {!r}, not the {!r} of the '
+             'receipt'.format(args.get('backbone'), record.get('backbone')))
+    registered = record.get('registered')
+    _require(isinstance(registered, dict)
+             and registered.get('sha256') == checkpoint.get('sha256')
+             and registered.get('role') == record.get('arm')
+             and registered.get('backbone') == record.get('backbone')
+             and registered.get('epoch') == record.get('epochs'),
+             'the training receipt calls these weights the registered {!r} arm, which is '
+             'not the registration it records ({!r})'.format(record.get('arm'), registered))
     if checkpoint_sha256 is not None:
         _require(checkpoint['sha256'] == checkpoint_sha256, 'the training receipt certifies '
                  '{}, not the evaluated {}'.format(checkpoint['sha256'], checkpoint_sha256))
