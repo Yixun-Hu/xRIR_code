@@ -714,3 +714,58 @@ def test_the_binder_refuses_a_forged_record(bound, forgery, message):
         f.rebind(run, manifest=manifest)
     with pytest.raises(ValueError, match=message):
         bound.binder.collect(**arguments)
+
+
+def _relocate(directory, destination):
+    """Move a bound directory away and leave a directory symlink where it was.
+
+    Exactly the migration the Planner performs once an attempt is certified: the bytes
+    move to the NAS, the arm directory keeps its ledger, probe receipts and ``final``,
+    and every path the record already published still names the evidence.
+    """
+    directory, destination = Path(directory), Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    directory.rename(destination)
+    directory.symlink_to(destination, target_is_directory=True)
+    return destination
+
+
+@pytest.mark.parametrize('moved', ['attempt', 'arm'])
+def test_a_relocated_attempt_leaves_the_record_verifiable(bound, tmp_path, moved):
+    """Nothing changed but where the bytes live, so nothing about the record changes."""
+    checker = record.load_asset('check_record')
+    bound.binder.main(bound.arguments_argv())
+    report = json.loads(sorted(bound.reports.glob('binding_report_*.json'))[0].read_text())
+    attempt = Path(bound.f.attempts['S_simple'])
+    directory = attempt if moved == 'attempt' else attempt.parent
+    destination = _relocate(directory, tmp_path / 'nas' / directory.name)
+    checker.main([str(bound.reports)])
+    assert bound.binder.collect(**bound.arguments) == report
+    # The approval's logical path is the identity, whichever name the binder is given.
+    relocated = destination / attempt.name if moved == 'arm' else destination
+    assert bound.binder.collect(**dict(bound.arguments, attempt=sorted(
+        [str(relocated)] + [item for item in bound.arguments['attempt']
+                            if item != str(attempt)]))) == report
+
+
+def test_a_relocated_attempt_that_changed_is_still_refused(bound, tmp_path):
+    checker = record.load_asset('check_record')
+    bound.binder.main(bound.arguments_argv())
+    attempt = Path(bound.f.attempts['S_cyl'])
+    destination = _relocate(attempt, tmp_path / 'nas' / attempt.name)
+    history = destination / 'history.jsonl'
+    history.write_text(history.read_text() + json.dumps(dict(epoch=13)) + '\n')
+    for call in (lambda: bound.binder.collect(**bound.arguments),
+                 lambda: checker.main([str(bound.reports)])):
+        with pytest.raises(ValueError, match='digest mismatch'):
+            call()
+
+
+def test_a_relocated_arm_still_refuses_a_final_symlink_naming_another_attempt(bound, tmp_path):
+    attempt = Path(bound.f.attempts['L_simple'])
+    destination = _relocate(attempt.parent, tmp_path / 'nas' / attempt.parent.name)
+    final = destination / 'final'
+    final.unlink()
+    final.symlink_to(sorted(destination.glob('_probe_*/'))[0].name, target_is_directory=True)
+    with pytest.raises(ValueError, match='final symlink is not this attempt'):
+        bound.binder.collect(**bound.arguments)

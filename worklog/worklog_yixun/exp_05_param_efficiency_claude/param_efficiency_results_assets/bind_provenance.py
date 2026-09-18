@@ -28,6 +28,7 @@ directories are read and never modified.
 """
 import argparse
 import json
+import os
 import re
 from pathlib import Path
 
@@ -38,7 +39,7 @@ from tools.exp05_profiles import ARMS, get_profile, load_approved_digests
 from tools.paired_compare import _closure_digest, producer_identity
 
 binder = exp04_asset('bind_provenance')
-ROOT, require, stamp, snapshot = binder.ROOT, binder.require, binder.stamp, binder.snapshot
+ROOT, require = binder.ROOT, binder.require
 check_ancestor, report_path = binder.check_ancestor, binder.report_path
 
 ROLES = {arm['role']: arm for arm in ARMS}
@@ -63,6 +64,54 @@ TRAINING_DEPENDENCIES = ('args.json', 'train_manifest.json')
 CONTRACTS = {True: ('tools.exp05_eval', 'bound args.json'),
              False: ('tools.exp04_eval', 'pinned historical M checkpoint')}
 SETUP_FAILURE = re.compile(r'.*_ABORTED_setup_failed(_[0-9a-f]+)?\Z')
+
+
+def logical(path):
+    """A path as the evidence spells it: absolute and normalised, never resolved.
+
+    A certified attempt directory is archived to the NAS with a directory symlink left
+    where it was, so the name a record was published under and the device the bytes are
+    on stop being the same question.  The identity of every key this report persists or
+    compares -- the approved arm directory, the attempt, each run, and every dependency
+    the products declared -- is that published name; ``resolve()`` would rename them all
+    the moment the bytes move and make an unchanged record unverifiable.  The bytes are
+    still read, and hashed, through the name.
+    """
+    return Path(os.path.abspath(str(path)))
+
+
+def same_directory(one, other):
+    """One directory under two names: relocation keeps the inode, not the spelling."""
+    try:
+        return Path(one).samefile(Path(other))
+    except OSError:
+        return False
+
+
+def stamp(path, *expected):
+    """The inherited digest check, recorded at the logical path."""
+    return dict(binder.stamp(path, *expected), path=str(logical(path)))
+
+
+def snapshot(directory, kind):
+    """The inherited snapshot -- listing, outputs, revalidation -- recorded logically.
+
+    Everything it validates (a directory listing that is exactly the completion's, no
+    output entry resolving outside the directory, every declared input at its recorded
+    digest) is unchanged; only the names it hands back are, so a relocated run keeps the
+    paths its own manifest, completion and consumers already name.
+    """
+    bound_record, fields = binder.snapshot(directory, kind)
+    directory = logical(directory)
+    log = json.loads(Path(bound_record['completion']['path']).read_text())['log']
+    return dict(bound_record, path=str(directory),
+                manifest=dict(bound_record['manifest'],
+                              path=str(directory / (kind + '_manifest.json'))),
+                completion=dict(bound_record['completion'],
+                                path=str(directory / 'completion.json')),
+                outputs={name: item and dict(item, path=str(directory / name))
+                         for name, item in bound_record['outputs'].items()},
+                log=stamp(Path(fields['repo']) / log['path'], log['sha256'])), fields
 
 
 def external_log(reference, digest=None, mandatory=False):
@@ -133,11 +182,11 @@ def other_attempts(certified, ledger, role):
     run with its abort.json, and the external logs all of them reference are bound here at
     their current bytes, so a later change to any of them changes the report.
     """
-    root = Path(certified).parent
+    root = logical(certified).parent
     records = []
     for row in sorted(ledger['attempts'], key=lambda item: item['attempt']):
-        directory = (root / row['attempt']).resolve()
-        if directory == Path(certified).resolve():
+        directory = logical(root / row['attempt'])
+        if directory == logical(certified):
             continue
         require(directory.is_dir(), 'the ledger names a missing attempt: ' + row['attempt'])
         files = sorted(item for item in directory.rglob('*') if item.is_file())
@@ -164,7 +213,7 @@ def probe_linkage(records, receipts):
     named = {}
     for receipt in receipts:
         bound = (json.loads(Path(receipt['path']).read_text()).get('probe_attempt') or {})
-        path = str(Path(bound.get('path', 'absent')).resolve())
+        path = str(logical(bound.get('path', 'absent')))
         require(path in probes,
                 'a probe receipt names an attempt this arm does not list: ' + receipt['path'])
         require(path not in named, 'two probe receipts name one attempt: ' + path)
@@ -178,14 +227,26 @@ def probe_linkage(records, receipts):
     return named
 
 
+def approved_attempt(attempt, pins):
+    """Which approved arm this directory is, and the logical path the approval gives it.
+
+    Whether the bytes are still here or behind a directory symlink is the filesystem's
+    question, so the directory is recognised by inode; what the report then binds,
+    compares and publishes is the approval's own path, which is also the one the
+    manifests, the completions and the products' sidecars name.
+    """
+    given = logical(attempt)
+    roles = [role for role, pin in sorted(pins['checkpoints'].items())
+             if same_directory(logical(ROOT / pin['path']).parent, given)]
+    require(len(roles) == 1, 'attempt is not exactly one approved arm: ' + str(given))
+    return roles[0], logical(ROOT / pins['checkpoints'][roles[0]]['path']).parent
+
+
 def attempt_record(attempt, pins):
     """One arm's full run, the evidence its limits came from, and its hours ledger."""
-    bound_record, fields = snapshot(attempt, 'train')
-    directory = Path(bound_record['path'])
-    roles = [role for role, pin in pins['checkpoints'].items()
-             if (ROOT / pin['path']).resolve().parent == directory]
-    require(len(roles) == 1, 'attempt is not exactly one approved arm: ' + str(directory))
-    role, pin = roles[0], pins['checkpoints'][roles[0]]
+    role, directory = approved_attempt(attempt, pins)
+    bound_record, fields = snapshot(directory, 'train')
+    pin = pins['checkpoints'][role]
     checkpoint = stamp(ROOT / pin['path'], pin['sha256'])
     require(bound_record['outputs'].get(Path(checkpoint['path']).name) == checkpoint,
             'approved checkpoint is not this attempt\'s output: ' + role)
@@ -216,7 +277,7 @@ def attempt_record(attempt, pins):
         **{name: stamp(Path(fields['repo']) / bound[name]['path'], bound[name]['sha256'])
            for name in ('probe_receipt', 'control_args', 'effective_args')})
     final = directory.parent / 'final'
-    require(final.is_symlink() and final.resolve() == directory,
+    require(final.is_symlink() and same_directory(final, directory),
             'the arm\'s final symlink is not this attempt: ' + role)
     bound_record['probe_linkage'] = probe_linkage(bound_record['other_attempts'],
                                                   bound_record['probe_receipts'])
@@ -260,17 +321,17 @@ def run_declarations(bound_record, fields):
              + [item for item in bound_record['outputs'].values() if item]}
     for path_key, digest_key in (('checkpoint', 'checkpoint_sha256'),
                                  ('manifest_path', 'manifest_file_sha256')):
-        bound[str((root / fields[path_key]).resolve())] = fields[digest_key]
+        bound[str(logical(root / fields[path_key]))] = fields[digest_key]
     identity = fields['data_identity']
     if 'manifest_path' in identity:
-        bound[str(Path(identity['manifest_path']).resolve())] = identity['manifest_file_sha256']
+        bound[str(logical(identity['manifest_path']))] = identity['manifest_file_sha256']
     for item in identity['inventory']:
-        bound[str((Path(identity['data_root']) / item['path']).resolve())] = item['sha256']
+        bound[str(logical(Path(identity['data_root']) / item['path']))] = item['sha256']
     for closure in [fields['evaluator_closure']] + list(fields['source_closures'].values()):
         for item in closure['files']:
-            bound[str((root / item['path']).resolve())] = item['working_tree_sha256']
+            bound[str(logical(root / item['path']))] = item['working_tree_sha256']
     for item in fields['mutable_inputs'].values():
-        bound[str((root / item['path']).resolve())] = item['sha256']
+        bound[str(logical(root / item['path']))] = item['sha256']
     return bound
 
 
@@ -309,7 +370,7 @@ def run_record(run, attempts, historical, approval):
     kind = 'k0' if grid == (0,) else 'yaw'
     require(tuple(fields['acoustic_cols']) == grid and fields['e_acoustic_cols'] == []
             and fields.get('decomposition_batches') == 0, 'grid disagreement: ' + str(run))
-    checkpoint = (Path(fields['repo']) / fields['checkpoint']).resolve()
+    checkpoint = logical(Path(fields['repo']) / fields['checkpoint'])
     bound = fields['mutable_inputs']
     owners = [item for item in attempts if Path(item['checkpoint']['path']) == checkpoint]
     if owners:
@@ -319,7 +380,7 @@ def run_record(run, attempts, historical, approval):
                               ('train_completion', owner['completion'])):
             require(stamp(Path(fields['repo']) / bound[key]['path'], bound[key]['sha256'])
                     == expected, 'training linkage: ' + str(run))
-        require(Path(bound['train_args']['path']).resolve().parent == Path(owner['path']),
+        require(logical(bound['train_args']['path']).parent == Path(owner['path']),
                 'train_args linkage: ' + str(run))
     else:
         roles = [item['role'] for item in historical.values()
@@ -329,7 +390,7 @@ def run_record(run, attempts, historical, approval):
         role = roles[0]
         require(not set(TRAINING) & set(bound),
                 'a historical M row carries no exp_05 training provenance: ' + str(run))
-        require(Path(bound['train_args']['path']).resolve().parent == checkpoint.parent,
+        require(logical(bound['train_args']['path']).parent == checkpoint.parent,
                 'train_args linkage: ' + str(run))
     run_closures(fields, role, approval, str(run))
     tier_agreement(bound_record, fields, role)
@@ -417,7 +478,7 @@ def bind_results(paths, head, approval, runs, attempts, run_bound):
     by_path = {run['path']: run for run in runs}
     trained = {item['role']: item for item in attempts}
     records = []
-    for path in sorted(str(Path(item).resolve()) for item in paths):
+    for path in sorted(str(logical(item)) for item in paths):
         name = json.loads(Path(path).read_bytes()).get('profile_name')
         require(name in record.KEYS, 'unregistered producer output: ' + path)
         data, receipt = record.load(path, name)
@@ -498,7 +559,7 @@ def collect(runs, attempt, results, rendered, figures=(), approved=None, head=No
     require(len({item['training_closure'] for item in attempts}) == 1,
             'the four arms do not share one training closure')
     historical = historical_checkpoints()
-    paths = sorted(str(Path(item).resolve()) for item in runs)
+    paths = sorted(str(logical(item)) for item in runs)
     require(len(paths) == len(set(paths)) and len(paths) == len(IDENTITIES),
             'the sixty-six evaluation runs')
     records = [run_record(item, attempts, historical, approval) for item in paths]
@@ -516,7 +577,7 @@ def collect(runs, attempt, results, rendered, figures=(), approved=None, head=No
     cited = ([item['sha256'] for item in published]
              + [item['completion']['sha256'] for item in attempts])
     documents = []
-    for path in sorted(str(Path(item).resolve()) for item in rendered):
+    for path in sorted(str(logical(item)) for item in rendered):
         text = Path(path).read_text(errors='replace')
         require(all(digest in text for digest in cited),
                 'a rendered document does not cite every canonical digest: ' + path)
@@ -524,13 +585,13 @@ def collect(runs, attempt, results, rendered, figures=(), approved=None, head=No
     require(documents, 'no rendered documents')
     return dict(schema_version=1, git_HEAD=head, results=published, runs=records,
                 attempts=attempts, historical_checkpoints=historical, documents=documents,
-                figures=[stamp(item) for item in sorted(str(Path(name).resolve())
+                figures=[stamp(item) for item in sorted(str(logical(name))
                                                         for name in figures)],
                 approved_digests=approval,
                 inputs=dict(runs=paths, attempt=[item['path'] for item in attempts],
-                            results=sorted(str(Path(item).resolve()) for item in results),
-                            rendered=sorted(str(Path(item).resolve()) for item in rendered),
-                            figures=sorted(str(Path(item).resolve()) for item in figures),
+                            results=sorted(str(logical(item)) for item in results),
+                            rendered=sorted(str(logical(item)) for item in rendered),
+                            figures=sorted(str(logical(item)) for item in figures),
                             approved=identity['path']))
 
 
