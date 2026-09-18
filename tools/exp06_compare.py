@@ -25,6 +25,7 @@ from pathlib import Path
 import numpy as np
 
 from tools import exp06_approvals_api as approvals_api
+from tools import exp06_bootstrap
 from tools import paired_compare
 from tools import provenance
 from tools import exp04_profiles, exp05_profiles
@@ -43,6 +44,7 @@ COMPANION_ALPHA = 0.05
 N_BOOT = 20000
 BOOT_SEEDS = (0, 1)
 CONVERGENCE_TOL = 0.10
+CONVERGENCE_FACTOR = 4             # section 7: the draws are quadrupled once, then withheld
 # Finding 1: the registered experiment, taken from exp_04's own frozen registration --
 # the split and its size, the room population, the canonical query digest, the data
 # inventory every run must have read, and the seed-specific K = 8 reference manifests.
@@ -482,6 +484,48 @@ def _arrays(runs, metric):
     return np.asarray([run['P']['0'][metric.lower()] for run in runs], dtype=float)
 
 
+def convergence_attempt(draws, n_boot, tol=CONVERGENCE_TOL, alpha=COMPANION_ALPHA):
+    """One attempt of section 7's rule: both companions, the endpoint ratio, and why it failed.
+
+    Full-review F5: ``paired_compare.convergence`` lets two identical zero-width intervals
+    pass, and a ratio of 0/0 is not evidence of convergence. ``exp06_bootstrap`` already
+    implements the plan's stricter endpoint rule (zero width refused), so it decides here
+    while both intervals are recorded either way.
+    """
+    intervals = {seed: tuple(paired_compare.two_sided_interval(draws[seed], alpha))
+                 for seed in BOOT_SEEDS}
+    record = {'n_boot': int(n_boot), 'tolerance': float(tol), 'companion_alpha': alpha,
+              'seed_a': {'seed': BOOT_SEEDS[0], 'lo': float(intervals[BOOT_SEEDS[0]][0]),
+                         'hi': float(intervals[BOOT_SEEDS[0]][1])},
+              'seed_b': {'seed': BOOT_SEEDS[1], 'lo': float(intervals[BOOT_SEEDS[1]][0]),
+                         'hi': float(intervals[BOOT_SEEDS[1]][1])}}
+    try:
+        check = exp06_bootstrap.convergence_endpoints(intervals.get, BOOT_SEEDS[0],
+                                                      BOOT_SEEDS[1], tol)
+    except ValueError as error:
+        return dict(record, passed=False, movement=None, ratio=None, reason=str(error),
+                    width=record['seed_a']['hi'] - record['seed_a']['lo'])
+    return dict(record, passed=bool(check['passed']), movement=check['movement'],
+                ratio=check['ratio'], width=check['width'], reason=None)
+
+
+def converged_draws(draws_for, n_boot=N_BOOT, tol=CONVERGENCE_TOL,
+                    factor=CONVERGENCE_FACTOR, alpha=COMPANION_ALPHA):
+    """Section 7's policy around the inherited resampling; ``tools.paired_compare`` is pinned.
+
+    ``draws_for(seed, n_boot)`` returns that seed's bootstrap samples. A zero-width companion
+    carries no verdict and is refused; on any failure the draws are quadrupled **once**, and a
+    second failure withholds the verdict. Every attempt is recorded for the published JSON.
+    """
+    attempts, draws, size = [], None, int(n_boot)
+    for size in (int(n_boot), int(n_boot) * int(factor)):
+        draws = {seed: draws_for(seed, size) for seed in BOOT_SEEDS}
+        attempts.append(convergence_attempt(draws, size, tol, alpha))
+        if attempts[-1]['passed']:
+            break
+    return draws, size, attempts
+
+
 def contrast_cell(groups, x, y, metric, n_boot=N_BOOT):
     """rho = (mean(x) - mean(y)) / mean(y) on the five-seed means of the shared cohort."""
     a, b = _arrays(groups[x], metric), _arrays(groups[y], metric)
@@ -489,19 +533,22 @@ def contrast_cell(groups, x, y, metric, n_boot=N_BOOT):
     mean_a = paired_compare.five_seed_mean(a)[mask]
     mean_b = paired_compare.five_seed_mean(b)[mask]
     rooms = rooms_from_paths(groups[x][0]['query'])[mask]
+    results = {}
 
-    def compute(seed, clusters=None):
-        return paired_compare.rho_bootstrap(mean_a, mean_b, n_boot=n_boot, seed=seed,
+    def compute(seed, size, clusters=None):
+        return paired_compare.rho_bootstrap(mean_a, mean_b, n_boot=size, seed=seed,
                                             clusters=clusters)
 
-    result = compute(BOOT_SEEDS[0])
-    draws = {BOOT_SEEDS[0]: result.pop('samples')}
-    draws[BOOT_SEEDS[1]] = compute(BOOT_SEEDS[1])['samples']
-    cluster = compute(BOOT_SEEDS[0], rooms)
-    convergence = paired_compare.convergence(
-        lambda seed: paired_compare.two_sided_interval(draws[seed], COMPANION_ALPHA),
-        BOOT_SEEDS[0], BOOT_SEEDS[1], CONVERGENCE_TOL)
-    return {'contrast': '{} - {}'.format(x, y), 'metric': metric, 'rho': result['rho'],
+    def draws_for(seed, size):
+        results[seed] = compute(seed, size)
+        return results[seed].pop('samples')
+
+    draws, size, attempts = converged_draws(draws_for, n_boot)
+    cluster = compute(BOOT_SEEDS[0], size, rooms)
+    convergence = dict(attempts[-1], attempts=attempts,
+                       status='converged' if attempts[-1]['passed'] else 'not_converged')
+    return {'contrast': '{} - {}'.format(x, y), 'metric': metric,
+            'rho': results[BOOT_SEEDS[0]]['rho'],
             'upper': paired_compare.one_sided_upper(draws[BOOT_SEEDS[0]], SUPERIORITY_ALPHA),
             'alpha': SUPERIORITY_ALPHA, 'companion_alpha': COMPANION_ALPHA,
             'companion_interval': list(paired_compare.two_sided_interval(
@@ -509,7 +556,7 @@ def contrast_cell(groups, x, y, metric, n_boot=N_BOOT):
             'room_cluster_interval': list(paired_compare.two_sided_interval(
                 cluster['samples'], COMPANION_ALPHA)),
             'n_rooms_retained': int(len(set(rooms))), 'n': int(mask.sum()),
-            'exclusions': exclusions, 'n_boot': n_boot,
+            'exclusions': exclusions, 'n_boot': size,
             'bootstrap_seeds': list(BOOT_SEEDS), 'convergence': convergence,
             'seed_means': {role: _arrays(groups[role], metric)[:, mask].mean(axis=1).tolist()
                            for role in (x, y)}}

@@ -548,7 +548,13 @@ def test_h3_is_c_against_b_with_c_against_a_descriptive(runs, approved):
     assert result['verdicts']['C - A']['descriptive'] is True
     for cell in result['cells']:
         assert cell['n'] == N and cell['n_rooms_retained'] == 3
-        assert len(cell['room_cluster_interval']) == 2 and cell['n_boot'] == 400
+        assert len(cell['room_cluster_interval']) == 2
+        # F5: the published n_boot is the size the convergence rule stopped at.
+        attempts = cell['convergence']['attempts']
+        assert [attempt['n_boot'] for attempt in attempts] == [400, 1600][:len(attempts)]
+        assert cell['n_boot'] == attempts[-1]['n_boot'] == cell['convergence']['n_boot']
+        assert cell['convergence']['passed'] is (
+            cell['convergence']['status'] == 'converged')
         assert len(cell['seed_means'][cell['contrast'][0]]) == 5
         assert cell['companion_interval'][0] <= cell['upper']
     assert result['verdicts']['C - B']['verdict'] in (
@@ -1009,3 +1015,67 @@ def test_the_comparers_own_closure_is_bound_and_revalidated(runs, approved, tmp_
     for item in record['producer']['files']:
         path = (Path(subject.REPO) / item['path']).resolve()
         assert record['inputs'][str(path)] == item['working_tree_sha256'], item['path']
+
+
+# --- F5: section 7's convergence rule around the inherited H3 resampling -------------------
+
+
+CONSTANT = {'edt': [0.10] * N, 'c50': [1.2] * N, 't60': [7.0] * N,
+            'loss': [0.5] * N, 'log_mse': [0.3] * N}
+
+
+def test_the_convergence_policy_refuses_zero_width_and_retries_once():
+    """Full-review F5: identical draws are not a converged interval, they are no interval."""
+    import numpy as np
+
+    def constant(seed, n_boot):
+        return np.zeros(n_boot)
+
+    draws, size, attempts = subject.converged_draws(constant, 100)
+    assert [attempt['n_boot'] for attempt in attempts] == [100, 400]
+    assert not any(attempt['passed'] for attempt in attempts) and size == 400
+    assert all('zero-width' in (attempt['reason'] or '') for attempt in attempts)
+    assert all(attempt['seed_a']['lo'] == attempt['seed_a']['hi'] == 0.0
+               for attempt in attempts)
+
+
+def test_a_first_attempt_that_converges_is_not_quadrupled():
+    import numpy as np
+
+    def stable(seed, n_boot):
+        return np.linspace(0.0, 1.0, n_boot) + 0.001 * seed
+
+    draws, size, attempts = subject.converged_draws(stable, 100)
+    assert len(attempts) == 1 and attempts[0]['passed'] and size == 100
+    assert attempts[0]['ratio'] <= subject.CONVERGENCE_TOL
+    assert len(draws[subject.BOOT_SEEDS[0]]) == 100
+
+
+def test_a_failed_attempt_is_retried_once_at_four_times_the_draws():
+    import numpy as np
+
+    def improving(seed, n_boot):
+        shift = 0.0 if seed == subject.BOOT_SEEDS[0] else (0.5 if n_boot == 100 else 0.001)
+        return np.linspace(0.0, 1.0, n_boot) + shift
+
+    draws, size, attempts = subject.converged_draws(improving, 100)
+    assert [attempt['n_boot'] for attempt in attempts] == [100, 400]
+    assert [attempt['passed'] for attempt in attempts] == [False, True]
+    assert size == 400 and attempts[0]['ratio'] > subject.CONVERGENCE_TOL
+
+
+def test_identical_arms_withhold_the_h3_verdict(tmp_path, checkpoints, approved):
+    """Full-review F5: rho = 0 on a zero-width interval used to publish `non-inferior`."""
+    groups = {}
+    for role in ('C', 'A', 'B'):
+        groups[role] = [str(write_run(tmp_path / role / str(seed), role, seed, checkpoints,
+                                      SPLIT, per_sample={'P': {'0': dict(CONSTANT)}}))
+                        for seed in subject.SEEDS]
+    result = analysis(groups, approved, n_boot=100)
+    assert result['verdicts']['C - B']['verdict'] == 'not converged'
+    assert result['verdicts']['C - A']['verdict'] == 'not converged'
+    for cell in result['cells']:
+        assert cell['rho'] == 0.0 and cell['convergence']['passed'] is False
+        assert cell['convergence']['status'] == 'not_converged'
+        assert [attempt['n_boot'] for attempt in cell['convergence']['attempts']] == [100, 400]
+    assert any('convergence gate failed' in item for item in result['deviations'])
