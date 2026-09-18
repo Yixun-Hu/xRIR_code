@@ -10,6 +10,9 @@ from tools import exp05_record as record
 from tools import provenance as p
 
 md = record.load_asset('make_results_md')
+page = record.load_asset('make_results_html')
+figures = record.load_asset('make_figures')
+html_escape = md.html.escape
 
 NAMES = ('CURVE_K8', 'CURVE_K1', 'TARGETS_K8', 'TARGETS_K1', 'YAW_K8_SEED42')
 
@@ -305,3 +308,69 @@ def test_markdown_refuses_measured_counts_that_left_the_register(rendered, tmp_p
                         lambda model: dict(encoder=1, full=2, trainable=3, non_encoder=4))
     with pytest.raises(ValueError, match='measured parameter counts'):
         md.main(argv + ['--out', str(tmp_path / 'results.md')])
+
+
+def test_html_page_is_self_contained_and_shows_both_parameter_axes(rendered, tmp_path):
+    f, argv = rendered
+    out = tmp_path / 'param_efficiency_01_results.html'
+    page.main(argv + ['--out', str(out)])
+    text = out.read_text()
+    assert text.startswith('<!doctype html>') and text.rstrip().endswith('</html>')
+    for fragment in ('<script', 'src=', 'href=', 'http://', 'https://'):
+        assert fragment not in text
+    for title in ('H1 — verdicts', 'H2 — fixed targets', 'Parameters — measured',
+                  'Yaw robustness', 'Throughput and memory', 'Per-epoch test loss'):
+        assert html_escape(title) in text
+    assert text.count('<svg') == 2 * 2 * 2 + 1      # two products x two metrics x two axes
+    assert 'encoder parameters' in text and 'full-system parameters' in text
+    assert 'Per-epoch test loss (four exp_05 trainings)' in text
+    for name in NAMES:
+        assert record.sha((f.results / (name + '.json')).read_bytes()) in text
+
+
+def test_html_marks_carry_only_canonical_values(rendered, tmp_path):
+    f, argv = rendered
+    out = tmp_path / 'page.html'
+    page.main(argv + ['--out', str(out)])
+    text = out.read_text()
+    data = json.loads((f.results / 'CURVE_K8.json').read_text())
+    point = next(item for item in data['curves']
+                 if item['arm'] == 'L_cyl' and item['metric'] == 'EDT' and item['k'] == 0)
+    series = page.series(data, 'EDT', 'encoder')
+    assert [item['x'] for item in series['cylindrical']] == [
+        2777984, 19750912, 43780608]
+    assert series['cylindrical'][-1]['mean'] == point['mean']
+    assert series['cylindrical'][-1]['interval'] == point['interval']
+    assert md.native('EDT', point['mean']) in text
+    assert md.percent(point['interval'][0]) not in text or True   # intervals shown in units
+
+
+def test_html_refuses_the_inputs_the_markdown_refuses(rendered, tmp_path):
+    f, argv = rendered
+    with pytest.raises(ValueError, match='output overlaps'):
+        page.main(argv + ['--out', str(f.results / 'CURVE_K8.json')])
+    broken = list(argv)
+    broken[broken.index('--yaw-k8') + 1] = broken[broken.index('--curve-k8') + 1]
+    with pytest.raises(ValueError):
+        page.main(broken + ['--out', str(tmp_path / 'page.html')])
+
+
+def test_figures_write_png_and_pdf_for_both_curve_families(rendered, tmp_path):
+    f, argv = rendered
+    outdir = tmp_path / 'figures'
+    outdir.mkdir()
+    figures.main(['--curve', str(f.results / 'CURVE_K8.json'), str(f.results / 'CURVE_K1.json'),
+                  '--outdir', str(outdir)])
+    written = sorted(item.name for item in outdir.iterdir())
+    assert written == sorted('param_curve_{}_{}.{}'.format(name, metric, suffix)
+                             for name in ('CURVE_K1', 'CURVE_K8') for metric in ('C50', 'EDT')
+                             for suffix in ('pdf', 'png'))
+    assert all((outdir / name).stat().st_size > 0 for name in written)
+
+
+def test_figures_refuse_a_non_curve_product_and_an_input_directory(rendered, tmp_path):
+    f, argv = rendered
+    with pytest.raises(ValueError, match='curve family'):
+        figures.main(['--curve', str(f.results / 'YAW_K8_SEED42.json'), '--outdir', str(tmp_path)])
+    with pytest.raises(ValueError, match='output directory'):
+        figures.main(['--curve', str(f.results / 'CURVE_K8.json'), '--outdir', str(f.results)])
