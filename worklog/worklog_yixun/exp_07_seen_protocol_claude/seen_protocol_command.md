@@ -31,3 +31,10 @@ tools/exp07_launch.sh probe --backbone simple --yaw-aug 0 --gpu 0 --reviewed-com
 tools/exp07_launch.sh full  --backbone simple --yaw-aug 0 --gpu 0 --reviewed-commit 076cd4072bc3d5349914cb0eff1775cb6730f829 --log-dir worklog/worklog_yixun/exp_07_seen_protocol_claude --timestamp 20260917T034540full --probe-json ckpt/exp07/seen_simple/_probe_20260917T034540probe_seen_simple.json
 ```
 (run inside the detached chain `gpu0_chain.sh`, env PYTHONHASHSEED=0 OMP_NUM_THREADS=2 XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms)
+
+## seen_cyl full (chain `exp07_arm_chain.sh 0 seen_cyl cylindrical 0 '2026-09-18 14:45'`, 2026-09-18 15:11–15:17, GPU 0, reviewed b793a96)
+```
+tools/exp07_launch.sh smoke --backbone cylindrical --yaw-aug 0 --gpu 0 --reviewed-commit b793a96d80c4ecc68df1fad2f6f3cb555bcbd27b --log-dir worklog/worklog_yixun/exp_07_seen_protocol_claude --timestamp 20260918T151139smoke
+tools/exp07_launch.sh probe --backbone cylindrical --yaw-aug 0 --gpu 0 --reviewed-commit b793a96d80c4ecc68df1fad2f6f3cb555bcbd27b --log-dir worklog/worklog_yixun/exp_07_seen_protocol_claude --timestamp 20260918T151139probe
+tools/exp07_launch.sh full  --backbone cylindrical --yaw-aug 0 --gpu 0 --reviewed-commit b793a96d80c4ecc68df1fad2f6f3cb555bcbd27b --log-dir worklog/worklog_yixun/exp_07_seen_protocol_claude --timestamp 20260918T151139full --probe-json ckpt/exp07/seen_cyl/_probe_20260918T151139probe_seen_cyl.json
+```
