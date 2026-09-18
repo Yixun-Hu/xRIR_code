@@ -70,6 +70,33 @@ def launch_args(tmp_path):
 
 
 @pytest.fixture
+def pretraining(tmp_path):
+    """The finalised arm-C attempt whose twelfth epoch is the checkpoint being evaluated."""
+    run = tmp_path / 'attempt'
+    run.mkdir(exist_ok=True)
+    checkpoint = tmp_path / 'epoch_012.pth'
+    checkpoint.write_bytes(b'weights')
+    commit = 'c' * 40
+    (run / 'provenance.json').write_text(json.dumps(
+        {'run_type': 'full', 'reviewed_commit': commit}, sort_keys=True))
+    (run / 'completion.json').write_text(json.dumps(
+        {'schema_version': 1, 'run_type': 'full', 'admissible_arm': True, 'epochs': 12,
+         'diagnostic': False, 'exploratory': False, 'run_dir': str(run.resolve()),
+         'approvals': {'committed_at': commit},
+         'artifacts': {'epoch_012.pth': p.sha256_file(checkpoint),
+                       'provenance.json': p.sha256_file(run / 'provenance.json')},
+         'checkpoint': {'path': 'epoch_012.pth', 'epoch': 12,
+                        'sha256': p.sha256_file(checkpoint)}}, sort_keys=True))
+    return run
+
+
+def training_bindings(run):
+    """What the runbook's arm-C argv binds: the attempt's provenance and completion."""
+    return ['--bind-input', 'train_manifest=' + str(run / 'provenance.json'),
+            '--bind-input', 'train_completion=' + str(run / 'completion.json')]
+
+
+@pytest.fixture
 def bound(monkeypatch):
     """exp_04's own fixture pattern: real field assembly, stubbed git and inventory."""
     monkeypatch.setattr(p, 'source_closure', lambda module, repo: [module + '.py'])
@@ -141,16 +168,19 @@ def test_an_unusable_heading_binding_is_refused(launch_args, headings, tmp_path,
         subject.split_bindings(launch_args('--bind-input', 'heading=' + str(path)))
 
 
-def test_both_writer_closures_and_the_metadata_reach_the_manifest(launch_args, headings, bound):
+def test_both_writer_closures_and_the_metadata_reach_the_manifest(launch_args, headings,
+                                                                  pretraining, bound):
     args = launch_args('--bind-input', 'heading=' + str(headings['decided']),
-                       '--bind-input', 'train_completion=' + str(headings['decided']))
+                       *training_bindings(pretraining))
     command = subject.child_command(args, ROOT)
     fields = subject.build_fields(args, command, ROOT)
     assert set(fields['source_closures']) == {'entrypoint', 'writer', 'writer_exp06'}
     assert fields['source_closures']['entrypoint']['files'][0]['path'] == 'tools.exp06_eval.py'
     assert fields['source_closures']['writer']['files'][0]['path'] == 'tools.exp04_eval_launch.py'
     assert fields['source_closures']['writer_exp06']['files'][0]['path'] == 'tools.exp06_eval_launch.py'
-    assert set(fields['mutable_inputs']) == {'heading', 'train_completion'}
+    assert set(fields['mutable_inputs']) == {'heading', 'train_manifest', 'train_completion'}
+    assert fields['training_evidence']['route'] == 'exp06_full'
+    assert fields['training_evidence']['epochs'] == 12
     assert fields['mutable_inputs']['heading']['sha256'] == p.sha256_file(headings['decided'])
     for key, value in evaluator.exp06_metadata(args).items():
         assert fields[key] == value
@@ -159,8 +189,8 @@ def test_both_writer_closures_and_the_metadata_reach_the_manifest(launch_args, h
         ['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
 
 
-def test_a_drifted_writer_closure_is_refused(launch_args, bound, monkeypatch):
-    args = launch_args()
+def test_a_drifted_writer_closure_is_refused(launch_args, pretraining, bound, monkeypatch):
+    args = launch_args(*training_bindings(pretraining))
     command = subject.child_command(args, ROOT)
     def drifted(files, commit, repo):
         return ([{'path': path, 'reviewed_blob_sha256': 'sha', 'working_tree_sha256': 'other',
@@ -170,7 +200,7 @@ def test_a_drifted_writer_closure_is_refused(launch_args, bound, monkeypatch):
         subject.build_fields(args, command, ROOT)
 
 
-def test_a_dirty_tree_refuses_a_confirmatory_launch(tmp_path, launch_args):
+def test_a_dirty_tree_refuses_a_confirmatory_launch(tmp_path, launch_args, pretraining):
     repo = tmp_path / 'repo'
     repo.mkdir()
     (repo / 'tracked.txt').write_text('original\n')
@@ -179,23 +209,25 @@ def test_a_dirty_tree_refuses_a_confirmatory_launch(tmp_path, launch_args):
     subprocess.run(['git', '-c', 'user.email=a@b', '-c', 'user.name=t', 'commit', '-qm', 'x'],
                    cwd=repo, check=True)
     (repo / 'tracked.txt').write_text('changed\n')
-    args = launch_args()
+    args = launch_args(*training_bindings(pretraining))
     args.max_samples = 0
     with pytest.raises(ValueError, match='dirty_outside_worklog'):
         subject.build_fields(args, subject.child_command(args, repo), repo)
 
 
-def test_main_runs_the_child_through_the_shared_finaliser(launch_args, monkeypatch):
+def test_main_runs_the_child_through_the_shared_finaliser(launch_args, pretraining,
+                                                          monkeypatch):
     seen = {}
     monkeypatch.setattr(subject.launcher, 'execute_run',
                         lambda args, command, factory, repo: seen.update(
                             args=args, command=command, repo=repo) or 'completion')
     monkeypatch.setattr(subject, 'certify_outputs',
                         lambda run, completion: seen.update(certified=(run, completion)))
-    argv = ['--backbone', 'simple', '--checkpoint', 'c', '--manifest', 'm',
+    argv = ['--backbone', 'simple', '--checkpoint',
+            str(pretraining.parent / 'epoch_012.pth'), '--manifest', 'm',
             '--manifest-hash', 'h', '--out-dir', 'o', '--log-dir', 'l', '--data-root', 'd',
             '--run-label', 'r', '--reviewed-commit', 'HEAD', '--num-shot', '8',
-            '--checkpoint-epoch', '12']
+            '--checkpoint-epoch', '12'] + training_bindings(pretraining)
     assert subject.main(argv) == 'completion'
     assert seen['command'][1] == str(ROOT / 'tools/exp06_eval.py')
     assert seen['repo'] == ROOT and seen['args'].num_shot == 8
@@ -335,17 +367,127 @@ def test_the_persisted_record_is_the_one_whose_hashes_are_checked(certified):
         == 'completion_mismatch'
 
 
-def test_main_fails_when_the_outputs_are_quarantined(launch_args, monkeypatch, tmp_path):
+def test_main_fails_when_the_outputs_are_quarantined(launch_args, pretraining, monkeypatch,
+                                                     tmp_path):
     seen = {}
     monkeypatch.setattr(subject.launcher, 'execute_run',
                         lambda *arguments: {'outputs': {}, 'eval_manifest_sha256': 'x'})
     monkeypatch.setattr(subject, 'certify_outputs',
                         lambda run, completion: seen.setdefault('run', run))
-    argv = ['--backbone', 'simple', '--checkpoint', 'c', '--manifest', 'm',
+    argv = ['--backbone', 'simple', '--checkpoint',
+            str(pretraining.parent / 'epoch_012.pth'), '--manifest', 'm',
             '--manifest-hash', 'h', '--out-dir', str(tmp_path / 'o'), '--log-dir', 'l',
             '--data-root', 'd', '--run-label', 'r', '--reviewed-commit', 'HEAD',
-            '--num-shot', '8', '--checkpoint-epoch', '12']
+            '--num-shot', '8', '--checkpoint-epoch', '12'] + training_bindings(pretraining)
     with pytest.raises(SystemExit) as failure:
         subject.main(argv)
     assert failure.value.code not in (0, None)
     assert seen['run'] == Path(str(tmp_path / 'o'))
+
+
+# --- F2: the evaluated weights are the output of the training run this run binds ----------
+
+
+def receipt_for(tmp_path, checkpoint, epochs=12):
+    """Arm B's historical evidence: the reconstructed receipt and its enumerated args.json."""
+    from tools import exp06_legacy_train_receipt as receipts
+    train = tmp_path / 'xRIR_cyl_8_shot'
+    train.mkdir(parents=True, exist_ok=True)
+    (train / 'args.json').write_text(json.dumps({'backbone': 'cylindrical', 'epochs': epochs}))
+    (train / 'history.jsonl').write_text(''.join(
+        json.dumps({'epoch': epoch}) + '\n' for epoch in range(1, epochs + 1)))
+    (train / 'train.log').write_text('exp_01\n')
+    weights = train / 'epoch_{}.pth'.format(epochs)
+    weights.write_bytes(checkpoint.read_bytes())
+    out = tmp_path / 'train_receipt.json'
+    receipts.write_receipt(out, train, weights, strict=False, registry=(
+        {'role': 'cyl', 'backbone': 'cylindrical', 'epoch': epochs,
+         'checkpoint': 'ckpt/xRIR_cyl_8_shot/epoch_12.pth',
+         'sha256': p.sha256_file(weights)},), identity={'entry_module': 'x', 'commit': 'a' * 40,
+                                                        'sha256': 'b' * 64, 'files': [],
+                                                        'drift': []})
+    return train, out
+
+
+def test_the_arm_route_binds_the_finalised_pretraining(launch_args, pretraining):
+    args = launch_args(*training_bindings(pretraining))
+    record = subject.training_evidence(args)
+    assert record['route'] == 'exp06_full' and record['epochs'] == 12
+    assert record['reviewed_commit'] == 'c' * 40
+    assert record['checkpoint_sha256'] == p.sha256_file(Path(args.checkpoint))
+    assert record['train_manifest']['path'] == str((pretraining / 'provenance.json').resolve())
+
+
+def test_the_baseline_route_binds_the_reconstructed_receipt(launch_args, tmp_path):
+    args = launch_args('--checkpoint-role', 'baseline')
+    train, receipt = receipt_for(tmp_path / 'legacy', Path(args.checkpoint))
+    args = launch_args('--checkpoint-role', 'baseline',
+                       '--bind-input', 'train_manifest=' + str(train / 'args.json'),
+                       '--bind-input', 'train_completion=' + str(receipt))
+    record = subject.training_evidence(args)
+    assert record['route'] == 'reconstructed' and record['arm'] == 'cyl'
+    assert record['epochs'] == 12
+    assert record['train_completion']['sha256'] == p.sha256_file(receipt)
+
+
+def test_a_diagnostic_evaluation_binds_no_training_run(launch_args):
+    assert subject.training_evidence(launch_args('--checkpoint-role', 'diagnostic')) is None
+
+
+@pytest.mark.parametrize('role', ['arm', 'baseline'])
+@pytest.mark.parametrize('name', ['train_manifest', 'train_completion'])
+def test_an_arm_without_its_training_bindings_is_refused(launch_args, pretraining, role, name):
+    """The runbook's argv bound neither, and every generated run would have been refused."""
+    both = training_bindings(pretraining)
+    kept = [item for index, item in enumerate(both)
+            if not (both[index] if index % 2 else both[index + 1]).startswith(name + '=')]
+    args = launch_args('--checkpoint-role', role, *kept)
+    with pytest.raises(ValueError, match='binds its training run'):
+        subject.training_evidence(args)
+
+
+ARM_REFUSALS = {
+    'not_full': ({'run_type': 'probe'}, 'run_type'),
+    'not_admissible': ({'admissible_arm': False}, 'not admissible as an arm'),
+    'diagnostic': ({'diagnostic': True}, 'diagnostic or exploratory'),
+    'short_budget': ({'epochs': 9}, 'not the registered 12'),
+    'other_weights': ({'artifacts': {'epoch_012.pth': 'f' * 64}}, 'epoch_012.pth'),
+    'no_approvals_commit': ({'approvals': {}}, 'no approvals commit'),
+}
+
+
+@pytest.mark.parametrize('case', sorted(ARM_REFUSALS))
+def test_a_completion_that_does_not_certify_these_weights_is_refused(launch_args, pretraining,
+                                                                     case):
+    fields, cause = ARM_REFUSALS[case]
+    record = json.loads((pretraining / 'completion.json').read_text())
+    if 'artifacts' in fields:
+        fields['artifacts'] = dict(record['artifacts'], **fields['artifacts'])
+    (pretraining / 'completion.json').write_text(json.dumps(dict(record, **fields)))
+    args = launch_args(*training_bindings(pretraining))
+    with pytest.raises(ValueError, match=cause):
+        subject.training_evidence(args)
+
+
+def test_another_checkpoint_of_the_same_training_run_is_refused(launch_args, pretraining,
+                                                                tmp_path):
+    """`best.pth` is a checkpoint of this run; it is not the twelfth epoch it certifies."""
+    best = tmp_path / 'best.pth'
+    best.write_bytes(b'the selected epoch, not the last one')
+    args = subject.parse_args([
+        '--backbone', 'cylindrical_oriented', '--checkpoint', str(best),
+        '--manifest', str(tmp_path / 'reference.json'), '--manifest-hash', 'h',
+        '--out-dir', str(tmp_path / 'run2'), '--log-dir', str(tmp_path / 'logs'),
+        '--data-root', str(tmp_path), '--run-label', 'x', '--reviewed-commit', 'HEAD',
+        '--num-shot', '8', '--checkpoint-epoch', '12'] + training_bindings(pretraining))
+    with pytest.raises(ValueError, match='not the .* of the training run'):
+        subject.training_evidence(args)
+
+
+def test_a_provenance_that_is_not_the_one_the_completion_bound_is_refused(launch_args,
+                                                                          pretraining):
+    (pretraining / 'provenance.json').write_text(json.dumps(
+        {'run_type': 'full', 'reviewed_commit': 'c' * 40, 'edited': True}))
+    args = launch_args(*training_bindings(pretraining))
+    with pytest.raises(ValueError, match='the completion bound'):
+        subject.training_evidence(args)

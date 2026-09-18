@@ -38,9 +38,12 @@ from pathlib import Path
 from tools import exp04_eval_launch as launcher
 from tools import exp06_eval as evaluator
 from tools import exp06_heading
+from tools import exp06_train_evidence as evidence
 from tools import provenance as p
 
 EXP06_INPUTS = ('heading',)
+# Validated by tools.exp06_train_evidence, then hashed by exp_04 like any mutable input.
+TRAINING_INPUTS = evidence.TRAINING_BINDINGS
 MUTABLE_INPUTS = frozenset(launcher.MUTABLE_INPUTS) | frozenset(EXP06_INPUTS)
 WRITER = 'tools.exp06_eval_launch'
 CLOSURES = ('entrypoint', 'writer', 'writer_exp06')
@@ -95,6 +98,24 @@ def split_bindings(args):
     return inherited, own
 
 
+def training_evidence(args, hasher=p.sha256_file):
+    """Full-review F2: these weights are the output of the training run this run binds.
+
+    6.3 promised the exp_06 launcher validates ``train_completion``; exp_04's launcher only
+    hashes whatever file a binding names, so the semantics live here and run **before**
+    ``execute_run`` creates anything. A ``diagnostic`` evaluation is never an arm and binds
+    no training run.
+    """
+    if args.checkpoint_role not in ('arm', 'baseline'):
+        return None
+    bound = {}
+    for binding in args.bind_input:
+        name, separator, path = binding.partition('=')
+        if separator and name in TRAINING_INPUTS:
+            bound[name] = path
+    return evidence.check(args.checkpoint_role, bound, hasher(args.checkpoint))
+
+
 def child_command(args, repo):
     """Serialize only evaluator arguments, retaining empty grids and bool flags."""
     command = [sys.executable, str(Path(repo) / (evaluator.__name__.replace('.', '/') + '.py'))]
@@ -124,9 +145,10 @@ def check_fields(args, fields):
     return fields
 
 
-def build_fields(args, command, repo):
-    """exp_04's fields, plus this launcher's closure and the exp_06 bindings."""
+def build_fields(args, command, repo, training=None):
+    """exp_04's fields, plus this launcher's closure, bindings and training evidence."""
     inherited, own = split_bindings(args)
+    training = training_evidence(args) if training is None else training
     delegate = copy.copy(args)
     delegate.bind_input = inherited
     fields = evaluator.build_fields(delegate, command, repo)
@@ -141,6 +163,7 @@ def build_fields(args, command, repo):
         if name in fields['mutable_inputs']:
             raise ValueError('duplicate mutable input: ' + name)
         fields['mutable_inputs'][name] = binding
+    fields['training_evidence'] = training
     return check_fields(args, fields)
 
 
@@ -251,9 +274,11 @@ def certify_outputs(run, completion):
 def main(argv=None):
     args = parse_args(argv)
     repo = Path(__file__).resolve().parents[1]
+    split_bindings(args)                     # refuse a bad binding before anything is created
+    training = training_evidence(args)       # F2: and before execute_run makes the run dir
     command = child_command(args, repo)
-    completion = launcher.execute_run(args, command, lambda: build_fields(args, command, repo),
-                                      repo)
+    completion = launcher.execute_run(
+        args, command, lambda: build_fields(args, command, repo, training), repo)
     quarantined = certify_outputs(Path(args.out_dir), completion)
     if quarantined is not None:
         print('EXP06_EVAL_QUARANTINED ' + str(quarantined), file=sys.stderr, flush=True)
@@ -262,4 +287,7 @@ def main(argv=None):
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except (ValueError, OSError, KeyError) as error:
+        raise SystemExit('refusing: ' + str(error))
