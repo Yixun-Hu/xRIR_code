@@ -26,7 +26,8 @@ from tools import provenance as p
 
 from test_exp06_compare import (ROLES, SPLIT, approved_digests, checkpoints,  # noqa: F401
                                 training_inputs, write_run)
-from test_exp06_legacy_train_receipt import PRODUCER, altered, closure_digest, rewritten
+from test_exp06_legacy_train_receipt import (PRODUCER, altered, closure_digest,  # noqa: F401
+                                            git_object, rewritten)
 
 # tools/exp06_eval_launch.py ... (the runbook's `sim` step, one line per arm and seed)
 ARMS = {'C': ('cyl_or', 'cylindrical_oriented', 'arm'),
@@ -274,6 +275,12 @@ CLOSURE_DAMAGE = {
                          'no reviewed and working-tree hashes'),
     'unreviewed_blob': (altered(PRODUCER, reviewed_blob_sha256='c' * 64,
                                 working_tree_sha256='c' * 64), 'reviewed source'),
+    # Close review 2: the recorded commit was forty hex digits and nothing more, so the
+    # repository's own tree object -- whose blobs are HEAD's -- was admitted as the producer.
+    'tree_object': (dict(PRODUCER, commit=git_object(PRODUCER['commit'] + '^{tree}')),
+                    'not a commit'),
+    'blob_object': (dict(PRODUCER, commit=git_object(
+        PRODUCER['commit'] + ':tools/exp06_legacy_train_receipt.py')), 'not a commit'),
 }
 
 

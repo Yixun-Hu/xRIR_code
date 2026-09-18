@@ -356,8 +356,14 @@ def altered(identity, index=0, **fields):
     return dict(identity, files=files, sha256=closure_digest(files))
 
 
-CLOSURE_CASES = ('contradictory', 'corrupt_digest', 'empty_membership', 'missing_reviewed',
-                 'no_commit', 'strict_only', 'unreviewed_blob', 'wrong_producer')
+CLOSURE_CASES = ('blob_object', 'contradictory', 'corrupt_digest', 'empty_membership',
+                 'missing_reviewed', 'no_commit', 'strict_only', 'tree_object',
+                 'unreviewed_blob', 'wrong_producer')
+
+
+def git_object(spec, repo=REPO):
+    """The object id `spec` names in this repository -- a tree or a blob as readily as a commit."""
+    return subprocess.check_output(['git', 'rev-parse', spec], cwd=str(repo), text=True).strip()
 
 
 @pytest.fixture
@@ -369,6 +375,12 @@ def closure_cases(identity):
         'wrong_producer': (dict(identity, entry_module='tools.exp06_summarize_haa'),
                            'produced by'),
         'no_commit': (dict(identity, commit='HEAD'), 'no commit'),
+        # Close review 2: forty hex digits also name a tree, and `git show <tree>:<path>`
+        # reads the very same blobs, so the whole closure validated against one.
+        'tree_object': (dict(identity, commit=git_object(identity['commit'] + '^{tree}')),
+                        'not a commit'),
+        'blob_object': (dict(identity, commit=git_object(
+            identity['commit'] + ':tools/exp06_legacy_train_receipt.py')), 'not a commit'),
         'empty_membership': (dict(identity, files=[], sha256=closure_digest([])),
                              'no source file'),
         'corrupt_digest': (dict(identity, sha256='f' * 64), 'does not hash'),
