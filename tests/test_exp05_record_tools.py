@@ -253,7 +253,8 @@ def test_markdown_reports_every_family_from_canonical_json(rendered, tmp_path):
     assert '7.09266' in text                                  # the S_cyl / M_simple ratio
     assert '| M_simple | M | simple | 32 x 2 | — |' in text   # no exp_05 training attempt
     assert '0.3513' in text and '11.2969' in text              # probe throughput and memory
-    assert '-22.5' in text and '45' in text                    # signed yaw headings
+    for heading in ('-45', '-22.5', '22.5', '45'):             # signed yaw headings
+        assert '| S_simple | S | EDT | {} |'.format(heading) in text
     assert f.approval['sha256'] in text
     for role in md.TRAINED:
         assert record.attempt_evidence(f.attempts[role])['completion']['sha256'] in text

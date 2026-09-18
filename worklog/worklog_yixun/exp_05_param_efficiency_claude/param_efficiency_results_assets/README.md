@@ -92,10 +92,18 @@ exact per-product input coverage; the rendered documents (each must cite every c
 digest and every bound attempt completion digest); the figures; the approval blob; git
 HEAD.
 
+**Run it from this checkout.** Every artefact records the absolute paths of the checkout
+the producers ran in, and the binder compares them: the approval identity, the producer's
+own source files and each product's declared inputs. Binding the same record from a git
+worktree therefore fails on `result approval identity or pins` even though every digest
+matches. Run producers, generators and binder in one checkout, or pass `--approved` the
+path the products recorded.
+
 **Runtime.** `tools/provenance.revalidate` rehashes every input a manifest declares, so a
 real bind reads about 1 GiB of AcousticRooms per evaluation run and the 12.2 GiB training
-inventory per attempt — roughly 115 GiB in total, a few minutes on the local NVMe. It is
-idempotent, safe to repeat, and writes nothing but the new report.
+inventory per attempt — about 123 GiB in total, measured at ≈ 8 minutes on the local NVMe
+(sha256-bound, one core), and `check_record.py` repeats it. It is idempotent, safe to
+repeat, and writes nothing but the new report.
 
 ## 5. Check
 
