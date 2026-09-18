@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -341,8 +342,10 @@ def test_html_marks_carry_only_canonical_values(rendered, tmp_path):
         2777984, 19750912, 43780608]
     assert series['cylindrical'][-1]['mean'] == point['mean']
     assert series['cylindrical'][-1]['interval'] == point['interval']
-    assert md.native('EDT', point['mean']) in text
-    assert md.percent(point['interval'][0]) not in text or True   # intervals shown in units
+    tooltip = 'L_cyl (cylindrical, L): {} s; seed SD {}; interval {}; {} queries'.format(
+        md.native('EDT', point['mean']), md.native('EDT', point['sd']),
+        md.native('EDT', point['interval']), point['cohort']['n_queries'])
+    assert md.html.escape(tooltip, quote=True) in text
 
 
 def test_html_refuses_the_inputs_the_markdown_refuses(rendered, tmp_path):
@@ -374,3 +377,194 @@ def test_figures_refuse_a_non_curve_product_and_an_input_directory(rendered, tmp
         figures.main(['--curve', str(f.results / 'YAW_K8_SEED42.json'), '--outdir', str(tmp_path)])
     with pytest.raises(ValueError, match='output directory'):
         figures.main(['--curve', str(f.results / 'CURVE_K8.json'), '--outdir', str(f.results)])
+
+
+def _republish(path, data=None, side=None):
+    """Rewrite a product and its sidecar so only the intended change differs."""
+    path = Path(path)
+    if data is not None:
+        path.write_bytes((json.dumps(data, sort_keys=True, indent=2, allow_nan=False) + '\n').encode())
+    sidecar = Path(str(path) + '.provenance.json')
+    side = json.loads(sidecar.read_text()) if side is None else side
+    side['outputs'][str(path.resolve())] = record.sha(path.read_bytes())
+    sidecar.write_text(json.dumps(side, sort_keys=True, indent=2) + '\n')
+
+
+@pytest.fixture
+def bound(rendered, tmp_path, monkeypatch):
+    """The whole record: 66 runs, four attempts, five products, documents and figures."""
+    f, argv = rendered
+    binder = record.load_asset('bind_provenance')
+    monkeypatch.setattr(binder, 'load_approved_digests', lambda path=None: f.approved)
+    monkeypatch.setattr(binder, 'HISTORICAL', {
+        arm['role']: dict(path=arm['checkpoint'], sha256=arm['sha256'], epoch=arm['epoch'])
+        for arm in f.arms if arm['tier'] == 'M'})
+    documents = [f.root / 'param_efficiency_results.md', f.root / 'param_efficiency_01_results.html']
+    md.main(argv + ['--out', str(documents[0])])
+    page.main(argv + ['--out', str(documents[1])])
+    figdir = f.root / 'figures'
+    figdir.mkdir()
+    figures.main(['--curve', str(f.results / 'CURVE_K8.json'), str(f.results / 'CURVE_K1.json'),
+                  '--outdir', str(figdir), '--format', 'png'])
+    reports = tmp_path / 'reports'
+    reports.mkdir()
+    arguments = dict(runs=[str(item) for item in f.runs.values()],
+                     attempt=[str(f.attempts[role]) for role in md.TRAINED],
+                     results=[str(f.results / (name + '.json')) for name in NAMES],
+                     rendered=[str(item) for item in documents],
+                     figures=sorted(str(item) for item in figdir.iterdir()))
+
+    def arguments_argv():
+        argv = []
+        for name in ('runs', 'attempt', 'results', 'rendered', 'figures'):
+            argv += ['--' + name] + list(arguments[name])
+        return argv + ['--out', str(reports)]
+
+    return SimpleNamespace(binder=binder, f=f, reports=reports, documents=documents, argv=argv,
+                           arguments=arguments, arguments_argv=arguments_argv)
+
+
+def test_the_binding_report_covers_the_whole_param_efficiency_record(bound):
+    report = bound.binder.collect(**bound.arguments)
+    assert len(report['runs']) == 66 and len(report['attempts']) == 4
+    assert {(item['role'], item['num_shot'], item['seed'], item['kind'])
+            for item in report['runs']} == bound.binder.IDENTITIES
+    assert sorted(item['role'] for item in report['attempts']) == sorted(md.TRAINED)
+    assert sorted(report['historical_checkpoints']) == ['M_cyl', 'M_simple']
+    assert [item['profile'] for item in report['results']] == sorted(NAMES)
+    assert len(report['documents']) == 2 and len(report['figures']) == 4
+    assert all('bound' not in item for item in report['runs'] + report['attempts'])
+    assert json.dumps(report, allow_nan=False)
+    for attempt in report['attempts']:
+        assert attempt['full_attempts'] == 1 and len(attempt['probe_linkage']) == 1
+        assert attempt['other_attempts'][0]['state'] == 'certified'
+        assert attempt['other_attempts'][0]['logs'][0]['present'] is True
+
+
+def test_each_products_dependency_map_equals_exactly_what_it_declared(bound):
+    binder = bound.binder
+    report = binder.collect(**bound.arguments)
+    attempts = [binder.attempt_record(item, bound.f.pins) for item in bound.arguments['attempt']]
+    historical = binder.historical_checkpoints()
+    runs = [binder.run_record(item, attempts, historical) for item in bound.arguments['runs']]
+    run_bound = {item['path']: item.pop('bound') for item in runs}
+    trained = {item['role']: item for item in attempts}
+    assert sorted(binder.training_dependencies(trained['S_simple'])) == [
+        'args.json', 'completion.json', 'train_manifest.json']
+    for product in bound.arguments['results']:
+        data = json.loads(Path(product).read_text())
+        side = json.loads(Path(product + '.provenance.json').read_text())
+        expected = set(side['run_flags'])
+        roles = {run['role'] for run in runs if run['path'] in expected}
+        dependencies = binder.product_dependencies(expected, roles, trained, run_bound,
+                                                   report['approved_digests'])
+        dependencies.update(binder.producer_declarations(side['producer']))
+        assert dependencies == side['inputs'], product
+
+
+def test_check_record_recomputes_the_latest_report(bound):
+    checker = record.load_asset('check_record')
+    bound.binder.main(bound.arguments_argv())
+    reports = sorted(bound.reports.glob('binding_report_*.json'))
+    assert len(reports) == 1
+    checker.main([str(bound.reports)])
+    report = json.loads(reports[0].read_text())
+    report['runs'][0]['completion']['sha256'] = 'f' * 64
+    reports[0].write_text(json.dumps(report, indent=2))
+    with pytest.raises(ValueError, match='binding report mismatch'):
+        checker.main([str(bound.reports)])
+
+
+@pytest.mark.parametrize('forgery,message', [
+    ('omit_run', 'the sixty-six evaluation runs'),
+    ('extra_run', 'the sixty-six evaluation runs'),
+    ('substituted_digest', 'digest mismatch'),
+    ('unknown_dependency', 'this report does not bind'),
+    ('omitted_dependency', 'omits a required input'),
+    ('run_flag_subset', 'does not declare exactly its runs'),
+    ('contract_subset', 'does not record exactly its run contracts'),
+    ('foreign_contract', 'the contract is not this run'),
+    ('edited_attempt_log', 'digest mismatch'),
+    ('edited_probe_receipt', 'manifest input mismatch'),
+    ('foreign_probe_receipt', 'does not list'),
+    ('stale_approval', 'approval digest mismatch'),
+    ('unpinned_checkpoint', 'approved checkpoint'),
+    ('exploratory_product', 'exploratory JSON refused'),
+    ('unconverged_cell', 'did not converge'),
+    ('uncited_document', 'does not cite every canonical digest'),
+    ('two_retries', 'more than one retry'),
+    ('missing_training_linkage', 'training linkage'),
+])
+def test_the_binder_refuses_a_forged_record(bound, forgery, message):
+    f, arguments = bound.f, dict(bound.arguments)
+    product = f.results / 'CURVE_K8.json'
+    if forgery == 'omit_run':
+        arguments['runs'] = arguments['runs'][1:]
+    elif forgery == 'extra_run':
+        arguments['runs'] = arguments['runs'] + [arguments['runs'][0] + '/.']
+    elif forgery == 'substituted_digest':
+        run = Path(arguments['runs'][0]) / 'per_sample_yaw.json'
+        run.write_bytes(run.read_bytes() + b' ')
+    elif forgery in ('unknown_dependency', 'omitted_dependency'):
+        data = json.loads(product.read_text())
+        planted = str(f.root / 'planted.json')
+        Path(planted).write_text('{}\n')
+        if forgery == 'unknown_dependency':
+            data['inputs'][planted] = record.sha(Path(planted).read_bytes())
+        else:
+            data['inputs'].pop(sorted(data['inputs'])[-1])
+        side = json.loads(Path(str(product) + '.provenance.json').read_text())
+        side['inputs'] = data['inputs']
+        _republish(product, data, side)
+    elif forgery in ('run_flag_subset', 'contract_subset', 'foreign_contract'):
+        data = json.loads(product.read_text())
+        dropped = sorted(data['run_flags'])[0]
+        if forgery == 'run_flag_subset':
+            data['run_flags'].pop(dropped)
+            side = json.loads(Path(str(product) + '.provenance.json').read_text())
+            side['run_flags'] = data['run_flags']
+            _republish(product, data, side)
+        elif forgery == 'contract_subset':
+            data['compatibility'].pop(dropped)
+            _republish(product, data)
+        else:
+            data['compatibility'][dropped]['sha256'] = 'a' * 64
+            _republish(product, data)
+    elif forgery == 'edited_attempt_log':
+        completion = f.read(Path(f.attempts['S_simple']) / 'completion.json')
+        log = Path(completion['log']['path'])
+        log.write_text(log.read_text() + 'appended\n')
+    elif forgery == 'edited_probe_receipt':
+        receipt = f.read(f.receipts['S_cyl'])
+        receipt['probe_attempt']['completion_sha256'] = 'b' * 64
+        f.replace(f.receipts['S_cyl'], receipt)
+    elif forgery == 'foreign_probe_receipt':
+        receipt = f.read(f.receipts['S_cyl'])
+        receipt['probe_attempt']['path'] = str(Path(f.attempts['L_cyl']).parent / '_probe_x_arm')
+        f.replace(Path(f.receipts['S_cyl']).with_name('_probe_x_S_cyl.json'), receipt)
+    elif forgery == 'stale_approval':
+        path = Path(f.approval['path'])
+        path.write_text(path.read_text() + '\n')
+    elif forgery == 'unpinned_checkpoint':
+        f.pins['checkpoints']['S_simple'] = dict(f.pins['checkpoints']['S_simple'], epoch=11)
+    elif forgery in ('exploratory_product', 'unconverged_cell'):
+        data = json.loads(product.read_text())
+        if forgery == 'exploratory_product':
+            data['exploratory'] = True
+        else:
+            data['cells'][0]['convergence']['superiority']['passed'] = False
+        _republish(product, data)
+    elif forgery == 'uncited_document':
+        bound.documents[0].write_text('a record with no digests\n')
+    elif forgery == 'two_retries':
+        ledger = f.read(f.ledgers['L_simple'])
+        ledger['attempts'].append(dict(attempt='attempt_first_ABORTED_slow', hours=1., mode='full'))
+        ledger['attempts'].append(dict(attempt='attempt_second_ABORTED_slow', hours=1., mode='full'))
+        f.replace(f.ledgers['L_simple'], ledger)
+    else:
+        run = Path(f.runs[('S_simple', 8, 42, 'k0')])
+        manifest = f.read(run / 'eval_manifest.json')
+        manifest['mutable_inputs'].pop('train_completion')
+        f.rebind(run, manifest=manifest)
+    with pytest.raises(ValueError, match=message):
+        bound.binder.collect(**arguments)
