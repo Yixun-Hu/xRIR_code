@@ -303,9 +303,7 @@ def test_markdown_refuses_to_overwrite_any_input(rendered, tmp_path):
 
 def test_markdown_refuses_measured_counts_that_left_the_register(rendered, tmp_path, monkeypatch):
     f, argv = rendered
-    monkeypatch.setitem(md.MEASURED, 'S_simple', dict(encoder=1))
-    md.MEASURED.pop('S_simple')
-    monkeypatch.setattr(md, 'MEASURED', {})
+    monkeypatch.setattr(md, 'MEASURED', {})   # the per-process cache, restored on teardown
     monkeypatch.setattr('tools.exp05_params.count_parameters',
                         lambda model: dict(encoder=1, full=2, trainable=3, non_encoder=4))
     with pytest.raises(ValueError, match='measured parameter counts'):

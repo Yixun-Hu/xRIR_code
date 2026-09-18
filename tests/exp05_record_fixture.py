@@ -20,7 +20,7 @@ import pytest
 
 from tools import param_curve as pc
 from tools import provenance as p
-from tools.exp05_profiles import PROFILES, get_profile, json_value
+from tools.exp05_profiles import get_profile, json_value
 from tools.paired_compare import _closure_digest
 from tools.reference_manifest import manifest_hash
 from test_paired_compare import _canonical_digest, _read, _replace, _rebind, _summaries
