@@ -493,7 +493,8 @@ def test_each_products_dependency_map_equals_exactly_what_it_declared(bound):
     report = binder.collect(**bound.arguments)
     attempts = [binder.attempt_record(item, bound.f.pins) for item in bound.arguments['attempt']]
     historical = binder.historical_checkpoints()
-    runs = [binder.run_record(item, attempts, historical) for item in bound.arguments['runs']]
+    runs = [binder.run_record(item, attempts, historical, report['approved_digests'])
+            for item in bound.arguments['runs']]
     run_bound = {item['path']: item.pop('bound') for item in runs}
     trained = {item['role']: item for item in attempts}
     assert sorted(binder.training_dependencies(trained['S_simple'])) == [
@@ -554,6 +555,9 @@ def test_a_drifting_producer_source_leaves_the_record_unbindable(bound):
     ('unconverged_cell', 'did not converge'),
     ('uncited_document', 'does not cite every canonical digest'),
     ('two_retries', 'more than one retry'),
+    ('swapped_evaluator', 'evaluator closure is not the approved one'),
+    ('swapped_writer', 'writer closure is not the approved one'),
+    ('forged_closure_record', 'closure records'),
     ('missing_training_linkage', 'training linkage'),
 ])
 def test_the_binder_refuses_a_forged_record(bound, forgery, message):
@@ -625,6 +629,19 @@ def test_the_binder_refuses_a_forged_record(bound, forgery, message):
         _republish(product, data)
     elif forgery == 'uncited_document':
         bound.documents[0].write_text('a record with no digests\n')
+    elif forgery in ('swapped_evaluator', 'swapped_writer', 'forged_closure_record'):
+        # The M pair is the only tier a legacy evaluator could ever be claimed for.
+        role = 'M_simple' if forgery == 'swapped_evaluator' else 'S_simple'
+        run = Path(f.runs[(role, 8, 42, 'k0')])
+        manifest = f.read(run / 'eval_manifest.json')
+        closures = manifest['source_closures']
+        if forgery == 'swapped_evaluator':
+            closures['entrypoint'] = dict(closures['writer'])
+        elif forgery == 'swapped_writer':
+            closures['writer'] = dict(closures['entrypoint'])
+        else:
+            closures['writer'] = dict(closures['writer'], sha256='a' * 64)
+        f.rebind(run, manifest=manifest)
     elif forgery == 'two_retries':
         ledger = f.read(f.ledgers['L_simple'])
         ledger['attempts'].append(dict(attempt='attempt_first_ABORTED_slow', hours=1., mode='full'))

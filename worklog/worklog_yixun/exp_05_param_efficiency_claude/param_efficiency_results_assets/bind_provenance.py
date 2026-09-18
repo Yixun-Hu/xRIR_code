@@ -277,7 +277,29 @@ def run_declarations(bound_record, fields):
     return bound
 
 
-def run_record(run, attempts, historical):
+def run_closures(fields, role, approval, where):
+    """One run's evaluator and writer closures: self-consistent, and both approved.
+
+    A closure record that does not hash to its own digest is a claim, not evidence, and
+    an evaluator or writer the approval does not pin is not this experiment's.  exp_04's
+    frozen evaluator is admissible for the historical M pair ONLY against an explicit
+    ``evaluator_exp04`` approval -- the live approvals carry none -- so a substituted
+    closure cannot pass itself off as the legacy one.
+    """
+    pins = approval['blob']['closures']
+    closures = fields['source_closures']
+    for key in ('entrypoint', 'writer'):
+        require(_closure_digest(closures[key]) == closures[key]['sha256'],
+                'closure records: {} of {}'.format(key, where))
+    require(closures['writer']['sha256'] == pins['writer'],
+            'the writer closure is not the approved one: ' + where)
+    entrypoint = closures['entrypoint']['sha256']
+    require(entrypoint == pins['evaluator'] or (ROLES[role]['tier'] == 'M'
+                                                and entrypoint == pins.get('evaluator_exp04')),
+            'the evaluator closure is not the approved one: ' + where)
+
+
+def run_record(run, attempts, historical, approval):
     """One evaluation run: its registered identity and the training it is bound to."""
     bound_record, fields = snapshot(run, 'eval')
     require(fields.get('split') == 'unseen' and fields.get('conditions') == 'P',
@@ -312,6 +334,7 @@ def run_record(run, attempts, historical):
                 'a historical M row carries no exp_05 training provenance: ' + str(run))
         require(Path(bound['train_args']['path']).resolve().parent == checkpoint.parent,
                 'train_args linkage: ' + str(run))
+    run_closures(fields, role, approval, str(run))
     tier_agreement(bound_record, fields, role)
     return dict(bound_record, role=role, num_shot=shot, seed=seed, kind=kind,
                 entrypoint=fields['source_closures']['entrypoint']['sha256'],
@@ -483,7 +506,7 @@ def collect(runs, attempt, results, rendered, figures=(), approved=None, head=No
     paths = sorted(str(Path(item).resolve()) for item in runs)
     require(len(paths) == len(set(paths)) and len(paths) == len(IDENTITIES),
             'the sixty-six evaluation runs')
-    records = [run_record(item, attempts, historical) for item in paths]
+    records = [run_record(item, attempts, historical, approval) for item in paths]
     run_bound = {item['path']: item.pop('bound') for item in records}
     require({(item['role'], item['num_shot'], item['seed'], item['kind'])
              for item in records} == IDENTITIES,
