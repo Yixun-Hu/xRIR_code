@@ -217,13 +217,13 @@ def test_usage_is_refused_without_a_job():
     assert run().returncode == 2
 
 
-def test_the_heading_directory_and_pretrained_checkpoint_are_overridable():
-    result = run('0', 'cyl_or:2', '--dry-run', EXP06_HEADING_DIR='alt/heading',
-                 EXP06_CYLOR_CKPT='alt/epoch_012.pth')
-    assert result.returncode == 0, result.stderr
-    assert 'alt/heading' in result.stdout and 'alt/epoch_012.pth' in result.stdout
-    assert HEADING not in result.stdout and CYLOR not in result.stdout
-    assert OUT + '/cyl_or/seed2/stage1' in result.stdout
+def test_the_heading_directory_and_pretrained_checkpoint_are_overridable(tmp_path):
+    printed = '\n'.join(run_dry(tmp_path, 'cyl_or:2', gpu='0',
+                                EXP06_HEADING_DIR='alt/heading',
+                                EXP06_CYLOR_CKPT='alt/epoch_012.pth'))
+    assert 'alt/heading' in printed and 'alt/epoch_012.pth' in printed
+    assert HEADING not in printed and CYLOR not in printed
+    assert OUT + '/cyl_or/seed2/stage1' in printed
 
 
 # --- preparation is a gate: a failed job never reaches a child (round 2b finding 1) ----
@@ -446,12 +446,16 @@ def test_the_queue_counts_every_failure_and_never_reports_done(tmp_path):
 
 
 def test_a_checkpoint_path_with_spaces_is_never_split(tmp_path):
-    """Nit 5: the override is one path, not two arguments."""
+    """Nit 5: the override is one path, not two arguments.
+
+    Asserted of the stage-1 command line, which a completed stage 1 in a live output
+    root would replace with a single SKIP -- so this queue, too, runs against a root
+    the test owns.
+    """
     override = str(tmp_path / 'path with spaces' / 'epoch_012.pth')
-    result = run('0', 'cyl_or:2', '--dry-run', EXP06_CYLOR_CKPT=override)
-    assert result.returncode == 0, result.stderr
-    assert 'init=' + override in result.stdout
-    assert '--init ' + override + ' --rooms' in result.stdout
+    printed = '\n'.join(run_dry(tmp_path, 'cyl_or:2', gpu='0', EXP06_CYLOR_CKPT=override))
+    assert 'init=' + override in printed
+    assert '--init ' + override + ' --rooms' in printed
 
 
 # --- end-to-end: the finalizer on artefacts these wrappers actually write -------------
