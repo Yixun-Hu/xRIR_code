@@ -7,6 +7,7 @@ refusal it raises when the real module is absent.
 import copy
 import json
 import re
+import subprocess
 
 import pytest
 
@@ -249,13 +250,33 @@ class StubModule(object):
         return {key: self.digests[key] for key in (keys or self.digests)
                 if key in self.digests}
 
+    def code_closures(self, keys, repo, commit):
+        """What ``code_closures`` reads off this checkout: reviewed blobs, and the disk.
 
-def stub(monkeypatch, value=None, digests=None, **named):
+        ``working[key]`` is the hash the file has now, so a test can state the case R1
+        found: bytes that are not the ones a reviewer approved at ``commit``.
+        """
+        self.seen.append(('closures', repo, commit, tuple(keys)))
+        closures = {}
+        for key in keys:
+            if key not in self.digests:
+                continue
+            blob = self.digests[key] or 'e' * 64
+            closures[key] = {'sha256': self.digests[key], 'files': [
+                {'path': 'tools/{}.py'.format(key), 'reviewed_blob_sha256': blob,
+                 'working_tree_sha256': self.working.get(key, blob),
+                 'commits_after_reviewed': []}]}
+        return closures
+
+
+def stub(monkeypatch, value=None, digests=None, working=None, **named):
     value = filled() if value is None else value
     digests = ({key: value['code'][key] for key in subject.CODE_KEYS}
                if digests is None else digests)
     module = StubModule(value, digests, **named)
+    module.working = dict(working or {})
     monkeypatch.setattr(subject, 'approvals_module', lambda: module)
+    monkeypatch.setattr(subject, 'code_closures', module.code_closures, raising=False)
     return module
 
 
@@ -378,3 +399,102 @@ def test_a_producer_of_every_room_may_not_omit_its_headings(monkeypatch, tmp_pat
     # A producer of one room is not one of them: it offers the room it runs, and no more.
     assert 'mirror_probe' not in subject.HEADING_COMPLETE
     assert subject.enforce_producer('mirror_probe', '/repo', 'c' * 40)['deviations'] == []
+
+
+# --- R1: the approvals must be the bytes about to run, not only the reviewed blobs --------
+
+
+def test_bytes_on_disk_that_are_not_the_reviewed_blob_are_refused_by_name(monkeypatch):
+    """R1: the digest is taken over reviewed blobs; the working tree is what executes."""
+    stub(monkeypatch, working={'mirror_probe': 'f' * 64})
+    with pytest.raises(ValueError, match=r'code\.mirror_probe: tools/mirror_probe\.py'):
+        subject.enforce_producer('mirror_probe', '/repo', 'c' * 40)
+    record = subject.enforce_producer('mirror_probe', '/repo', 'c' * 40, exploratory=True)
+    assert record['deviations'] == ['code.mirror_probe: tools/mirror_probe.py on disk is '
+                                    'not the reviewed blob at ' + 'c' * 40]
+    assert record['admissibility'] == 'diagnostic'
+    # A file no reviewer ever committed is the same refusal, named as what it is.
+    module = stub(monkeypatch)
+    module.working['encoder'] = None                      # unchanged; the blob is missing
+    monkeypatch.setattr(module, 'code_closures', lambda keys, repo, commit: {
+        key: {'sha256': module.digests[key], 'files': [
+            {'path': 'model/{}.py'.format(key), 'reviewed_blob_sha256':
+             None if key == 'encoder' else module.digests[key],
+             'working_tree_sha256': 'd' * 64, 'commits_after_reviewed': []}]}
+        for key in keys})
+    monkeypatch.setattr(subject, 'code_closures', module.code_closures)
+    with pytest.raises(ValueError, match='model/encoder.py is not committed at'):
+        subject.enforce_producer('mirror_probe', '/repo', 'c' * 40)
+
+
+def _git(repo, *argv):
+    return subprocess.check_output(
+        ['git', '-c', 'user.email=coder@example.com', '-c', 'user.name=coder'] + list(argv),
+        cwd=str(repo), text=True).strip()
+
+
+@pytest.fixture
+def tiny(tmp_path, monkeypatch):
+    """A repository of one `code` key -- a file, no import closure -- and its approvals.
+
+    R1's two regressions need a repository whose history and working tree a test owns:
+    approvals committed at one commit, and source bytes that later differ from them.
+    """
+    from tools import exp06_profiles as profiles
+    repo = tmp_path / 'tiny'
+    (repo / 'tools').mkdir(parents=True)
+    source = repo / 'tools/exp06_launch.sh'
+    source.write_text('echo the reviewed launcher\n')
+    approvals = repo / 'approved_digests.json'
+    approvals.write_text('{}')
+    _git(repo, 'init', '-q')
+    _git(repo, 'add', '-A')
+    _git(repo, 'commit', '-q', '-m', 'the reviewed bytes')
+    head = _git(repo, 'rev-parse', 'HEAD')
+    approvals.write_text(json.dumps(
+        {'schema_version': 1,
+         'code': dict({key: 'a' * 64 for key in profiles.CODE_KEYS},
+                      launch_sh=subject.code_digest('launch_sh', str(repo), head)),
+         'reused': dict({key: 'a' * 64 for key in profiles.REUSED_KEYS
+                         if key != 'legacy_receipt'},
+                        legacy_receipt={'path': 'r.json', 'sha256': 'a' * 64}),
+         'artifacts': {'epoch_012': {'path': 'e.pth', 'epoch': 12, 'sha256': 'a' * 64},
+                       'heading': {room: 'a' * 64 for room in profiles.HEADING_ROOMS},
+                       'gate_g1': 'a' * 64}}, sort_keys=True))
+    _git(repo, 'add', '-A')
+    _git(repo, 'commit', '-q', '-m', 'approve the reviewed bytes')
+    monkeypatch.setattr(subject, 'PRODUCER_CODE_KEYS',
+                        dict(subject.PRODUCER_CODE_KEYS, heading=('launch_sh',)))
+    return {'repo': repo, 'approvals': approvals, 'source': source,
+            'reviewed': _git(repo, 'rev-parse', 'HEAD')}
+
+
+def test_the_approved_closure_of_a_clean_checkout_is_admitted(tiny):
+    record = subject.enforce_producer('heading', str(tiny['repo']), tiny['reviewed'],
+                                      approved_path=str(tiny['approvals']))
+    assert record['deviations'] == [] and record['admissibility'] == 'confirmatory'
+    assert record['keys_checked'] == ['launch_sh']
+    assert record['approvals']['committed_at'] == tiny['reviewed']
+
+
+def test_approvals_bound_at_an_older_commit_do_not_admit_todays_bytes(tiny):
+    """The approvals are still the committed ones; the file they approved has moved on."""
+    tiny['source'].write_text('echo the launcher as it is today\n')
+    _git(tiny['repo'], 'add', '-A')
+    _git(tiny['repo'], 'commit', '-q', '-m', 'edit the launcher')
+    with pytest.raises(ValueError, match=r'code\.launch_sh: tools/exp06_launch\.sh'):
+        subject.enforce_producer('heading', str(tiny['repo']), tiny['reviewed'],
+                                 approved_path=str(tiny['approvals']))
+    record = subject.enforce_producer('heading', str(tiny['repo']), tiny['reviewed'],
+                                      approved_path=str(tiny['approvals']),
+                                      exploratory=True)
+    assert [item.split(':')[0] for item in record['deviations']] == ['code.launch_sh']
+    assert tiny['reviewed'] in record['deviations'][0]
+
+
+def test_a_source_file_edited_since_the_reviewed_commit_is_refused(tiny):
+    """Codex's case: the blobs match the approvals, the bytes that would run do not."""
+    tiny['source'].write_text('echo the edited launcher\n')      # never committed
+    with pytest.raises(ValueError, match='on disk is not the reviewed blob'):
+        subject.enforce_producer('heading', str(tiny['repo']), tiny['reviewed'],
+                                 approved_path=str(tiny['approvals']))
