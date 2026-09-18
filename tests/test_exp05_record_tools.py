@@ -438,6 +438,22 @@ def test_html_marks_carry_only_canonical_values(rendered, tmp_path):
     assert md.html.escape(tooltip, quote=True) in text
 
 
+def test_html_marks_keep_their_backbone_colour(rendered, tmp_path):
+    """The imported CSS paints `.mark` blue; a series' own colour has to outrank it."""
+    f, argv = rendered
+    out = tmp_path / 'page.html'
+    page.main(argv + ['--out', str(out)])
+    text = out.read_text()
+    assert '.mark{stroke:var(--blue);fill:var(--blue)}' in text     # the rule outranked
+    assert 'class="mark" fill=' not in text                         # never an attribute
+    orange, blue = (page.COLOUR[name] for name in ('cylindrical', 'simple'))
+    curve = '<g tabindex="0" class="mark" style="fill:{0};stroke:{0}">'
+    # two products x two metrics x two parameter axes x three tiers of each backbone
+    assert text.count(curve.format(orange)) == text.count(curve.format(blue)) == 2 * 2 * 2 * 3
+    trajectory = '<g tabindex="0" class="mark" style="fill:{};stroke:none">'
+    assert text.count(trajectory.format(orange)) == 2 * 12          # S_cyl and L_cyl epochs
+
+
 def test_html_refuses_the_inputs_the_markdown_refuses(rendered, tmp_path):
     f, argv = rendered
     with pytest.raises(ValueError, match='output overlaps'):

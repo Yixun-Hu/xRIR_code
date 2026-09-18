@@ -85,8 +85,10 @@ def panel(data, metric, axis, label):
                 item['role'], backbone, item['tier'], md.native(metric, item['mean']),
                 UNITS[metric], md.native(metric, item['sd']),
                 md.native(metric, item['interval']), item['cohort']))
-            parts.append('<g tabindex="0" class="mark" fill="{0}" stroke="{0}"><title>{1}</title>'
-                         .format(colour, esc(tooltip)))
+            # An inline style, not a presentation attribute: the imported `.mark` rule
+            # paints fill and stroke blue and would otherwise repaint this whole series.
+            parts.append('<g tabindex="0" class="mark" style="fill:{0};stroke:{0}">'
+                         '<title>{1}</title>'.format(colour, esc(tooltip)))
             parts.append('<line x1="{0}" x2="{0}" y1="{1}" y2="{2}"/>'.format(
                 x, y_of(item['interval'][0]), y_of(item['interval'][1])))
             for bound in item['interval']:
@@ -135,8 +137,8 @@ def trajectories(attempts):
         points = ' '.join('{},{}'.format(x_of(epoch), y_of(value)) for epoch, value in history)
         parts.append('<polyline fill="none" stroke="{}"{} points="{}"/>'.format(colour, dash, points))
         for epoch, value in history:
-            parts.append('<g tabindex="0" class="mark" fill="{}" stroke="none"><title>{}</title>'
-                         '<circle cx="{}" cy="{}" r="3"/></g>'.format(
+            parts.append('<g tabindex="0" class="mark" style="fill:{};stroke:none">'
+                         '<title>{}</title><circle cx="{}" cy="{}" r="3"/></g>'.format(
                              colour, esc('{} epoch {}: {}'.format(role, epoch, md.display(value))),
                              x_of(epoch), y_of(value)))
         parts.append('<text x="{}" y="{}" fill="{}">{}</text>'.format(
