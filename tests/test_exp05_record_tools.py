@@ -477,6 +477,24 @@ def test_figures_write_png_and_pdf_for_both_curve_families(rendered, tmp_path):
     assert all((outdir / name).stat().st_size > 0 for name in written)
 
 
+def test_figures_of_one_product_reproduce_byte_for_byte_in_every_format(rendered, tmp_path):
+    """A figure is evidence, so a second export of the same product is the same bytes.
+
+    Nothing about the run may reach the file: matplotlib stamps a PDF with the clock time
+    unless the metadata is neutralised, and that would make a figure unverifiable.
+    """
+    f, argv = rendered
+    curve = str(f.results / 'CURVE_K8.json')
+    drawn = []
+    for name in ('first', 'second'):
+        outdir = tmp_path / name
+        outdir.mkdir()
+        drawn.append(sorted(figures.main(['--curve', curve, '--outdir', str(outdir)])))
+    assert [item.name for item in drawn[0]] == [item.name for item in drawn[1]]
+    assert {item.suffix for item in drawn[0]} == {'.pdf', '.png'} and len(drawn[0]) == 4
+    assert all(one.read_bytes() == other.read_bytes() for one, other in zip(*drawn))
+
+
 def test_figures_refuse_a_non_curve_product_and_an_input_directory(rendered, tmp_path):
     f, argv = rendered
     with pytest.raises(ValueError, match='curve family'):
