@@ -13,3 +13,5 @@ Environment (all four): `OMP_NUM_THREADS=2 PYTHONHASHSEED=0 XRIR_DATA_PATH=/home
 
 Evaluation: unseen split 6 337 queries, K = 8 and K = 1, seeds 42–46 (manifests `ckpt/yaw_aug/reference_manifest_k{8,1}_seed*.json`), batch 16, TF32 off, `--conditions P --yaw-cols 0 --acoustic-cols 0 --e-acoustic-cols --decomposition-batches 0`, plus one seed-42 K = 8 yaw block per arm (k ∈ {0, 32, 64, 448, 480}); entry point `tools/exp05_eval.py --tier`; reviewed commits `3e2c28b` (L arms) and `ddfcb66` (S and M arms). Approval pins: `param_efficiency_results_assets/approved_digests.json` (filled at `61f4d1b`).
 
+
+Wall-time definition: "Certified training wall (h)" = `train_manifest.started_at` → `execution.ended_at` of the certified attempt (launcher-side stamps, includes the final test epoch and save); the generated results table reports the trainer-side sum of epoch times, which differs by a few minutes.
