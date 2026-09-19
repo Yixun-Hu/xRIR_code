@@ -377,3 +377,13 @@ Approvals re-fill VERIFIED 2026-09-16 08:14 (Codex, no blockers) — launch bind
 | 9381b6a | exp06-prelaunch | red: HAA-diagnostic artefacts must be confined to the smoke tree |
 | c867e24 | exp06-prelaunch | confine every registered artefact (lstat walk + resolve) |
 Pre-launch round CLOSED 2026-09-16 14:00 at `c867e24` — Codex close review: approve for the POST-TRAINING merge (no blockers).
+| 98bcde4 | main | bookkeeping: launch day record, pre-launch reviews, epoch-1 acceptance, post-training runbook + review prompts (record only) |
+
+## Post-training (2026-09-18, main)
+| e1cb5b4 | main | merge --no-ff 31d2933 (exp06-fullfix: F2–F5 round, R1–R5 fix cycle) |
+| f150294 | main | approvals re-fill after the fix-round merge (code ×6) |
+| 8ed7684 | main | approve the G1 gate artifact (pass) |
+| 621b139 | main | merge --no-ff ec7b7bf (R3 fix cycles: producer-closure validation of the arm-B receipt) |
+| b793a96 | main | merge --no-ff 90ca0fb (tests-only: HAA golden dry-run test independent of the live output root) |
+| c8611fc | main | approvals re-fill after the fix cycles (compare, eval_launch) — by the post-HAA chain |
+| 2be33d4 | main | bookkeeping: HAA + sim runs, canonical results, analysis, page, reviews, logs (record only) |

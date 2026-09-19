@@ -1,0 +1,17 @@
+2026-09-18T13:55:27 POSTHAA-CHAIN waiting for HAA pipelines 1005097 (GPU 0) and 1010000 (GPU 1)
+2026-09-18T18:58:09 POSTHAA-CHAIN both pipelines exited: QUEUE_DONE gpu=0 QUEUE_DONE gpu=1 
+2026-09-18T18:58:14 POSTHAA-CHAIN refill3
+REFILL3 2026-09-18_18:58:14 HEAD=2e43887a361eb59ea19ea5a7ab8d5710410fa5d9
+code changed: ['compare', 'eval_launch']
+{'compare': '43b3461f334aaeef', 'eval_launch': '0a73f84a5a1c1753'}
+committed c8611fc772f336e2ee4d95a2f2cf8d30bfa895df
+REFILL3 OK (suite: run separately to a log file with -rf; then breceipt / sim)
+2026-09-18T18:58:59 POSTHAA-CHAIN sim launch on GPU 1
+SIM 2026-09-18_18:58:59 HEAD=c8611fc772f336e2ee4d95a2f2cf8d30bfa895df GPU=1
+enforce_producer sim_eval | keys ['eval', 'eval_launch', 'encoder', 'factory', 'evaluator_exp03'] | approvals at c8611fc772f3 | deviations []
+GPU 1 empty
+queue script /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-18_18:58:59_posttrain_sim_queue.sh (10 evaluations; argv = exp_04's k=0 argv + role/epoch)
+SIM queue launched: pid 1925155
+2026-09-18T18:59:59 POSTHAA-CHAIN SIM queue pid 1925155
+2026-09-18T20:37:59 POSTHAA-CHAIN SIM queue exited: SIM_QUEUE_DONE 
+2026-09-18T20:37:59 POSTHAA-CHAIN GPU 1 free — ping the peer 'GPU 1 released'

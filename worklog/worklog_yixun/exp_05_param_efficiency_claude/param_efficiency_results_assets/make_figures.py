@@ -18,6 +18,12 @@ page = record.load_asset('make_results_html')
 md = page.md
 STYLE = dict(simple=dict(colour='#2a78d6', marker='o'),
              cylindrical=dict(colour='#c34c20', marker='s'))
+# A figure is evidence, so nothing about the run that drew it may reach the file.  The PDF
+# backend stamps ``CreationDate`` with the wall clock unless it is removed; ``ModDate`` is
+# removed with it in case a future matplotlib predefines one.  What is left -- ``Creator``
+# and ``Producer`` -- is the matplotlib version string, which is stable for an environment.
+# The PNG backend drops a ``None`` metadata value, so one dict serves both formats.
+METADATA = {'CreationDate': None, 'ModDate': None}
 
 
 def load_curve(path):
@@ -68,7 +74,7 @@ def figure(data, metric, outdir, formats):
         written = []
         for suffix in formats:
             path = destination(data, metric, outdir, suffix)
-            fig.savefig(str(path), dpi=200)
+            fig.savefig(str(path), dpi=200, metadata=METADATA)
             written.append(path)
         return written
     finally:

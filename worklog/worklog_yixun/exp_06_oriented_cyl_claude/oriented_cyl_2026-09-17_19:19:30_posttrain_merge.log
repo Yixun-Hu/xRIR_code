@@ -1,0 +1,10 @@
+MERGE 2026-09-17_19:19:30 HEAD=c2a5edfc6109775b189a4862c1456fa3f0e11d52
+FINALISED admissible_arm=True epochs=12 final -> attempt_20260916T161415 epoch_012 sha256 3df2ceb53d1be1402cb6672f05ded092187f1ba871b53fc1114ca088612296c1
+Merge made by the 'ort' strategy.
+ tests/test_exp06_finalize.py | 265 ++++++++++++++++++++++++++++++++++++++++++-
+ tests/test_exp06_launch.py   | 169 ++++++++++++++++++++++++++-
+ tools/exp06_finalize.py      | 217 ++++++++++++++++++++++++++++++++---
+ tools/exp06_launch.sh        |  47 +++++++-
+ tools/exp06_smoke.py         |   5 +-
+ 5 files changed, 672 insertions(+), 31 deletions(-)
+MERGE OK: e0b07a092fcc2696286b392ac2e639369539cb6b  (next: refill)

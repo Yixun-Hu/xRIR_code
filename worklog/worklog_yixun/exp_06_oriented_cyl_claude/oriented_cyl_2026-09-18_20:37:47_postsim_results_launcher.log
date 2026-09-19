@@ -1,0 +1,14 @@
+20:37:47 POSTSIM start HEAD=ee5f152546649b848108914fe63f8698734eb777
+20:37:47 comparer (H3) with approvals at c8611fc772f336e2ee4d95a2f2cf8d30bfa895df
+CONFIRMATORY H3 (margin +0.030, one-sided 0.025 upper bound of rho)
+C - B      EDT  rho=+0.0322557 upper=+0.043587 companion=['+0.0208771', '+0.043587'] rooms=['+0.0136921', '+0.0554945'] n=6337
+C - B      C50  rho=-0.0038684 upper=+0.00794203 companion=['-0.0152713', '+0.00794203'] rooms=['-0.0239574', '+0.0491318'] n=6337
+C - A      EDT  rho=-0.0106588 upper=-9.44725e-06 companion=['-0.021248', '-9.44725e-06'] rooms=['-0.025821', '+0.0235951'] n=6337
+C - A      C50  rho=-0.00981182 upper=+0.000735606 companion=['-0.0201754', '+0.000735606'] rooms=['-0.0271632', '+0.0297765'] n=6337
+C - A: non-inferior (descriptive)
+C - B: non-inferior on C50 only
+H3 available
+
+{"json": "ckpt/exp06/h3.json", "sha256": "e03b285f5c00113ac6974780632468b452ba085565b8d5c46a5d5dfa77af091e", "summary_sha256": "4aebcaafb64942a7442ef1c5a1a43bc98cb18188b78a0e4dc0cf47ef99a1a10d", "verdicts": {"C - A": "non-inferior", "C - B": "non-inferior on C50 only"}}
+fatal: invalid object name '8ed7684df41ee833eeb4f2b0919a12b5c342536'.
+20:39:54 REFUSE: blob mismatch 2e43887a361eb59ea19ea5a7ab8d5710410fa5d9 vs 8ed7684df41ee833eeb4f2b0919a12b5c342536

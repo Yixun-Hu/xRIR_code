@@ -1,0 +1,129 @@
+20:40:57 POSTSIM start HEAD=9568591eca9e12ec934288f008d39c783a4c256f
+20:40:57 comparer outputs exist (h3.json e03b285f5c00); skipping
+20:40:57 restoring working-tree approvals to the blob at 8ed76848df41ee833eeb4f2b0919a12b5c342536 (== every HAA child's reviewed-commit blob) for the summariser
+model                 | class_room                             | dampened_room                          | hallway                                | complex_room                           
+                      |       EDT (s)     C50 (dB)      T60 (%)|       EDT (s)     C50 (dB)      T60 (%)|       EDT (s)     C50 (dB)      T60 (%)|       EDT (s)     C50 (dB)      T60 (%)
+control zero-shot     |        0.1179        1.933         7.35|        0.0723        4.670            -|        0.1869        2.389         7.47|        0.1561        2.765         6.92
+control fine-tuned    | 0.0812±0.0007  1.501±0.008    4.31±0.13| 0.0384±0.0002  2.847±0.028            -| 0.0611±0.0009  1.135±0.008    2.68±0.00| 0.0765±0.0003  1.666±0.021    4.94±0.07
+cyl zero-shot         |        0.1199        1.915         7.82|        0.0719        4.632            -|        0.1840        4.183         9.91|        0.1095        2.172         5.77
+cyl fine-tuned        | 0.0887±0.0008  1.630±0.038    4.00±0.24| 0.0385±0.0021  2.863±0.132            -| 0.0874±0.0018  2.052±0.084    4.16±0.09| 0.0821±0.0006  1.736±0.030    5.05±0.22
+cyl_or zero-shot      |        0.1355        2.154         8.10|        0.0585        4.019            -|        0.1300        1.998         4.85|        0.1093        2.017         6.44
+cyl_or fine-tuned     | 0.0788±0.0005  1.498±0.011    4.52±0.07| 0.0379±0.0013  2.885±0.073            -| 0.0621±0.0007  1.137±0.006    2.72±0.05| 0.0797±0.0012  1.753±0.052    4.84±0.03
+control_hf zero-shot  |        0.1255        2.042         7.48|        0.0685        4.477            -|        0.2963        4.792        12.81|        0.1560        2.776         6.84
+control_hf fine-tuned | 0.0835±0.0016  1.490±0.013    3.88±0.12| 0.0356±0.0006  2.761±0.013            -| 0.0830±0.0009  1.766±0.025    3.56±0.06| 0.0846±0.0008  1.853±0.019    4.77±0.04
+cyl_hf zero-shot      |        0.1210        1.877         7.94|        0.0716        4.669            -|        0.2209        4.474        11.94|        0.1183        2.337         5.93
+cyl_hf fine-tuned     | 0.0869±0.0017  1.612±0.048    3.77±0.31| 0.0387±0.0010  2.861±0.135            -| 0.1393±0.0048  3.145±0.136    6.83±0.29| 0.0850±0.0011  1.871±0.012    5.03±0.05
+
+H1 cyl_or - control hallway c50: diff +0.0018, two-way [-0.0570, +0.0601], margin 0.23, cohort 423/423 -> pass
+
+H1b cyl_or - cyl_hf hallway c50: diff -2.0079, two-way [-2.3089, -1.7160], margin 0.0, cohort 423/423 -> pass
+
+H2 screen (11 cells, adjusted at alpha/11)
+  class_room     edt  diff -0.0024 nominal [-0.0061, +0.0012] adjusted (-0.007953636065329986, 0.00280946503871524) -> no detected difference
+  class_room     c50  diff -0.0025 nominal [-0.0702, +0.0629] adjusted (-0.10298596437695402, 0.09206606481546498) -> no detected difference
+  class_room     t60  diff +0.2091 nominal [-0.0543, +0.4802] adjusted (-0.16807158735611186, 0.5958739637236681) -> no detected difference
+  dampened_room  edt  diff -0.0005 nominal [-0.0042, +0.0033] adjusted (-0.0057706096212589725, 0.005186693777602854) -> no detected difference
+  dampened_room  c50  diff +0.0380 nominal [-0.1698, +0.2519] adjusted (-0.26129324028150436, 0.34964204859872183) -> no detected difference
+  hallway        edt  diff +0.0010 nominal [-0.0025, +0.0048] adjusted (-0.003999925437615398, 0.006652078268086348) -> no detected difference
+  hallway        c50  diff +0.0018 nominal [-0.0570, +0.0601] adjusted (-0.08326182111907365, 0.08534410344339931) -> no detected difference
+  hallway        t60  diff +0.0441 nominal [-0.1126, +0.2145] adjusted (-0.18275279823398194, 0.3078513508576675) -> no detected difference
+  complex_room   edt  diff +0.0032 nominal [-0.0021, +0.0085] adjusted (-0.005079623278757482, 0.011096675891048168) -> no detected difference
+  complex_room   c50  diff +0.0863 nominal [-0.0252, +0.2063] adjusted (-0.08173617070051818, 0.26061359965910746) -> no detected difference
+  complex_room   t60  diff -0.1068 nominal [-0.3415, +0.1065] adjusted (-0.4894108523626309, 0.22264951690467497) -> no detected difference
+
+Descriptive contrasts
+  cyl_or - control_hf    class_room     edt  diff -0.0047 [-0.0087, -0.0009]
+  cyl_or - control_hf    class_room     c50  diff +0.0080 [-0.0599, +0.0730]
+  cyl_or - control_hf    class_room     t60  diff +0.6382 [+0.4539, +0.8316]
+  cyl_or - control_hf    dampened_room  edt  diff +0.0024 [-0.0007, +0.0056]
+  cyl_or - control_hf    dampened_room  c50  diff +0.1243 [-0.0508, +0.3123]
+  cyl_or - control_hf    hallway        edt  diff -0.0209 [-0.0276, -0.0145]
+  cyl_or - control_hf    hallway        c50  diff -0.6290 [-0.7644, -0.5001]
+  cyl_or - control_hf    hallway        t60  diff -0.8323 [-1.1412, -0.5393]
+  cyl_or - control_hf    complex_room   edt  diff -0.0049 [-0.0100, -0.0002]
+  cyl_or - control_hf    complex_room   c50  diff -0.0999 [-0.2136, +0.0231]
+  cyl_or - control_hf    complex_room   t60  diff +0.0644 [-0.1211, +0.2518]
+  control_hf - control   class_room     edt  diff +0.0023 [-0.0009, +0.0059]
+  control_hf - control   class_room     c50  diff -0.0106 [-0.0646, +0.0511]
+  control_hf - control   class_room     t60  diff -0.4291 [-0.7854, -0.1242]
+  control_hf - control   dampened_room  edt  diff -0.0028 [-0.0049, -0.0009]
+  control_hf - control   dampened_room  c50  diff -0.0863 [-0.1924, +0.0179]
+  control_hf - control   hallway        edt  diff +0.0219 [+0.0158, +0.0286]
+  control_hf - control   hallway        c50  diff +0.6307 [+0.5001, +0.7702]
+  control_hf - control   hallway        t60  diff +0.8764 [+0.6013, +1.1720]
+  control_hf - control   complex_room   edt  diff +0.0081 [+0.0017, +0.0148]
+  control_hf - control   complex_room   c50  diff +0.1863 [+0.0582, +0.3220]
+  control_hf - control   complex_room   t60  diff -0.1712 [-0.3890, +0.0133]
+  cyl_hf - cyl           class_room     edt  diff -0.0018 [-0.0063, +0.0021]
+  cyl_hf - cyl           class_room     c50  diff -0.0180 [-0.1289, +0.0926]
+  cyl_hf - cyl           class_room     t60  diff -0.2346 [-0.7929, +0.4971]
+  cyl_hf - cyl           dampened_room  edt  diff +0.0002 [-0.0028, +0.0028]
+  cyl_hf - cyl           dampened_room  c50  diff -0.0013 [-0.1327, +0.1344]
+  cyl_hf - cyl           hallway        edt  diff +0.0519 [+0.0440, +0.0601]
+  cyl_hf - cyl           hallway        c50  diff +1.0934 [+0.9287, +1.2611]
+  cyl_hf - cyl           hallway        t60  diff +2.6666 [+2.2458, +3.1049]
+  cyl_hf - cyl           complex_room   edt  diff +0.0029 [-0.0008, +0.0066]
+  cyl_hf - cyl           complex_room   c50  diff +0.1345 [+0.0572, +0.2248]
+  cyl_hf - cyl           complex_room   t60  diff -0.0168 [-0.2630, +0.2493]
+
+Room-frame side split (zeroshot job)
+  control_hf|class_room|c50      -y 2.26767043 (n=339) +y 1.42406801 (n=124)
+  control_hf|class_room|edt      -y 0.13727369 (n=339) +y 0.09346938 (n=124)
+  control_hf|class_room|t60      -y 8.05327080 (n=339) +y 5.93090406 (n=124)
+  control_hf|complex_room|c50    -y 2.95123763 (n=158) +y 2.08512194 (n=40)
+  control_hf|complex_room|edt    -y 0.16684577 (n=158) +y 0.11302721 (n=40)
+  control_hf|complex_room|t60    -y 6.61102828 (n=158) +y 7.73649479 (n=40)
+  control_hf|dampened_room|c50   -y 3.63812146 (n=128) +y 6.01158584 (n=70)
+  control_hf|dampened_room|edt   -y 0.03672193 (n=128) +y 0.12665889 (n=70)
+  control_hf|hallway|c50         -y 5.79346921 (n=238) +y 3.50420978 (n=185)
+  control_hf|hallway|edt         -y 0.42427599 (n=238) +y 0.13156683 (n=185)
+  control_hf|hallway|t60         -y 17.3059421 (n=238) +y 7.02436817 (n=185)
+  control|class_room|c50         -y 2.17995165 (n=339) +y 1.25747662 (n=124)
+  control|class_room|edt         -y 0.13058495 (n=339) +y 0.08317972 (n=124)
+  control|class_room|t60         -y 7.74056589 (n=339) +y 6.29936997 (n=124)
+  control|complex_room|c50       -y 3.04003611 (n=158) +y 1.67999043 (n=40)
+  control|complex_room|edt       -y 0.17076552 (n=158) +y 0.09796598 (n=40)
+  control|complex_room|t60       -y 6.80694307 (n=158) +y 7.38261902 (n=40)
+  control|dampened_room|c50      -y 3.62246835 (n=128) +y 6.58627728 (n=70)
+  control|dampened_room|edt      -y 0.03666454 (n=128) +y 0.13755102 (n=70)
+  control|hallway|c50            -y 2.36655504 (n=238) +y 2.41777710 (n=185)
+  control|hallway|edt            -y 0.24700851 (n=238) +y 0.10967310 (n=185)
+  control|hallway|t60            -y 9.26848446 (n=238) +y 5.14949600 (n=185)
+  cyl_hf|class_room|c50          -y 1.96023386 (n=339) +y 1.64886854 (n=124)
+  cyl_hf|class_room|edt          -y 0.12440992 (n=339) +y 0.11169409 (n=124)
+  cyl_hf|class_room|t60          -y 8.79362215 (n=339) +y 5.60732265 (n=124)
+  cyl_hf|complex_room|c50        -y 2.05946570 (n=158) +y 3.43516035 (n=40)
+  cyl_hf|complex_room|edt        -y 0.10886075 (n=158) +y 0.15576190 (n=40)
+  cyl_hf|complex_room|t60        -y 5.57438174 (n=158) +y 7.34073300 (n=40)
+  cyl_hf|dampened_room|c50       -y 3.22354855 (n=128) +y 7.31137633 (n=70)
+  cyl_hf|dampened_room|edt       -y 0.02731717 (n=128) +y 0.15253255 (n=70)
+  cyl_hf|hallway|c50             -y 1.12091730 (n=238) +y 8.78720973 (n=185)
+  cyl_hf|hallway|edt             -y 0.16444292 (n=238) +y 0.29354072 (n=185)
+  cyl_hf|hallway|t60             -y 5.31409799 (n=238) +y 20.4600708 (n=185)
+  cyl_or|class_room|c50          -y 2.33355025 (n=339) +y 1.66456601 (n=124)
+  cyl_or|class_room|edt          -y 0.14445688 (n=339) +y 0.11116085 (n=124)
+  cyl_or|class_room|t60          -y 8.80246317 (n=339) +y 6.18590986 (n=124)
+  cyl_or|complex_room|c50        -y 2.00415761 (n=158) +y 2.06968001 (n=40)
+  cyl_or|complex_room|edt        -y 0.10956686 (n=158) +y 0.10814285 (n=40)
+  cyl_or|complex_room|t60        -y 6.09467237 (n=158) +y 7.82818668 (n=40)
+  cyl_or|dampened_room|c50       -y 3.16335954 (n=128) +y 5.58465594 (n=70)
+  cyl_or|dampened_room|edt       -y 0.02721938 (n=128) +y 0.11561516 (n=70)
+  cyl_or|hallway|c50             -y 1.22932080 (n=238) +y 2.98787432 (n=185)
+  cyl_or|hallway|edt             -y 0.16650774 (n=238) +y 0.08299760 (n=185)
+  cyl_or|hallway|t60             -y 5.38402126 (n=238) +y 4.16112065 (n=185)
+  cyl|class_room|c50             -y 2.05227414 (n=339) +y 1.54040590 (n=124)
+  cyl|class_room|edt             -y 0.12619428 (n=339) +y 0.10282203 (n=124)
+  cyl|class_room|t60             -y 8.50974953 (n=339) +y 5.93558303 (n=124)
+  cyl|complex_room|c50           -y 2.01488304 (n=158) +y 2.79055493 (n=40)
+  cyl|complex_room|edt           -y 0.10598639 (n=158) +y 0.12331972 (n=40)
+  cyl|complex_room|t60           -y 5.38479535 (n=158) +y 7.27905909 (n=40)
+  cyl|dampened_room|c50          -y 3.16528059 (n=128) +y 7.31485991 (n=70)
+  cyl|dampened_room|edt          -y 0.02673256 (n=128) +y 0.15453838 (n=70)
+  cyl|hallway|c50                -y 1.03832809 (n=238) +y 8.22760435 (n=185)
+  cyl|hallway|edt                -y 0.14434916 (n=238) +y 0.23494171 (n=185)
+  cyl|hallway|t60                -y 4.82337149 (n=238) +y 16.4510958 (n=185)
+
+{"json": "ckpt/exp06/stats.json", "sha256": "f6334ecad328d24e7a1bfbab0ebe4e8b6a05bef1aaa55cf7524c846527f9c774", "summary_sha256": "6d08c714b8d7045e56c6484eae74c6da3244df3d34dfbcb81ea7cdfe17786e67", "H1": "pass", "H1b": "pass"}
+20:50:18 approvals restored to HEAD (b14dc3b)
+wrote /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_results_assets/../oriented_cyl_results.md 12657 bytes
+20:50:18 POSTSIM OK: h3 e03b285f5c00 stats f6334ecad328

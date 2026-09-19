@@ -1,0 +1,113 @@
+rooms ['class_room', 'hallway', 'complex_room']: 36 train targets, 494 val samples from ['class_room', 'hallway', 'complex_room']; frame heading; batch 36 x accum 1; 1 batches/epoch
+epoch 0 (init): val loss 0.04608
+epoch 10/1000: train 0.03782  val 0.03671  best val 0.03671 @ 10  lr 6.3e-05  0.3 min
+epoch 20/1000: train 0.04207  val 0.03622  best val 0.03622 @ 20  lr 4.0e-05  0.5 min
+epoch 30/1000: train 0.03826  val 0.03596  best val 0.03596 @ 30  lr 2.5e-05  0.8 min
+epoch 40/1000: train 0.03823  val 0.03573  best val 0.03573 @ 40  lr 1.6e-05  1.1 min
+epoch 50/1000: train 0.03598  val 0.03575  best val 0.03573 @ 40  lr 1.0e-05  1.4 min
+epoch 60/1000: train 0.03357  val 0.03568  best val 0.03568 @ 60  lr 6.3e-06  1.6 min
+epoch 70/1000: train 0.03582  val 0.03566  best val 0.03566 @ 70  lr 4.0e-06  1.9 min
+epoch 80/1000: train 0.03728  val 0.03561  best val 0.03561 @ 80  lr 2.5e-06  2.2 min
+epoch 90/1000: train 0.03311  val 0.03559  best val 0.03559 @ 90  lr 1.6e-06  2.4 min
+epoch 100/1000: train 0.03500  val 0.03560  best val 0.03559 @ 90  lr 1.0e-06  2.7 min
+epoch 110/1000: train 0.03495  val 0.03558  best val 0.03558 @ 110  lr 6.3e-07  3.0 min
+epoch 120/1000: train 0.03250  val 0.03559  best val 0.03558 @ 110  lr 4.0e-07  3.3 min
+epoch 130/1000: train 0.03225  val 0.03559  best val 0.03558 @ 110  lr 2.5e-07  3.5 min
+epoch 140/1000: train 0.03678  val 0.03560  best val 0.03558 @ 110  lr 1.6e-07  3.8 min
+epoch 150/1000: train 0.03792  val 0.03562  best val 0.03558 @ 110  lr 1.0e-07  4.1 min
+epoch 160/1000: train 0.03435  val 0.03559  best val 0.03558 @ 110  lr 6.3e-08  4.3 min
+epoch 170/1000: train 0.03324  val 0.03560  best val 0.03558 @ 110  lr 4.0e-08  4.6 min
+epoch 180/1000: train 0.03305  val 0.03560  best val 0.03558 @ 110  lr 2.5e-08  4.9 min
+epoch 190/1000: train 0.03431  val 0.03563  best val 0.03558 @ 110  lr 1.6e-08  5.1 min
+epoch 200/1000: train 0.03308  val 0.03559  best val 0.03558 @ 110  lr 1.0e-08  5.4 min
+epoch 210/1000: train 0.03615  val 0.03560  best val 0.03558 @ 110  lr 6.3e-09  5.7 min
+epoch 220/1000: train 0.03772  val 0.03560  best val 0.03558 @ 110  lr 4.0e-09  5.9 min
+epoch 230/1000: train 0.03649  val 0.03559  best val 0.03558 @ 110  lr 2.5e-09  6.2 min
+epoch 240/1000: train 0.03652  val 0.03558  best val 0.03558 @ 240  lr 1.6e-09  6.5 min
+epoch 250/1000: train 0.03387  val 0.03562  best val 0.03558 @ 240  lr 1.0e-09  6.7 min
+epoch 260/1000: train 0.03755  val 0.03558  best val 0.03558 @ 240  lr 6.3e-10  7.0 min
+epoch 270/1000: train 0.03395  val 0.03565  best val 0.03558 @ 240  lr 4.0e-10  7.3 min
+epoch 280/1000: train 0.03274  val 0.03558  best val 0.03558 @ 240  lr 2.5e-10  7.5 min
+epoch 290/1000: train 0.03463  val 0.03562  best val 0.03558 @ 240  lr 1.6e-10  7.8 min
+epoch 300/1000: train 0.03296  val 0.03561  best val 0.03558 @ 240  lr 1.0e-10  8.1 min
+epoch 310/1000: train 0.03323  val 0.03560  best val 0.03558 @ 240  lr 6.3e-11  8.3 min
+epoch 320/1000: train 0.03208  val 0.03558  best val 0.03558 @ 240  lr 4.0e-11  8.6 min
+epoch 330/1000: train 0.03320  val 0.03559  best val 0.03558 @ 240  lr 2.5e-11  8.9 min
+epoch 340/1000: train 0.03325  val 0.03560  best val 0.03558 @ 240  lr 1.6e-11  9.1 min
+epoch 350/1000: train 0.03155  val 0.03557  best val 0.03557 @ 350  lr 1.0e-11  9.4 min
+epoch 360/1000: train 0.03618  val 0.03560  best val 0.03557 @ 350  lr 6.3e-12  9.7 min
+epoch 370/1000: train 0.03277  val 0.03556  best val 0.03556 @ 370  lr 4.0e-12  10.0 min
+epoch 380/1000: train 0.03352  val 0.03559  best val 0.03556 @ 370  lr 2.5e-12  10.2 min
+epoch 390/1000: train 0.03276  val 0.03559  best val 0.03556 @ 370  lr 1.6e-12  10.5 min
+epoch 400/1000: train 0.03315  val 0.03561  best val 0.03556 @ 370  lr 1.0e-12  10.8 min
+epoch 410/1000: train 0.03711  val 0.03558  best val 0.03556 @ 370  lr 6.3e-13  11.0 min
+epoch 420/1000: train 0.03200  val 0.03557  best val 0.03556 @ 370  lr 4.0e-13  11.3 min
+epoch 430/1000: train 0.03516  val 0.03559  best val 0.03556 @ 370  lr 2.5e-13  11.6 min
+epoch 440/1000: train 0.03624  val 0.03560  best val 0.03556 @ 370  lr 1.6e-13  11.8 min
+epoch 450/1000: train 0.03436  val 0.03561  best val 0.03556 @ 370  lr 1.0e-13  12.1 min
+epoch 460/1000: train 0.03658  val 0.03563  best val 0.03556 @ 370  lr 6.3e-14  12.4 min
+epoch 470/1000: train 0.03223  val 0.03557  best val 0.03556 @ 370  lr 4.0e-14  12.6 min
+epoch 480/1000: train 0.03214  val 0.03562  best val 0.03556 @ 370  lr 2.5e-14  12.9 min
+epoch 490/1000: train 0.03560  val 0.03560  best val 0.03556 @ 370  lr 1.6e-14  13.2 min
+epoch 500/1000: train 0.03716  val 0.03560  best val 0.03556 @ 370  lr 1.0e-14  13.4 min
+epoch 510/1000: train 0.03640  val 0.03560  best val 0.03556 @ 370  lr 6.3e-15  13.7 min
+epoch 520/1000: train 0.03303  val 0.03560  best val 0.03556 @ 370  lr 4.0e-15  14.0 min
+epoch 530/1000: train 0.03286  val 0.03560  best val 0.03556 @ 370  lr 2.5e-15  14.3 min
+epoch 540/1000: train 0.03413  val 0.03558  best val 0.03556 @ 370  lr 1.6e-15  14.5 min
+epoch 550/1000: train 0.03792  val 0.03564  best val 0.03556 @ 370  lr 1.0e-15  14.8 min
+epoch 560/1000: train 0.03570  val 0.03558  best val 0.03556 @ 370  lr 6.3e-16  15.1 min
+epoch 570/1000: train 0.03390  val 0.03559  best val 0.03556 @ 370  lr 4.0e-16  15.3 min
+epoch 580/1000: train 0.03462  val 0.03559  best val 0.03556 @ 370  lr 2.5e-16  15.6 min
+epoch 590/1000: train 0.03248  val 0.03559  best val 0.03556 @ 370  lr 1.6e-16  15.9 min
+epoch 600/1000: train 0.03308  val 0.03558  best val 0.03556 @ 370  lr 1.0e-16  16.1 min
+epoch 610/1000: train 0.03168  val 0.03560  best val 0.03556 @ 370  lr 6.3e-17  16.4 min
+epoch 620/1000: train 0.03607  val 0.03560  best val 0.03556 @ 370  lr 4.0e-17  16.7 min
+epoch 630/1000: train 0.03629  val 0.03560  best val 0.03556 @ 370  lr 2.5e-17  16.9 min
+epoch 640/1000: train 0.03473  val 0.03559  best val 0.03556 @ 370  lr 1.6e-17  17.2 min
+epoch 650/1000: train 0.03479  val 0.03560  best val 0.03556 @ 370  lr 1.0e-17  17.5 min
+epoch 660/1000: train 0.03378  val 0.03561  best val 0.03556 @ 370  lr 6.3e-18  17.7 min
+epoch 670/1000: train 0.03417  val 0.03560  best val 0.03556 @ 370  lr 4.0e-18  18.0 min
+epoch 680/1000: train 0.03725  val 0.03561  best val 0.03556 @ 370  lr 2.5e-18  18.3 min
+epoch 690/1000: train 0.03559  val 0.03559  best val 0.03556 @ 370  lr 1.6e-18  18.5 min
+epoch 700/1000: train 0.03289  val 0.03560  best val 0.03556 @ 370  lr 1.0e-18  18.8 min
+epoch 710/1000: train 0.03676  val 0.03561  best val 0.03556 @ 370  lr 6.3e-19  19.1 min
+epoch 720/1000: train 0.03239  val 0.03560  best val 0.03556 @ 370  lr 4.0e-19  19.3 min
+epoch 730/1000: train 0.03936  val 0.03561  best val 0.03556 @ 370  lr 2.5e-19  19.6 min
+epoch 740/1000: train 0.03704  val 0.03560  best val 0.03556 @ 370  lr 1.6e-19  19.9 min
+epoch 750/1000: train 0.03558  val 0.03562  best val 0.03556 @ 370  lr 1.0e-19  20.1 min
+epoch 760/1000: train 0.03736  val 0.03562  best val 0.03556 @ 370  lr 6.3e-20  20.4 min
+epoch 770/1000: train 0.03535  val 0.03560  best val 0.03556 @ 370  lr 4.0e-20  20.7 min
+epoch 780/1000: train 0.03442  val 0.03563  best val 0.03556 @ 370  lr 2.5e-20  21.0 min
+epoch 790/1000: train 0.03522  val 0.03560  best val 0.03556 @ 370  lr 1.6e-20  21.2 min
+epoch 800/1000: train 0.03532  val 0.03557  best val 0.03556 @ 370  lr 1.0e-20  21.5 min
+epoch 810/1000: train 0.03698  val 0.03562  best val 0.03556 @ 370  lr 6.3e-21  21.8 min
+epoch 820/1000: train 0.03656  val 0.03558  best val 0.03556 @ 370  lr 4.0e-21  22.0 min
+epoch 830/1000: train 0.03491  val 0.03560  best val 0.03556 @ 370  lr 2.5e-21  22.3 min
+epoch 840/1000: train 0.03445  val 0.03561  best val 0.03556 @ 370  lr 1.6e-21  22.6 min
+epoch 850/1000: train 0.03615  val 0.03561  best val 0.03556 @ 370  lr 1.0e-21  22.8 min
+epoch 860/1000: train 0.03780  val 0.03561  best val 0.03556 @ 370  lr 6.3e-22  23.1 min
+epoch 870/1000: train 0.03258  val 0.03558  best val 0.03556 @ 370  lr 4.0e-22  23.4 min
+epoch 880/1000: train 0.03322  val 0.03559  best val 0.03556 @ 370  lr 2.5e-22  23.6 min
+epoch 890/1000: train 0.03651  val 0.03559  best val 0.03556 @ 370  lr 1.6e-22  23.9 min
+epoch 900/1000: train 0.03669  val 0.03558  best val 0.03556 @ 370  lr 1.0e-22  24.2 min
+epoch 910/1000: train 0.03211  val 0.03561  best val 0.03556 @ 370  lr 6.3e-23  24.4 min
+epoch 920/1000: train 0.03244  val 0.03558  best val 0.03556 @ 370  lr 4.0e-23  24.7 min
+epoch 930/1000: train 0.03274  val 0.03560  best val 0.03556 @ 370  lr 2.5e-23  25.0 min
+epoch 940/1000: train 0.03252  val 0.03560  best val 0.03556 @ 370  lr 1.6e-23  25.2 min
+epoch 950/1000: train 0.03551  val 0.03556  best val 0.03556 @ 950  lr 1.0e-23  25.5 min
+epoch 960/1000: train 0.03575  val 0.03557  best val 0.03556 @ 950  lr 6.3e-24  25.8 min
+epoch 970/1000: train 0.03643  val 0.03558  best val 0.03556 @ 950  lr 4.0e-24  26.1 min
+epoch 980/1000: train 0.03789  val 0.03561  best val 0.03556 @ 950  lr 2.5e-24  26.3 min
+epoch 990/1000: train 0.03590  val 0.03557  best val 0.03556 @ 950  lr 1.6e-24  26.6 min
+epoch 1000/1000: train 0.03446  val 0.03562  best val 0.03556 @ 950  lr 1.0e-24  26.9 min
+done: {"best_epoch": 950, "best_val_loss": 0.03556103947825036, "init_val_loss": 0.04608043886509984, "epochs": 1000, "minutes": 26.868156393369038, "rooms": ["class_room", "hallway", "complex_room"], "val_rooms": ["class_room", "hallway", "complex_room"], "init": "ckpt/xRIR_simple_8_shot/epoch_12.pth", "backbone": "simple", "seed": 1, "frame": "heading"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:641: UserWarning: stft with return_complex=False is deprecated. In a future pytorch release, stft will return complex tensors for all inputs, and return_complex=False will raise an error.
+Note: you can still call torch.view_as_real on the complex output to recover the old return format. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:862.)
+  return _VF.stft(input, n_fft, hop_length, win_length, window,  # type: ignore[attr-defined]
+EXP06_CHILD_EXIT 0 2026-09-18T17:39:55+00:00

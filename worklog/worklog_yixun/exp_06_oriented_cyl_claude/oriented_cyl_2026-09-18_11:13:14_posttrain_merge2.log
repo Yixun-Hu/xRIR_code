@@ -1,0 +1,24 @@
+MERGE2 2026-09-18_11:13:14 HEAD=ddf0d1cdb67d8e4d4aa87f66ecf5a131901cf581
+Merge made by the 'ort' strategy.
+ tests/test_exp06_approvals_api.py        | 273 +++++++++++++++++++++++++
+ tests/test_exp06_compare.py              | 303 +++++++++++++++++++++++++++-
+ tests/test_exp06_eval_launch.py          | 275 +++++++++++++++++++++++--
+ tests/test_exp06_finalize.py             | 101 ++++++++++
+ tests/test_exp06_haa_pipeline.py         |  54 +++++
+ tests/test_exp06_legacy_train_receipt.py | 318 +++++++++++++++++++++++++++++
+ tests/test_exp06_mirror_probe.py         |  67 +++++++
+ tests/test_exp06_sim_evidence.py         | 253 +++++++++++++++++++++++
+ tools/exp06_approvals_api.py             | 155 ++++++++++++++-
+ tools/exp06_compare.py                   | 125 ++++++++++--
+ tools/exp06_eval_launch.py               |  73 ++++++-
+ tools/exp06_finalize.py                  |  43 +++-
+ tools/exp06_haa_pipeline.sh              |  40 ++++
+ tools/exp06_legacy_train_receipt.py      | 332 +++++++++++++++++++++++++++++++
+ tools/exp06_mirror_probe.py              |  37 +++-
+ tools/exp06_train_evidence.py            | 184 +++++++++++++++++
+ 16 files changed, 2573 insertions(+), 60 deletions(-)
+ create mode 100644 tests/test_exp06_legacy_train_receipt.py
+ create mode 100644 tests/test_exp06_sim_evidence.py
+ create mode 100644 tools/exp06_legacy_train_receipt.py
+ create mode 100644 tools/exp06_train_evidence.py
+MERGE2 OK: e1cb5b45cd8f439b75207e257f48727b79359a14  (next: refill2)

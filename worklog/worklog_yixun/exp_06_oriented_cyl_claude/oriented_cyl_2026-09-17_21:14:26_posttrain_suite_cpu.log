@@ -1,0 +1,138 @@
+.ss.........ss.ssss..ssss.........................s..................... [  2%]
+.............................................s.......................... [  4%]
+........................................................................ [  7%]
+........................................................................ [  9%]
+........................................................................ [ 11%]
+........................................................................ [ 14%]
+..............ssssss.................s.................................. [ 16%]
+........................................................................ [ 19%]
+........................................................................ [ 21%]
+......................................ssssss............................ [ 23%]
+........................................................................ [ 26%]
+........................................................................ [ 28%]
+........................................................................ [ 30%]
+................................sss..................................... [ 33%]
+........................................................................ [ 35%]
+........................................................................ [ 38%]
+........................................................................ [ 40%]
+........................................................................ [ 42%]
+........................................................................ [ 45%]
+........................................................................ [ 47%]
+........................................................................ [ 49%]
+...........................................s............................ [ 52%]
+.............s.............................s............................ [ 54%]
+........................................................................ [ 57%]
+........................................................................ [ 59%]
+........................................................................ [ 61%]
+........................................................................ [ 64%]
+.........sssss.......................................................... [ 66%]
+........................................................................ [ 68%]
+........................................................................ [ 71%]
+........................................................................ [ 73%]
+........................................................................ [ 76%]
+........................................................................ [ 78%]
+...............ssss..................................................... [ 80%]
+........................................................................ [ 83%]
+........................................................................ [ 85%]
+........................................................................ [ 87%]
+........................................................................ [ 90%]
+...........
+[T9c] 6337 queries, manifest built in 2.96s; queries with < 8 distinct candidates: 520 (8.2058%); manifest_hash = 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d
+............................................................. [ 92%]
+........................................................................ [ 95%]
+.....................................................................ss. [ 97%]
+.ss..................................................................s.. [ 99%]
+s.s...                                                                   [100%]
+=============================== warnings summary ===============================
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+    from pkg_resources import resource_filename
+
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154: DeprecationWarning: Deprecated call to `pkg_resources.declare_namespace('mpl_toolkits')`.
+  Implementing implicit namespace packages (as specified in PEP 420) is preferred to `pkg_resources.declare_namespace`. See https://setuptools.pypa.io/en/latest/references/keywords.html#keyword-namespace-packages
+    declare_namespace(pkg)
+
+tests/test_exp04_launcher.py: 1 warning
+tests/test_exp05_eval.py: 17 warnings
+tests/test_exp05_eval_launch.py: 11 warnings
+tests/test_exp05_full.py: 4 warnings
+tests/test_exp05_params.py: 10 warnings
+tests/test_exp05_profiles.py: 6 warnings
+tests/test_exp05_trainer.py: 5 warnings
+tests/test_exp06_eval.py: 3 warnings
+tests/test_exp06_factory.py: 4 warnings
+tests/test_exp06_finalize.py: 3 warnings
+tests/test_exp06_haa.py: 18 warnings
+tests/test_exp06_haa_pipeline.py: 9 warnings
+tests/test_exp06_mirror_probe.py: 5 warnings
+tests/test_exp06_recipe.py: 3 warnings
+tests/test_exp06_smoke.py: 3 warnings
+tests/test_exp06_summarize_haa.py: 9 warnings
+tests/test_exp06_train.py: 1 warning
+tests/test_exp07_launcher.py: 1 warning
+tests/test_train_yaw_aug.py: 1 warning
+tests/test_yaw_rotation.py: 1 warning
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+    warnings.warn(
+
+tests/test_exp04_launcher.py: 1 warning
+tests/test_exp05_eval.py: 17 warnings
+tests/test_exp05_eval_launch.py: 11 warnings
+tests/test_exp05_full.py: 4 warnings
+tests/test_exp05_params.py: 10 warnings
+tests/test_exp05_profiles.py: 6 warnings
+tests/test_exp05_trainer.py: 5 warnings
+tests/test_exp06_eval.py: 3 warnings
+tests/test_exp06_factory.py: 4 warnings
+tests/test_exp06_finalize.py: 3 warnings
+tests/test_exp06_haa.py: 18 warnings
+tests/test_exp06_haa_pipeline.py: 9 warnings
+tests/test_exp06_mirror_probe.py: 5 warnings
+tests/test_exp06_recipe.py: 3 warnings
+tests/test_exp06_smoke.py: 3 warnings
+tests/test_exp06_summarize_haa.py: 9 warnings
+tests/test_exp06_train.py: 1 warning
+tests/test_exp07_launcher.py: 1 warning
+tests/test_train_yaw_aug.py: 1 warning
+tests/test_yaw_rotation.py: 1 warning
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+    warnings.warn(msg)
+
+tests/test_exp06_encoder.py::test_shape_buffers_camera_and_signature
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+    return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+
+tests/test_exp06_mirror_probe.py::test_the_recomposed_forward_mixes_the_reference_log_spectrograms
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:641: UserWarning: stft with return_complex=False is deprecated. In a future pytorch release, stft will return complex tensors for all inputs, and return_complex=False will raise an error.
+  Note: you can still call torch.view_as_real on the complex output to recover the old return format. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:862.)
+    return _VF.stft(input, n_fft, hop_length, win_length, window,  # type: ignore[attr-defined]
+
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[paired_compare-RuntimeError]
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[paired_compare-KeyError]
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/runpy.py:127: RuntimeWarning: 'tools.paired_compare' found in sys.modules after import of package 'tools', but prior to execution of 'tools.paired_compare'; this may result in unpredictable behaviour
+    warn(RuntimeWarning(msg))
+
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[results_table-RuntimeError]
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[results_table-KeyError]
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/runpy.py:127: RuntimeWarning: 'tools.results_table' found in sys.modules after import of package 'tools', but prior to execution of 'tools.results_table'; this may result in unpredictable behaviour
+    warn(RuntimeWarning(msg))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================= slowest 15 durations =============================
+111.69s call     tests/test_exp07_provenance.py::test_train_data_identity_counts_the_real_protocol_splits
+93.54s setup    tests/test_exp06_summarize_haa.py::test_the_job_completion_schema_is_the_merged_finalizers
+61.62s setup    tests/test_exp06_profiles.py::test_every_present_key_gets_a_digest_and_absent_modules_are_noted
+58.04s setup    tests/test_exp06_haa_pipeline.py::test_a_complete_seed_is_an_admissible_arm
+54.20s call     tests/test_exp06_finalize.py::test_cli_reports_refusals_with_status_two
+40.11s call     tests/test_exp06_summarize_haa.py::test_a_job_that_selected_on_other_validation_rooms_is_refused_in_primary
+27.37s setup    tests/test_exp06_finalize.py::test_full_completion_records_every_artifact
+27.26s setup    tests/test_exp06_finalize_gate.py::test_epoch_checkpoint_must_agree_in_dtype_with_last_pth
+24.16s call     tests/test_exp06_finalize.py::test_cli_exits_two_on_a_malformed_checkpoint
+22.29s call     tests/test_exp06_summarize_haa.py::test_a_shortened_training_never_enters_the_primary_comparison
+14.39s call     tests/test_exp06_summarize_haa.py::test_the_owner_pid_and_its_digest_come_from_one_read
+13.95s call     tests/test_exp06_summarize_haa.py::test_the_job_owner_is_bound_to_the_root_launch_pid
+13.63s call     tests/test_exp06_summarize_haa.py::test_a_real_job_is_verified_through_the_finalizers_own_validators
+13.01s call     tests/test_exp06_summarize_haa.py::test_a_child_artifact_changed_during_analysis_is_refused_at_publication
+12.80s call     tests/test_exp06_summarize_haa.py::test_a_child_dependency_changed_after_admission_is_refused_at_publication[rirs]
+2981 passed, 49 skipped, 238 warnings in 2296.85s (0:38:16)

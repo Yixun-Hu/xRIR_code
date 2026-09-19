@@ -1,0 +1,6 @@
+RECEIPT 2026-09-17_21:29:51 HEAD=17e7688dfb214e40244bc0cf832c8bf7a334209d
+approvals committed at 17e7688dfb21 | producer legacy_receipt | deviations []
+{"receipt": "ckpt/exp06/legacy_receipt.json", "sha256": "5a12494657665d336cf5f952c6ef918abbeae44e451f28821790ac5c46232540", "files": 126, "label": "reconstructed"}
+legacy_receipt 5a12494657665d336cf5f952c6ef918abbeae44e451f28821790ac5c46232540
+committed 08a03e7369c209459fcd5b8aad30580fcc19d6a3
+RECEIPT OK (next: Codex verification of the two approvals commits, then g1)

@@ -1,0 +1,156 @@
+.ss.........ss.ssss..ssss.........................s..................... [  2%]
+.............................................s.......................... [  4%]
+........................................................................ [  6%]
+........................................................................ [  9%]
+........................................................................ [ 11%]
+........................................................................ [ 13%]
+..............ssssss.................s.................................. [ 16%]
+........................................................................ [ 18%]
+........................................................................ [ 20%]
+......................................ssssss............................ [ 22%]
+........................................................................ [ 25%]
+........................................................................ [ 27%]
+........................................................................ [ 29%]
+........................................................................ [ 32%]
+........sss............................................................. [ 34%]
+........................................................................ [ 36%]
+........................................................................ [ 39%]
+........................................................................ [ 41%]
+........................................................................ [ 43%]
+........................................................................ [ 45%]
+........................................................................ [ 48%]
+........................................................................ [ 50%]
+........................................................s............... [ 52%]
+..........................s.................................s........... [ 55%]
+........................................................................ [ 57%]
+........................................................................ [ 59%]
+........................................................................ [ 62%]
+........................................................................ [ 64%]
+......................................sssss............................. [ 66%]
+........................................................................ [ 68%]
+........................................................................ [ 71%]
+......................F................................................. [ 73%]
+........................................................................ [ 75%]
+........................................................................ [ 78%]
+............................................ssss........................ [ 80%]
+........................................................................ [ 82%]
+........................................................................ [ 85%]
+........................................................................ [ 87%]
+........................................................................ [ 89%]
+........................................
+[T9c] 6337 queries, manifest built in 3.38s; queries with < 8 distinct candidates: 520 (8.2058%); manifest_hash = 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d
+................................ [ 91%]
+........................................................................ [ 94%]
+........................................................................ [ 96%]
+..........................ss..ss........................................ [ 98%]
+..........................s..s.s...                                      [100%]
+=================================== FAILURES ===================================
+_ test_the_new_arm_checkpoint_digests_come_from_the_runtime_approval[seen_simple-simple-0] _
+
+role = 'seen_simple', backbone = 'simple', yaw = 0
+
+    @pytest.mark.parametrize('role,backbone,yaw', NEW_ARMS)
+    def test_the_new_arm_checkpoint_digests_come_from_the_runtime_approval(role, backbone, yaw):
+        """The profile placeholder documents the path and epoch only.
+    
+        tools.exp07_table.admit replaces it with approved_digests.json's digest before any
+        run is matched, so a trained arm is pinned by the approval file and by nothing else.
+        """
+        arm = next(item for item in profiles.ARMS if item['role'] == role)
+        assert arm['sha256'] is None and arm['epoch'] == 12
+        assert arm['checkpoint'] == 'ckpt/exp07/{}/final/epoch_012.pth'.format(role)
+        if (ROOT / arm['checkpoint']).exists():  # the pin, not the file, decides admission
+>           assert profiles.load_approved_digests()[0]['checkpoints'][role]['sha256'] is not None
+E           assert None is not None
+
+tests/test_exp07_profiles.py:253: AssertionError
+=============================== warnings summary ===============================
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+    from pkg_resources import resource_filename
+
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154: DeprecationWarning: Deprecated call to `pkg_resources.declare_namespace('mpl_toolkits')`.
+  Implementing implicit namespace packages (as specified in PEP 420) is preferred to `pkg_resources.declare_namespace`. See https://setuptools.pypa.io/en/latest/references/keywords.html#keyword-namespace-packages
+    declare_namespace(pkg)
+
+tests/test_exp04_launcher.py: 1 warning
+tests/test_exp05_eval.py: 17 warnings
+tests/test_exp05_eval_launch.py: 11 warnings
+tests/test_exp05_full.py: 4 warnings
+tests/test_exp05_params.py: 10 warnings
+tests/test_exp05_profiles.py: 6 warnings
+tests/test_exp05_trainer.py: 5 warnings
+tests/test_exp06_eval.py: 3 warnings
+tests/test_exp06_factory.py: 4 warnings
+tests/test_exp06_finalize.py: 3 warnings
+tests/test_exp06_haa.py: 18 warnings
+tests/test_exp06_haa_pipeline.py: 9 warnings
+tests/test_exp06_mirror_probe.py: 5 warnings
+tests/test_exp06_recipe.py: 3 warnings
+tests/test_exp06_smoke.py: 3 warnings
+tests/test_exp06_summarize_haa.py: 9 warnings
+tests/test_exp06_train.py: 1 warning
+tests/test_exp07_launcher.py: 1 warning
+tests/test_train_yaw_aug.py: 1 warning
+tests/test_yaw_rotation.py: 1 warning
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+    warnings.warn(
+
+tests/test_exp04_launcher.py: 1 warning
+tests/test_exp05_eval.py: 17 warnings
+tests/test_exp05_eval_launch.py: 11 warnings
+tests/test_exp05_full.py: 4 warnings
+tests/test_exp05_params.py: 10 warnings
+tests/test_exp05_profiles.py: 6 warnings
+tests/test_exp05_trainer.py: 5 warnings
+tests/test_exp06_eval.py: 3 warnings
+tests/test_exp06_factory.py: 4 warnings
+tests/test_exp06_finalize.py: 3 warnings
+tests/test_exp06_haa.py: 18 warnings
+tests/test_exp06_haa_pipeline.py: 9 warnings
+tests/test_exp06_mirror_probe.py: 5 warnings
+tests/test_exp06_recipe.py: 3 warnings
+tests/test_exp06_smoke.py: 3 warnings
+tests/test_exp06_summarize_haa.py: 9 warnings
+tests/test_exp06_train.py: 1 warning
+tests/test_exp07_launcher.py: 1 warning
+tests/test_train_yaw_aug.py: 1 warning
+tests/test_yaw_rotation.py: 1 warning
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+    warnings.warn(msg)
+
+tests/test_exp06_encoder.py::test_shape_buffers_camera_and_signature
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+    return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+
+tests/test_exp06_mirror_probe.py::test_the_recomposed_forward_mixes_the_reference_log_spectrograms
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:641: UserWarning: stft with return_complex=False is deprecated. In a future pytorch release, stft will return complex tensors for all inputs, and return_complex=False will raise an error.
+  Note: you can still call torch.view_as_real on the complex output to recover the old return format. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:862.)
+    return _VF.stft(input, n_fft, hop_length, win_length, window,  # type: ignore[attr-defined]
+
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[paired_compare-RuntimeError]
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[paired_compare-KeyError]
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/runpy.py:127: RuntimeWarning: 'tools.paired_compare' found in sys.modules after import of package 'tools', but prior to execution of 'tools.paired_compare'; this may result in unpredictable behaviour
+    warn(RuntimeWarning(msg))
+
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[results_table-RuntimeError]
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[results_table-KeyError]
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/runpy.py:127: RuntimeWarning: 'tools.results_table' found in sys.modules after import of package 'tools', but prior to execution of 'tools.results_table'; this may result in unpredictable behaviour
+    warn(RuntimeWarning(msg))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================= slowest 10 durations =============================
+112.84s call     tests/test_exp07_provenance.py::test_train_data_identity_counts_the_real_protocol_splits
+90.54s setup    tests/test_exp06_summarize_haa.py::test_the_job_completion_schema_is_the_merged_finalizers
+65.52s setup    tests/test_exp06_haa_pipeline.py::test_a_complete_seed_is_an_admissible_arm
+62.24s setup    tests/test_exp06_profiles.py::test_every_present_key_gets_a_digest_and_absent_modules_are_noted
+59.12s call     tests/test_exp06_finalize.py::test_cli_reports_refusals_with_status_two
+46.97s setup    tests/test_exp06_finalize_gate.py::test_epoch_checkpoint_must_agree_in_dtype_with_last_pth
+44.79s setup    tests/test_exp06_finalize.py::test_full_completion_records_every_artifact
+34.89s call     tests/test_exp06_summarize_haa.py::test_a_job_that_selected_on_other_validation_rooms_is_refused_in_primary
+26.90s call     tests/test_exp06_eval_launch.py::test_the_producer_gate_refuses_an_unapproved_sim_evaluation
+26.81s call     tests/test_exp06_finalize.py::test_cli_exits_two_on_a_malformed_checkpoint
+=========================== short test summary info ============================
+FAILED tests/test_exp07_profiles.py::test_the_new_arm_checkpoint_digests_come_from_the_runtime_approval[seen_simple-simple-0]
+1 failed, 3081 passed, 49 skipped, 238 warnings in 3104.87s (0:51:44)

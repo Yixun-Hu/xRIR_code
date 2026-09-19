@@ -1,0 +1,5 @@
+REFILL2 2026-09-18_11:13:30 HEAD=e1cb5b45cd8f439b75207e257f48727b79359a14
+code changed: ['compare', 'eval_launch', 'finalize', 'haa_pipeline_sh', 'mirror_probe', 'summarize_haa']
+{'compare': 'ea97c6d72a74e4e7', 'eval_launch': '7314166eeb58a66c', 'finalize': '1edbaf2caaffc6ba', 'haa_pipeline_sh': '2ad3e562c1e322d3', 'mirror_probe': 'ac503c0f265576c4', 'summarize_haa': '3f497fc4eb71efdf'}
+committed f1502949fd852bd27400b384433e62d713e88293
+SUITE (must be all green now):

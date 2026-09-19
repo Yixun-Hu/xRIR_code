@@ -1,0 +1,5 @@
+MERGE3 2026-09-18_14:59:49 HEAD=95384799858ddf17d7a481fee14dfdb11ba150d8
+Merge made by the 'ort' strategy.
+ tests/test_exp06_haa_pipeline.py | 96 +++++++++++++++++++++++++++++++---------
+ 1 file changed, 75 insertions(+), 21 deletions(-)
+MERGE3 OK: b793a96d80c4ecc68df1fad2f6f3cb555bcbd27b  (next: refill3 with EXP06_REFILL_EXPECT)
