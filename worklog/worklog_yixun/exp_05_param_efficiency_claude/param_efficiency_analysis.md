@@ -1,6 +1,6 @@
 # exp_05 param_efficiency — analysis (Planner, 2026-09-18, revised after the Codex record review round 1)
 
-Status: revised. Every number is taken from the generated `param_efficiency_results.md` / `param_efficiency_01_results.html` (rendered by the reviewed generators from the canonical JSON `ckpt/exp05/results/{CURVE_K8,CURVE_K1,TARGETS_K8,TARGETS_K1,YAW_K8_SEED42}.json`); the binding report that covers this revision is named in the notebook's record-closure entry. Unseen split (6 337 queries, 17 rooms), five evaluation seeds 42–46, K = 8 primary and K = 1 secondary, epoch-12 checkpoints, one training seed per arm, paired bootstrap with the plan's Bonferroni family (m = 6) and convergence gate.
+Status: revised. Every number is taken from the generated `param_efficiency_results.md` / `param_efficiency_01_results.html` (rendered by the reviewed generators from the canonical JSON `ckpt/exp05/results/{CURVE_K8,CURVE_K1,TARGETS_K8,TARGETS_K1,YAW_K8_SEED42}.json`); bound by `binding_report_20260919T012729316031Z.json` (sha256 5e7ddc4510582136c675269a04208598ea6cc2af25a63adbac70766924e84002; documents, figures and report all at main `9b25738`; `check_record.py` exit 0). Unseen split (6 337 queries, 17 rooms), five evaluation seeds 42–46, K = 8 primary and K = 1 secondary, epoch-12 checkpoints, one training seed per arm, paired bootstrap with the plan's Bonferroni family (m = 6) and convergence gate.
 
 ## 1. What was tested
 
