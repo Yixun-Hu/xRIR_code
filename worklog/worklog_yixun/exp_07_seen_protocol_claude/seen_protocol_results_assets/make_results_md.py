@@ -205,6 +205,13 @@ def arguments(argv=None):
     published |= {str(logical(receipt['approved_digests']['path']))
                   for receipt in receipts if receipt.get('approved_digests')}
     published |= {str(logical(unseen_receipt['binding_report']['path']))}
+    # And every file those products declare they were built from: a run's outputs, an
+    # arm's args.json and manifests, the data inventory.  Archiving one between admission
+    # and publication gives it a second name, and a document written over either name
+    # would destroy evidence this record binds -- which the inode check below catches
+    # whichever spelling the command line used.
+    published |= {str(logical(name)) for data in [table, unseen] + [item[0] for item in pairs]
+                  for name in (data.get('inputs') or {})}
     # Either spelling of the destination names a protected input, and so does its inode:
     # an archived input is reachable under its published name and under the archive's.
     if ({str(logical(args.out)), str(Path(args.out).resolve())} & published

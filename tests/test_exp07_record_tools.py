@@ -1441,6 +1441,25 @@ def test_the_documents_name_a_relocated_product_where_the_record_does(record_inp
         generators[0][0].main(argv(record_inputs, out=destination / 'TABLE_SEEN_V1.json'))
 
 
+def test_no_document_is_written_over_an_input_archived_after_admission(record_inputs, tmp_path):
+    """An admitted input answers to two names once it is archived; both are refused.
+
+    The products were admitted before the move, so their `inputs` name the attempt where
+    it was published; the archive is where its bytes are now.  A document written to
+    either spelling would truncate the evidence the binding report reads.
+    """
+    md = load_asset('make_results_md')
+    attempt = Path(record_inputs['built'].attempts['seen_simple'])
+    declared = json.loads(record_inputs['table'].read_text())['inputs']
+    assert str(attempt / 'args.json') in declared
+    archive = relocate(attempt, tmp_path / 'nas' / attempt.name)
+    before = (archive / 'args.json').read_bytes()
+    for destination in (attempt / 'args.json', archive / 'args.json'):
+        with pytest.raises(ValueError, match='output overlaps canonical input'):
+            md.main(argv(record_inputs, out=destination))
+    assert (archive / 'args.json').read_bytes() == before
+
+
 # The one producer receipt this record has already published: the released-checkpoint
 # calibration ran before the trainings ended, so every later commit must leave the
 # closure it recorded -- `tools.exp07_calibration`, which imports `tools.exp07_table`

@@ -21,10 +21,12 @@ thirty cells; a CELL whose statistics have not both converged, that still asks f
 `n_boot`, that claims to drive a decision or carries a verdict, or whose pairing, grid,
 seed labels, quantiles, statistic set or cohort differ from its parent's; an unseen table
 whose digest is not the one exp_04's binding report recorded; a duplicate input; and an
-output path that overlaps ANY input -- a canonical JSON, a sidecar, an approval blob or
-the exp_04 binding report -- in any spelling, including a hardlink to one (an existing
-destination is compared with every protected input by device and inode, not only by
-resolved path).
+output path that overlaps ANY input -- a canonical JSON, a sidecar, an approval blob, the
+exp_04 binding report, or any file those products declare they were built from (a run's
+outputs, an arm's `args.json` and manifests, the data inventory) -- in any spelling,
+including a hardlink to one (an existing destination is compared with every protected
+input by device and inode, not only by resolved path, so an input archived between
+admission and publication is refused under both of its names).
 
 `tools/exp07_pairs.py --reconverge` is the registered publication retry: each flagged cell
 is recomputed once at the profile's `reconverge_n_boot` (40 000), the first attempt's
@@ -182,6 +184,14 @@ What must keep working is reading through the published name, so leave the symli
 place and keep each product beside its companion and its sidecar. Archive a directory,
 never its individual files: an entry inside an attempt or run directory that resolves
 outside it is still refused, and so is any change to the bytes.
+
+Archive only once the record is bound, as that order says. The producers publish through
+`tools.exp07_record.write_outputs`, which is inside the calibration receipt's producer
+closure and so keeps its reviewed bytes: it compares its `--json` and `--md` destinations
+with the admitted inputs by name, so an input archived between a producer's admission and
+its publication would be protected under one of its two names only. The generators here
+compare by device and inode as well, and the documented order -- producers, generators,
+bind, check, and only then archive -- never reaches that gap.
 
 `record_paths.py` holds the two path helpers this record needs -- `logical`, the absolute
 name a file is published under, and `identical`, the device-and-inode question "are these
