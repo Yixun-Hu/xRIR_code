@@ -1,0 +1,9 @@
+MERGE3 2026-09-18_13:54:43 HEAD=ff89bbb1615088aff45cf8c6e42dbc5a34d03939
+Merge made by the 'ort' strategy.
+ tests/test_exp06_compare.py              |   4 +-
+ tests/test_exp06_eval_launch.py          |   6 +-
+ tests/test_exp06_legacy_train_receipt.py | 131 ++++++++++++++++++++++++++++++-
+ tests/test_exp06_sim_evidence.py         | 101 ++++++++++++++++++++++++
+ tools/exp06_legacy_train_receipt.py      | 107 ++++++++++++++++++++++---
+ 5 files changed, 331 insertions(+), 18 deletions(-)
+MERGE3 OK: 621b139032bb7eccea4f0581f3d736fa07074341  (next: refill3 with EXP06_REFILL_EXPECT)

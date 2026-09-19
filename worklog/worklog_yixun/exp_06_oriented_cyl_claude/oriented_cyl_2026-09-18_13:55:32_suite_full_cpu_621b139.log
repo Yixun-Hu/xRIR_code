@@ -1,0 +1,192 @@
+.ss.........ss.ssss..ssss.........................s..................... [  2%]
+.............................................s.......................... [  4%]
+........................................................................ [  6%]
+........................................................................ [  9%]
+........................................................................ [ 11%]
+........................................................................ [ 13%]
+..............ssssss.................s.................................. [ 15%]
+........................................................................ [ 18%]
+........................................................................ [ 20%]
+......................................ssssss............................ [ 22%]
+........................................................................ [ 25%]
+........................................................................ [ 27%]
+........................................................................ [ 29%]
+........................................................................ [ 31%]
+........sss............................................................. [ 34%]
+........................................................................ [ 36%]
+........................................................................ [ 38%]
+........................................................................ [ 41%]
+........................................................................ [ 43%]
+........................................................................ [ 45%]
+............F........................................................... [ 47%]
+........................................................................ [ 50%]
+.....................................................................s.. [ 52%]
+.......................................s................................ [ 54%]
+.s......................F............................................... [ 57%]
+........................................................................ [ 59%]
+........................................................................ [ 61%]
+........................................................................ [ 63%]
+.............................................................sssss...... [ 66%]
+........................................................................ [ 68%]
+........................................................................ [ 70%]
+.............................................F.......................... [ 73%]
+........................................................................ [ 75%]
+........................................................................ [ 77%]
+...................................................................ssss. [ 79%]
+........................................................................ [ 82%]
+........................................................................ [ 84%]
+........................................................................ [ 86%]
+........................................................................ [ 89%]
+...............................................................
+[T9c] 6337 queries, manifest built in 6.91s; queries with < 8 distinct candidates: 520 (8.2058%); manifest_hash = 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d
+......... [ 91%]
+........................................................................ [ 93%]
+........................................................................ [ 95%]
+.................................................ss..ss................. [ 98%]
+.................................................s..s.s...               [100%]
+=================================== FAILURES ===================================
+__________ test_the_dry_run_of_one_finetune_seed_is_the_golden_queue ___________
+
+    def test_the_dry_run_of_one_finetune_seed_is_the_golden_queue():
+        result = run('7', 'cyl_or:0', '--dry-run')
+        assert result.returncode == 0, result.stderr
+>       assert result.stdout.splitlines() == (header('7', ['cyl_or:0'])
+                                              + finetune_job('cyl_or', 0) + ['QUEUE_DONE gpu=7'])
+E       AssertionError: assert ['EXP06_HAA_P...nch.pid', ...] == ['EXP06_HAA_P...nch.pid', ...]
+E         
+E         At index 8 diff: 'SKIP ckpt/exp06/sim2real/cyl_or/seed0/stage1' != 'MKDIR ckpt/exp06/sim2real/cyl_or/seed0/stage1'
+E         Right contains 45 more items, first extra item: 'RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/cyl_or/seed0/...worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_<UTC>_haa_cyl_or_seed0_stage2_class_room.log --child-exit <code>'
+E         Use -v to get more diff
+
+tests/test_exp06_haa_pipeline.py:143: AssertionError
+______ test_every_filled_record_digest_is_the_one_this_checkout_computes _______
+
+record = (mappingproxy({'artifacts': mappingproxy({'epoch_012': mappingproxy({'epoch': 12, 'path': 'ckpt/exp06/pretrain/xRIR_cy...l_results_assets/approved_digests.json', 'sha256': '2d258f0444352bafbfe583a5ccda17132b27b5f6b3ba97e22f4d02d0ec6c87ad'})
+computed = ({'bootstrap': '408ada2a06db965cb41ebeb5fb005d525340e63615d77507b95fbf69d856514c', 'compare': '43b3461f334aaeef0ce16d1...c91779bc2bad1056d93e8d2ec6c476f', 'eval': '42975b3acb4e73ab10f0cde7ed15fd438874595dd972c3f33d3e8fa4aae78316', ...}, [])
+head = '95384799858ddf17d7a481fee14dfdb11ba150d8'
+
+    @needs_git
+    def test_every_filled_record_digest_is_the_one_this_checkout_computes(record, computed, head):
+        """A filled key must equal what is here now, and a key this checkout cannot compute --
+        a later round's module, absent rather than named in any list kept here -- must be null.
+        The null `reused` and `artifacts` sections are filled after the runs and stay null."""
+        approved, _ = record
+        digests, _ = computed
+        filled = {key: value for key, value in approved['code'].items() if value is not None}
+        assert filled, 'the record copy carries no approved code digest at all'
+>       assert {key: digests.get(key) for key in filled} == filled
+E       AssertionError: assert {'bootstrap':...ae78316', ...} == {'bootstrap':...ae78316', ...}
+E         
+E         Omitting 18 identical items, use -vv to show
+E         Differing items:
+E         {'eval_launch': '0a73f84a5a1c17533cfc3e2ef62c24928fb157103e1f4d69bf8d2474ad7ff205'} != {'eval_launch': '7314166eeb58a66c5096c0e67fdc1c9a1bfec7fc40d6c57cb6e1ad8fd756cd4f'}
+E         {'compare': '43b3461f334aaeef0ce16d1a9f166c91917c73d4b57ce250fe2c6ab8fe921dae'} != {'compare': 'ea97c6d72a74e4e7df49a0c042d753cb86c89f8989555841b6b8a8cdc41419e6'}
+E         Use -v to get more diff
+
+tests/test_exp06_profiles.py:300: AssertionError
+_ test_the_new_arm_checkpoint_digests_come_from_the_runtime_approval[seen_simple-simple-0] _
+
+role = 'seen_simple', backbone = 'simple', yaw = 0
+
+    @pytest.mark.parametrize('role,backbone,yaw', NEW_ARMS)
+    def test_the_new_arm_checkpoint_digests_come_from_the_runtime_approval(role, backbone, yaw):
+        """The profile placeholder documents the path and epoch only.
+    
+        tools.exp07_table.admit replaces it with approved_digests.json's digest before any
+        run is matched, so a trained arm is pinned by the approval file and by nothing else.
+        """
+        arm = next(item for item in profiles.ARMS if item['role'] == role)
+        assert arm['sha256'] is None and arm['epoch'] == 12
+        assert arm['checkpoint'] == 'ckpt/exp07/{}/final/epoch_012.pth'.format(role)
+        if (ROOT / arm['checkpoint']).exists():  # the pin, not the file, decides admission
+>           assert profiles.load_approved_digests()[0]['checkpoints'][role]['sha256'] is not None
+E           assert None is not None
+
+tests/test_exp07_profiles.py:253: AssertionError
+=============================== warnings summary ===============================
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+    from pkg_resources import resource_filename
+
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154: DeprecationWarning: Deprecated call to `pkg_resources.declare_namespace('mpl_toolkits')`.
+  Implementing implicit namespace packages (as specified in PEP 420) is preferred to `pkg_resources.declare_namespace`. See https://setuptools.pypa.io/en/latest/references/keywords.html#keyword-namespace-packages
+    declare_namespace(pkg)
+
+tests/test_exp04_launcher.py: 1 warning
+tests/test_exp05_eval.py: 17 warnings
+tests/test_exp05_eval_launch.py: 11 warnings
+tests/test_exp05_full.py: 4 warnings
+tests/test_exp05_params.py: 10 warnings
+tests/test_exp05_profiles.py: 6 warnings
+tests/test_exp05_trainer.py: 5 warnings
+tests/test_exp06_eval.py: 3 warnings
+tests/test_exp06_factory.py: 4 warnings
+tests/test_exp06_finalize.py: 3 warnings
+tests/test_exp06_haa.py: 18 warnings
+tests/test_exp06_haa_pipeline.py: 9 warnings
+tests/test_exp06_mirror_probe.py: 5 warnings
+tests/test_exp06_recipe.py: 3 warnings
+tests/test_exp06_smoke.py: 3 warnings
+tests/test_exp06_summarize_haa.py: 9 warnings
+tests/test_exp06_train.py: 1 warning
+tests/test_exp07_launcher.py: 1 warning
+tests/test_train_yaw_aug.py: 1 warning
+tests/test_yaw_rotation.py: 1 warning
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+    warnings.warn(
+
+tests/test_exp04_launcher.py: 1 warning
+tests/test_exp05_eval.py: 17 warnings
+tests/test_exp05_eval_launch.py: 11 warnings
+tests/test_exp05_full.py: 4 warnings
+tests/test_exp05_params.py: 10 warnings
+tests/test_exp05_profiles.py: 6 warnings
+tests/test_exp05_trainer.py: 5 warnings
+tests/test_exp06_eval.py: 3 warnings
+tests/test_exp06_factory.py: 4 warnings
+tests/test_exp06_finalize.py: 3 warnings
+tests/test_exp06_haa.py: 18 warnings
+tests/test_exp06_haa_pipeline.py: 9 warnings
+tests/test_exp06_mirror_probe.py: 5 warnings
+tests/test_exp06_recipe.py: 3 warnings
+tests/test_exp06_smoke.py: 3 warnings
+tests/test_exp06_summarize_haa.py: 9 warnings
+tests/test_exp06_train.py: 1 warning
+tests/test_exp07_launcher.py: 1 warning
+tests/test_train_yaw_aug.py: 1 warning
+tests/test_yaw_rotation.py: 1 warning
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+    warnings.warn(msg)
+
+tests/test_exp06_encoder.py::test_shape_buffers_camera_and_signature
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+    return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+
+tests/test_exp06_mirror_probe.py::test_the_recomposed_forward_mixes_the_reference_log_spectrograms
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:641: UserWarning: stft with return_complex=False is deprecated. In a future pytorch release, stft will return complex tensors for all inputs, and return_complex=False will raise an error.
+  Note: you can still call torch.view_as_real on the complex output to recover the old return format. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:862.)
+    return _VF.stft(input, n_fft, hop_length, win_length, window,  # type: ignore[attr-defined]
+
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[paired_compare-RuntimeError]
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[paired_compare-KeyError]
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/runpy.py:127: RuntimeWarning: 'tools.paired_compare' found in sys.modules after import of package 'tools', but prior to execution of 'tools.paired_compare'; this may result in unpredictable behaviour
+    warn(RuntimeWarning(msg))
+
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[results_table-RuntimeError]
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[results_table-KeyError]
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/runpy.py:127: RuntimeWarning: 'tools.results_table' found in sys.modules after import of package 'tools', but prior to execution of 'tools.results_table'; this may result in unpredictable behaviour
+    warn(RuntimeWarning(msg))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================= slowest 5 durations ==============================
+133.28s call     tests/test_exp07_provenance.py::test_train_data_identity_counts_the_real_protocol_splits
+87.24s setup    tests/test_exp06_haa_pipeline.py::test_a_complete_seed_is_an_admissible_arm
+78.95s setup    tests/test_exp06_summarize_haa.py::test_the_job_completion_schema_is_the_merged_finalizers
+54.09s call     tests/test_exp06_finalize.py::test_cli_reports_refusals_with_status_two
+53.05s setup    tests/test_exp06_profiles.py::test_every_present_key_gets_a_digest_and_absent_modules_are_noted
+=========================== short test summary info ============================
+FAILED tests/test_exp06_haa_pipeline.py::test_the_dry_run_of_one_finetune_seed_is_the_golden_queue
+FAILED tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes
+FAILED tests/test_exp07_profiles.py::test_the_new_arm_checkpoint_digests_come_from_the_runtime_approval[seen_simple-simple-0]
+3 failed, 3102 passed, 49 skipped, 238 warnings in 2955.93s (0:49:15)

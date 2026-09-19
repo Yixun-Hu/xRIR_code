@@ -1,0 +1,16 @@
+G1 2026-09-18_11:15:10 HEAD=f1502949fd852bd27400b384433e62d713e88293
+enforce_producer mirror_probe | keys ['mirror_probe', 'probe_align', 'encoder', 'factory', 'heading'] | approvals at f1502949fd85 | deviations []
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:641: UserWarning: stft with return_complex=False is deprecated. In a future pytorch release, stft will return complex tensors for all inputs, and return_complex=False will raise an error.
+Note: you can still call torch.view_as_real on the complex output to recover the old return format. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:862.)
+  return _VF.stft(input, n_fft, hop_length, win_length, window,  # type: ignore[attr-defined]
+{"outcome": "pass", "out": "ckpt/exp06/gate_g1.json", "sha256": "57c46d2c7791076ca4a36ecbf18844bf74209a614cb23153574365855bb8fd40", "legacy_reproduced": true, "admissibility": "confirmatory", "approval_deviations": [], "reasons": []}
+G1 exit 0 (0 pass / 3 fail / 4 inconclusive / 1 refusal)
+gate_g1 57c46d2c7791076ca4a36ecbf18844bf74209a614cb23153574365855bb8fd40 {'control': {'mirror_cosine': 0.4355447292327881, 'opposite_side_weight_share': 0.25423070788383484}, 'cyl': {'mirror_cosine': 0.9439712166786194, 'opposite_side_weight_share': 0.8244448304176331}, 'cyl_or': {'mirror_cosine': -0.15583893656730652, 'opposite_side_weight_share': 0.3307667672634125}}
+committed 8ed76848df41ee833eeb4f2b0919a12b5c342536
+G1 OK (next: haa)

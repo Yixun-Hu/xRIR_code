@@ -1,0 +1,7 @@
+REFILL 2026-09-17_19:19:43 HEAD=c013f906ff2fda1348a3989e23194acfd07dda2e
+FINALISED admissible_arm=True epochs=12 final -> attempt_20260916T161415 epoch_012 sha256 3df2ceb53d1be1402cb6672f05ded092187f1ba871b53fc1114ca088612296c1
+code changed: ['finalize', 'launch_sh', 'smoke', 'summarize_haa']
+reused: {'approved_digests_exp04': '2e4521173bb2', 'approved_digests_exp05': '293c56832c60', 'evaluator_exp04': '0b05245c3e02', 'exp02_stats_sha256': '98062d76755a', 'exp02_summary_sha256': '736f9fb8f439', 'legacy_receipt': {'path': None, 'sha256': None}, 'writer_exp04': '15f9c984561d'}
+artifacts.epoch_012: {'epoch': 12, 'path': 'ckpt/exp06/pretrain/xRIR_cylor_8_shot/attempt_20260916T161415/epoch_012.pth', 'sha256': '3df2ceb53d1be1402cb6672f05ded092187f1ba871b53fc1114ca088612296c1'}
+committed 4fb9d84e3f265d573927fc3e972467b8bdf77856
+SUITE (must be all green now):

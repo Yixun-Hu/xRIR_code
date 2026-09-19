@@ -1,0 +1,5 @@
+REFILL3 2026-09-18_18:58:14 HEAD=2e43887a361eb59ea19ea5a7ab8d5710410fa5d9
+code changed: ['compare', 'eval_launch']
+{'compare': '43b3461f334aaeef', 'eval_launch': '0a73f84a5a1c1753'}
+committed c8611fc772f336e2ee4d95a2f2cf8d30bfa895df
+REFILL3 OK (suite: run separately to a log file with -rf; then breceipt / sim)

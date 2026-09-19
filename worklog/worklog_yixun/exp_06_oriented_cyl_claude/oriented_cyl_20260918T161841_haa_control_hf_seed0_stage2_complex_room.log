@@ -1,0 +1,33 @@
+rooms ['complex_room']: 12 train targets, 198 val samples from ['complex_room']; frame heading; batch 12 x accum 1; 1 batches/epoch
+epoch 0 (init): val loss 0.03970
+epoch 10/200: train 0.04428  val 0.03952  best val 0.03915 @ 6  lr 6.3e-05  0.3 min
+epoch 20/200: train 0.03538  val 0.03951  best val 0.03915 @ 6  lr 4.0e-05  0.6 min
+epoch 30/200: train 0.03062  val 0.03941  best val 0.03915 @ 6  lr 2.5e-05  0.8 min
+epoch 40/200: train 0.03032  val 0.03952  best val 0.03915 @ 6  lr 1.6e-05  1.1 min
+epoch 50/200: train 0.03184  val 0.03970  best val 0.03915 @ 6  lr 1.0e-05  1.4 min
+epoch 60/200: train 0.03866  val 0.03961  best val 0.03915 @ 6  lr 6.3e-06  1.7 min
+epoch 70/200: train 0.03680  val 0.03948  best val 0.03915 @ 6  lr 4.0e-06  2.0 min
+epoch 80/200: train 0.03463  val 0.03947  best val 0.03915 @ 6  lr 2.5e-06  2.2 min
+epoch 90/200: train 0.03121  val 0.03949  best val 0.03915 @ 6  lr 1.6e-06  2.5 min
+epoch 100/200: train 0.03040  val 0.03946  best val 0.03915 @ 6  lr 1.0e-06  2.8 min
+epoch 110/200: train 0.03726  val 0.03952  best val 0.03915 @ 6  lr 6.3e-07  3.1 min
+epoch 120/200: train 0.03596  val 0.03952  best val 0.03915 @ 6  lr 4.0e-07  3.3 min
+epoch 130/200: train 0.03011  val 0.03952  best val 0.03915 @ 6  lr 2.5e-07  3.6 min
+epoch 140/200: train 0.03044  val 0.03950  best val 0.03915 @ 6  lr 1.6e-07  3.9 min
+epoch 150/200: train 0.03261  val 0.03950  best val 0.03915 @ 6  lr 1.0e-07  4.2 min
+epoch 160/200: train 0.03152  val 0.03951  best val 0.03915 @ 6  lr 6.3e-08  4.5 min
+epoch 170/200: train 0.04051  val 0.03949  best val 0.03915 @ 6  lr 4.0e-08  4.7 min
+epoch 180/200: train 0.03927  val 0.03951  best val 0.03915 @ 6  lr 2.5e-08  5.0 min
+epoch 190/200: train 0.03035  val 0.03952  best val 0.03915 @ 6  lr 1.6e-08  5.3 min
+epoch 200/200: train 0.03210  val 0.03946  best val 0.03915 @ 6  lr 1.0e-08  5.6 min
+done: {"best_epoch": 6, "best_val_loss": 0.03915189229177706, "init_val_loss": 0.03969733567550929, "epochs": 200, "minutes": 5.571126178900401, "rooms": ["complex_room"], "val_rooms": ["complex_room"], "init": "ckpt/exp06/sim2real/control_hf/seed0/stage1/best.pth", "backbone": "simple", "seed": 0, "frame": "heading"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:641: UserWarning: stft with return_complex=False is deprecated. In a future pytorch release, stft will return complex tensors for all inputs, and return_complex=False will raise an error.
+Note: you can still call torch.view_as_real on the complex output to recover the old return format. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:862.)
+  return _VF.stft(input, n_fft, hop_length, win_length, window,  # type: ignore[attr-defined]
+EXP06_CHILD_EXIT 0 2026-09-18T17:11:02+00:00

@@ -1,0 +1,379 @@
+HAA 2026-09-18_12:18:20 HEAD=b0bae26d24d389a3bbd84aeecca511c1cc21fb3e GPU=0 jobs=control_hf:0 control_hf:1 control_hf:2
+enforce_producer haa_children | keys ['haa_finetune', 'haa_eval', 'haa_pipeline_sh', 'finalize', 'encoder', 'factory', 'heading', 'recipe'] | approvals at b0bae26d24d3 | deviations []
+G1 pass
+GPU 0 empty
+DRY RUN:
+EXP06_HAA_PIPELINE gpu=0 jobs=control_hf:0 control_hf:1 control_hf:2 stamp=<UTC> dry_run=1 heading=ckpt/exp06/heading out=ckpt/exp06/sim2real
+JOB control_hf seed0 backbone=simple init=ckpt/xRIR_simple_8_shot/epoch_12.pth expect=finetune
+JOBSPEC ckpt/exp06/sim2real/control_hf/seed0/job_spec.json init=control_hf checkpoint=ckpt/xRIR_simple_8_shot/epoch_12.pth seed=0 expect=finetune backbone=simple frame=heading heading=ckpt/exp06/heading
+JOB control_hf seed1 backbone=simple init=ckpt/xRIR_simple_8_shot/epoch_12.pth expect=finetune
+JOBSPEC ckpt/exp06/sim2real/control_hf/seed1/job_spec.json init=control_hf checkpoint=ckpt/xRIR_simple_8_shot/epoch_12.pth seed=1 expect=finetune backbone=simple frame=heading heading=ckpt/exp06/heading
+JOB control_hf seed2 backbone=simple init=ckpt/xRIR_simple_8_shot/epoch_12.pth expect=finetune
+JOBSPEC ckpt/exp06/sim2real/control_hf/seed2/job_spec.json init=control_hf checkpoint=ckpt/xRIR_simple_8_shot/epoch_12.pth seed=2 expect=finetune backbone=simple frame=heading heading=ckpt/exp06/heading
+EXP06_HAA_PIPELINE gpu=0 jobs=control_hf:0 control_hf:1 control_hf:2 stamp=20260918T161841 dry_run=0 heading=ckpt/exp06/heading out=ckpt/exp06/sim2real
+ENV CUDA_VISIBLE_DEVICES=0 PYTHONHASHSEED=0 OMP_NUM_THREADS=8 HAA_XRIR_ROOT=/home/yixunhu/data_cache/HAA_xrir
+JOB control_hf seed0 backbone=simple init=ckpt/xRIR_simple_8_shot/epoch_12.pth expect=finetune
+APPROVALS control_hf checkpoint=ckpt/xRIR_simple_8_shot/epoch_12.pth heading=ckpt/exp06/heading producer=haa_children
+APPROVALS ok producer=haa_children commit=b0bae26d24d3 keys=haa_finetune,haa_eval,haa_pipeline_sh,finalize,encoder,factory,heading,recipe
+MKDIR ckpt/exp06/sim2real/control_hf/seed0
+PIDFILE ckpt/exp06/sim2real/control_hf/seed0/launch.pid
+JOBSPEC ckpt/exp06/sim2real/control_hf/seed0/job_spec.json init=control_hf checkpoint=ckpt/xRIR_simple_8_shot/epoch_12.pth seed=0 expect=finetune backbone=simple frame=heading heading=ckpt/exp06/heading
+CHECKSPEC ckpt/exp06/sim2real/control_hf/seed0/job_spec.json expect=finetune
+MKDIR ckpt/exp06/sim2real/control_hf/seed0/stage1
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_stage1.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed0/stage1/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/xRIR_simple_8_shot/epoch_12.pth --rooms class_room hallway complex_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed0/stage1 --seed 0 --job-spec ckpt/exp06/sim2real/control_hf/seed0/job_spec.json --epochs 1000 --val-every 10 --tf32
+HAA queue launched: pid 1005097, log oriented_cyl_2026-09-18_12:18:20_posttrain_haa.log
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_stage1.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed0/stage1/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed0/stage1 --run-type haa_train --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_stage1.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed0/stage1", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed0/stage2_class_room
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_stage2_class_room.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed0/stage2_class_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp06/sim2real/control_hf/seed0/stage1/best.pth --rooms class_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed0/stage2_class_room --seed 0 --job-spec ckpt/exp06/sim2real/control_hf/seed0/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_stage2_class_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed0/stage2_class_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed0/stage2_class_room --run-type haa_train --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_stage2_class_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed0/stage2_class_room", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed0/eval/class_room
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_eval_class_room.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed0/eval/class_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp06/sim2real/control_hf/seed0/stage2_class_room/best.pth --rooms class_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed0/eval/class_room --seed 0 --job-spec ckpt/exp06/sim2real/control_hf/seed0/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_eval_class_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed0/eval/class_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed0/eval/class_room --run-type haa_eval --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_eval_class_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed0/eval/class_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed0/stage2_dampened_room
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_stage2_dampened_room.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed0/stage2_dampened_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp06/sim2real/control_hf/seed0/stage1/best.pth --rooms dampened_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed0/stage2_dampened_room --seed 0 --job-spec ckpt/exp06/sim2real/control_hf/seed0/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_stage2_dampened_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed0/stage2_dampened_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed0/stage2_dampened_room --run-type haa_train --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_stage2_dampened_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed0/stage2_dampened_room", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed0/eval/dampened_room
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_eval_dampened_room.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed0/eval/dampened_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp06/sim2real/control_hf/seed0/stage2_dampened_room/best.pth --rooms dampened_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed0/eval/dampened_room --seed 0 --job-spec ckpt/exp06/sim2real/control_hf/seed0/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_eval_dampened_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed0/eval/dampened_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed0/eval/dampened_room --run-type haa_eval --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_eval_dampened_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed0/eval/dampened_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed0/stage2_hallway
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_stage2_hallway.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed0/stage2_hallway/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp06/sim2real/control_hf/seed0/stage1/best.pth --rooms hallway --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed0/stage2_hallway --seed 0 --job-spec ckpt/exp06/sim2real/control_hf/seed0/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_stage2_hallway.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed0/stage2_hallway/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed0/stage2_hallway --run-type haa_train --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_stage2_hallway.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed0/stage2_hallway", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed0/eval/hallway
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_eval_hallway.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed0/eval/hallway/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp06/sim2real/control_hf/seed0/stage2_hallway/best.pth --rooms hallway --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed0/eval/hallway --seed 0 --job-spec ckpt/exp06/sim2real/control_hf/seed0/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_eval_hallway.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed0/eval/hallway/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed0/eval/hallway --run-type haa_eval --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_eval_hallway.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed0/eval/hallway", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed0/stage2_complex_room
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_stage2_complex_room.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed0/stage2_complex_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp06/sim2real/control_hf/seed0/stage1/best.pth --rooms complex_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed0/stage2_complex_room --seed 0 --job-spec ckpt/exp06/sim2real/control_hf/seed0/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_stage2_complex_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed0/stage2_complex_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed0/stage2_complex_room --run-type haa_train --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_stage2_complex_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed0/stage2_complex_room", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed0/eval/complex_room
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_eval_complex_room.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed0/eval/complex_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp06/sim2real/control_hf/seed0/stage2_complex_room/best.pth --rooms complex_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed0/eval/complex_room --seed 0 --job-spec ckpt/exp06/sim2real/control_hf/seed0/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_eval_complex_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed0/eval/complex_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed0/eval/complex_room --run-type haa_eval --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_eval_complex_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed0/eval/complex_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed0 --run-type haa_job --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed0_job.log --child-exit 0 --owner-pid 1005097 --children ckpt/exp06/sim2real/control_hf/seed0/stage1 ckpt/exp06/sim2real/control_hf/seed0/stage2_class_room ckpt/exp06/sim2real/control_hf/seed0/eval/class_room ckpt/exp06/sim2real/control_hf/seed0/stage2_dampened_room ckpt/exp06/sim2real/control_hf/seed0/eval/dampened_room ckpt/exp06/sim2real/control_hf/seed0/stage2_hallway ckpt/exp06/sim2real/control_hf/seed0/eval/hallway ckpt/exp06/sim2real/control_hf/seed0/stage2_complex_room ckpt/exp06/sim2real/control_hf/seed0/eval/complex_room --expect finetune --job-spec ckpt/exp06/sim2real/control_hf/seed0/job_spec.json
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed0", "run_type": "haa_job"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+JOB control_hf seed1 backbone=simple init=ckpt/xRIR_simple_8_shot/epoch_12.pth expect=finetune
+APPROVALS control_hf checkpoint=ckpt/xRIR_simple_8_shot/epoch_12.pth heading=ckpt/exp06/heading producer=haa_children
+APPROVALS ok producer=haa_children commit=2642e4e12f57 keys=haa_finetune,haa_eval,haa_pipeline_sh,finalize,encoder,factory,heading,recipe
+MKDIR ckpt/exp06/sim2real/control_hf/seed1
+PIDFILE ckpt/exp06/sim2real/control_hf/seed1/launch.pid
+JOBSPEC ckpt/exp06/sim2real/control_hf/seed1/job_spec.json init=control_hf checkpoint=ckpt/xRIR_simple_8_shot/epoch_12.pth seed=1 expect=finetune backbone=simple frame=heading heading=ckpt/exp06/heading
+CHECKSPEC ckpt/exp06/sim2real/control_hf/seed1/job_spec.json expect=finetune
+MKDIR ckpt/exp06/sim2real/control_hf/seed1/stage1
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_stage1.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed1/stage1/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/xRIR_simple_8_shot/epoch_12.pth --rooms class_room hallway complex_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed1/stage1 --seed 1 --job-spec ckpt/exp06/sim2real/control_hf/seed1/job_spec.json --epochs 1000 --val-every 10 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_stage1.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed1/stage1/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed1/stage1 --run-type haa_train --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_stage1.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed1/stage1", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed1/stage2_class_room
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_stage2_class_room.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed1/stage2_class_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp06/sim2real/control_hf/seed1/stage1/best.pth --rooms class_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed1/stage2_class_room --seed 1 --job-spec ckpt/exp06/sim2real/control_hf/seed1/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_stage2_class_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed1/stage2_class_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed1/stage2_class_room --run-type haa_train --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_stage2_class_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed1/stage2_class_room", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed1/eval/class_room
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_eval_class_room.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed1/eval/class_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp06/sim2real/control_hf/seed1/stage2_class_room/best.pth --rooms class_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed1/eval/class_room --seed 1 --job-spec ckpt/exp06/sim2real/control_hf/seed1/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_eval_class_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed1/eval/class_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed1/eval/class_room --run-type haa_eval --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_eval_class_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed1/eval/class_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed1/stage2_dampened_room
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_stage2_dampened_room.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed1/stage2_dampened_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp06/sim2real/control_hf/seed1/stage1/best.pth --rooms dampened_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed1/stage2_dampened_room --seed 1 --job-spec ckpt/exp06/sim2real/control_hf/seed1/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_stage2_dampened_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed1/stage2_dampened_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed1/stage2_dampened_room --run-type haa_train --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_stage2_dampened_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed1/stage2_dampened_room", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed1/eval/dampened_room
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_eval_dampened_room.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed1/eval/dampened_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp06/sim2real/control_hf/seed1/stage2_dampened_room/best.pth --rooms dampened_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed1/eval/dampened_room --seed 1 --job-spec ckpt/exp06/sim2real/control_hf/seed1/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_eval_dampened_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed1/eval/dampened_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed1/eval/dampened_room --run-type haa_eval --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_eval_dampened_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed1/eval/dampened_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed1/stage2_hallway
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_stage2_hallway.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed1/stage2_hallway/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp06/sim2real/control_hf/seed1/stage1/best.pth --rooms hallway --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed1/stage2_hallway --seed 1 --job-spec ckpt/exp06/sim2real/control_hf/seed1/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_stage2_hallway.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed1/stage2_hallway/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed1/stage2_hallway --run-type haa_train --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_stage2_hallway.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed1/stage2_hallway", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed1/eval/hallway
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_eval_hallway.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed1/eval/hallway/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp06/sim2real/control_hf/seed1/stage2_hallway/best.pth --rooms hallway --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed1/eval/hallway --seed 1 --job-spec ckpt/exp06/sim2real/control_hf/seed1/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_eval_hallway.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed1/eval/hallway/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed1/eval/hallway --run-type haa_eval --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_eval_hallway.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed1/eval/hallway", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed1/stage2_complex_room
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_stage2_complex_room.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed1/stage2_complex_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp06/sim2real/control_hf/seed1/stage1/best.pth --rooms complex_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed1/stage2_complex_room --seed 1 --job-spec ckpt/exp06/sim2real/control_hf/seed1/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_stage2_complex_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed1/stage2_complex_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed1/stage2_complex_room --run-type haa_train --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_stage2_complex_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed1/stage2_complex_room", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed1/eval/complex_room
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_eval_complex_room.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed1/eval/complex_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp06/sim2real/control_hf/seed1/stage2_complex_room/best.pth --rooms complex_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed1/eval/complex_room --seed 1 --job-spec ckpt/exp06/sim2real/control_hf/seed1/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_eval_complex_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed1/eval/complex_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed1/eval/complex_room --run-type haa_eval --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_eval_complex_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed1/eval/complex_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed1 --run-type haa_job --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed1_job.log --child-exit 0 --owner-pid 1005097 --children ckpt/exp06/sim2real/control_hf/seed1/stage1 ckpt/exp06/sim2real/control_hf/seed1/stage2_class_room ckpt/exp06/sim2real/control_hf/seed1/eval/class_room ckpt/exp06/sim2real/control_hf/seed1/stage2_dampened_room ckpt/exp06/sim2real/control_hf/seed1/eval/dampened_room ckpt/exp06/sim2real/control_hf/seed1/stage2_hallway ckpt/exp06/sim2real/control_hf/seed1/eval/hallway ckpt/exp06/sim2real/control_hf/seed1/stage2_complex_room ckpt/exp06/sim2real/control_hf/seed1/eval/complex_room --expect finetune --job-spec ckpt/exp06/sim2real/control_hf/seed1/job_spec.json
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed1", "run_type": "haa_job"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+JOB control_hf seed2 backbone=simple init=ckpt/xRIR_simple_8_shot/epoch_12.pth expect=finetune
+APPROVALS control_hf checkpoint=ckpt/xRIR_simple_8_shot/epoch_12.pth heading=ckpt/exp06/heading producer=haa_children
+APPROVALS ok producer=haa_children commit=95384799858d keys=haa_finetune,haa_eval,haa_pipeline_sh,finalize,encoder,factory,heading,recipe
+MKDIR ckpt/exp06/sim2real/control_hf/seed2
+PIDFILE ckpt/exp06/sim2real/control_hf/seed2/launch.pid
+JOBSPEC ckpt/exp06/sim2real/control_hf/seed2/job_spec.json init=control_hf checkpoint=ckpt/xRIR_simple_8_shot/epoch_12.pth seed=2 expect=finetune backbone=simple frame=heading heading=ckpt/exp06/heading
+CHECKSPEC ckpt/exp06/sim2real/control_hf/seed2/job_spec.json expect=finetune
+MKDIR ckpt/exp06/sim2real/control_hf/seed2/stage1
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_stage1.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed2/stage1/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/xRIR_simple_8_shot/epoch_12.pth --rooms class_room hallway complex_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed2/stage1 --seed 2 --job-spec ckpt/exp06/sim2real/control_hf/seed2/job_spec.json --epochs 1000 --val-every 10 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_stage1.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed2/stage1/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed2/stage1 --run-type haa_train --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_stage1.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed2/stage1", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed2/stage2_class_room
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_stage2_class_room.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed2/stage2_class_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp06/sim2real/control_hf/seed2/stage1/best.pth --rooms class_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed2/stage2_class_room --seed 2 --job-spec ckpt/exp06/sim2real/control_hf/seed2/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_stage2_class_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed2/stage2_class_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed2/stage2_class_room --run-type haa_train --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_stage2_class_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed2/stage2_class_room", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed2/eval/class_room
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_eval_class_room.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed2/eval/class_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp06/sim2real/control_hf/seed2/stage2_class_room/best.pth --rooms class_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed2/eval/class_room --seed 2 --job-spec ckpt/exp06/sim2real/control_hf/seed2/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_eval_class_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed2/eval/class_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed2/eval/class_room --run-type haa_eval --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_eval_class_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed2/eval/class_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed2/stage2_dampened_room
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_stage2_dampened_room.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed2/stage2_dampened_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp06/sim2real/control_hf/seed2/stage1/best.pth --rooms dampened_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed2/stage2_dampened_room --seed 2 --job-spec ckpt/exp06/sim2real/control_hf/seed2/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_stage2_dampened_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed2/stage2_dampened_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed2/stage2_dampened_room --run-type haa_train --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_stage2_dampened_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed2/stage2_dampened_room", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed2/eval/dampened_room
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_eval_dampened_room.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed2/eval/dampened_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp06/sim2real/control_hf/seed2/stage2_dampened_room/best.pth --rooms dampened_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed2/eval/dampened_room --seed 2 --job-spec ckpt/exp06/sim2real/control_hf/seed2/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_eval_dampened_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed2/eval/dampened_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed2/eval/dampened_room --run-type haa_eval --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_eval_dampened_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed2/eval/dampened_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed2/stage2_hallway
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_stage2_hallway.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed2/stage2_hallway/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp06/sim2real/control_hf/seed2/stage1/best.pth --rooms hallway --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed2/stage2_hallway --seed 2 --job-spec ckpt/exp06/sim2real/control_hf/seed2/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_stage2_hallway.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed2/stage2_hallway/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed2/stage2_hallway --run-type haa_train --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_stage2_hallway.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed2/stage2_hallway", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed2/eval/hallway
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_eval_hallway.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed2/eval/hallway/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp06/sim2real/control_hf/seed2/stage2_hallway/best.pth --rooms hallway --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed2/eval/hallway --seed 2 --job-spec ckpt/exp06/sim2real/control_hf/seed2/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_eval_hallway.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed2/eval/hallway/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed2/eval/hallway --run-type haa_eval --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_eval_hallway.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed2/eval/hallway", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed2/stage2_complex_room
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_stage2_complex_room.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed2/stage2_complex_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp06/sim2real/control_hf/seed2/stage1/best.pth --rooms complex_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed2/stage2_complex_room --seed 2 --job-spec ckpt/exp06/sim2real/control_hf/seed2/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_stage2_complex_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed2/stage2_complex_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed2/stage2_complex_room --run-type haa_train --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_stage2_complex_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed2/stage2_complex_room", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp06/sim2real/control_hf/seed2/eval/complex_room
+SINK cat >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_eval_complex_room.log
+PIDFILE ckpt/exp06/sim2real/control_hf/seed2/eval/complex_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp06/sim2real/control_hf/seed2/stage2_complex_room/best.pth --rooms complex_room --heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp06/sim2real/control_hf/seed2/eval/complex_room --seed 2 --job-spec ckpt/exp06/sim2real/control_hf/seed2/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_eval_complex_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp06/sim2real/control_hf/seed2/eval/complex_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed2/eval/complex_room --run-type haa_eval --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_eval_complex_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed2/eval/complex_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp06/sim2real/control_hf/seed2 --run-type haa_job --log worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_20260918T161841_haa_control_hf_seed2_job.log --child-exit 0 --owner-pid 1005097 --children ckpt/exp06/sim2real/control_hf/seed2/stage1 ckpt/exp06/sim2real/control_hf/seed2/stage2_class_room ckpt/exp06/sim2real/control_hf/seed2/eval/class_room ckpt/exp06/sim2real/control_hf/seed2/stage2_dampened_room ckpt/exp06/sim2real/control_hf/seed2/eval/dampened_room ckpt/exp06/sim2real/control_hf/seed2/stage2_hallway ckpt/exp06/sim2real/control_hf/seed2/eval/hallway ckpt/exp06/sim2real/control_hf/seed2/stage2_complex_room ckpt/exp06/sim2real/control_hf/seed2/eval/complex_room --expect finetune --job-spec ckpt/exp06/sim2real/control_hf/seed2/job_spec.json
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp06/sim2real/control_hf/seed2", "run_type": "haa_job"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+QUEUE_DONE gpu=0
