@@ -1,9 +1,18 @@
 - `2d2a3867b9360964fd5482aaf4fbe426e60c85a1` — exp_05 plan v3 approved and committed for handoff (record folder: query, plan v1–v3, two Codex plan reviews, notebook); also carries exp_04's round-1 review and prompts
 
 
-## Complete commit index through record closure (retrospective, 2026-09-18; `git log` over the exp_05 tools, tests, assets and record folder)
+## Complete commit index through record closure (retrospective; cutoff = main `ec75704` on 2026-09-18; `git log` over the exp_05 tools, tests, record folder AND the shared launcher `tools/exp04_launcher.py` / `tools/exp04_launch.sh`, whose exp_05 rounds live in the same history — e.g. `0e35e2c`)
 
 ```
+ec75704 2026-09-18 exp_05: record regenerated at 9b25738 and rebound (deterministic PDFs, consistent revisions); record-review round-2 prompt
+9b25738 2026-09-18 exp_05: round 9 merged; regeneration at a fixed revision starts
+c5ac3de 2026-09-18 Merge exp_05 round 9 (deterministic figure PDFs, Codex-approved)
+d3d5526 2026-09-18 exp_05: Codex round-9 close review (approve)
+8437b6e 2026-09-18 exp_05: round 9 delivered (deterministic PDFs); Codex close-review prompt
+2d599d6 2026-09-18 exp_05: make the record figures reproduce byte-for-byte in PDF too
+5258b31 2026-09-18 exp_07: seen_aug full training launched on GPU 1 (probe 27.3 h); relocation outcomes (exp_05 check passes, exp_04 attempt restored)
+b14dc3b 2026-09-18 records: attempt directories relocated to the NAS (swap bug fixed), Codex review notes preserved, seen_aug relaunched
+ee5f152 2026-09-18 exp_05: record corrections after Codex record review 1 — analysis to registered wording, errata, SOP disclosure, retrospective command/params/commits records
 1f3792d 2026-09-18 exp_05: Codex record review round 1 (not approved; eight corrections); round-9 PDF-determinism prompt
 a327ccf 2026-09-18 exp_05: record-review prompt
 a6e1f76 2026-09-18 exp_05: record bound and checked (73e90d4) — results tables, page, figures, analysis final, command record
@@ -73,6 +82,7 @@ d1f0d61 2026-09-13 fix(exp05): close producer reporting and boundary review find
 1ec0457 2026-09-13 fix(exp05): bind training evidence and complete recipe admission
 453b8da 2026-09-13 exp_05 bookkeeping: rounds 2-3 reviews, close-out prompts, amendments A5-A8; exp_04 round-7 review final count
 f19b9b6 2026-09-12 fix(exp05): bind probe evidence and audit ceiling renewals
+0e35e2c 2026-09-12 fix(launchers): certify completion before honoring tail signals
 ba2f281 2026-09-12 fix(exp05): bind golden recipes to tier arms and records
 860a334 2026-09-12 test(exp05): cover secondary profiles and provenance boundaries
 970bc52 2026-09-12 feat(exp05): report descriptive paired yaw changes by tier
@@ -91,11 +101,35 @@ a19a2a0 2026-09-12 feat(exp05): enforce receipt-derived full-run and epoch-one l
 b74d2ec 2026-09-12 feat(exp05): validate tier receipts and cumulative training budgets
 449055c 2026-09-12 feat(exp05): measure tier training validation and scratch-save costs
 6a1a209 2026-09-12 feat(exp05): launch tier evaluation with bound training arguments
-dc0c895 2026-09-12 test(exp05): compare tier evaluation and smoke checkpoints on GPU
 76c14e9 2026-09-12 feat(exp05): bind tier checkpoints to the shared evaluation loop
 5ea3d49 2026-09-12 Preserve exp04 launcher parity and validate exp05 tier commands
-a3eb253 2026-09-12 Expose trainer ViT tiers with historical M step parity
 7fdff94 2026-09-12 Add frozen exp05 tiers and exact parameter accounting
+ed5f2a1 2026-09-12 Protect exp04 completion transactions and restore recovery logs
+167722c 2026-09-12 Share signal-safe termination across exp04 launchers
+b777f9d 2026-09-12 exp_04: restore recovered attempt names and tighten launch records
+e3decd7 2026-09-12 exp_04: harden termination and verify recovery execution evidence
+f7596c0 2026-09-12 exp04: check recovery log writers with host-compatible fuser
+89521df 2026-09-12 exp04: classify malformed and missing runtime argument records
+4772e15 2026-09-12 exp04: preserve recovery charges and require full-run bindings
+90a6077 2026-09-12 exp04: move training inventories to digest-bound sidecars
+32c3df5 2026-09-12 exp04: retain probe spread and complete artifact inventories
+f518224 2026-09-12 exp04: recover preserved attempts with explicit finalize mode
+248688b 2026-09-12 exp04: share finalisation and verify process and log closure
+5d6d4f9 2026-09-12 exp04: retain recovery evidence and tolerate nonfinite abort state
+b48cd7b 2026-09-12 exp04: validate reviewed source blobs and record later drift
+8a8e515 2026-09-12 exp04: preserve specific abort diagnostics and owned logs
+5d04d0a 2026-09-12 exp04: bind probe admission and count only full training hours
+9b47c7a 2026-09-12 exp04: route termination signals through attempt cleanup
+bd50f74 2026-09-12 exp04: bind training inputs and enforce launch provenance gates
+07f3bc9 2026-09-12 exp04: preserve redirected logs and enforce epoch-one acceptance promptly
+d79fa76 2026-09-12 exp04: enforce control parity and account promotion failures once
+e8a164d 2026-09-12 exp04: expose smoke probe full and refusal launch modes
+67c8819 2026-09-12 exp04: bind probe measurements and exercise launch refusals offline
+10ef6ff 2026-09-12 exp04: finalize preserved training attempts after digest revalidation
+b7480be 2026-09-12 exp04: police live runtime args and banner through tee
+bbf8ad6 2026-09-12 exp04: bind training imports and split identity before spawn
+3e5609c 2026-09-12 exp04: guard resources and preserve accounted attempts
+38cf05b 2026-09-12 exp04: pin training argv and normalize runtime arguments
 8dd5aa6 2026-09-12 exp_05: commits file
 2d2a386 2026-09-12 exp_05 plan approved (capacity curve, handoff); exp_04 round-1 review and prompts
 ```

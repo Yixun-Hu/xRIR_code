@@ -77,3 +77,47 @@ Queue script `exp05_eval_queue.sh <gpu> <reviewed_commit> <arms…>` (scratchpad
 
 ## Producers and record
 See the "Record" section above (2026-09-18 11:00 producers via `exp05_producers.sh`; 19:48 generators → figures → bind → check via `exp05_record_run.sh`).
+
+
+# Round-2 completion (2026-09-18, retrospective; Codex record review round 2, finding 1)
+
+The executed scratch scripts are retained under `param_efficiency_results_assets/scripts/` (`exp05_probe_run.sh`, `exp05_probe_chain.sh`, `exp05_train_queue.sh`, `exp05_eval_queue.sh`, `exp05_producers.sh`, `exp05_record_run.sh`). Concrete invocations, reconstructed from the receipts, manifests and queue logs:
+
+## Probes (5)
+
+| Arm | Receipt | Reviewed | GPU | Launcher invocation (reconstructed from the receipt fields) |
+|---|---|---|---|---|
+| S_simple | `_probe_20260913T102216_S_simple.json` | `f19b9b6` | 1 | `tools/exp04_launch.sh probe --tier S --backbone simple --gpu 1 --reviewed-commit f19b9b6 --timestamp 20260913T102216` (env `PYTHONHASHSEED=0 OMP_NUM_THREADS=2 XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms`) |
+| S_cylindrical | `_probe_20260913T102428_S_cylindrical.json` | `f19b9b6` | 1 | `tools/exp04_launch.sh probe --tier S --backbone cylindrical --gpu 1 --reviewed-commit f19b9b6 --timestamp 20260913T102428` (env `PYTHONHASHSEED=0 OMP_NUM_THREADS=2 XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms`) |
+| L_simple | `_probe_20260913T102644_L_simple.json` | `f19b9b6` | 1 | `tools/exp04_launch.sh probe --tier L --backbone simple --gpu 1 --reviewed-commit f19b9b6 --timestamp 20260913T102644` (env `PYTHONHASHSEED=0 OMP_NUM_THREADS=2 XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms`) |
+| L_simple | `_probe_20260915T060057_L_simple.json` | `862923e` | 0 | `tools/exp04_launch.sh probe --tier L --backbone simple --gpu 0 --reviewed-commit 862923e --timestamp 20260915T060057` (env `PYTHONHASHSEED=0 OMP_NUM_THREADS=2 XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms`) |
+| L_cylindrical | `_probe_20260913T103057_L_cylindrical.json` | `f19b9b6` | 1 | `tools/exp04_launch.sh probe --tier L --backbone cylindrical --gpu 1 --reviewed-commit f19b9b6 --timestamp 20260913T103057` (env `PYTHONHASHSEED=0 OMP_NUM_THREADS=2 XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms`) |
+
+## Full trainings (4)
+
+| Arm | Attempt | Reviewed | GPU | Launcher invocation (notebook + manifest) |
+|---|---|---|---|---|
+| S_simple | `attempt_20260913T123905` | `f19b9b6` | 1 | `nohup setsid tools/exp04_launch.sh full --tier S --backbone simple --gpu 1 --reviewed-commit f19b9b6 --probe-json ckpt/exp05/S_simple/_probe_20260913T102216_S_simple.json --timestamp 20260913T123905` |
+| S_cylindrical | `attempt_20260914T000333` | `f19b9b6` | 1 | `nohup setsid tools/exp04_launch.sh full --tier S --backbone cylindrical --gpu 1 --reviewed-commit f19b9b6 --probe-json ckpt/exp05/S_cylindrical/_probe_20260913T102428_S_cylindrical.json --timestamp 20260914T000333` |
+| L_simple | `attempt_20260915T060543` | `862923e` | 0 | `nohup setsid tools/exp04_launch.sh full --tier L --backbone simple --gpu 0 --reviewed-commit 862923e --probe-json ckpt/exp05/L_simple/_probe_20260915T060057_L_simple.json --timestamp 20260915T060543` |
+| L_cylindrical | `attempt_20260914T120322` | `f19b9b6` | 1 | `nohup setsid tools/exp04_launch.sh full --tier L --backbone cylindrical --gpu 1 --reviewed-commit f19b9b6 --probe-json ckpt/exp05/L_cylindrical/_probe_20260913T103057_L_cylindrical.json --timestamp 20260914T120322` |
+
+## Evaluations (66) — `scripts/exp05_eval_queue.sh <gpu> <reviewed_commit> <arms…>`
+
+| Queue | Invocation | Runs | Window |
+|---|---|---|---|
+| L (GPU 0) | `exp05_eval_queue.sh 0 3e2c28b73db03e84b8cb86f05fbdecf862cfc599 L_cylindrical L_simple` (from `gpu0_chain.sh`) | 20 k0 + 2 yaw | 2026-09-16 23:46 → 09-17 03:45 |
+| S/M (GPU 1) | `exp05_eval_queue.sh 1 ddfcb66718a560b0a59c2e66176f391eeb2fc4ab S_simple S_cylindrical M_simple M_cylindrical` (from `exp05_sm_autostart.sh`) | 40 k0 + 4 yaw | 2026-09-17 22:20 → 09-18 04:30 |
+
+Per run the script executes `python -m tools.exp04_eval_launch --tier <S|M|L> --backbone <b> --checkpoint <ckpt> --manifest ckpt/yaw_aug/reference_manifest_k<K>_seed<s>.json --manifest-hash <h> --out-dir ckpt/exp05/eval/<arm>_k<K>_seed<s>_k0 --yaw-cols 0 --acoustic-cols 0 --e-acoustic-cols --conditions P --batch-size 16 --num-workers 6 --threads 4 --decomposition-batches 0 --gl-seed <s> --max-samples 0 --log-interval 10 --num-shot <K> --run-label <label> --reviewed-commit <sha> --data-root $XRIR_DATA_PATH --log-dir <record> --gpu <g>` (+ `--bind-input train_manifest=… --bind-input train_completion=…` for S/L); the yaw block uses `--yaw-cols 0 32 64 448 480 --acoustic-cols 0 32 64 448 480`. Every run's exact command is in its `eval_manifest.json: command`.
+
+## Producers (5) — `scripts/exp05_producers.sh` (2026-09-18 11:00–11:09, HEAD `d9e9759`)
+
+`python tools/param_curve.py --profile <P> --runs <30 k8 | 30 k1 | 6 yaw run dirs> --json ckpt/exp05/results/<P>.json --summary ckpt/exp05/results/<P>.txt` for P ∈ {CURVE_K8, CURVE_K1, TARGETS_K8, TARGETS_K1, YAW_K8_SEED42}; env `PYTHONHASHSEED=0 OMP_NUM_THREADS=8 CUDA_VISIBLE_DEVICES=`.
+
+## Record runs — `scripts/exp05_record_run.sh`
+
+| Run | HEAD at start | Outcome |
+|---|---|---|
+| 2026-09-18 19:48–20:03 (`param_efficiency_20260918T194841_record_run.log`) | `73e90d4` | SUPERSEDED: a notebook commit (`8835f00`) landed during generation, so the html and the binding report cite `8835f00` while the md cites `73e90d4` (Codex record review round 1, finding 4); report `binding_report_20260918T234858147838Z.json` preserved |
+| 2026-09-18 21:27–21:45 (`param_efficiency_20260918T212712_record_run.log`) | `9b25738` | CANONICAL: documents, figures (deterministic PDFs) and report all at `9b25738`; `check_record.py` exit 0; report `binding_report_20260919T012729316031Z.json` |

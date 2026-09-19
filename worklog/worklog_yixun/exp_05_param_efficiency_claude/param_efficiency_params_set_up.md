@@ -2,12 +2,12 @@
 
 Reconstructed from `effective_args.json`, `train_manifest.json`, probe receipts and `tools.exp05_params` after the runs (Codex record review finding 6). The M pair is exp_01's (`ckpt/xRIR_simple_8_shot/epoch_12.pth`, `ckpt/xRIR_cyl_8_shot/epoch_12.pth`, 2026-09-04/05, launcher v1, PYTHONHASHSEED unrecorded).
 
-| Arm | Tier | Backbone | dim/depth/heads/mlp | Encoder / full params | Recipe | Reviewed commit | GPU | Probe T_run (h) / peak (GiB) | Wall (h) | Epoch-12 test loss |
-|---|---|---|---|---|---|---|---|---|---|---|
-| S_simple | S | simple | 256/6/4/256 | 2766080 / 15073213 | bs 32×2, lr 0.001, wd 0.0001, decay 3/0.1, 12 ep, seed 0, TF32 True, workers 12 | f19b9b6 | 1 | 11.0 / 11.3 | 11.4 | 0.0159933 |
-| S_cylindrical | S | cylindrical | 256/6/4/256 | 2777984 / 15085117 | bs 32×2, lr 0.001, wd 0.0001, decay 3/0.1, 12 ep, seed 0, TF32 True, workers 12 | f19b9b6 | 1 | 11.9 / 11.3 | 12.0 | 0.0159770 |
-| L_simple | L | simple | 768/12/12/768 | 43709184 / 56147389 | bs 32×2, lr 0.001, wd 0.0001, decay 3/0.1, 12 ep, seed 0, TF32 True, workers 12 | 862923e | 0 | 41.4 / 44.4 | 41.8 | 0.0162409 |
-| L_cylindrical | L | cylindrical | 768/12/12/768 | 43780608 / 56218813 | bs 32×2, lr 0.001, wd 0.0001, decay 3/0.1, 12 ep, seed 0, TF32 True, workers 12 | f19b9b6 | 1 | 46.0 / 44.4 | 46.2 | 0.0159641 |
+| Arm | Tier | Backbone | dim/depth/heads/mlp | Encoder / full params | Recipe | Reviewed commit | GPU | Probe T_run (h) / peak (GiB) | Cumulative hours incl. probes (ledger) | Certified training wall (h) | Epoch-12 test loss |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| S_simple | S | simple | 256/6/4/256 | 2766080 / 15073213 | bs 32×2, lr 0.001, wd 0.0001, decay 3/0.1, 12 ep, seed 0, TF32 True, workers 12 | f19b9b6 | 1 | 11.0 / 11.3 | 11.4 | 11.3964 | 0.0159933 |
+| S_cylindrical | S | cylindrical | 256/6/4/256 | 2777984 / 15085117 | bs 32×2, lr 0.001, wd 0.0001, decay 3/0.1, 12 ep, seed 0, TF32 True, workers 12 | f19b9b6 | 1 | 11.9 / 11.3 | 12.0 | 11.9857 | 0.0159770 |
+| L_simple | L | simple | 768/12/12/768 | 43709184 / 56147389 | bs 32×2, lr 0.001, wd 0.0001, decay 3/0.1, 12 ep, seed 0, TF32 True, workers 12 | 862923e | 0 | 41.4 / 44.4 | 41.8 | 41.6595 | 0.0162409 |
+| L_cylindrical | L | cylindrical | 768/12/12/768 | 43780608 / 56218813 | bs 32×2, lr 0.001, wd 0.0001, decay 3/0.1, 12 ep, seed 0, TF32 True, workers 12 | f19b9b6 | 1 | 46.0 / 44.4 | 46.2 | 46.0840 | 0.0159641 |
 
 Environment (all four): `OMP_NUM_THREADS=2 PYTHONHASHSEED=0 XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms`; torch 2.0.1+cu117, Python 3.8.20, RTX A6000 48 GB; training data identity per manifest (`train_data_identity`), 296 334 samples, 9 261 micro-batches per epoch.
 
