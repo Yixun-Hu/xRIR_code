@@ -27,26 +27,6 @@ def load_asset(name):
     return sys.modules[key]
 
 
-def logical(path):
-    """A path as the record spells it: absolute and normalised, never resolved.
-
-    A certified attempt -- or any ancestor of one, the products directory included -- is
-    archived behind a directory symlink once the record is published, so the name the
-    approval, the manifests, the sidecars and the binding report all give a file stays
-    its name here too, and the documents this evidence is written into keep saying what
-    the report says.  The bytes are still read, and digest-checked, through it.
-    """
-    return Path(os.path.abspath(str(path)))
-
-
-def identical(one, other):
-    """Two names for one file: relocation, and `final`, keep the inode, not the spelling."""
-    try:
-        return Path(one).samefile(Path(other))
-    except OSError:
-        return False
-
-
 def write_outputs(result, admitted, json_path, md_path, renderer, force_md=False, command=()):
     """exp_04's publication transaction with the document renderer supplied by the caller.
 
@@ -58,17 +38,14 @@ def write_outputs(result, admitted, json_path, md_path, renderer, force_md=False
     (with any manual section preserved), then the provenance sidecar; and every created
     file rolled back, the Markdown restored to its previous bytes, on any failure.
     """
-    # The published names -- what the sidecar records and every reader of this product
-    # then spells -- are logical; distinctness and overlap remain questions about files,
-    # so both spellings of each destination are checked against the admitted inputs.
-    paths = [logical(json_path), logical(md_path), logical(str(json_path) + '.provenance.json')]
+    paths = [Path(json_path).absolute(), Path(md_path).absolute(),
+             Path(str(json_path) + '.provenance.json').absolute()]
     if (len({item.resolve() for item in paths}) != 3 or any(item.is_symlink() for item in paths)
             or any(os.path.lexists(paths[i]) for i in (0, 2))
             or (os.path.lexists(paths[1]) and not force_md)):
         raise FileExistsError('output paths must be distinct and absent; '
                               '--force-md permits Markdown only')
-    if any(str(spelling) in admitted['inputs'] for item in paths
-           for spelling in (item, item.resolve())):
+    if any(str(item.resolve()) in admitted['inputs'] for item in paths):
         raise ValueError('output overlaps an input')
     previous = paths[1].read_bytes() if paths[1].exists() else None
     data, created = _json_bytes(result), []

@@ -18,6 +18,7 @@ from tools import provenance as p
 from tools import results_table as rt
 from tools.exp07_profiles import get_profile, json_value
 from tools.exp07_record import load_asset
+from tools.paired_compare import producer_identity
 
 ROLES = ('seen_cyl', 'seen_aug', 'released_seen')
 
@@ -1411,3 +1412,48 @@ def test_the_documents_name_a_relocated_product_where_the_record_does(record_inp
     # and the archived bytes are still what the generators refuse to write over
     with pytest.raises(ValueError, match='output overlaps canonical input'):
         generators[0][0].main(argv(record_inputs, out=destination / 'TABLE_SEEN_V1.json'))
+
+
+# The one producer receipt this record has already published: the released-checkpoint
+# calibration ran before the trainings ended, so every later commit must leave the
+# closure it recorded -- `tools.exp07_calibration`, which imports `tools.exp07_table`
+# and through it `tools.exp07_record` -- exactly as it was, or its evidence is void.
+LIVE_SIDECAR = (Path(__file__).resolve().parents[1] /
+                'ckpt/exp07/results/CALIBRATION_SEEN_V1.json.provenance.json')
+live_only = pytest.mark.skipif(not LIVE_SIDECAR.is_file(),
+                               reason='the published calibration receipt is not on this disk')
+
+
+def published_calibration():
+    """The live receipt at the path it was published under, with its five runs."""
+    side = json.loads(LIVE_SIDECAR.read_text())
+    path = next(iter(side['outputs']))
+    return side, path, sorted(json.loads(Path(path).read_bytes())['run_flags'])
+
+
+@live_only
+def test_the_published_calibration_closure_is_the_one_this_branch_computes():
+    """A read-only check of the real sidecar: no fixture can stand in for this identity."""
+    side, _, _ = published_calibration()
+    assert producer_identity('tools.exp07_calibration')['sha256'] == side['producer']['sha256']
+
+
+@live_only
+def test_the_binder_still_accepts_the_published_calibration_receipt(monkeypatch):
+    """The whole gate over the real evidence: identity, operands, sidecar and closure."""
+    binder = load_asset('bind_provenance')
+    # The asset is imported the first time a test asks for it, and `admission_fixture`
+    # has replaced `tools.paired_compare.producer_identity` by then, so the name this
+    # module bound at its own import is a stub in a whole-file run.  This gate is about
+    # the identity the record really computes.
+    monkeypatch.setattr(binder, 'producer_identity', producer_identity)
+    side, path, runs = published_calibration()
+    manifest = json.loads((Path(runs[0]) / 'eval_manifest.json').read_text())
+    assert manifest['checkpoint_sha256'] == binder.RELEASED_SHA256
+    released = binder.stamp(manifest['checkpoint'], binder.RELEASED_SHA256)
+    records = [binder.run_record(item, [], released) for item in runs]
+    head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(binder.ROOT),
+                                   text=True).strip()
+    record = binder.calibration_record(binder.stamp(path), records, head)
+    assert record['runs'] == runs and sorted(record['metrics']) == ['C50', 'EDT', 'T60']
+    assert record['producer_closure_sha256'] == side['producer']['sha256']

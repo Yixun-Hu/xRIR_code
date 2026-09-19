@@ -183,6 +183,15 @@ place and keep each product beside its companion and its sidecar. Archive a dire
 never its individual files: an entry inside an attempt or run directory that resolves
 outside it is still refused, and so is any change to the bytes.
 
+`record_paths.py` holds the two path helpers this record needs -- `logical`, the absolute
+name a file is published under, and `identical`, the device-and-inode question "are these
+two names one file?" -- and the generators and the binder load it by path. They live here,
+not under `tools/`, because every module the producers import is inside a producer closure
+that has already been published: `tools.exp07_calibration` imports `tools.exp07_table`,
+which imports `tools.exp07_record`, and the calibration receipt in `ckpt/exp07/results`
+records that closure's digest. Changing a byte of any of them invalidates that evidence.
+The record's assets are in no closure, so they are where this record may still change.
+
 Run `bash static_checks.sh` from this directory or by its full path: it compiles the assets
 and the exp_07 producers, checks whitespace, and runs the exp_07 suite plus the record-tool
 tests in both collection orders (exp_03, exp_04, exp_05 and exp_07 ship files of the same

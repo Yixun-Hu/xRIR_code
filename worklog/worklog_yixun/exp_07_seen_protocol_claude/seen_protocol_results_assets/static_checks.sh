@@ -11,7 +11,7 @@ tools/exp07_manifests.py tools/exp07_calibration.py tools/exp07_parity.py"
 record_python=/home/yixunhu/miniconda3/envs/xRIR/bin/python
 record_status=0
 "$record_python" -c 'import py_compile,sys,tempfile; cache=tempfile.TemporaryDirectory(); [py_compile.compile(p,cfile=cache.name+"/"+str(i)+".pyc",doraise=True) for i,p in enumerate(sys.argv[1:])]' \
-    "$record_assets"/{make_results_md,make_results_html,make_latex,bind_provenance,check_record}.py \
+    "$record_assets"/{make_results_md,make_results_html,make_latex,bind_provenance,check_record,record_paths}.py \
     $record_producers || record_status=1
 git diff --check -- "$record_assets" $record_producers tools/exp07_launch.sh || record_status=1
 bash -n tools/exp07_launch.sh || record_status=1

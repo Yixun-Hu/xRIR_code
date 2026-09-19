@@ -41,11 +41,13 @@ from tools.exp04_record import load_asset as exp04_asset
 from tools.exp07_eval_launch import OUTPUTS as EVAL_OUTPUTS, SPLIT_FIELDS
 from tools.exp07_profiles import (ARMS, EVAL_SEEDS, RELEASED_SHA256, get_profile,
                                   load_approved_digests)
-from tools.exp07_record import identical, load_asset, logical
+from tools.exp07_record import load_asset
 from tools.paired_compare import _closure_digest, producer_identity
 
 binder = exp04_asset('bind_provenance')
 md = load_asset('make_results_md')
+record_paths = load_asset('record_paths')
+identical, logical = record_paths.identical, record_paths.logical
 ROOT, require = binder.ROOT, binder.require
 check_ancestor, report_path = binder.check_ancestor, binder.report_path
 TRAINING = ('train_args', 'train_manifest', 'train_completion')

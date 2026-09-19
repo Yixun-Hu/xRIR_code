@@ -14,9 +14,10 @@ import subprocess
 from pathlib import Path
 
 from tools.exp04_record import load_asset
-from tools.exp07_record import logical
+from tools.exp07_record import load_asset as exp07_asset
 
 exp04 = load_asset('make_results_md')
+logical = exp07_asset('record_paths').logical
 display, percent, sha = exp04.display, exp04.percent, exp04.sha
 
 REPO = Path(__file__).resolve().parents[4]
