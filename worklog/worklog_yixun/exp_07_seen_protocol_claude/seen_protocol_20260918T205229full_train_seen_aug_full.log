@@ -143,3 +143,119 @@ Train Epoch: 1 [5200/9265]  loss 0.0117 (stft 0.0052, decay 0.0065)  36.0 samp/s
 Train Epoch: 1 [5250/9265]  loss 0.0153 (stft 0.0039, decay 0.0114)  36.0 samp/s  eta 61.3 min  lr 1.00e-03
 Train Epoch: 1 [5300/9265]  loss 0.0146 (stft 0.0049, decay 0.0097)  36.2 samp/s  eta 60.5 min  lr 1.00e-03
 Train Epoch: 1 [5350/9265]  loss 0.0143 (stft 0.0053, decay 0.0089)  36.2 samp/s  eta 59.7 min  lr 1.00e-03
+Train Epoch: 1 [5400/9265]  loss 0.0131 (stft 0.0054, decay 0.0077)  36.2 samp/s  eta 58.9 min  lr 1.00e-03
+Train Epoch: 1 [5450/9265]  loss 0.0134 (stft 0.0044, decay 0.0091)  36.0 samp/s  eta 58.2 min  lr 1.00e-03
+Train Epoch: 1 [5500/9265]  loss 0.0170 (stft 0.0051, decay 0.0118)  36.2 samp/s  eta 57.4 min  lr 1.00e-03
+Train Epoch: 1 [5550/9265]  loss 0.0142 (stft 0.0046, decay 0.0095)  36.1 samp/s  eta 56.6 min  lr 1.00e-03
+Train Epoch: 1 [5600/9265]  loss 0.0138 (stft 0.0041, decay 0.0098)  36.1 samp/s  eta 55.8 min  lr 1.00e-03
+Train Epoch: 1 [5650/9265]  loss 0.0177 (stft 0.0040, decay 0.0138)  36.1 samp/s  eta 55.0 min  lr 1.00e-03
+Train Epoch: 1 [5700/9265]  loss 0.0120 (stft 0.0039, decay 0.0081)  36.0 samp/s  eta 54.3 min  lr 1.00e-03
+Train Epoch: 1 [5750/9265]  loss 0.0137 (stft 0.0037, decay 0.0100)  35.7 samp/s  eta 53.5 min  lr 1.00e-03
+Train Epoch: 1 [5800/9265]  loss 0.0127 (stft 0.0049, decay 0.0078)  35.9 samp/s  eta 52.7 min  lr 1.00e-03
+Train Epoch: 1 [5850/9265]  loss 0.0141 (stft 0.0049, decay 0.0091)  35.9 samp/s  eta 52.0 min  lr 1.00e-03
+Train Epoch: 1 [5900/9265]  loss 0.0153 (stft 0.0048, decay 0.0104)  35.9 samp/s  eta 51.2 min  lr 1.00e-03
+Train Epoch: 1 [5950/9265]  loss 0.0143 (stft 0.0040, decay 0.0103)  36.1 samp/s  eta 50.4 min  lr 1.00e-03
+Train Epoch: 1 [6000/9265]  loss 0.0159 (stft 0.0033, decay 0.0127)  36.1 samp/s  eta 49.6 min  lr 1.00e-03
+Train Epoch: 1 [6050/9265]  loss 0.0177 (stft 0.0040, decay 0.0137)  36.1 samp/s  eta 48.9 min  lr 1.00e-03
+Train Epoch: 1 [6100/9265]  loss 0.0127 (stft 0.0048, decay 0.0079)  35.2 samp/s  eta 48.1 min  lr 1.00e-03
+Train Epoch: 1 [6150/9265]  loss 0.0127 (stft 0.0042, decay 0.0085)  34.2 samp/s  eta 47.4 min  lr 1.00e-03
+Train Epoch: 1 [6200/9265]  loss 0.0129 (stft 0.0052, decay 0.0078)  33.3 samp/s  eta 46.6 min  lr 1.00e-03
+Train Epoch: 1 [6250/9265]  loss 0.0137 (stft 0.0047, decay 0.0090)  33.4 samp/s  eta 45.9 min  lr 1.00e-03
+Train Epoch: 1 [6300/9265]  loss 0.0178 (stft 0.0040, decay 0.0139)  33.8 samp/s  eta 45.1 min  lr 1.00e-03
+Train Epoch: 1 [6350/9265]  loss 0.0125 (stft 0.0046, decay 0.0079)  33.8 samp/s  eta 44.4 min  lr 1.00e-03
+Train Epoch: 1 [6400/9265]  loss 0.0164 (stft 0.0054, decay 0.0110)  34.2 samp/s  eta 43.6 min  lr 1.00e-03
+Train Epoch: 1 [6450/9265]  loss 0.0130 (stft 0.0041, decay 0.0089)  34.1 samp/s  eta 42.9 min  lr 1.00e-03
+Train Epoch: 1 [6500/9265]  loss 0.0159 (stft 0.0038, decay 0.0122)  34.0 samp/s  eta 42.1 min  lr 1.00e-03
+Train Epoch: 1 [6550/9265]  loss 0.0154 (stft 0.0047, decay 0.0106)  33.9 samp/s  eta 41.4 min  lr 1.00e-03
+Train Epoch: 1 [6600/9265]  loss 0.0139 (stft 0.0051, decay 0.0088)  34.2 samp/s  eta 40.6 min  lr 1.00e-03
+Train Epoch: 1 [6650/9265]  loss 0.0172 (stft 0.0042, decay 0.0130)  34.4 samp/s  eta 39.9 min  lr 1.00e-03
+Train Epoch: 1 [6700/9265]  loss 0.0149 (stft 0.0045, decay 0.0103)  34.3 samp/s  eta 39.1 min  lr 1.00e-03
+Train Epoch: 1 [6750/9265]  loss 0.0173 (stft 0.0042, decay 0.0131)  34.1 samp/s  eta 38.3 min  lr 1.00e-03
+Train Epoch: 1 [6800/9265]  loss 0.0156 (stft 0.0046, decay 0.0109)  35.8 samp/s  eta 37.6 min  lr 1.00e-03
+Train Epoch: 1 [6850/9265]  loss 0.0142 (stft 0.0044, decay 0.0098)  35.9 samp/s  eta 36.8 min  lr 1.00e-03
+Train Epoch: 1 [6900/9265]  loss 0.0149 (stft 0.0049, decay 0.0101)  34.9 samp/s  eta 36.0 min  lr 1.00e-03
+Train Epoch: 1 [6950/9265]  loss 0.0147 (stft 0.0045, decay 0.0102)  34.1 samp/s  eta 35.3 min  lr 1.00e-03
+Train Epoch: 1 [7000/9265]  loss 0.0133 (stft 0.0045, decay 0.0089)  33.5 samp/s  eta 34.5 min  lr 1.00e-03
+Train Epoch: 1 [7050/9265]  loss 0.0156 (stft 0.0047, decay 0.0109)  33.2 samp/s  eta 33.8 min  lr 1.00e-03
+Train Epoch: 1 [7100/9265]  loss 0.0144 (stft 0.0047, decay 0.0098)  33.2 samp/s  eta 33.0 min  lr 1.00e-03
+Train Epoch: 1 [7150/9265]  loss 0.0137 (stft 0.0040, decay 0.0097)  33.9 samp/s  eta 32.3 min  lr 1.00e-03
+Train Epoch: 1 [7200/9265]  loss 0.0143 (stft 0.0046, decay 0.0096)  34.1 samp/s  eta 31.5 min  lr 1.00e-03
+Train Epoch: 1 [7250/9265]  loss 0.0157 (stft 0.0043, decay 0.0114)  34.2 samp/s  eta 30.8 min  lr 1.00e-03
+Train Epoch: 1 [7300/9265]  loss 0.0133 (stft 0.0043, decay 0.0090)  34.0 samp/s  eta 30.0 min  lr 1.00e-03
+Train Epoch: 1 [7350/9265]  loss 0.0137 (stft 0.0037, decay 0.0099)  33.6 samp/s  eta 29.2 min  lr 1.00e-03
+Train Epoch: 1 [7400/9265]  loss 0.0155 (stft 0.0041, decay 0.0114)  33.8 samp/s  eta 28.5 min  lr 1.00e-03
+Train Epoch: 1 [7450/9265]  loss 0.0173 (stft 0.0044, decay 0.0128)  34.2 samp/s  eta 27.7 min  lr 1.00e-03
+Train Epoch: 1 [7500/9265]  loss 0.0136 (stft 0.0049, decay 0.0087)  34.4 samp/s  eta 27.0 min  lr 1.00e-03
+Train Epoch: 1 [7550/9265]  loss 0.0138 (stft 0.0043, decay 0.0095)  33.5 samp/s  eta 26.2 min  lr 1.00e-03
+Train Epoch: 1 [7600/9265]  loss 0.0132 (stft 0.0042, decay 0.0090)  36.0 samp/s  eta 25.4 min  lr 1.00e-03
+Train Epoch: 1 [7650/9265]  loss 0.0153 (stft 0.0051, decay 0.0102)  36.1 samp/s  eta 24.7 min  lr 1.00e-03
+Train Epoch: 1 [7700/9265]  loss 0.0133 (stft 0.0048, decay 0.0085)  36.1 samp/s  eta 23.9 min  lr 1.00e-03
+Train Epoch: 1 [7750/9265]  loss 0.0134 (stft 0.0046, decay 0.0088)  36.2 samp/s  eta 23.1 min  lr 1.00e-03
+Train Epoch: 1 [7800/9265]  loss 0.0127 (stft 0.0045, decay 0.0082)  36.1 samp/s  eta 22.4 min  lr 1.00e-03
+Train Epoch: 1 [7850/9265]  loss 0.0154 (stft 0.0048, decay 0.0106)  36.3 samp/s  eta 21.6 min  lr 1.00e-03
+Train Epoch: 1 [7900/9265]  loss 0.0140 (stft 0.0039, decay 0.0101)  36.4 samp/s  eta 20.8 min  lr 1.00e-03
+Train Epoch: 1 [7950/9265]  loss 0.0144 (stft 0.0050, decay 0.0094)  36.3 samp/s  eta 20.1 min  lr 1.00e-03
+Train Epoch: 1 [8000/9265]  loss 0.0154 (stft 0.0045, decay 0.0109)  36.3 samp/s  eta 19.3 min  lr 1.00e-03
+Train Epoch: 1 [8050/9265]  loss 0.0130 (stft 0.0046, decay 0.0084)  36.3 samp/s  eta 18.5 min  lr 1.00e-03
+Train Epoch: 1 [8100/9265]  loss 0.0140 (stft 0.0044, decay 0.0096)  36.5 samp/s  eta 17.8 min  lr 1.00e-03
+Train Epoch: 1 [8150/9265]  loss 0.0128 (stft 0.0047, decay 0.0081)  36.4 samp/s  eta 17.0 min  lr 1.00e-03
+Train Epoch: 1 [8200/9265]  loss 0.0153 (stft 0.0048, decay 0.0104)  36.4 samp/s  eta 16.2 min  lr 1.00e-03
+Train Epoch: 1 [8250/9265]  loss 0.0136 (stft 0.0041, decay 0.0095)  36.4 samp/s  eta 15.5 min  lr 1.00e-03
+Train Epoch: 1 [8300/9265]  loss 0.0141 (stft 0.0042, decay 0.0100)  36.4 samp/s  eta 14.7 min  lr 1.00e-03
+Train Epoch: 1 [8350/9265]  loss 0.0149 (stft 0.0043, decay 0.0105)  36.3 samp/s  eta 13.9 min  lr 1.00e-03
+Train Epoch: 1 [8400/9265]  loss 0.0144 (stft 0.0051, decay 0.0093)  36.3 samp/s  eta 13.2 min  lr 1.00e-03
+Train Epoch: 1 [8450/9265]  loss 0.0139 (stft 0.0041, decay 0.0098)  36.3 samp/s  eta 12.4 min  lr 1.00e-03
+Train Epoch: 1 [8500/9265]  loss 0.0125 (stft 0.0044, decay 0.0081)  36.4 samp/s  eta 11.6 min  lr 1.00e-03
+Train Epoch: 1 [8550/9265]  loss 0.0153 (stft 0.0044, decay 0.0108)  36.3 samp/s  eta 10.9 min  lr 1.00e-03
+Train Epoch: 1 [8600/9265]  loss 0.0133 (stft 0.0035, decay 0.0097)  36.3 samp/s  eta 10.1 min  lr 1.00e-03
+Train Epoch: 1 [8650/9265]  loss 0.0202 (stft 0.0044, decay 0.0158)  36.3 samp/s  eta 9.3 min  lr 1.00e-03
+Train Epoch: 1 [8700/9265]  loss 0.0138 (stft 0.0052, decay 0.0086)  36.4 samp/s  eta 8.6 min  lr 1.00e-03
+Train Epoch: 1 [8750/9265]  loss 0.0176 (stft 0.0036, decay 0.0140)  36.3 samp/s  eta 7.8 min  lr 1.00e-03
+Train Epoch: 1 [8800/9265]  loss 0.0144 (stft 0.0040, decay 0.0103)  36.3 samp/s  eta 7.1 min  lr 1.00e-03
+Train Epoch: 1 [8850/9265]  loss 0.0151 (stft 0.0036, decay 0.0114)  36.2 samp/s  eta 6.3 min  lr 1.00e-03
+Train Epoch: 1 [8900/9265]  loss 0.0162 (stft 0.0049, decay 0.0112)  36.1 samp/s  eta 5.5 min  lr 1.00e-03
+Train Epoch: 1 [8950/9265]  loss 0.0152 (stft 0.0056, decay 0.0096)  36.3 samp/s  eta 4.8 min  lr 1.00e-03
+Train Epoch: 1 [9000/9265]  loss 0.0129 (stft 0.0051, decay 0.0078)  36.2 samp/s  eta 4.0 min  lr 1.00e-03
+Train Epoch: 1 [9050/9265]  loss 0.0120 (stft 0.0040, decay 0.0080)  36.2 samp/s  eta 3.3 min  lr 1.00e-03
+Train Epoch: 1 [9100/9265]  loss 0.0156 (stft 0.0041, decay 0.0115)  36.1 samp/s  eta 2.5 min  lr 1.00e-03
+Train Epoch: 1 [9150/9265]  loss 0.0148 (stft 0.0043, decay 0.0105)  36.1 samp/s  eta 1.7 min  lr 1.00e-03
+Train Epoch: 1 [9200/9265]  loss 0.0120 (stft 0.0045, decay 0.0075)  36.0 samp/s  eta 1.0 min  lr 1.00e-03
+Train Epoch: 1 [9250/9265]  loss 0.0125 (stft 0.0042, decay 0.0083)  36.3 samp/s  eta 0.2 min  lr 1.00e-03
+Train Epoch: 1, Avg Train Loss: 0.01611 (stft 0.00488, decay 0.01122), 140.7 min
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+Test set (epoch 1): Average loss: 0.01789 over 195 batches
+epoch 1 done in 141.9 min; best test loss 0.01789 (new best)
+Train Epoch: 2 [0/9265]  loss 0.0122 (stft 0.0049, decay 0.0073)  nan samp/s  eta 245.7 min  lr 4.64e-04
+Train Epoch: 2 [50/9265]  loss 0.0116 (stft 0.0036, decay 0.0080)  36.4 samp/s  eta 137.1 min  lr 4.64e-04
+Train Epoch: 2 [100/9265]  loss 0.0124 (stft 0.0046, decay 0.0079)  36.2 samp/s  eta 135.8 min  lr 4.64e-04
+Train Epoch: 2 [150/9265]  loss 0.0124 (stft 0.0047, decay 0.0077)  36.2 samp/s  eta 134.8 min  lr 4.64e-04
+Train Epoch: 2 [200/9265]  loss 0.0157 (stft 0.0047, decay 0.0110)  36.2 samp/s  eta 133.9 min  lr 4.64e-04
+Train Epoch: 2 [250/9265]  loss 0.0134 (stft 0.0041, decay 0.0093)  36.1 samp/s  eta 133.2 min  lr 4.64e-04
+Train Epoch: 2 [300/9265]  loss 0.0140 (stft 0.0046, decay 0.0094)  36.3 samp/s  eta 132.3 min  lr 4.64e-04
+Train Epoch: 2 [350/9265]  loss 0.0127 (stft 0.0042, decay 0.0085)  36.3 samp/s  eta 131.5 min  lr 4.64e-04
+Train Epoch: 2 [400/9265]  loss 0.0120 (stft 0.0041, decay 0.0079)  36.4 samp/s  eta 130.6 min  lr 4.64e-04
+Train Epoch: 2 [450/9265]  loss 0.0114 (stft 0.0043, decay 0.0071)  36.5 samp/s  eta 129.8 min  lr 4.64e-04
+Train Epoch: 2 [500/9265]  loss 0.0141 (stft 0.0038, decay 0.0103)  36.4 samp/s  eta 129.0 min  lr 4.64e-04
