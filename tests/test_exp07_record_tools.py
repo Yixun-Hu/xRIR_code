@@ -1393,12 +1393,20 @@ def hardlink_checkpoint(bound, destination, role='seen_simple'):
 
 
 def test_a_final_symlink_repointed_at_a_hardlinked_checkpoint_is_refused(bound, tmp_path):
-    """The pinned inode does not say which directory the arm promoted; `final` does."""
+    """The pinned inode does not say which directory the arm promoted; `final` does.
+
+    Exactly the round-11 reproduction: a valid report is saved first, so this is also
+    what `check_record.py` has to say about the record it already wrote.
+    """
+    checker = load_asset('check_record')
+    write_report(bound)
     _, final = hardlink_checkpoint(bound, tmp_path / 'elsewhere')
     final.unlink()
     final.symlink_to(tmp_path / 'elsewhere', target_is_directory=True)
-    with pytest.raises(ValueError, match='`final` does not name this attempt'):
-        bound.binder.collect(**bound.arguments)
+    for call in (lambda: bound.binder.collect(**bound.arguments),
+                 lambda: checker.main([str(bound.reports)])):
+        with pytest.raises(ValueError, match='`final` does not name this attempt'):
+            call()
 
 
 def test_an_ordinary_directory_in_place_of_final_is_refused(bound, tmp_path):
