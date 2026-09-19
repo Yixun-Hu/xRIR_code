@@ -1,0 +1,81 @@
+{
+  "allow_dirty_used": false,
+  "command": [
+    "/home/yixunhu/miniconda3/envs/xRIR/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "-o",
+    "addopts=",
+    "--junitxml=worklog/worklog_yixun/exp_07_seen_protocol_claude/gpu_parity_8273943aa7598145082c0500fc393332c30bd6cc.junit.xml",
+    "tests/test_exp07_trainer.py::test_unseen_step_bit_identical_to_the_trainer[False-simple-32]",
+    "tests/test_exp07_trainer.py::test_unseen_step_bit_identical_to_the_trainer[False-cylindrical-32]",
+    "tests/test_exp07_trainer.py::test_unseen_step_bit_identical_to_the_trainer[True-simple-32]",
+    "tests/test_exp07_trainer.py::test_unseen_step_bit_identical_to_the_trainer[True-cylindrical-32]",
+    "tests/test_exp07_eval_gpu.py::test_unseen_32_query_run_is_bit_identical_to_exp04",
+    "tests/test_exp07_eval_gpu.py::test_seen_final_batch_matches_a_direct_frozen_call[8]",
+    "tests/test_exp07_eval_gpu.py::test_seen_final_batch_matches_a_direct_frozen_call[1]",
+    "tests/test_exp07_eval_gpu.py::test_the_launcher_runs_the_seen_split_and_matches_the_frozen_functions[8]",
+    "tests/test_exp07_eval_gpu.py::test_the_launcher_runs_the_seen_split_and_matches_the_frozen_functions[1]"
+  ],
+  "cuda_device": "NVIDIA RTX A6000",
+  "environment": {
+    "cuda": "11.7",
+    "cudnn": 8500,
+    "driver": [
+      "590.48.01",
+      "590.48.01"
+    ],
+    "einops": "0.7.0",
+    "executable": "/home/yixunhu/miniconda3/envs/xRIR/bin/python",
+    "gpus": [
+      "NVIDIA RTX A6000",
+      "NVIDIA RTX A6000"
+    ],
+    "host": "CAB-Lab-Server-8",
+    "numpy": "1.23.5",
+    "python": "3.8.20",
+    "scipy": "1.10.0",
+    "torch": "2.0.1+cu117",
+    "torchaudio": "2.0.2+cu117",
+    "torchvision": "0.15.2+cu117"
+  },
+  "git_head": "8273943aa7598145082c0500fc393332c30bd6cc",
+  "git_state": {
+    "HEAD": "8273943aa7598145082c0500fc393332c30bd6cc",
+    "diff_sha256": "15a0096ea08462aeb7119fee79f701df6e47bb9cfe21c8bd28b91e4cdd7fbd72",
+    "dirty": true,
+    "dirty_outside_worklog": false,
+    "untracked": [
+      "worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_20260916T100941_pretrain_phase_gpu1.log"
+    ]
+  },
+  "gpu": "1",
+  "junit": {
+    "path": "/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/gpu_parity_8273943aa7598145082c0500fc393332c30bd6cc.junit.xml",
+    "sha256": "ddb8c98c6fbc7d9b2444d18dad2e30d437587a852e5a7015b1b22d534a449efd"
+  },
+  "log": {
+    "path": "/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/gpu_parity_8273943aa7598145082c0500fc393332c30bd6cc.log",
+    "sha256": "6977feba6b2e5c9341046d4ddc02ad5675d490f31a24acbd3315b0876efdd894"
+  },
+  "n_tests": 9,
+  "passed": true,
+  "pytest_exit": 0,
+  "python": "/home/yixunhu/miniconda3/envs/xRIR/bin/python",
+  "reviewed_commit": "8273943aa7598145082c0500fc393332c30bd6cc",
+  "schema_version": 1,
+  "tests": {
+    "tests/test_exp07_eval_gpu.py::test_seen_final_batch_matches_a_direct_frozen_call[1]": "passed",
+    "tests/test_exp07_eval_gpu.py::test_seen_final_batch_matches_a_direct_frozen_call[8]": "passed",
+    "tests/test_exp07_eval_gpu.py::test_the_launcher_runs_the_seen_split_and_matches_the_frozen_functions[1]": "passed",
+    "tests/test_exp07_eval_gpu.py::test_the_launcher_runs_the_seen_split_and_matches_the_frozen_functions[8]": "passed",
+    "tests/test_exp07_eval_gpu.py::test_unseen_32_query_run_is_bit_identical_to_exp04": "passed",
+    "tests/test_exp07_trainer.py::test_unseen_step_bit_identical_to_the_trainer[False-cylindrical-32]": "passed",
+    "tests/test_exp07_trainer.py::test_unseen_step_bit_identical_to_the_trainer[False-simple-32]": "passed",
+    "tests/test_exp07_trainer.py::test_unseen_step_bit_identical_to_the_trainer[True-cylindrical-32]": "passed",
+    "tests/test_exp07_trainer.py::test_unseen_step_bit_identical_to_the_trainer[True-simple-32]": "passed"
+  }
+}

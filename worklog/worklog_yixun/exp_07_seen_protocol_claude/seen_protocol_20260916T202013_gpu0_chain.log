@@ -1,0 +1,152 @@
+2026-09-16T20:20:13-04:00 CHAIN START pid 3299231
+2026-09-16T23:46:14-04:00 STEP L_simple certified -> attempt_20260915T060543
+2026-09-16T23:46:14-04:00 STEP GPU 0 free
+2026-09-16T23:46:14-04:00 STEP exp05 evals start reviewed=3e2c28b73db03e84b8cb86f05fbdecf862cfc599
+worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_20260916T234614_eval_queue_gpu0.log
+2026-09-17T03:45:40-04:00 STEP exp05 evals exit=0
+2026-09-17T03:45:40-04:00 STEP seen_simple smoke reviewed=076cd4072bc3d5349914cb0eff1775cb6730f829 stamp=20260917T034540
+Hashing training data identity...
+6217 296454
+EXP04_SPAWN {"child_exit_status": null, "child_pgid": 3603624, "spawn_execution_sha256": "a5ac16a5d7869935ead5932cf88c4ab642ee83f22632c7c44255a6e7b567dabb", "train_manifest_sha256": "08f2d01d2ec75942f55be973507cbcdb1b470a0bd91d986befd4d78a6c8b5164"}
+6217 296454
+6217 296454
+train samples: 296454  test samples: 6217
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+XRIR_RUNTIME_ARGS {"accum_steps": 2, "backbone": "simple", "batch_size": 4, "decay_epochs": 3, "env": {"CUDA_VISIBLE_DEVICES": "0", "OMP_NUM_THREADS": "2", "PYTHONHASHSEED": "0", "XRIR_DATA_PATH": "/home/yixunhu/data_cache/AcousticRooms"}, "epoch_ckpt_every": 0, "epochs": 1, "log_interval": 1, "lr": 0.001, "lr_gamma": 0.1, "max_len": 9600, "max_test_batches": 2, "max_train_batches": 3, "no_save": true, "num_shot": 8, "num_workers": 4, "param_counts": {"encoder": 19703296, "full": 32075965, "non_encoder": 12372669, "trainable": 32075945}, "protocol": "seen", "resume": null, "save_dir": "ckpt/exp07/seen_simple/_smoke_20260917T034540smoke/smoke", "save_every": 0, "seed": 0, "test_subset": 0, "tf32": true, "tier": "M", "train_batches_per_epoch": 74114, "vit_depth": 12, "vit_dim": 512, "vit_heads": 8, "vit_mlp_dim": 512, "weight_decay": 0.0001, "yaw_aug": 0, "yaw_aug_seed": 0, "yaw_aug_width": 512}
+backbone: simple  params: 32.08M  model size: 122.4MB
+yaw_aug DISABLED
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:641: UserWarning: stft with return_complex=False is deprecated. In a future pytorch release, stft will return complex tensors for all inputs, and return_complex=False will raise an error.
+Note: you can still call torch.view_as_real on the complex output to recover the old return format. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:862.)
+  return _VF.stft(input, n_fft, hop_length, win_length, window,  # type: ignore[attr-defined]
+Train Epoch: 1 [0/3]  loss 1.1921 (stft 0.9941, decay 0.1981)  nan samp/s  eta 0.1 min  lr 1.00e-03
+Train Epoch: 1 [1/3]  loss 1.1627 (stft 1.0002, decay 0.1625)  13.5 samp/s  eta 0.0 min  lr 1.00e-03
+Train Epoch: 1 [2/3]  loss 0.7775 (stft 0.5741, decay 0.2034)  14.9 samp/s  eta 0.0 min  lr 1.00e-03
+Train Epoch: 1, Avg Train Loss: 1.04412 (stft 0.85614, decay 0.18798), 0.0 min
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+Test set (epoch 1): Average loss: 0.19997 over 2 batches
+Revalidating training inputs after log close...
+{"directory_listing": {"effective_args.json": "c0c5746848c3506a3d43167fcf1f8a28419f9e602e8077758ebea3933b0fc3c5", "execution.json": "4aef4bace2aadbbef1ffac5c8f4e41a7c79fea1c961b41f2ff99e1f694d395bd", "train_inventory.json": "705a1299a6b95388016886b9fe0c52eb579980f1c883a8b2979c40476f99e2ce", "train_manifest.json": "08f2d01d2ec75942f55be973507cbcdb1b470a0bd91d986befd4d78a6c8b5164"}, "log": {"path": "/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_20260917T034540smoke_train_seen_simple_smoke.log", "sha256": "e426027d90434f3177a3837f629631887e4d331c509b69897d12e8ff69d2db38"}, "metrics": {"banner": true, "probe": null, "test_loss": 0.19997, "train_losses": [1.1921, 1.1627, 0.7775]}, "outputs": {}, "resource_before": {"compute_apps": "", "disk_free_gib": 56.3680534362793, "free_gib": 47.3935546875, "gpu": "0", "query_gpu": "GPU-9c72ac69-836a-c2ee-89b7-4b51b68317a8, 48531, 0", "utilization_gpu": 0.0, "uuid": "GPU-9c72ac69-836a-c2ee-89b7-4b51b68317a8"}, "source_drift_after_spawn": [], "train_manifest_sha256": "08f2d01d2ec75942f55be973507cbcdb1b470a0bd91d986befd4d78a6c8b5164", "wall_hours": 0.019640215295625645}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+2026-09-17T03:46:53-04:00 STEP seen_simple smoke exit=0
+2026-09-17T03:46:53-04:00 STEP seen_simple probe
+Hashing training data identity...
+6217 296454
+EXP04_SPAWN {"child_exit_status": null, "child_pgid": 3604882, "spawn_execution_sha256": "d17568e03c6b769f19e5723a5c7e3464b427cea39b46ebf291f2113be7a71c32", "train_manifest_sha256": "24ca98a9dc84e82aef31b7ef7823371ddef17831a2ad5eeeb3a7b408538ff513"}
+6217 296454
+6217 296454
+train samples: 296454  test samples: 6217
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+XRIR_RUNTIME_ARGS {"accum_steps": 2, "backbone": "simple", "batch_size": 32, "decay_epochs": 3, "env": {"CUDA_VISIBLE_DEVICES": "0", "OMP_NUM_THREADS": "2", "PYTHONHASHSEED": "0", "XRIR_DATA_PATH": "/home/yixunhu/data_cache/AcousticRooms"}, "epoch_ckpt_every": 0, "epochs": 1, "log_interval": 50, "lr": 0.001, "lr_gamma": 0.1, "max_len": 9600, "max_test_batches": 0, "max_train_batches": 60, "no_save": true, "num_shot": 8, "num_workers": 12, "param_counts": {"encoder": 19703296, "full": 32075965, "non_encoder": 12372669, "trainable": 32075945}, "protocol": "seen", "resume": null, "save_dir": "ckpt/exp07/seen_simple/_probe_20260917T034540probe_arm", "save_every": 0, "seed": 0, "test_subset": 0, "tf32": true, "tier": "M", "train_batches_per_epoch": 9265, "vit_depth": 12, "vit_dim": 512, "vit_heads": 8, "vit_mlp_dim": 512, "weight_decay": 0.0001, "yaw_aug": 0, "yaw_aug_seed": 0, "yaw_aug_width": 512}
+backbone: simple  params: 32.08M  model size: 122.4MB
+yaw_aug DISABLED
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:641: UserWarning: stft with return_complex=False is deprecated. In a future pytorch release, stft will return complex tensors for all inputs, and return_complex=False will raise an error.
+Note: you can still call torch.view_as_real on the complex output to recover the old return format. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:862.)
+  return _VF.stft(input, n_fft, hop_length, win_length, window,  # type: ignore[attr-defined]
+Train Epoch: 1 [0/60]  loss 1.1778 (stft 0.9983, decay 0.1795)  nan samp/s  eta 4.4 min  lr 1.00e-03
+Train Epoch: 1 [50/60]  loss 0.0315 (stft 0.0066, decay 0.0249)  37.0 samp/s  eta 0.1 min  lr 1.00e-03
+Train Epoch: 1, Avg Train Loss: 0.12510 (stft 0.07146, decay 0.05364), 0.9 min
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+Test set (epoch 1): Average loss: 0.03039 over 195 batches
+EXP07_PROBE_RESULT {"tier": "M", "backbone": "simple", "protocol": "seen", "yaw_aug": 0, "batch_size": 32, "accum_steps": 2, "warmup_micro_batches": 10, "timed_micro_batches": 50, "iteration_seconds": [0.8587739979848266, 0.8643361399881542, 0.8558705160394311, 0.8594465591013432, 0.8617917308583856, 0.8643722753040493, 0.8610472329892218, 0.8694150778464973, 0.8631680272519588, 0.8643521671183407, 0.8641315279528499, 0.8654933413490653, 0.8649841323494911, 0.8654523203149438, 0.86791001399979, 0.8696496319025755, 0.8628895790316164, 0.8678170801140368, 0.8612623978406191, 0.869338579941541, 0.8661232846789062, 0.8690075911581516, 0.862138879019767, 0.8709330279380083, 0.8653934812173247, 0.8704025419428945, 0.8636185228824615, 0.8659841353073716, 0.8654968701303005, 0.8693369561806321, 0.8668500618077815, 0.8694665697403252, 0.8642683611251414, 0.8686281549744308, 0.8649186310358346, 0.8697617151774466, 0.8666003360413015, 0.8700038311071694, 0.865487742703408, 0.8693855432793498, 0.8692021598108113, 0.8759824801236391, 0.8690142864361405, 0.8696140153333545, 0.8647184199653566, 0.8710148809477687, 0.8672270458191633, 0.8727092980407178, 0.8680264879949391, 0.8706605480983853], "median_iteration_seconds": 0.8663618103601038, "min_iteration_seconds": 0.8558705160394311, "mean_iteration_seconds": 0.8664695637859404, "peak_allocated_bytes": 32916282880, "peak_reserved_bytes": 33051115520, "train_loss": 0.12509806584566832, "train_batches_per_epoch": 9265, "t_micro": {"mean": 0.8664695637859404, "median": 0.8663618103601038, "min": 0.8558705160394311, "values": [0.8587739979848266, 0.8643361399881542, 0.8558705160394311, 0.8594465591013432, 0.8617917308583856, 0.8643722753040493, 0.8610472329892218, 0.8694150778464973, 0.8631680272519588, 0.8643521671183407, 0.8641315279528499, 0.8654933413490653, 0.8649841323494911, 0.8654523203149438, 0.86791001399979, 0.8696496319025755, 0.8628895790316164, 0.8678170801140368, 0.8612623978406191, 0.869338579941541, 0.8661232846789062, 0.8690075911581516, 0.862138879019767, 0.8709330279380083, 0.8653934812173247, 0.8704025419428945, 0.8636185228824615, 0.8659841353073716, 0.8654968701303005, 0.8693369561806321, 0.8668500618077815, 0.8694665697403252, 0.8642683611251414, 0.8686281549744308, 0.8649186310358346, 0.8697617151774466, 0.8666003360413015, 0.8700038311071694, 0.865487742703408, 0.8693855432793498, 0.8692021598108113, 0.8759824801236391, 0.8690142864361405, 0.8696140153333545, 0.8647184199653566, 0.8710148809477687, 0.8672270458191633, 0.8727092980407178, 0.8680264879949391, 0.8706605480983853]}, "t_test": 70.29230638034642, "test_batches_timed": 195, "test_batches_total": 195, "test_timing_protocol": "full_test_loader", "t_save": 0.8821855131536722, "T_epoch": 8099.015000370238, "T_run": 97188.18000444287, "passed": true}
+Revalidating training inputs after log close...
+{"PROBE_NOT_CLEAN": false, "T_epoch": 8099.015000370238, "T_run": 97188.18000444287, "accum_steps": 2, "after": {"compute_apps": "", "free_gib": 47.390625, "gpu": "0", "query_gpu": "GPU-9c72ac69-836a-c2ee-89b7-4b51b68317a8, 48528, 0", "utilization_gpu": 0.0, "uuid": "GPU-9c72ac69-836a-c2ee-89b7-4b51b68317a8"}, "arms_before": [{"compute_apps": "", "disk_free_gib": 56.29951095581055, "free_gib": 47.3935546875, "gpu": "0", "query_gpu": "GPU-9c72ac69-836a-c2ee-89b7-4b51b68317a8, 48531, 0", "utilization_gpu": 0.0, "uuid": "GPU-9c72ac69-836a-c2ee-89b7-4b51b68317a8"}], "attempts": ["/home/yixunhu/codespace/xRIR_code/ckpt/exp07/seen_simple/_probe_20260917T034540probe_arm"], "backbone": "simple", "batch_size": 32, "before": {"compute_apps": "", "free_gib": 47.3935546875, "gpu": "0", "query_gpu": "GPU-9c72ac69-836a-c2ee-89b7-4b51b68317a8, 48531, 0", "utilization_gpu": 0.0, "uuid": "GPU-9c72ac69-836a-c2ee-89b7-4b51b68317a8"}, "gpu": "0", "iteration_seconds": [0.8587739979848266, 0.8643361399881542, 0.8558705160394311, 0.8594465591013432, 0.8617917308583856, 0.8643722753040493, 0.8610472329892218, 0.8694150778464973, 0.8631680272519588, 0.8643521671183407, 0.8641315279528499, 0.8654933413490653, 0.8649841323494911, 0.8654523203149438, 0.86791001399979, 0.8696496319025755, 0.8628895790316164, 0.8678170801140368, 0.8612623978406191, 0.869338579941541, 0.8661232846789062, 0.8690075911581516, 0.862138879019767, 0.8709330279380083, 0.8653934812173247, 0.8704025419428945, 0.8636185228824615, 0.8659841353073716, 0.8654968701303005, 0.8693369561806321, 0.8668500618077815, 0.8694665697403252, 0.8642683611251414, 0.8686281549744308, 0.8649186310358346, 0.8697617151774466, 0.8666003360413015, 0.8700038311071694, 0.865487742703408, 0.8693855432793498, 0.8692021598108113, 0.8759824801236391, 0.8690142864361405, 0.8696140153333545, 0.8647184199653566, 0.8710148809477687, 0.8672270458191633, 0.8727092980407178, 0.8680264879949391, 0.8706605480983853], "live_epoch_limit_seconds": 8503.96575038875, "live_epoch_limit_start": "banner", "mean_iteration_seconds": 0.8664695637859404, "median_iteration_seconds": 0.8663618103601038, "min_iteration_seconds": 0.8558705160394311, "passed": true, "peak_allocated_bytes": 32916282880, "peak_reserved_bytes": 33051115520, "probe_attempt": {"completion_sha256": "2d563f4f3d55234e5438b10e0d7731e4bb6b5a9e2293530cf9f377bdd2a12e36", "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp07/seen_simple/_probe_20260917T034540probe_arm", "train_manifest_sha256": "24ca98a9dc84e82aef31b7ef7823371ddef17831a2ad5eeeb3a7b408538ff513"}, "protocol": "seen", "reviewed_commit": "076cd4072bc3d5349914cb0eff1775cb6730f829", "schema_version": 1, "t_micro": {"mean": 0.8664695637859404, "median": 0.8663618103601038, "min": 0.8558705160394311, "values": [0.8587739979848266, 0.8643361399881542, 0.8558705160394311, 0.8594465591013432, 0.8617917308583856, 0.8643722753040493, 0.8610472329892218, 0.8694150778464973, 0.8631680272519588, 0.8643521671183407, 0.8641315279528499, 0.8654933413490653, 0.8649841323494911, 0.8654523203149438, 0.86791001399979, 0.8696496319025755, 0.8628895790316164, 0.8678170801140368, 0.8612623978406191, 0.869338579941541, 0.8661232846789062, 0.8690075911581516, 0.862138879019767, 0.8709330279380083, 0.8653934812173247, 0.8704025419428945, 0.8636185228824615, 0.8659841353073716, 0.8654968701303005, 0.8693369561806321, 0.8668500618077815, 0.8694665697403252, 0.8642683611251414, 0.8686281549744308, 0.8649186310358346, 0.8697617151774466, 0.8666003360413015, 0.8700038311071694, 0.865487742703408, 0.8693855432793498, 0.8692021598108113, 0.8759824801236391, 0.8690142864361405, 0.8696140153333545, 0.8647184199653566, 0.8710148809477687, 0.8672270458191633, 0.8727092980407178, 0.8680264879949391, 0.8706605480983853]}, "t_save": 0.8821855131536722, "t_test": 70.29230638034642, "test_batches_timed": 195, "test_batches_total": 195, "test_timing_protocol": "full_test_loader", "tier": "M", "timed_micro_batches": 50, "train_batches_per_epoch": 9265, "train_loss": 0.12509806584566832, "warmup_micro_batches": 10, "yaw_aug": 0}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+2026-09-17T03:50:11-04:00 STEP seen_simple probe exit=0
+2026-09-17T03:50:11-04:00 STEP seen_simple full launch receipt=ckpt/exp07/seen_simple/_probe_20260917T034540probe_seen_simple.json
+2026-09-18T09:38:26-04:00 STEP seen_simple full exit=0 final=attempt_20260917T034540full
+2026-09-18T09:38:26-04:00 STEP seen_cyl smoke reviewed=ddfcb66718a560b0a59c2e66176f391eeb2fc4ab stamp=20260918T093826
+ABORTED /home/yixunhu/codespace/xRIR_code/ckpt/exp07/seen_cyl/_smoke_20260918T093826smoke_ABORTED_setup_failed
+Traceback (most recent call last):
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/runpy.py", line 194, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/runpy.py", line 87, in _run_code
+    exec(code, run_globals)
+  File "/home/yixunhu/codespace/xRIR_code/tools/exp07_launcher.py", line 517, in <module>
+    main()
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/contextlib.py", line 75, in inner
+    return func(*args, **kwds)
+  File "/home/yixunhu/codespace/xRIR_code/tools/exp07_launcher.py", line 463, in main
+    result = base.execute_attempt(attempt, mode, args.gpu, log_dir / train_log,
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/contextlib.py", line 75, in inner
+    return func(*args, **kwds)
+  File "/home/yixunhu/codespace/xRIR_code/tools/exp04_launcher.py", line 726, in execute_attempt
+    before = resource_gate(gpu, attempt.parent, mode, allow_cotenant)
+  File "/home/yixunhu/codespace/xRIR_code/tools/exp04_launcher.py", line 161, in resource_gate
+    raise ValueError('checkpoint volume needs >= 50 GiB')
+ValueError: checkpoint volume needs >= 50 GiB
+2026-09-18T09:38:28-04:00 STEP seen_cyl smoke exit=1
+2026-09-18T09:38:28-04:00 CHAIN ABORT: seen_cyl smoke failed
