@@ -21,10 +21,12 @@ thirty cells; a CELL whose statistics have not both converged, that still asks f
 `n_boot`, that claims to drive a decision or carries a verdict, or whose pairing, grid,
 seed labels, quantiles, statistic set or cohort differ from its parent's; an unseen table
 whose digest is not the one exp_04's binding report recorded; a duplicate input; and an
-output path that overlaps ANY input -- a canonical JSON, a sidecar, an approval blob or
-the exp_04 binding report -- in any spelling, including a hardlink to one (an existing
-destination is compared with every protected input by device and inode, not only by
-resolved path).
+output path that overlaps ANY input -- a canonical JSON, a sidecar, an approval blob, the
+exp_04 binding report, or any file those products declare they were built from (a run's
+outputs, an arm's `args.json` and manifests, the data inventory) -- in any spelling,
+including a hardlink to one (an existing destination is compared with every protected
+input by device and inode, not only by resolved path, so an input archived between
+admission and publication is refused under both of its names).
 
 `tools/exp07_pairs.py --reconverge` is the registered publication retry: each flagged cell
 is recomputed once at the profile's `reconverge_n_boot` (40 000), the first attempt's
@@ -159,7 +161,52 @@ Order of operations (the Planner launch sequence; only the steps this directory 
    canonical JSONs, the rendered documents and the parity/calibration/audit evidence, then
    run `check_record.py` and keep its exit 0 with the report.
 
+## Archiving evidence after the record is bound
+
+A certified attempt directory may be moved off this disk -- to the NAS, say -- provided a
+**directory symlink** is left at the path the record published. Identity here is the
+logical path the approval, the manifests, the completions, the products' sidecars and the
+binding report all name, never the resolved one, so `check_record.py` and a fresh bind
+reproduce the report byte for byte after the move and a regenerated document names the
+published path. Digests are unaffected: the bytes are still read, and hashed, through
+that name. An attempt's published name is the one its launcher wrote into
+`train_manifest.json` as `attempt_path`, so binding `ckpt/exp07/<role>/final` and binding
+`ckpt/exp07/<role>/attempt_<ts>full` produce the same record; the approval pins each
+checkpoint through `final`, and the binder matches that pin to the attempt's own output
+by inode. `final` must still be the symlink the launcher promoted to that attempt: an
+inode identifies the checkpoint file, not the directory it was published in, so a
+hardlink of it under a repointed `final` -- or under an ordinary directory of that name
+-- is refused. Archiving does not disturb this; leave `final` naming the attempt's
+published name, which is the directory symlink the move leaves behind.
+
+The same holds for any ancestor: the arm directory (which keeps its `cumulative_hours.json`,
+its `_probe_*.json` receipts, its other attempts and its `final` symlink -- CIFS holds no
+symlinks, so leave that directory where it is if the archive cannot), an evaluation run
+directory, `ckpt/exp07/results` with the products, or `ckpt/exp07` entire. exp_04's table
+and binding report live in that experiment's own directory and are not moved by this.
+What must keep working is reading through the published name, so leave the symlink in
+place and keep each product beside its companion and its sidecar. Archive a directory,
+never its individual files: an entry inside an attempt or run directory that resolves
+outside it is still refused, and so is any change to the bytes.
+
+Archive only once the record is bound, as that order says. The producers publish through
+`tools.exp07_record.write_outputs`, which is inside the calibration receipt's producer
+closure and so keeps its reviewed bytes: it compares its `--json` and `--md` destinations
+with the admitted inputs by name, so an input archived between a producer's admission and
+its publication would be protected under one of its two names only. The generators here
+compare by device and inode as well, and the documented order -- producers, generators,
+bind, check, and only then archive -- never reaches that gap.
+
+`record_paths.py` holds the two path helpers this record needs -- `logical`, the absolute
+name a file is published under, and `identical`, the device-and-inode question "are these
+two names one file?" -- and the generators and the binder load it by path. They live here,
+not under `tools/`, because every module the producers import is inside a producer closure
+that has already been published: `tools.exp07_calibration` imports `tools.exp07_table`,
+which imports `tools.exp07_record`, and the calibration receipt in `ckpt/exp07/results`
+records that closure's digest. Changing a byte of any of them invalidates that evidence.
+The record's assets are in no closure, so they are where this record may still change.
+
 Run `bash static_checks.sh` from this directory or by its full path: it compiles the assets
 and the exp_07 producers, checks whitespace, and runs the exp_07 suite plus the record-tool
-tests in both collection orders (exp_03, exp_04 and exp_07 ship files of the same name, so
-each experiment loads its own by path under its own `sys.modules` key).
+tests in both collection orders (exp_03, exp_04, exp_05 and exp_07 ship files of the same
+name, so each experiment loads its own by path under its own `sys.modules` key).

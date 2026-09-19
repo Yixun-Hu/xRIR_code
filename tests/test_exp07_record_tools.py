@@ -18,6 +18,7 @@ from tools import provenance as p
 from tools import results_table as rt
 from tools.exp07_profiles import get_profile, json_value
 from tools.exp07_record import load_asset
+from tools.paired_compare import producer_identity
 
 ROLES = ('seen_cyl', 'seen_aug', 'released_seen')
 
@@ -54,10 +55,15 @@ def record_inputs(exp07_fixture, table_fixture, tmp_path):  # noqa: F811
                                      str(results / (role + '.summary.txt')),
                                      pairs_producer.render_summary)
     unseen, admitted = rt.build_table(table_fixture.directories)
-    paths['unseen'] = results / 'TABLE_V1.json'
-    rt.write_outputs(unseen, admitted, str(paths['unseen']), str(results / 'model_comparison.md'))
+    # exp_04's table and binding report are that experiment's own record directory
+    # (live: ckpt/yaw_aug/results), not part of what archiving ckpt/exp07 moves.
+    unseen_dir = tmp_path / 'unseen'
+    unseen_dir.mkdir()
+    paths['unseen'] = unseen_dir / 'TABLE_V1.json'
+    rt.write_outputs(unseen, admitted, str(paths['unseen']),
+                     str(unseen_dir / 'model_comparison.md'))
     published = json.loads(sidecar(paths['unseen']).read_text())['outputs']
-    paths['binding'] = results / 'binding_report_20260915T000000000000Z.json'
+    paths['binding'] = unseen_dir / 'binding_report_20260915T000000000000Z.json'
     paths['binding'].write_text(json.dumps(dict(schema_version=1, git_HEAD='b' * 40, results=[
         dict(profile='TABLE_V1', producer_commit='b' * 40,
              sidecar=dict(path=str(sidecar(paths['unseen'])),
@@ -378,14 +384,20 @@ def test_the_binding_report_covers_the_whole_seen_record(bound):
     assert report['audit']['sha256'] and len(report['git_HEAD']) == 40
 
 
-def test_the_report_is_written_exclusively_and_verified_by_check_record(bound):
-    checker = load_asset('check_record')
+def write_report(bound):
+    """Publish the binding report exclusively, as the launch sequence does, and read it."""
     arguments = sum(([('--' + key.replace('_', '-')), *([value] if isinstance(value, str)
                                                         else value)]
                      for key, value in bound.arguments.items()), [])
     bound.binder.main(arguments + ['--out', str(bound.reports)])
-    reports = list(bound.reports.glob('binding_report_*.json'))
+    reports = sorted(bound.reports.glob('binding_report_*.json'))
     assert len(reports) == 1
+    return json.loads(reports[-1].read_text())
+
+
+def test_the_report_is_written_exclusively_and_verified_by_check_record(bound):
+    checker = load_asset('check_record')
+    write_report(bound)
     checker.main([str(bound.reports)])
     modified = Path(bound.built.paths[('seen_cyl', 8)][0]) / 'metrics_yaw.json'
     modified.write_text(modified.read_text() + '\n')
@@ -775,7 +787,25 @@ def orphan_ledger_row(bound, role='seen_cyl'):
     path.write_text(json.dumps(ledger))
 
 
+def misnamed_attempt(bound, role='seen_cyl'):
+    """The launcher's own record of this attempt's name made to say another attempt.
+
+    ``attempt_path`` is the published name of the bound directory, so the report is only
+    this attempt's if the manifest that names it is this directory's manifest.
+    """
+    attempt = bound.built.attempts[role]
+    manifest = bound.built.read(attempt / 'train_manifest.json')
+    manifest['attempt_path'] = str(bound.built.attempts['seen_aug'])
+    digest = bound.built.replace(attempt / 'train_manifest.json', manifest)
+    completion = bound.built.read(attempt / 'completion.json')
+    completion['train_manifest_sha256'] = digest
+    for key in ('outputs', 'directory_listing'):
+        completion[key]['train_manifest.json'] = digest
+    bound.built.replace(attempt / 'completion.json', completion)
+
+
 FORGERIES = {
+    'misnamed_attempt': (misnamed_attempt, 'does not name this attempt directory'),
     'retried_twice': (lambda b: replace_ledger(b, 'seen_simple', 3),
                       'more than one retry recorded'),
     'released_training_binding': (bind_released, 'released row has no training provenance'),
@@ -1287,3 +1317,197 @@ def test_both_documented_evidence_syntaxes_reach_the_binder(monkeypatch, tmp_pat
                  '--audit', 'audit', '--unseen-table', 'u', '--unseen-binding', 'ub',
                  '--out', str(tmp_path)] + spelling)
     assert parsed['evidence'] == ['gpu_parity=g.log', 'calibration=c.json']
+
+
+def relocate(directory, destination):
+    """Move a bound directory away and leave a directory symlink where it was.
+
+    Exactly the migration the Planner performs once an attempt is certified: the bytes go
+    to the NAS, the arm directory keeps its ledger, its probe receipts and its `final`
+    symlink (CIFS holds no symlinks), and every path the record published still names the
+    evidence it published.
+    """
+    directory, destination = Path(directory), Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    directory.rename(destination)
+    directory.symlink_to(destination, target_is_directory=True)
+    return destination
+
+
+def test_the_attempt_is_the_one_its_launcher_named_not_the_route_to_it(bound):
+    """The live bind names `ckpt/exp07/<role>/final`; the record spells the attempt."""
+    report = bound.binder.collect(**bound.arguments)
+    assert all(Path(item['path']).name.startswith('attempt_') for item in report['attempts'])
+    through_final = [str(Path(item).parent / 'final') for item in bound.arguments['attempt']]
+    assert bound.binder.collect(**dict(bound.arguments, attempt=through_final)) == report
+
+
+@pytest.mark.parametrize('moved', ['attempt', 'arm', 'root'])
+def test_a_relocated_attempt_leaves_the_record_verifiable(bound, tmp_path, moved):
+    """Nothing changed but where the bytes live, so nothing about the record changes."""
+    checker = load_asset('check_record')
+    report = write_report(bound)
+    attempt = Path(bound.built.attempts['seen_simple'])
+    directory = dict(attempt=attempt, arm=attempt.parent, root=bound.built.root)[moved]
+    destination = relocate(directory, tmp_path / 'nas' / directory.name)
+    checker.main([str(bound.reports)])
+    assert bound.binder.collect(**bound.arguments) == report
+    # and the published name is the identity, whichever route the binder is given
+    relocated = (destination if moved == 'attempt'
+                 else destination / attempt.relative_to(directory))
+    assert bound.binder.collect(**dict(bound.arguments, attempt=sorted(
+        [str(relocated)] + [item for item in bound.arguments['attempt']
+                            if item != str(attempt)]))) == report
+
+
+def test_a_relocated_attempt_that_changed_is_still_refused(bound, tmp_path):
+    checker = load_asset('check_record')
+    write_report(bound)
+    attempt = Path(bound.built.attempts['seen_cyl'])
+    destination = relocate(attempt, tmp_path / 'nas' / attempt.name)
+    history = destination / 'history.jsonl'
+    history.write_text(history.read_text() + json.dumps(dict(epoch=13)) + '\n')
+    for call in (lambda: bound.binder.collect(**bound.arguments),
+                 lambda: checker.main([str(bound.reports)])):
+        with pytest.raises(ValueError, match='digest mismatch'):
+            call()
+
+
+def test_a_relocated_arm_still_refuses_a_final_symlink_naming_another_attempt(bound, tmp_path):
+    """`final` is the approval's route to the checkpoint: it must be this attempt."""
+    attempt = Path(bound.built.attempts['seen_simple'])
+    destination = relocate(attempt.parent, tmp_path / 'nas' / attempt.parent.name)
+    final = destination / 'final'
+    final.unlink()
+    final.symlink_to('attempt_first_ABORTED_slow', target_is_directory=True)
+    with pytest.raises(ValueError, match='not exactly one approved arm'):
+        bound.binder.collect(**bound.arguments)
+
+
+def hardlink_checkpoint(bound, destination, role='seen_simple'):
+    """A second name, elsewhere, for the very file the approval pins: one inode, one digest."""
+    attempt = Path(bound.built.attempts[role])
+    destination.mkdir(parents=True)
+    os.link(str(attempt / 'epoch_012.pth'), str(destination / 'epoch_012.pth'))
+    return attempt, attempt.parent / 'final'
+
+
+def test_a_final_symlink_repointed_at_a_hardlinked_checkpoint_is_refused(bound, tmp_path):
+    """The pinned inode does not say which directory the arm promoted; `final` does.
+
+    Exactly the round-11 reproduction: a valid report is saved first, so this is also
+    what `check_record.py` has to say about the record it already wrote.
+    """
+    checker = load_asset('check_record')
+    write_report(bound)
+    _, final = hardlink_checkpoint(bound, tmp_path / 'elsewhere')
+    final.unlink()
+    final.symlink_to(tmp_path / 'elsewhere', target_is_directory=True)
+    for call in (lambda: bound.binder.collect(**bound.arguments),
+                 lambda: checker.main([str(bound.reports)])):
+        with pytest.raises(ValueError, match='`final` does not name this attempt'):
+            call()
+
+
+def test_an_ordinary_directory_in_place_of_final_is_refused(bound, tmp_path):
+    """`final` is a promotion the launcher made, not a directory of the right name."""
+    attempt, final = hardlink_checkpoint(bound, tmp_path / 'elsewhere')
+    final.unlink()
+    final.mkdir()
+    os.link(str(attempt / 'epoch_012.pth'), str(final / 'epoch_012.pth'))
+    with pytest.raises(ValueError, match='`final` does not name this attempt'):
+        bound.binder.collect(**bound.arguments)
+
+
+def test_a_relocated_products_directory_leaves_the_record_verifiable(bound, tmp_path):
+    """An archived ancestor takes the products with it; they keep their published names."""
+    checker = load_asset('check_record')
+    report = write_report(bound)
+    relocate(bound.paths['table'].parent, tmp_path / 'nas' / 'results')
+    checker.main([str(bound.reports)])
+    assert bound.binder.collect(**bound.arguments) == report
+
+
+def test_the_documents_name_a_relocated_product_where_the_record_does(record_inputs, tmp_path):
+    """The provenance table is the published path, not the archive's."""
+    generators = [(load_asset('make_results_md'), '.md'),
+                  (load_asset('make_latex'), '.tex')]
+    before = {}
+    for module, suffix in generators:
+        out = tmp_path / ('before' + suffix)
+        module.main(argv(record_inputs, out=out))
+        before[suffix] = out.read_text()
+    assert str(record_inputs['table']) in before['.md']
+    destination = relocate(record_inputs['table'].parent, tmp_path / 'nas' / 'results')
+    assert str(destination) not in before['.md']
+    for module, suffix in generators:
+        out = tmp_path / ('after' + suffix)
+        module.main(argv(record_inputs, out=out))
+        assert out.read_text() == before[suffix]
+    # and the archived bytes are still what the generators refuse to write over
+    with pytest.raises(ValueError, match='output overlaps canonical input'):
+        generators[0][0].main(argv(record_inputs, out=destination / 'TABLE_SEEN_V1.json'))
+
+
+def test_no_document_is_written_over_an_input_archived_after_admission(record_inputs, tmp_path):
+    """An admitted input answers to two names once it is archived; both are refused.
+
+    The products were admitted before the move, so their `inputs` name the attempt where
+    it was published; the archive is where its bytes are now.  A document written to
+    either spelling would truncate the evidence the binding report reads.
+    """
+    md = load_asset('make_results_md')
+    attempt = Path(record_inputs['built'].attempts['seen_simple'])
+    declared = json.loads(record_inputs['table'].read_text())['inputs']
+    assert str(attempt / 'args.json') in declared
+    archive = relocate(attempt, tmp_path / 'nas' / attempt.name)
+    before = (archive / 'args.json').read_bytes()
+    for destination in (attempt / 'args.json', archive / 'args.json'):
+        with pytest.raises(ValueError, match='output overlaps canonical input'):
+            md.main(argv(record_inputs, out=destination))
+    assert (archive / 'args.json').read_bytes() == before
+
+
+# The one producer receipt this record has already published: the released-checkpoint
+# calibration ran before the trainings ended, so every later commit must leave the
+# closure it recorded -- `tools.exp07_calibration`, which imports `tools.exp07_table`
+# and through it `tools.exp07_record` -- exactly as it was, or its evidence is void.
+LIVE_SIDECAR = (Path(__file__).resolve().parents[1] /
+                'ckpt/exp07/results/CALIBRATION_SEEN_V1.json.provenance.json')
+live_only = pytest.mark.skipif(not LIVE_SIDECAR.is_file(),
+                               reason='the published calibration receipt is not on this disk')
+
+
+def published_calibration():
+    """The live receipt at the path it was published under, with its five runs."""
+    side = json.loads(LIVE_SIDECAR.read_text())
+    path = next(iter(side['outputs']))
+    return side, path, sorted(json.loads(Path(path).read_bytes())['run_flags'])
+
+
+@live_only
+def test_the_published_calibration_closure_is_the_one_this_branch_computes():
+    """A read-only check of the real sidecar: no fixture can stand in for this identity."""
+    side, _, _ = published_calibration()
+    assert producer_identity('tools.exp07_calibration')['sha256'] == side['producer']['sha256']
+
+
+@live_only
+def test_the_binder_still_accepts_the_published_calibration_receipt(monkeypatch):
+    """The whole gate over the real evidence: identity, operands, sidecar and closure."""
+    binder = load_asset('bind_provenance')
+    # The asset is imported the first time a test asks for it, and `admission_fixture`
+    # has replaced `tools.paired_compare.producer_identity` by then, so the name this
+    # module bound at its own import is a stub in a whole-file run.  This gate is about
+    # the identity the record really computes.
+    monkeypatch.setattr(binder, 'producer_identity', producer_identity)
+    side, path, runs = published_calibration()
+    manifest = json.loads((Path(runs[0]) / 'eval_manifest.json').read_text())
+    assert manifest['checkpoint_sha256'] == binder.RELEASED_SHA256
+    released = binder.stamp(manifest['checkpoint'], binder.RELEASED_SHA256)
+    records = [binder.run_record(item, [], released) for item in runs]
+    head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(binder.ROOT),
+                                   text=True).strip()
+    record = binder.calibration_record(binder.stamp(path), records, head)
+    assert record['runs'] == runs and sorted(record['metrics']) == ['C50', 'EDT', 'T60']
+    assert record['producer_closure_sha256'] == side['producer']['sha256']
