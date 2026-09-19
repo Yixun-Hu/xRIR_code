@@ -1,6 +1,6 @@
 # exp_05 param_efficiency — analysis (Planner draft, 2026-09-18)
 
-Status: DRAFT written from the canonical producer outputs (`ckpt/exp05/results/{CURVE_K8,CURVE_K1,TARGETS_K8,TARGETS_K1,YAW_K8_SEED42}.json`, text summaries alongside). The tables in `param_efficiency_results.md` and the page are generated from the same JSON by the reviewed generators once the record-tooling round closes; every number below must match them. Unseen split (6 337 queries, 17 rooms), five evaluation seeds 42–46, K = 8 primary and K = 1 secondary, epoch-12 checkpoints, one training seed per arm, paired bootstrap with the plan's Bonferroni family and convergence gate.
+Status: final, 2026-09-18. Every number below is taken from the generated `param_efficiency_results.md` / `param_efficiency_01_results.html` (rendered by the reviewed generators from the canonical JSON) and is bound by `binding_report_20260918T234858147838Z.json` (sha256 60810502078f4bcc0a287e626d88182a1e33da50796595bb822b80847eec29ef, `check_record.py` exit 0 at main `73e90d4`).
 
 ## 1. What was tested
 
