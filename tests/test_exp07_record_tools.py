@@ -1384,6 +1384,33 @@ def test_a_relocated_arm_still_refuses_a_final_symlink_naming_another_attempt(bo
         bound.binder.collect(**bound.arguments)
 
 
+def hardlink_checkpoint(bound, destination, role='seen_simple'):
+    """A second name, elsewhere, for the very file the approval pins: one inode, one digest."""
+    attempt = Path(bound.built.attempts[role])
+    destination.mkdir(parents=True)
+    os.link(str(attempt / 'epoch_012.pth'), str(destination / 'epoch_012.pth'))
+    return attempt, attempt.parent / 'final'
+
+
+def test_a_final_symlink_repointed_at_a_hardlinked_checkpoint_is_refused(bound, tmp_path):
+    """The pinned inode does not say which directory the arm promoted; `final` does."""
+    _, final = hardlink_checkpoint(bound, tmp_path / 'elsewhere')
+    final.unlink()
+    final.symlink_to(tmp_path / 'elsewhere', target_is_directory=True)
+    with pytest.raises(ValueError, match='`final` does not name this attempt'):
+        bound.binder.collect(**bound.arguments)
+
+
+def test_an_ordinary_directory_in_place_of_final_is_refused(bound, tmp_path):
+    """`final` is a promotion the launcher made, not a directory of the right name."""
+    attempt, final = hardlink_checkpoint(bound, tmp_path / 'elsewhere')
+    final.unlink()
+    final.mkdir()
+    os.link(str(attempt / 'epoch_012.pth'), str(final / 'epoch_012.pth'))
+    with pytest.raises(ValueError, match='`final` does not name this attempt'):
+        bound.binder.collect(**bound.arguments)
+
+
 def test_a_relocated_products_directory_leaves_the_record_verifiable(bound, tmp_path):
     """An archived ancestor takes the products with it; they keep their published names."""
     checker = load_asset('check_record')

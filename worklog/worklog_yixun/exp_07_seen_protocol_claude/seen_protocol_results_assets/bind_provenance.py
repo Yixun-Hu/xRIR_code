@@ -366,6 +366,12 @@ def attempt_record(attempt, pins):
     this report binds the attempt the launcher named: whether the pin and the attempt's
     own output are one file is the filesystem's question, asked by inode, and the path
     recorded is the attempt's.  A pin spelled any other way is honoured the same way.
+
+    That inode says which FILE the pin names, never which DIRECTORY the arm promoted: a
+    hardlink of the approved checkpoint under any other directory is the same file, so
+    the pin's route has to be checked as well.  `final` is the launcher's promotion of
+    this attempt -- a symlink naming this very directory -- and an ordinary directory of
+    that name is not one, whatever it holds.
     """
     record, fields = snapshot(attempt, 'train')
     directory = Path(record['path'])
@@ -373,6 +379,9 @@ def attempt_record(attempt, pins):
              if identical(ROOT / pin['path'], directory / Path(pin['path']).name)]
     require(len(roles) == 1, 'attempt is not exactly one approved arm: ' + str(directory))
     role = roles[0]
+    final = directory.parent / 'final'
+    require(final.is_symlink() and identical(final, directory),
+            '`final` does not name this attempt: ' + str(directory))
     checkpoint = stamp(directory / Path(pins['checkpoints'][role]['path']).name,
                        pins['checkpoints'][role]['sha256'])
     require(record['outputs'].get(Path(checkpoint['path']).name) == checkpoint,
