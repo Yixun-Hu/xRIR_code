@@ -173,7 +173,11 @@ that name. An attempt's published name is the one its launcher wrote into
 `train_manifest.json` as `attempt_path`, so binding `ckpt/exp07/<role>/final` and binding
 `ckpt/exp07/<role>/attempt_<ts>full` produce the same record; the approval pins each
 checkpoint through `final`, and the binder matches that pin to the attempt's own output
-by inode.
+by inode. `final` must still be the symlink the launcher promoted to that attempt: an
+inode identifies the checkpoint file, not the directory it was published in, so a
+hardlink of it under a repointed `final` -- or under an ordinary directory of that name
+-- is refused. Archiving does not disturb this; leave `final` naming the attempt's
+published name, which is the directory symlink the move leaves behind.
 
 The same holds for any ancestor: the arm directory (which keeps its `cumulative_hours.json`,
 its `_probe_*.json` receipts, its other attempts and its `final` symlink -- CIFS holds no
