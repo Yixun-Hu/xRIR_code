@@ -1,0 +1,22 @@
+2026-09-18T10:48:23-04:00 QUEUE START role=seen_simple gpu=0 reviewed=ddfcb66718a560b0a59c2e66176f391eeb2fc4ab attempt=/home/yixunhu/codespace/xRIR_code/ckpt/exp07/seen_simple/attempt_20260917T034540full
+2026-09-18T10:48:26-04:00 START seen_simple_k8_seed42_k0
+2026-09-18T10:56:41-04:00 END seen_simple_k8_seed42_k0 exit=0
+2026-09-18T10:56:43-04:00 START seen_simple_k8_seed43_k0
+2026-09-18T11:05:01-04:00 END seen_simple_k8_seed43_k0 exit=0
+2026-09-18T11:05:04-04:00 START seen_simple_k8_seed44_k0
+2026-09-18T11:13:23-04:00 END seen_simple_k8_seed44_k0 exit=0
+2026-09-18T11:13:25-04:00 START seen_simple_k8_seed45_k0
+2026-09-18T11:22:14-04:00 END seen_simple_k8_seed45_k0 exit=0
+2026-09-18T11:22:17-04:00 START seen_simple_k8_seed46_k0
+2026-09-18T11:31:31-04:00 END seen_simple_k8_seed46_k0 exit=0
+2026-09-18T11:31:33-04:00 START seen_simple_k1_seed42_k0
+2026-09-18T11:38:47-04:00 END seen_simple_k1_seed42_k0 exit=0
+2026-09-18T11:38:52-04:00 START seen_simple_k1_seed43_k0
+2026-09-18T11:45:47-04:00 END seen_simple_k1_seed43_k0 exit=0
+2026-09-18T11:45:50-04:00 START seen_simple_k1_seed44_k0
+2026-09-18T11:52:49-04:00 END seen_simple_k1_seed44_k0 exit=0
+2026-09-18T11:52:51-04:00 START seen_simple_k1_seed45_k0
+2026-09-18T11:59:20-04:00 END seen_simple_k1_seed45_k0 exit=0
+2026-09-18T11:59:23-04:00 START seen_simple_k1_seed46_k0
+2026-09-18T12:06:47-04:00 END seen_simple_k1_seed46_k0 exit=0
+EVAL_QUEUE_DONE role=seen_simple gpu=0 2026-09-18T12:06:47-04:00
