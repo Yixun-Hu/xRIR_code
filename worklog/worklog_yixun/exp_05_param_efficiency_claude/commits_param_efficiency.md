@@ -1,9 +1,11 @@
 - `2d2a3867b9360964fd5482aaf4fbe426e60c85a1` — exp_05 plan v3 approved and committed for handoff (record folder: query, plan v1–v3, two Codex plan reviews, notebook); also carries exp_04's round-1 review and prompts
 
 
-## Complete commit index through record closure (retrospective; cutoff = main `ec75704` on 2026-09-18; `git log` over the exp_05 tools, tests, record folder AND the shared launcher `tools/exp04_launcher.py` / `tools/exp04_launch.sh`, whose exp_05 rounds live in the same history — e.g. `0e35e2c`)
+## Complete commit index through record closure (retrospective; cutoff = main `9e98621` on 2026-09-18; `git log` over the exp_05 tools, tests and record folder, the shared launcher `tools/exp04_launcher.py` / `tools/exp04_launch.sh` and the shared trainer `train_xRIR_backbone.py` — the last two carry exp_05's tier/launcher rounds, e.g. `a3eb253`, `0e35e2c`; 137 entries)
 
 ```
+615579a 2026-09-18 exp_05: wall-time footnote; record-review round-3 prompt
+0d9a214 2026-09-18 exp_05: record review round-2 corrections (command record, commit index, L_cyl host-sharing erratum, review chronology, set-up hours)
 ec75704 2026-09-18 exp_05: record regenerated at 9b25738 and rebound (deterministic PDFs, consistent revisions); record-review round-2 prompt
 9b25738 2026-09-18 exp_05: round 9 merged; regeneration at a fixed revision starts
 c5ac3de 2026-09-18 Merge exp_05 round 9 (deterministic figure PDFs, Codex-approved)
@@ -101,8 +103,10 @@ a19a2a0 2026-09-12 feat(exp05): enforce receipt-derived full-run and epoch-one l
 b74d2ec 2026-09-12 feat(exp05): validate tier receipts and cumulative training budgets
 449055c 2026-09-12 feat(exp05): measure tier training validation and scratch-save costs
 6a1a209 2026-09-12 feat(exp05): launch tier evaluation with bound training arguments
+dc0c895 2026-09-12 test(exp05): compare tier evaluation and smoke checkpoints on GPU
 76c14e9 2026-09-12 feat(exp05): bind tier checkpoints to the shared evaluation loop
 5ea3d49 2026-09-12 Preserve exp04 launcher parity and validate exp05 tier commands
+a3eb253 2026-09-12 Expose trainer ViT tiers with historical M step parity
 7fdff94 2026-09-12 Add frozen exp05 tiers and exact parameter accounting
 ed5f2a1 2026-09-12 Protect exp04 completion transactions and restore recovery logs
 167722c 2026-09-12 Share signal-safe termination across exp04 launchers
@@ -128,8 +132,13 @@ e8a164d 2026-09-12 exp04: expose smoke probe full and refusal launch modes
 10ef6ff 2026-09-12 exp04: finalize preserved training attempts after digest revalidation
 b7480be 2026-09-12 exp04: police live runtime args and banner through tee
 bbf8ad6 2026-09-12 exp04: bind training imports and split identity before spawn
+d1550fd 2026-09-12 exp04: expose no-save runtime args and pin counter products
 3e5609c 2026-09-12 exp04: guard resources and preserve accounted attempts
 38cf05b 2026-09-12 exp04: pin training argv and normalize runtime arguments
+35f55ad 2026-09-12 exp_04: enforce yaw contracts and preserve audit provenance
+a619bc8 2026-09-12 exp_04: derive yaw counter epoch length from the training loader
 8dd5aa6 2026-09-12 exp_05: commits file
 2d2a386 2026-09-12 exp_05 plan approved (capacity curve, handoff); exp_04 round-1 review and prompts
+cd7dc99 2026-09-12 exp_04: integrate counter-seeded yaw augmentation into training
+5bf4640 2026-09-06 Backbone comparison, sim-to-real pipeline, and SOP experiment records (base commit)
 ```
