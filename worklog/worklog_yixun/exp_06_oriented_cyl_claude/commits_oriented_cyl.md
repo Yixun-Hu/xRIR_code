@@ -386,3 +386,4 @@ Pre-launch round CLOSED 2026-09-16 14:00 at `c867e24` — Codex close review: ap
 | 621b139 | main | merge --no-ff ec7b7bf (R3 fix cycles: producer-closure validation of the arm-B receipt) |
 | b793a96 | main | merge --no-ff 90ca0fb (tests-only: HAA golden dry-run test independent of the live output root) |
 | c8611fc | main | approvals re-fill after the fix cycles (compare, eval_launch) — by the post-HAA chain |
+| 2be33d4 | main | bookkeeping: HAA + sim runs, canonical results, analysis, page, reviews, logs (record only) |
