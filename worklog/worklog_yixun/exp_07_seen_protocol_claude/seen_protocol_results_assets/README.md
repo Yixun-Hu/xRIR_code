@@ -190,10 +190,7 @@ never its individual files: an entry inside an attempt or run directory that res
 outside it is still refused, and so is any change to the bytes.
 
 Archive only once the record is bound, as that order says. The producers publish through
-`tools.exp07_record.write_outputs`, which is inside the calibration receipt's producer
-closure and so keeps its reviewed bytes: it compares its `--json` and `--md` destinations
-with the admitted inputs by name, so an input archived between a producer's admission and
-its publication would be protected under one of its two names only. The generators here
+`tools.exp07_record. After an admission-to-publication relocation, a forced Markdown destination that names an admitted input under EITHER its published or its archive spelling would overwrite it (both resolve to the archive path, which the pre-move input map does not contain); this is unreachable within the documented sequence producers → generators → bind → check → archive, which must therefore be followed (Codex round-12 nit). The generators here
 compare by device and inode as well, and the documented order -- producers, generators,
 bind, check, and only then archive -- never reaches that gap.
 
