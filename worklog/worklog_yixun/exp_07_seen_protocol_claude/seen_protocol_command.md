@@ -38,3 +38,10 @@ tools/exp07_launch.sh smoke --backbone cylindrical --yaw-aug 0 --gpu 0 --reviewe
 tools/exp07_launch.sh probe --backbone cylindrical --yaw-aug 0 --gpu 0 --reviewed-commit b793a96d80c4ecc68df1fad2f6f3cb555bcbd27b --log-dir worklog/worklog_yixun/exp_07_seen_protocol_claude --timestamp 20260918T151139probe
 tools/exp07_launch.sh full  --backbone cylindrical --yaw-aug 0 --gpu 0 --reviewed-commit b793a96d80c4ecc68df1fad2f6f3cb555bcbd27b --log-dir worklog/worklog_yixun/exp_07_seen_protocol_claude --timestamp 20260918T151139full --probe-json ckpt/exp07/seen_cyl/_probe_20260918T151139probe_seen_cyl.json
 ```
+
+## seen_aug full (chain `exp07_arm_chain.sh 1 seen_aug simple 1 '2026-09-18 20:47'`, 2026-09-18 20:52–20:57, GPU 1, reviewed b14dc3b)
+```
+tools/exp07_launch.sh smoke --backbone simple --yaw-aug 1 --gpu 1 --reviewed-commit b14dc3b0c56ec3c10bd5664cd828edac8c757135 --log-dir worklog/worklog_yixun/exp_07_seen_protocol_claude --timestamp 20260918T205229smoke
+tools/exp07_launch.sh probe --backbone simple --yaw-aug 1 --gpu 1 --reviewed-commit b14dc3b0c56ec3c10bd5664cd828edac8c757135 --log-dir worklog/worklog_yixun/exp_07_seen_protocol_claude --timestamp 20260918T205229probe
+tools/exp07_launch.sh full  --backbone simple --yaw-aug 1 --gpu 1 --reviewed-commit b14dc3b0c56ec3c10bd5664cd828edac8c757135 --log-dir worklog/worklog_yixun/exp_07_seen_protocol_claude --timestamp 20260918T205229full --probe-json ckpt/exp07/seen_aug/_probe_20260918T205229probe_seen_aug.json
+```
