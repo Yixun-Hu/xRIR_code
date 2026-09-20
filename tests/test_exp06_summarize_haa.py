@@ -1305,7 +1305,7 @@ def test_the_exp09_analysis_publishes_e1_e2_and_e3_and_nothing_of_exp06(arms):
 
 def test_the_exp06_analysis_is_unchanged_by_the_registration_of_arm_e(arms):
     result = subject.analyse(arms, n_boot=200, adjusted_n_boot=200)
-    assert result['experiment'] == 'exp06'
+    assert 'experiment' not in result      # finding 3: nothing of exp_09's in this record
     assert len(result['H2']) == 11 and len(result['D']) == 33
     assert 'category' not in result['H1'] and 'category' not in result['H1b']
     assert result['H1']['contrast'] == 'cyl_or - control'

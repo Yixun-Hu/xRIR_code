@@ -1143,22 +1143,26 @@ def analyse(arms, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, cache_root=Non
         experiment, ', '.join(missing)))
     arms = OrderedDict((name, arms[name]) for name in config['arms'])
     cache_inputs = {}
-    result = {'schema_version': 1, 'experiment': experiment,
-              'exploratory': bool(exploratory),
-              'mode': 'sensitivity' if sensitivity else 'primary',
-              'deviations': list(deviations), 'arms': {name: {
-                  'branch': arms[name]['branch'], 'root': arms[name]['root'],
-                  'closure': arms[name]['closure'], 'backbone': ARMS[name]['backbone'],
-                  'frame': ARMS[name]['frame']} for name in sorted(arms)},
-              'margin_db': H1_MARGIN_DB, 'alpha': ALPHA, 'family': H2_FAMILY,
-              'n_boot': n_boot, 'n_boot_adjusted': adjusted_n_boot,
-              'bootstrap_seeds': list(BOOT_SEEDS), 'convergence_tolerance': CONVERGENCE_TOL,
-              'heading_k': HEADING_K, 'rows': arm_rows(arms),
-              'legacy_receipt': None if receipt is None else {
-                  'path': str(receipt_path), 'sha256': receipt['sha256'],
-                  'label': receipt['label'], 'files': len(receipt['files'])},
-              'approved_digests': approvals_receipt, 'producer': producer,
-              'side_split': side_split(arms, cache_root, inputs=cache_inputs)}
+    # Code review round 1 finding 3: exp_06's record is the one main publishes, field for
+    # field, so the experiment is named only where it is not the default. `render` reads it
+    # back with exp_06 as the default, and no other field here is exp_09's.
+    result = dict({'schema_version': 1},
+                  **({} if experiment == 'exp06' else {'experiment': experiment}))
+    result.update({'exploratory': bool(exploratory),
+                  'mode': 'sensitivity' if sensitivity else 'primary',
+                  'deviations': list(deviations), 'arms': {name: {
+                      'branch': arms[name]['branch'], 'root': arms[name]['root'],
+                      'closure': arms[name]['closure'], 'backbone': ARMS[name]['backbone'],
+                      'frame': ARMS[name]['frame']} for name in sorted(arms)},
+                  'margin_db': H1_MARGIN_DB, 'alpha': ALPHA, 'family': H2_FAMILY,
+                  'n_boot': n_boot, 'n_boot_adjusted': adjusted_n_boot,
+                  'bootstrap_seeds': list(BOOT_SEEDS), 'convergence_tolerance': CONVERGENCE_TOL,
+                  'heading_k': HEADING_K, 'rows': arm_rows(arms),
+                  'legacy_receipt': None if receipt is None else {
+                      'path': str(receipt_path), 'sha256': receipt['sha256'],
+                      'label': receipt['label'], 'files': len(receipt['files'])},
+                  'approved_digests': approvals_receipt, 'producer': producer,
+                  'side_split': side_split(arms, cache_root, inputs=cache_inputs)})
     result['inputs'] = arm_inputs(arms, receipt, receipt_path)
     for path, digest in sorted(dict(cache_inputs, **dict(extra_inputs)).items()):
         bind(result['inputs'], path, digest)
@@ -1369,11 +1373,12 @@ def main(argv=None):
                      approvals_receipt, identity, extra, args.sensitivity, args.experiment)
     record, digest, text = write_outputs(result, args.json, args.summary)
     print(text)
-    print(json.dumps(dict({'json': args.json, 'sha256': digest,
-                           'experiment': args.experiment,
-                           'summary_sha256': record['summary_sha256']},
-                          **{name: record[name]['verdict']
-                             for name, *_ in config['decisions']})))
+    published = {'json': args.json, 'sha256': digest,
+                 'summary_sha256': record['summary_sha256']}
+    if args.experiment != 'exp06':     # exp_06 prints the keys it has always printed
+        published['experiment'] = args.experiment
+    published.update({name: record[name]['verdict'] for name, *_ in config['decisions']})
+    print(json.dumps(published))
     return 0
 
 
