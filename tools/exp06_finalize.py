@@ -1164,6 +1164,43 @@ def approvals_at_commit(path, repo, commit):
                       'sha256': hashlib.sha256(blob).hexdigest(), 'committed_at': commit}
 
 
+EXP04_AUG_EPOCH = 12
+
+
+def exp04_aug_checkpoint(approved, path=None):
+    """exp_04's approved ``checkpoints.aug``, bound to 6.4's reused exp_04 identity.
+
+    exp_09's initialisation is not exp_06's ``artifacts.epoch_012`` -- that one identifies
+    arm C -- but the yaw-augmented checkpoint exp_04 approved. ``tools/exp04_profiles.py``
+    is a pinned file and carries no digest for it, so the authority is exp_04's own
+    approvals record, admitted here only when its bytes are the
+    ``reused.exp04_approved_digests_sha256`` this experiment approved: no unreviewed file
+    can name a checkpoint, and the arm needs no new approvals key.
+
+    Code review round 1 finding 1: it lives here and not in the shared approvals module,
+    which is inside the ``eval_launch``/``compare``/``mirror_probe`` closures the ten
+    completed simulated evaluations are verified against; this module is in none of them.
+    It runs as approved bytes all the same -- ``finalize`` is one of the ``haa_children``
+    producer's code keys, checked by the same pipeline gate that resolves the arm's
+    initialisation, and one of the summariser's own closure.
+    """
+    from tools import exp04_profiles    # local: exp_04's profile is not in this closure
+    pinned = ((approved or {}).get('reused') or {}).get('exp04_approved_digests_sha256')
+    file = Path(exp04_profiles.APPROVED_DIGESTS_PATH if path is None else path)
+    # The identity first: a file that is not the approved record is refused as that, and
+    # never for some later property of a record nobody approved.
+    digest = provenance.sha256_file(file)
+    _require(pinned is not None and digest == pinned,
+             'the exp_04 approvals {} hash to {}, not the approved '
+             'reused.exp04_approved_digests_sha256 {}'.format(file, digest, pinned))
+    value, identity = exp04_profiles.load_approved_digests(file)
+    record = {key: value['checkpoints']['aug'][key] for key in ('path', 'epoch', 'sha256')}
+    _require(record['epoch'] == EXP04_AUG_EPOCH and _is_sha256(record['sha256']),
+             'exp_04 approves no epoch {} checkpoints.aug: {!r}'.format(
+                 EXP04_AUG_EPOCH, record))
+    return {'path': str(file), 'sha256': identity['sha256'], 'checkpoint': record}
+
+
 def haa_approvals(closure, run_type, commit, repo, path=None):
     """Full-review F3: the child ran the approved entry point, at its own reviewed commit.
 

@@ -851,6 +851,7 @@ def test_the_real_approvals_gate_pins_the_yawaug_initialisation(tmp_path):
 def test_a_forged_exp04_approvals_record_cannot_name_a_checkpoint(tmp_path):
     """The reused pin is what admits exp_04's record, so a rewritten one is refused."""
     from tools import exp06_approvals_api as api
+    from tools import exp06_finalize as finalizer
     approved, _ = api.load_approved_digests(api.approved_path_default())
     forged = tmp_path / 'approved_digests.json'
     forged.write_text(Path(api.approvals_module().REPO,
@@ -858,15 +859,15 @@ def test_a_forged_exp04_approvals_record_cannot_name_a_checkpoint(tmp_path):
                            'yaw_aug_xrir_results_assets/approved_digests.json').read_text()
                       .replace('f8e64052', 'aaaaaaaa'))
     with pytest.raises(ValueError, match='exp04_approved_digests_sha256'):
-        api.exp04_aug_checkpoint(approved, forged)
+        finalizer.exp04_aug_checkpoint(approved, forged)
 
 
 @pytest.mark.skipif(not (ROOT / YAWAUG).is_file(), reason='needs exp_04 checkpoint')
 def test_the_registered_yawaug_checkpoint_is_the_approved_one():
     """The default the script names really is the checkpoint exp_04 approved."""
     from tools import exp06_approvals_api as api
-    from tools import provenance
+    from tools import exp06_finalize as finalizer, provenance
     approved, _ = api.load_approved_digests(api.approved_path_default())
-    record = api.exp04_aug_checkpoint(approved)
+    record = finalizer.exp04_aug_checkpoint(approved)
     assert record['checkpoint']['path'] == YAWAUG and record['checkpoint']['epoch'] == 12
     assert provenance.sha256_file(ROOT / YAWAUG) == record['checkpoint']['sha256']

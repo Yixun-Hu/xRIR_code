@@ -556,7 +556,7 @@ def expected_inits(approved, arms=NEW_ARMS, inputs=None):
     if 'cyl_or' in inits:
         inits['cyl_or'] = approved.get('artifacts', {}).get('epoch_012', {}).get('sha256')
     if 'yawaug' in inits:
-        record = approvals_api.exp04_aug_checkpoint(approved)
+        record = finalizer.exp04_aug_checkpoint(approved)
         inits['yawaug'] = record['checkpoint']['sha256']
         if inputs is not None:
             bind(inputs, record['path'], record['sha256'])

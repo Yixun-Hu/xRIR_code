@@ -153,8 +153,14 @@ try:
     pinned = None if registered is None else registered["sha256"]
     source = "the registered exp_01"
     if init == "yawaug":
+        # Code review round 1 finding 1: the resolver belongs to the finalizer, so that
+        # the shared approvals module keeps the bytes the ten completed evaluations are
+        # verified against. Imported here and not above: only this init needs it, and it
+        # costs a torch import. It is approved bytes all the same -- code.finalize is a
+        # haa_children key, checked by enforce_producer below before any child starts.
+        from tools import exp06_finalize as finalizer
         approved, _ = api.load_approved_digests(approved_path, repo=repo, commit=head)
-        aug = api.exp04_aug_checkpoint(approved)
+        aug = finalizer.exp04_aug_checkpoint(approved)
         pinned, source = aug["checkpoint"]["sha256"], "exp_04\x27s approved checkpoints.aug"
     if pinned is not None:
         digest = provenance.sha256_file(checkpoint)

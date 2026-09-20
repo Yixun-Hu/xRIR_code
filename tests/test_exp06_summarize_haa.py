@@ -1351,7 +1351,7 @@ def test_arm_es_initialisation_is_exp04s_approved_checkpoint(tmp_path):
     """expected_inits resolves E through 6.4's reused pin and binds that record."""
     from tools import exp06_approvals_api as api
     approved, _ = api.load_approved_digests(api.approved_path_default())
-    record = api.exp04_aug_checkpoint(approved)
+    record = subject.finalizer.exp04_aug_checkpoint(approved)
     inputs = {}
     inits = subject.expected_inits(approved, ('cyl_or', 'yawaug'), inputs)
     assert inits['yawaug'] == record['checkpoint']['sha256']

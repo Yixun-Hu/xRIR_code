@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from tools import exp06_approvals_api as subject
+from tools import exp06_finalize as finalizer
 
 HEX = 'a' * 64
 
@@ -502,6 +503,7 @@ def test_a_source_file_edited_since_the_reviewed_commit_is_refused(tiny):
 
 
 # --- exp_09's initialisation: exp_04's approved checkpoints.aug, bound by 6.4's reused pin --
+# (the resolver itself is the finalizer's: review round 1, finding 1)
 
 EXP04_CLOSURES = ('evaluator', 'writer', 'training_launcher', 'producer_paired_compare',
                   'producer_results_table', 'producer_descriptive')
@@ -544,7 +546,7 @@ def approvals_pinning(file, digest='the record itself'):
 def test_the_yawaug_initialisation_comes_from_exp04s_approved_checkpoint(tmp_path):
     """exp_04's profile carries no digest for it, so its approvals record is the authority."""
     file = exp04_record(tmp_path)
-    record = subject.exp04_aug_checkpoint(approvals_pinning(file), file)
+    record = finalizer.exp04_aug_checkpoint(approvals_pinning(file), file)
     assert record['path'] == str(file)
     assert record['sha256'] == approvals_pinning(file)['reused']['exp04_approved_digests_sha256']
     assert record['checkpoint'] == {'path': AUG_PATH, 'epoch': 12, 'sha256': 'f' * 64}
@@ -555,7 +557,7 @@ def test_exp04_approvals_that_are_not_the_reused_identity_are_refused(tmp_path, 
     """The reused pin is what makes an unreviewed file unable to name a checkpoint."""
     file = exp04_record(tmp_path)
     with pytest.raises(ValueError, match=r'reused\.exp04_approved_digests_sha256'):
-        subject.exp04_aug_checkpoint(approvals_pinning(file, digest), file)
+        finalizer.exp04_aug_checkpoint(approvals_pinning(file, digest), file)
 
 
 @pytest.mark.parametrize('epoch,sha256', [(9, 'f' * 64), (12, None)])
@@ -564,13 +566,13 @@ def test_an_aug_record_of_another_epoch_or_without_a_digest_is_refused(tmp_path,
     """Only the twelfth epoch exp_04 certified may initialise arm E."""
     file = exp04_record(tmp_path, sha256=sha256, epoch=epoch)
     with pytest.raises(ValueError, match=r'checkpoints\.aug'):
-        subject.exp04_aug_checkpoint(approvals_pinning(file), file)
+        finalizer.exp04_aug_checkpoint(approvals_pinning(file), file)
 
 
 def test_the_real_exp04_record_names_the_yaw_augmented_checkpoint():
     """The production path: exp_06's approved reused pin admits exp_04's own record."""
     from tools import exp04_profiles
     file = exp04_profiles.APPROVED_DIGESTS_PATH
-    record = subject.exp04_aug_checkpoint(approvals_pinning(file), file)
+    record = finalizer.exp04_aug_checkpoint(approvals_pinning(file), file)
     assert record['checkpoint']['path'] == AUG_PATH and record['checkpoint']['epoch'] == 12
     assert re.fullmatch('[0-9a-f]{64}', record['checkpoint']['sha256'])

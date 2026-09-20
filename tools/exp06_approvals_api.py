@@ -286,38 +286,6 @@ def _sha256_file(path):
     return provenance.sha256_file(path)
 
 
-EXP04_AUG_EPOCH = 12
-
-
-def exp04_aug_checkpoint(approved, path=None):
-    """exp_04's approved ``checkpoints.aug``, bound to 6.4's reused exp_04 identity.
-
-    exp_09's initialisation is not exp_06's ``artifacts.epoch_012`` -- that one identifies
-    arm C -- but the yaw-augmented checkpoint exp_04 approved. ``tools/exp04_profiles.py``
-    is a pinned file and carries no digest for it, so the authority is exp_04's own
-    approvals record, admitted here only when its bytes are the
-    ``reused.exp04_approved_digests_sha256`` this experiment approved: no unreviewed file
-    can name a checkpoint, and the arm needs no new approvals key.
-    """
-    from tools import exp04_profiles
-    pinned = _leaf(approved, 'reused.exp04_approved_digests_sha256')
-    file = Path(exp04_profiles.APPROVED_DIGESTS_PATH if path is None else path)
-    # The identity first: a file that is not the approved record is refused as that, and
-    # never for some later property of a record nobody approved.
-    digest = _sha256_file(file)
-    if pinned is None or digest != pinned:
-        raise ValueError('the exp_04 approvals {} hash to {}, not the approved '
-                         'reused.exp04_approved_digests_sha256 {}'.format(
-                             file, digest, pinned))
-    value, identity = exp04_profiles.load_approved_digests(file)
-    record = {key: value['checkpoints']['aug'][key] for key in ('path', 'epoch', 'sha256')}
-    if record['epoch'] != EXP04_AUG_EPOCH or record['sha256'] is None \
-            or not _hex_or_null(record['sha256']):
-        raise ValueError('exp_04 approves no epoch {} checkpoints.aug: {!r}'.format(
-            EXP04_AUG_EPOCH, record))
-    return {'path': str(file), 'sha256': identity['sha256'], 'checkpoint': record}
-
-
 def enforce_producer(producer, repo, commit, approved_path=None, checkpoint=None,
                      headings=None, exploratory=False):
     """6.4's fail-closed gate: the committed approvals, and the identities about to run.
