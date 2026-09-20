@@ -1415,3 +1415,52 @@ def test_a_historical_arm_is_admitted_under_refilled_approvals_beside_arm_e(
                              cache_root=synthetic)
     assert result['E1']['contrast'] == 'yawaug - control' and result['E1']['category']
     assert sorted(result['arms']) == ['control', 'cyl', 'cyl_or', 'yawaug']
+
+
+# --- code review round 1, finding 3: exp_06's own output stays the one main publishes ----
+
+BASE_CLI_KEYS = ['json', 'sha256', 'summary_sha256', 'H1', 'H1b']
+
+
+def base_summariser(tmp_path):
+    """This module as ``main`` carries it, importable beside this round's copy.
+
+    ``analyse`` reads only the arms it is given and the module's own contrast constants,
+    so a copy outside the repository answers for the base schema exactly.
+    """
+    import importlib.util
+    import subprocess
+    probe = subprocess.run(['git', 'show', 'main:tools/exp06_summarize_haa.py'],
+                           cwd=str(subject.REPO), capture_output=True)
+    if probe.returncode != 0:
+        pytest.skip('no main ref in this checkout')
+    path = tmp_path / 'base_summarize_haa.py'
+    path.write_bytes(probe.stdout)
+    spec = importlib.util.spec_from_file_location('exp06_summarize_haa_base', str(path))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_exp06_statistics_are_the_ones_main_produces(arms, tmp_path):
+    """A default run publishes the fields it published before arm E was registered."""
+    base = base_summariser(tmp_path)
+    exp06 = {name: arms[name] for name in subject.EXPERIMENTS['exp06']['arms']}
+    settings = dict(n_boot=200, adjusted_n_boot=200, exploratory=True)
+    before, after = base.analyse(exp06, **settings), subject.analyse(exp06, **settings)
+    assert list(after) == list(before)
+    assert json.dumps(after, sort_keys=True) == json.dumps(before, sort_keys=True)
+
+
+def test_the_exp06_cli_reports_the_fields_it_always_reported(legacy_root, stub_new_arms,
+                                                             tmp_path, capsys):
+    """And the one line it prints carries exp_06's own keys, in their own order."""
+    receipt = tmp_path / 'r.json'
+    subject.write_legacy_receipt(receipt, legacy_root, strict=False)
+    assert subject.main(['--legacy-root', str(legacy_root), '--new-root', 'unused',
+                         '--legacy-receipt', str(receipt),
+                         '--json', str(tmp_path / 'stats.json'),
+                         '--summary', str(tmp_path / 'summary.txt'), '--n-boot', '200',
+                         '--n-boot-adjusted', '200', '--exploratory']) == 0
+    printed = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert list(printed) == BASE_CLI_KEYS
