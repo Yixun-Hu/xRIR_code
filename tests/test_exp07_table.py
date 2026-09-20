@@ -641,17 +641,35 @@ def test_the_cli_refuses_an_unapproved_profile_and_writes_nothing(
     assert not (tmp_path / 'table.json').exists() and not (tmp_path / 'seen.md').exists()
 
 
+def canonical_profile_digest(profile):
+    """Hash a profile the way the producer does, without reading anything it produced.
+
+    tools/exp07_table.py:374 detaches the registered profile with this module's own
+    ``json_value``; lines 405-407 round-trip that value through JSON and hash the
+    canonical text with exactly these ``json.dumps`` keywords.  Recomputing the digest
+    from the fixture's profile is what makes a digest the producer invents (an all-zero
+    string, say) fail, where comparing the written digest with the returned one lets both
+    be wrong together.
+    """
+    detached = table.json_value(profile)                            # exp07_table.py:374
+    literal = json.loads(json.dumps(table.json_value(detached)))    # exp07_table.py:405
+    return hashlib.sha256(json.dumps(literal, sort_keys=True, separators=(',', ':'),
+                                     allow_nan=False).encode()).hexdigest()  # :406-407
+
+
 def test_the_cli_publishes_the_same_runs_once_the_approval_is_filled(tmp_path, built, monkeypatch):
     """The symmetric case: the identical argv proceeds under the fixture's filled pins."""
     monkeypatch.setattr(table, 'get_profile', lambda _: built.profile)
     monkeypatch.setattr(table, 'load_approved_digests', lambda: built.approved)
     monkeypatch.setattr(table, 'producer_identity', lambda _: built.producer)
+    expected_digest = canonical_profile_digest(built.profile)
     result = table.main(cli_argv(tmp_path, built))
     assert result['deviations'] == [] and result['exploratory'] is False
     assert result['profile_name'] == 'TABLE_SEEN_V1' and len(result['rows']) == 8
     written = json.loads((tmp_path / 'table.json').read_text())
     assert written['rows'] == result['rows']
-    assert written['profile_digest'] == result['profile_digest']
+    assert result['profile_digest'] == expected_digest
+    assert written['profile_digest'] == expected_digest
     assert built.profile['arms'][0]['label'] in (tmp_path / 'seen.md').read_text()
 
 
