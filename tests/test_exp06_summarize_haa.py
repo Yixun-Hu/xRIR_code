@@ -1450,6 +1450,7 @@ def test_the_exp06_statistics_are_the_ones_main_produces(arms, tmp_path):
     before, after = base.analyse(exp06, **settings), subject.analyse(exp06, **settings)
     assert list(after) == list(before)
     assert json.dumps(after, sort_keys=True) == json.dumps(before, sort_keys=True)
+    assert subject.render(after) == base.render(before)   # and the summary it publishes
 
 
 def test_the_exp06_cli_reports_the_fields_it_always_reported(legacy_root, stub_new_arms,
