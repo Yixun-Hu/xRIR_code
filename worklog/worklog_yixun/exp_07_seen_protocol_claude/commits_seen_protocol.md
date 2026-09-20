@@ -197,3 +197,5 @@ e122355 2026-09-15 exp_07 round 1 cycle 2: protocol-aware train_data_identity, s
 6ed7bef 2026-09-15 exp_07 round 1 cycle 1: trainer --protocol {unseen,seen}
 c65070d 2026-09-15 exp_07: round-1 Coder prompt
 ```
+
+Related commit outside the path scope: `02bf1e2` (2026-09-19) — relocation of the stray `tools/plot_exp05_efficiency.py` under exp_05's assets, the commit that unblocked and became the reviewed commit of the nine rerun seen_cyl evaluations.
