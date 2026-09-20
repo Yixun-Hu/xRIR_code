@@ -2471,7 +2471,7 @@ def test_an_absent_approvals_file_refuses_an_haa_child(tmp_path):
         subprocess.run(['git'] + command, cwd=str(root), check=True)
     head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(root),
                                    text=True).strip()
-    with pytest.raises(ValueError, match='missing approvals file'):
+    with pytest.raises(ValueError, match="not tracked at"):
         exp06_finalize.haa_approvals({'sha256': 'a' * 64}, 'haa_train', head, root)
 
 
@@ -2487,3 +2487,69 @@ def test_the_haa_completion_records_the_approvals_binding(haa_train_run, haa_rep
     assert set(fields['code_digests']) == {'haa_finetune'}
     assert fields['code_digests']['haa_finetune'] == \
         fields['source_closure_sha256']
+
+
+# --- re-verification reads the approvals blob of the child's own reviewed commit ----------
+
+
+def refill_approvals(root, digests, message='refill'):
+    """Rewrite the committed approvals as a later producer's reviewed commit does."""
+    from tools import exp06_profiles
+    path = Path(root) / exp06_profiles.APPROVED_RELATIVE
+    value = json.loads(path.read_text())
+    value['code'].update(digests)
+    path.write_text(json.dumps(value, sort_keys=True, indent=2) + '\n')
+    subprocess.run(['git', 'add', '-A'], cwd=str(root), check=True)
+    subprocess.run(['git', '-c', 'user.email=a@b', '-c', 'user.name=t', 'commit', '-q',
+                    '-m', message], cwd=str(root), check=True)
+    return subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(root),
+                                   text=True).strip()
+
+
+def test_a_certified_child_stays_verifiable_after_the_approvals_are_refilled(tmp_path):
+    """exp_06 2026-09-18 19:03: a refill for another producer made every HAA child
+    unverifiable, because the loader bound the working file to the blob at the child's
+    commit. The blob at that commit is the approval the child ran under."""
+    from tools import exp06_profiles
+    root = tmp_path / 'refill'
+    head = stub_haa_repo(root, {'haa_finetune': 'b' * 64, 'haa_eval': 'b' * 64})
+    path = Path(root) / exp06_profiles.APPROVED_RELATIVE
+    historical = provenance.sha256_file(path)
+    later = refill_approvals(root, {'haa_finetune': 'c' * 64, 'compare': 'd' * 64})
+    record = exp06_finalize.haa_approvals({'sha256': 'b' * 64}, 'haa_train', head, root)
+    assert record['approvals'] == {'path': str(path), 'sha256': historical,
+                                   'committed_at': head}
+    assert record['code_digests'] == {'haa_finetune': 'b' * 64}
+    assert provenance.sha256_file(path) != historical      # the file really did change
+    later_record = exp06_finalize.haa_approvals({'sha256': 'c' * 64}, 'haa_train', later, root)
+    assert later_record['approvals']['sha256'] == provenance.sha256_file(path)
+    with pytest.raises(ValueError, match=r'not the approved code\.haa_finetune'):
+        exp06_finalize.haa_approvals({'sha256': 'b' * 64}, 'haa_train', later, root)
+
+
+def test_an_edited_working_approvals_file_never_admits_or_refuses_a_past_child(tmp_path):
+    """An uncommitted edit is not an approval: it neither breaks nor widens the past."""
+    from tools import exp06_profiles
+    root = tmp_path / 'edited'
+    head = stub_haa_repo(root, {'haa_finetune': 'b' * 64})
+    path = Path(root) / exp06_profiles.APPROVED_RELATIVE
+    historical = provenance.sha256_file(path)
+    value = json.loads(path.read_text())
+    value['code']['haa_finetune'] = 'e' * 64
+    path.write_text(json.dumps(value, sort_keys=True, indent=2) + '\n')
+    record = exp06_finalize.haa_approvals({'sha256': 'b' * 64}, 'haa_train', head, root)
+    assert record['approvals']['sha256'] == historical != provenance.sha256_file(path)
+    with pytest.raises(ValueError, match=r'not the approved code\.haa_finetune'):
+        exp06_finalize.haa_approvals({'sha256': 'e' * 64}, 'haa_train', head, root)
+
+
+def test_the_committed_approvals_blob_is_validated_like_the_file(tmp_path):
+    """The blob is parsed through the approvals schema, never trusted as JSON."""
+    from tools import exp06_profiles
+    root = tmp_path / 'broken'
+    stub_haa_repo(root, {'haa_finetune': 'b' * 64})
+    path = Path(root) / exp06_profiles.APPROVED_RELATIVE
+    path.write_text(json.dumps({'schema_version': 1, 'code': {}}) + '\n')
+    broken = refill_approvals(root, {}, message='a malformed approvals commit')
+    with pytest.raises(ValueError, match='approved digests'):
+        exp06_finalize.haa_approvals({'sha256': 'b' * 64}, 'haa_train', broken, root)
