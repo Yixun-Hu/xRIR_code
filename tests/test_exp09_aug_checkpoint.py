@@ -107,3 +107,41 @@ def test_the_real_exp04_record_names_the_yaw_augmented_checkpoint():
     record = subject.exp04_aug_checkpoint(approvals_pinning(file), file)
     assert record['checkpoint']['path'] == AUG_PATH and record['checkpoint']['epoch'] == 12
     assert re.fullmatch('[0-9a-f]{64}', record['checkpoint']['sha256'])
+
+
+def replacement(sha256, identity_sha256):
+    """What the loader returns after the record on disk has been replaced and committed."""
+    value = {'schema_version': 1,
+             'closures': {key: 'd' * 64 for key in EXP04_CLOSURES},
+             'checkpoints': {'aug_epoch9': 'e' * 64,
+                             'aug': {'path': AUG_PATH, 'epoch': 12, 'sha256': sha256}}}
+    return lambda *args, **kwargs: (value, {'path': 'replaced', 'sha256': identity_sha256,
+                                            'git_blob': 'b' * 40})
+
+
+def test_a_record_replaced_between_the_two_reads_is_refused(tmp_path, monkeypatch):
+    """Code review round 1, finding 2: one validated snapshot, not two reads.
+
+    Hashing the file establishes the identity of the bytes that were hashed; the loader
+    reads the path again, and between the two a record X can be replaced by a committed,
+    schema-valid record Y that names any checkpoint it likes. The snapshot that is used
+    must be the snapshot whose identity was approved.
+    """
+    from tools import exp04_profiles
+    file = exp04_record(tmp_path)
+    approved = approvals_pinning(file)
+    monkeypatch.setattr(exp04_profiles, 'load_approved_digests', replacement('a' * 64, 'b' * 64))
+    with pytest.raises(ValueError, match=r'reused\.exp04_approved_digests_sha256'):
+        subject.exp04_aug_checkpoint(approved, file)
+
+
+def test_the_snapshot_whose_identity_is_the_approved_one_is_used(tmp_path, monkeypatch):
+    """The control: the same probe with the approved identity resolves, so the refusal
+    above is about the identity and not about the monkeypatch."""
+    from tools import exp04_profiles
+    file = exp04_record(tmp_path)
+    approved = approvals_pinning(file)
+    pin = approved['reused']['exp04_approved_digests_sha256']
+    monkeypatch.setattr(exp04_profiles, 'load_approved_digests', replacement('a' * 64, pin))
+    record = subject.exp04_aug_checkpoint(approved, file)
+    assert record['sha256'] == pin and record['checkpoint']['sha256'] == 'a' * 64
