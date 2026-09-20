@@ -325,7 +325,7 @@ NEW_OFFSETS = {'cyl_or': 0.02, 'control_hf': 0.04, 'cyl_hf': 0.06, 'yawaug': 0.0
 def stub_new_arms(monkeypatch):
     """The CLI's own tests: admission has its own, over children the finalizer wrote."""
     monkeypatch.setattr(subject, 'load_new_arm',
-                        lambda root, arm, init_sha256=None, repo=subject.REPO,
+                        lambda roots, arm, init_sha256=None, repo=subject.REPO,
                         approved=None, sensitivity=False:
                         synthetic_arm(arm, NEW_OFFSETS[arm]))
 
@@ -793,7 +793,8 @@ def test_the_registered_initialisations_are_exp01s_and_the_approved_epoch():
     inits = subject.expected_inits(None)
     assert inits['cyl_or'] is None and inits['cyl_hf'] == subject.EXP01_CYL['sha256']
     approved = {'artifacts': {'epoch_012': {'sha256': 'c' * 64}}}
-    assert subject.expected_inits(approved)['cyl_or'] == 'c' * 64
+    exp06_arms = subject.EXPERIMENTS['exp06']['arms']
+    assert subject.expected_inits(approved, exp06_arms)['cyl_or'] == 'c' * 64
 
 
 # --- finding 7: production approvals are the committed, reviewed bytes --------------------
@@ -1282,8 +1283,9 @@ def test_the_exp09_screen_is_the_bonferroni_eleven_family(arms):
     assert len(cells) == 11 and {c['contrast'] for c in cells} == {'yawaug - control'}
     assert ('hallway', 'c50') in {(c['room'], c['metric']) for c in cells}
     assert {c['adjusted_alpha'] for c in cells} == {0.05 / 11}
-    assert subject.bootstrap._tails(cells[0]['adjusted_alpha']) == [
-        100 * 0.05 / 22, 100 * (1 - 0.05 / 22)]
+    tails = subject.bootstrap._tails(cells[0]['adjusted_alpha'])
+    assert [round(value, 12) for value in tails] == [round(100 * 0.05 / 22, 12),
+                                                     round(100 * (1 - 0.05 / 22), 12)]
     assert all(cell['label'] != 'non-inferior' for cell in cells)
 
 
@@ -1347,3 +1349,56 @@ def test_arm_es_initialisation_is_exp04s_approved_checkpoint(tmp_path):
     wrong['reused']['exp04_approved_digests_sha256'] = 'a' * 64
     with pytest.raises(ValueError, match='exp04_approved_digests_sha256'):
         subject.expected_inits(wrong, ('yawaug',), {})
+
+
+def test_the_cli_publishes_exp09s_outputs_from_its_own_roots(legacy_root, stub_new_arms,
+                                                             tmp_path):
+    receipt = tmp_path / 'r.json'
+    subject.write_legacy_receipt(receipt, legacy_root, strict=False)
+    out, summary = tmp_path / 'exp09.json', tmp_path / 'exp09.txt'
+    assert subject.main(['--experiment', 'exp09', '--legacy-root', str(legacy_root),
+                         '--new-root', 'unused', '--exp09-root', 'unused',
+                         '--legacy-receipt', str(receipt), '--json', str(out),
+                         '--summary', str(summary), '--n-boot', '200',
+                         '--n-boot-adjusted', '200', '--exploratory']) == 0
+    record = json.loads(out.read_text())
+    assert record['experiment'] == 'exp09'
+    assert sorted(record['arms']) == ['control', 'cyl', 'cyl_or', 'yawaug']
+    assert record['E1']['verdict'] == 'suppressed (draft)'
+    assert record['E1']['category'] is None
+    assert record['E1']['non_inferior_at_margin'] is None
+    assert len(record['E2']) == 11 and len(record['E3']) == 11
+    assert not {'H1', 'H1b', 'H2', 'D'} & set(record)
+    assert record['summary_sha256'] == hashlib.sha256(summary.read_bytes()).hexdigest()
+
+
+def test_a_historical_arm_is_admitted_under_refilled_approvals_beside_arm_e(
+        real_job, cache, arms, monkeypatch):
+    """exp_09 re-fills the approvals for its own producers; exp_06's certified children
+    were admitted under the blob of their own commit and stay verifiable without anyone
+    restoring a working file, and their receipts keep the identity they published."""
+    import subprocess
+    from tools import exp06_profiles
+    root, repo = real_job
+    synthetic = legacy.HAA_ROOT        # the cache the synthetic arms' geometry comes from
+    monkeypatch.setattr(legacy, 'HAA_ROOT', cache['root'])
+    path = Path(repo) / exp06_profiles.APPROVED_RELATIVE
+    historical = sha(path)
+    value = json.loads(path.read_text())
+    value['code']['summarize_haa'] = 'c' * 64          # exp_09's own producer re-fill
+    path.write_text(json.dumps(value, sort_keys=True, indent=2) + '\n')
+    subprocess.run(['git', 'add', '-A'], cwd=str(repo), check=True)
+    subprocess.run(['git', '-c', 'user.email=a@b', '-c', 'user.name=t', 'commit', '-q',
+                    '-m', 'exp_09 refill'], cwd=str(repo), check=True)
+    assert sha(path) != historical
+    inputs = {}
+    job = subject.verify_job(root, 'seed0', 'cyl_or', repo=repo, sensitivity=True,
+                             inputs=inputs)
+    assert sorted(job['per']) == sorted(ROOMS)
+    receipt = json.loads((Path(root) / 'stage1' / 'completion.json').read_text())
+    assert receipt['approvals']['sha256'] == historical
+    assert str(path.resolve()) not in inputs   # never bound to the current file's bytes
+    result = subject.analyse(arms, n_boot=200, adjusted_n_boot=200, experiment='exp09',
+                             cache_root=synthetic)
+    assert result['E1']['contrast'] == 'yawaug - control' and result['E1']['category']
+    assert sorted(result['arms']) == ['control', 'cyl', 'cyl_or', 'yawaug']

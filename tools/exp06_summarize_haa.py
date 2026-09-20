@@ -13,8 +13,17 @@ Arms C (``cyl_or``), D (``control_hf``) and F (``cyl_hf``) are exp_06's own runs
 schema, rehashes every artifact it bound, and requires the arm's backbone, frame,
 heading roll and execution closure to be the one the table registers.
 
+Arm E (``yawaug``) is exp_09's: exp_04's yaw-augmented SimpleViT, fine-tuned by the same
+pipeline in the ROOM frame under ``ckpt/exp09/sim2real``. ``--experiment exp09`` publishes
+that experiment's frozen configuration -- arms A, B, C and E, the contrasts E1/E2/E3 and
+exp_09's own outputs -- through this one producer, so the analysis stays inside the
+``code.summarize_haa`` closure 6.4 approves. exp_06's arms, contrasts, verdict semantics
+and canonical record are untouched by it, and neither experiment may write the other's.
+
     python tools/exp06_summarize_haa.py --json ckpt/exp06/stats.json \
         --summary ckpt/exp06/summary.txt
+    python tools/exp06_summarize_haa.py --experiment exp09 \
+        --json ckpt/exp09/stats.json --summary ckpt/exp09/summary.txt
 """
 import argparse
 import datetime
@@ -1090,13 +1099,52 @@ def approvals(exploratory, path=None, producer='summarize_haa', commit=None, rep
                                                              exploratory)
 
 
+def classify_cell(cell):
+    """exp_09's E1: the two-sided category and the +0.23 dB statement, side by side.
+
+    Both read the one interval exp_06's margin verdict reads -- the seed-0 two-way
+    interval of the size that converged -- and both use strict inequalities, so an
+    endpoint exactly at 0 or at the margin establishes neither. They are independent:
+    "detected harm" and "non-inferior at +0.23 dB" may hold together, and a failure to
+    establish non-inferiority is not evidence of inferiority. A void or unconverged cell
+    suppresses both, even though a nominal interval may still exist.
+    """
+    interval = (None if cell['verdict'] in ('void', 'not_converged')
+                else cell['convergence']['interval'])
+    if interval is None:
+        return dict(cell, category=None, non_inferior_at_margin=None)
+    return dict(cell, category=h2_label(interval),
+                non_inferior_at_margin=bool(interval[1] < cell['margin']))
+
+
+def check_output_paths(experiment, json_path, summary_path):
+    """No experiment's run may write another's canonical record."""
+    targets = {str(Path(path).resolve()) for path in (json_path, summary_path)}
+    for name, config in EXPERIMENTS.items():
+        if name == experiment:
+            continue
+        for canonical in config['outputs']:
+            _require(str((REPO / canonical).resolve()) not in targets,
+                     'an {} run may not write {}, the canonical record of {}'.format(
+                         experiment, canonical, name))
+
+
 def analyse(arms, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, cache_root=None,
             exploratory=False, receipt=None, receipt_path=None, approved=None,
             deviations=(), approvals_receipt=None, producer=None, extra_inputs=(),
-            sensitivity=False):
+            sensitivity=False, experiment='exp06'):
     """Every displayed number, and the evidence each rests on."""
+    config = EXPERIMENTS[experiment]
+    # The frozen configuration decides what is published, not what the caller happens to
+    # have loaded: an experiment's tables never carry another's arm, and a missing one is
+    # a refusal rather than a quietly shorter table.
+    missing = [name for name in config['arms'] if name not in arms]
+    _require(not missing, 'the {} analysis needs the arms {}'.format(
+        experiment, ', '.join(missing)))
+    arms = OrderedDict((name, arms[name]) for name in config['arms'])
     cache_inputs = {}
-    result = {'schema_version': 1, 'exploratory': bool(exploratory),
+    result = {'schema_version': 1, 'experiment': experiment,
+              'exploratory': bool(exploratory),
               'mode': 'sensitivity' if sensitivity else 'primary',
               'deviations': list(deviations), 'arms': {name: {
                   'branch': arms[name]['branch'], 'root': arms[name]['root'],
@@ -1115,16 +1163,23 @@ def analyse(arms, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, cache_root=Non
     for path, digest in sorted(dict(cache_inputs, **dict(extra_inputs)).items()):
         bind(result['inputs'], path, digest)
     producer_inputs(result['inputs'], producer, approvals_receipt)
-    result['H1'] = decision_cell(arms, H1, H1_ROOM, H1_METRIC, H1_MARGIN_DB, n_boot)
-    result['H1b'] = decision_cell(arms, H1B, H1_ROOM, H1_METRIC, 0.0, n_boot)
-    result['H2'] = screen_cells(arms, H1, n_boot, adjusted_n_boot)
-    result['D'] = descriptive_cells(arms, DESCRIPTIVE, n_boot)
-    if exploratory:
-        for name in ('H1', 'H1b'):
+    for name, pair, room, metric, margin in config['decisions']:
+        cell = decision_cell(arms, pair, room, metric, margin, n_boot)
+        result[name] = classify_cell(cell) if name in config['classified'] else cell
+    result[config['screen'][0]] = screen_cells(arms, config['screen'][1], n_boot,
+                                               adjusted_n_boot)
+    result[config['descriptive'][0]] = descriptive_cells(arms, config['descriptive'][1],
+                                                         n_boot)
+    for name, *_ in config['decisions']:
+        classified = name in config['classified']
+        if exploratory:  # a draft states no conclusion of either kind
             result[name]['verdict'] = 'suppressed (draft)'
-    if sensitivity:      # finding 3: a relaxed admission never reads as the primary one
-        for name in ('H1', 'H1b'):
+            if classified:
+                result[name].update(category=None, non_inferior_at_margin=None)
+        if sensitivity:  # finding 3: a relaxed admission never reads as the primary one
             result[name]['verdict'] = 'sensitivity: ' + result[name]['verdict']
+            if classified and result[name]['category'] is not None:
+                result[name]['category'] = 'sensitivity: ' + result[name]['category']
     return result
 
 
@@ -1178,24 +1233,31 @@ def render(result):
                     cells.append(legacy.fmt(row['per_run'], nd))
                 line += '| ' + ''.join(cells)
             lines.append(line)
-    for name in ('H1', 'H1b'):
+    config = EXPERIMENTS[result.get('experiment', 'exp06')]
+    for name, *_ in config['decisions']:
         cell = result[name]
         lines.append('\n{} {} {} {}: diff {}, two-way {}, margin {}, cohort {}/{} -> '
                      '{}'.format(name, cell['contrast'], cell['room'], cell['metric'],
                                  _number(cell['diff']), _bounds(cell['two_way']),
                                  cell['margin'], cell['cohort'], cell['n_test'],
                                  cell['verdict']))
+        if name in config['classified']:
+            lines.append('  category: {}; non-inferior at {} dB: {}'.format(
+                UNAVAILABLE if cell['category'] is None else cell['category'],
+                cell['margin'], UNAVAILABLE if cell['non_inferior_at_margin'] is None
+                else cell['non_inferior_at_margin']))
         lines.extend('  void: ' + reason for reason in cell['void_reasons'])
-    lines.append('\nH2 screen ({} cells, adjusted at alpha/{})'.format(len(result['H2']),
-                                                                      H2_FAMILY))
-    for cell in result['H2']:
+    screen, descriptive = config['screen'][0], config['descriptive'][0]
+    lines.append('\n{} screen ({} cells, adjusted at alpha/{})'.format(
+        screen, len(result[screen]), H2_FAMILY))
+    for cell in result[screen]:
         lines.append('  {:14s} {:4s} diff {} nominal {} adjusted {} -> {}'.format(
             cell['room'], cell['metric'], _number(cell['diff']),
             _bounds(cell['nominal_two_way']),
             'not available' if cell['adjusted_two_way'] is None else cell['adjusted_two_way'],
             cell['label']))
     lines.append('\nDescriptive contrasts')
-    for cell in result['D']:
+    for cell in result[descriptive]:
         lines.append('  {:22s} {:14s} {:4s} diff {} {}'.format(
             cell['contrast'], cell['room'], cell['metric'], _number(cell['diff']),
             _bounds(cell['nominal_two_way'])))
@@ -1248,8 +1310,11 @@ def write_outputs(result, json_path, summary_path):
 
 def build_parser():
     parser = argparse.ArgumentParser(description='Summarise exp_06 and exp_02 HAA arms.')
+    parser.add_argument('--experiment', choices=tuple(EXPERIMENTS), default='exp06',
+                        help='which frozen set of arms, contrasts and outputs to publish')
     parser.add_argument('--legacy-root', default=LEGACY_ROOT)
     parser.add_argument('--new-root', default=NEW_ROOT)
+    parser.add_argument('--exp09-root', default=EXP09_ROOT)
     parser.add_argument('--legacy-receipt', default='ckpt/exp06/legacy_receipt.json')
     parser.add_argument('--write-legacy-receipt')
     parser.add_argument('--approved')
@@ -1283,25 +1348,32 @@ def main(argv=None):
                           'files': len(record['files']), 'label': record['label']}))
         return 0
     _require(args.json and args.summary, 'both --json and --summary are required')
+    check_output_paths(args.experiment, args.json, args.summary)
+    config = EXPERIMENTS[args.experiment]
+    roots = {'exp06': args.new_root, 'exp09': args.exp09_root}
+    new_arms = tuple(arm for arm in config['arms'] if ARMS[arm]['branch'] == 'new')
     binding = approved['reused']['legacy_receipt'] if approved else None
     if binding is not None and binding.get('sha256') is None:
         binding = None
     arms, receipt = load_legacy(args.legacy_root, args.legacy_receipt, binding)
     extra = check_reused_identities(None if args.exploratory else approved, receipt,
                                     args.gate_g1)
-    inits = {} if args.exploratory else expected_inits(approved)
-    for arm in NEW_ARMS:
-        arms[arm] = load_new_arm(args.new_root, arm, inits.get(arm), REPO,
+    inits = ({} if args.exploratory
+             else expected_inits(approved, new_arms, extra))
+    for arm in new_arms:
+        arms[arm] = load_new_arm(roots, arm, inits.get(arm), REPO,
                                  None if args.exploratory else approved, args.sensitivity)
         deviations = deviations + list(arms[arm].get('recipe_deviations') or ())
     result = analyse(arms, args.n_boot, args.n_boot_adjusted, args.cache_root,
                      args.exploratory, receipt, args.legacy_receipt, approved, deviations,
-                     approvals_receipt, identity, extra, args.sensitivity)
+                     approvals_receipt, identity, extra, args.sensitivity, args.experiment)
     record, digest, text = write_outputs(result, args.json, args.summary)
     print(text)
-    print(json.dumps({'json': args.json, 'sha256': digest,
-                      'summary_sha256': record['summary_sha256'],
-                      'H1': record['H1']['verdict'], 'H1b': record['H1b']['verdict']}))
+    print(json.dumps(dict({'json': args.json, 'sha256': digest,
+                           'experiment': args.experiment,
+                           'summary_sha256': record['summary_sha256']},
+                          **{name: record[name]['verdict']
+                             for name, *_ in config['decisions']})))
     return 0
 
 
