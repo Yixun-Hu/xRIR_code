@@ -1187,13 +1187,20 @@ def exp04_aug_checkpoint(approved, path=None):
     from tools import exp04_profiles    # local: exp_04's profile is not in this closure
     pinned = ((approved or {}).get('reused') or {}).get('exp04_approved_digests_sha256')
     file = Path(exp04_profiles.APPROVED_DIGESTS_PATH if path is None else path)
-    # The identity first: a file that is not the approved record is refused as that, and
-    # never for some later property of a record nobody approved.
-    digest = provenance.sha256_file(file)
-    _require(pinned is not None and digest == pinned,
-             'the exp_04 approvals {} hash to {}, not the approved '
-             'reused.exp04_approved_digests_sha256 {}'.format(file, digest, pinned))
+
+    def approved_record(digest, label):
+        # Code review round 1 finding 2: the digest that is compared and the snapshot the
+        # checkpoint is read from must be one read. A file that is not the approved record
+        # is refused as that, and never for some later property of a record nobody
+        # approved -- so the preliminary hash stays, and the parsed snapshot is checked too.
+        _require(pinned is not None and digest == pinned,
+                 'the exp_04 approvals {} ({}) hash to {}, not the approved '
+                 'reused.exp04_approved_digests_sha256 {}'.format(
+                     file, label, digest, pinned))
+
+    approved_record(provenance.sha256_file(file), 'as read')
     value, identity = exp04_profiles.load_approved_digests(file)
+    approved_record(identity['sha256'], 'as parsed')
     record = {key: value['checkpoints']['aug'][key] for key in ('path', 'epoch', 'sha256')}
     _require(record['epoch'] == EXP04_AUG_EPOCH and _is_sha256(record['sha256']),
              'exp_04 approves no epoch {} checkpoints.aug: {!r}'.format(
