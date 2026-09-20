@@ -1,0 +1,19 @@
+03:16:28 SMOKE 2026-09-20_03:16:28 GPU=1 HEAD=4e4110f726adee800320f8660f8faaf4df2e417a
+03:16:28 GPU 1 empty
+rooms ['class_room']: 12 train targets, 155 val samples from ['class_room']; frame room; batch 4 x accum 1; 3 batches/epoch
+epoch 0 (init): val loss 0.03961
+epoch 2/2: train 0.03892  val 0.03529  best val 0.03529 @ 2  lr 9.1e-05  0.2 min
+done: {"best_epoch": 2, "best_val_loss": 0.035286727739918616, "init_val_loss": 0.039608897965761926, "epochs": 2, "minutes": 0.17843907674153645, "rooms": ["class_room"], "val_rooms": ["class_room"], "init": "ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth", "backbone": "simple", "seed": 0, "frame": "room"}
+EXP06_SMOKE {"aborted_memory": false, "alarm_seconds": 600.0, "argv": ["--backbone", "simple", "--init", "ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth", "--rooms", "class_room", "--save-dir", "ckpt/exp09/_smoke/2026-09-20_03:16:28/ft", "--epochs", "2", "--val-every", "1", "--batch-size", "4", "--val-batch-size", "4", "--seed", "0"], "diagnostic": true, "ended_at": "2026-09-20T07:17:09.062076+00:00", "entry": "exp06_haa_finetune", "entry_status": null, "exit_status": 0, "exploratory": true, "git_head": "4e4110f726adee800320f8660f8faaf4df2e417a", "max_gb": 40.0, "module": "tools.exp06_haa_finetune", "outcome": "ok", "outcome_detail": null, "peak_bytes": 4482725376, "provenance": {"path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/_smoke/2026-09-20_03:16:28/ft_provenance.json", "sha256": "9e6e01aee14e9a0e5a6ea17138e187146d86a4757de3b763d22e1f1460cf11fa"}, "run_type": "smoke", "runner": "tools.exp06_smoke", "runner_closure_sha256": "00e3b91b8289cc0f1fda8c2ab2ce3b151ca897f4a4c746f93863e3d338091d00", "schema_version": 1, "started_at": "2026-09-20T07:16:47.659118+00:00", "timestamp": "2026-09-20T07:16:47.659134+00:00", "wall_s": 21.402274292893708}
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+Note: you can still call torch.view_as_real on the complex output to recover the old return format. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:862.)
+  return _VF.stft(input, n_fft, hop_length, win_length, window,  # type: ignore[attr-defined]
+hallway        n=   4  EDT 0.1800s  C50 1.258dB  T60 9.10%  env 3.73  loss 0.0380  (0.0 min)
+EXP06_SMOKE {"aborted_memory": false, "alarm_seconds": 300.0, "argv": ["--backbone", "simple", "--checkpoint", "ckpt/exp09/_smoke/2026-09-20_03:16:28/ft/best.pth", "--rooms", "hallway", "--max-samples", "4", "--save-dir", "ckpt/exp09/_smoke/2026-09-20_03:16:28/ev", "--seed", "0"], "diagnostic": true, "ended_at": "2026-09-20T07:17:35.830697+00:00", "entry": "exp06_haa_eval", "entry_status": null, "exit_status": 0, "exploratory": true, "git_head": "4e4110f726adee800320f8660f8faaf4df2e417a", "max_gb": 40.0, "module": "tools.exp06_haa_eval", "outcome": "ok", "outcome_detail": null, "peak_bytes": 157504512, "provenance": {"path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/_smoke/2026-09-20_03:16:28/ev_provenance.json", "sha256": "3362f56b5a710807ffdf6f62118151598a8044c33ef721ec6a08a5db65c7f156"}, "run_type": "smoke", "runner": "tools.exp06_smoke", "runner_closure_sha256": "00e3b91b8289cc0f1fda8c2ab2ce3b151ca897f4a4c746f93863e3d338091d00", "schema_version": 1, "started_at": "2026-09-20T07:17:28.833644+00:00", "timestamp": "2026-09-20T07:17:28.833663+00:00", "wall_s": 6.9968176856637}
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+Note: you can still call torch.view_as_real on the complex output to recover the old return format. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:862.)
+  return _VF.stft(input, n_fft, hop_length, win_length, window,  # type: ignore[attr-defined]
+ckpt/exp09/_smoke/2026-09-20_03:16:28/ft_receipt.json ok 0
+ckpt/exp09/_smoke/2026-09-20_03:16:28/ev_receipt.json ok 0
+room frame, no heading: ok
+03:17:36 SMOKE OK (diagnostic)

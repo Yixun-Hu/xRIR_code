@@ -19,3 +19,10 @@
 
 ## Schedule (agreed with the peer session 2026-09-19 21:2x)
 - GPU 1 after exp_07's seen_aug evaluations (peer's "GPU 1 released" ≈ 04:00 Sep 20), ≈ 3.3 h exclusive; GPU 0 not used.
+
+## As run (2026-09-20)
+- Code: main **85f2155** (merge of `exp09-yawaug` 9e41c65), approvals re-fill **c13e681**; launch tip 4e4110f (record-only commits above c13e681); summarise tip 4ac1748 (adds the peer's test-only `tests/test_exp07_table.py`); approvals blob and all 20 exp_06 code keys identical at c13e681, 4e4110f and 4ac1748.
+- Queue: `tools/exp06_haa_pipeline.sh 1 yawaug:0 yawaug:1 yawaug:2 yawaug:zeroshot` (`EXP06_HAA_OUT=ckpt/exp09/sim2real`, `EXP09_YAWAUG_CKPT=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth`, init sha256 f8e64052…), GPU 1 exclusive, 03:22:17 → 06:07:48 (2 h 46 min; ≈ 55 min per seed: stage 1 ≈ 27 min at ≈ 36 GB, stage 2 ≈ 5 min per room at ≈ 13 GB, evals ≈ 1–2 min; zero-shot ≈ 6 min); 35/35 completions, all `admissible_arm: true`; 3.6 GB on disk.
+- Job spec (identical for the three seeds apart from `seed`): backbone simple, frame room, heading none, rooms class_room/complex_room/dampened_room/hallway, expect finetune; stage-1 args epochs 1000, val_every 10, lr 1e-4, wd 1e-4, batch_size 0 (full), TF32, depth_variant default, num_shot 8, eval_seed 0.
+- Summariser: `tools/exp06_summarize_haa.py --experiment exp09 --exp09-root ckpt/exp09/sim2real --approved <exp_06 approved_digests.json> --approved-commit 4ac1748 --gate-g1 ckpt/exp06/gate_g1.json` → `ckpt/exp09/stats.json` (sha256 f2faca78f895b7fbe8adcfa2b42690c3154d8873cc9d062c6c32208a9015afc9), `ckpt/exp09/summary.txt` (sha256 94963f7d…); E1 converged at 10 000 draws (movement ratio 0.012), no void, no deviations.
+- Per-seed E1 differences (hallway C50, E − A): seed 0 +0.278, seed 1 +0.262, seed 2 +0.289 dB.

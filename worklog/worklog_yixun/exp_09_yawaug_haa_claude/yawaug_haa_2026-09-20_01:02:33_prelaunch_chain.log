@@ -1,1 +1,27 @@
 2026-09-20T01:02:33 EXP09-PRELAUNCH waiting for markers REVIEW_OK and PEER_ENDGAME_DONE
+2026-09-20T02:25:33 EXP09-PRELAUNCH markers present; approved tip 9e41c657a2a2e236f42e2aba26291f6db48c4ce0
+02:25:33 MERGE 2026-09-20_02:25:33 HEAD=90642fcf08dfb28f3817c3d55a3559be72a204b1
+Merge made by the 'ort' strategy.
+ tests/test_exp06_approvals_api.py     |   1 +
+ tests/test_exp06_finalize.py          | 186 +++++++++++++++++++++--
+ tests/test_exp06_haa_pipeline.py      | 199 ++++++++++++++++++++-----
+ tests/test_exp06_summarize_haa.py     | 268 +++++++++++++++++++++++++++++++++-
+ tests/test_exp09_aug_checkpoint.py    | 147 +++++++++++++++++++
+ tests/test_exp09_sim_eval_closures.py |  76 ++++++++++
+ tools/exp06_finalize.py               |  70 ++++++++-
+ tools/exp06_haa_pipeline.sh           | 124 +++++++++++-----
+ tools/exp06_summarize_haa.py          | 232 +++++++++++++++++++++++------
+ 9 files changed, 1158 insertions(+), 145 deletions(-)
+ create mode 100644 tests/test_exp09_aug_checkpoint.py
+ create mode 100644 tests/test_exp09_sim_eval_closures.py
+02:25:33 MERGE OK: 85f21557e75e099f30bb14fbcfc99613139714e6
+02:25:33 REFILL 2026-09-20_02:25:33 HEAD=85f21557e75e099f30bb14fbcfc99613139714e6
+code changed: ['finalize', 'haa_pipeline_sh', 'summarize_haa']
+{'finalize': 'ea8146d84e5056d3', 'haa_pipeline_sh': '4a401ee3d80f2e3c', 'summarize_haa': '3fc1e82d374c8e5f'}
+02:26:15 committed c13e68141bb284275276c737f53f1b766e131dde
+02:26:15 REFILL OK
+02:26:15 SUITE 2026-09-20_02:26:15 HEAD=c13e68141bb284275276c737f53f1b766e131dde
+1 failed, 3266 passed, 49 skipped, 248 warnings in 2647.32s (0:44:07)
+FAILED tests/test_exp07_table.py::test_the_cli_refuses_the_unapproved_committed_profile_and_writes_nothing
+2026-09-20T03:10:23 EXP09-PRELAUNCH suite has failures beyond the two exp_07 guards:
+FAILED tests/test_exp07_table.py::test_the_cli_refuses_the_unapproved_committed_profile_and_writes_nothing

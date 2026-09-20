@@ -1,0 +1,247 @@
+.ss.........ss.ssss..ssss.........................s..................... [  2%]
+.............................................s.......................... [  4%]
+........................................................................ [  6%]
+........................................................................ [  8%]
+........................................................................ [ 10%]
+........................................................................ [ 13%]
+..............ssssss.................s.................................. [ 15%]
+........................................................................ [ 17%]
+........................................................................ [ 19%]
+........................................................................ [ 21%]
+.............................................................ssssss..... [ 23%]
+........................................................................ [ 26%]
+........................................................................ [ 28%]
+........................................................................ [ 30%]
+........................................................................ [ 32%]
+...............................sss...................................... [ 34%]
+........................................................................ [ 36%]
+........................................................................ [ 39%]
+........................................................................ [ 41%]
+........................................................................ [ 43%]
+........................................................................ [ 45%]
+........................................................................ [ 47%]
+........................................................................ [ 49%]
+........................................................................ [ 52%]
+.........................................s.............................. [ 54%]
+...........s.................................s.......................... [ 56%]
+........................................................................ [ 58%]
+........................................................................ [ 60%]
+........................................................................ [ 62%]
+........................................................................ [ 65%]
+......................................................sssss............. [ 67%]
+........................................................................ [ 69%]
+........................................................................ [ 71%]
+........................................................................ [ 73%]
+........................................................................ [ 75%]
+........................................................................ [ 78%]
+.................................................................F...... [ 80%]
+..ssss.................................................................. [ 82%]
+........................................................................ [ 84%]
+........................................................................ [ 86%]
+........................................................................ [ 89%]
+........................................................................ [ 91%]
+.........
+[T9c] 6337 queries, manifest built in 2.90s; queries with < 8 distinct candidates: 520 (8.2058%); manifest_hash = 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d
+............................................................... [ 93%]
+........................................................................ [ 95%]
+...................................................................ss..s [ 97%]
+s..................................................................s..s. [ 99%]
+s...                                                                     [100%]
+=================================== FAILURES ===================================
+___ test_the_cli_refuses_the_unapproved_committed_profile_and_writes_nothing ___
+
+tmp_path = PosixPath('/tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0')
+built = namespace(approved=({'schema_version': 1, 'closures': {'evaluator': 'ce1c7a025a8c88df3d4ff78bacaf3877650419172fae3e1c9...napp0/TABLE_SEEN_V1/treble_multi_room_dataset/seen_test_split.pkl'), summaries=<function _summaries at 0x791e23ca4ca0>)
+
+    def test_the_cli_refuses_the_unapproved_committed_profile_and_writes_nothing(tmp_path, built):
+        with pytest.raises(ValueError, match='not yet approved'):
+>           table.main(['--profile', 'TABLE_SEEN_V1', '--runs'] + built.directories +
+                       ['--json', str(tmp_path / 'table.json'), '--md', str(tmp_path / 'seen.md')])
+
+tests/test_exp07_table.py:615: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/exp07_table.py:427: in main
+    result, admitted = build_table(args.runs, exploratory=args.exploratory)
+tools/exp07_table.py:375: in build_table
+    groups, admitted = admit(directories, profile, approved, producer, exploratory)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+directories = ['/tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k1_42', '/tmp/py..._46', '/tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k8_42', ...]
+profile = {'alpha': 0.05, 'arms': [{'backbone': 'simple', 'checkpoint': 'ckpt/exp07/seen_simple/final/epoch_012.pth', 'epoch': 1...een.pth', 'epoch': None, 'label': 'xRIR released (reference)', ...}], 'batch_size': 16, 'bootstrap_seeds': [0, 1], ...}
+approved = (mappingproxy({'checkpoints': mappingproxy({'seen_aug': mappingproxy({'epoch': 12, 'path': 'ckpt/exp07/seen_aug/final/...l_results_assets/approved_digests.json', 'sha256': '6b66f8172ac3e7216e495c8d1da8bd8c65d3ed421b1359ef4c0679dc7eca0b9b'})
+producer = {'commit': '4e4110f726adee800320f8660f8faaf4df2e417a', 'files': [{'commits_after_reviewed': [], 'mtime': '2026-09-04T1...0a3f986d6b500301f91dbfb9ea9', ...}, ...], 'sha256': '7a2e50236a872355d6abd483066e597882557d26468c77255f985c33ec051428'}
+exploratory = False, producer_key = 'producer_table'
+
+    def admit(directories, profile, approved=None, producer=None, exploratory=False,
+              producer_key='producer_table'):
+        """Route runs to (arm, K) groups, apply the contract, then collect through exp_04.
+    
+        Only differences this module checks independently are waived from the inherited
+        admission; nothing on disk and no imported producer's state is modified.
+        """
+        pins, receipt = load_approved_digests() if approved is None else approved
+        approved = (pins, receipt)
+        deviations, groups, contracts, waivers, snapshots = [], [], {}, set(), {}
+        sidecars = {}  # shared across the runs of one arm; see run_contract
+        def check(ok, message):
+            if not ok:
+                deviations.append(message)
+        check(type(pins['schema_version']) is int and pins['schema_version'] == 1,
+              'approval schema_version')
+        for key in ('evaluator', 'writer', 'training_launcher', 'training', producer_key):
+            check(bool(pins['closures'][key]), 'profile not yet approved: ' + key)
+        for arm in profile['arms']:
+            effective = dict(arm)
+            if not arm['reference']:
+                checkpoint = pins['checkpoints'][arm['role']]
+                check(checkpoint['path'] == arm['checkpoint'] and
+                      _equal(checkpoint['epoch'], arm['epoch']),
+                      'approved checkpoint path/epoch: ' + arm['role'])
+                effective['sha256'] = checkpoint['sha256']
+            check(effective['sha256'] is not None,
+                  'profile not yet approved: ' + arm['role'] + ' checkpoint')
+            for shot in sorted(profile['num_shot'], reverse=True):
+                groups.append((effective, shot, []))
+        if deviations and not exploratory:
+            raise ValueError('admission failed: ' + '; '.join(deviations))
+        directories = sorted(str(Path(item).resolve()) for item in directories)
+        check(len(set(directories)) == len(directories), 'duplicate run directories')
+        for directory in directories:
+            try:
+                fields = json.loads((Path(directory) / 'eval_manifest.json').read_text())
+                matches = [(arm, paths) for arm, shot, paths in groups
+                           if _equal(fields.get('num_shot'), shot) and
+                           (Path(fields['repo']) / fields['checkpoint']).resolve() ==
+                           (REPO / arm['checkpoint']).resolve()]
+                if len(matches) != 1:
+                    raise ValueError('unregistered checkpoint/K')
+                arm, paths = matches[0]
+                paths.append(directory)
+                contract = run_contract(directory, arm, profile, pins, sidecars)
+                contracts[directory] = {key: value for key, value in contract.items()
+                                        if key not in ('waivers', 'inputs')}
+                for path, digest in contract['inputs'].items():
+                    check(snapshots.get(path, digest) == digest, 'contract input changed: ' + path)
+                    snapshots[path] = digest
+                waivers.update(contract['waivers'])
+            except (ValueError, TypeError, KeyError, OSError, IndexError) as error:
+                check(False, '{}: {}'.format(directory, error))
+        trainers = {c['training'] for c in contracts.values() if c['training'] is not None}
+        check(len(trainers) <= 1, 'the new arms do not share one training closure')
+        entry = 'tools.exp07_' + ('pairs' if producer_key == 'producer_pairs' else 'table')
+        producer = producer_identity(entry) if producer is None else producer
+        admitted = admit_runs(profile, groups, approved=approved, exploratory=True,
+                              producer=producer, producer_key=producer_key)
+        for path, digest in snapshots.items():
+            # Evidence only this contract reads -- the training inventory sidecar, the probe
+            # receipt, the hours ledger -- is bound here; what exp_04 also binds must agree.
+            check(admitted['inputs'].setdefault(path, digest) == digest,
+                  'contract input changed: ' + path)
+        deviations.extend(item for item in admitted['deviations'] if item not in waivers)
+        if deviations and not exploratory:
+>           raise ValueError('admission failed: ' + '; '.join(deviations))
+E           ValueError: admission failed: /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k1_42: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k1_43: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k1_44: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k1_45: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k1_46: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k8_42: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k8_43: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k8_44: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k8_45: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k8_46: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_aug_k1_42: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_aug_k1_43: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_aug_k1_44: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_aug_k1_45: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_aug_k1_46: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_aug_k8_42: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_aug_k8_43: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_aug_k8_44: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_aug_k8_45: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_aug_k8_46: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_cyl_k1_42: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_cyl_k1_43: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_cyl_k1_44: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_cyl_k1_45: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_cyl_k1_46: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_cyl_k8_42: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_cyl_k8_43: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_cyl_k8_44: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_cyl_k8_45: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_cyl_k8_46: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_simple_k1_42: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_simple_k1_43: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_simple_k1_44: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_simple_k1_45: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_simple_k1_46: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_simple_k8_42: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_simple_k8_43: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_simple_k8_44: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_simple_k8_45: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_simple_k8_46: unregistered checkpoint/K; seen_simple seed set; seen_simple seed set; seen_cyl seed set; seen_cyl seed set; seen_aug seed set; seen_aug seed set; released_seen seed set; released_seen seed set
+
+tools/exp07_table.py:294: ValueError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0')
+built = namespace(approved=({'schema_version': 1, 'closures': {'evaluator': 'ce1c7a025a8c88df3d4ff78bacaf3877650419172fae3e1c9...napp0/TABLE_SEEN_V1/treble_multi_room_dataset/seen_test_split.pkl'), summaries=<function _summaries at 0x791e23ca4ca0>)
+
+    def test_the_cli_refuses_the_unapproved_committed_profile_and_writes_nothing(tmp_path, built):
+        with pytest.raises(ValueError, match='not yet approved'):
+>           table.main(['--profile', 'TABLE_SEEN_V1', '--runs'] + built.directories +
+                       ['--json', str(tmp_path / 'table.json'), '--md', str(tmp_path / 'seen.md')])
+E           AssertionError: Regex pattern did not match.
+E            Regex: 'not yet approved'
+E            Input: 'admission failed: /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k1_42: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k1_43: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k1_44: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k1_45: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k1_46: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k8_42: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k8_43: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k8_44: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k8_45: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/released_seen_k8_46: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_aug_k1_42: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_aug_k1_43: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_aug_k1_44: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_aug_k1_45: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_aug_k1_46: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_aug_k8_42: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_aug_k8_43: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_aug_k8_44: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_aug_k8_45: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_aug_k8_46: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_cyl_k1_42: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_cyl_k1_43: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_cyl_k1_44: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_cyl_k1_45: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_cyl_k1_46: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_cyl_k8_42: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_cyl_k8_43: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_cyl_k8_44: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_cyl_k8_45: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_cyl_k8_46: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_simple_k1_42: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_simple_k1_43: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_simple_k1_44: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_simple_k1_45: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_simple_k1_46: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_simple_k8_42: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_simple_k8_43: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_simple_k8_44: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_simple_k8_45: unregistered checkpoint/K; /tmp/pytest-of-yixunhu/pytest-3222/test_the_cli_refuses_the_unapp0/TABLE_SEEN_V1/runs/seen_simple_k8_46: unregistered checkpoint/K; seen_simple seed set; seen_simple seed set; seen_cyl seed set; seen_cyl seed set; seen_aug seed set; seen_aug seed set; released_seen seed set; released_seen seed set'
+
+tests/test_exp07_table.py:615: AssertionError
+=============================== warnings summary ===============================
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+    from pkg_resources import resource_filename
+
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154: DeprecationWarning: Deprecated call to `pkg_resources.declare_namespace('mpl_toolkits')`.
+  Implementing implicit namespace packages (as specified in PEP 420) is preferred to `pkg_resources.declare_namespace`. See https://setuptools.pypa.io/en/latest/references/keywords.html#keyword-namespace-packages
+    declare_namespace(pkg)
+
+tests/test_exp04_launcher.py: 1 warning
+tests/test_exp05_eval.py: 17 warnings
+tests/test_exp05_eval_launch.py: 11 warnings
+tests/test_exp05_full.py: 4 warnings
+tests/test_exp05_params.py: 10 warnings
+tests/test_exp05_profiles.py: 6 warnings
+tests/test_exp05_record_tools.py: 2 warnings
+tests/test_exp05_trainer.py: 5 warnings
+tests/test_exp06_eval.py: 3 warnings
+tests/test_exp06_factory.py: 4 warnings
+tests/test_exp06_finalize.py: 6 warnings
+tests/test_exp06_haa.py: 18 warnings
+tests/test_exp06_haa_pipeline.py: 9 warnings
+tests/test_exp06_mirror_probe.py: 5 warnings
+tests/test_exp06_recipe.py: 3 warnings
+tests/test_exp06_smoke.py: 3 warnings
+tests/test_exp06_summarize_haa.py: 9 warnings
+tests/test_exp06_train.py: 1 warning
+tests/test_exp07_launcher.py: 1 warning
+tests/test_train_yaw_aug.py: 1 warning
+tests/test_yaw_rotation.py: 1 warning
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+    warnings.warn(
+
+tests/test_exp04_launcher.py: 1 warning
+tests/test_exp05_eval.py: 17 warnings
+tests/test_exp05_eval_launch.py: 11 warnings
+tests/test_exp05_full.py: 4 warnings
+tests/test_exp05_params.py: 10 warnings
+tests/test_exp05_profiles.py: 6 warnings
+tests/test_exp05_record_tools.py: 2 warnings
+tests/test_exp05_trainer.py: 5 warnings
+tests/test_exp06_eval.py: 3 warnings
+tests/test_exp06_factory.py: 4 warnings
+tests/test_exp06_finalize.py: 6 warnings
+tests/test_exp06_haa.py: 18 warnings
+tests/test_exp06_haa_pipeline.py: 9 warnings
+tests/test_exp06_mirror_probe.py: 5 warnings
+tests/test_exp06_recipe.py: 3 warnings
+tests/test_exp06_smoke.py: 3 warnings
+tests/test_exp06_summarize_haa.py: 9 warnings
+tests/test_exp06_train.py: 1 warning
+tests/test_exp07_launcher.py: 1 warning
+tests/test_train_yaw_aug.py: 1 warning
+tests/test_yaw_rotation.py: 1 warning
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+    warnings.warn(msg)
+
+tests/test_exp06_encoder.py::test_shape_buffers_camera_and_signature
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+    return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+
+tests/test_exp06_mirror_probe.py::test_the_recomposed_forward_mixes_the_reference_log_spectrograms
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:641: UserWarning: stft with return_complex=False is deprecated. In a future pytorch release, stft will return complex tensors for all inputs, and return_complex=False will raise an error.
+  Note: you can still call torch.view_as_real on the complex output to recover the old return format. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:862.)
+    return _VF.stft(input, n_fft, hop_length, win_length, window,  # type: ignore[attr-defined]
+
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[paired_compare-RuntimeError]
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[paired_compare-KeyError]
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/runpy.py:127: RuntimeWarning: 'tools.paired_compare' found in sys.modules after import of package 'tools', but prior to execution of 'tools.paired_compare'; this may result in unpredictable behaviour
+    warn(RuntimeWarning(msg))
+
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[results_table-RuntimeError]
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[results_table-KeyError]
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/runpy.py:127: RuntimeWarning: 'tools.results_table' found in sys.modules after import of package 'tools', but prior to execution of 'tools.results_table'; this may result in unpredictable behaviour
+    warn(RuntimeWarning(msg))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================= slowest 5 durations ==============================
+103.72s call     tests/test_exp07_provenance.py::test_train_data_identity_counts_the_real_protocol_splits
+71.64s setup    tests/test_exp06_summarize_haa.py::test_the_job_completion_schema_is_the_merged_finalizers
+52.83s setup    tests/test_exp06_haa_pipeline.py::test_a_complete_seed_is_an_admissible_arm
+52.07s setup    tests/test_exp06_profiles.py::test_every_present_key_gets_a_digest_and_absent_modules_are_noted
+51.62s call     tests/test_exp06_finalize.py::test_cli_reports_refusals_with_status_two
+=========================== short test summary info ============================
+FAILED tests/test_exp07_table.py::test_the_cli_refuses_the_unapproved_committed_profile_and_writes_nothing
+1 failed, 3266 passed, 49 skipped, 248 warnings in 2647.32s (0:44:07)

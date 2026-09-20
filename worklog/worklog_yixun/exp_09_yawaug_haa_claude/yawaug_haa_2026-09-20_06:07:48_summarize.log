@@ -1,22 +1,3 @@
-2026-09-19T23:12:46 EXP09-CHAIN waiting for GO marker /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_results_assets/planner_probes/GO_GPU1
-2026-09-20T03:18:47 EXP09-CHAIN GO seen (GO 2026-09-20T03:17:57-04:00 tip 9e41c657a2a2e236f42e2aba26291f6db48c4ce0 merge 85f2155 refill c13e681 head 4e4110f726adee800320f8660f8faaf4df2e417a smoke ckpt/exp09/_smoke/2026-09-20_03:16:28 suite_baseline exp07_table_unapproved_profile_test); waiting for GPU 1 to be empty 3 min
-2026-09-20T03:21:47 EXP09-CHAIN GPU 1 empty for 3 min; launching
-03:21:47 LAUNCH 2026-09-20_03:21:47 GPU=1 HEAD=46bb84ddacadbcc251a66fd2b2a9e31d89f75fc0
-03:21:47 GPU 1 empty
-free on /: 68G
-EXP06_HAA_PIPELINE gpu=1 jobs=yawaug:0 yawaug:1 yawaug:2 yawaug:zeroshot stamp=<UTC> dry_run=1 heading=ckpt/exp06/heading out=ckpt/exp09/sim2real
-JOB yawaug seed0 backbone=simple init=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth expect=finetune
-JOBSPEC ckpt/exp09/sim2real/yawaug/seed0/job_spec.json init=yawaug checkpoint=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth seed=0 expect=finetune backbone=simple frame=room heading=none
-JOB yawaug seed1 backbone=simple init=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth expect=finetune
-JOBSPEC ckpt/exp09/sim2real/yawaug/seed1/job_spec.json init=yawaug checkpoint=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth seed=1 expect=finetune backbone=simple frame=room heading=none
-JOB yawaug seed2 backbone=simple init=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth expect=finetune
-JOBSPEC ckpt/exp09/sim2real/yawaug/seed2/job_spec.json init=yawaug checkpoint=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth seed=2 expect=finetune backbone=simple frame=room heading=none
-JOB yawaug zeroshot backbone=simple init=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth expect=zeroshot
-JOBSPEC ckpt/exp09/sim2real/yawaug/zeroshot/job_spec.json init=yawaug checkpoint=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth seed=0 expect=zeroshot backbone=simple frame=room heading=none
-03:22:17 HAA queue launched: pid 3932953
-2026-09-20T03:22:17 EXP09-CHAIN pipeline pid 3932953
-2026-09-20T06:07:48 EXP09-CHAIN pipeline exited: QUEUE_DONE gpu=1
-2026-09-20T06:07:48 EXP09-CHAIN GPU 1 free — ping the peer 'GPU 1 released'
 06:07:48 SUMMARIZE 2026-09-20_06:07:48 HEAD=4ac17481aa112c761f93f777c557b70af61a0a61
 model                 | class_room                             | dampened_room                          | hallway                                | complex_room                           
                       |       EDT (s)     C50 (dB)      T60 (%)|       EDT (s)     C50 (dB)      T60 (%)|       EDT (s)     C50 (dB)      T60 (%)|       EDT (s)     C50 (dB)      T60 (%)
@@ -106,9 +87,3 @@ Room-frame side split (zeroshot job)
 
 {"json": "ckpt/exp09/stats.json", "sha256": "f2faca78f895b7fbe8adcfa2b42690c3154d8873cc9d062c6c32208a9015afc9", "summary_sha256": "94963f7da538e25738e4bc2641de76a4fece6a4a03047926212fe876006f4c69", "experiment": "exp09", "E1": "fail"}
 06:13:28 SUMMARIZE OK f2faca78f895
-06:13:28 RESULTS 2026-09-20_06:13:28
-wrote /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_results_assets/../yawaug_haa_results.md 8182 bytes
-wrote /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_results_assets/../yawaug_haa_01_results.html.md.tmp 8182 bytes
-wrote /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_results_assets/../yawaug_haa_01_results.html 12585 bytes
-06:13:28 RESULTS OK
-2026-09-20T06:13:28 EXP09-CHAIN DONE

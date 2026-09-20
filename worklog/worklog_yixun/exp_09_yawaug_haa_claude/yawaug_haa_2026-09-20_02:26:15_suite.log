@@ -1,0 +1,3 @@
+02:26:15 SUITE 2026-09-20_02:26:15 HEAD=c13e68141bb284275276c737f53f1b766e131dde
+1 failed, 3266 passed, 49 skipped, 248 warnings in 2647.32s (0:44:07)
+FAILED tests/test_exp07_table.py::test_the_cli_refuses_the_unapproved_committed_profile_and_writes_nothing

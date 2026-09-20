@@ -1,0 +1,440 @@
+03:21:47 LAUNCH 2026-09-20_03:21:47 GPU=1 HEAD=46bb84ddacadbcc251a66fd2b2a9e31d89f75fc0
+03:21:47 GPU 1 empty
+free on /: 68G
+EXP06_HAA_PIPELINE gpu=1 jobs=yawaug:0 yawaug:1 yawaug:2 yawaug:zeroshot stamp=<UTC> dry_run=1 heading=ckpt/exp06/heading out=ckpt/exp09/sim2real
+JOB yawaug seed0 backbone=simple init=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth expect=finetune
+JOBSPEC ckpt/exp09/sim2real/yawaug/seed0/job_spec.json init=yawaug checkpoint=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth seed=0 expect=finetune backbone=simple frame=room heading=none
+JOB yawaug seed1 backbone=simple init=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth expect=finetune
+JOBSPEC ckpt/exp09/sim2real/yawaug/seed1/job_spec.json init=yawaug checkpoint=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth seed=1 expect=finetune backbone=simple frame=room heading=none
+JOB yawaug seed2 backbone=simple init=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth expect=finetune
+JOBSPEC ckpt/exp09/sim2real/yawaug/seed2/job_spec.json init=yawaug checkpoint=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth seed=2 expect=finetune backbone=simple frame=room heading=none
+JOB yawaug zeroshot backbone=simple init=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth expect=zeroshot
+JOBSPEC ckpt/exp09/sim2real/yawaug/zeroshot/job_spec.json init=yawaug checkpoint=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth seed=0 expect=zeroshot backbone=simple frame=room heading=none
+EXP06_HAA_PIPELINE gpu=1 jobs=yawaug:0 yawaug:1 yawaug:2 yawaug:zeroshot stamp=20260920T072147 dry_run=0 heading=ckpt/exp06/heading out=ckpt/exp09/sim2real
+ENV CUDA_VISIBLE_DEVICES=1 PYTHONHASHSEED=0 OMP_NUM_THREADS=8 HAA_XRIR_ROOT=/home/yixunhu/data_cache/HAA_xrir
+JOB yawaug seed0 backbone=simple init=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth expect=finetune
+APPROVALS yawaug checkpoint=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth heading=ckpt/exp06/heading producer=haa_children
+APPROVALS ok producer=haa_children commit=46bb84ddacad keys=haa_finetune,haa_eval,haa_pipeline_sh,finalize,encoder,factory,heading,recipe
+MKDIR ckpt/exp09/sim2real/yawaug/seed0
+PIDFILE ckpt/exp09/sim2real/yawaug/seed0/launch.pid
+JOBSPEC ckpt/exp09/sim2real/yawaug/seed0/job_spec.json init=yawaug checkpoint=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth seed=0 expect=finetune backbone=simple frame=room heading=none
+CHECKSPEC ckpt/exp09/sim2real/yawaug/seed0/job_spec.json expect=finetune
+MKDIR ckpt/exp09/sim2real/yawaug/seed0/stage1
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_stage1.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed0/stage1/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth --rooms class_room hallway complex_room --save-dir ckpt/exp09/sim2real/yawaug/seed0/stage1 --seed 0 --job-spec ckpt/exp09/sim2real/yawaug/seed0/job_spec.json --epochs 1000 --val-every 10 --tf32
+03:22:17 HAA queue launched: pid 3932953
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_stage1.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed0/stage1/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed0/stage1 --run-type haa_train --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_stage1.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed0/stage1", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed0/stage2_class_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_stage2_class_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed0/stage2_class_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp09/sim2real/yawaug/seed0/stage1/best.pth --rooms class_room --save-dir ckpt/exp09/sim2real/yawaug/seed0/stage2_class_room --seed 0 --job-spec ckpt/exp09/sim2real/yawaug/seed0/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_stage2_class_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed0/stage2_class_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed0/stage2_class_room --run-type haa_train --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_stage2_class_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed0/stage2_class_room", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed0/eval/class_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_eval_class_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed0/eval/class_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp09/sim2real/yawaug/seed0/stage2_class_room/best.pth --rooms class_room --save-dir ckpt/exp09/sim2real/yawaug/seed0/eval/class_room --seed 0 --job-spec ckpt/exp09/sim2real/yawaug/seed0/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_eval_class_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed0/eval/class_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed0/eval/class_room --run-type haa_eval --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_eval_class_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed0/eval/class_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed0/stage2_dampened_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_stage2_dampened_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed0/stage2_dampened_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp09/sim2real/yawaug/seed0/stage1/best.pth --rooms dampened_room --save-dir ckpt/exp09/sim2real/yawaug/seed0/stage2_dampened_room --seed 0 --job-spec ckpt/exp09/sim2real/yawaug/seed0/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_stage2_dampened_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed0/stage2_dampened_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed0/stage2_dampened_room --run-type haa_train --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_stage2_dampened_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed0/stage2_dampened_room", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed0/eval/dampened_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_eval_dampened_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed0/eval/dampened_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp09/sim2real/yawaug/seed0/stage2_dampened_room/best.pth --rooms dampened_room --save-dir ckpt/exp09/sim2real/yawaug/seed0/eval/dampened_room --seed 0 --job-spec ckpt/exp09/sim2real/yawaug/seed0/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_eval_dampened_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed0/eval/dampened_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed0/eval/dampened_room --run-type haa_eval --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_eval_dampened_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed0/eval/dampened_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed0/stage2_hallway
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_stage2_hallway.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed0/stage2_hallway/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp09/sim2real/yawaug/seed0/stage1/best.pth --rooms hallway --save-dir ckpt/exp09/sim2real/yawaug/seed0/stage2_hallway --seed 0 --job-spec ckpt/exp09/sim2real/yawaug/seed0/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_stage2_hallway.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed0/stage2_hallway/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed0/stage2_hallway --run-type haa_train --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_stage2_hallway.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed0/stage2_hallway", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed0/eval/hallway
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_eval_hallway.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed0/eval/hallway/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp09/sim2real/yawaug/seed0/stage2_hallway/best.pth --rooms hallway --save-dir ckpt/exp09/sim2real/yawaug/seed0/eval/hallway --seed 0 --job-spec ckpt/exp09/sim2real/yawaug/seed0/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_eval_hallway.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed0/eval/hallway/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed0/eval/hallway --run-type haa_eval --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_eval_hallway.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed0/eval/hallway", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed0/stage2_complex_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_stage2_complex_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed0/stage2_complex_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp09/sim2real/yawaug/seed0/stage1/best.pth --rooms complex_room --save-dir ckpt/exp09/sim2real/yawaug/seed0/stage2_complex_room --seed 0 --job-spec ckpt/exp09/sim2real/yawaug/seed0/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_stage2_complex_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed0/stage2_complex_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed0/stage2_complex_room --run-type haa_train --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_stage2_complex_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed0/stage2_complex_room", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed0/eval/complex_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_eval_complex_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed0/eval/complex_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp09/sim2real/yawaug/seed0/stage2_complex_room/best.pth --rooms complex_room --save-dir ckpt/exp09/sim2real/yawaug/seed0/eval/complex_room --seed 0 --job-spec ckpt/exp09/sim2real/yawaug/seed0/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_eval_complex_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed0/eval/complex_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed0/eval/complex_room --run-type haa_eval --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_eval_complex_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed0/eval/complex_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed0 --run-type haa_job --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed0_job.log --child-exit 0 --owner-pid 3932953 --children ckpt/exp09/sim2real/yawaug/seed0/stage1 ckpt/exp09/sim2real/yawaug/seed0/stage2_class_room ckpt/exp09/sim2real/yawaug/seed0/eval/class_room ckpt/exp09/sim2real/yawaug/seed0/stage2_dampened_room ckpt/exp09/sim2real/yawaug/seed0/eval/dampened_room ckpt/exp09/sim2real/yawaug/seed0/stage2_hallway ckpt/exp09/sim2real/yawaug/seed0/eval/hallway ckpt/exp09/sim2real/yawaug/seed0/stage2_complex_room ckpt/exp09/sim2real/yawaug/seed0/eval/complex_room --expect finetune --job-spec ckpt/exp09/sim2real/yawaug/seed0/job_spec.json
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed0", "run_type": "haa_job"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+JOB yawaug seed1 backbone=simple init=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth expect=finetune
+APPROVALS yawaug checkpoint=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth heading=ckpt/exp06/heading producer=haa_children
+APPROVALS ok producer=haa_children commit=46bb84ddacad keys=haa_finetune,haa_eval,haa_pipeline_sh,finalize,encoder,factory,heading,recipe
+MKDIR ckpt/exp09/sim2real/yawaug/seed1
+PIDFILE ckpt/exp09/sim2real/yawaug/seed1/launch.pid
+JOBSPEC ckpt/exp09/sim2real/yawaug/seed1/job_spec.json init=yawaug checkpoint=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth seed=1 expect=finetune backbone=simple frame=room heading=none
+CHECKSPEC ckpt/exp09/sim2real/yawaug/seed1/job_spec.json expect=finetune
+MKDIR ckpt/exp09/sim2real/yawaug/seed1/stage1
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_stage1.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed1/stage1/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth --rooms class_room hallway complex_room --save-dir ckpt/exp09/sim2real/yawaug/seed1/stage1 --seed 1 --job-spec ckpt/exp09/sim2real/yawaug/seed1/job_spec.json --epochs 1000 --val-every 10 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_stage1.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed1/stage1/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed1/stage1 --run-type haa_train --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_stage1.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed1/stage1", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed1/stage2_class_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_stage2_class_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed1/stage2_class_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp09/sim2real/yawaug/seed1/stage1/best.pth --rooms class_room --save-dir ckpt/exp09/sim2real/yawaug/seed1/stage2_class_room --seed 1 --job-spec ckpt/exp09/sim2real/yawaug/seed1/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_stage2_class_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed1/stage2_class_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed1/stage2_class_room --run-type haa_train --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_stage2_class_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed1/stage2_class_room", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed1/eval/class_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_eval_class_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed1/eval/class_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp09/sim2real/yawaug/seed1/stage2_class_room/best.pth --rooms class_room --save-dir ckpt/exp09/sim2real/yawaug/seed1/eval/class_room --seed 1 --job-spec ckpt/exp09/sim2real/yawaug/seed1/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_eval_class_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed1/eval/class_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed1/eval/class_room --run-type haa_eval --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_eval_class_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed1/eval/class_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed1/stage2_dampened_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_stage2_dampened_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed1/stage2_dampened_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp09/sim2real/yawaug/seed1/stage1/best.pth --rooms dampened_room --save-dir ckpt/exp09/sim2real/yawaug/seed1/stage2_dampened_room --seed 1 --job-spec ckpt/exp09/sim2real/yawaug/seed1/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_stage2_dampened_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed1/stage2_dampened_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed1/stage2_dampened_room --run-type haa_train --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_stage2_dampened_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed1/stage2_dampened_room", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed1/eval/dampened_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_eval_dampened_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed1/eval/dampened_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp09/sim2real/yawaug/seed1/stage2_dampened_room/best.pth --rooms dampened_room --save-dir ckpt/exp09/sim2real/yawaug/seed1/eval/dampened_room --seed 1 --job-spec ckpt/exp09/sim2real/yawaug/seed1/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_eval_dampened_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed1/eval/dampened_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed1/eval/dampened_room --run-type haa_eval --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_eval_dampened_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed1/eval/dampened_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed1/stage2_hallway
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_stage2_hallway.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed1/stage2_hallway/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp09/sim2real/yawaug/seed1/stage1/best.pth --rooms hallway --save-dir ckpt/exp09/sim2real/yawaug/seed1/stage2_hallway --seed 1 --job-spec ckpt/exp09/sim2real/yawaug/seed1/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_stage2_hallway.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed1/stage2_hallway/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed1/stage2_hallway --run-type haa_train --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_stage2_hallway.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed1/stage2_hallway", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed1/eval/hallway
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_eval_hallway.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed1/eval/hallway/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp09/sim2real/yawaug/seed1/stage2_hallway/best.pth --rooms hallway --save-dir ckpt/exp09/sim2real/yawaug/seed1/eval/hallway --seed 1 --job-spec ckpt/exp09/sim2real/yawaug/seed1/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_eval_hallway.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed1/eval/hallway/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed1/eval/hallway --run-type haa_eval --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_eval_hallway.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed1/eval/hallway", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed1/stage2_complex_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_stage2_complex_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed1/stage2_complex_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp09/sim2real/yawaug/seed1/stage1/best.pth --rooms complex_room --save-dir ckpt/exp09/sim2real/yawaug/seed1/stage2_complex_room --seed 1 --job-spec ckpt/exp09/sim2real/yawaug/seed1/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_stage2_complex_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed1/stage2_complex_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed1/stage2_complex_room --run-type haa_train --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_stage2_complex_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed1/stage2_complex_room", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed1/eval/complex_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_eval_complex_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed1/eval/complex_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp09/sim2real/yawaug/seed1/stage2_complex_room/best.pth --rooms complex_room --save-dir ckpt/exp09/sim2real/yawaug/seed1/eval/complex_room --seed 1 --job-spec ckpt/exp09/sim2real/yawaug/seed1/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_eval_complex_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed1/eval/complex_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed1/eval/complex_room --run-type haa_eval --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_eval_complex_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed1/eval/complex_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed1 --run-type haa_job --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed1_job.log --child-exit 0 --owner-pid 3932953 --children ckpt/exp09/sim2real/yawaug/seed1/stage1 ckpt/exp09/sim2real/yawaug/seed1/stage2_class_room ckpt/exp09/sim2real/yawaug/seed1/eval/class_room ckpt/exp09/sim2real/yawaug/seed1/stage2_dampened_room ckpt/exp09/sim2real/yawaug/seed1/eval/dampened_room ckpt/exp09/sim2real/yawaug/seed1/stage2_hallway ckpt/exp09/sim2real/yawaug/seed1/eval/hallway ckpt/exp09/sim2real/yawaug/seed1/stage2_complex_room ckpt/exp09/sim2real/yawaug/seed1/eval/complex_room --expect finetune --job-spec ckpt/exp09/sim2real/yawaug/seed1/job_spec.json
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed1", "run_type": "haa_job"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+JOB yawaug seed2 backbone=simple init=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth expect=finetune
+APPROVALS yawaug checkpoint=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth heading=ckpt/exp06/heading producer=haa_children
+APPROVALS ok producer=haa_children commit=35631a2e7f10 keys=haa_finetune,haa_eval,haa_pipeline_sh,finalize,encoder,factory,heading,recipe
+MKDIR ckpt/exp09/sim2real/yawaug/seed2
+PIDFILE ckpt/exp09/sim2real/yawaug/seed2/launch.pid
+JOBSPEC ckpt/exp09/sim2real/yawaug/seed2/job_spec.json init=yawaug checkpoint=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth seed=2 expect=finetune backbone=simple frame=room heading=none
+CHECKSPEC ckpt/exp09/sim2real/yawaug/seed2/job_spec.json expect=finetune
+MKDIR ckpt/exp09/sim2real/yawaug/seed2/stage1
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_stage1.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed2/stage1/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth --rooms class_room hallway complex_room --save-dir ckpt/exp09/sim2real/yawaug/seed2/stage1 --seed 2 --job-spec ckpt/exp09/sim2real/yawaug/seed2/job_spec.json --epochs 1000 --val-every 10 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_stage1.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed2/stage1/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed2/stage1 --run-type haa_train --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_stage1.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed2/stage1", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed2/stage2_class_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_stage2_class_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed2/stage2_class_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp09/sim2real/yawaug/seed2/stage1/best.pth --rooms class_room --save-dir ckpt/exp09/sim2real/yawaug/seed2/stage2_class_room --seed 2 --job-spec ckpt/exp09/sim2real/yawaug/seed2/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_stage2_class_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed2/stage2_class_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed2/stage2_class_room --run-type haa_train --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_stage2_class_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed2/stage2_class_room", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed2/eval/class_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_eval_class_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed2/eval/class_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp09/sim2real/yawaug/seed2/stage2_class_room/best.pth --rooms class_room --save-dir ckpt/exp09/sim2real/yawaug/seed2/eval/class_room --seed 2 --job-spec ckpt/exp09/sim2real/yawaug/seed2/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_eval_class_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed2/eval/class_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed2/eval/class_room --run-type haa_eval --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_eval_class_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed2/eval/class_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed2/stage2_dampened_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_stage2_dampened_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed2/stage2_dampened_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp09/sim2real/yawaug/seed2/stage1/best.pth --rooms dampened_room --save-dir ckpt/exp09/sim2real/yawaug/seed2/stage2_dampened_room --seed 2 --job-spec ckpt/exp09/sim2real/yawaug/seed2/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_stage2_dampened_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed2/stage2_dampened_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed2/stage2_dampened_room --run-type haa_train --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_stage2_dampened_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed2/stage2_dampened_room", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed2/eval/dampened_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_eval_dampened_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed2/eval/dampened_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp09/sim2real/yawaug/seed2/stage2_dampened_room/best.pth --rooms dampened_room --save-dir ckpt/exp09/sim2real/yawaug/seed2/eval/dampened_room --seed 2 --job-spec ckpt/exp09/sim2real/yawaug/seed2/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_eval_dampened_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed2/eval/dampened_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed2/eval/dampened_room --run-type haa_eval --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_eval_dampened_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed2/eval/dampened_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed2/stage2_hallway
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_stage2_hallway.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed2/stage2_hallway/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp09/sim2real/yawaug/seed2/stage1/best.pth --rooms hallway --save-dir ckpt/exp09/sim2real/yawaug/seed2/stage2_hallway --seed 2 --job-spec ckpt/exp09/sim2real/yawaug/seed2/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_stage2_hallway.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed2/stage2_hallway/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed2/stage2_hallway --run-type haa_train --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_stage2_hallway.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed2/stage2_hallway", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed2/eval/hallway
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_eval_hallway.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed2/eval/hallway/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp09/sim2real/yawaug/seed2/stage2_hallway/best.pth --rooms hallway --save-dir ckpt/exp09/sim2real/yawaug/seed2/eval/hallway --seed 2 --job-spec ckpt/exp09/sim2real/yawaug/seed2/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_eval_hallway.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed2/eval/hallway/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed2/eval/hallway --run-type haa_eval --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_eval_hallway.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed2/eval/hallway", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed2/stage2_complex_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_stage2_complex_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed2/stage2_complex_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_finetune.py --backbone simple --init ckpt/exp09/sim2real/yawaug/seed2/stage1/best.pth --rooms complex_room --save-dir ckpt/exp09/sim2real/yawaug/seed2/stage2_complex_room --seed 2 --job-spec ckpt/exp09/sim2real/yawaug/seed2/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_stage2_complex_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed2/stage2_complex_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed2/stage2_complex_room --run-type haa_train --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_stage2_complex_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed2/stage2_complex_room", "run_type": "haa_train"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/seed2/eval/complex_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_eval_complex_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/seed2/eval/complex_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/exp09/sim2real/yawaug/seed2/stage2_complex_room/best.pth --rooms complex_room --save-dir ckpt/exp09/sim2real/yawaug/seed2/eval/complex_room --seed 2 --job-spec ckpt/exp09/sim2real/yawaug/seed2/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_eval_complex_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/seed2/eval/complex_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed2/eval/complex_room --run-type haa_eval --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_eval_complex_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed2/eval/complex_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/seed2 --run-type haa_job --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_seed2_job.log --child-exit 0 --owner-pid 3932953 --children ckpt/exp09/sim2real/yawaug/seed2/stage1 ckpt/exp09/sim2real/yawaug/seed2/stage2_class_room ckpt/exp09/sim2real/yawaug/seed2/eval/class_room ckpt/exp09/sim2real/yawaug/seed2/stage2_dampened_room ckpt/exp09/sim2real/yawaug/seed2/eval/dampened_room ckpt/exp09/sim2real/yawaug/seed2/stage2_hallway ckpt/exp09/sim2real/yawaug/seed2/eval/hallway ckpt/exp09/sim2real/yawaug/seed2/stage2_complex_room ckpt/exp09/sim2real/yawaug/seed2/eval/complex_room --expect finetune --job-spec ckpt/exp09/sim2real/yawaug/seed2/job_spec.json
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/seed2", "run_type": "haa_job"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+JOB yawaug zeroshot backbone=simple init=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth expect=zeroshot
+APPROVALS yawaug checkpoint=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth heading=ckpt/exp06/heading producer=haa_children
+APPROVALS ok producer=haa_children commit=4ac17481aa11 keys=haa_finetune,haa_eval,haa_pipeline_sh,finalize,encoder,factory,heading,recipe
+MKDIR ckpt/exp09/sim2real/yawaug/zeroshot
+PIDFILE ckpt/exp09/sim2real/yawaug/zeroshot/launch.pid
+JOBSPEC ckpt/exp09/sim2real/yawaug/zeroshot/job_spec.json init=yawaug checkpoint=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth seed=0 expect=zeroshot backbone=simple frame=room heading=none
+CHECKSPEC ckpt/exp09/sim2real/yawaug/zeroshot/job_spec.json expect=zeroshot
+MKDIR ckpt/exp09/sim2real/yawaug/zeroshot/eval/class_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_zeroshot_eval_class_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/zeroshot/eval/class_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth --rooms class_room --save-dir ckpt/exp09/sim2real/yawaug/zeroshot/eval/class_room --seed 0 --job-spec ckpt/exp09/sim2real/yawaug/zeroshot/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_zeroshot_eval_class_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/zeroshot/eval/class_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/zeroshot/eval/class_room --run-type haa_eval --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_zeroshot_eval_class_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/zeroshot/eval/class_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/zeroshot/eval/dampened_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_zeroshot_eval_dampened_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/zeroshot/eval/dampened_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth --rooms dampened_room --save-dir ckpt/exp09/sim2real/yawaug/zeroshot/eval/dampened_room --seed 0 --job-spec ckpt/exp09/sim2real/yawaug/zeroshot/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_zeroshot_eval_dampened_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/zeroshot/eval/dampened_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/zeroshot/eval/dampened_room --run-type haa_eval --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_zeroshot_eval_dampened_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/zeroshot/eval/dampened_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/zeroshot/eval/hallway
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_zeroshot_eval_hallway.log
+PIDFILE ckpt/exp09/sim2real/yawaug/zeroshot/eval/hallway/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth --rooms hallway --save-dir ckpt/exp09/sim2real/yawaug/zeroshot/eval/hallway --seed 0 --job-spec ckpt/exp09/sim2real/yawaug/zeroshot/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_zeroshot_eval_hallway.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/zeroshot/eval/hallway/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/zeroshot/eval/hallway --run-type haa_eval --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_zeroshot_eval_hallway.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/zeroshot/eval/hallway", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+MKDIR ckpt/exp09/sim2real/yawaug/zeroshot/eval/complex_room
+SINK cat >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_zeroshot_eval_complex_room.log
+PIDFILE ckpt/exp09/sim2real/yawaug/zeroshot/eval/complex_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_haa_eval.py --backbone simple --checkpoint ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth --rooms complex_room --save-dir ckpt/exp09/sim2real/yawaug/zeroshot/eval/complex_room --seed 0 --job-spec ckpt/exp09/sim2real/yawaug/zeroshot/job_spec.json
+MARKER EXP06_CHILD_EXIT 0 <iso> >> /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_zeroshot_eval_complex_room.log
+EXP06_CHILD_EXIT_OK ckpt/exp09/sim2real/yawaug/zeroshot/eval/complex_room/child_exit.json
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/zeroshot/eval/complex_room --run-type haa_eval --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_zeroshot_eval_complex_room.log --child-exit 0
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/zeroshot/eval/complex_room", "run_type": "haa_eval"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp06_finalize.py --run-dir ckpt/exp09/sim2real/yawaug/zeroshot --run-type haa_job --log /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_20260920T072147_haa_yawaug_zeroshot_job.log --child-exit 0 --owner-pid 3932953 --children ckpt/exp09/sim2real/yawaug/zeroshot/eval/class_room ckpt/exp09/sim2real/yawaug/zeroshot/eval/dampened_room ckpt/exp09/sim2real/yawaug/zeroshot/eval/hallway ckpt/exp09/sim2real/yawaug/zeroshot/eval/complex_room --expect zeroshot --job-spec ckpt/exp09/sim2real/yawaug/zeroshot/job_spec.json
+EXP06_FINALIZE_OK {"admissible_arm": true, "child_exit": 0, "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp09/sim2real/yawaug/zeroshot", "run_type": "haa_job"}
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+QUEUE_DONE gpu=1

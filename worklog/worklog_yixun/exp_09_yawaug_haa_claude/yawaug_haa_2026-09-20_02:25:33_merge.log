@@ -1,0 +1,15 @@
+02:25:33 MERGE 2026-09-20_02:25:33 HEAD=90642fcf08dfb28f3817c3d55a3559be72a204b1
+Merge made by the 'ort' strategy.
+ tests/test_exp06_approvals_api.py     |   1 +
+ tests/test_exp06_finalize.py          | 186 +++++++++++++++++++++--
+ tests/test_exp06_haa_pipeline.py      | 199 ++++++++++++++++++++-----
+ tests/test_exp06_summarize_haa.py     | 268 +++++++++++++++++++++++++++++++++-
+ tests/test_exp09_aug_checkpoint.py    | 147 +++++++++++++++++++
+ tests/test_exp09_sim_eval_closures.py |  76 ++++++++++
+ tools/exp06_finalize.py               |  70 ++++++++-
+ tools/exp06_haa_pipeline.sh           | 124 +++++++++++-----
+ tools/exp06_summarize_haa.py          | 232 +++++++++++++++++++++++------
+ 9 files changed, 1158 insertions(+), 145 deletions(-)
+ create mode 100644 tests/test_exp09_aug_checkpoint.py
+ create mode 100644 tests/test_exp09_sim_eval_closures.py
+02:25:33 MERGE OK: 85f21557e75e099f30bb14fbcfc99613139714e6
