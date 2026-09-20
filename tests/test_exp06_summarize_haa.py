@@ -1312,15 +1312,28 @@ def test_the_exp06_analysis_is_unchanged_by_the_registration_of_arm_e(arms):
     assert not {'E1', 'E2', 'E3'} & set(result)
 
 
-def test_a_room_frame_arm_binds_no_heading_record(arms):
+def room_frame_child(tmp_path, per, **meta):
+    """One evaluation child's per-sample file, as child_per_sample reads it."""
+    child = tmp_path / 'eval' / 'hallway'
+    child.mkdir(parents=True, exist_ok=True)
+    body = json.loads(json.dumps(per))
+    body['meta'].update(meta)
+    (child / 'per_sample_hallway.json').write_text(json.dumps(body))
+    return {'artifacts': {'per_sample_hallway.json': 'a' * 64}}
+
+
+def test_a_room_frame_arm_binds_no_heading_record(arms, tmp_path):
     """Arm E's children read no heading; only the heading checks are conditional."""
     per = arms['yawaug']['per']['seed0']['hallway']
     assert per['meta']['heading'] is None and per['meta']['frame'] == 'room'
-    subject.child_per_sample  # the room-frame branch is exercised through load_new_arm
-    with pytest.raises(ValueError, match='heading'):
-        subject.check_arm_identities('yawaug', {'haa_train': 'a' * 64}, {'hallway': 'b' * 64},
-                                     {'code': {'haa_finetune': 'a' * 64},
-                                      'artifacts': {'heading': {}}})
+    record = room_frame_child(tmp_path, per)
+    assert subject.child_per_sample(tmp_path, 'eval/hallway', record, 'yawaug')['index']
+    record = room_frame_child(tmp_path, per, heading=HEADING)
+    with pytest.raises(ValueError, match='heading in the room frame'):
+        subject.child_per_sample(tmp_path, 'eval/hallway', record, 'yawaug')
+    record = room_frame_child(tmp_path, per, frame='heading', heading=HEADING)
+    with pytest.raises(ValueError, match="frame 'heading', not the 'room'"):
+        subject.child_per_sample(tmp_path, 'eval/hallway', record, 'yawaug')
 
 
 def test_exp06s_canonical_outputs_are_never_an_exp09_target(tmp_path):
