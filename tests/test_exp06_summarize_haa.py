@@ -131,12 +131,10 @@ def legacy_root(tmp_path, monkeypatch):
 
 
 def test_the_arm_table_is_the_five_arms_of_section_2_3():
-    assert tuple(subject.ARMS) == ('control', 'cyl', 'cyl_or', 'control_hf', 'cyl_hf')
     assert subject.LEGACY_ARMS == ('control', 'cyl')
-    assert subject.NEW_ARMS == ('cyl_or', 'control_hf', 'cyl_hf')
-    assert [subject.ARMS[a]['backbone'] for a in subject.ARMS] == [
+    assert [subject.ARMS[a]['backbone'] for a in subject.EXPERIMENTS['exp06']['arms']] == [
         'simple', 'cylindrical', 'cylindrical_oriented', 'simple', 'cylindrical']
-    assert [subject.ARMS[a]['frame'] for a in subject.ARMS] == [
+    assert [subject.ARMS[a]['frame'] for a in subject.EXPERIMENTS['exp06']['arms']] == [
         'room', 'room', 'heading', 'heading', 'heading']
     assert subject.ARMS['cyl_or']['root'] == 'ckpt/exp06/sim2real/cyl_or'
 
@@ -320,7 +318,7 @@ def test_a_job_whose_bound_evidence_changed_is_refused(real_job, cache, monkeypa
         target.write_bytes(original)
 
 
-NEW_OFFSETS = {'cyl_or': 0.02, 'control_hf': 0.04, 'cyl_hf': 0.06}
+NEW_OFFSETS = {'cyl_or': 0.02, 'control_hf': 0.04, 'cyl_hf': 0.06, 'yawaug': 0.08}
 
 
 @pytest.fixture
@@ -1211,3 +1209,141 @@ def test_a_dependency_that_contradicts_an_earlier_binding_is_refused(real_job, c
     with pytest.raises(ValueError, match='contradictory bindings'):
         subject.verify_job(root, 'seed0', 'cyl_or', repo=repo, sensitivity=True,
                            inputs=inputs)
+
+
+# --- exp_09: arm E, its own roots, and its own decision outputs --------------------------
+
+
+def test_the_arm_registry_carries_arm_e_and_the_experiment_that_produced_it():
+    assert tuple(subject.ARMS) == ('control', 'cyl', 'cyl_or', 'control_hf', 'cyl_hf',
+                                   'yawaug')
+    assert subject.NEW_ARMS == ('cyl_or', 'control_hf', 'cyl_hf', 'yawaug')
+    arm = subject.ARMS['yawaug']
+    assert (arm['label'], arm['backbone'], arm['frame']) == ('E', 'simple', 'room')
+    assert arm['root'] == 'ckpt/exp09/sim2real/yawaug' and arm['init_sha256'] is None
+    assert [subject.ARMS[name]['experiment'] for name in subject.NEW_ARMS] == [
+        'exp06', 'exp06', 'exp06', 'exp09']
+
+
+def test_the_experiments_freeze_their_arms_contrasts_and_outputs():
+    """Two frozen configurations: exp_06's is exactly what it published."""
+    six, nine = subject.EXPERIMENTS['exp06'], subject.EXPERIMENTS['exp09']
+    assert six['arms'] == ('control', 'cyl', 'cyl_or', 'control_hf', 'cyl_hf')
+    assert nine['arms'] == ('control', 'cyl', 'cyl_or', 'yawaug')
+    assert [name for name, *_ in six['decisions']] == ['H1', 'H1b']
+    assert six['decisions'][0][1:] == (subject.H1, 'hallway', 'c50', 0.23)
+    assert six['screen'] == ('H2', subject.H1) and six['descriptive'] == ('D',
+                                                                          subject.DESCRIPTIVE)
+    assert six['classified'] == ()
+    assert [name for name, *_ in nine['decisions']] == ['E1']
+    assert nine['decisions'][0][1:] == (('yawaug', 'control'), 'hallway', 'c50', 0.23)
+    assert nine['screen'] == ('E2', ('yawaug', 'control'))
+    assert nine['descriptive'] == ('E3', (('yawaug', 'cyl_or'),))
+    assert nine['classified'] == ('E1',)
+    assert nine['outputs'] == ('ckpt/exp09/stats.json', 'ckpt/exp09/summary.txt')
+
+
+def test_each_new_arm_is_read_under_its_own_experiments_root():
+    """Registering a root is not enough: an arm is never looked for under another's."""
+    roots = {'exp06': 'a/six', 'exp09': 'b/nine'}
+    assert subject.arm_directory('cyl_or', roots) == Path('a/six/cyl_or')
+    assert subject.arm_directory('yawaug', roots) == Path('b/nine/yawaug')
+
+
+@pytest.mark.parametrize('interval,category,margin', [
+    ((0.1, 0.4), 'detected harm', False),
+    ((-0.4, -0.1), 'detected improvement', True),
+    ((-0.1, 0.4), 'no detected difference', False),
+    ((0.0, 0.22), 'no detected difference', True),
+    ((0.0, 0.23), 'no detected difference', False),     # equality satisfies neither rule
+    ((0.05, 0.1), 'detected harm', True)])              # the two conclusions may coexist
+def test_the_e1_conclusions_are_independent_and_strict(interval, category, margin):
+    cell = {'verdict': 'pass', 'margin': subject.H1_MARGIN_DB,
+            'convergence': {'status': 'converged', 'interval': interval}}
+    classified = subject.classify_cell(cell)
+    assert classified['category'] == category
+    assert classified['non_inferior_at_margin'] is margin
+    assert classified['verdict'] == cell['verdict']       # H1's semantics are untouched
+
+
+@pytest.mark.parametrize('verdict', ['void', 'not_converged'])
+def test_a_void_or_unconverged_e1_suppresses_both_conclusions(verdict):
+    """A nominal interval the policy voided is not a conclusion of either kind."""
+    cell = {'verdict': verdict, 'margin': subject.H1_MARGIN_DB,
+            'convergence': {'status': verdict, 'interval': (0.1, 0.4)}}
+    classified = subject.classify_cell(cell)
+    assert classified['category'] is None
+    assert classified['non_inferior_at_margin'] is None
+
+
+def test_the_exp09_screen_is_the_bonferroni_eleven_family(arms):
+    cells = subject.screen_cells(arms, subject.EXPERIMENTS['exp09']['screen'][1],
+                                 n_boot=200, adjusted_n_boot=200)
+    assert len(cells) == 11 and {c['contrast'] for c in cells} == {'yawaug - control'}
+    assert ('hallway', 'c50') in {(c['room'], c['metric']) for c in cells}
+    assert {c['adjusted_alpha'] for c in cells} == {0.05 / 11}
+    assert subject.bootstrap._tails(cells[0]['adjusted_alpha']) == [
+        100 * 0.05 / 22, 100 * (1 - 0.05 / 22)]
+    assert all(cell['label'] != 'non-inferior' for cell in cells)
+
+
+def test_the_exp09_analysis_publishes_e1_e2_and_e3_and_nothing_of_exp06(arms):
+    result = subject.analyse(arms, n_boot=200, adjusted_n_boot=200, experiment='exp09')
+    assert result['experiment'] == 'exp09'
+    assert set(result) >= {'E1', 'E2', 'E3'} and not {'H1', 'H1b', 'H2', 'D'} & set(result)
+    assert result['E1']['contrast'] == 'yawaug - control'
+    assert result['E1']['category'] in ('detected harm', 'detected improvement',
+                                        'no detected difference')
+    assert isinstance(result['E1']['non_inferior_at_margin'], bool)
+    assert len(result['E2']) == 11 and len(result['E3']) == 11
+    assert {cell['contrast'] for cell in result['E3']} == {'yawaug - cyl_or'}
+    assert 'yawaug|hallway|c50' in result['side_split']['cells']
+    assert 'E1 yawaug - control hallway c50' in subject.render(result)
+
+
+def test_the_exp06_analysis_is_unchanged_by_the_registration_of_arm_e(arms):
+    result = subject.analyse(arms, n_boot=200, adjusted_n_boot=200)
+    assert result['experiment'] == 'exp06'
+    assert len(result['H2']) == 11 and len(result['D']) == 33
+    assert 'category' not in result['H1'] and 'category' not in result['H1b']
+    assert result['H1']['contrast'] == 'cyl_or - control'
+    assert not {'E1', 'E2', 'E3'} & set(result)
+
+
+def test_a_room_frame_arm_binds_no_heading_record(arms):
+    """Arm E's children read no heading; only the heading checks are conditional."""
+    per = arms['yawaug']['per']['seed0']['hallway']
+    assert per['meta']['heading'] is None and per['meta']['frame'] == 'room'
+    subject.child_per_sample  # the room-frame branch is exercised through load_new_arm
+    with pytest.raises(ValueError, match='heading'):
+        subject.check_arm_identities('yawaug', {'haa_train': 'a' * 64}, {'hallway': 'b' * 64},
+                                     {'code': {'haa_finetune': 'a' * 64},
+                                      'artifacts': {'heading': {}}})
+
+
+def test_exp06s_canonical_outputs_are_never_an_exp09_target(tmp_path):
+    canonical = [str(subject.REPO / name) for name in subject.EXPERIMENTS['exp06']['outputs']]
+    with pytest.raises(ValueError, match='canonical'):
+        subject.check_output_paths('exp09', canonical[0], str(tmp_path / 'summary.txt'))
+    with pytest.raises(ValueError, match='canonical'):
+        subject.check_output_paths('exp09', str(tmp_path / 'stats.json'), canonical[1])
+    subject.check_output_paths('exp06', canonical[0], canonical[1])
+    subject.check_output_paths('exp09', str(tmp_path / 'stats.json'),
+                               str(tmp_path / 'summary.txt'))
+
+
+def test_arm_es_initialisation_is_exp04s_approved_checkpoint(tmp_path):
+    """expected_inits resolves E through 6.4's reused pin and binds that record."""
+    from tools import exp06_approvals_api as api
+    approved, _ = api.load_approved_digests(api.approved_path_default())
+    record = api.exp04_aug_checkpoint(approved)
+    inputs = {}
+    inits = subject.expected_inits(approved, ('cyl_or', 'yawaug'), inputs)
+    assert inits['yawaug'] == record['checkpoint']['sha256']
+    assert inits['cyl_or'] == approved['artifacts']['epoch_012']['sha256']
+    assert inputs == {str(Path(record['path']).resolve()): record['sha256']}
+    assert subject.expected_inits(None, ('yawaug',)) == {'yawaug': None}
+    wrong = json.loads(json.dumps(approved))
+    wrong['reused']['exp04_approved_digests_sha256'] = 'a' * 64
+    with pytest.raises(ValueError, match='exp04_approved_digests_sha256'):
+        subject.expected_inits(wrong, ('yawaug',), {})
