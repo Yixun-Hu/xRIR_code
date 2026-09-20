@@ -1,9 +1,30 @@
 {
-  "schema_version": null,
-  "closures": {"evaluator": null, "writer": null, "training_launcher": [], "training": null, "producer_table": null, "producer_pairs": null},
   "checkpoints": {
-    "seen_simple": {"path": null, "epoch": null, "sha256": null},
-    "seen_cyl": {"path": null, "epoch": null, "sha256": null},
-    "seen_aug": {"path": null, "epoch": null, "sha256": null}
-  }
+    "seen_aug": {
+      "epoch": 12,
+      "path": "ckpt/exp07/seen_aug/final/epoch_012.pth",
+      "sha256": "839b10c559da0bf197fab721e7d1bf9158a238e1fe3e52824261f10cba4c4335"
+    },
+    "seen_cyl": {
+      "epoch": 12,
+      "path": "ckpt/exp07/seen_cyl/final/epoch_012.pth",
+      "sha256": "ab4dc8442f84b19ef6b6a3d4309e90c12538584940416436733d1591809ca099"
+    },
+    "seen_simple": {
+      "epoch": 12,
+      "path": "ckpt/exp07/seen_simple/final/epoch_012.pth",
+      "sha256": "c0735d0fc34da753ec9214dbb767a5701b09861442010662ce4e13d26b73b258"
+    }
+  },
+  "closures": {
+    "evaluator": "1c9eaf10957c9d4c970e0f4e9204457d7139c5edbe82ed002d291aae1d1e5695",
+    "producer_pairs": "8635085736ddc15d057370cae4f2ae6d22ce87c3ee5038015214ad5fa6a3496a",
+    "producer_table": "7a2e50236a872355d6abd483066e597882557d26468c77255f985c33ec051428",
+    "training": "36d57a84b2fe1a2038d987d6d45e634c324aaaa97c2dbff40a980d8537ff56ec",
+    "training_launcher": [
+      "b6c25e3332dcef87aa51792fe48df9798ccaa45bc66160ffd16ceb662359da0c"
+    ],
+    "writer": "ee84bb44ce6b2b03f9e7f4d912dcc15a712b5c4b9b51e873769dac22665869e7"
+  },
+  "schema_version": 1
 }
