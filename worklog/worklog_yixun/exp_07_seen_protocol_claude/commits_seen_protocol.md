@@ -1,9 +1,10 @@
 # exp_07 seen_protocol — commits
 
 
-## Complete commit index through record closure (retrospective; cutoff = main `c13e681` on 2026-09-20; `git log` over the exp_07 tools, tests and record folder; 185 entries)
+## Complete commit index through record closure (retrospective; cutoff = main `b50202c` on 2026-09-20; `git log f492613..HEAD` over the exp_07 tools/tests/record AND the shared modules the branch touched before amendment A1 and then restored — `train_xRIR_backbone.py`, `tools/provenance.py`, `tools/yaw_aug.py`, `tools/exp04_{launcher,eval,eval_launch}.py`, `tools/exp05_{probe,gates}.py`, `tools/results_table.py`; 192 entries)
 
 ```
+b50202c 2026-09-20 exp_07: analysis, params set-up, commit index, command record, retained scripts
 90642fc 2026-09-20 exp_07: end-game outputs at 0e47341 — seen table, three pairings, md/html/LaTeX seen+unseen table, bound and checked
 0e47341 2026-09-20 exp_07: fill reviewed closure and certified checkpoint pins
 f5e1cf6 2026-09-20 exp_07: seen_aug evaluations done; all 30 trained-arm evaluations complete
@@ -119,9 +120,12 @@ e93edff 2026-09-15 exp_07 round 6 half 1: exp_07's own publication writer; resul
 ea3ce0b 2026-09-15 exp_07 round 6 half 1: the split-bound evaluator and its own launcher
 5db051f 2026-09-15 exp_07 round 6 half 1: the launcher's run modes, guard, recovery and the probe gate
 2074100 2026-09-15 exp_07 round 6 half 1: the seen probe, gates and the launcher's arm decisions
+18dacdc 2026-09-15 exp_07 round 6 half 1: restore tools/exp05_{probe,gates}.py to main's bytes
 f217d43 2026-09-15 exp_07 round 6 half 1: tools/exp07_provenance.py, protocol-isolated inventories
+25b5402 2026-09-15 exp_07 round 6 half 1: restore tools/provenance.py to main's bytes
 1dcc5e5 2026-09-15 exp_07 round 6 half 1: tools/exp07_audit.py, the seen alignment audit
 9d13581 2026-09-15 exp_07 round 6 half 1: tools/exp07_train.py, the seen-protocol entry point
+0a2e518 2026-09-15 exp_07 round 6 half 1: restore the trainer and yaw_aug to main's bytes
 453baf9 2026-09-15 Merge main into exp07-window (exp_06 merge + exp_07 record commits)
 8cc4fd7 2026-09-15 exp_07 worklog: restore two code spans
 3975afe 2026-09-15 exp_07: integrative review (not approved) → amendment A1 (no shared-module edits); round-6 relocation prompt
@@ -177,16 +181,19 @@ b5cf876 2026-09-15 exp_07 round 3 cycle 0: bind the split the inventory was sele
 bf6027e 2026-09-15 exp_07: Codex round-2 review (request changes) folded into round-3 cycle 0
 24085b2 2026-09-15 exp_07: seen inventory pre-built; command file
 4f7593c 2026-09-15 exp_07: round 2 delivered; Codex round-2 review prompt
+a035d7f 2026-09-15 exp_07 round 2: retire the round-1 seen_split allowlist TODO
+e4832f2 2026-09-15 exp_07 round 2: --renew-ceiling help matches the seen arms it now accepts
+9a0fbe0 2026-09-15 exp_07 round 2: define train_minimum after the constant it extends
 8215702 2026-09-15 exp_07 round 2 cycle 3: seen refusals, launch pass-through and a smoke dry run
 57c3a36 2026-09-15 exp_07 round 2 cycle 2: the seen fit-probe, its receipt and the timing gates
 6d9578d 2026-09-15 exp_07 round 2 cycle 1c: seen bindings in recovery and the launcher CLI
 68fb737 2026-09-15 exp_07 round 2 cycle 1b: per-arm seen controls and protocol-aware build_fields
 36e385d 2026-09-15 exp_07 round 2 cycle 1a: seen arms, golden argv and the seen batch count
+2fe4395 2026-09-15 exp_07 round 2 cycle 0: normalise legacy inventory cache hits
 a498554 2026-09-15 exp_07: Codex round-1 review (approve with changes); round 2 prompt
 cbeca19 2026-09-15 exp_07: round 1 delivered; Codex code review briefing and prompt
+d7511fb 2026-09-15 exp_07 round 1 cycle 3: --protocol for the yaw-aug alignment audit
+e122355 2026-09-15 exp_07 round 1 cycle 2: protocol-aware train_data_identity, seen_split_identity
 6ed7bef 2026-09-15 exp_07 round 1 cycle 1: trainer --protocol {unseen,seen}
 c65070d 2026-09-15 exp_07: round-1 Coder prompt
-f492613 2026-09-15 exp_07: plan v3 (round-2 review applied), approved for implementation
-3a71a85 2026-09-15 exp_07: plan v2 after the Codex round-1 review; round-2 review launched
-7bfbddd 2026-09-15 exp_07 seen_protocol: query, plan v1, plan-review prompt
 ```
