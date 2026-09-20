@@ -1143,6 +1143,27 @@ def _heading_binding(args, rooms, frame, repo):
 HAA_CODE_KEY = {'haa_train': 'haa_finetune', 'haa_eval': 'haa_eval'}
 
 
+def approvals_at_commit(path, repo, commit):
+    """The approvals a reviewer committed at ``commit``, read from that blob itself.
+
+    exp_06 2026-09-18 19:03: binding the *working* file to the blob at a child's reviewed
+    commit makes every certified child unverifiable the moment the approvals are re-filled
+    for a later producer -- although the keys that child ran under did not change. The blob
+    at its own commit is immutable and is the approval it ran under, so it is read here,
+    parsed through the approvals module's own schema on a private copy of exactly those
+    bytes, and its digest is the identity the completion records. The launch-time gate
+    (``exp06_approvals_api.enforce_producer``) still reads the working file: what may not
+    change during a run, and what a past run was admitted under, are different questions.
+    """
+    relative, blob = exp06_profiles.committed_bytes(path, repo, commit)
+    with tempfile.TemporaryDirectory() as directory:
+        copy = Path(directory) / Path(path).name
+        copy.write_bytes(blob)
+        approved, _ = exp06_profiles.load_approved_digests(copy)
+    return approved, {'path': str(path), 'repo_relative': relative,
+                      'sha256': hashlib.sha256(blob).hexdigest(), 'committed_at': commit}
+
+
 def haa_approvals(closure, run_type, commit, repo, path=None):
     """Full-review F3: the child ran the approved entry point, at its own reviewed commit.
 
@@ -1152,10 +1173,9 @@ def haa_approvals(closure, run_type, commit, repo, path=None):
     child was reviewed against, and the same binding is recorded in its completion.
     """
     # The approvals of the repository being finalised, at the child's own reviewed commit:
-    # `load_approved_digests` refuses anything outside it or untracked there.
+    # `committed_bytes` refuses anything outside it or untracked there.
     path = Path(repo) / exp06_profiles.APPROVED_RELATIVE if path is None else Path(path)
-    _require(path.is_file(), 'missing approvals file: {}'.format(path))
-    approved, identity = exp06_profiles.load_approved_digests(path, repo=repo, commit=commit)
+    approved, identity = approvals_at_commit(path, repo, commit)
     key = HAA_CODE_KEY[run_type]
     pinned = approved['code'][key]
     _require(pinned is not None,
