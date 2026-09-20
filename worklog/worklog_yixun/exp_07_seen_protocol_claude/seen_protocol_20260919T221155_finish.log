@@ -1,0 +1,17 @@
+2026-09-19T22:11:55-04:00 FINISH START pid 3500913
+2026-09-20T01:41:55-04:00 STEP both arms certified and evaluated (seen_cyl -> attempt_20260918T151139full; seen_aug -> attempt_20260918T205229full)
+2026-09-20T01:41:55-04:00 STEP released K=1 evaluations on GPU 0 reviewed=f5e1cf6c560f4d3ce81ad97d81267484e13dfb17
+2026-09-20T01:47:38-04:00 STEP released k1 seed42 exit=0
+2026-09-20T01:53:23-04:00 STEP released k1 seed43 exit=0
+2026-09-20T01:59:06-04:00 STEP released k1 seed44 exit=0
+2026-09-20T02:04:46-04:00 STEP released k1 seed45 exit=0
+2026-09-20T02:10:21-04:00 STEP released k1 seed46 exit=0
+2026-09-20T02:10:21-04:00 STEP pin fill
+PINS WRITTEN {'evaluator': '1c9eaf10957c9d4c970e0f4e9204457d7139c5edbe82ed002d291aae1d1e5695', 'writer': 'ee84bb44ce6b2b03f9e7f4d912dcc15a712b5c4b9b51e873769dac22665869e7', 'training_launcher': ['b6c25e3332dcef87aa51792fe48df9798ccaa45bc66160ffd16ceb662359da0c'], 'training': '36d57a84b2fe1a2038d987d6d45e634c324aaaa97c2dbff40a980d8537ff56ec', 'producer_table': '7a2e50236a872355d6abd483066e597882557d26468c77255f985c33ec051428', 'producer_pairs': '8635085736ddc15d057370cae4f2ae6d22ce87c3ee5038015214ad5fa6a3496a'} {'seen_simple': 'c0735d0fc34d', 'seen_cyl': 'ab4dc8442f84', 'seen_aug': '839b10c559da'}
+2026-09-20T02:10:39-04:00 STEP pins committed 0e47341
+2026-09-20T02:10:39-04:00 STEP producers
+2026-09-20T02:15:39-04:00 STEP generators
+2026-09-20T02:15:48-04:00 STEP bind (parity receipt worklog/worklog_yixun/exp_07_seen_protocol_claude/gpu_parity_8273943aa7598145082c0500fc393332c30bd6cc.receipt.json)
+2026-09-20T02:20:07-04:00 STEP check
+2026-09-20T02:24:22-04:00 STEP check exit=0
+2026-09-20T02:24:22-04:00 FINISH DONE check_exit=0
