@@ -302,11 +302,14 @@ def exp04_aug_checkpoint(approved, path=None):
     from tools import exp04_profiles
     pinned = _leaf(approved, 'reused.exp04_approved_digests_sha256')
     file = Path(exp04_profiles.APPROVED_DIGESTS_PATH if path is None else path)
-    value, identity = exp04_profiles.load_approved_digests(file)
-    if pinned is None or identity['sha256'] != pinned:
+    # The identity first: a file that is not the approved record is refused as that, and
+    # never for some later property of a record nobody approved.
+    digest = _sha256_file(file)
+    if pinned is None or digest != pinned:
         raise ValueError('the exp_04 approvals {} hash to {}, not the approved '
                          'reused.exp04_approved_digests_sha256 {}'.format(
-                             file, identity['sha256'], pinned))
+                             file, digest, pinned))
+    value, identity = exp04_profiles.load_approved_digests(file)
     record = {key: value['checkpoints']['aug'][key] for key in ('path', 'epoch', 'sha256')}
     if record['epoch'] != EXP04_AUG_EPOCH or record['sha256'] is None \
             or not _hex_or_null(record['sha256']):

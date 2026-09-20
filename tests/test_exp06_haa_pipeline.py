@@ -23,6 +23,7 @@ INITS = {'cyl_or': ('cylindrical_oriented', CYLOR, 'heading'),
          'cyl_hf': ('cylindrical', 'ckpt/xRIR_cyl_8_shot/epoch_12.pth', 'heading'),
          'yawaug': ('simple', YAWAUG, 'room')}
 EXP06_ARMS = ('cyl_or', 'control_hf', 'cyl_hf')
+EXP04_AUG_SHA256 = 'f8e640523892154fe744b60e2fe99178b68a522ee3947758812aa5a7dc15b299'
 EXP09_RECORD = 'worklog/worklog_yixun/exp_09_yawaug_haa_claude'
 EXP09_OUT = 'ckpt/exp09/sim2real'
 
@@ -833,3 +834,39 @@ def test_the_gate_runs_before_the_job_root_is_opened(tmp_path):
     result, events = run_lib(script, tmp_path)
     assert 'GATE' in result.stdout and 'OPENED' not in result.stdout
     assert events == [] and 'REFUSED approvals' in result.stdout
+
+
+def test_the_real_approvals_gate_pins_the_yawaug_initialisation(tmp_path):
+    """Arm E starts from exp_04's approved checkpoints.aug, never exp_06's epoch_012."""
+    other = tmp_path / 'epoch_012.pth'
+    other.write_bytes(b'not the yaw-augmented checkpoint')
+    result, events = run_lib(INVOKE.format('run_finetune yawaug 0'), tmp_path,
+                             adapter=REAL_ADAPTER, EXP09_YAWAUG_CKPT=str(other))
+    assert events == [] and 'REFUSED approvals' in result.stdout
+    assert "exp_04's approved checkpoints.aug" in result.stderr
+    assert EXP04_AUG_SHA256 in result.stderr and 'artifacts.epoch_012' not in result.stderr
+    assert not (tmp_path / 'out/yawaug/seed0').exists()
+
+
+def test_a_forged_exp04_approvals_record_cannot_name_a_checkpoint(tmp_path):
+    """The reused pin is what admits exp_04's record, so a rewritten one is refused."""
+    from tools import exp06_approvals_api as api
+    approved, _ = api.load_approved_digests(api.approved_path_default())
+    forged = tmp_path / 'approved_digests.json'
+    forged.write_text(Path(api.approvals_module().REPO,
+                           'worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/'
+                           'yaw_aug_xrir_results_assets/approved_digests.json').read_text()
+                      .replace('f8e64052', 'aaaaaaaa'))
+    with pytest.raises(ValueError, match='exp04_approved_digests_sha256'):
+        api.exp04_aug_checkpoint(approved, forged)
+
+
+@pytest.mark.skipif(not (ROOT / YAWAUG).is_file(), reason='needs exp_04 checkpoint')
+def test_the_registered_yawaug_checkpoint_is_the_approved_one():
+    """The default the script names really is the checkpoint exp_04 approved."""
+    from tools import exp06_approvals_api as api
+    from tools import provenance
+    approved, _ = api.load_approved_digests(api.approved_path_default())
+    record = api.exp04_aug_checkpoint(approved)
+    assert record['checkpoint']['path'] == YAWAUG and record['checkpoint']['epoch'] == 12
+    assert provenance.sha256_file(ROOT / YAWAUG) == record['checkpoint']['sha256']
