@@ -3,3 +3,4 @@
 | SHA | branch | description |
 |---|---|---|
 | (none yet) | | record files uncommitted until the first bookkeeping commit |
+| 38a6727 | main | record opened: plan v1/v2, Codex plan review, prompts, params, runbook/chain drafts |

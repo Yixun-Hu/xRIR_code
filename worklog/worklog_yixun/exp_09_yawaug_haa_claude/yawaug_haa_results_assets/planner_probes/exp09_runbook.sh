@@ -84,7 +84,7 @@ $TRAILER" && log "committed $(git rev-parse HEAD)"; log "REFILL OK" ;;
     log "SUMMARIZE $TS HEAD=$(git rev-parse HEAD)"; clean_outside_worklog
     [ "$(find $OUT/yawaug -name completion.json | wc -l)" -eq 35 ] || refuse "yawaug has $(find $OUT/yawaug -name completion.json | wc -l)/35 completions (31 children + 4 jobs)"
     [ ! -e ckpt/exp09/stats.json ] && [ ! -e ckpt/exp09/summary.txt ] || refuse "outputs exist"
-    CUDA_VISIBLE_DEVICES='' $PY tools/exp06_summarize_haa.py --experiment exp09 --approved "$AP" --approved-commit "$(git rev-parse HEAD)" --gate-g1 ckpt/exp06/gate_g1.json --json ckpt/exp09/stats.json --summary ckpt/exp09/summary.txt 2>&1 | grep -vE "UserWarning|warnings.warn" | tee -a "$LOG"
+    CUDA_VISIBLE_DEVICES='' $PY tools/exp06_summarize_haa.py --experiment exp09 --exp09-root $OUT --approved "$AP" --approved-commit "$(git rev-parse HEAD)" --gate-g1 ckpt/exp06/gate_g1.json --json ckpt/exp09/stats.json --summary ckpt/exp09/summary.txt 2>&1 | grep -vE "UserWarning|warnings.warn" | tee -a "$LOG"
     test -f ckpt/exp09/stats.json || refuse "no stats.json"; log "SUMMARIZE OK $(sha256sum ckpt/exp09/stats.json | cut -c1-12)" ;;
   results)
     log "RESULTS $TS"; CUDA_VISIBLE_DEVICES='' $PY "$E/yawaug_haa_results_assets/make_results_md.py" --stats ckpt/exp09/stats.json 2>&1 | tee -a "$LOG"
