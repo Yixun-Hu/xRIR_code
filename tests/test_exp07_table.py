@@ -7,9 +7,11 @@ import numpy as np
 import pytest
 
 from exp07_fixture import exp07_approval_template, exp07_fixture  # noqa: F401  (fixtures)
+from test_exp04_profiles import approval_repo
 from tools import exp07_table as table
 from tools import exp07_provenance as e7p
 from tools import provenance as p
+from tools.exp07_profiles import load_approved_digests
 from tools.results_table import STAMP
 
 
@@ -610,11 +612,47 @@ def test_the_exploratory_markdown_states_it_and_lists_every_deviation(built, tmp
     assert rest.split(' -->')[0] == hashlib.sha256(body.encode()).hexdigest()
 
 
-def test_the_cli_refuses_the_unapproved_committed_profile_and_writes_nothing(tmp_path, built):
+def cli_argv(tmp_path, built):
+    """The producer's argv for this fixture's runs, writing into an empty directory."""
+    return ['--profile', 'TABLE_SEEN_V1', '--runs'] + built.directories + [
+        '--json', str(tmp_path / 'table.json'), '--md', str(tmp_path / 'seen.md')]
+
+
+def unapproved(tmp_path, template):
+    """Commit the all-null template in an isolated repository and load it for real."""
+    directory = tmp_path / 'pins'
+    directory.mkdir()
+    return load_approved_digests(approval_repo(directory, template))
+
+
+def test_the_cli_refuses_an_unapproved_profile_and_writes_nothing(
+        tmp_path, built, monkeypatch, exp07_approval_template):  # noqa: F811  (fixture)
+    """The refusal is a fact about the runtime approval, not about the committed pins.
+
+    tools.exp07_table.admit reads the pins through this module's load_approved_digests
+    and through nothing else, so an all-null record routed there refuses whatever state
+    the committed file is in -- the template before the pins are filled, and the filled
+    file afterwards.
+    """
+    pins = unapproved(tmp_path, exp07_approval_template)
+    monkeypatch.setattr(table, 'load_approved_digests', lambda: pins)
     with pytest.raises(ValueError, match='not yet approved'):
-        table.main(['--profile', 'TABLE_SEEN_V1', '--runs'] + built.directories +
-                   ['--json', str(tmp_path / 'table.json'), '--md', str(tmp_path / 'seen.md')])
+        table.main(cli_argv(tmp_path, built))
     assert not (tmp_path / 'table.json').exists() and not (tmp_path / 'seen.md').exists()
+
+
+def test_the_cli_publishes_the_same_runs_once_the_approval_is_filled(tmp_path, built, monkeypatch):
+    """The symmetric case: the identical argv proceeds under the fixture's filled pins."""
+    monkeypatch.setattr(table, 'get_profile', lambda _: built.profile)
+    monkeypatch.setattr(table, 'load_approved_digests', lambda: built.approved)
+    monkeypatch.setattr(table, 'producer_identity', lambda _: built.producer)
+    result = table.main(cli_argv(tmp_path, built))
+    assert result['deviations'] == [] and result['exploratory'] is False
+    assert result['profile_name'] == 'TABLE_SEEN_V1' and len(result['rows']) == 8
+    written = json.loads((tmp_path / 'table.json').read_text())
+    assert written['rows'] == result['rows']
+    assert written['profile_digest'] == result['profile_digest']
+    assert built.profile['arms'][0]['label'] in (tmp_path / 'seen.md').read_text()
 
 
 def test_the_cli_defaults_the_markdown_to_the_living_seen_table(monkeypatch, tmp_path):
