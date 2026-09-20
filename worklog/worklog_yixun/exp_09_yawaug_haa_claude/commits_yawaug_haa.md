@@ -11,3 +11,4 @@
 ## Code (2026-09-20, main)
 | 85f2155 | main | merge --no-ff 9e41c65 (exp09-yawaug: room-frame yawaug init + yawaug:zeroshot, blob-at-commit HAA approvals, exp_09 summariser, exp_04 aug resolver in the finalizer) |
 | c13e681 | main | approvals re-fill: finalize, haa_pipeline_sh, summarize_haa (by the pre-launch chain) |
+| 217a2b5 | main | bookkeeping: HAA queue run (35/35), canonical summary f2faca78…, results.md/page, analysis, as-run params, logs |
