@@ -1,0 +1,21 @@
+2026-09-19T22:12:55-04:00 QUEUE START role=seen_cyl gpu=0 reviewed=02bf1e2e81d53bb2f7a88bca6d8e798d7a89f871 attempt=/home/yixunhu/codespace/xRIR_code/ckpt/exp07/seen_cyl/attempt_20260918T151139full
+2026-09-19T22:12:55-04:00 SKIP existing ckpt/exp07/eval/seen_cyl_k8_seed42_k0
+2026-09-19T22:12:58-04:00 START seen_cyl_k8_seed43_k0
+2026-09-19T22:21:46-04:00 END seen_cyl_k8_seed43_k0 exit=0
+2026-09-19T22:21:48-04:00 START seen_cyl_k8_seed44_k0
+2026-09-19T22:30:29-04:00 END seen_cyl_k8_seed44_k0 exit=0
+2026-09-19T22:30:31-04:00 START seen_cyl_k8_seed45_k0
+2026-09-19T22:39:17-04:00 END seen_cyl_k8_seed45_k0 exit=0
+2026-09-19T22:39:20-04:00 START seen_cyl_k8_seed46_k0
+2026-09-19T22:48:00-04:00 END seen_cyl_k8_seed46_k0 exit=0
+2026-09-19T22:48:02-04:00 START seen_cyl_k1_seed42_k0
+2026-09-19T22:54:03-04:00 END seen_cyl_k1_seed42_k0 exit=0
+2026-09-19T22:54:06-04:00 START seen_cyl_k1_seed43_k0
+2026-09-19T23:00:06-04:00 END seen_cyl_k1_seed43_k0 exit=0
+2026-09-19T23:00:08-04:00 START seen_cyl_k1_seed44_k0
+2026-09-19T23:06:05-04:00 END seen_cyl_k1_seed44_k0 exit=0
+2026-09-19T23:06:07-04:00 START seen_cyl_k1_seed45_k0
+2026-09-19T23:12:00-04:00 END seen_cyl_k1_seed45_k0 exit=0
+2026-09-19T23:12:02-04:00 START seen_cyl_k1_seed46_k0
+2026-09-19T23:17:51-04:00 END seen_cyl_k1_seed46_k0 exit=0
+EVAL_QUEUE_DONE role=seen_cyl gpu=0 2026-09-19T23:17:51-04:00

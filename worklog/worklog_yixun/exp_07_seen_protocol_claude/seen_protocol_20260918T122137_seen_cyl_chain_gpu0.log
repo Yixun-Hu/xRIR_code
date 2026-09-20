@@ -123,3 +123,7 @@ Revalidating training inputs after log close...
   warnings.warn(msg)
 2026-09-18T15:17:23-04:00 STEP seen_cyl probe exit=0
 2026-09-18T15:17:23-04:00 STEP seen_cyl full launch receipt=ckpt/exp07/seen_cyl/_probe_20260918T151139probe_seen_cyl.json
+2026-09-19T21:59:17-04:00 STEP seen_cyl full exit=0 final=attempt_20260918T151139full
+2026-09-19T21:59:17-04:00 STEP seen_cyl evaluations
+worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_20260919T215917_eval_queue_seen_cyl_gpu0.log
+2026-09-19T22:08:57-04:00 CHAIN DONE role=seen_cyl

@@ -1,0 +1,5 @@
+2026-09-19T22:11:55-04:00 WAITER START role=seen_aug gpu=1 pid 3500912
+2026-09-20T00:30:55-04:00 STEP seen_aug certified
+2026-09-20T00:30:55-04:00 STEP tree clean; running evaluations
+worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_20260920T003055_eval_queue_seen_aug_gpu1.log
+2026-09-20T01:40:47-04:00 WAITER DONE role=seen_aug exit=0

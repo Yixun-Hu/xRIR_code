@@ -1,0 +1,6 @@
+2026-09-19T22:11:55-04:00 WAITER START role=seen_cyl gpu=0 pid 3500909
+2026-09-19T22:11:55-04:00 STEP seen_cyl certified
+2026-09-19T22:11:55-04:00 WAIT tree dirty outside worklog: ?? tools/plot_exp05_efficiency.py 
+2026-09-19T22:12:55-04:00 STEP tree clean; running evaluations
+worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_20260919T221255_eval_queue_seen_cyl_gpu0.log
+2026-09-19T23:17:51-04:00 WAITER DONE role=seen_cyl exit=0
