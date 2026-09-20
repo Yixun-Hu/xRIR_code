@@ -5,3 +5,4 @@
 | (none yet) | | record files uncommitted until the first bookkeeping commit |
 | 38a6727 | main | record opened: plan v1/v2, Codex plan review, prompts, params, runbook/chain drafts |
 | feef6eb | main | bookkeeping: Coder round-1 report, generators, runbook/chain, review launch |
+| 32e389b | main | bookkeeping: code review, fix-cycle report, close-review launch, chains |

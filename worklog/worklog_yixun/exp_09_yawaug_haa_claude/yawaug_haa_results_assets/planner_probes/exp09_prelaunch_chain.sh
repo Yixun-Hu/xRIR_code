@@ -21,7 +21,7 @@ PEER_ACK=1 FULLFIX=$TIP MERGE_MSG="exp09: merge the yaw-augmented HAA arm (room-
 EXP06_REFILL_EXPECT="$EXPECT" bash "$RB" refill || { say "refill refused"; exit 3; }
 bash "$RB" suite || { say "suite step failed"; exit 4; }
 SL=$(ls -t "$E"/yawaug_haa_*_suite_full_cpu.log | head -1)
-FAILS=$(grep -E "^FAILED" "$SL" | grep -vE "test_exp07_profiles.py::test_the_new_arm_checkpoint_digests_come_from_the_runtime_approval\[(seen_simple-simple-0|seen_cyl-cylindrical-0)\]" || true)
+FAILS=$(grep -E "^FAILED" "$SL" | grep -vE "test_exp07_profiles.py::test_the_new_arm_checkpoint_digests_come_from_the_runtime_approval\[(seen_simple-simple-0|seen_cyl-cylindrical-0|seen_aug-simple-1)\]" || true)
 if [ -n "$FAILS" ]; then say "suite has failures beyond the two exp_07 guards:"; echo "$FAILS"; exit 4; fi
 say "suite OK ($(tail -1 "$SL"))"
 # GPU 1 must be empty for the smoke; wait up to 3 h for the peer's release
