@@ -1,0 +1,4 @@
+# Yixun's queries — yawaug_haa (exp_09)
+
+1. 2026-09-19 ≈ 21:05 — "Do we have the xrir yaw-aug method on HAA results?" → No: exp_04's yaw-augmented SimpleViT was never fine-tuned or evaluated on HAA (only the simulated unseen split).
+2. 2026-09-19 ≈ 21:15 — "yes, please run the yaw-augmented xRIR fine-tuned and evaluated on HAA using the @xRIR_pdf.md recipe" → this experiment. "The paper's recipe" = xRIR's HAA few-shot fine-tuning (fine-tune on the 12 selected RIRs per room, 8 of 12 as references, checkpoint selection on Diff-RIR's validation set), executed as the repo's released two-stage scripts exactly as in exp_02 and exp_06 (stage 1 classroom+hallway+complex 1000 epochs / val every 10; stage 2 per room 200 / 2; AdamW 1e-4, wd 1e-4, ×0.1 per 50 epochs, full batch, TF32; K = 8, eval_seed 0, unseeded Griffin-Lim; DiffRIR splits), in the room frame (no heading rotation), so the row is comparable with exp_02's control and exp_06's arms.
