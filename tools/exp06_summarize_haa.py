@@ -67,23 +67,49 @@ ARMS = OrderedDict([
              'backbone': 'cylindrical', 'frame': 'room', 'legacy_init': 'cyl'}),
     ('cyl_or', {'label': 'C', 'branch': 'new', 'root': 'ckpt/exp06/sim2real/cyl_or',
                 'backbone': 'cylindrical_oriented', 'frame': 'heading',
-                'init_sha256': None}),      # the approved epoch_012 artifact
+                'experiment': 'exp06', 'init_sha256': None}),   # the approved epoch_012
     ('control_hf', {'label': 'D', 'branch': 'new', 'root': 'ckpt/exp06/sim2real/control_hf',
-                    'backbone': 'simple', 'frame': 'heading',
+                    'backbone': 'simple', 'frame': 'heading', 'experiment': 'exp06',
                     'init_sha256': EXP01_CONTROL['sha256']}),
     ('cyl_hf', {'label': 'F', 'branch': 'new', 'root': 'ckpt/exp06/sim2real/cyl_hf',
-                'backbone': 'cylindrical', 'frame': 'heading',
-                'init_sha256': EXP01_CYL['sha256']})])
+                'backbone': 'cylindrical', 'frame': 'heading', 'experiment': 'exp06',
+                'init_sha256': EXP01_CYL['sha256']}),
+    # exp_09's arm E: exp_04's yaw-augmented SimpleViT, fine-tuned in the ROOM frame, in
+    # its own tree. Its initialisation is exp_04's approved checkpoints.aug, resolved by
+    # expected_inits through 6.4's reused pin -- never exp_06's artifacts.epoch_012.
+    ('yawaug', {'label': 'E', 'branch': 'new', 'root': 'ckpt/exp09/sim2real/yawaug',
+                'backbone': 'simple', 'frame': 'room', 'experiment': 'exp09',
+                'init_sha256': None})])
 LEGACY_ARMS = tuple(name for name, arm in ARMS.items() if arm['branch'] == 'legacy')
 NEW_ARMS = tuple(name for name, arm in ARMS.items() if arm['branch'] == 'new')
 LEGACY_ROOT = 'ckpt/sim2real'
 NEW_ROOT = 'ckpt/exp06/sim2real'
+EXP09_ROOT = 'ckpt/exp09/sim2real'
 CANONICAL = ('stats.json', 'summary.txt')            # exp_02's hash-bound record
 
 # The contrasts of section 7. H1 and H1b are decision bearing; the rest describe.
 H1 = ('cyl_or', 'control')
 H1B = ('cyl_or', 'cyl_hf')
 DESCRIPTIVE = (('cyl_or', 'control_hf'), ('control_hf', 'control'), ('cyl_hf', 'cyl'))
+# exp_09 section 3: E1 is the headline (two-sided, plus the exp_06 margin statement), E2
+# the eleven-cell screen against the same comparator, E3 descriptive against arm C.
+E1 = ('yawaug', 'control')
+E3 = (('yawaug', 'cyl_or'),)
+
+# One frozen configuration per experiment: which arms are loaded, which contrasts are
+# computed under which names, which of them carry exp_09's two-sided classification, and
+# the canonical outputs no other experiment's run may write. Nothing here is mutated at
+# runtime: an exp_09 run never changes what an exp_06 run publishes.
+EXPERIMENTS = OrderedDict([
+    ('exp06', {'arms': ('control', 'cyl', 'cyl_or', 'control_hf', 'cyl_hf'),
+               'decisions': (('H1', H1, H1_ROOM, H1_METRIC, H1_MARGIN_DB),
+                             ('H1b', H1B, H1_ROOM, H1_METRIC, 0.0)),
+               'screen': ('H2', H1), 'descriptive': ('D', DESCRIPTIVE), 'classified': (),
+               'outputs': ('ckpt/exp06/stats.json', 'ckpt/exp06/summary.txt')}),
+    ('exp09', {'arms': ('control', 'cyl', 'cyl_or', 'yawaug'),
+               'decisions': (('E1', E1, H1_ROOM, H1_METRIC, H1_MARGIN_DB),),
+               'screen': ('E2', E1), 'descriptive': ('E3', E3), 'classified': ('E1',),
+               'outputs': ('ckpt/exp09/stats.json', 'ckpt/exp09/summary.txt')})])
 
 
 def _require(ok, cause):
@@ -505,11 +531,26 @@ def check_test_indices(name, room, index):
              'in order'.format(name, len(index), room, len(expected)))
 
 
-def expected_inits(approved):
-    """What each new arm must have started from: exp_01's weights, or the approved epoch."""
-    inits = {arm: ARMS[arm]['init_sha256'] for arm in NEW_ARMS}
-    if approved:
+def expected_inits(approved, arms=NEW_ARMS, inputs=None):
+    """What each new arm must have started from: exp_01's weights, exp_06's approved
+    epoch, or -- for arm E -- exp_04's approved ``checkpoints.aug``.
+
+    E's identity is resolved through 6.4's ``reused`` exp_04 pin rather than a literal, so
+    only the approvals a reviewer committed can name it; the record it was read from is
+    bound into ``inputs`` and published with the analysis. It is resolved only when E is
+    among the arms being loaded, so an exp_06 run depends on nothing further.
+    """
+    inits = {arm: ARMS[arm]['init_sha256'] for arm in arms
+             if ARMS[arm]['branch'] == 'new'}   # an experiment's arms include the legacy two
+    if not approved:
+        return inits
+    if 'cyl_or' in inits:
         inits['cyl_or'] = approved.get('artifacts', {}).get('epoch_012', {}).get('sha256')
+    if 'yawaug' in inits:
+        record = approvals_api.exp04_aug_checkpoint(approved)
+        inits['yawaug'] = record['checkpoint']['sha256']
+        if inputs is not None:
+            bind(inputs, record['path'], record['sha256'])
     return inits
 
 
@@ -522,8 +563,14 @@ def child_per_sample(job_dir, name, record, arm, inputs=None):
     meta = per.get('meta')
     _require(isinstance(meta, dict), 'child {} per-sample records no meta'.format(name))
     _require('heading' in meta, 'child {} per-sample meta records no heading'.format(name))
+    _require(meta.get('frame') == ARMS[arm]['frame'], 'child {} per-sample meta records the '
+             'frame {!r}, not the {!r} of arm {}'.format(name, meta.get('frame'),
+                                                         ARMS[arm]['frame'], arm))
     if ARMS[arm]['frame'] == 'heading':
         _heading_rolls(meta['heading'], 'child {} per-sample meta'.format(name))
+    else:      # a room-frame arm reads no heading, and the writer records that null
+        _require(not meta['heading'],
+                 'child {} per-sample meta records a heading in the room frame'.format(name))
     side = per.get('side_label')
     _require(isinstance(side, list) and len(side) == len(per.get('index', [])),
              'child {} per-sample records no room-frame side_label'.format(name))
@@ -660,10 +707,21 @@ def verify_job(job_dir, job, arm, repo=REPO, sensitivity=False, inputs=None):
             'heading': arm_headings(children), 'recipe_deviations': recipe}
 
 
-def load_new_arm(root, arm, init_sha256=None, repo=REPO, approved=None,
+def arm_directory(arm, roots):
+    """One new arm's directory: its own registered root, under its own experiment's tree.
+
+    ``ARMS[arm]['root']`` is where the arm was registered; ``roots`` maps an experiment to
+    the tree its arms were actually written in (``--new-root``, ``--exp09-root``), so an
+    arm is never looked for under another experiment's root.
+    """
+    return Path(roots[ARMS[arm]['experiment']]) / Path(ARMS[arm]['root']).name
+
+
+def load_new_arm(roots, arm, init_sha256=None, repo=REPO, approved=None,
                  sensitivity=False):
-    """One exp_06 arm: four verified jobs, one closure per role, one heading per room."""
-    base = Path(root) / Path(ARMS[arm]['root']).name
+    """One exp_06 or exp_09 arm: four verified jobs, one closure per role, one heading
+    per room in the heading frame and none at all in the room frame."""
+    base = arm_directory(arm, roots)
     _require(base.is_dir(), 'missing arm directory {}'.format(base))
     jobs, records, children, inputs, recipe = {}, {}, {}, {}, []
     for job in JOBS:
@@ -682,6 +740,9 @@ def load_new_arm(root, arm, init_sha256=None, repo=REPO, approved=None,
         for name in sorted(record['children']):
             children['{}/{}'.format(job, name)] = verified['children'][name]
     closures, headings = arm_closures(children), arm_headings(children)
+    _require(bool(headings) == (ARMS[arm]['frame'] == 'heading'),
+             'the {}-frame arm {} binds {} heading records'.format(
+                 ARMS[arm]['frame'], arm, len(headings)))
     check_arm_identities(arm, closures, headings, approved)
     return {'arm': arm, 'branch': 'new', 'per': jobs, 'closure': closures, 'jobs': records,
             'heading': headings, 'root': str(base), 'inputs': inputs,
