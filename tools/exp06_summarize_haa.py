@@ -13,8 +13,17 @@ Arms C (``cyl_or``), D (``control_hf``) and F (``cyl_hf``) are exp_06's own runs
 schema, rehashes every artifact it bound, and requires the arm's backbone, frame,
 heading roll and execution closure to be the one the table registers.
 
+Arm E (``yawaug``) is exp_09's: exp_04's yaw-augmented SimpleViT, fine-tuned by the same
+pipeline in the ROOM frame under ``ckpt/exp09/sim2real``. ``--experiment exp09`` publishes
+that experiment's frozen configuration -- arms A, B, C and E, the contrasts E1/E2/E3 and
+exp_09's own outputs -- through this one producer, so the analysis stays inside the
+``code.summarize_haa`` closure 6.4 approves. exp_06's arms, contrasts, verdict semantics
+and canonical record are untouched by it, and neither experiment may write the other's.
+
     python tools/exp06_summarize_haa.py --json ckpt/exp06/stats.json \
         --summary ckpt/exp06/summary.txt
+    python tools/exp06_summarize_haa.py --experiment exp09 \
+        --json ckpt/exp09/stats.json --summary ckpt/exp09/summary.txt
 """
 import argparse
 import datetime
@@ -67,23 +76,49 @@ ARMS = OrderedDict([
              'backbone': 'cylindrical', 'frame': 'room', 'legacy_init': 'cyl'}),
     ('cyl_or', {'label': 'C', 'branch': 'new', 'root': 'ckpt/exp06/sim2real/cyl_or',
                 'backbone': 'cylindrical_oriented', 'frame': 'heading',
-                'init_sha256': None}),      # the approved epoch_012 artifact
+                'experiment': 'exp06', 'init_sha256': None}),   # the approved epoch_012
     ('control_hf', {'label': 'D', 'branch': 'new', 'root': 'ckpt/exp06/sim2real/control_hf',
-                    'backbone': 'simple', 'frame': 'heading',
+                    'backbone': 'simple', 'frame': 'heading', 'experiment': 'exp06',
                     'init_sha256': EXP01_CONTROL['sha256']}),
     ('cyl_hf', {'label': 'F', 'branch': 'new', 'root': 'ckpt/exp06/sim2real/cyl_hf',
-                'backbone': 'cylindrical', 'frame': 'heading',
-                'init_sha256': EXP01_CYL['sha256']})])
+                'backbone': 'cylindrical', 'frame': 'heading', 'experiment': 'exp06',
+                'init_sha256': EXP01_CYL['sha256']}),
+    # exp_09's arm E: exp_04's yaw-augmented SimpleViT, fine-tuned in the ROOM frame, in
+    # its own tree. Its initialisation is exp_04's approved checkpoints.aug, resolved by
+    # expected_inits through 6.4's reused pin -- never exp_06's artifacts.epoch_012.
+    ('yawaug', {'label': 'E', 'branch': 'new', 'root': 'ckpt/exp09/sim2real/yawaug',
+                'backbone': 'simple', 'frame': 'room', 'experiment': 'exp09',
+                'init_sha256': None})])
 LEGACY_ARMS = tuple(name for name, arm in ARMS.items() if arm['branch'] == 'legacy')
 NEW_ARMS = tuple(name for name, arm in ARMS.items() if arm['branch'] == 'new')
 LEGACY_ROOT = 'ckpt/sim2real'
 NEW_ROOT = 'ckpt/exp06/sim2real'
+EXP09_ROOT = 'ckpt/exp09/sim2real'
 CANONICAL = ('stats.json', 'summary.txt')            # exp_02's hash-bound record
 
 # The contrasts of section 7. H1 and H1b are decision bearing; the rest describe.
 H1 = ('cyl_or', 'control')
 H1B = ('cyl_or', 'cyl_hf')
 DESCRIPTIVE = (('cyl_or', 'control_hf'), ('control_hf', 'control'), ('cyl_hf', 'cyl'))
+# exp_09 section 3: E1 is the headline (two-sided, plus the exp_06 margin statement), E2
+# the eleven-cell screen against the same comparator, E3 descriptive against arm C.
+E1 = ('yawaug', 'control')
+E3 = (('yawaug', 'cyl_or'),)
+
+# One frozen configuration per experiment: which arms are loaded, which contrasts are
+# computed under which names, which of them carry exp_09's two-sided classification, and
+# the canonical outputs no other experiment's run may write. Nothing here is mutated at
+# runtime: an exp_09 run never changes what an exp_06 run publishes.
+EXPERIMENTS = OrderedDict([
+    ('exp06', {'arms': ('control', 'cyl', 'cyl_or', 'control_hf', 'cyl_hf'),
+               'decisions': (('H1', H1, H1_ROOM, H1_METRIC, H1_MARGIN_DB),
+                             ('H1b', H1B, H1_ROOM, H1_METRIC, 0.0)),
+               'screen': ('H2', H1), 'descriptive': ('D', DESCRIPTIVE), 'classified': (),
+               'outputs': ('ckpt/exp06/stats.json', 'ckpt/exp06/summary.txt')}),
+    ('exp09', {'arms': ('control', 'cyl', 'cyl_or', 'yawaug'),
+               'decisions': (('E1', E1, H1_ROOM, H1_METRIC, H1_MARGIN_DB),),
+               'screen': ('E2', E1), 'descriptive': ('E3', E3), 'classified': ('E1',),
+               'outputs': ('ckpt/exp09/stats.json', 'ckpt/exp09/summary.txt')})])
 
 
 def _require(ok, cause):
@@ -505,11 +540,26 @@ def check_test_indices(name, room, index):
              'in order'.format(name, len(index), room, len(expected)))
 
 
-def expected_inits(approved):
-    """What each new arm must have started from: exp_01's weights, or the approved epoch."""
-    inits = {arm: ARMS[arm]['init_sha256'] for arm in NEW_ARMS}
-    if approved:
+def expected_inits(approved, arms=NEW_ARMS, inputs=None):
+    """What each new arm must have started from: exp_01's weights, exp_06's approved
+    epoch, or -- for arm E -- exp_04's approved ``checkpoints.aug``.
+
+    E's identity is resolved through 6.4's ``reused`` exp_04 pin rather than a literal, so
+    only the approvals a reviewer committed can name it; the record it was read from is
+    bound into ``inputs`` and published with the analysis. It is resolved only when E is
+    among the arms being loaded, so an exp_06 run depends on nothing further.
+    """
+    inits = {arm: ARMS[arm]['init_sha256'] for arm in arms
+             if ARMS[arm]['branch'] == 'new'}   # an experiment's arms include the legacy two
+    if not approved:
+        return inits
+    if 'cyl_or' in inits:
         inits['cyl_or'] = approved.get('artifacts', {}).get('epoch_012', {}).get('sha256')
+    if 'yawaug' in inits:
+        record = finalizer.exp04_aug_checkpoint(approved)
+        inits['yawaug'] = record['checkpoint']['sha256']
+        if inputs is not None:
+            bind(inputs, record['path'], record['sha256'])
     return inits
 
 
@@ -522,8 +572,14 @@ def child_per_sample(job_dir, name, record, arm, inputs=None):
     meta = per.get('meta')
     _require(isinstance(meta, dict), 'child {} per-sample records no meta'.format(name))
     _require('heading' in meta, 'child {} per-sample meta records no heading'.format(name))
+    _require(meta.get('frame') == ARMS[arm]['frame'], 'child {} per-sample meta records the '
+             'frame {!r}, not the {!r} of arm {}'.format(name, meta.get('frame'),
+                                                         ARMS[arm]['frame'], arm))
     if ARMS[arm]['frame'] == 'heading':
         _heading_rolls(meta['heading'], 'child {} per-sample meta'.format(name))
+    else:      # a room-frame arm reads no heading, and the writer records that null
+        _require(not meta['heading'],
+                 'child {} per-sample meta records a heading in the room frame'.format(name))
     side = per.get('side_label')
     _require(isinstance(side, list) and len(side) == len(per.get('index', [])),
              'child {} per-sample records no room-frame side_label'.format(name))
@@ -660,10 +716,21 @@ def verify_job(job_dir, job, arm, repo=REPO, sensitivity=False, inputs=None):
             'heading': arm_headings(children), 'recipe_deviations': recipe}
 
 
-def load_new_arm(root, arm, init_sha256=None, repo=REPO, approved=None,
+def arm_directory(arm, roots):
+    """One new arm's directory: its own registered root, under its own experiment's tree.
+
+    ``ARMS[arm]['root']`` is where the arm was registered; ``roots`` maps an experiment to
+    the tree its arms were actually written in (``--new-root``, ``--exp09-root``), so an
+    arm is never looked for under another experiment's root.
+    """
+    return Path(roots[ARMS[arm]['experiment']]) / Path(ARMS[arm]['root']).name
+
+
+def load_new_arm(roots, arm, init_sha256=None, repo=REPO, approved=None,
                  sensitivity=False):
-    """One exp_06 arm: four verified jobs, one closure per role, one heading per room."""
-    base = Path(root) / Path(ARMS[arm]['root']).name
+    """One exp_06 or exp_09 arm: four verified jobs, one closure per role, one heading
+    per room in the heading frame and none at all in the room frame."""
+    base = arm_directory(arm, roots)
     _require(base.is_dir(), 'missing arm directory {}'.format(base))
     jobs, records, children, inputs, recipe = {}, {}, {}, {}, []
     for job in JOBS:
@@ -682,6 +749,9 @@ def load_new_arm(root, arm, init_sha256=None, repo=REPO, approved=None,
         for name in sorted(record['children']):
             children['{}/{}'.format(job, name)] = verified['children'][name]
     closures, headings = arm_closures(children), arm_headings(children)
+    _require(bool(headings) == (ARMS[arm]['frame'] == 'heading'),
+             'the {}-frame arm {} binds {} heading records'.format(
+                 ARMS[arm]['frame'], arm, len(headings)))
     check_arm_identities(arm, closures, headings, approved)
     return {'arm': arm, 'branch': 'new', 'per': jobs, 'closure': closures, 'jobs': records,
             'heading': headings, 'root': str(base), 'inputs': inputs,
@@ -1029,41 +1099,91 @@ def approvals(exploratory, path=None, producer='summarize_haa', commit=None, rep
                                                              exploratory)
 
 
+def classify_cell(cell):
+    """exp_09's E1: the two-sided category and the +0.23 dB statement, side by side.
+
+    Both read the one interval exp_06's margin verdict reads -- the seed-0 two-way
+    interval of the size that converged -- and both use strict inequalities, so an
+    endpoint exactly at 0 or at the margin establishes neither. They are independent:
+    "detected harm" and "non-inferior at +0.23 dB" may hold together, and a failure to
+    establish non-inferiority is not evidence of inferiority. A void or unconverged cell
+    suppresses both, even though a nominal interval may still exist.
+    """
+    interval = (None if cell['verdict'] in ('void', 'not_converged')
+                else cell['convergence']['interval'])
+    if interval is None:
+        return dict(cell, category=None, non_inferior_at_margin=None)
+    return dict(cell, category=h2_label(interval),
+                non_inferior_at_margin=bool(interval[1] < cell['margin']))
+
+
+def check_output_paths(experiment, json_path, summary_path):
+    """No experiment's run may write another's canonical record."""
+    targets = {str(Path(path).resolve()) for path in (json_path, summary_path)}
+    for name, config in EXPERIMENTS.items():
+        if name == experiment:
+            continue
+        for canonical in config['outputs']:
+            _require(str((REPO / canonical).resolve()) not in targets,
+                     'an {} run may not write {}, the canonical record of {}'.format(
+                         experiment, canonical, name))
+
+
 def analyse(arms, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, cache_root=None,
             exploratory=False, receipt=None, receipt_path=None, approved=None,
             deviations=(), approvals_receipt=None, producer=None, extra_inputs=(),
-            sensitivity=False):
+            sensitivity=False, experiment='exp06'):
     """Every displayed number, and the evidence each rests on."""
+    config = EXPERIMENTS[experiment]
+    # The frozen configuration decides what is published, not what the caller happens to
+    # have loaded: an experiment's tables never carry another's arm, and a missing one is
+    # a refusal rather than a quietly shorter table.
+    missing = [name for name in config['arms'] if name not in arms]
+    _require(not missing, 'the {} analysis needs the arms {}'.format(
+        experiment, ', '.join(missing)))
+    arms = OrderedDict((name, arms[name]) for name in config['arms'])
     cache_inputs = {}
-    result = {'schema_version': 1, 'exploratory': bool(exploratory),
-              'mode': 'sensitivity' if sensitivity else 'primary',
-              'deviations': list(deviations), 'arms': {name: {
-                  'branch': arms[name]['branch'], 'root': arms[name]['root'],
-                  'closure': arms[name]['closure'], 'backbone': ARMS[name]['backbone'],
-                  'frame': ARMS[name]['frame']} for name in sorted(arms)},
-              'margin_db': H1_MARGIN_DB, 'alpha': ALPHA, 'family': H2_FAMILY,
-              'n_boot': n_boot, 'n_boot_adjusted': adjusted_n_boot,
-              'bootstrap_seeds': list(BOOT_SEEDS), 'convergence_tolerance': CONVERGENCE_TOL,
-              'heading_k': HEADING_K, 'rows': arm_rows(arms),
-              'legacy_receipt': None if receipt is None else {
-                  'path': str(receipt_path), 'sha256': receipt['sha256'],
-                  'label': receipt['label'], 'files': len(receipt['files'])},
-              'approved_digests': approvals_receipt, 'producer': producer,
-              'side_split': side_split(arms, cache_root, inputs=cache_inputs)}
+    # Code review round 1 finding 3: exp_06's record is the one main publishes, field for
+    # field, so the experiment is named only where it is not the default. `render` reads it
+    # back with exp_06 as the default, and no other field here is exp_09's.
+    result = dict({'schema_version': 1},
+                  **({} if experiment == 'exp06' else {'experiment': experiment}))
+    result.update({'exploratory': bool(exploratory),
+                  'mode': 'sensitivity' if sensitivity else 'primary',
+                  'deviations': list(deviations), 'arms': {name: {
+                      'branch': arms[name]['branch'], 'root': arms[name]['root'],
+                      'closure': arms[name]['closure'], 'backbone': ARMS[name]['backbone'],
+                      'frame': ARMS[name]['frame']} for name in sorted(arms)},
+                  'margin_db': H1_MARGIN_DB, 'alpha': ALPHA, 'family': H2_FAMILY,
+                  'n_boot': n_boot, 'n_boot_adjusted': adjusted_n_boot,
+                  'bootstrap_seeds': list(BOOT_SEEDS), 'convergence_tolerance': CONVERGENCE_TOL,
+                  'heading_k': HEADING_K, 'rows': arm_rows(arms),
+                  'legacy_receipt': None if receipt is None else {
+                      'path': str(receipt_path), 'sha256': receipt['sha256'],
+                      'label': receipt['label'], 'files': len(receipt['files'])},
+                  'approved_digests': approvals_receipt, 'producer': producer,
+                  'side_split': side_split(arms, cache_root, inputs=cache_inputs)})
     result['inputs'] = arm_inputs(arms, receipt, receipt_path)
     for path, digest in sorted(dict(cache_inputs, **dict(extra_inputs)).items()):
         bind(result['inputs'], path, digest)
     producer_inputs(result['inputs'], producer, approvals_receipt)
-    result['H1'] = decision_cell(arms, H1, H1_ROOM, H1_METRIC, H1_MARGIN_DB, n_boot)
-    result['H1b'] = decision_cell(arms, H1B, H1_ROOM, H1_METRIC, 0.0, n_boot)
-    result['H2'] = screen_cells(arms, H1, n_boot, adjusted_n_boot)
-    result['D'] = descriptive_cells(arms, DESCRIPTIVE, n_boot)
-    if exploratory:
-        for name in ('H1', 'H1b'):
+    for name, pair, room, metric, margin in config['decisions']:
+        cell = decision_cell(arms, pair, room, metric, margin, n_boot)
+        result[name] = classify_cell(cell) if name in config['classified'] else cell
+    result[config['screen'][0]] = screen_cells(arms, config['screen'][1], n_boot,
+                                               adjusted_n_boot)
+    result[config['descriptive'][0]] = descriptive_cells(arms, config['descriptive'][1],
+                                                         n_boot)
+    for name, *_ in config['decisions']:
+        classified = name in config['classified']
+        if exploratory:  # a draft states no conclusion of either kind
             result[name]['verdict'] = 'suppressed (draft)'
-    if sensitivity:      # finding 3: a relaxed admission never reads as the primary one
-        for name in ('H1', 'H1b'):
+            if classified:
+                result[name].update(category=None, non_inferior_at_margin=None)
+        if sensitivity:  # finding 3: a relaxed admission never reads as the primary one
             result[name]['verdict'] = 'sensitivity: ' + result[name]['verdict']
+            if classified and result[name]['category'] is not None:
+                result[name]['category'] = 'sensitivity: ' + result[name]['category']
     return result
 
 
@@ -1117,24 +1237,31 @@ def render(result):
                     cells.append(legacy.fmt(row['per_run'], nd))
                 line += '| ' + ''.join(cells)
             lines.append(line)
-    for name in ('H1', 'H1b'):
+    config = EXPERIMENTS[result.get('experiment', 'exp06')]
+    for name, *_ in config['decisions']:
         cell = result[name]
         lines.append('\n{} {} {} {}: diff {}, two-way {}, margin {}, cohort {}/{} -> '
                      '{}'.format(name, cell['contrast'], cell['room'], cell['metric'],
                                  _number(cell['diff']), _bounds(cell['two_way']),
                                  cell['margin'], cell['cohort'], cell['n_test'],
                                  cell['verdict']))
+        if name in config['classified']:
+            lines.append('  category: {}; non-inferior at {} dB: {}'.format(
+                UNAVAILABLE if cell['category'] is None else cell['category'],
+                cell['margin'], UNAVAILABLE if cell['non_inferior_at_margin'] is None
+                else cell['non_inferior_at_margin']))
         lines.extend('  void: ' + reason for reason in cell['void_reasons'])
-    lines.append('\nH2 screen ({} cells, adjusted at alpha/{})'.format(len(result['H2']),
-                                                                      H2_FAMILY))
-    for cell in result['H2']:
+    screen, descriptive = config['screen'][0], config['descriptive'][0]
+    lines.append('\n{} screen ({} cells, adjusted at alpha/{})'.format(
+        screen, len(result[screen]), H2_FAMILY))
+    for cell in result[screen]:
         lines.append('  {:14s} {:4s} diff {} nominal {} adjusted {} -> {}'.format(
             cell['room'], cell['metric'], _number(cell['diff']),
             _bounds(cell['nominal_two_way']),
             'not available' if cell['adjusted_two_way'] is None else cell['adjusted_two_way'],
             cell['label']))
     lines.append('\nDescriptive contrasts')
-    for cell in result['D']:
+    for cell in result[descriptive]:
         lines.append('  {:22s} {:14s} {:4s} diff {} {}'.format(
             cell['contrast'], cell['room'], cell['metric'], _number(cell['diff']),
             _bounds(cell['nominal_two_way'])))
@@ -1187,8 +1314,11 @@ def write_outputs(result, json_path, summary_path):
 
 def build_parser():
     parser = argparse.ArgumentParser(description='Summarise exp_06 and exp_02 HAA arms.')
+    parser.add_argument('--experiment', choices=tuple(EXPERIMENTS), default='exp06',
+                        help='which frozen set of arms, contrasts and outputs to publish')
     parser.add_argument('--legacy-root', default=LEGACY_ROOT)
     parser.add_argument('--new-root', default=NEW_ROOT)
+    parser.add_argument('--exp09-root', default=EXP09_ROOT)
     parser.add_argument('--legacy-receipt', default='ckpt/exp06/legacy_receipt.json')
     parser.add_argument('--write-legacy-receipt')
     parser.add_argument('--approved')
@@ -1222,25 +1352,33 @@ def main(argv=None):
                           'files': len(record['files']), 'label': record['label']}))
         return 0
     _require(args.json and args.summary, 'both --json and --summary are required')
+    check_output_paths(args.experiment, args.json, args.summary)
+    config = EXPERIMENTS[args.experiment]
+    roots = {'exp06': args.new_root, 'exp09': args.exp09_root}
+    new_arms = tuple(arm for arm in config['arms'] if ARMS[arm]['branch'] == 'new')
     binding = approved['reused']['legacy_receipt'] if approved else None
     if binding is not None and binding.get('sha256') is None:
         binding = None
     arms, receipt = load_legacy(args.legacy_root, args.legacy_receipt, binding)
     extra = check_reused_identities(None if args.exploratory else approved, receipt,
                                     args.gate_g1)
-    inits = {} if args.exploratory else expected_inits(approved)
-    for arm in NEW_ARMS:
-        arms[arm] = load_new_arm(args.new_root, arm, inits.get(arm), REPO,
+    inits = ({} if args.exploratory
+             else expected_inits(approved, new_arms, extra))
+    for arm in new_arms:
+        arms[arm] = load_new_arm(roots, arm, inits.get(arm), REPO,
                                  None if args.exploratory else approved, args.sensitivity)
         deviations = deviations + list(arms[arm].get('recipe_deviations') or ())
     result = analyse(arms, args.n_boot, args.n_boot_adjusted, args.cache_root,
                      args.exploratory, receipt, args.legacy_receipt, approved, deviations,
-                     approvals_receipt, identity, extra, args.sensitivity)
+                     approvals_receipt, identity, extra, args.sensitivity, args.experiment)
     record, digest, text = write_outputs(result, args.json, args.summary)
     print(text)
-    print(json.dumps({'json': args.json, 'sha256': digest,
-                      'summary_sha256': record['summary_sha256'],
-                      'H1': record['H1']['verdict'], 'H1b': record['H1b']['verdict']}))
+    published = {'json': args.json, 'sha256': digest,
+                 'summary_sha256': record['summary_sha256']}
+    if args.experiment != 'exp06':     # exp_06 prints the keys it has always printed
+        published['experiment'] = args.experiment
+    published.update({name: record[name]['verdict'] for name, *_ in config['decisions']})
+    print(json.dumps(published))
     return 0
 
 

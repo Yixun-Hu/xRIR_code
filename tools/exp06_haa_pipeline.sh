@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # exp_06 HAA pipeline (plan v4 sections 6.2 and 6.4): one queue of jobs on one GPU.
 #   tools/exp06_haa_pipeline.sh <gpu> <job>... [--dry-run]
-#     job = <init>:<seed>  with init in {cyl_or, control_hf, cyl_hf},  or  zeroshot
+#     job = <init>:<seed>  with init in {cyl_or, control_hf, cyl_hf, yawaug},
+#           <init>:zeroshot  (that arm's zero-shot set),  or  zeroshot (exp_06's three arms)
 # Every child runs in its own exclusive directory under
-#   ckpt/exp06/sim2real/<init>/{seed<s>/{stage1,stage2_<room>,eval/<room>}, zeroshot/eval/<room>}
+#   $EXP06_HAA_OUT/<init>/{seed<s>/{stage1,stage2_<room>,eval/<room>}, zeroshot/eval/<room>}
+# (default ckpt/exp06/sim2real; exp_09's arm E runs the same pipeline in the ROOM frame
+# under ckpt/exp09/sim2real, with $EXP06_HAA_RECORD for its child logs)
 # and is finalized by tools/exp06_finalize.py as soon as it has exited; the job itself is
 # finalized once every child of it is complete, from the --job-spec written before the
 # first child starts. The live launcher's pid lives ONLY at the job root
@@ -29,7 +32,8 @@
 set -euo pipefail
 EXP06_LAUNCH_LIB=1 source "$(dirname -- "${BASH_SOURCE[0]}")/exp06_launch.sh"
 
-OUT=ckpt/exp06/sim2real
+OUT="${EXP06_HAA_OUT:-ckpt/exp06/sim2real}"   # exp_09 writes under ckpt/exp09/sim2real
+RECORD="${EXP06_HAA_RECORD:-$RECORD}"         # and keeps its child logs in its own record
 ROOMS="class_room dampened_room hallway complex_room"
 S1_ROOMS="class_room hallway complex_room"   # dampened excluded from stage 1, as in exp_02
 S1="--epochs 1000 --val-every 10 --tf32"
@@ -42,24 +46,34 @@ OWNED_ROOT=0                        # 1 only when this attempt created the job r
 DRY=0
 INIT_BACKBONE=""                    # set by init_of; never word-split out of one string
 INIT_CKPT=""
+INIT_FRAME=heading                  # set by init_of too: a mixed queue resets it per job
 
 usage() {
-    echo "usage: $0 <gpu> <job>... [--dry-run]   job = <init>:<seed> | zeroshot" >&2
-    echo "       init in cyl_or | control_hf | cyl_hf" >&2
+    echo "usage: $0 <gpu> <job>... [--dry-run]   job = <init>:<seed> | <init>:zeroshot | zeroshot" >&2
+    echo "       init in cyl_or | control_hf | cyl_hf | yawaug" >&2
+    echo "       bare zeroshot is exp_06's three arms; yawaug:zeroshot is exp_09's" >&2
     exit 2
 }
 
-# init_of <name>: the backbone and checkpoint of one initialisation, as two variables.
+# init_of <name>: the backbone, checkpoint and frame of one initialisation, as variables.
 # Nit 5: a checkpoint path may contain spaces, so it is never carried through word splitting.
-init_of() { case "$1" in
+# The frame is assigned on every call: a queue that mixes exp_06's heading-frame arms with
+# exp_09's room-frame one must never inherit the previous job's frame.
+init_of() { INIT_FRAME=heading; case "$1" in
   cyl_or) INIT_BACKBONE=cylindrical_oriented
           INIT_CKPT="${EXP06_CYLOR_CKPT:-ckpt/exp06/pretrain/xRIR_cylor_8_shot/final/epoch_012.pth}";;
   control_hf) INIT_BACKBONE=simple; INIT_CKPT=ckpt/xRIR_simple_8_shot/epoch_12.pth;;
   cyl_hf) INIT_BACKBONE=cylindrical; INIT_CKPT=ckpt/xRIR_cyl_8_shot/epoch_12.pth;;
+  yawaug) INIT_BACKBONE=simple; INIT_FRAME=room   # exp_09: exp_04's yaw-augmented SimpleViT
+          INIT_CKPT="${EXP09_YAWAUG_CKPT:-ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth}";;
   *) echo "refusing: unknown init $1" >&2; return 1;; esac; }
 
+# The child log of one experiment's record. The prefix follows the record root, so an
+# exp_09 queue never writes oriented_cyl_* logs into exp_09's folder.
 child_log() {  # child_log <init> <tag> <stage>
-    echo "$RECORD/oriented_cyl_${STAMP}_haa_${1}_${2}_${3}.log"
+    local prefix=oriented_cyl
+    case "$RECORD" in *exp_09*) prefix=yawaug_haa;; esac
+    echo "$RECORD/${prefix}_${STAMP}_haa_${1}_${2}_${3}.log"
 }
 
 # The finalizer's mandatory job declaration, written before the first child starts. Every
@@ -73,16 +87,20 @@ from tools import provenance
 path, init, checkpoint, seed, expect, backbone, frame, heading_dir, root = sys.argv[1:10]
 rooms = sorted(["class_room", "dampened_room", "hallway", "complex_room"])
 try:
-    k_by_room, _ = entry.load_headings(heading_dir, rooms, root)
-    undecided = [room for room in rooms if type(k_by_room.get(room)) is not int]
-    if undecided:
-        raise ValueError("no heading roll for " + ", ".join(undecided))
+    heading = None
+    if frame == "heading":
+        k_by_room, _ = entry.load_headings(heading_dir, rooms, root)
+        undecided = [room for room in rooms if type(k_by_room.get(room)) is not int]
+        if undecided:
+            raise ValueError("no heading roll for " + ", ".join(undecided))
+        heading = {room: k_by_room[room] for room in rooms}
     digest = provenance.sha256_file(checkpoint)
 except (OSError, ValueError) as error:
     raise SystemExit("refusing: " + str(error))
 spec = {"init": init, "backbone": backbone, "frame": frame, "seed": int(seed),
-        "init_sha256": digest, "rooms": rooms, "expect": expect,
-        "heading": {room: k_by_room[room] for room in rooms}}
+        "init_sha256": digest, "rooms": rooms, "expect": expect}
+if heading is not None:      # a room-frame job declares none, and the validator refuses one
+    spec["heading"] = heading
 Path(path).write_text(json.dumps(spec, sort_keys=True, indent=2) + "\n")
 '
 
@@ -97,7 +115,9 @@ except (OSError, ValueError) as error:
 '
 
 job_spec() {  # job_spec <path> <init> <checkpoint> <seed> <expect> <backbone>
-    say "JOBSPEC $1 init=$2 checkpoint=$3 seed=$4 expect=$5 backbone=$6 frame=$FRAME heading=$HEADING_DIR"
+    local announced="$HEADING_DIR"
+    [ "$FRAME" = heading ] || announced=none
+    say "JOBSPEC $1 init=$2 checkpoint=$3 seed=$4 expect=$5 backbone=$6 frame=$FRAME heading=$announced"
     [ "$DRY" -eq 1 ] || "$PYTHON" -c "$JOB_SPEC_PY" "$1" "$2" "$3" "$4" "$5" "$6" \
         "$FRAME" "$HEADING_DIR" "$HAA_ROOT"
 }
@@ -110,8 +130,14 @@ check_spec() {  # check_spec <path> <expect>
 # Full-review F3: 6.4 says every producer refuses unless the recorded digests match the
 # approved ones. This is that gate for the HAA children -- the eight code keys they run,
 # recomputed at the queue HEAD and compared with the committed approvals, the init
-# checkpoint (artifacts.epoch_012 for cyl_or, the registered exp_01 sha otherwise) and the
-# four heading JSONs. It runs before the job root is acquired, so a refusal touches nothing.
+# checkpoint (artifacts.epoch_012 for cyl_or, the registered exp_01 sha for the historical
+# arms, exp_04's approved checkpoints.aug for yawaug) and the four heading JSONs. It runs
+# before the job root is acquired, so a refusal touches nothing.
+#
+# A room-frame job is gated on the same four approved heading records although none of its
+# children reads one: they are approved artefacts, hashing them is cheap, and the
+# HEADING_COMPLETE rule (which refuses a haa_children producer that offers fewer than four)
+# stays exactly as reviewed -- a room-frame exception would widen the API for no evidence.
 APPROVALS_PY='
 import sys
 from pathlib import Path
@@ -122,15 +148,28 @@ rooms = ["class_room", "complex_room", "dampened_room", "hallway"]
 repo = str(Path(api.__file__).resolve().parents[1])
 try:
     head = provenance.git_state(repo)["HEAD"]
+    approved_path = api.approved_path_default()
     registered = {"control_hf": exp04_profiles.CONTROL, "cyl_hf": exp04_profiles.CYL}.get(init)
-    if registered is not None:
+    pinned = None if registered is None else registered["sha256"]
+    source = "the registered exp_01"
+    if init == "yawaug":
+        # Code review round 1 finding 1: the resolver belongs to the finalizer, so that
+        # the shared approvals module keeps the bytes the ten completed evaluations are
+        # verified against. Imported here and not above: only this init needs it, and it
+        # costs a torch import. It is approved bytes all the same -- code.finalize is a
+        # haa_children key, checked by enforce_producer below before any child starts.
+        from tools import exp06_finalize as finalizer
+        approved, _ = api.load_approved_digests(approved_path, repo=repo, commit=head)
+        aug = finalizer.exp04_aug_checkpoint(approved)
+        pinned, source = aug["checkpoint"]["sha256"], "exp_04\x27s approved checkpoints.aug"
+    if pinned is not None:
         digest = provenance.sha256_file(checkpoint)
-        if digest != registered["sha256"]:
-            raise ValueError("the {} init {} hashes to {}, not the registered exp_01 {}".format(
-                init, checkpoint, digest, registered["sha256"]))
+        if digest != pinned:
+            raise ValueError("the {} init {} hashes to {}, not {} {}".format(
+                init, checkpoint, digest, source, pinned))
     record = api.enforce_producer(
-        "haa_children", repo, head, approved_path=api.approved_path_default(),
-        checkpoint=None if registered is not None else checkpoint,
+        "haa_children", repo, head, approved_path=approved_path,
+        checkpoint=None if pinned is not None else checkpoint,
         headings={room: heading_dir + "/" + room + ".json" for room in rooms})
 except (OSError, ValueError, KeyError) as error:
     raise SystemExit("refusing: " + str(error))
@@ -266,10 +305,18 @@ open_job() {
     own_launch "$1" || return 1
 }
 
+# heading_args: the --heading-json-dir a child of this job takes, or nothing at all.
+# A room-frame child is launched without the flag, which is how both wrappers select the
+# pinned dataset and record frame "room" with a null heading (plan v1 section 2).
+heading_args() {
+    HEADING_ARGS=()
+    [ "$FRAME" != heading ] || HEADING_ARGS=(--heading-json-dir "$HEADING_DIR")
+}
+
 run_zeroshot() {  # run_zeroshot <init>
-    local name="$1" bb ck root children=() room evaluation
+    local name="$1" bb ck root children=() room evaluation FRAME HEADING_ARGS
     init_of "$name" || return 1
-    bb="$INIT_BACKBONE"; ck="$INIT_CKPT"
+    bb="$INIT_BACKBONE"; ck="$INIT_CKPT"; FRAME="$INIT_FRAME"; heading_args
     root="$OUT/$name/zeroshot"
     say "JOB $name zeroshot backbone=$bb init=$ck expect=zeroshot"
     prepare_job "$root" "$name" "$ck" 0 zeroshot "$bb" || return 1
@@ -277,7 +324,7 @@ run_zeroshot() {  # run_zeroshot <init>
         evaluation="$root/eval/$room"
         child haa_eval "$evaluation" "$(child_log "$name" zeroshot "eval_$room")" \
             "$PYTHON" tools/exp06_haa_eval.py --backbone "$bb" --checkpoint "$ck" \
-            --rooms "$room" --heading-json-dir "$HEADING_DIR" --save-dir "$evaluation" \
+            --rooms "$room" ${HEADING_ARGS[@]+"${HEADING_ARGS[@]}"} --save-dir "$evaluation" \
             --seed 0 --job-spec "$root/job_spec.json" || return 1
         children+=("$evaluation")
     done
@@ -285,27 +332,28 @@ run_zeroshot() {  # run_zeroshot <init>
 }
 
 run_finetune() {  # run_finetune <init> <seed>
-    local name="$1" seed="$2" bb ck root tag children=() room stage2 evaluation
+    local name="$1" seed="$2" bb ck root tag children=() room stage2 evaluation FRAME \
+          HEADING_ARGS
     init_of "$name" || return 1
-    bb="$INIT_BACKBONE"; ck="$INIT_CKPT"
+    bb="$INIT_BACKBONE"; ck="$INIT_CKPT"; FRAME="$INIT_FRAME"; heading_args
     root="$OUT/$name/seed$seed"; tag="seed$seed"
     say "JOB $name $tag backbone=$bb init=$ck expect=finetune"
     prepare_job "$root" "$name" "$ck" "$seed" finetune "$bb" || return 1
     child haa_train "$root/stage1" "$(child_log "$name" "$tag" stage1)" \
         "$PYTHON" tools/exp06_haa_finetune.py --backbone "$bb" --init "$ck" \
-        --rooms $S1_ROOMS --heading-json-dir "$HEADING_DIR" --save-dir "$root/stage1" \
+        --rooms $S1_ROOMS ${HEADING_ARGS[@]+"${HEADING_ARGS[@]}"} --save-dir "$root/stage1" \
         --seed "$seed" --job-spec "$root/job_spec.json" $S1 || return 1
     children+=("$root/stage1")
     for room in $ROOMS; do
         stage2="$root/stage2_$room"
         child haa_train "$stage2" "$(child_log "$name" "$tag" "stage2_$room")" \
             "$PYTHON" tools/exp06_haa_finetune.py --backbone "$bb" --init "$root/stage1/best.pth" \
-            --rooms "$room" --heading-json-dir "$HEADING_DIR" --save-dir "$stage2" \
+            --rooms "$room" ${HEADING_ARGS[@]+"${HEADING_ARGS[@]}"} --save-dir "$stage2" \
             --seed "$seed" --job-spec "$root/job_spec.json" $S2 || return 1
         evaluation="$root/eval/$room"
         child haa_eval "$evaluation" "$(child_log "$name" "$tag" "eval_$room")" \
             "$PYTHON" tools/exp06_haa_eval.py --backbone "$bb" --checkpoint "$stage2/best.pth" \
-            --rooms "$room" --heading-json-dir "$HEADING_DIR" --save-dir "$evaluation" \
+            --rooms "$room" ${HEADING_ARGS[@]+"${HEADING_ARGS[@]}"} --save-dir "$evaluation" \
             --seed "$seed" --job-spec "$root/job_spec.json" || return 1
         children+=("$stage2" "$evaluation")
     done
@@ -317,11 +365,16 @@ run_finetune() {  # run_finetune <init> <seed>
 run_queue() {
     local job name failed=0
     for job in "$@"; do
-        if [ "$job" = zeroshot ]; then
+        if [ "$job" = zeroshot ]; then      # exp_06's three arms, as its runbook wrote it
             for name in cyl_or control_hf cyl_hf; do
                 run_zeroshot "$name" \
                     || { echo "FAILED zero-shot $name" >&2; failed=$((failed + 1)); }
             done
+            continue
+        fi
+        if [ "${job#*:}" = zeroshot ]; then  # one named arm's zero-shot set (exp_09's E)
+            run_zeroshot "${job%%:*}" \
+                || { echo "FAILED zero-shot ${job%%:*}" >&2; failed=$((failed + 1)); }
             continue
         fi
         run_finetune "${job%%:*}" "${job#*:}" \
@@ -352,9 +405,10 @@ for job in ${JOBS[@]+"${JOBS[@]}"}; do   # refuse the whole queue before anythin
     case "$job" in
         zeroshot) ;;
         *:*) init_of "${job%%:*}" || exit 2
-             # Nit 5: exactly <init>:<integer seed>; everything after the first colon is
-             # the seed, so cyl_or:anything:0 is refused rather than read as cyl_or:0.
-             case "${job#*:}" in ''|*[!0-9]*)
+             # Nit 5: exactly <init>:<integer seed> or <init>:zeroshot; everything after
+             # the first colon is the seed, so cyl_or:anything:0 is refused rather than
+             # read as cyl_or:0, and yawaug:zeroshot:0 is not a zero-shot set.
+             case "${job#*:}" in zeroshot) ;; ''|*[!0-9]*)
                  echo "refusing: ${job#*:} is not a seed in $job" >&2; exit 2 ;; esac ;;
         *) echo "refusing: unknown job $job" >&2; exit 2 ;;
     esac

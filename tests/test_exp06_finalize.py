@@ -1189,6 +1189,8 @@ def job_spec_file(job, init, heading_jsons, **overrides):
             'init_sha256': provenance.sha256_file(init), 'seed': 0, 'rooms': sorted(ROOMS),
             'heading': {room: heading_jsons[room]['k'] for room in ROOMS}, 'expect': 'finetune'}
     spec.update(overrides)
+    if spec['frame'] == 'room':      # a room-frame job declares no heading at all
+        spec.pop('heading', None)
     path = Path(job) / 'job_spec.json'
     path.write_text(json.dumps(spec, sort_keys=True, indent=2) + '\n')
     return str(path), spec
@@ -1204,23 +1206,42 @@ def job_binding(job):
             'job_init': declared['init'], 'job_init_sha256': declared['init_sha256']}
 
 
-def make_train_child(job, name, haa_repo, heading_jsons, data_root, rooms, init, tag):
+def room_frame(args, backbone):
+    """What a room-frame child of exp_09's arm E records: no heading, hence no cache root.
+
+    The wrappers select the pinned dataset when no ``--heading-json-dir`` is given, record
+    ``frame`` "room" and leave the heading null; the finalizer refuses a heading here.
+    """
+    return dict({key: value for key, value in args.items()
+                 if key not in ('heading', 'haa_root')}, frame='room', backbone=backbone)
+
+
+def make_train_child(job, name, haa_repo, heading_jsons, data_root, rooms, init, tag,
+                     frame='heading', backbone='cylindrical_oriented'):
     """One fine-tuning child, certified by this finalizer exactly as the launcher does."""
     run, log = job / name, job / (name.replace('/', '_') + '.log')
     args = haa_train_args(heading_jsons, provenance.sha256_file(init), rooms=rooms,
                           init=str(init), save_dir=name, epochs=4, val_every=2,
                           **job_binding(job))
+    if frame == 'room':
+        args = room_frame(args, backbone)
+    keys = state_keys(backbone)
     write_haa_train(run, args, log, haa_repo, data_root,
-                    state=tiny_state(**{state_keys()[0]: torch.full((1,), float(tag))}))
+                    state=dict({key: torch.zeros(1) for key in keys},
+                               **{keys[0]: torch.full((1,), float(tag))}))
     exp06_finalize.finalize(run, 'haa_train', log, 0, repo=haa_repo)
     return run
 
 
-def make_eval_child(job, name, haa_repo, heading_jsons, data_root, room, checkpoint):
+def make_eval_child(job, name, haa_repo, heading_jsons, data_root, room, checkpoint,
+                    frame='heading', backbone='cylindrical_oriented'):
     run, log = job / name, job / (name.replace('/', '_') + '.log')
     args = haa_eval_args(heading_jsons, checkpoint, room=room, **job_binding(job))
+    if frame == 'room':
+        args = room_frame(args, backbone)
     write_haa_eval(run, args, log, haa_repo, data_root,
-                   meta=eval_meta(args, provenance.sha256_file(checkpoint)))
+                   meta=dict(eval_meta(args, provenance.sha256_file(checkpoint)),
+                             **({} if frame == 'heading' else {'heading': None})))
     exp06_finalize.finalize(run, 'haa_eval', log, 0, repo=haa_repo)
     return run
 
@@ -1242,28 +1263,33 @@ def open_job(job, log, text='pipeline output\n', owner=DEAD_PID):
 
 
 def write_job(tmp_path, haa_repo, heading_jsons, data_root, expect='finetune', log=None,
-              mutate=None):
+              mutate=None, frame='heading', backbone='cylindrical_oriented'):
     """A complete pipeline seed whose children carry their real evidence, not claims."""
     job = tmp_path / 'seed0'
     job.mkdir(parents=True, exist_ok=True)
     init = tmp_path / 'pretrain.pth'
-    torch.save(tiny_state(**{state_keys()[0]: torch.full((1,), 99.0)}), init)
-    spec, _ = job_spec_file(job, init, heading_jsons, expect=expect)  # before the first child
+    keys = state_keys(backbone)
+    torch.save(dict({key: torch.zeros(1) for key in keys},
+                    **{keys[0]: torch.full((1,), 99.0)}), init)
+    spec, _ = job_spec_file(job, init, heading_jsons, expect=expect, frame=frame,
+                            backbone=backbone)  # before the first child
     if log is not None:
         open_job(job, log)
+    child = dict(frame=frame, backbone=backbone)
     names = []
     if expect == 'finetune':
         make_train_child(job, 'stage1', haa_repo, heading_jsons, data_root,
-                         ['class_room', 'hallway', 'complex_room'], init, 1)
+                         ['class_room', 'hallway', 'complex_room'], init, 1, **child)
         names.append('stage1')
     for tag, room in enumerate(sorted(ROOMS), 2):
         checkpoint = init
         if expect == 'finetune':
             make_train_child(job, 'stage2_' + room, haa_repo, heading_jsons, data_root,
-                             [room], job / 'stage1/best.pth', tag)
+                             [room], job / 'stage1/best.pth', tag, **child)
             checkpoint = job / ('stage2_' + room) / 'best.pth'
             names.append('stage2_' + room)
-        make_eval_child(job, 'eval/' + room, haa_repo, heading_jsons, data_root, room, checkpoint)
+        make_eval_child(job, 'eval/' + room, haa_repo, heading_jsons, data_root, room,
+                        checkpoint, **child)
         names.append('eval/' + room)
     if mutate is not None:
         names = mutate(job, names)
@@ -1273,9 +1299,9 @@ def write_job(tmp_path, haa_repo, heading_jsons, data_root, expect='finetune', l
 @pytest.fixture
 def job_run(tmp_path, haa_repo, heading_jsons, data_root, closed_log_file):
     """One finetune seed of nine real children, ready to be bound as a job."""
-    def build(expect='finetune', mutate=None):
+    def build(expect='finetune', mutate=None, **frame):
         return write_job(tmp_path, haa_repo, heading_jsons, data_root, expect=expect,
-                         log=closed_log_file, mutate=mutate) + (haa_repo,)
+                         log=closed_log_file, mutate=mutate, **frame) + (haa_repo,)
     return build
 
 
@@ -2471,7 +2497,7 @@ def test_an_absent_approvals_file_refuses_an_haa_child(tmp_path):
         subprocess.run(['git'] + command, cwd=str(root), check=True)
     head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(root),
                                    text=True).strip()
-    with pytest.raises(ValueError, match='missing approvals file'):
+    with pytest.raises(ValueError, match="not tracked at"):
         exp06_finalize.haa_approvals({'sha256': 'a' * 64}, 'haa_train', head, root)
 
 
@@ -2487,3 +2513,137 @@ def test_the_haa_completion_records_the_approvals_binding(haa_train_run, haa_rep
     assert set(fields['code_digests']) == {'haa_finetune'}
     assert fields['code_digests']['haa_finetune'] == \
         fields['source_closure_sha256']
+
+
+# --- re-verification reads the approvals blob of the child's own reviewed commit ----------
+
+
+def refill_approvals(root, digests, message='refill'):
+    """Rewrite the committed approvals as a later producer's reviewed commit does."""
+    from tools import exp06_profiles
+    path = Path(root) / exp06_profiles.APPROVED_RELATIVE
+    value = json.loads(path.read_text())
+    value['code'].update(digests)
+    path.write_text(json.dumps(value, sort_keys=True, indent=2) + '\n')
+    subprocess.run(['git', 'add', '-A'], cwd=str(root), check=True)
+    subprocess.run(['git', '-c', 'user.email=a@b', '-c', 'user.name=t', 'commit', '-q',
+                    '-m', message], cwd=str(root), check=True)
+    return subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(root),
+                                   text=True).strip()
+
+
+def test_a_certified_child_stays_verifiable_after_the_approvals_are_refilled(tmp_path):
+    """exp_06 2026-09-18 19:03: a refill for another producer made every HAA child
+    unverifiable, because the loader bound the working file to the blob at the child's
+    commit. The blob at that commit is the approval the child ran under."""
+    from tools import exp06_profiles
+    root = tmp_path / 'refill'
+    head = stub_haa_repo(root, {'haa_finetune': 'b' * 64, 'haa_eval': 'b' * 64})
+    path = Path(root) / exp06_profiles.APPROVED_RELATIVE
+    historical = provenance.sha256_file(path)
+    later = refill_approvals(root, {'haa_finetune': 'c' * 64, 'compare': 'd' * 64})
+    record = exp06_finalize.haa_approvals({'sha256': 'b' * 64}, 'haa_train', head, root)
+    assert record['approvals'] == {'path': str(path), 'sha256': historical,
+                                   'committed_at': head}
+    assert record['code_digests'] == {'haa_finetune': 'b' * 64}
+    assert provenance.sha256_file(path) != historical      # the file really did change
+    later_record = exp06_finalize.haa_approvals({'sha256': 'c' * 64}, 'haa_train', later, root)
+    assert later_record['approvals']['sha256'] == provenance.sha256_file(path)
+    with pytest.raises(ValueError, match=r'not the approved code\.haa_finetune'):
+        exp06_finalize.haa_approvals({'sha256': 'b' * 64}, 'haa_train', later, root)
+
+
+def test_an_edited_working_approvals_file_never_admits_or_refuses_a_past_child(tmp_path):
+    """An uncommitted edit is not an approval: it neither breaks nor widens the past."""
+    from tools import exp06_profiles
+    root = tmp_path / 'edited'
+    head = stub_haa_repo(root, {'haa_finetune': 'b' * 64})
+    path = Path(root) / exp06_profiles.APPROVED_RELATIVE
+    historical = provenance.sha256_file(path)
+    value = json.loads(path.read_text())
+    value['code']['haa_finetune'] = 'e' * 64
+    path.write_text(json.dumps(value, sort_keys=True, indent=2) + '\n')
+    record = exp06_finalize.haa_approvals({'sha256': 'b' * 64}, 'haa_train', head, root)
+    assert record['approvals']['sha256'] == historical != provenance.sha256_file(path)
+    with pytest.raises(ValueError, match=r'not the approved code\.haa_finetune'):
+        exp06_finalize.haa_approvals({'sha256': 'e' * 64}, 'haa_train', head, root)
+
+
+def test_the_committed_approvals_blob_is_validated_like_the_file(tmp_path):
+    """The blob is parsed through the approvals schema, never trusted as JSON."""
+    from tools import exp06_profiles
+    root = tmp_path / 'broken'
+    stub_haa_repo(root, {'haa_finetune': 'b' * 64})
+    path = Path(root) / exp06_profiles.APPROVED_RELATIVE
+    path.write_text(json.dumps({'schema_version': 1, 'code': {}}) + '\n')
+    broken = refill_approvals(root, {}, message='a malformed approvals commit')
+    with pytest.raises(ValueError, match='approved digests'):
+        exp06_finalize.haa_approvals({'sha256': 'b' * 64}, 'haa_train', broken, root)
+
+
+# --- exp_09's arm E: the same pipeline, certified in the room frame ----------------------
+
+
+def test_a_room_frame_job_of_simple_children_is_an_admissible_arm(job_run, closed_log_file):
+    """Arm E: a SimpleViT fine-tuned with no heading anywhere in the evidence."""
+    job, children, spec, repo = job_run(frame='room', backbone='simple')
+    fields = exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                     children=children, expect='finetune', job_spec=spec)
+    assert fields['admissible_arm'] is True and fields['diagnostic'] is False
+    assert fields['frame'] == 'room' and fields['backbone'] == 'simple'
+    assert fields['heading'] is None and 'heading' not in json.loads(Path(spec).read_text())
+    assert len(fields['children']) == 9
+    for name in ('stage1', 'eval/hallway'):
+        record = json.loads((Path(job) / name / 'completion.json').read_text())
+        assert record['frame'] == 'room' and record['heading'] is None
+        assert record['admissible_arm'] is True and record['backbone'] == 'simple'
+
+
+def test_a_room_frame_zeroshot_job_is_admissible(job_run, closed_log_file):
+    job, children, spec, repo = job_run('zeroshot', frame='room', backbone='simple')
+    fields = exp06_finalize.finalize(job, 'haa_job', closed_log_file, 0, repo=repo,
+                                     children=children, expect='zeroshot', job_spec=spec)
+    assert fields['admissible_arm'] is True and fields['frame'] == 'room'
+    assert fields['checkpoint_sha256'] == json.loads(Path(spec).read_text())['init_sha256']
+
+
+def test_a_room_frame_spec_that_declares_a_heading_is_refused(job_run, closed_log_file,
+                                                              heading_jsons):
+    """The frames are exclusive in both directions, at the job's own declaration."""
+    job, children, spec, repo = job_run(frame='room', backbone='simple')
+    original = Path(spec).read_text()
+    Path(spec).write_text(json.dumps(dict(json.loads(original),
+                                          heading={room: 128 for room in ROOMS})))
+    try:
+        with pytest.raises(ValueError, match='room-frame job spec declares no heading'):
+            exp06_finalize.load_job_spec(spec, 'finetune')
+    finally:
+        Path(spec).write_text(original)
+    declared = json.loads(original)
+    with pytest.raises(ValueError, match='job spec heading'):
+        Path(spec).write_text(json.dumps(dict(declared, frame='heading')))
+        exp06_finalize.load_job_spec(spec, 'finetune')
+    Path(spec).write_text(original)
+
+
+def test_a_room_frame_child_that_records_a_heading_is_refused(tmp_path, haa_repo,
+                                                              heading_jsons, data_root):
+    """A child of arm E binds no heading record: the room frame reads none."""
+    init = haa_repo / 'init.pth'
+    keys = state_keys('simple')
+    torch.save({key: torch.zeros(1) for key in keys}, init)
+    args = room_frame(haa_train_args(heading_jsons, provenance.sha256_file(init),
+                                     rooms=['hallway'], init=str(init)), 'simple')
+    run, log = tmp_path / 'stage1', tmp_path / 'child.log'
+    write_haa_train(run, args, log, haa_repo, data_root,
+                    state={key: torch.zeros(1) for key in keys})
+    assert exp06_finalize.finalize(run, 'haa_train', log, 0, repo=haa_repo)['heading'] is None
+    bound = dict(haa_train_args(heading_jsons, provenance.sha256_file(init),
+                                rooms=['hallway'], init=str(init)),
+                 frame='room', backbone='simple')   # the heading a room-frame child may not bind
+    other, log = tmp_path / 'stage1_bound', tmp_path / 'bound.log'
+    write_haa_train(other, bound, log, haa_repo, data_root,
+                    state={key: torch.zeros(1) for key in keys})
+    with pytest.raises(ValueError, match='room frame must not record a heading'):
+        exp06_finalize.finalize(other, 'haa_train', log, 0, repo=haa_repo)
+    assert not (other / 'completion.json').exists()

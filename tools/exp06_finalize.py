@@ -1143,6 +1143,71 @@ def _heading_binding(args, rooms, frame, repo):
 HAA_CODE_KEY = {'haa_train': 'haa_finetune', 'haa_eval': 'haa_eval'}
 
 
+def approvals_at_commit(path, repo, commit):
+    """The approvals a reviewer committed at ``commit``, read from that blob itself.
+
+    exp_06 2026-09-18 19:03: binding the *working* file to the blob at a child's reviewed
+    commit makes every certified child unverifiable the moment the approvals are re-filled
+    for a later producer -- although the keys that child ran under did not change. The blob
+    at its own commit is immutable and is the approval it ran under, so it is read here,
+    parsed through the approvals module's own schema on a private copy of exactly those
+    bytes, and its digest is the identity the completion records. The launch-time gate
+    (``exp06_approvals_api.enforce_producer``) still reads the working file: what may not
+    change during a run, and what a past run was admitted under, are different questions.
+    """
+    relative, blob = exp06_profiles.committed_bytes(path, repo, commit)
+    with tempfile.TemporaryDirectory() as directory:
+        copy = Path(directory) / Path(path).name
+        copy.write_bytes(blob)
+        approved, _ = exp06_profiles.load_approved_digests(copy)
+    return approved, {'path': str(path), 'repo_relative': relative,
+                      'sha256': hashlib.sha256(blob).hexdigest(), 'committed_at': commit}
+
+
+EXP04_AUG_EPOCH = 12
+
+
+def exp04_aug_checkpoint(approved, path=None):
+    """exp_04's approved ``checkpoints.aug``, bound to 6.4's reused exp_04 identity.
+
+    exp_09's initialisation is not exp_06's ``artifacts.epoch_012`` -- that one identifies
+    arm C -- but the yaw-augmented checkpoint exp_04 approved. ``tools/exp04_profiles.py``
+    is a pinned file and carries no digest for it, so the authority is exp_04's own
+    approvals record, admitted here only when its bytes are the
+    ``reused.exp04_approved_digests_sha256`` this experiment approved: no unreviewed file
+    can name a checkpoint, and the arm needs no new approvals key.
+
+    Code review round 1 finding 1: it lives here and not in the shared approvals module,
+    which is inside the ``eval_launch``/``compare``/``mirror_probe`` closures the ten
+    completed simulated evaluations are verified against; this module is in none of them.
+    It runs as approved bytes all the same -- ``finalize`` is one of the ``haa_children``
+    producer's code keys, checked by the same pipeline gate that resolves the arm's
+    initialisation, and one of the summariser's own closure.
+    """
+    from tools import exp04_profiles    # local: exp_04's profile is not in this closure
+    pinned = ((approved or {}).get('reused') or {}).get('exp04_approved_digests_sha256')
+    file = Path(exp04_profiles.APPROVED_DIGESTS_PATH if path is None else path)
+
+    def approved_record(digest, label):
+        # Code review round 1 finding 2: the digest that is compared and the snapshot the
+        # checkpoint is read from must be one read. A file that is not the approved record
+        # is refused as that, and never for some later property of a record nobody
+        # approved -- so the preliminary hash stays, and the parsed snapshot is checked too.
+        _require(pinned is not None and digest == pinned,
+                 'the exp_04 approvals {} ({}) hash to {}, not the approved '
+                 'reused.exp04_approved_digests_sha256 {}'.format(
+                     file, label, digest, pinned))
+
+    approved_record(provenance.sha256_file(file), 'as read')
+    value, identity = exp04_profiles.load_approved_digests(file)
+    approved_record(identity['sha256'], 'as parsed')
+    record = {key: value['checkpoints']['aug'][key] for key in ('path', 'epoch', 'sha256')}
+    _require(record['epoch'] == EXP04_AUG_EPOCH and _is_sha256(record['sha256']),
+             'exp_04 approves no epoch {} checkpoints.aug: {!r}'.format(
+                 EXP04_AUG_EPOCH, record))
+    return {'path': str(file), 'sha256': identity['sha256'], 'checkpoint': record}
+
+
 def haa_approvals(closure, run_type, commit, repo, path=None):
     """Full-review F3: the child ran the approved entry point, at its own reviewed commit.
 
@@ -1152,10 +1217,9 @@ def haa_approvals(closure, run_type, commit, repo, path=None):
     child was reviewed against, and the same binding is recorded in its completion.
     """
     # The approvals of the repository being finalised, at the child's own reviewed commit:
-    # `load_approved_digests` refuses anything outside it or untracked there.
+    # `committed_bytes` refuses anything outside it or untracked there.
     path = Path(repo) / exp06_profiles.APPROVED_RELATIVE if path is None else Path(path)
-    _require(path.is_file(), 'missing approvals file: {}'.format(path))
-    approved, identity = exp06_profiles.load_approved_digests(path, repo=repo, commit=commit)
+    approved, identity = approvals_at_commit(path, repo, commit)
     key = HAA_CODE_KEY[run_type]
     pinned = approved['code'][key]
     _require(pinned is not None,

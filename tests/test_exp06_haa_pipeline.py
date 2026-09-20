@@ -16,9 +16,16 @@ HAA_ROOT = '/tmp/exp06_pipeline_haa_root'
 ROOMS = ('class_room', 'dampened_room', 'hallway', 'complex_room')
 S1_ROOMS = 'class_room hallway complex_room'
 CYLOR = 'ckpt/exp06/pretrain/xRIR_cylor_8_shot/final/epoch_012.pth'
-INITS = {'cyl_or': ('cylindrical_oriented', CYLOR),
-         'control_hf': ('simple', 'ckpt/xRIR_simple_8_shot/epoch_12.pth'),
-         'cyl_hf': ('cylindrical', 'ckpt/xRIR_cyl_8_shot/epoch_12.pth')}
+YAWAUG = 'ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth'
+# exp_09's arm E runs the same pipeline in the room frame, from exp_04's checkpoint.
+INITS = {'cyl_or': ('cylindrical_oriented', CYLOR, 'heading'),
+         'control_hf': ('simple', 'ckpt/xRIR_simple_8_shot/epoch_12.pth', 'heading'),
+         'cyl_hf': ('cylindrical', 'ckpt/xRIR_cyl_8_shot/epoch_12.pth', 'heading'),
+         'yawaug': ('simple', YAWAUG, 'room')}
+EXP06_ARMS = ('cyl_or', 'control_hf', 'cyl_hf')
+EXP04_AUG_SHA256 = 'f8e640523892154fe744b60e2fe99178b68a522ee3947758812aa5a7dc15b299'
+EXP09_RECORD = 'worklog/worklog_yixun/exp_09_yawaug_haa_claude'
+EXP09_OUT = 'ckpt/exp09/sim2real'
 
 
 def run(*argv, **environment):
@@ -34,8 +41,8 @@ def _base_env():
             if key in os.environ}
 
 
-def log_of(name, tag, stage):
-    return '{}/oriented_cyl_<UTC>_haa_{}_{}_{}.log'.format(RECORD, name, tag, stage)
+def log_of(name, tag, stage, record=RECORD, prefix='oriented_cyl'):
+    return '{}/{}_<UTC>_haa_{}_{}_{}.log'.format(record, prefix, name, tag, stage)
 
 
 def child_block(directory, log, command, run_type):
@@ -48,16 +55,29 @@ def child_block(directory, log, command, run_type):
             '--child-exit <code>'.format(PYTHON, directory, run_type, log)]
 
 
-def train_command(backbone, init, rooms, save_dir, seed, recipe, root):
+def heading_flag(frame):
+    """A room-frame child is launched with no heading directory at all."""
+    return '--heading-json-dir {} '.format(HEADING) if frame == 'heading' else ''
+
+
+def train_command(backbone, init, rooms, save_dir, seed, recipe, root, frame='heading'):
     return ('{} tools/exp06_haa_finetune.py --backbone {} --init {} --rooms {} '
-            '--heading-json-dir {} --save-dir {} --seed {} --job-spec {}/job_spec.json '
-            '{}'.format(PYTHON, backbone, init, rooms, HEADING, save_dir, seed, root, recipe))
+            '{}--save-dir {} --seed {} --job-spec {}/job_spec.json '
+            '{}'.format(PYTHON, backbone, init, rooms, heading_flag(frame), save_dir, seed,
+                        root, recipe))
 
 
-def eval_command(backbone, checkpoint, room, save_dir, seed, root):
+def eval_command(backbone, checkpoint, room, save_dir, seed, root, frame='heading'):
     return ('{} tools/exp06_haa_eval.py --backbone {} --checkpoint {} --rooms {} '
-            '--heading-json-dir {} --save-dir {} --seed {} --job-spec {}/job_spec.json'.format(
-                PYTHON, backbone, checkpoint, room, HEADING, save_dir, seed, root))
+            '{}--save-dir {} --seed {} --job-spec {}/job_spec.json'.format(
+                PYTHON, backbone, checkpoint, room, heading_flag(frame), save_dir, seed, root))
+
+
+def job_spec_line(root, name, init, seed, expect, backbone, frame):
+    """A room-frame job declares no heading directory and no heading rolls."""
+    return ('JOBSPEC {}/job_spec.json init={} checkpoint={} seed={} expect={} backbone={} '
+            'frame={} heading={}'.format(root, name, init, seed, expect, backbone, frame,
+                                         HEADING if frame == 'heading' else 'none'))
 
 
 def job_finalize(root, log, expect, children):
@@ -80,55 +100,54 @@ def approvals_line(name, checkpoint):
         name, checkpoint, HEADING)
 
 
-def finetune_job(name, seed):
-    backbone, init = INITS[name]
-    root = '{}/{}/seed{}'.format(OUT, name, seed)
+def finetune_job(name, seed, out=OUT, record=RECORD, prefix='oriented_cyl'):
+    backbone, init, frame = INITS[name]
+    root = '{}/{}/seed{}'.format(out, name, seed)
     tag = 'seed{}'.format(seed)
     lines = ['JOB {} {} backbone={} init={} expect=finetune'.format(name, tag, backbone, init),
              approvals_line(name, init),
              'MKDIR ' + root, 'PIDFILE ' + root + '/launch.pid',
-             'JOBSPEC {}/job_spec.json init={} checkpoint={} seed={} expect=finetune '
-             'backbone={} frame=heading heading={}'.format(root, name, init, seed, backbone,
-                                                           HEADING),
+             job_spec_line(root, name, init, seed, 'finetune', backbone, frame),
              'CHECKSPEC {}/job_spec.json expect=finetune'.format(root)]
-    lines += child_block(root + '/stage1', log_of(name, tag, 'stage1'),
+    lines += child_block(root + '/stage1', log_of(name, tag, 'stage1', record, prefix),
                          train_command(backbone, init, S1_ROOMS, root + '/stage1', seed,
-                                       '--epochs 1000 --val-every 10 --tf32', root),
+                                       '--epochs 1000 --val-every 10 --tf32', root, frame),
                          'haa_train')
     children = [root + '/stage1']
     for room in ROOMS:
         stage2 = '{}/stage2_{}'.format(root, room)
-        lines += child_block(stage2, log_of(name, tag, 'stage2_' + room),
+        lines += child_block(stage2, log_of(name, tag, 'stage2_' + room, record, prefix),
                              train_command(backbone, root + '/stage1/best.pth', room, stage2,
-                                           seed, '--epochs 200 --val-every 2 --tf32', root),
+                                           seed, '--epochs 200 --val-every 2 --tf32', root,
+                                           frame),
                              'haa_train')
         evaluation = '{}/eval/{}'.format(root, room)
-        lines += child_block(evaluation, log_of(name, tag, 'eval_' + room),
+        lines += child_block(evaluation, log_of(name, tag, 'eval_' + room, record, prefix),
                              eval_command(backbone, stage2 + '/best.pth', room, evaluation,
-                                          seed, root), 'haa_eval')
+                                          seed, root, frame), 'haa_eval')
         children += [stage2, evaluation]
-    joblog = log_of(name, tag, 'job')
+    joblog = log_of(name, tag, 'job', record, prefix)
     lines.append(job_finalize(root, joblog, 'finetune', children))  # A3: no end marker
     return lines
 
 
-def zeroshot_job(name):
-    backbone, init = INITS[name]
-    root = '{}/{}/zeroshot'.format(OUT, name)
+def zeroshot_job(name, out=OUT, record=RECORD, prefix='oriented_cyl'):
+    backbone, init, frame = INITS[name]
+    root = '{}/{}/zeroshot'.format(out, name)
     lines = ['JOB {} zeroshot backbone={} init={} expect=zeroshot'.format(name, backbone, init),
              approvals_line(name, init),
              'MKDIR ' + root, 'PIDFILE ' + root + '/launch.pid',
-             'JOBSPEC {}/job_spec.json init={} checkpoint={} seed=0 expect=zeroshot '
-             'backbone={} frame=heading heading={}'.format(root, name, init, backbone, HEADING),
+             job_spec_line(root, name, init, 0, 'zeroshot', backbone, frame),
              'CHECKSPEC {}/job_spec.json expect=zeroshot'.format(root)]
     children = []
     for room in ROOMS:
         evaluation = '{}/eval/{}'.format(root, room)
-        lines += child_block(evaluation, log_of(name, 'zeroshot', 'eval_' + room),
-                             eval_command(backbone, init, room, evaluation, 0, root),
+        lines += child_block(evaluation, log_of(name, 'zeroshot', 'eval_' + room, record,
+                                                prefix),
+                             eval_command(backbone, init, room, evaluation, 0, root, frame),
                              'haa_eval')
         children.append(evaluation)
-    joblog = log_of(name, 'zeroshot', 'job')
+    joblog = log_of(name, 'zeroshot', 'job', record, prefix)
     lines.append(job_finalize(root, joblog, 'zeroshot', children))  # A3: no end marker
     return lines
 
@@ -150,20 +169,25 @@ def test_the_script_parses():
 
 DRY_ADAPTER = '''EXP06_PIPELINE_LIB=1 source tools/exp06_haa_pipeline.sh
 DRY=1; STAMP='<UTC>'; OWNER='<pid>'      # the placeholders the CLI dry-run path sets
-GPU="$QUEUE_GPU"; OUT="$WORK/sim2real"; RECORD="$WORK/record"
+GPU="$QUEUE_GPU"; OUT="$WORK/sim2real"; RECORD="$QUEUE_RECORD"
 run_queue $QUEUE_JOBS
 '''
 
 
-def run_dry(work, *jobs, gpu='7', **environment):
-    """One queue's dry run, with the private output and record roots printed as the real ones."""
+def run_dry(work, *jobs, gpu='7', out=OUT, record=RECORD, private='record', **environment):
+    """One queue's dry run, with the private output and record roots printed as the real ones.
+
+    ``private`` is the directory name the record is written under, because the child-log
+    prefix is derived from the record root: an exp_09 record prints ``yawaug_haa_`` logs.
+    """
     env = {**_base_env(), 'WORK': str(work), 'QUEUE_GPU': gpu, 'QUEUE_JOBS': ' '.join(jobs),
-           'HAA_XRIR_ROOT': HAA_ROOT, **environment}
+           'QUEUE_RECORD': '{}/{}'.format(work, private), 'HAA_XRIR_ROOT': HAA_ROOT,
+           **environment}
     result = subprocess.run(['bash', '-c', DRY_ADAPTER], cwd=str(ROOT), text=True,
                             capture_output=True, env=env)
     assert result.returncode == 0, result.stderr
-    return result.stdout.replace('{}/sim2real'.format(work), OUT).replace(
-        '{}/record'.format(work), RECORD).splitlines()
+    return result.stdout.replace('{}/sim2real'.format(work), out).replace(
+        '{}/{}'.format(work, private), record).splitlines()
 
 
 def test_the_dry_run_of_one_finetune_seed_is_the_golden_queue(tmp_path):
@@ -189,9 +213,67 @@ def test_a_completed_child_is_skipped_and_the_rest_of_the_queue_is_unchanged(tmp
 
 def test_the_dry_run_of_the_zeroshot_job_covers_every_init(tmp_path):
     expected = []
-    for name in ('cyl_or', 'control_hf', 'cyl_hf'):
+    for name in EXP06_ARMS:
         expected += zeroshot_job(name)
     assert run_dry(tmp_path, 'zeroshot', gpu='1') == expected + ['QUEUE_DONE gpu=1']
+
+
+# --- exp_09: the same queue in the room frame, under its own roots --------------------
+
+
+def test_the_dry_run_of_a_yawaug_seed_is_the_room_frame_golden(tmp_path):
+    """Arm E runs every child without a heading directory and declares frame=room."""
+    printed = run_dry(tmp_path, 'yawaug:0')
+    assert printed == finetune_job('yawaug', 0) + ['QUEUE_DONE gpu=7']
+    assert not [line for line in printed if '--heading-json-dir' in line]
+    assert 'frame=room heading=none' in printed[4]
+
+
+def test_the_yawaug_zeroshot_set_is_its_own_job_token(tmp_path):
+    """Bare `zeroshot` keeps its exp_06 meaning, so arm E asks for its own."""
+    assert run_dry(tmp_path, 'yawaug:zeroshot') == zeroshot_job('yawaug') + ['QUEUE_DONE gpu=7']
+    printed = '\n'.join(run_dry(tmp_path, 'zeroshot', gpu='1'))
+    assert 'yawaug' not in printed and 'cyl_or' in printed
+
+
+def test_the_exp09_queue_is_three_seeds_and_one_zero_shot_set(tmp_path):
+    """31 children and four jobs, as the plan registers them."""
+    printed = run_dry(tmp_path, 'yawaug:0', 'yawaug:1', 'yawaug:2', 'yawaug:zeroshot',
+                      out=EXP09_OUT, record=EXP09_RECORD, private='exp_09_record',
+                      EXP06_HAA_OUT=str(tmp_path / 'sim2real'))
+    assert len([line for line in printed if line.startswith('RUN nohup setsid ')]) == 31
+    assert len([line for line in printed if line.startswith('JOBSPEC ')]) == 4
+    assert printed[-1] == 'QUEUE_DONE gpu=7'
+
+
+def test_a_mixed_queue_gives_every_job_its_own_frame(tmp_path):
+    """The frame is a property of the initialisation, not of the queue that ran first."""
+    printed = run_dry(tmp_path, 'yawaug:0', 'cyl_or:0')
+    assert printed == (finetune_job('yawaug', 0) + finetune_job('cyl_or', 0)
+                       + ['QUEUE_DONE gpu=7'])
+    assert run_dry(tmp_path, 'cyl_or:0', 'yawaug:0') == (
+        finetune_job('cyl_or', 0) + finetune_job('yawaug', 0) + ['QUEUE_DONE gpu=7'])
+
+
+def test_the_output_and_record_roots_are_overridable(tmp_path):
+    """exp_09 writes under its own roots; the child logs take the record's own prefix."""
+    lines = run_dry(tmp_path, 'yawaug:0', out=EXP09_OUT, record=EXP09_RECORD,
+                    private='exp_09_record', EXP06_HAA_OUT=str(tmp_path / 'sim2real'))
+    assert lines == finetune_job('yawaug', 0, out=EXP09_OUT, record=EXP09_RECORD,
+                                 prefix='yawaug_haa') + ['QUEUE_DONE gpu=7']
+    printed = '\n'.join(lines)
+    assert OUT not in printed and 'oriented_cyl_' not in printed
+
+
+def test_the_cli_takes_the_output_root_from_the_environment(tmp_path):
+    result = run('7', 'yawaug:0', '--dry-run', EXP06_HAA_OUT=str(tmp_path / 'exp09'))
+    assert result.returncode == 0, result.stderr
+    assert 'out={}/exp09'.format(tmp_path) in result.stdout.splitlines()[0]
+
+
+def test_the_yawaug_checkpoint_is_overridable(tmp_path):
+    printed = '\n'.join(run_dry(tmp_path, 'yawaug:2', EXP09_YAWAUG_CKPT='alt/aug.pth'))
+    assert 'init=alt/aug.pth' in printed and YAWAUG not in printed
 
 
 def test_the_cli_announces_the_gpu_the_jobs_and_the_output_root():
@@ -205,7 +287,7 @@ def test_the_cli_announces_the_gpu_the_jobs_and_the_output_root():
 
 @pytest.mark.parametrize('job', ['invented:0', 'cyl_or', 'cyl_or:x', 'cyl_or:', ':0',
                                  'zeroshot:0', 'cyl_or:anything:0', 'cyl_or:0:1',
-                                 'cyl_or:-1'])
+                                 'cyl_or:-1', 'yawaug:zero', 'yawaug:zeroshot:0'])
 def test_an_unknown_job_is_refused_before_anything_runs(job):
     result = run('1', job, '--dry-run')
     assert result.returncode == 2 and 'refus' in (result.stderr + result.stdout).lower()
@@ -752,3 +834,40 @@ def test_the_gate_runs_before_the_job_root_is_opened(tmp_path):
     result, events = run_lib(script, tmp_path)
     assert 'GATE' in result.stdout and 'OPENED' not in result.stdout
     assert events == [] and 'REFUSED approvals' in result.stdout
+
+
+def test_the_real_approvals_gate_pins_the_yawaug_initialisation(tmp_path):
+    """Arm E starts from exp_04's approved checkpoints.aug, never exp_06's epoch_012."""
+    other = tmp_path / 'epoch_012.pth'
+    other.write_bytes(b'not the yaw-augmented checkpoint')
+    result, events = run_lib(INVOKE.format('run_finetune yawaug 0'), tmp_path,
+                             adapter=REAL_ADAPTER, EXP09_YAWAUG_CKPT=str(other))
+    assert events == [] and 'REFUSED approvals' in result.stdout
+    assert "exp_04's approved checkpoints.aug" in result.stderr
+    assert EXP04_AUG_SHA256 in result.stderr and 'artifacts.epoch_012' not in result.stderr
+    assert not (tmp_path / 'out/yawaug/seed0').exists()
+
+
+def test_a_forged_exp04_approvals_record_cannot_name_a_checkpoint(tmp_path):
+    """The reused pin is what admits exp_04's record, so a rewritten one is refused."""
+    from tools import exp06_approvals_api as api
+    from tools import exp06_finalize as finalizer
+    approved, _ = api.load_approved_digests(api.approved_path_default())
+    forged = tmp_path / 'approved_digests.json'
+    forged.write_text(Path(api.approvals_module().REPO,
+                           'worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/'
+                           'yaw_aug_xrir_results_assets/approved_digests.json').read_text()
+                      .replace('f8e64052', 'aaaaaaaa'))
+    with pytest.raises(ValueError, match='exp04_approved_digests_sha256'):
+        finalizer.exp04_aug_checkpoint(approved, forged)
+
+
+@pytest.mark.skipif(not (ROOT / YAWAUG).is_file(), reason='needs exp_04 checkpoint')
+def test_the_registered_yawaug_checkpoint_is_the_approved_one():
+    """The default the script names really is the checkpoint exp_04 approved."""
+    from tools import exp06_approvals_api as api
+    from tools import exp06_finalize as finalizer, provenance
+    approved, _ = api.load_approved_digests(api.approved_path_default())
+    record = finalizer.exp04_aug_checkpoint(approved)
+    assert record['checkpoint']['path'] == YAWAUG and record['checkpoint']['epoch'] == 12
+    assert provenance.sha256_file(ROOT / YAWAUG) == record['checkpoint']['sha256']
