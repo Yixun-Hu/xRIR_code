@@ -28,6 +28,7 @@
       "griffin_lim_seed": "tools.per_sample_metrics.sample_seed(42, query)",
       "metric_window_samples": 8000,
       "gt_normalisation": "none (torchaudio.load of the hybrid IR wav, 22050 Hz, truncated to 9600)",
+      "normalisation_constant": 1.0,
       "models": {
         "simple": {
           "checkpoint": "ckpt/xRIR_simple_8_shot/epoch_12.pth",
@@ -80,7 +81,8 @@
       "fine_tuning_seed": "seed0",
       "griffin_lim_seed": "tools.per_sample_metrics.sample_seed(0, 'class_room/174')",
       "metric_window_samples": 9600,
-      "gt_normalisation": "HAA mono_rirs_22050Hz/174.wav divided by 0.07421875 (max |RIR| over the 12 training RIRs), first 9600 samples, no offset",
+      "gt_normalisation": "HAA mono_rirs_22050Hz/174.wav divided by normalisation_constant (max |RIR| over the 12 training RIRs), first 9600 samples, no offset; predictions are on the same scale",
+      "normalisation_constant": 0.07421875,
       "t60_reported": true,
       "models": {
         "simple": {
@@ -111,6 +113,118 @@
             "edt": 0.20571428571428585,
             "c50": 3.461126983165741,
             "t60": 5.0535987748851445
+          }
+        }
+      }
+    },
+    "sim_S002_R013": {
+      "env": "sim (AcousticRooms, unseen split)",
+      "query": "Apartments/Apartments_idx_42/S002_R013_hybrid_IR.wav",
+      "receiver_frame_source_xyz_m": [
+        2.0,
+        1.0,
+        0.0
+      ],
+      "reference_ids": [
+        "Apartments/Apartments_idx_42/S007_R013_hybrid_IR.wav",
+        "Apartments/Apartments_idx_42/S008_R013_hybrid_IR.wav",
+        "Apartments/Apartments_idx_42/S006_R013_hybrid_IR.wav",
+        "Apartments/Apartments_idx_42/S003_R013_hybrid_IR.wav",
+        "Apartments/Apartments_idx_42/S005_R013_hybrid_IR.wav",
+        "Apartments/Apartments_idx_42/S004_R013_hybrid_IR.wav",
+        "Apartments/Apartments_idx_42/S009_R013_hybrid_IR.wav",
+        "Apartments/Apartments_idx_42/S001_R013_hybrid_IR.wav"
+      ],
+      "reference_manifest": "ckpt/yaw_aug/reference_manifest_k8_seed42.json",
+      "manifest_seed": 42,
+      "griffin_lim_seed": "tools.per_sample_metrics.sample_seed(42, query)",
+      "metric_window_samples": 8000,
+      "gt_normalisation": "none (torchaudio.load of the hybrid IR wav, 22050 Hz, truncated to 9600)",
+      "normalisation_constant": 1.0,
+      "models": {
+        "simple": {
+          "checkpoint": "ckpt/xRIR_simple_8_shot/epoch_12.pth",
+          "file": "sim_S002_R013_simplevit.npy",
+          "errors_as_in_figure": {
+            "edt": 0.01823129251700678,
+            "c50": 0.9094506502151489,
+            "t60": 2.2114108801415684
+          },
+          "log_stft_mse": 0.25346943736076355
+        },
+        "cylindrical": {
+          "checkpoint": "ckpt/xRIR_cyl_8_shot/epoch_12.pth",
+          "file": "sim_S002_R013_cylvit.npy",
+          "errors_as_in_figure": {
+            "edt": 0.001904761904761909,
+            "c50": 0.220983624458313,
+            "t60": 2.786377708978343
+          },
+          "log_stft_mse": 0.2579052150249481
+        }
+      }
+    },
+    "haa_complex_mic300": {
+      "env": "real (HAA complexBase, DiffRIR test split, two-stage fine-tuned)",
+      "room": "complex_room",
+      "mic_index": 300,
+      "speaker_xyz_m": [
+        2.8377,
+        10.1228,
+        1.1539
+      ],
+      "mic_xyz_m": [
+        6.809500217437744,
+        9.788000106811523,
+        0.12999999523162842
+      ],
+      "reference_ids": [
+        220,
+        5,
+        47,
+        372,
+        342,
+        404,
+        145,
+        255
+      ],
+      "reference_rule": "8 of the 12 DiffRIR training mics, sha256(eval_seed:room:idx)-seeded draw",
+      "eval_seed": 0,
+      "fine_tuning_seed": "seed0",
+      "griffin_lim_seed": "tools.per_sample_metrics.sample_seed(0, 'complex_room/300')",
+      "metric_window_samples": 9600,
+      "gt_normalisation": "HAA mono_rirs_22050Hz/300.wav divided by normalisation_constant (max |RIR| over the 12 training RIRs), first 9600 samples, no offset; predictions are on the same scale",
+      "normalisation_constant": 0.0362548828125,
+      "t60_reported": true,
+      "models": {
+        "simple": {
+          "checkpoint": "ckpt/sim2real/control/seed0/stage2_complex_room/best.pth",
+          "file": "haa_complex_mic300_simplevit.npy",
+          "errors_recomputed": {
+            "edt": 0.06721088435374134,
+            "c50": 1.217241007834673,
+            "t60": 1.4000341471742919
+          },
+          "log_stft_mse": 0.7238888144493103,
+          "errors_canonical_exp02": {
+            "edt": 0.06911564625850342,
+            "c50": 1.2897296436131,
+            "t60": 1.280519037049658
+          }
+        },
+        "cylindrical": {
+          "checkpoint": "ckpt/sim2real/cyl/seed0/stage2_complex_room/best.pth",
+          "file": "haa_complex_mic300_cylvit.npy",
+          "errors_recomputed": {
+            "edt": 0.016598639455782216,
+            "c50": 0.21374182775616646,
+            "t60": 1.9122417619941858
+          },
+          "log_stft_mse": 0.6134722828865051,
+          "errors_canonical_exp02": {
+            "edt": 0.014421768707482796,
+            "c50": 0.3310060314834118,
+            "t60": 1.3829605600136479
           }
         }
       }
