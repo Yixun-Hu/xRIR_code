@@ -1,0 +1,351 @@
+{
+  "selection_rule": "Qualitative RIR comparison: xRIR (SimpleViT) vs xRIR (CylindricalViT), sim + real.\n\nSelects, from the existing per-sample evaluations, the queries with the largest\ncylindrical-over-baseline improvement, re-runs both models on exactly those queries\n(same references, seeded Griffin-Lim) and renders waveform + log-STFT panels in the\nlayout of xRIR's Fig. 4 / DALL-E's Fig. 3 (columns = queries, rows = GT / baseline /\ncylindrical).\n\nSelection rule (identical for both environments; applied to the paired per-sample\nmetrics of the canonical evaluations):\n  * candidates: the cylindrical error is lower on every available metric\n    (EDT, C50, T60; T60 is skipped for HAA dampened_room as in the paper) and the\n    cylindrical EDT error is at most the split's / room's median baseline EDT error\n    (so the shown cylindrical prediction is itself a decent one, not merely less bad);\n  * score = 0.5 * mean relative improvement + 0.5 * tanh(mean improvement in units\n    of the median baseline error / 2);\n  * sim: the best-scoring query of each room category, top N categories;\n    real: the best-scoring test query of each HAA room (fine-tuning seed 0).\n\nSources: sim = exp_04's confirmatory K=8 seed-42 P/k=0 runs of exp_01's same-budget\nSimpleViT control and CylindricalViT (epoch 12), unseen split; real = exp_02's seed-0\ntwo-stage fine-tuned checkpoints, DiffRIR test split, eval_seed 0 references.\n\nRuns on CPU (no GPU needed for a dozen forward passes); `model.xRIR.apply_delay` is\npatched at runtime with a device-agnostic copy because the original hard-codes .cuda().\n",
+  "sim_median_baseline_error": {
+    "edt": 0.024489795918367308,
+    "c50": 0.7067620754241943,
+    "t60": 5.75741618395646
+  },
+  "real_median_baseline_error": {
+    "class_room": {
+      "edt": 0.059047619047619126,
+      "c50": 1.03375643491745,
+      "t60": 3.520418426875867
+    },
+    "dampened_room": {
+      "edt": 0.02680272108843538,
+      "c50": 2.2190123796463013
+    },
+    "hallway": {
+      "edt": 0.04653061224489785,
+      "c50": 0.7782302144914865,
+      "t60": 1.925330654612414
+    },
+    "complex_room": {
+      "edt": 0.034965986394557835,
+      "c50": 0.9322865656577051,
+      "t60": 3.300544879926722
+    }
+  },
+  "sim_runs": {
+    "simple": "ckpt/yaw_aug/eval/control_k8_seed42_k0",
+    "cylindrical": "ckpt/yaw_aug/eval/cyl_k8_seed42_k0"
+  },
+  "sim_checkpoints": {
+    "simple": "ckpt/xRIR_simple_8_shot/epoch_12.pth",
+    "cylindrical": "ckpt/xRIR_cyl_8_shot/epoch_12.pth"
+  },
+  "sim_manifest": "ckpt/yaw_aug/reference_manifest_k8_seed42.json",
+  "sim_gl_seed": 42,
+  "haa_seed": "seed0",
+  "haa_eval_seed": 0,
+  "device": "cpu",
+  "torch": "2.0.1+cu117",
+  "columns": [
+    {
+      "env": "sim",
+      "query": "Office/Office_idx_10/S007_R025_hybrid_IR.wav",
+      "index": 5571,
+      "score": 0.9243006497591939,
+      "json_metrics": {
+        "simple": {
+          "edt": 0.1621768707482993,
+          "c50": 6.591511368751526,
+          "t60": 25.560867966164018
+        },
+        "cylindrical": {
+          "edt": 0.018775510204081636,
+          "c50": 0.393865704536438,
+          "t60": 6.730415593968392
+        }
+      },
+      "window": 8000,
+      "title": "Office 10, S7\u2192R25",
+      "recomputed_metrics": {
+        "simple": {
+          "edt": 0.1621768707482993,
+          "c50": 6.591504216194153,
+          "t60": 25.560867966164018
+        },
+        "cylindrical": {
+          "edt": 0.018775510204081636,
+          "c50": 0.39385437965393066,
+          "t60": 6.730415593968392
+        }
+      },
+      "log_stft_mse": {
+        "simple": 0.29428187012672424,
+        "cylindrical": 0.23023593425750732
+      }
+    },
+    {
+      "env": "sim",
+      "query": "LivingRoomsWithHallway/LivingRoomsWithHallway_idx_25/S003_R015_hybrid_IR.wav",
+      "index": 4486,
+      "score": 0.8288805719415506,
+      "json_metrics": {
+        "simple": {
+          "edt": 0.09414965986394558,
+          "c50": 1.8726998567581177,
+          "t60": 25.992534781133354
+        },
+        "cylindrical": {
+          "edt": 0.020136054421768745,
+          "c50": 0.8310312032699585,
+          "t60": 1.5609093993891912
+        }
+      },
+      "window": 8000,
+      "title": "Living room w/ hallway 25, S3\u2192R15",
+      "recomputed_metrics": {
+        "simple": {
+          "edt": 0.09414965986394558,
+          "c50": 1.8726980686187744,
+          "t60": 25.992534781133354
+        },
+        "cylindrical": {
+          "edt": 0.020136054421768745,
+          "c50": 0.8310264348983765,
+          "t60": 1.5609093993891912
+        }
+      },
+      "log_stft_mse": {
+        "simple": 0.82820725440979,
+        "cylindrical": 0.44222524762153625
+      }
+    },
+    {
+      "env": "sim",
+      "query": "Cafe/Cafe_idx_1/S005_R020_hybrid_IR.wav",
+      "index": 2875,
+      "score": 0.7951783353336934,
+      "json_metrics": {
+        "simple": {
+          "edt": 0.04925170068027207,
+          "c50": 1.9016534090042114,
+          "t60": 11.153047744857531
+        },
+        "cylindrical": {
+          "edt": 0.004625850340136073,
+          "c50": 0.3173404932022095,
+          "t60": 1.9815059445178418
+        }
+      },
+      "window": 8000,
+      "title": "Cafe 1, S5\u2192R20",
+      "recomputed_metrics": {
+        "simple": {
+          "edt": 0.04925170068027207,
+          "c50": 1.901654601097107,
+          "t60": 11.153047744857531
+        },
+        "cylindrical": {
+          "edt": 0.004625850340136073,
+          "c50": 0.3173339366912842,
+          "t60": 1.9815059445178418
+        }
+      },
+      "log_stft_mse": {
+        "simple": 2.3804564476013184,
+        "cylindrical": 2.3017451763153076
+      }
+    },
+    {
+      "env": "sim",
+      "query": "Auditorium/Auditorium_idx_1/S004_R071_hybrid_IR.wav",
+      "index": 870,
+      "score": 0.7925349549166789,
+      "json_metrics": {
+        "simple": {
+          "edt": 0.09142857142857141,
+          "c50": 7.53870964050293,
+          "t60": 31.682654913144926
+        },
+        "cylindrical": {
+          "edt": 0.016598639455782216,
+          "c50": 2.1978867053985596,
+          "t60": 21.4415348716619
+        }
+      },
+      "window": 8000,
+      "title": "Auditorium 1, S4\u2192R71",
+      "recomputed_metrics": {
+        "simple": {
+          "edt": 0.09142857142857141,
+          "c50": 7.53874659538269,
+          "t60": 31.682654913144926
+        },
+        "cylindrical": {
+          "edt": 0.016598639455782216,
+          "c50": 2.197886109352112,
+          "t60": 21.4415348716619
+        }
+      },
+      "log_stft_mse": {
+        "simple": 0.4972469210624695,
+        "cylindrical": 0.4826664924621582
+      }
+    },
+    {
+      "env": "real",
+      "room": "class_room",
+      "idx": 586,
+      "query": "class_room/586",
+      "score": 0.6924271855107933,
+      "n_candidates": 51,
+      "n": 463,
+      "json_metrics": {
+        "simple": {
+          "edt": 0.20925170068027205,
+          "c50": 5.163608491420746,
+          "t60": 1.835787774863829
+        },
+        "cylindrical": {
+          "edt": 0.0435374149659864,
+          "c50": 1.860467791557312,
+          "t60": 1.1095420617308933
+        }
+      },
+      "checkpoint_simple": "ckpt/sim2real/control/seed0/stage2_class_room/best.pth",
+      "checkpoint_cylindrical": "ckpt/sim2real/cyl/seed0/stage2_class_room/best.pth",
+      "window": 9600,
+      "title": "Classroom, mic 586",
+      "recomputed_metrics": {
+        "simple": {
+          "edt": 0.20707482993197285,
+          "c50": 5.056968629360199,
+          "t60": 1.2104095218882698
+        },
+        "cylindrical": {
+          "edt": 0.042721088435374144,
+          "c50": 1.8943589925765991,
+          "t60": 0.7665926971958993
+        }
+      },
+      "log_stft_mse": {
+        "simple": 0.7292928099632263,
+        "cylindrical": 0.6935245990753174
+      }
+    },
+    {
+      "env": "real",
+      "room": "dampened_room",
+      "idx": 72,
+      "query": "dampened_room/72",
+      "score": 0.6581672674713037,
+      "n_candidates": 47,
+      "n": 198,
+      "json_metrics": {
+        "simple": {
+          "edt": 0.03510204081632651,
+          "c50": 0.8858680725097656
+        },
+        "cylindrical": {
+          "edt": 0.0029931972789115635,
+          "c50": 0.03082752227783203
+        }
+      },
+      "checkpoint_simple": "ckpt/sim2real/control/seed0/stage2_dampened_room/best.pth",
+      "checkpoint_cylindrical": "ckpt/sim2real/cyl/seed0/stage2_dampened_room/best.pth",
+      "window": 9600,
+      "title": "Dampened room, mic 72",
+      "recomputed_metrics": {
+        "simple": {
+          "edt": 0.03401360544217685,
+          "c50": 0.9675967693328857,
+          "t60": null
+        },
+        "cylindrical": {
+          "edt": 0.004353741496598673,
+          "c50": 0.0266110897064209,
+          "t60": null
+        }
+      },
+      "log_stft_mse": {
+        "simple": 0.33691516518592834,
+        "cylindrical": 0.3545581102371216
+      }
+    },
+    {
+      "env": "real",
+      "room": "hallway",
+      "idx": 314,
+      "query": "hallway/314",
+      "score": 0.9723338489133497,
+      "n_candidates": 26,
+      "n": 423,
+      "json_metrics": {
+        "simple": {
+          "edt": 0.49034013605442184,
+          "c50": 4.95519831776619,
+          "t60": 11.69074371321564
+        },
+        "cylindrical": {
+          "edt": 0.01632653061224487,
+          "c50": 0.15514522790908813,
+          "t60": 1.1369716425896192
+        }
+      },
+      "checkpoint_simple": "ckpt/sim2real/control/seed0/stage2_hallway/best.pth",
+      "checkpoint_cylindrical": "ckpt/sim2real/cyl/seed0/stage2_hallway/best.pth",
+      "window": 9600,
+      "title": "Hallway, mic 314",
+      "recomputed_metrics": {
+        "simple": {
+          "edt": 0.4889795918367348,
+          "c50": 4.987046271562576,
+          "t60": 10.607276618512577
+        },
+        "cylindrical": {
+          "edt": 0.0054421768707482165,
+          "c50": 0.1033562421798706,
+          "t60": 2.086677367576247
+        }
+      },
+      "log_stft_mse": {
+        "simple": 1.0252513885498047,
+        "cylindrical": 0.7321472764015198
+      }
+    },
+    {
+      "env": "real",
+      "room": "complex_room",
+      "idx": 261,
+      "query": "complex_room/261",
+      "score": 0.663434682145191,
+      "n_candidates": 15,
+      "n": 198,
+      "json_metrics": {
+        "simple": {
+          "edt": 0.05605442176870756,
+          "c50": 1.4219912886619568,
+          "t60": 2.025055774841262
+        },
+        "cylindrical": {
+          "edt": 0.006258503401360471,
+          "c50": 0.17638176679611206,
+          "t60": 0.5148446885189836
+        }
+      },
+      "checkpoint_simple": "ckpt/sim2real/control/seed0/stage2_complex_room/best.pth",
+      "checkpoint_cylindrical": "ckpt/sim2real/cyl/seed0/stage2_complex_room/best.pth",
+      "window": 9600,
+      "title": "Complex room, mic 261",
+      "recomputed_metrics": {
+        "simple": {
+          "edt": 0.060680272108843636,
+          "c50": 1.5420141816139221,
+          "t60": 2.0593787540758783
+        },
+        "cylindrical": {
+          "edt": 0.003537414965986363,
+          "c50": 0.2565568685531616,
+          "t60": 0.6349751158400578
+        }
+      },
+      "log_stft_mse": {
+        "simple": 0.8029918670654297,
+        "cylindrical": 0.6579533815383911
+      }
+    }
+  ]
+}
