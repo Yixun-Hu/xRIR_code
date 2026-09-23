@@ -1,0 +1,119 @@
+{
+  "sample_rate": 22050,
+  "length": 9600,
+  "device": "cpu",
+  "torch": "2.0.1+cu117",
+  "waveform_convention": "GT: dataset waveform as scored (no time offset; first 9600 samples). Prediction: Griffin-Lim (32 iter, n_fft 124, hop 31, win 62; per-query seeded random phase) of the predicted magnitude, 9579 samples zero-padded to 9600; no offset, no normalisation.",
+  "queries": {
+    "sim_S003_R015": {
+      "env": "sim (AcousticRooms, unseen split)",
+      "query": "LivingRoomsWithHallway/LivingRoomsWithHallway_idx_25/S003_R015_hybrid_IR.wav",
+      "receiver_frame_source_xyz_m": [
+        -3.5,
+        -1.0,
+        0.20000000298023224
+      ],
+      "reference_ids": [
+        "LivingRoomsWithHallway/LivingRoomsWithHallway_idx_25/S006_R015_hybrid_IR.wav",
+        "LivingRoomsWithHallway/LivingRoomsWithHallway_idx_25/S005_R015_hybrid_IR.wav",
+        "LivingRoomsWithHallway/LivingRoomsWithHallway_idx_25/S009_R015_hybrid_IR.wav",
+        "LivingRoomsWithHallway/LivingRoomsWithHallway_idx_25/S002_R015_hybrid_IR.wav",
+        "LivingRoomsWithHallway/LivingRoomsWithHallway_idx_25/S001_R015_hybrid_IR.wav",
+        "LivingRoomsWithHallway/LivingRoomsWithHallway_idx_25/S008_R015_hybrid_IR.wav",
+        "LivingRoomsWithHallway/LivingRoomsWithHallway_idx_25/S004_R015_hybrid_IR.wav",
+        "LivingRoomsWithHallway/LivingRoomsWithHallway_idx_25/S007_R015_hybrid_IR.wav"
+      ],
+      "reference_manifest": "ckpt/yaw_aug/reference_manifest_k8_seed42.json",
+      "manifest_seed": 42,
+      "griffin_lim_seed": "tools.per_sample_metrics.sample_seed(42, query)",
+      "metric_window_samples": 8000,
+      "gt_normalisation": "none (torchaudio.load of the hybrid IR wav, 22050 Hz, truncated to 9600)",
+      "models": {
+        "simple": {
+          "checkpoint": "ckpt/xRIR_simple_8_shot/epoch_12.pth",
+          "file": "sim_S003_R015_simplevit.npy",
+          "errors_as_in_figure": {
+            "edt": 0.09414965986394558,
+            "c50": 1.8726980686187744,
+            "t60": 25.992534781133354
+          },
+          "log_stft_mse": 0.82820725440979
+        },
+        "cylindrical": {
+          "checkpoint": "ckpt/xRIR_cyl_8_shot/epoch_12.pth",
+          "file": "sim_S003_R015_cylvit.npy",
+          "errors_as_in_figure": {
+            "edt": 0.020136054421768745,
+            "c50": 0.8310264348983765,
+            "t60": 1.5609093993891912
+          },
+          "log_stft_mse": 0.44222524762153625
+        }
+      }
+    },
+    "haa_classroom_mic174": {
+      "env": "real (HAA classroomBase, DiffRIR test split, two-stage fine-tuned)",
+      "room": "class_room",
+      "mic_index": 174,
+      "speaker_xyz_m": [
+        3.5838,
+        5.723,
+        1.2294
+      ],
+      "mic_xyz_m": [
+        4.524374961853027,
+        4.613275051116943,
+        0.3199999928474426
+      ],
+      "reference_ids": [
+        285,
+        57,
+        456,
+        399,
+        570,
+        228,
+        342,
+        114
+      ],
+      "reference_rule": "8 of the 12 DiffRIR training mics, sha256(eval_seed:room:idx)-seeded draw",
+      "eval_seed": 0,
+      "fine_tuning_seed": "seed0",
+      "griffin_lim_seed": "tools.per_sample_metrics.sample_seed(0, 'class_room/174')",
+      "metric_window_samples": 9600,
+      "gt_normalisation": "HAA mono_rirs_22050Hz/174.wav divided by 0.07421875 (max |RIR| over the 12 training RIRs), first 9600 samples, no offset",
+      "t60_reported": true,
+      "models": {
+        "simple": {
+          "checkpoint": "ckpt/sim2real/control/seed0/stage2_class_room/best.pth",
+          "file": "haa_classroom_mic174_simplevit.npy",
+          "errors_recomputed": {
+            "edt": 0.16571428571428581,
+            "c50": 2.9527658224105835,
+            "t60": 10.547473200612549
+          },
+          "log_stft_mse": 0.9262113571166992,
+          "errors_canonical_exp02": {
+            "edt": 0.16707482993197287,
+            "c50": 2.7621275186538696,
+            "t60": 11.14088820826952
+          }
+        },
+        "cylindrical": {
+          "checkpoint": "ckpt/sim2real/cyl/seed0/stage2_class_room/best.pth",
+          "file": "haa_classroom_mic174_cylvit.npy",
+          "errors_recomputed": {
+            "edt": 0.20517006802721094,
+            "c50": 3.499472737312317,
+            "t60": 4.689892802450228
+          },
+          "log_stft_mse": 0.7830929756164551,
+          "errors_canonical_exp02": {
+            "edt": 0.20571428571428585,
+            "c50": 3.461126983165741,
+            "t60": 5.0535987748851445
+          }
+        }
+      }
+    }
+  }
+}
