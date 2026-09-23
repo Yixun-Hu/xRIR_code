@@ -36,3 +36,15 @@ queries: in sim the cylindrical model is better on all three metrics for 1 374 /
 queries (EDT −4.4 % on average, exp_03 paired k = 0), and on HAA after fine-tuning the
 SimpleViT control is better on aggregate in 6 / 11 room×metric cells (exp_02), so the real
 columns show per-query wins in a setting the cylindrical model loses overall.
+
+## Classroom environment panels (`make_classroom_env.py`, 2026-09-23)
+
+`classroom_environment.{png,pdf}`: (a) the authors' photo of the classroom (HAA project page,
+`static/images/Classroom.jpg`, Wang et al. CVPR 2024 — credit it), (b) a 3D render of the
+DiffRIR planar model from the authors' repository (`rooms/classroom.py`: 7.12 × 7.92 × 2.74 m
+box + three table slabs) with the 630 microphone positions, the 12 training RIRs used as
+references and the speaker, (c) the floor map, (d) the depth panorama the xRIR models see
+(rendered at the speaker; `~/data_cache/HAA_xrir/class_room/depth.npy`) with the reference
+microphones' directions marked. Run with `--photo <path to Classroom.jpg>` (not stored in the
+repository). The HAA dataset itself ships no photos, meshes or panoramas — only RIRs and
+coordinates; the geometry is the code-defined plane list.
