@@ -114,6 +114,58 @@ DESCRIPTIVE = (('cyl_or', 'control_hf'), ('control_hf', 'control'), ('cyl_hf', '
 E1 = ('yawaug', 'control')
 E3 = (('yawaug', 'cyl_or'),)
 
+# --- R1: historical rows, copied from the hash-bound canonical records -------------------
+
+EXP06_STATS = 'ckpt/exp06/stats.json'
+EXP09_STATS = 'ckpt/exp09/stats.json'
+# The universe of decision-bearing fields a copied row may carry. A source records some
+# of them; the rest are null here and named in ``not_recorded``.
+HISTORICAL_FIELDS = ('diff', 'two_way', 'nominal_two_way', 'convergence', 'verdict',
+                     'category', 'non_inferior_at_margin')
+DECISION_ROW = ('diff', 'two_way', 'convergence', 'verdict')
+DESCRIPTIVE_ROW = ('diff', 'nominal_two_way')
+# Plan section 3's source-field map: which record, which table, which row, which fields.
+EXP11_HISTORICAL = (
+    {'name': 'C - D', 'source': EXP06_STATS, 'table': 'D', 'kind': 'descriptive',
+     'contrast': 'cyl_or - control_hf', 'fields': DESCRIPTIVE_ROW},
+    {'name': 'D - A', 'source': EXP06_STATS, 'table': 'D', 'kind': 'descriptive',
+     'contrast': 'control_hf - control', 'fields': DESCRIPTIVE_ROW},
+    {'name': 'C - A', 'source': EXP06_STATS, 'table': 'H1', 'kind': 'decision',
+     'contrast': 'cyl_or - control', 'fields': DECISION_ROW},
+    {'name': 'C - F', 'source': EXP06_STATS, 'table': 'H1b', 'kind': 'decision',
+     'contrast': 'cyl_or - cyl_hf', 'fields': DECISION_ROW},
+    {'name': 'E - A', 'source': EXP09_STATS, 'table': 'E1', 'kind': 'decision',
+     'contrast': 'yawaug - control',
+     'fields': DECISION_ROW + ('category', 'non_inferior_at_margin')})
+
+
+# exp_11 section 3. N1 = G - D, N1i = the interaction (G - E) - (D - A), N2 = C - G and
+# N3 = G - E, each publishing exactly the statements of the notation block that it
+# registers -- never a margin verdict, and never a field the plan did not ask of it.
+N1 = ('yawaug_hf', 'control_hf')
+N1I = ('yawaug_hf', 'yawaug', 'control_hf', 'control')
+N2 = ('cyl_or', 'yawaug_hf')
+N3 = ('yawaug_hf', 'yawaug')
+EXP11_ARMS = ('control', 'cyl', 'cyl_or', 'control_hf', 'cyl_hf', 'yawaug', 'yawaug_hf')
+EXP11_DECISIONS = (
+    {'name': 'N1', 'kind': 'contrast', 'pair': N1, 'room': H1_ROOM, 'metric': H1_METRIC,
+     'margin': None, 'fields': ('category',),
+     'reading': 'does roll-robust pretraining change what the SimpleViT does with the '
+                'heading frame?'},
+    {'name': 'N1i', 'kind': 'interaction', 'arms': N1I, 'room': H1_ROOM,
+     'metric': H1_METRIC, 'margin': None, 'fields': ('category',),
+     'reading': 'positive = a larger heading-frame penalty after yaw pretraining, not '
+                'harm by any single arm'},
+    {'name': 'N2', 'kind': 'contrast', 'pair': N2, 'room': H1_ROOM, 'metric': H1_METRIC,
+     'margin': H1_MARGIN_DB,
+     'fields': ('category', 'y_non_inferior_at_margin', 'x_margin_advantage'),
+     'reading': "G's non-inferiority to C and C's margin-sized advantage are separate "
+                'statements; failing to establish one is not evidence of its negation'},
+    {'name': 'N3', 'kind': 'contrast', 'pair': N3, 'room': H1_ROOM, 'metric': H1_METRIC,
+     'margin': H1_MARGIN_DB, 'fields': ('category', 'equivalent_at_margin'),
+     'reading': 'the prediction G = E is the equivalence statement, not the category'})
+EXP11_SCREENS = (N1, N2, N3)        # three declared families; no claim across them
+
 # One frozen configuration per experiment: which arms are loaded, which contrasts are
 # computed under which names, which of them carry exp_09's two-sided classification, and
 # the canonical outputs no other experiment's run may write. Nothing here is mutated at
@@ -127,7 +179,15 @@ EXPERIMENTS = OrderedDict([
     ('exp09', {'arms': ('control', 'cyl', 'cyl_or', 'yawaug'),
                'decisions': (('E1', E1, H1_ROOM, H1_METRIC, H1_MARGIN_DB),),
                'screen': ('E2', E1), 'descriptive': ('E3', E3), 'classified': ('E1',),
-               'outputs': ('ckpt/exp09/stats.json', 'ckpt/exp09/summary.txt')})])
+               'outputs': ('ckpt/exp09/stats.json', 'ckpt/exp09/summary.txt')}),
+    # exp_11 phase 1. A ``phase`` selects section 3's statements instead of exp_06's
+    # margin verdicts, so ``decisions``/``classified`` stay empty here: the historical
+    # tables are built by the historical path and are untouched by this registration.
+    ('exp11', {'arms': EXP11_ARMS, 'phase': 'phase1', 'decisions': (), 'classified': (),
+               'exp11_decisions': EXP11_DECISIONS, 'screens': EXP11_SCREENS,
+               'historical': EXP11_HISTORICAL,
+               'outputs': ('ckpt/exp11/phase1/stats.json',
+                           'ckpt/exp11/phase1/summary.txt')})])
 
 
 def _require(ok, cause):
@@ -1352,31 +1412,6 @@ def exp11_screens(arms, families, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED
         for pair in families)
 
 
-# --- R1: historical rows, copied from the hash-bound canonical records -------------------
-
-EXP06_STATS = 'ckpt/exp06/stats.json'
-EXP09_STATS = 'ckpt/exp09/stats.json'
-# The universe of decision-bearing fields a copied row may carry. A source records some
-# of them; the rest are null here and named in ``not_recorded``.
-HISTORICAL_FIELDS = ('diff', 'two_way', 'nominal_two_way', 'convergence', 'verdict',
-                     'category', 'non_inferior_at_margin')
-DECISION_ROW = ('diff', 'two_way', 'convergence', 'verdict')
-DESCRIPTIVE_ROW = ('diff', 'nominal_two_way')
-# Plan section 3's source-field map: which record, which table, which row, which fields.
-EXP11_HISTORICAL = (
-    {'name': 'C - D', 'source': EXP06_STATS, 'table': 'D', 'kind': 'descriptive',
-     'contrast': 'cyl_or - control_hf', 'fields': DESCRIPTIVE_ROW},
-    {'name': 'D - A', 'source': EXP06_STATS, 'table': 'D', 'kind': 'descriptive',
-     'contrast': 'control_hf - control', 'fields': DESCRIPTIVE_ROW},
-    {'name': 'C - A', 'source': EXP06_STATS, 'table': 'H1', 'kind': 'decision',
-     'contrast': 'cyl_or - control', 'fields': DECISION_ROW},
-    {'name': 'C - F', 'source': EXP06_STATS, 'table': 'H1b', 'kind': 'decision',
-     'contrast': 'cyl_or - cyl_hf', 'fields': DECISION_ROW},
-    {'name': 'E - A', 'source': EXP09_STATS, 'table': 'E1', 'kind': 'decision',
-     'contrast': 'yawaug - control',
-     'fields': DECISION_ROW + ('category', 'non_inferior_at_margin')})
-
-
 def historical_source(path, label, inputs=None):
     """One canonical record, admitted only with the summary its own bytes bind."""
     path = Path(path)
@@ -1453,6 +1488,33 @@ def historical_rows(specs=EXP11_HISTORICAL, repo=REPO, room=H1_ROOM, metric=H1_M
     return rows
 
 
+def exp11_tables(result, arms, config, n_boot=N_BOOT,
+                 adjusted_n_boot=N_BOOT_ADJUSTED, exploratory=False, sensitivity=False,
+                 historical_root=REPO):
+    """exp_11's phase tables: the registered decisions, the declared screen families and
+    the copied historical rows, into the record ``analyse`` has already opened.
+
+    A draft states no conclusion of any kind -- every decision-bearing field is withheld
+    and the status says so -- and a relaxed admission labels every status, exactly as the
+    historical path labels its verdicts.
+    """
+    result['phase'] = config['phase']
+    result['decisions'] = [spec['name'] for spec in config['exp11_decisions']]
+    for spec in config['exp11_decisions']:
+        cell = exp11_decision(arms, spec, n_boot)
+        if exploratory:
+            cell = dict(cell, status='suppressed (draft)',
+                        **decision_fields(None, spec.get('margin'),
+                                          tuple(spec['fields'])))
+        elif sensitivity:
+            cell = dict(cell, status='sensitivity: ' + cell['status'])
+        result[spec['name']] = cell
+    result['screens'] = exp11_screens(arms, config['screens'], n_boot, adjusted_n_boot)
+    result['historical'] = historical_rows(config['historical'], historical_root,
+                                           inputs=result['inputs'])
+    return result
+
+
 def check_output_paths(experiment, json_path, summary_path):
     """No experiment's run may write another's canonical record."""
     targets = {str(Path(path).resolve()) for path in (json_path, summary_path)}
@@ -1468,7 +1530,7 @@ def check_output_paths(experiment, json_path, summary_path):
 def analyse(arms, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, cache_root=None,
             exploratory=False, receipt=None, receipt_path=None, approved=None,
             deviations=(), approvals_receipt=None, producer=None, extra_inputs=(),
-            sensitivity=False, experiment='exp06'):
+            sensitivity=False, experiment='exp06', historical_root=REPO):
     """Every displayed number, and the evidence each rests on."""
     config = EXPERIMENTS[experiment]
     # The frozen configuration decides what is published, not what the caller happens to
@@ -1503,6 +1565,9 @@ def analyse(arms, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, cache_root=Non
     for path, digest in sorted(dict(cache_inputs, **dict(extra_inputs)).items()):
         bind(result['inputs'], path, digest)
     producer_inputs(result['inputs'], producer, approvals_receipt)
+    if 'phase' in config:   # exp_11 publishes section 3's statements, not margin verdicts
+        return exp11_tables(result, arms, config, n_boot, adjusted_n_boot, exploratory,
+                            sensitivity, historical_root)
     for name, pair, room, metric, margin in config['decisions']:
         cell = decision_cell(arms, pair, room, metric, margin, n_boot)
         result[name] = classify_cell(cell) if name in config['classified'] else cell

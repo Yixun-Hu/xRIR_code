@@ -509,3 +509,86 @@ def test_the_real_canonical_records_carry_exactly_the_mapped_rows():
     assert rows['E - A']['category'] == 'detected harm'
     assert rows['E - A']['non_inferior_at_margin'] is False
     assert rows['E - A']['diff'] == 0.2765036091404135
+
+
+# --- the frozen exp_11 configuration and its phase-1 tables ------------------------------
+
+
+def test_the_experiments_freeze_exp11s_phase_one():
+    eleven = subject.EXPERIMENTS['exp11']
+    assert eleven['arms'] == ('control', 'cyl', 'cyl_or', 'control_hf', 'cyl_hf',
+                              'yawaug', 'yawaug_hf')
+    assert eleven['phase'] == 'phase1'
+    assert eleven['decisions'] == () and eleven['classified'] == ()
+    specs = {spec['name']: spec for spec in eleven['exp11_decisions']}
+    assert [spec['name'] for spec in eleven['exp11_decisions']] == ['N1', 'N1i', 'N2', 'N3']
+    assert specs['N1']['pair'] == (G, D) and specs['N1']['fields'] == ('category',)
+    assert specs['N1i']['kind'] == 'interaction' and specs['N1i']['arms'] == (G, E, D, A)
+    assert specs['N1i']['fields'] == ('category',)
+    assert specs['N2']['pair'] == (C, G) and specs['N2']['fields'] == (
+        'category', 'y_non_inferior_at_margin', 'x_margin_advantage')
+    assert specs['N3']['pair'] == (G, E) and specs['N3']['fields'] == (
+        'category', 'equivalent_at_margin')
+    assert specs['N2']['margin'] == specs['N3']['margin'] == subject.H1_MARGIN_DB
+    assert specs['N1']['margin'] is None and specs['N1i']['margin'] is None
+    assert {(s['room'], s['metric']) for s in eleven['exp11_decisions']} == {('hallway',
+                                                                             'c50')}
+    assert eleven['screens'] == ((G, D), (C, G), (G, E))
+    assert eleven['historical'] == subject.EXP11_HISTORICAL
+    assert eleven['outputs'] == ('ckpt/exp11/phase1/stats.json',
+                                 'ckpt/exp11/phase1/summary.txt')
+
+
+@pytest.fixture
+def phase1(arms, sources):
+    return subject.analyse(arms, n_boot=200, adjusted_n_boot=200, experiment='exp11',
+                           historical_root=sources)
+
+
+def test_the_exp11_analysis_publishes_its_decisions_screens_and_copied_rows(phase1):
+    assert phase1['experiment'] == 'exp11' and phase1['phase'] == 'phase1'
+    assert set(phase1) >= {'N1', 'N1i', 'N2', 'N3', 'screens', 'historical'}
+    assert not {'H1', 'H1b', 'H2', 'D', 'E1', 'E2', 'E3'} & set(phase1)
+    assert phase1['N1']['contrast'] == 'yawaug_hf - control_hf'
+    assert phase1['N1i']['contrast'] == '(yawaug_hf - yawaug) - (control_hf - control)'
+    assert phase1['N2']['contrast'] == 'cyl_or - yawaug_hf'
+    assert phase1['N3']['contrast'] == 'yawaug_hf - yawaug'
+    assert all(phase1[name]['status'] == 'reported' for name in ('N1', 'N1i', 'N2', 'N3'))
+    assert 'verdict' not in phase1['N1'] and 'verdict' not in phase1['N2']
+    assert isinstance(phase1['N2']['y_non_inferior_at_margin'], bool)
+    assert isinstance(phase1['N2']['x_margin_advantage'], bool)
+    assert 'equivalent_at_margin' not in phase1['N2']
+    assert isinstance(phase1['N3']['equivalent_at_margin'], bool)
+    assert 'y_non_inferior_at_margin' not in phase1['N1']
+    assert list(phase1['screens']) == ['yawaug_hf - control_hf', 'cyl_or - yawaug_hf',
+                                       'yawaug_hf - yawaug']
+    assert all(len(cells) == 11 for cells in phase1['screens'].values())
+    assert [row['name'] for row in phase1['historical']] == ['C - D', 'D - A', 'C - A',
+                                                             'C - F', 'E - A']
+    assert {row['inference'] for row in phase1['historical']} == {'none (copied)'}
+
+
+def test_the_exp11_tables_carry_arm_g_everywhere_the_arms_are_described(phase1):
+    """Descriptive (c): G in the zero-shot room-frame side split, and per seed."""
+    assert 'yawaug_hf|hallway|c50' in phase1['side_split']['cells']
+    assert phase1['side_split']['job'] == subject.ZEROSHOT
+    row = phase1['rows']['yawaug_hf|fine-tuned|hallway|c50']
+    assert row['jobs'] == list(subject.SEEDS) and len(row['per_run']) == 3
+    assert phase1['arms'][G] == {'branch': 'new', 'root': 'ckpt/exp06/sim2real/yawaug_hf',
+                                 'closure': phase1['arms'][G]['closure'],
+                                 'backbone': 'simple', 'frame': 'heading'}
+
+
+def test_the_copied_rows_are_bound_inputs_of_the_analysis(phase1, sources):
+    for name in ('ckpt/exp06/stats.json', 'ckpt/exp09/stats.json', 'ckpt/exp06/summary.txt'):
+        assert str((Path(sources) / name).resolve()) in phase1['inputs']
+
+
+def test_a_draft_exp11_run_states_no_conclusion(arms, sources):
+    result = subject.analyse(arms, n_boot=200, adjusted_n_boot=200, exploratory=True,
+                             experiment='exp11', historical_root=sources)
+    for name in ('N1', 'N1i', 'N2', 'N3'):
+        cell = result[name]
+        assert cell['status'] == 'suppressed (draft)'
+        assert all(cell[field] is None for field in cell['fields'])
+    assert result['historical'][0]['diff'] is not None   # a copied row states nothing new
