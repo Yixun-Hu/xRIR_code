@@ -167,6 +167,21 @@ def ratio_status(delta_lo, delta_hi, zero_draws):
     return "denominator uncertain"
 
 
+def point_ratio(gap_point, delta_point):
+    """The observed ratio ``G / delta``, or ``None`` with the reason it is withheld (A3).
+
+    The reason travels with the value and not with the bootstrap status: a point ratio can
+    be unavailable because the observed denominator is exactly zero whatever the interval
+    around it then says, and a null number in a table has to explain itself.
+
+    Returns:
+        ``(point, reason)`` -- exactly one of the two is ``None``.
+    """
+    if float(delta_point) == 0.0:
+        return None, "observed delta = 0"
+    return float(gap_point) / float(delta_point), None
+
+
 def _empty_cell(exclusions, reason, unit=None):
     """A cell with nothing to estimate (empty mask, or a metric with no paired error)."""
     return {"n": int(exclusions["n_mask"]), "unit": unit,
@@ -174,7 +189,8 @@ def _empty_cell(exclusions, reason, unit=None):
             "delta": {"point": None, "lo": None, "hi": None},
             "gap": {"point": None, "lo": None, "hi": None},
             "ratio": {"point": None, "lo": None, "hi": None, "status": "undefined",
-                      "zero_draw_fraction": None, "reason": reason},
+                      "zero_draw_fraction": None, "reason": reason,
+                      "point_reason": reason},
             "contributions": {"fraction_worse": None, "mean_positive_part": None,
                               "mean_negative_part": None},
             "exclusions": exclusions, "unit_of_resampling": None, "n_clusters": None}
@@ -229,7 +245,8 @@ def bootstrap_cell(e0, ek, gk, n_boot=N_BOOT, seed=0, alpha=ALPHA, clusters=None
         cell["delta"] = {"point": None, "lo": None, "hi": None}
         cell["ratio"] = {"point": None, "lo": None, "hi": None, "status": "undefined",
                          "zero_draw_fraction": None,
-                         "reason": "no paired error for this metric"}
+                         "reason": "no paired error for this metric",
+                         "point_reason": "no paired error for this metric"}
         cell["contributions"] = {"fraction_worse": None, "mean_positive_part": None,
                                  "mean_negative_part": None}
         return cell
@@ -240,10 +257,12 @@ def bootstrap_cell(e0, ek, gk, n_boot=N_BOOT, seed=0, alpha=ALPHA, clusters=None
     zero_draws = int(np.count_nonzero(draws["delta"] == 0.0))
     status = ratio_status(delta_lo, delta_hi, zero_draws)
 
-    # A3: the point ratio is withheld -- with its reason -- before any division.
-    point = None if delta_point == 0.0 else float(cell["gap"]["point"] / delta_point)
+    # A3: the point ratio is withheld -- with its reason -- before any division, and the
+    # reason is recorded whatever the bootstrap status turns out to be.
+    point, point_reason = point_ratio(cell["gap"]["point"], delta_point)
     ratio = {"point": point, "lo": None, "hi": None, "status": status,
-             "zero_draw_fraction": float(zero_draws) / float(n_boot), "reason": None}
+             "zero_draw_fraction": float(zero_draws) / float(n_boot), "reason": None,
+             "point_reason": point_reason}
     if status in ("defined", "improvement"):
         ratio["lo"], ratio["hi"] = _interval(draws["ratio"], alpha)
     elif status == "undefined":
@@ -288,12 +307,15 @@ def convergence(first, second):
         second: the same cell computed with seed 1.
 
     Returns:
-        ``{"converged", "status_agrees", "delta", "gap", "ratio"}``; each interval entry
-        carries ``converged`` (``True`` / ``False`` / ``"not applicable"``),
-        ``max_relative_movement`` and ``zero_width``.
+        ``{"converged", "status_agrees", "status_seed_0", "status_seed_1", "delta",
+        "gap", "ratio"}``; each interval entry carries ``converged`` (``True`` / ``False``
+        / ``"not applicable"``), ``max_relative_movement`` and ``zero_width``.  The two
+        statuses are kept so a disagreement can be reported as what it is.
     """
     report = {name: _bound_movement(first[name], second[name])
               for name in ("delta", "gap", "ratio")}
+    report["status_seed_0"] = first["ratio"]["status"]
+    report["status_seed_1"] = second["ratio"]["status"]
     report["status_agrees"] = bool(first["ratio"]["status"] == second["ratio"]["status"])
     report["converged"] = all(entry["converged"] is not False
                               for entry in (report["delta"], report["gap"],
@@ -307,25 +329,36 @@ def headline_multiple(cell, convergence_report):
     A multiple needs a ``defined`` denominator, converged bounds **and** the same
     denominator status under both seeds; anything else reports why it is withheld.
 
+    A3 gives the Monte Carlo qualification **precedence**: if the bounds did not converge,
+    or the two seeds disagree about the denominator, then which substantive statement the
+    pilot would have made is itself unresolved -- so "predictions shift while net error
+    improves" (or any other wording) must not be printed on top of it.  The two seeds'
+    statuses are carried in the result so the disagreement can be read.
+
     Returns:
-        ``{"reportable", "point", "lower_bound", "upper_bound", "reason"}``.
+        ``{"reportable", "point", "lower_bound", "upper_bound", "reason",
+        "status_seed_0", "status_seed_1"}``.
     """
     ratio = cell["ratio"]
     result = {"reportable": False, "point": ratio.get("point"),
               "lower_bound": ratio.get("lo"), "upper_bound": ratio.get("hi"),
-              "reason": None}
+              "reason": None,
+              "status_seed_0": convergence_report.get("status_seed_0",
+                                                      ratio.get("status")),
+              "status_seed_1": convergence_report.get("status_seed_1")}
+    if not (convergence_report.get("converged") and
+            convergence_report.get("status_agrees")):
+        result["reason"] = "unresolved Monte Carlo uncertainty"
+        return result
     if ratio["status"] == "denominator uncertain":
         result["reason"] = "denominator uncertain"
         return result
     if ratio["status"] == "undefined":
-        result["reason"] = ratio.get("reason") or "undefined"
+        result["reason"] = (ratio.get("point_reason") or ratio.get("reason") or
+                            "undefined")
         return result
     if ratio["status"] == "improvement":
         result["reason"] = "predictions shift while net error improves"
-        return result
-    if not (convergence_report.get("converged") and
-            convergence_report.get("status_agrees")):
-        result["reason"] = "unresolved Monte Carlo uncertainty"
         return result
     result["reportable"] = True
     return result

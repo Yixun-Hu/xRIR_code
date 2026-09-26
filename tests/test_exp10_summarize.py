@@ -685,3 +685,71 @@ def test_controls_table_refuses_a_control_missing_a_required_array(tmp_path):
     cell = table["controls"]["ctrl_zero_repeat"]
     assert table["ok"] is False and cell["ok"] is False
     assert any("c50_err" in problem for problem in cell["problems"])
+
+
+# ---------------- round 2, finding 4: A3's uncertainty qualification comes first
+
+def test_point_ratio_withholds_its_value_with_a_reason_before_dividing():
+    assert summarize.point_ratio(0.5, 0.1) == (5.0, None)
+    assert summarize.point_ratio(0.5, 0.0) == (None, "observed delta = 0")
+
+
+@pytest.mark.parametrize("e0,ek,gk,expected", [
+    (np.array([1.0, 2.0, 3.0]), np.array([1.0, 2.0, 3.0]), np.array([0.1, 0.2, 0.3]),
+     "observed delta = 0"),
+    (None, None, np.array([0.1, 0.2, 0.3]), "no paired error for this metric"),
+])
+def test_a_null_point_ratio_always_carries_its_reason(e0, ek, gk, expected):
+    cell = summarize.bootstrap_cell(e0, ek, gk, n_boot=100, seed=0)
+    assert cell["ratio"]["point"] is None
+    assert cell["ratio"]["point_reason"] == expected
+
+
+def test_an_empty_mask_records_why_its_point_ratio_is_null():
+    nan = float("nan")
+    cell = summarize.bootstrap_cell(np.array([nan, nan]), np.array([1.0, 2.0]),
+                                    np.array([0.1, 0.2]), n_boot=50, seed=0)
+    assert cell["ratio"]["point_reason"] == "empty comparison mask"
+
+
+def test_convergence_records_the_status_of_both_seeds():
+    first = {"delta": {"point": -0.3, "lo": -0.5, "hi": -0.1},
+             "gap": {"point": 0.4, "lo": 0.3, "hi": 0.5},
+             "ratio": {"status": "improvement", "lo": -4.0, "hi": -0.8}}
+    second = {"delta": {"point": -0.1, "lo": -0.4, "hi": 0.2},
+              "gap": {"point": 0.4, "lo": 0.3, "hi": 0.5},
+              "ratio": {"status": "denominator uncertain", "lo": None, "hi": None}}
+    report = summarize.convergence(first, second)
+    assert report["status_agrees"] is False
+    assert report["status_seed_0"] == "improvement"
+    assert report["status_seed_1"] == "denominator uncertain"
+
+
+def test_a_disagreeing_denominator_status_outranks_the_improvement_wording():
+    # Seed 0's delta interval is entirely negative, seed 1's crosses zero: which of the
+    # two the pilot would have reported is itself uncertain, so A3's qualification has to
+    # come before any substantive wording about improving or worsening.
+    first = {"delta": {"point": -0.3, "lo": -0.5, "hi": -0.1},
+             "gap": {"point": 0.4, "lo": 0.3, "hi": 0.5},
+             "ratio": {"status": "improvement", "point": -1.33, "lo": -4.0, "hi": -0.8}}
+    second = {"delta": {"point": -0.1, "lo": -0.4, "hi": 0.2},
+              "gap": {"point": 0.4, "lo": 0.3, "hi": 0.5},
+              "ratio": {"status": "denominator uncertain", "point": -4.0, "lo": None,
+                        "hi": None}}
+    report = summarize.convergence(first, second)
+    headline = summarize.headline_multiple(first, report)
+
+    assert headline["reportable"] is False
+    assert headline["reason"] == "unresolved Monte Carlo uncertainty"
+    assert headline["status_seed_0"] == "improvement"
+    assert headline["status_seed_1"] == "denominator uncertain"
+
+
+def test_a_failed_convergence_outranks_the_uncertain_denominator_wording():
+    cell = {"ratio": {"status": "denominator uncertain", "point": 5.0, "lo": None,
+                      "hi": None}}
+    headline = summarize.headline_multiple(
+        cell, {"converged": False, "status_agrees": True,
+               "status_seed_0": "denominator uncertain",
+               "status_seed_1": "denominator uncertain"})
+    assert headline["reason"] == "unresolved Monte Carlo uncertainty"
