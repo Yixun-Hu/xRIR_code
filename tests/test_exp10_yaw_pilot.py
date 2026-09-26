@@ -347,3 +347,47 @@ def test_angle_logspec_restores_the_alignment_after_an_exception(tiny_scene):
             pilot.angle_logspec(model, batch["depth"], batch["refs"], batch["src"],
                                 batch["ref_locs"], None, 64, batch["aligned0"])
     assert "shift_and_align" not in vars(model)
+
+
+# -------------------------------------------------------------------- test 6: invert
+
+def _fake_logspec(seed, n=2, freqs=63, frames=310):
+    torch.manual_seed(seed)
+    return (torch.randn(n, freqs, frames, 1) * 0.5 - 2.0)
+
+
+def test_invert_is_the_frozen_seeded_griffin_lim_composition():
+    from tools.per_sample_metrics import griffin_lim_seeded, sample_seed
+
+    out = _fake_logspec(0)
+    keys = ["Room/a_hybrid_IR.wav", "Room/b_hybrid_IR.wav"]
+    waves = pilot.invert(out, keys, 0)
+
+    assert waves.shape == (2, pilot.PADDED_LEN)
+    assert waves.dtype == np.float32
+    for i, key in enumerate(keys):
+        mag = (torch.exp(out[i:i + 1]) - 1e-8)[..., 0]
+        expected = griffin_lim_seeded(mag, sample_seed(0, key))[0].numpy()
+        assert expected.shape == (pilot.NATIVE_LEN,)
+        np.testing.assert_array_equal(waves[i, :pilot.NATIVE_LEN], expected)
+        np.testing.assert_array_equal(waves[i, pilot.NATIVE_LEN:], np.zeros(21))
+
+
+def test_invert_is_a_pure_function_of_output_key_and_seed():
+    out = _fake_logspec(1)
+    keys = ["Room/a_hybrid_IR.wav", "Room/b_hybrid_IR.wav"]
+    first = pilot.invert(out, keys, 0)
+    np.testing.assert_array_equal(first, pilot.invert(out, keys, 0))
+    other_key = pilot.invert(out, ["Room/zzz_hybrid_IR.wav", keys[1]], 0)
+    assert not np.array_equal(first[0], other_key[0])
+    np.testing.assert_array_equal(first[1], other_key[1])
+    other_seed = pilot.invert(out, keys, 1)
+    assert not np.array_equal(first[0], other_seed[0])
+
+
+def test_invert_rejects_a_key_count_or_layout_it_cannot_pair():
+    out = _fake_logspec(2)
+    with pytest.raises(ValueError):
+        pilot.invert(out, ["only-one"], 0)
+    with pytest.raises(ValueError):
+        pilot.invert(out[..., 0], ["a", "b"], 0)

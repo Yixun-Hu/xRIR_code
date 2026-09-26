@@ -39,12 +39,18 @@ import torch
 import model.xRIR as model_xrir
 from tools.yaw_rotation import fixed_alignment, rotate_scene_yaw
 
-from tools.per_sample_metrics import acoustic_metrics
+from tools.per_sample_metrics import (
+    acoustic_metrics,
+    griffin_lim_seeded,
+    sample_seed,
+)
 
 MAG_EPS = 1e-8
 REL_L2_EPS = 1e-8
 METRIC_WINDOW = 8000          # exp_01's acoustic window, enforced by acoustic_metrics
 SAMPLE_RATE = 22050
+NATIVE_LEN = 9579             # (310 - 1) * hop 31: what Griffin-Lim returns
+PADDED_LEN = 9600             # exp_01's max_len, the length the waveforms are stored at
 
 
 def _as_block(array, name):
@@ -319,3 +325,47 @@ def angle_logspec(model, depth, refs, src, ref_locs, tgt, k, aligned0):
         with fixed_alignment(model, aligned0):
             out_k, tgt_spec = model(depth_k, refs, src_k, ref_locs_k, tgt)
     return out_k, tgt_spec
+
+
+def invert(out, keys, gl_seed):
+    """Griffin-Lim one batch's log-magnitude prediction into stored waveforms.
+
+    The magnitude ``M = exp(out) - 1e-8`` is built **on the output's own device** and then
+    moved to the CPU -- the op placement of exp_03's ``acoustic_metrics_batch``, kept so a
+    GPU run and this tool produce the same numbers -- and inverted by
+    ``tools.per_sample_metrics.griffin_lim_seeded`` with the per-query phase seed
+    ``sample_seed(gl_seed, key)``, so the same query inverts the same magnitudes to the
+    same waveform at every angle, in every model and in any order.
+
+    Griffin-Lim returns 9579 samples; they are zero-padded to the stored 9600 and
+    returned as float32 **exactly as they are** -- no clipping, no normalisation -- so the
+    metrics, the saved ``wav_k<k>.npy`` and any offline recomputation all see one array.
+
+    Args:
+        out: log-magnitude predictions ``[n, F, T, 1]`` (the model's native layout).
+        keys: the ``n`` query paths, in batch order.
+        gl_seed: run-level Griffin-Lim seed.
+
+    Returns:
+        ``[n, 9600]`` float32 ``np.ndarray``.
+
+    Raises:
+        ValueError: if ``out`` is not ``[n, F, T, 1]``, if ``keys`` does not have one key
+            per row, or if an inversion is longer than the stored length.
+    """
+    if out.dim() != 4 or out.shape[-1] != 1:
+        raise ValueError("out must be [n, F, T, 1] (the model's native layout), got {}"
+                         .format(tuple(out.shape)))
+    if len(keys) != out.shape[0]:
+        raise ValueError("got {} query keys for a batch of {}".format(
+            len(keys), out.shape[0]))
+    waves = np.zeros((out.shape[0], PADDED_LEN), dtype=np.float32)
+    with torch.no_grad():
+        for i, key in enumerate(keys):
+            mag = (torch.exp(out[i:i + 1]) - MAG_EPS)[..., 0].cpu()
+            samples = griffin_lim_seeded(mag, sample_seed(gl_seed, key))[0].numpy()
+            if samples.shape[0] > PADDED_LEN:
+                raise ValueError("Griffin-Lim returned {} samples, more than the stored "
+                                 "length {}".format(samples.shape[0], PADDED_LEN))
+            waves[i, :samples.shape[0]] = samples
+    return waves
