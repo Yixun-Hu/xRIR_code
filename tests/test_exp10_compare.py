@@ -423,3 +423,36 @@ def test_parity_exp03_tolerates_a_missing_optional_diagnostic(tmp_path):
     assert report["required_metrics"] == list(compare.REQUIRED_PARITY_METRICS)
     assert report["angles"]["128"]["edt_err"]["required"] is True
     assert report["angles"]["128"]["loss"]["required"] is False
+
+
+# ----------------------- round 2, finding 8: the written report must be strict JSON
+
+def _reject_constant(name):
+    raise AssertionError("the report carries the non-JSON constant {}".format(name))
+
+
+def test_the_written_parity_report_is_strict_json_when_nothing_can_be_compared(tmp_path):
+    from tests.exp10_fixture import edit_json
+
+    run_dir = _probe_like_run(tmp_path)
+
+    def invalidate(payload):
+        for angle in payload["angles"].values():
+            angle["edt_err"] = [None] * len(angle["edt_err"])
+
+    edit_json(os.path.join(run_dir, "per_sample.json"), invalidate, rehash_meta=True)
+    history = _history(tmp_path, run_dir)
+    out = str(tmp_path / "parity.json")
+    report = compare.parity_exp03(run_dir, history)
+    compare._print_json(report, out)
+
+    with open(out) as fin:
+        text = fin.read()
+    assert "NaN" not in text and "Infinity" not in text
+    payload = json.loads(text, parse_constant=_reject_constant)
+    cell = payload["angles"]["128"]["edt_err"]
+    assert cell["n_common"] == 0
+    assert cell["paired_delta_run"] is None
+    assert cell["paired_delta_exp03"] is None
+    assert cell["sign_agreement"] is None
+    assert payload["angles"]["128"]["c50_err"]["paired_delta_run"] is not None

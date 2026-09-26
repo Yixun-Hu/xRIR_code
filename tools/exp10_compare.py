@@ -471,9 +471,32 @@ def parity_exp03(run_dir, exp03_per_sample, condition="P"):
     return report
 
 
+def _strict(payload):
+    """A report as strictly serialisable values: every non-finite float becomes ``null``.
+
+    A cell with nothing to compare (an all-invalid population) leaves NaN behind in the
+    paired deltas and the sign agreement; ``NaN`` is not JSON, and a report a strict
+    parser cannot read is not a record.  ``null`` says the same thing -- "no value here" --
+    in a form every reader accepts.
+    """
+    if isinstance(payload, dict):
+        return {key: _strict(value) for key, value in payload.items()}
+    if isinstance(payload, (list, tuple)):
+        return [_strict(value) for value in payload]
+    if isinstance(payload, (bool, np.bool_)):
+        return bool(payload)
+    if isinstance(payload, (float, np.floating)):
+        value = float(payload)
+        return value if np.isfinite(value) else None
+    if isinstance(payload, np.integer):
+        return int(payload)
+    return payload
+
+
 def _print_json(report, path=None):
-    """Print a report (and optionally save it) without losing NaN to strict JSON."""
-    text = json.dumps(report, indent=2, sort_keys=True, default=str)
+    """Print a report (and optionally save it) as strict JSON: non-finite values null."""
+    text = json.dumps(_strict(report), indent=2, sort_keys=True, allow_nan=False,
+                      default=str)
     print(text)
     if path:
         with open(path, "w") as fout:
