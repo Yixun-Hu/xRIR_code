@@ -138,3 +138,885 @@ worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degrad
 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_21:50:39_faulttest_launcher_selftest.log
 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_2026-09-06_22:53:22_faulttest_stub_exit7_ABORTED_evaluator_exit7.log
 
+exec
+/bin/bash -lc 'wc -l worklog/worklog_yixun/exp_10_yaw_pilot_claude/*.md worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/{plan_yaw_rotation_degradation.md,yaw_rotation_degradation_results.md,yaw_rotation_degradation_analysis.md} eval_yaw_rotation.py tools/{yaw_rotation,per_sample_metrics,reference_manifest}.py /home/yixunhu/codespace/FLAC/worklog/worklog_yixun/exp_02_yaw_noninvariance_claude/{plan_yaw_noninvariance.md,yaw_noninvariance_results.md,compare_predictions.py} /home/yixunhu/codespace/FLAC/analysis/pilot_study/plot_pilot_yaw_gaps.py worklog/worklog_yixun/model_comparison.md
+nl -ba worklog/worklog_yixun/exp_10_yaw_pilot_claude/plan_yaw_pilot.md' in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+   119 worklog/worklog_yixun/exp_10_yaw_pilot_claude/plan_yaw_pilot.md
+    77 worklog/worklog_yixun/exp_10_yaw_pilot_claude/plan_yaw_pilot_v1_superseded.md
+    72 worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_plan_review.md
+    59 worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_plan_review_round2.md
+    28 worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_worklog.md
+    13 worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_yixun_query.md
+   126 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/plan_yaw_rotation_degradation.md
+   398 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results.md
+    33 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_analysis.md
+   687 eval_yaw_rotation.py
+   216 tools/yaw_rotation.py
+   172 tools/per_sample_metrics.py
+   282 tools/reference_manifest.py
+    50 /home/yixunhu/codespace/FLAC/worklog/worklog_yixun/exp_02_yaw_noninvariance_claude/plan_yaw_noninvariance.md
+    41 /home/yixunhu/codespace/FLAC/worklog/worklog_yixun/exp_02_yaw_noninvariance_claude/yaw_noninvariance_results.md
+   300 /home/yixunhu/codespace/FLAC/worklog/worklog_yixun/exp_02_yaw_noninvariance_claude/compare_predictions.py
+    89 /home/yixunhu/codespace/FLAC/analysis/pilot_study/plot_pilot_yaw_gaps.py
+    30 worklog/worklog_yixun/model_comparison.md
+  2792 total
+     1	# Plan — exp_10 `yaw_pilot` (xRIR analogue of FLAC exp_02 `yaw_noninvariance`)
+     2	
+     3	**Planner:** Claude Fable 5.1 (session xrir-code-25). **Coder:** Claude Opus 5 (Agent, worktree `xRIR_code_wt10`, branch `exp10-yaw-pilot`). **Reviewer:** OpenAI Codex `gpt-6-astra` at **ultra** (SOP setting; round 1 ran at xhigh, see §10). **Date:** 2026-09-26. **Status:** **v3** after the round-2 plan review at ultra (`yaw_pilot_codex_plan_review_round2.md`, REQUEST CHANGES, 1 blocker + 5 should-fixes + 2 nits; §11 maps them); v2 was the round-1 revision (`yaw_pilot_codex_plan_review.md`; §10). v1 kept as `plan_yaw_pilot_v1_superseded.md`.
+     4	
+     5	## 1. Question and stance
+     6	
+     7	**Question (Yixun, 2026-09-26).** Mimicking FLAC's exp_02 pilot: when the *conditioning* of the released xRIR checkpoint is yaw-rotated on the AcousticRooms unseen split, how much does the **prediction itself move** (Metric 1, P_α vs P_0, no GT) compared with how much **accuracy vs GT changes** (Metric 2)? FLAC's finding: "predictions move ~5× more than net accuracy loses".
+     8	
+     9	**Stance.** A **descriptive pilot**, like FLAC's: paired means with query-level bootstrap intervals; no confirmatory hypotheses (exp_03 already ran the Bonferroni-adjusted H1/H2 tests on Metric 2 for K = 8). Pre-registered readouts, per arm, angle and metric:
+    10	
+    11	- **R1** signed accuracy change Δ(α) = mean(e_α − e_0) vs GT, and prediction shift G(α) = mean(g_α), each with a 95 % paired query-level percentile bootstrap interval, on the **shared comparison mask** of §4; paired-valid count and exclusions reported.
+    12	- **R2** the ratio R = G/Δ, from the **same resamples**, with an explicit **status**: `defined` (Δ interval entirely positive), `improvement` (Δ interval entirely negative — reported as "predictions shift while net error improves", never as a positive multiple), `denominator uncertain` (Δ interval contains 0 — no ratio interval is reported, and this is **not** equivalence or invariance), `undefined` (any resample with Δ* exactly 0; the fraction of such draws is reported; draws are never discarded, no epsilon, no |Δ|). The status and the ratio interval are computed and reported **separately for the query-level and the room-cluster bootstrap**; the FLAC-style statement "shift ≫ change" requires status `defined` and a ratio lower bound > 2 **at the query level, with the room-level status printed beside it** (exp_03 showed query-level T60 intervals excluding 0 whose room-level intervals cross 0). Every headline statement is scoped to the checkpoint, the reference manifest, the phase seed and this fixed split. "Improvements and deteriorations cancel" may only be written with their paired contributions shown (fraction of queries with e_α > e_0, and the mean positive and mean negative parts of e_α − e_0); it is never inferred from G/Δ alone. Ratios only for metrics whose error and gap share a definition (EDT seconds, C50 dB; T60 is qualified, §4).
+    13	- **R3** the **GL-free spectral shift** (`logspec_mad`, `mag_rel_l2`) reported beside the waveform/acoustic shift, and labelled: waveform and acoustic gaps are the sensitivity of the **model-plus-Griffin-Lim pipeline** conditional on the per-query phase seed (shared phase initialisation removes initialisation noise; Griffin-Lim's nonlinear response to magnitude changes remains and **can amplify** differences). No FLAC/xRIR *waveform-distance* ranking is made (FLAC's rel-L2 is over 10 240 directly decoded samples; xRIR's over 9 600 samples of an inverted magnitude, 21 of them padding); the FLAC-comparable quantities are the acoustic gaps under the same "P_0 as GT" convention — a **conceptual**, not a numerically identical, comparability: both evaluators use the first 8 000 samples at 22 050 Hz (verified by the reviewer), but FLAC substitutes −1 for a failed T60 measurement and includes it in the AcousticRooms error (`FLAC/src/metrics/modules/RT60.py`), whereas xRIR returns NaN and excludes the query (`tools/per_sample_metrics.py`), and FLAC adds a small constant inside the C50 logarithm. The analysis records these estimator / invalid-policy differences beside every cross-family comparison and qualifies T60 and C50 comparisons accordingly; the pinned xRIR evaluator is not changed.
+    14	
+    15	## 2. Mechanism recap (exp_03; unchanged)
+    16	
+    17	Geometry enters `xRIR.forward` through the ViT views `(loc − depth_coord)/5` and the sinusoidal embedding of raw xyz. Active yaw by k columns (W = 512): `depth' = Rz(2πk/W)·roll(depth, k)`, `src' = Rz·src`, `ref_locs' = Rz·ref_locs`; reference audio and target unchanged (`tools/yaw_rotation.rotate_scene_yaw`, oracle-tested in exp_03). Condition **P** pins the direct-path alignment at k = 0 (`tools/yaw_rotation.fixed_alignment`) so only the geometry branches see the rotation — the analogue of FLAC's `--rotate-deg`, which rotates the conditioning and leaves the audio untouched. exp_03 measured E (end-to-end alignment) = P to 2e-5 **at K = 8**; E is not run here. The model outputs a log-magnitude `out` `[F=63, T=310]`; the magnitude is `M = exp(out) − 1e-8` (built on the inference device, then moved to CPU exactly as exp_03's `acoustic_metrics_batch` does) and the waveform is Griffin-Lim on CPU (`tools/per_sample_metrics.griffin_lim_seeded`, 32 iterations, phase seeded by `sample_seed(gl_seed, query)`), 9 579 samples zero-padded to 9 600.
+    18	
+    19	## 3. Arms, references, angles, backend
+    20	
+    21	| Arm | Checkpoint | K | Manifest (exp_03's, hashed) | Role |
+    22	|---|---|---|---|---|
+    23	| `released_k8` | `checkpoints/xRIR_unseen.pth` (authors', frozen; sha256 `1762c702…`) | 8 | `ckpt/yaw_rotation/reference_manifest.json` (`47637a55…`) | **primary** — FLAC analogue at xRIR's paper setting; Metric 2 replicates exp_03 `sweep_released` |
+    24	| `released_k1` | same | **trained K = 8, evaluated K = 1** | `ckpt/yaw_rotation/reference_manifest_k1.json` (`f6d71f86…`) | FLAC's reference count only (not its protocol); **no exp_03 predecessor** — parity vs exp_03 unavailable; K = 1 vs K = 8 differences are not attributed to reference count alone |
+    25	| `control_k8` | `ckpt/xRIR_simple_8_shot/epoch_12.pth` | 8 | `47637a55…` | same-budget SimpleViT; replicates exp_03 `sweep_control` |
+    26	| `cyl_k8` | `ckpt/xRIR_cyl_8_shot/epoch_12.pth` | 8 | `47637a55…` | CylindricalViT; replicates exp_03 `sweep_cyl` |
+    27	
+    28	Execution order = table order. Settings identical to exp_03's sweeps: batch 16 with canonical padding (`eval_yaw_rotation.pad_batch`), TF32 off, float32, `gl_seed 0`, acoustic metrics on the first 8 000 samples, unseen split, 6 337 queries / 17 rooms, canonical manifest order. Strict `load_state_dict`; the CLI `--num-shot`, the manifest's `num_shot` and the built model's K must agree (refused otherwise). **Angles k ∈ {0, 64, 128, 256, 384}** = 0°, 45°, 90°, 180°, 270° (FLAC's three axis angles plus 45°, exp_03's peak; all on exp_03's acoustic grid).
+    29	
+    30	**Backend.** Primary backend is **GPU 1** (A6000, the same class exp_03 used; a **4–5 h** co-tenancy window at ≈ 4 GB, starting after the cylindrical-dinov3 session's ping when its exp_24 fine-tune exits (≈ 22:30 on 2026-09-26), agreed by that session; ≈ 30 % slowdown expected; the earlier "≈ 2 h" figure is superseded, and the full sweep is scheduled only after the probe's per-arm forecast fits the window). The tool also runs on CPU (runtime, scoped replacement of `model.xRIR.apply_delay`, which hard-codes `.cuda()`); the CPU path is the fallback and, if used for any arm, is reported as a **separate CPU protocol** unless the §7 parity gate passes on it. Library and precision pins recorded in meta: torch 2.0.1+cu117, numpy 1.23, TF32 off, `torch.backends.cudnn.deterministic = True`, float32.
+    31	
+    32	## 4. Metrics (per query; NaN = invalid, never imputed)
+    33	
+    34	**Metric 2 — accuracy vs GT at angle α (condition P):** `edt_err` (s), `c50_err` (dB), `t60_err` (% of T60(GT)) via `tools.per_sample_metrics.acoustic_metrics(pred = w_α, gt = GT)` (exp_03's validity rules, 8 000-sample window); `log_mse` and the test `loss` via `per_sample_losses`. **Raw measures** are also stored per angle (`edt_pred`, `c50_pred`, `t60_pred` and once `edt_gt`, `c50_gt`, `t60_gt`, from the same `Evaluator` calls, NaN under the same exceptions) so any normalisation can be recomputed offline; a test checks that the canonical error equals the error rebuilt from the raw measures wherever both are finite.
+    35	
+    36	**Metric 1 — prediction shift, P_α vs P_0, no GT:**
+    37	- `wave_rel_l2` = ‖w_α − w_0‖₂ / (‖w_0‖₂ + 1e-8) and `wave_mad` = mean|w_α − w_0| over the stored 9 600-sample float32 waveforms (FLAC's `compare_predictions.waveform_gap` definitions; window difference stated in §1);
+    38	- `mag_rel_l2` = ‖M_α − M_0‖_F / ‖M_0‖_F with `M = exp(out) − 1e-8`, and `logspec_mad` = mean|out_α − out_0| (**= exp_03's `consistency`**, computed on the model's log-magnitude output, not a fresh log of M);
+    39	- acoustic gaps `edt_gap` (s), `c50_gap` (dB), `t60_gap` (% of T60(w_0)) = `acoustic_metrics(pred = w_α, gt = w_0)` — FLAC's "P_ref as GT" convention; plus the absolute supplement `t60_gap_abs` = |T60(w_α) − T60(w_0)| (s) and `t60_err_abs` = |T60(w_α) − T60(GT)| (s) from the raw measures.
+    40	
+    41	**T60 normalisations.** ΔT60 is a **percentage-point change in the GT-normalised error**; G_T60 is a **percent of the baseline prediction's T60**; their ratio is reported only with that qualification, and the absolute-seconds pair (`t60_err_abs`, `t60_gap_abs`) gives the same-unit comparison. EDT (s) and C50 (dB) are same-unit by construction.
+    42	
+    43	**Paired-bootstrap contract (per arm, angle, metric).** Comparison mask = queries where `e_0`, `e_α` and `g_α` are all finite (for spectral metrics the mask is all queries). One draw of query indices per replicate (10 000 replicates, seed 0, 95 % two-sided percentile); from the same draw compute Δ* = mean(e_α − e_0), G* = mean(g_α), R* = G*/Δ*. Report n_mask and the exclusion counts by cause (invalid at 0, at α, gap invalid). A standalone G on the broader "g_α finite" population is reported separately and labelled as such. Ratio status per R2. **Room-cluster bootstrap** (secondary): resample the 17 rooms with replacement, keep every query of a drawn room with the drawn multiplicity, recompute the query-weighted means (no per-room averaging). **Status precedence:** `undefined` (any exact-zero Δ* draw) is decided first; then `improvement` / `defined` / `denominator uncertain` from the interval; the same rule is applied to the query-level and the room-level intervals independently. **Convergence:** every reported bound recomputed with seed 1; movement < 10 % of the interval width; an interval of zero width that is identical under both seeds (k = 0: Δ = G = [0, 0]) counts as converged, a zero-width interval that changed counts as failed, and an absent ratio interval is "not applicable" (test 12 includes a k = 0 fixture). **Historical variability band** (figure only): exp_04's five-seed SD of the same-budget SimpleViT at K = 8 (EDT 0.186 ms, C50 0.0053 dB, T60 0.009 %) / K = 1 (0.609 ms, 0.0133 dB, 0.101 %) and the cylindrical SDs for `cyl_k8` — labelled "historical baseline evaluation variability (references and phases redrawn), context only"; it plays no role in any decision or acceptance; the paired CIs are the uncertainty statement.
+    44	
+    45	## 5. Planned code (new files only; exp_03's pinned closure untouched — verified before launch by `tests/test_exp03_record_tools.py`, whose pins cover `eval_yaw_rotation.py`, `tools/{yaw_rotation,reference_manifest,per_sample_metrics}.py`, `model/*`, the dataset and `utils/spec_utils.py`)
+    46	
+    47	Reused unchanged: `eval_yaw_rotation.pad_batch`, `load_checked_manifest`, `build_manifest_dataset`; `tools.yaw_rotation.rotate_scene_yaw`, `fixed_alignment`; `tools.per_sample_metrics.per_sample_losses`, `griffin_lim_seeded`, `sample_seed`, `acoustic_metrics`; `eval_unseen.Evaluator`; `model.xRIR_cyl.build_xrir`; `eval_xRIR_backbone.load_model_state`.
+    48	
+    49	| File | Purpose |
+    50	|---|---|
+    51	| `tools/exp10_yaw_pilot.py` | `device_agnostic_apply_delay(signal, delays)`; `patched_apply_delay()` context manager (installs/restores `model.xRIR.apply_delay`; used by `run` for every device so GPU and CPU take one code path); `angle_logspec(model, depth, refs, src, ref_locs, tgt, k, aligned0)` → `out_k [n, F, T]` (under `fixed_alignment`); `invert(out, keys, gl_seed)` → float32 `[n, 9600]` (M built on the output's device, GL on CPU); `waveform_gap(w0, wk)`, `spectrogram_gap(out0, outk)`, `acoustic_gap(w0, wk, evaluator, want_t60)`, `raw_measures(w, evaluator)`; `evaluate_batch(model, batch, ks, evaluator, gl_seed, batch_size, device)` → per-query metrics per k and the float32 waveforms the metrics were computed from; `select_probe_batches(dataset, per_room=1)` → the first canonical batch lying entirely inside each room (17 batches, 272 queries); `run(args)` with `--batches all|probe|<list>`, `--controls` (§7), hash-checked manifest, canonical-order check, K agreement check, outputs under `ckpt/exp10/<arm>/`: `per_sample.json` (all metrics + raw measures per k, ordered query ids, controls), `metrics.json`, `wav_k<k>.npy` float32 `[N, 9600]`, `meta.json` (a `run_id` = checkpoint sha256 + manifest hash + gl_seed + K + device + backend flags, backbone, manifest path, cudnn/TF32 flags, torch/numpy versions, git commit, the `verify_exp03_pins` comparison, native length 9 579, padded 9 600, sample rate, metric window, per-array sha256, query-list sha256, `per_sample.json` sha256, timing breakdown, complete = true only after the last write) |
+    52	| `tools/exp10_compare.py` | FLAC-style offline comparator from stored arrays (meta guard: checkpoint sha256, manifest hash, gl_seed, K, array sha256s, query-list sha256, `complete`); `check_online` (offline **waveform and acoustic** gaps == online, 1e-6 — the spectral quantities `logspec_mad` / `mag_rel_l2` are computed online from the model's direct output, retained and hashed in `per_sample.json`, and are NOT recomputable from finite-iteration Griffin-Lim waveforms, so they are excluded from the offline check by contract); `parity_exp03(run, exp03_per_sample)`: verifies manifest-hash identity, maps the run's canonical query indices into the historical file (unique indices, `index`/`query` agreement), extracts exactly those rows and requires ordered equality of the query lists — refuses missing, duplicate or reordered queries — then reports, per angle and metric, the paired Δ from both sources, the per-sample |Δ| distribution of `edt_err`/`c50_err`/`t60_err`/`logspec_mad`, sign agreement and the validity-mask mismatches; runs on the probe subset (272 rows) and again over the full results; `verify_exp03_pins(binding_report)`: sha256 of every `source_closure` path in `ckpt/yaw_rotation/binding_report.json` (12 files, reviewed commit `62c9107b…`) compared with its `reviewed_blob_sha256` — refuses on any mismatch and returns the comparison for the run meta |
+    53	| `tools/exp10_summarize.py` | canonical JSON (with input sha256s) + Markdown tables: Metric 2 (mean_0, mean_α, Δ, CI, n_mask, exclusions), Metric 1 (each gap, CI, n), ratio + status, room-cluster intervals, convergence, controls; figure `yaw_pilot_gaps_<arm>.{pdf,png}` in FLAC's style — panels T60 / C50 / EDT / GL-free spectral shift; **signed** degradation bars with CI error bars, shift bars with CI, n_mask and ratio status annotated, historical band labelled — plus a four-arm combined figure; CSV of every plotted value |
+    54	| `tests/test_exp10_yaw_pilot.py`, `tests/test_exp10_compare.py`, `tests/test_exp10_summarize.py` | §6 |
+    55	
+    56	## 6. Per-function tests (TDD; red → green; one small commit per cycle)
+    57	
+    58	`tools/exp10_yaw_pilot.py`
+    59	1. `waveform_gap`: identity → (0, 0); `rel_l2(w, 2w) = 1`; zero reference → finite; `[n, T]` → `[n]`.
+    60	2. `spectrogram_gap`: identity → 0; `logspec_mad` = mean|a − b|; `mag_rel_l2` uses `exp(out) − 1e-8` (checked against a hand computation).
+    61	3. `acoustic_gap` / `raw_measures`: identity → EDT 0, C50 0, T60 0; `want_t60=False` → NaN; all-zero input → NaN, no exception; canonical error == error rebuilt from raw measures where both finite.
+    62	4. `device_agnostic_apply_delay`: positive / negative / zero delays on CPU; equals `model.xRIR.apply_delay` on CUDA when available (skip otherwise); `patched_apply_delay` restores the original, also when the block raises.
+    63	5. `angle_logspec` (random-init `build_xrir("simple", 2)`, synthetic batch, CPU): k = 0 equals the plain forward exactly; **k = 128 equals the trusted composition** `rotate_scene_yaw` + `fixed_alignment` + `model(...)` written out in the test; reference and target audio are unchanged by the call; `shift_and_align` is not called inside the pinned block (counter); angle-order invariance (ks in two orders → identical outputs); restoration after an exception inside the block.
+    64	6. `invert`: same `(out, key, gl_seed)` twice → identical; different key → different; `[n, 9600]` float32, last 21 samples zero; the returned array is the one the metrics consume (no clipping/normalisation).
+    65	7. `evaluate_batch`: batch of 3 padded to 4 → n = 3; both metric families + raw measures at every k; k = 0 gaps exactly 0; kept rows identical whether the 3 queries are alone or inside a batch of 4; controls with distinct ids run **fresh inference** (call counter increases).
+    66	8. `select_probe_batches`: on a synthetic manifest with contiguous rooms returns one intact batch per room, each entirely inside its room; refuses rooms with no full batch.
+    67	9. `run` smoke (`--batches 0`, real manifest, CPU; skipped without data): outputs and meta complete (all §5 fields, array sha256s match, `complete` true); refuses a wrong `--manifest-hash` and a K mismatch; a second run is bit-identical on CPU; save/load round trip of `wav_k*.npy` is exact.
+    68	
+    69	`tools/exp10_compare.py`
+    70	10. Offline Metric 1 == online (1e-6); meta guard refuses different gl_seed / manifest / checkpoint sha / K / array sha / `complete = false`.
+    71	11. `parity_exp03`: accepts a valid non-contiguous probe subset (rows extracted by canonical index, ordered equality); refuses a different manifest hash, and missing / duplicate / reordered queries; on a fixture with an injected per-sample offset reports max |Δ|, mean |Δ|, paired-Δ difference, sign agreement and validity-mask mismatches exactly. `verify_exp03_pins`: passes on the untouched tree; fails on a fixture whose one file is altered; the comparison is written into meta by `run`.
+    72	
+    73	`tools/exp10_summarize.py`
+    74	12. Bootstrap contract: one shared draw per replicate (Δ*, G*, R* from the same indices — checked by injecting a query whose exclusion changes all three); shared mask excludes a query invalid in any of `e_0`, `e_α`, `g_α`; exclusion counts by cause; seeded reproducibility; synthetic shift recovered inside the CI; status `defined` / `improvement` / `denominator uncertain` / `undefined` each hit by a fixture (including exact-zero draws counted, not dropped); empty mask → reported as n = 0 with no interval, no exception.
+    75	13. Room-cluster bootstrap: drawn-room multiplicities preserved and query-weighted (a fixture with unequal room sizes where per-room averaging would give a different answer).
+    76	14. Controls table: flags `ctrl_full_turn` / `ctrl_zero_repeat` / `ctrl_k128_repeat` mismatches > 1e-6 (waveform and log-spec) and > 1e-9 on acoustic metrics.
+    77	15. Figure/CSV: files written; signed negative bars rendered; CSV rows equal the JSON values; refuses a JSON whose input sha256s do not match disk.
+    78	16. Run-identity guard: the summariser refuses to combine Δ, G or R from per-sample files with different `run_id`s (e.g. a CPU run's gaps with exp_03's GPU errors); historical exp_03 values can only enter a separately labelled "historical comparison" table.
+    79	
+    80	## 7. Validation ladder, controls, parity gate, acceptance
+    81	
+    82	Static checks → new tests + `verify_exp03_pins` against `ckpt/yaw_rotation/binding_report.json` (live sha256 of the 12 pinned files == their reviewed blobs at `62c9107b…`; `tests/test_exp03_record_tools.py` alone only exercises the validators on synthetic records) + the exp_04/exp_07 record suites → smoke (`--batches 0`, CPU) → **probe** on GPU 1: `released_k8` on the 17 room-spanning canonical batches (272 queries; identical batch composition to the full run, so its per-sample values are a subset of the full run's) at all five angles, with timing of inference / inversion / metrics / writing separately and a thread budget of 16 torch threads, one process; **controls** on the same probe: `ctrl_full_turn` (k = 512; identity path through `rotate_scene_yaw`, plumbing only), `ctrl_zero_repeat` (fresh k = 0 inference under its own id), `ctrl_k128_repeat` (fresh nonzero repeat) — all three must match their originals to 1e-6 (waveforms, log-spec) and 1e-9 (acoustic metrics). **Parity gate vs exp_03** (`sweep_released/per_sample_yaw.json`, same GPU class, TF32 off, same manifest / gl_seed / batch shape) on the probe queries, per angle in {0, 64, 128, 256, 384}: (a) per-sample `logspec_mad` |Δ| ≤ 1e-5 for every query; (b) per-sample `edt_err` / `c50_err` / `t60_err` |Δ| ≤ 1e-4 s / 1e-3 dB / 0.01 % for ≥ 99.5 % of queries (Griffin-Lim can amplify float noise for a few); (c) the **paired Δ on the probe queries** from the new run and from exp_03 agree within max(5 % of |Δ_exp03|, 2e-5 s / 2e-4 dB / 2e-3 %) and have the same sign, for every angle and metric. **All three criteria (a), (b), (c) are binding**: if the GPU probe fails any of them the launch is blocked and the cause investigated. If only the CPU fallback is available and fails any criterion, the arm proceeds as a **separate CPU protocol**: Δ, G and R are computed **entirely from that CPU run** (never from exp_03's GPU errors — test 16), exp_03's values appear only in a separately labelled historical-comparison table with the discrepancy tabulated, and no "replication" wording is used. An arm is called an exp_03 replication only after `parity_exp03` passes on the probe **and** on the full results. `control_k8` / `cyl_k8` run the same probe gate against `sweep_control` / `sweep_cyl`; `released_k1` runs the controls only (no predecessor). Each arm's full run is forecast from its own probe timing (K = 1 and K = 8 forward costs differ). **Full-run acceptance:** 6 337 queries in canonical order, every angle present, `meta.complete`, `check_online` passes, EDT/C50 finite counts at k = 0 equal exp_03's for the replicated arms, waveform arrays' sha256s recorded, worklog acceptance entry written before launch.
+    83	
+    84	## 8. Compute and outputs
+    85	
+    86	GPU 1 (co-tenant, ≈ 30 % slower; 4–5 h window after the ≈ 22:30 ping, see §3): forecast from the probe and reconciled with the window before the full sweep is scheduled (if the forecast exceeds the window, the arms are queued across windows in table order); prior: ≈ 12–15 min per angle-pass per K = 8 arm (exp_04's K = 8 seed run took 7.6 min for one angle solo, GL on CPU), so ≈ 1–1.3 h per arm, ≈ 4–5 h for four arms plus controls and offline comparison. CPU fallback: ≈ 40 min per angle-pass (measured on the qualitative export, 24 threads). Disk: 20 waveform arrays × 243 MB ≈ 4.9 GB under `ckpt/exp10/` (git-ignored; 51 GB free). Deliverables per SOP: `_params_set_up.md`, `_command.md`, teed logs, `_results.md`, `_analysis.md`, `yaw_pilot_01_results.html` + assets (figures, CSV, canonical JSON with sha256s), `commits_yaw_pilot.md`.
+    87	
+    88	## 9. Out of scope
+    89	
+    90	Training; condition E; angles beyond the five; retrieval metrics; changes to pinned exp_03/exp_04 modules; confirmatory tests; FLAC/xRIR waveform-distance rankings.
+    91	
+    92	## 10. Round-1 review findings → v2 changes
+    93	
+    94	| # | Severity | Change in v2 |
+    95	|---|---|---|
+    96	| 1 | blocker | §4 paired-bootstrap contract: shared mask, one draw per replicate for Δ*/G*/R*, exclusion counts, ratio status incl. `improvement` and exact-zero draws, room bootstrap with multiplicities; tests 12–13 |
+    97	| 2 | blocker | §3 GPU 1 as primary backend (same class as exp_03); §7 probe = 17 room-spanning intact canonical batches; gate on the paired Δ itself plus per-sample limits; operation placement preserved; pins recorded; CPU = separate protocol unless it passes |
+    98	| 3 | should-fix | §1 R3 labels (pipeline sensitivity, GL "can amplify", no waveform ranking, windows to verify); §4 explicit `M` and `logspec_mad` definitions |
+    99	| 4 | should-fix | §4 T60 normalisation labels + absolute-seconds supplement from stored raw measures |
+   100	| 5 | should-fix | §7 controls with fresh inference and distinct ids incl. a nonzero repeat; tests 5 and 7 (nonzero-angle composition, audio unchanged, order invariance, restoration after exception) |
+   101	| 6 | should-fix | §3 `released_k1` relabelled "trained K = 8, evaluated K = 1", no exp_03 parity, K agreement check, P/E claim scoped to K = 8 |
+   102	| 7 | should-fix | §4 band = historical variability, context only; cylindrical SD for `cyl_k8`; no decision use |
+   103	| 8 | should-fix | §5 meta/identity contract (lengths, window, ordered ids, checkpoint/array/query-list sha256s, versions, `complete`), metrics computed from the saved arrays; tests 9–10; pinned files verified by the exp_03 record test |
+   104	| 9 | should-fix | §5 figure with GL-free panel, signed bars, CI endpoints, n_mask, ratio status; R2 wording rules |
+   105	| 10 | should-fix | §7 probe timing breakdown and thread budget; §8 forecast per arm/backend from the probe |
+   106	| 11 | should-fix | reviews at `ultra` from round 2 (verified accepted by codex-cli 0.154.0); the shared config's `xhigh` drift noted |
+   107	
+   108	## 11. Round-2 review findings → v3 changes
+   109	
+   110	| # | Severity | Change in v3 |
+   111	|---|---|---|
+   112	| 1 | blocker | §7: a CPU-protocol arm computes Δ, G, R entirely from its own run; exp_03 values only in a separate historical table; run-identity guard (§5 `run_id`, test 16) |
+   113	| 2 | should-fix | §5 `parity_exp03` subset alignment (manifest identity, canonical-index extraction, ordered equality, refusals), validity-mask mismatches, all three criteria binding (§7), repeated over the full results before the replication label; test 11 |
+   114	| 3 | should-fix | §5/§7 `verify_exp03_pins` against the binding report's `source_closure` (reviewed `62c9107b…`), refusal on mismatch, comparison in meta; test 11 |
+   115	| 4 | should-fix | §5 offline recomputation restricted to waveform/acoustic gaps; spectral quantities online-only, retained and hashed |
+   116	| 5 | should-fix | §1 R3 estimator / invalid-policy audit (T60 −1 substitution and C50 constant in FLAC vs NaN-exclusion in xRIR) recorded beside every cross-family comparison |
+   117	| 6 | should-fix | §1 R2 separate query- and room-level statuses, headline scope, cancellation wording only with paired contributions |
+   118	| 7 | nit | §4 zero-width convergence rule and status precedence; k = 0 fixture (test 12) |
+   119	| 8 | nit | §3/§8 window reconciled: 4–5 h on GPU 1 after the ≈ 22:30 ping; sweep scheduled from the probe forecast |
+
+exec
+/bin/bash -lc 'for d in / /home /home/yixunhu /home/yixunhu/codespace /home/yixunhu/codespace/xRIR_code /home/yixunhu/codespace/FLAC; do if [ -f "$d/AGENTS.md" ]; then cat "$d/AGENTS.md"; fi; done
+cat worklog/experiment_SOP.md' in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+# Experiment SOP (portable)
+
+A generalizable standard operating procedure for AI-assisted research experiments. Drop this file into any project and reference it from that project's `CLAUDE.md` (e.g. "Follow `worklog/experiment_SOP.md` for all experiment work"). Written for Claude Code, but the roles are model-agnostic.
+
+## Roles (three-model separation of duties)
+
+| Role | Who | Duty |
+|---|---|---|
+| **Planner / Analyst** | The main-session model (strongest reasoning tier; currently Claude Fable 5.1) | Writes plans, judges reliability, writes analyses. Does NOT write implementation code directly. |
+| **Coder** | The strongest coding model at its highest reasoning setting — **currently Claude Opus 5 at max effort, a separate subagent launched from the main session (Agent tool, model `opus`) working in a dedicated git worktree (per Yixun 2026-09-15; 2026-09-12 → 2026-09-15 it was OpenAI Codex `gpt-6-astra` at Ultra via `codex exec`; before that a Claude Opus 4.8 max-effort subagent)** | Implements exactly what the approved plan specifies. |
+| **Reviewer** | **The opposite model family from the Coder** (mandatory cross-model review; see reciprocity note below). | Reviews all newly written code; review is saved, not just read. If the reviewer is unavailable, say so — never silently substitute. |
+
+> **Reviewer reciprocity — no model reviews its own code.** The Reviewer is always the opposite model family from the **Coder**. With the current roles (Planner Claude Fable 5.1, Coder Claude Opus 5; per Yixun 2026-09-15), the code Reviewer is **OpenAI Codex `gpt-6-astra` at Ultra** (`codex exec -s read-only` in the worktree; its final message is saved as the review file with the identity header). When the Coder was Codex (2026-09-12 → 2026-09-15), the code Reviewer was a separate Claude Fable 5.1 subagent launched from the main session with the reviewer briefing, so the review context was independent of the Planner's. Plan reviews follow the same rule (the Planner is Claude, so plans are reviewed by Codex). The Coder and Reviewer must always be different model families, so review is genuinely independent.
+
+> **Reviewer briefing — load context before judging.** Every review prompt (plan or code) must direct the Reviewer to read, before reviewing: (1) this SOP and all `worklog/worklog_<username>/announcement/` directives; (2) the experiment's `plan_*.md` and `_worklog.md` notebook (what was decided and why, including plan amendments); (3) the results/analyses of the PRIOR experiments the work builds on (e.g. baseline numbers and noise floor); (4) a one-paragraph statement of what the current Coder round was tasked to do and what is explicitly out of scope for this round. A reviewer without this context produces generic reviews, flags out-of-scope "gaps", and misses violations of experiment-specific decisions.
+
+## Directory layout
+
+All experiment bookkeeping lives in `worklog/` at the repo root, **namespaced per user** (rule updated 2026-07-12):
+
+- `worklog/experiment_SOP.md` — **this file lives directly under `worklog/`, NOT inside any user namespace** (it is shared/portable across users).
+- `worklog/worklog_<username>/` — one namespace folder per user; ALL of that user's experiment logging goes inside it (in this project `<username>` = `yixun` → `worklog/worklog_yixun/`). Every logging path that previously sat directly under `worklog/` now sits under `worklog_<username>/`:
+  - `worklog/worklog_<username>/announcement/<NN>_<topic>.md` — standing directives from the user. **Read every announcement before planning or running anything.** New standing instructions get the next number.
+  - `worklog/worklog_<username>/exp_<NN>_<exp name>_claude/` — one folder per experiment, `<NN>` zero-padded and sequential.
+  - `worklog/worklog_<username>/archive_<reason>_<date>/` — archived/superseded code (see Development discipline).
+
+## Per-experiment artifacts (in lifecycle order)
+
+Inside `worklog/worklog_<username>/exp_<NN>_<exp name>_claude/`:
+
+1. `<exp name>_<username>_query.md` — the user's driving queries: each one verbatim, plus a summary, the user's assumption/hypothesis, and why the experiment needs to run. Started at scaffold time, appended as new queries arrive. (`<username>` is the same name as in the `worklog_<username>` namespace folder — here `yixun`, e.g. `<exp name>_yixun_query.md`.)
+2. `plan_<exp name>.md` — written by the Planner BEFORE any code: the English plan AND the planned code laid out per file (each existing file to edit, each new file to create). Surfaced for user approval before implementation.
+3. `<exp name>_<reviewer>_plan_review.md` — the Reviewer's review of the PLAN, before user approval and before any implementation: method soundness, hidden assumptions, missing tests/controls, run design. Same reviewer-naming and identity-header rules as the code review below. Planner addresses the findings (revising the plan) before the user signs off.
+4. *(the implementation itself)* — the code, written by the Coder subagent per the approved plan. No dedicated markdown artifact; this step is the source-code changes.
+5. `<exp name>_<reviewer>_code_<marker>_review.md` — **one small review per Coder round, not one big review at the end**: after EVERY round of Coder output (a TDD red→green cycle, a code snippet, or a coherent commit group), the Reviewer reviews that round's commits BEFORE the next round starts. `<reviewer>` names the reviewing model (`codex` / `opus`); `<marker>` identifies the round — the TDD-cycle or snippet name, or the short name of the main commit (e.g. `<exp name>_codex_code_cyl_pose_review.md`, `<exp name>_codex_code_dispatch_review.md`). **A round is CLOSED only when its full loop has run: code written → review returned → strengthening/fixes applied by the Coder for every blocking finding → fixes re-verified (tests green; re-review or Planner verification of the fix) → loop outcome logged in `_worklog.md` with the fix commit SHAs.** No new round starts, and no run launches, while any round is open. Nits may be batched into the next round; blocking findings may not. A final integrative review of the whole experiment diff (marker `full`) still runs before the first expensive launch. Record "N/A — no code written" for code-free experiments. Every review file MUST open with a header giving the reviewer's exact identity: model/product name and version, invocation method, and review date — e.g. `**Reviewer:** OpenAI Codex (codex-cli 0.144.1, \`codex exec\`, read-only sandbox) · **Date:** 2026-07-10`. **Reviews (plan and code) always use the Reviewer family's strongest available model at its highest reasoning setting** — currently `gpt-6-astra` at Ultra (`model = "gpt-6-astra"`, `model_reasoning_effort = "ultra"` in `~/.codex/config.toml`; per Yixun 2026-09-12; supersedes `gpt-5.6-sol`; requires codex-cli ≥ 0.154 — 0.144.1 rejects the model) for Codex, Claude Fable 5.1 for Claude (per Yixun 2026-09-12; previously Claude Opus 4.8 at max effort). Since 2026-09-15 the Coder is Claude Opus 5, so code reviews are Codex (`<exp name>_codex_code_<marker>_review.md`) and plan reviews stay Codex; a Coder change mid-experiment is logged in the notebook and rounds keep single authorship (an in-flight round of the previous Coder is archived, not mixed).
+6. `<exp name>_params_set_up.md` — full hyperparameters/configuration, written at launch.
+7. `<exp name>_command.md` — exact reproduction command(s). **Rule: EVERY experiment/run launched gets its command added to this file AT LAUNCH TIME, not retroactively** — including reruns, amended iterations, probes that produce run artifacts, and diagnostics; failed/superseded runs stay in the file (marked as such) because reproducing the failure is part of the record. The notebook records *why*, this file records *how to reproduce*.
+8. `<exp name>_worklog.md` — an append-only, timestamped **lab notebook: one entry per action**, not per run. Started at scaffold, appended continuously through implementation, debugging, and every launch. This is where the validation ladder, parity audit, and failure triage (below) get recorded as they happen. Entry format in **Worklog entry template** below. Complements `_results.md` (final numbers) and `_analysis.md` (final judgment) by capturing the decision/debug trail in between.
+9. `<exp name>_<YYYY-MM-DD_HH:MM:SS>.log` — ALL terminal output, one timestamped log per run (tee/redirect every training/eval command into the folder). Aborted runs keep their log, renamed with an `_ABORTED_<reason>` suffix.
+10. `<exp name>_results.md` — results, appended as runs finish.
+11. `<exp name>_analysis.md` — written by the Planner after results land: analyze all code + configuration + results; judge whether the result is reliable; state the outcome and the recommended next step.
+12. `commits_<exp name>.md` — SHA + one-line description of every commit belonging to this experiment.
+13. `<exp name>_<idx>_results.html` — **rich HTML results visualization, produced after the experiment finishes** (alongside, not replacing, `_results.md`): tables, equations (MathJax/KaTeX or clean HTML math), figures/plots, color-coded verdict blocks, run-trajectory charts — use the full expressive range of HTML/CSS to make the results maximally human-readable. `<idx>` is chosen by the author to separate distinct parts of the visualization when one page would overload (e.g. `..._01_results.html` for gate tables, `..._02_results.html` for mechanism decomposition); a single `_01_` page is fine for simple experiments. **All sourced assets (generated plot images, data extracts, JS/CSS) live in a corresponding folder inside the experiment directory** (e.g. `exp_<NN>_<exp name>_claude/<exp name>_results_assets/`) and are referenced relatively, so the HTML renders offline from a repo checkout. Charts follow the project's visualization standards (load the dataviz guidance before writing chart code). The HTML must be self-consistent with `_results.md` numbers — it is a presentation layer, never a place where numbers appear first.
+
+## Worklog entry template
+
+Each `_worklog.md` entry is one action, headed by an ISO-8601 timestamp in **local time with UTC offset** (same clock as the run-log filenames) and a short title, then these fields. Use the full set for substantive actions (code, launches, fixes); a lightweight **Goal / Result / Analysis / Next** is enough for routine monitoring checks.
+
+`## <YYYY-MM-DDThh:mm:ss±hh:mm> — <short title>`
+
+- **Goal** — what this action is for. *(every entry)*
+- **Hypothesis** — the belief being tested, stated *before* the evidence. *(only when testing something)*
+- **Change** — exact files/behavior touched. *(when code changed)*
+- **Version Control** — branch, `base_commit`, `implementation_commit`, push/pull, changed_files. Every SHA inline.
+- **Command / Validation** — exact commands (or static checks), job ids, run dirs, log + artifact paths.
+- **Acceptance criteria** — the exact conditions that count as success, written *before* a launch (see **Running & failure discipline**).
+- **Result** — status (`passed` / `partial` / `in_progress` / `launched` / `fix_ready`) + metrics/artifacts + key evidence.
+- **Analysis** — interpretation; in particular classify any failure as *infrastructure vs. real bug*.
+- **Next** — the immediate next step.
+
+## Development discipline
+
+- Develop **commit by commit, experiment by experiment** from a known-good base commit. No long-lived uncommitted state: an experiment concludes by committing its code and its worklog folder.
+- **Each commit generally < 200 changed lines of code.** Several small commits per experiment are preferred over one large one. Log every SHA in `commits_<exp name>.md`.
+- **Test-driven development (mandatory for all new functions)** — per [TDD](https://en.wikipedia.org/wiki/Test-driven_development): for each small function, write its test FIRST (pytest, in a dedicated `tests/` folder — **ask the user where to place it** the first time tests are added to a project; do not assume repo root), run it to confirm it fails (red), then implement the minimal function that passes (green), then refactor with tests green. Each red→green cycle maps naturally onto one small commit (tests may land in the same commit as the implementation or the commit immediately before it — never after). Tests are permanent regression assets: they stay in `tests/` and must keep passing in later experiments; run the relevant test subset as rung 1½ of the validation ladder.
+- **Universal review coverage (2026-07-06):** EVERY piece of code — Coder-written source, AND Planner-written one-off scripts (page/visual generators, probe drivers, analysis one-offs) — goes through the Reviewer loop before its round closes. Small scripts may be batched into one consolidated review round; nothing executable that informs a decision or artifact ships unreviewed.
+- Superseded or exploratory code is archived (patch + files) under `worklog/worklog_<username>/archive_<reason>_<date>/` before being removed from the working tree — never destroyed.
+
+## Validation ladder (cheapest-first)
+
+Never jump straight to the expensive run. Climb this ladder; advance only when the current rung passes, and record each rung in `_worklog.md`.
+
+1. **Static checks** — `python -m py_compile <changed .py>`, config parse (`yaml.safe_load`), `bash -n <changed .sh>`, `git diff --check` (whitespace). Seconds, no accelerator.
+2. **Tiny synthetic forward** — smallest module instantiation + one forward/step on a small/cheap device with synthetic tensors. Catches graph/mesh/shape/dtype/timestep errors without loading full weights or data.
+3. **Small real-data readback** — parse a few real records; assert shapes, byte lengths, and min/max/std match the schema. Catches data-pipeline mismatches.
+4. **Bounded data build** — if the experiment produces a dataset, build the val split (or a bounded slice) first and read it back before the full build.
+5. **Smoke run** — a few steps at the smallest batch on the target hardware, checkpointing/final-save **disabled** (storage-light), just to reach one completed optimizer step and produce logs.
+6. **Fit / batch-size probe** — find the max batch that fits, still storage-light (no checkpoints), before committing to the full run.
+7. **Full run** — only after 1–6 pass and the parity audit below is clean.
+
+## Parity audit before scaling
+
+Before spending real compute on a new method, audit the implementation **component by component against the reference** (paper code / upstream repo), and diff the *numbers*, not just the shapes:
+
+- **Numeric recipe defaults** — LayerNorm eps, weight decay, betas, LR schedule, loss type, sigma/noise schedule, CFG handling. Silent mismatches (e.g. eps `1e-6` vs `1e-5`, weight decay `0` vs `1e-2`) don't crash; they quietly corrupt results.
+- **Structural parity** — which params are trainable vs frozen, residual/injection points, stop-gradient boundaries, any pinning/masking.
+- **Data parity** — take one concrete source example and its processed/cached counterpart; confirm identical dtype, byte counts, and min/max/std.
+
+Record the audit in `_worklog.md`; launch the full-scale run only from the audited commit.
+
+## Running & failure discipline
+
+- **Pre-launch acceptance criteria.** Before every launch, write in `_worklog.md` the exact conditions that count as success: the commit SHA the worker must report, device/host count, per-device and global batch, parallelism axes, which params are trainable, and "reaches ≥1 optimizer step with no OOM / NaN / parse failure." Judge the run against these, not vibes.
+- **Infrastructure vs. real bug.** In every failure Analysis, classify the cause: *infrastructure* (spot preemption, host maintenance, download/network stall, launch-env/PATH, quota) vs. *real bug* (wrong shape/sharding, wrong objective, bad schedule). Only real bugs get a code fix; infra failures get retry/resume. Prevents thrashing on non-bugs.
+- **Commit + push before running remotely.** Any remote (TPU/cluster) run executes a *pushed* SHA; verify the SHA the worker actually checked out. Never run uncommitted code on a remote.
+- **Never edit a script while it is running.** Wait for a safe boundary, then patch; fix orchestration bugs separately from the data/model path.
+- **Resume from the last safe boundary.** On a mid-pipeline crash, find the last fully-committed unit (contiguous shard / checkpoint) and resume from the next; never duplicate or lose work, never reuse stale staging.
+- **Storage guardrail.** Long data/checkpoint jobs hold only a bounded working set (one batch/segment resident), clean up after each unit, and stay above an explicit free-space floor; contiguous coverage is the correctness check.
+- **Shared-resource etiquette.** Inspect a shared machine's processes before using it; don't interrupt others' jobs without approval; verify zero stale processes/watchers/queued-resources after a failed run before relaunching.
+
+## Evaluation integrity
+
+- Always compare against the baseline method on its **full published evaluation configuration** — the complete split files and dataset configs the baseline's paper used. Never invent new eval configurations (subsampled items, hand-picked examples, reduced splits) for comparisons; subsets are for debugging only and never appear in `_results.md`.
+- Reproduce the baseline's reported numbers (within its reported variance) **before** evaluating any new method, to calibrate the pipeline and establish the noise floor.
+- Match the baseline's aggregation convention (e.g. per-scene means) and its variance protocol (e.g. mean ± std over N generations/seeds).
+- If a run is launched and the code state then changes (revert, edit), kill and relaunch rather than mixing code states across a sweep; document the abort in `_params_set_up.md`.
+
+## Sequencing summary
+
+scaffold folder + `_yixun_query.md` + `_worklog.md` → `plan_*.md` (Planner, incl. per-function test list) → `_<reviewer>_plan_review.md` (Reviewer, strongest model at highest reasoning) → Planner revises → user approves → **TDD loop**, per round: (Coder: test first → red → implement → green, one small commit per cycle) → `_<reviewer>_code_<marker>_review.md` (Reviewer, per-round small review; blocking findings fixed before the next round) → next round … → **validation ladder** (static → tests → smoke → probe) → `_<reviewer>_code_full_review.md` (Reviewer, integrative) → **parity audit** vs reference → `_params_set_up.md` + `_command.md` + **acceptance criteria** → launch with teed timestamped logs, triaging *infra-vs-bug* on failure → `_results.md` → `_analysis.md` (Planner) → **`<exp name>_<idx>_results.html`** (+ assets folder) → commit(s) + `commits_*.md`. Log every action in `_worklog.md` as it happens.
+
+exec
+/bin/bash -lc 'cat worklog/worklog_yixun/exp_10_yaw_pilot_claude/{yaw_pilot_yixun_query.md,plan_yaw_pilot.md}' in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+# exp_10 yaw_pilot — driving queries
+
+## 2026-09-26 (verbatim)
+
+> I need you to run this similar to exp_02 in FLAC for xrir: ## 3. xRIR pilot study
+>
+> mimic FLAC, doing the rotation experiments of xRIR on AR dataset to finish all the pilot study
+
+**Summary.** The ICLR 2027 paper's pilot-study section has a FLAC part (FLAC repo exp_02 `yaw_noninvariance`, 2026-07-04: released FLAC_EMA checkpoint, AcousticRooms unseen K = 1 split, conditioning yaw-rotated by 90/180/270°; Metric 2 = accuracy vs GT per angle, Metric 1 = prediction shift P_α vs P_0 without GT; figure `FLAC/analysis/pilot_study/plot_pilot_yaw_gaps.py`, commit 435407f: "predictions move ~5x more than net accuracy loses"). Yixun wants the same pilot for xRIR on AcousticRooms so the section is complete for both model families.
+
+**Assumption / hypothesis (Yixun's).** Like FLAC, the released xRIR is not yaw-invariant: rotating the receiver-frame conditioning (depth panorama + coordinates) changes its prediction substantially even where the aggregate accuracy loss is small.
+
+**Why it needs to run.** exp_03 (2026-09-06) already measured Metric 2 for xRIR at many angles (small degradation, peaks at diagonal headings) and a log-spectrogram consistency, but never stored predicted waveforms, so FLAC's Metric 1 (waveform rel-L2 and EDT/C50/T60 gaps with P_0 as the reference) and the degradation-vs-shift figure do not exist for xRIR.
+# Plan — exp_10 `yaw_pilot` (xRIR analogue of FLAC exp_02 `yaw_noninvariance`)
+
+**Planner:** Claude Fable 5.1 (session xrir-code-25). **Coder:** Claude Opus 5 (Agent, worktree `xRIR_code_wt10`, branch `exp10-yaw-pilot`). **Reviewer:** OpenAI Codex `gpt-6-astra` at **ultra** (SOP setting; round 1 ran at xhigh, see §10). **Date:** 2026-09-26. **Status:** **v3** after the round-2 plan review at ultra (`yaw_pilot_codex_plan_review_round2.md`, REQUEST CHANGES, 1 blocker + 5 should-fixes + 2 nits; §11 maps them); v2 was the round-1 revision (`yaw_pilot_codex_plan_review.md`; §10). v1 kept as `plan_yaw_pilot_v1_superseded.md`.
+
+## 1. Question and stance
+
+**Question (Yixun, 2026-09-26).** Mimicking FLAC's exp_02 pilot: when the *conditioning* of the released xRIR checkpoint is yaw-rotated on the AcousticRooms unseen split, how much does the **prediction itself move** (Metric 1, P_α vs P_0, no GT) compared with how much **accuracy vs GT changes** (Metric 2)? FLAC's finding: "predictions move ~5× more than net accuracy loses".
+
+**Stance.** A **descriptive pilot**, like FLAC's: paired means with query-level bootstrap intervals; no confirmatory hypotheses (exp_03 already ran the Bonferroni-adjusted H1/H2 tests on Metric 2 for K = 8). Pre-registered readouts, per arm, angle and metric:
+
+- **R1** signed accuracy change Δ(α) = mean(e_α − e_0) vs GT, and prediction shift G(α) = mean(g_α), each with a 95 % paired query-level percentile bootstrap interval, on the **shared comparison mask** of §4; paired-valid count and exclusions reported.
+- **R2** the ratio R = G/Δ, from the **same resamples**, with an explicit **status**: `defined` (Δ interval entirely positive), `improvement` (Δ interval entirely negative — reported as "predictions shift while net error improves", never as a positive multiple), `denominator uncertain` (Δ interval contains 0 — no ratio interval is reported, and this is **not** equivalence or invariance), `undefined` (any resample with Δ* exactly 0; the fraction of such draws is reported; draws are never discarded, no epsilon, no |Δ|). The status and the ratio interval are computed and reported **separately for the query-level and the room-cluster bootstrap**; the FLAC-style statement "shift ≫ change" requires status `defined` and a ratio lower bound > 2 **at the query level, with the room-level status printed beside it** (exp_03 showed query-level T60 intervals excluding 0 whose room-level intervals cross 0). Every headline statement is scoped to the checkpoint, the reference manifest, the phase seed and this fixed split. "Improvements and deteriorations cancel" may only be written with their paired contributions shown (fraction of queries with e_α > e_0, and the mean positive and mean negative parts of e_α − e_0); it is never inferred from G/Δ alone. Ratios only for metrics whose error and gap share a definition (EDT seconds, C50 dB; T60 is qualified, §4).
+- **R3** the **GL-free spectral shift** (`logspec_mad`, `mag_rel_l2`) reported beside the waveform/acoustic shift, and labelled: waveform and acoustic gaps are the sensitivity of the **model-plus-Griffin-Lim pipeline** conditional on the per-query phase seed (shared phase initialisation removes initialisation noise; Griffin-Lim's nonlinear response to magnitude changes remains and **can amplify** differences). No FLAC/xRIR *waveform-distance* ranking is made (FLAC's rel-L2 is over 10 240 directly decoded samples; xRIR's over 9 600 samples of an inverted magnitude, 21 of them padding); the FLAC-comparable quantities are the acoustic gaps under the same "P_0 as GT" convention — a **conceptual**, not a numerically identical, comparability: both evaluators use the first 8 000 samples at 22 050 Hz (verified by the reviewer), but FLAC substitutes −1 for a failed T60 measurement and includes it in the AcousticRooms error (`FLAC/src/metrics/modules/RT60.py`), whereas xRIR returns NaN and excludes the query (`tools/per_sample_metrics.py`), and FLAC adds a small constant inside the C50 logarithm. The analysis records these estimator / invalid-policy differences beside every cross-family comparison and qualifies T60 and C50 comparisons accordingly; the pinned xRIR evaluator is not changed.
+
+## 2. Mechanism recap (exp_03; unchanged)
+
+Geometry enters `xRIR.forward` through the ViT views `(loc − depth_coord)/5` and the sinusoidal embedding of raw xyz. Active yaw by k columns (W = 512): `depth' = Rz(2πk/W)·roll(depth, k)`, `src' = Rz·src`, `ref_locs' = Rz·ref_locs`; reference audio and target unchanged (`tools/yaw_rotation.rotate_scene_yaw`, oracle-tested in exp_03). Condition **P** pins the direct-path alignment at k = 0 (`tools/yaw_rotation.fixed_alignment`) so only the geometry branches see the rotation — the analogue of FLAC's `--rotate-deg`, which rotates the conditioning and leaves the audio untouched. exp_03 measured E (end-to-end alignment) = P to 2e-5 **at K = 8**; E is not run here. The model outputs a log-magnitude `out` `[F=63, T=310]`; the magnitude is `M = exp(out) − 1e-8` (built on the inference device, then moved to CPU exactly as exp_03's `acoustic_metrics_batch` does) and the waveform is Griffin-Lim on CPU (`tools/per_sample_metrics.griffin_lim_seeded`, 32 iterations, phase seeded by `sample_seed(gl_seed, query)`), 9 579 samples zero-padded to 9 600.
+
+## 3. Arms, references, angles, backend
+
+| Arm | Checkpoint | K | Manifest (exp_03's, hashed) | Role |
+|---|---|---|---|---|
+| `released_k8` | `checkpoints/xRIR_unseen.pth` (authors', frozen; sha256 `1762c702…`) | 8 | `ckpt/yaw_rotation/reference_manifest.json` (`47637a55…`) | **primary** — FLAC analogue at xRIR's paper setting; Metric 2 replicates exp_03 `sweep_released` |
+| `released_k1` | same | **trained K = 8, evaluated K = 1** | `ckpt/yaw_rotation/reference_manifest_k1.json` (`f6d71f86…`) | FLAC's reference count only (not its protocol); **no exp_03 predecessor** — parity vs exp_03 unavailable; K = 1 vs K = 8 differences are not attributed to reference count alone |
+| `control_k8` | `ckpt/xRIR_simple_8_shot/epoch_12.pth` | 8 | `47637a55…` | same-budget SimpleViT; replicates exp_03 `sweep_control` |
+| `cyl_k8` | `ckpt/xRIR_cyl_8_shot/epoch_12.pth` | 8 | `47637a55…` | CylindricalViT; replicates exp_03 `sweep_cyl` |
+
+Execution order = table order. Settings identical to exp_03's sweeps: batch 16 with canonical padding (`eval_yaw_rotation.pad_batch`), TF32 off, float32, `gl_seed 0`, acoustic metrics on the first 8 000 samples, unseen split, 6 337 queries / 17 rooms, canonical manifest order. Strict `load_state_dict`; the CLI `--num-shot`, the manifest's `num_shot` and the built model's K must agree (refused otherwise). **Angles k ∈ {0, 64, 128, 256, 384}** = 0°, 45°, 90°, 180°, 270° (FLAC's three axis angles plus 45°, exp_03's peak; all on exp_03's acoustic grid).
+
+**Backend.** Primary backend is **GPU 1** (A6000, the same class exp_03 used; a **4–5 h** co-tenancy window at ≈ 4 GB, starting after the cylindrical-dinov3 session's ping when its exp_24 fine-tune exits (≈ 22:30 on 2026-09-26), agreed by that session; ≈ 30 % slowdown expected; the earlier "≈ 2 h" figure is superseded, and the full sweep is scheduled only after the probe's per-arm forecast fits the window). The tool also runs on CPU (runtime, scoped replacement of `model.xRIR.apply_delay`, which hard-codes `.cuda()`); the CPU path is the fallback and, if used for any arm, is reported as a **separate CPU protocol** unless the §7 parity gate passes on it. Library and precision pins recorded in meta: torch 2.0.1+cu117, numpy 1.23, TF32 off, `torch.backends.cudnn.deterministic = True`, float32.
+
+## 4. Metrics (per query; NaN = invalid, never imputed)
+
+**Metric 2 — accuracy vs GT at angle α (condition P):** `edt_err` (s), `c50_err` (dB), `t60_err` (% of T60(GT)) via `tools.per_sample_metrics.acoustic_metrics(pred = w_α, gt = GT)` (exp_03's validity rules, 8 000-sample window); `log_mse` and the test `loss` via `per_sample_losses`. **Raw measures** are also stored per angle (`edt_pred`, `c50_pred`, `t60_pred` and once `edt_gt`, `c50_gt`, `t60_gt`, from the same `Evaluator` calls, NaN under the same exceptions) so any normalisation can be recomputed offline; a test checks that the canonical error equals the error rebuilt from the raw measures wherever both are finite.
+
+**Metric 1 — prediction shift, P_α vs P_0, no GT:**
+- `wave_rel_l2` = ‖w_α − w_0‖₂ / (‖w_0‖₂ + 1e-8) and `wave_mad` = mean|w_α − w_0| over the stored 9 600-sample float32 waveforms (FLAC's `compare_predictions.waveform_gap` definitions; window difference stated in §1);
+- `mag_rel_l2` = ‖M_α − M_0‖_F / ‖M_0‖_F with `M = exp(out) − 1e-8`, and `logspec_mad` = mean|out_α − out_0| (**= exp_03's `consistency`**, computed on the model's log-magnitude output, not a fresh log of M);
+- acoustic gaps `edt_gap` (s), `c50_gap` (dB), `t60_gap` (% of T60(w_0)) = `acoustic_metrics(pred = w_α, gt = w_0)` — FLAC's "P_ref as GT" convention; plus the absolute supplement `t60_gap_abs` = |T60(w_α) − T60(w_0)| (s) and `t60_err_abs` = |T60(w_α) − T60(GT)| (s) from the raw measures.
+
+**T60 normalisations.** ΔT60 is a **percentage-point change in the GT-normalised error**; G_T60 is a **percent of the baseline prediction's T60**; their ratio is reported only with that qualification, and the absolute-seconds pair (`t60_err_abs`, `t60_gap_abs`) gives the same-unit comparison. EDT (s) and C50 (dB) are same-unit by construction.
+
+**Paired-bootstrap contract (per arm, angle, metric).** Comparison mask = queries where `e_0`, `e_α` and `g_α` are all finite (for spectral metrics the mask is all queries). One draw of query indices per replicate (10 000 replicates, seed 0, 95 % two-sided percentile); from the same draw compute Δ* = mean(e_α − e_0), G* = mean(g_α), R* = G*/Δ*. Report n_mask and the exclusion counts by cause (invalid at 0, at α, gap invalid). A standalone G on the broader "g_α finite" population is reported separately and labelled as such. Ratio status per R2. **Room-cluster bootstrap** (secondary): resample the 17 rooms with replacement, keep every query of a drawn room with the drawn multiplicity, recompute the query-weighted means (no per-room averaging). **Status precedence:** `undefined` (any exact-zero Δ* draw) is decided first; then `improvement` / `defined` / `denominator uncertain` from the interval; the same rule is applied to the query-level and the room-level intervals independently. **Convergence:** every reported bound recomputed with seed 1; movement < 10 % of the interval width; an interval of zero width that is identical under both seeds (k = 0: Δ = G = [0, 0]) counts as converged, a zero-width interval that changed counts as failed, and an absent ratio interval is "not applicable" (test 12 includes a k = 0 fixture). **Historical variability band** (figure only): exp_04's five-seed SD of the same-budget SimpleViT at K = 8 (EDT 0.186 ms, C50 0.0053 dB, T60 0.009 %) / K = 1 (0.609 ms, 0.0133 dB, 0.101 %) and the cylindrical SDs for `cyl_k8` — labelled "historical baseline evaluation variability (references and phases redrawn), context only"; it plays no role in any decision or acceptance; the paired CIs are the uncertainty statement.
+
+## 5. Planned code (new files only; exp_03's pinned closure untouched — verified before launch by `tests/test_exp03_record_tools.py`, whose pins cover `eval_yaw_rotation.py`, `tools/{yaw_rotation,reference_manifest,per_sample_metrics}.py`, `model/*`, the dataset and `utils/spec_utils.py`)
+
+Reused unchanged: `eval_yaw_rotation.pad_batch`, `load_checked_manifest`, `build_manifest_dataset`; `tools.yaw_rotation.rotate_scene_yaw`, `fixed_alignment`; `tools.per_sample_metrics.per_sample_losses`, `griffin_lim_seeded`, `sample_seed`, `acoustic_metrics`; `eval_unseen.Evaluator`; `model.xRIR_cyl.build_xrir`; `eval_xRIR_backbone.load_model_state`.
+
+| File | Purpose |
+|---|---|
+| `tools/exp10_yaw_pilot.py` | `device_agnostic_apply_delay(signal, delays)`; `patched_apply_delay()` context manager (installs/restores `model.xRIR.apply_delay`; used by `run` for every device so GPU and CPU take one code path); `angle_logspec(model, depth, refs, src, ref_locs, tgt, k, aligned0)` → `out_k [n, F, T]` (under `fixed_alignment`); `invert(out, keys, gl_seed)` → float32 `[n, 9600]` (M built on the output's device, GL on CPU); `waveform_gap(w0, wk)`, `spectrogram_gap(out0, outk)`, `acoustic_gap(w0, wk, evaluator, want_t60)`, `raw_measures(w, evaluator)`; `evaluate_batch(model, batch, ks, evaluator, gl_seed, batch_size, device)` → per-query metrics per k and the float32 waveforms the metrics were computed from; `select_probe_batches(dataset, per_room=1)` → the first canonical batch lying entirely inside each room (17 batches, 272 queries); `run(args)` with `--batches all|probe|<list>`, `--controls` (§7), hash-checked manifest, canonical-order check, K agreement check, outputs under `ckpt/exp10/<arm>/`: `per_sample.json` (all metrics + raw measures per k, ordered query ids, controls), `metrics.json`, `wav_k<k>.npy` float32 `[N, 9600]`, `meta.json` (a `run_id` = checkpoint sha256 + manifest hash + gl_seed + K + device + backend flags, backbone, manifest path, cudnn/TF32 flags, torch/numpy versions, git commit, the `verify_exp03_pins` comparison, native length 9 579, padded 9 600, sample rate, metric window, per-array sha256, query-list sha256, `per_sample.json` sha256, timing breakdown, complete = true only after the last write) |
+| `tools/exp10_compare.py` | FLAC-style offline comparator from stored arrays (meta guard: checkpoint sha256, manifest hash, gl_seed, K, array sha256s, query-list sha256, `complete`); `check_online` (offline **waveform and acoustic** gaps == online, 1e-6 — the spectral quantities `logspec_mad` / `mag_rel_l2` are computed online from the model's direct output, retained and hashed in `per_sample.json`, and are NOT recomputable from finite-iteration Griffin-Lim waveforms, so they are excluded from the offline check by contract); `parity_exp03(run, exp03_per_sample)`: verifies manifest-hash identity, maps the run's canonical query indices into the historical file (unique indices, `index`/`query` agreement), extracts exactly those rows and requires ordered equality of the query lists — refuses missing, duplicate or reordered queries — then reports, per angle and metric, the paired Δ from both sources, the per-sample |Δ| distribution of `edt_err`/`c50_err`/`t60_err`/`logspec_mad`, sign agreement and the validity-mask mismatches; runs on the probe subset (272 rows) and again over the full results; `verify_exp03_pins(binding_report)`: sha256 of every `source_closure` path in `ckpt/yaw_rotation/binding_report.json` (12 files, reviewed commit `62c9107b…`) compared with its `reviewed_blob_sha256` — refuses on any mismatch and returns the comparison for the run meta |
+| `tools/exp10_summarize.py` | canonical JSON (with input sha256s) + Markdown tables: Metric 2 (mean_0, mean_α, Δ, CI, n_mask, exclusions), Metric 1 (each gap, CI, n), ratio + status, room-cluster intervals, convergence, controls; figure `yaw_pilot_gaps_<arm>.{pdf,png}` in FLAC's style — panels T60 / C50 / EDT / GL-free spectral shift; **signed** degradation bars with CI error bars, shift bars with CI, n_mask and ratio status annotated, historical band labelled — plus a four-arm combined figure; CSV of every plotted value |
+| `tests/test_exp10_yaw_pilot.py`, `tests/test_exp10_compare.py`, `tests/test_exp10_summarize.py` | §6 |
+
+## 6. Per-function tests (TDD; red → green; one small commit per cycle)
+
+`tools/exp10_yaw_pilot.py`
+1. `waveform_gap`: identity → (0, 0); `rel_l2(w, 2w) = 1`; zero reference → finite; `[n, T]` → `[n]`.
+2. `spectrogram_gap`: identity → 0; `logspec_mad` = mean|a − b|; `mag_rel_l2` uses `exp(out) − 1e-8` (checked against a hand computation).
+3. `acoustic_gap` / `raw_measures`: identity → EDT 0, C50 0, T60 0; `want_t60=False` → NaN; all-zero input → NaN, no exception; canonical error == error rebuilt from raw measures where both finite.
+4. `device_agnostic_apply_delay`: positive / negative / zero delays on CPU; equals `model.xRIR.apply_delay` on CUDA when available (skip otherwise); `patched_apply_delay` restores the original, also when the block raises.
+5. `angle_logspec` (random-init `build_xrir("simple", 2)`, synthetic batch, CPU): k = 0 equals the plain forward exactly; **k = 128 equals the trusted composition** `rotate_scene_yaw` + `fixed_alignment` + `model(...)` written out in the test; reference and target audio are unchanged by the call; `shift_and_align` is not called inside the pinned block (counter); angle-order invariance (ks in two orders → identical outputs); restoration after an exception inside the block.
+6. `invert`: same `(out, key, gl_seed)` twice → identical; different key → different; `[n, 9600]` float32, last 21 samples zero; the returned array is the one the metrics consume (no clipping/normalisation).
+7. `evaluate_batch`: batch of 3 padded to 4 → n = 3; both metric families + raw measures at every k; k = 0 gaps exactly 0; kept rows identical whether the 3 queries are alone or inside a batch of 4; controls with distinct ids run **fresh inference** (call counter increases).
+8. `select_probe_batches`: on a synthetic manifest with contiguous rooms returns one intact batch per room, each entirely inside its room; refuses rooms with no full batch.
+9. `run` smoke (`--batches 0`, real manifest, CPU; skipped without data): outputs and meta complete (all §5 fields, array sha256s match, `complete` true); refuses a wrong `--manifest-hash` and a K mismatch; a second run is bit-identical on CPU; save/load round trip of `wav_k*.npy` is exact.
+
+`tools/exp10_compare.py`
+10. Offline Metric 1 == online (1e-6); meta guard refuses different gl_seed / manifest / checkpoint sha / K / array sha / `complete = false`.
+11. `parity_exp03`: accepts a valid non-contiguous probe subset (rows extracted by canonical index, ordered equality); refuses a different manifest hash, and missing / duplicate / reordered queries; on a fixture with an injected per-sample offset reports max |Δ|, mean |Δ|, paired-Δ difference, sign agreement and validity-mask mismatches exactly. `verify_exp03_pins`: passes on the untouched tree; fails on a fixture whose one file is altered; the comparison is written into meta by `run`.
+
+`tools/exp10_summarize.py`
+12. Bootstrap contract: one shared draw per replicate (Δ*, G*, R* from the same indices — checked by injecting a query whose exclusion changes all three); shared mask excludes a query invalid in any of `e_0`, `e_α`, `g_α`; exclusion counts by cause; seeded reproducibility; synthetic shift recovered inside the CI; status `defined` / `improvement` / `denominator uncertain` / `undefined` each hit by a fixture (including exact-zero draws counted, not dropped); empty mask → reported as n = 0 with no interval, no exception.
+13. Room-cluster bootstrap: drawn-room multiplicities preserved and query-weighted (a fixture with unequal room sizes where per-room averaging would give a different answer).
+14. Controls table: flags `ctrl_full_turn` / `ctrl_zero_repeat` / `ctrl_k128_repeat` mismatches > 1e-6 (waveform and log-spec) and > 1e-9 on acoustic metrics.
+15. Figure/CSV: files written; signed negative bars rendered; CSV rows equal the JSON values; refuses a JSON whose input sha256s do not match disk.
+16. Run-identity guard: the summariser refuses to combine Δ, G or R from per-sample files with different `run_id`s (e.g. a CPU run's gaps with exp_03's GPU errors); historical exp_03 values can only enter a separately labelled "historical comparison" table.
+
+## 7. Validation ladder, controls, parity gate, acceptance
+
+Static checks → new tests + `verify_exp03_pins` against `ckpt/yaw_rotation/binding_report.json` (live sha256 of the 12 pinned files == their reviewed blobs at `62c9107b…`; `tests/test_exp03_record_tools.py` alone only exercises the validators on synthetic records) + the exp_04/exp_07 record suites → smoke (`--batches 0`, CPU) → **probe** on GPU 1: `released_k8` on the 17 room-spanning canonical batches (272 queries; identical batch composition to the full run, so its per-sample values are a subset of the full run's) at all five angles, with timing of inference / inversion / metrics / writing separately and a thread budget of 16 torch threads, one process; **controls** on the same probe: `ctrl_full_turn` (k = 512; identity path through `rotate_scene_yaw`, plumbing only), `ctrl_zero_repeat` (fresh k = 0 inference under its own id), `ctrl_k128_repeat` (fresh nonzero repeat) — all three must match their originals to 1e-6 (waveforms, log-spec) and 1e-9 (acoustic metrics). **Parity gate vs exp_03** (`sweep_released/per_sample_yaw.json`, same GPU class, TF32 off, same manifest / gl_seed / batch shape) on the probe queries, per angle in {0, 64, 128, 256, 384}: (a) per-sample `logspec_mad` |Δ| ≤ 1e-5 for every query; (b) per-sample `edt_err` / `c50_err` / `t60_err` |Δ| ≤ 1e-4 s / 1e-3 dB / 0.01 % for ≥ 99.5 % of queries (Griffin-Lim can amplify float noise for a few); (c) the **paired Δ on the probe queries** from the new run and from exp_03 agree within max(5 % of |Δ_exp03|, 2e-5 s / 2e-4 dB / 2e-3 %) and have the same sign, for every angle and metric. **All three criteria (a), (b), (c) are binding**: if the GPU probe fails any of them the launch is blocked and the cause investigated. If only the CPU fallback is available and fails any criterion, the arm proceeds as a **separate CPU protocol**: Δ, G and R are computed **entirely from that CPU run** (never from exp_03's GPU errors — test 16), exp_03's values appear only in a separately labelled historical-comparison table with the discrepancy tabulated, and no "replication" wording is used. An arm is called an exp_03 replication only after `parity_exp03` passes on the probe **and** on the full results. `control_k8` / `cyl_k8` run the same probe gate against `sweep_control` / `sweep_cyl`; `released_k1` runs the controls only (no predecessor). Each arm's full run is forecast from its own probe timing (K = 1 and K = 8 forward costs differ). **Full-run acceptance:** 6 337 queries in canonical order, every angle present, `meta.complete`, `check_online` passes, EDT/C50 finite counts at k = 0 equal exp_03's for the replicated arms, waveform arrays' sha256s recorded, worklog acceptance entry written before launch.
+
+## 8. Compute and outputs
+
+GPU 1 (co-tenant, ≈ 30 % slower; 4–5 h window after the ≈ 22:30 ping, see §3): forecast from the probe and reconciled with the window before the full sweep is scheduled (if the forecast exceeds the window, the arms are queued across windows in table order); prior: ≈ 12–15 min per angle-pass per K = 8 arm (exp_04's K = 8 seed run took 7.6 min for one angle solo, GL on CPU), so ≈ 1–1.3 h per arm, ≈ 4–5 h for four arms plus controls and offline comparison. CPU fallback: ≈ 40 min per angle-pass (measured on the qualitative export, 24 threads). Disk: 20 waveform arrays × 243 MB ≈ 4.9 GB under `ckpt/exp10/` (git-ignored; 51 GB free). Deliverables per SOP: `_params_set_up.md`, `_command.md`, teed logs, `_results.md`, `_analysis.md`, `yaw_pilot_01_results.html` + assets (figures, CSV, canonical JSON with sha256s), `commits_yaw_pilot.md`.
+
+## 9. Out of scope
+
+Training; condition E; angles beyond the five; retrieval metrics; changes to pinned exp_03/exp_04 modules; confirmatory tests; FLAC/xRIR waveform-distance rankings.
+
+## 10. Round-1 review findings → v2 changes
+
+| # | Severity | Change in v2 |
+|---|---|---|
+| 1 | blocker | §4 paired-bootstrap contract: shared mask, one draw per replicate for Δ*/G*/R*, exclusion counts, ratio status incl. `improvement` and exact-zero draws, room bootstrap with multiplicities; tests 12–13 |
+| 2 | blocker | §3 GPU 1 as primary backend (same class as exp_03); §7 probe = 17 room-spanning intact canonical batches; gate on the paired Δ itself plus per-sample limits; operation placement preserved; pins recorded; CPU = separate protocol unless it passes |
+| 3 | should-fix | §1 R3 labels (pipeline sensitivity, GL "can amplify", no waveform ranking, windows to verify); §4 explicit `M` and `logspec_mad` definitions |
+| 4 | should-fix | §4 T60 normalisation labels + absolute-seconds supplement from stored raw measures |
+| 5 | should-fix | §7 controls with fresh inference and distinct ids incl. a nonzero repeat; tests 5 and 7 (nonzero-angle composition, audio unchanged, order invariance, restoration after exception) |
+| 6 | should-fix | §3 `released_k1` relabelled "trained K = 8, evaluated K = 1", no exp_03 parity, K agreement check, P/E claim scoped to K = 8 |
+| 7 | should-fix | §4 band = historical variability, context only; cylindrical SD for `cyl_k8`; no decision use |
+| 8 | should-fix | §5 meta/identity contract (lengths, window, ordered ids, checkpoint/array/query-list sha256s, versions, `complete`), metrics computed from the saved arrays; tests 9–10; pinned files verified by the exp_03 record test |
+| 9 | should-fix | §5 figure with GL-free panel, signed bars, CI endpoints, n_mask, ratio status; R2 wording rules |
+| 10 | should-fix | §7 probe timing breakdown and thread budget; §8 forecast per arm/backend from the probe |
+| 11 | should-fix | reviews at `ultra` from round 2 (verified accepted by codex-cli 0.154.0); the shared config's `xhigh` drift noted |
+
+## 11. Round-2 review findings → v3 changes
+
+| # | Severity | Change in v3 |
+|---|---|---|
+| 1 | blocker | §7: a CPU-protocol arm computes Δ, G, R entirely from its own run; exp_03 values only in a separate historical table; run-identity guard (§5 `run_id`, test 16) |
+| 2 | should-fix | §5 `parity_exp03` subset alignment (manifest identity, canonical-index extraction, ordered equality, refusals), validity-mask mismatches, all three criteria binding (§7), repeated over the full results before the replication label; test 11 |
+| 3 | should-fix | §5/§7 `verify_exp03_pins` against the binding report's `source_closure` (reviewed `62c9107b…`), refusal on mismatch, comparison in meta; test 11 |
+| 4 | should-fix | §5 offline recomputation restricted to waveform/acoustic gaps; spectral quantities online-only, retained and hashed |
+| 5 | should-fix | §1 R3 estimator / invalid-policy audit (T60 −1 substitution and C50 constant in FLAC vs NaN-exclusion in xRIR) recorded beside every cross-family comparison |
+| 6 | should-fix | §1 R2 separate query- and room-level statuses, headline scope, cancellation wording only with paired contributions |
+| 7 | nit | §4 zero-width convergence rule and status precedence; k = 0 fixture (test 12) |
+| 8 | nit | §3/§8 window reconciled: 4–5 h on GPU 1 after the ≈ 22:30 ping; sweep scheduled from the probe forecast |
+
+exec
+/bin/bash -lc "cat worklog/worklog_yixun/exp_10_yaw_pilot_claude/{plan_yaw_pilot_v1_superseded.md,yaw_pilot_codex_plan_review.md,yaw_pilot_codex_plan_review_round2.md,yaw_pilot_worklog.md}
+rg --files worklog/worklog_yixun/announcement /home/yixunhu/codespace/FLAC -g 'AGENTS.md'" in /home/yixunhu/codespace/xRIR_code
+ exited 1 in 0ms:
+# Plan — exp_10 `yaw_pilot` (xRIR analogue of FLAC exp_02 `yaw_noninvariance`)
+
+**Planner:** Claude Fable 5.1 (session xrir-code-25). **Coder:** Claude Opus 5 (Agent, worktree `xRIR_code_wt10`, branch `exp10-yaw-pilot`). **Reviewer:** OpenAI Codex `gpt-6-astra` at xhigh. **Date:** 2026-09-26. **Status:** v1, for Codex plan review.
+
+## 1. Question and stance
+
+**Question (Yixun, 2026-09-26).** Mimicking FLAC's exp_02 pilot: when the *conditioning* of the released xRIR checkpoint is yaw-rotated on the AcousticRooms unseen split, how much does the **prediction itself move** (Metric 1, P_α vs P_0, no GT) compared with how much **accuracy vs GT degrades** (Metric 2)? FLAC's finding was "predictions move ~5× more than net accuracy loses" (T60 gap 3.3 % vs degradation 0.4–0.7 %; EDT gap 19–20 ms vs 3.5–6.3 ms). The pilot section needs the same two numbers, per angle, for xRIR.
+
+**Stance.** This is a **descriptive pilot**, like FLAC's: means with paired query-level bootstrap intervals, no confirmatory hypotheses (exp_03 already ran the Bonferroni-adjusted H1/H2 tests on Metric 2 and found degradation small, peaking at diagonal headings). Pre-registered readouts: (R1) per angle and metric, degradation Δ(α) = mean error(α) − mean error(0) vs GT and shift G(α) = mean gap of P_α w.r.t. P_0, each with a 95 % query-level bootstrap CI; (R2) the ratio G/Δ (CI by the same resamples; reported as "undefined" when the Δ interval contains 0) — the FLAC-style statement is "shift ≫ degradation" only if the ratio's lower bound exceeds 2; (R3) the GL-free spectrogram shift beside the waveform shift, because xRIR's waveform is a Griffin-Lim inversion of a predicted magnitude and GL's nonlinearity inflates waveform distances (FLAC decodes waveforms directly, so its rel-L2 has no such stage) — the caption must say which quantity is FLAC-comparable.
+
+## 2. Mechanism recap (from exp_03; unchanged)
+
+Geometry enters `xRIR.forward` through the ViT views `(loc − depth_coord)/5` and the sinusoidal embedding of raw xyz. Active yaw by k columns (W = 512): `depth' = Rz(2πk/W)·roll(depth, k)`, `src' = Rz·src`, `ref_locs' = Rz·ref_locs`; audio and target unchanged (`tools/yaw_rotation.rotate_scene_yaw`, oracle-tested in exp_03). Condition **P** pins the direct-path alignment at k = 0 (`fixed_alignment`) so only the geometry branches see the rotation; exp_03 showed E (end-to-end) = P to 2e-5, so E is not run here. The prediction is a log-magnitude spectrogram; waveforms come from Griffin-Lim with the phase seeded per query (`tools/per_sample_metrics.griffin_lim_seeded`, `sample_seed(gl_seed, query)`), so P_α and P_0 of one query start from the same random phase and differ only through the magnitudes.
+
+## 3. Arms, references, angles
+
+| Arm | Checkpoint | K | Manifest (exp_03's, hashed) | Role |
+|---|---|---|---|---|
+| `released_k8` | `checkpoints/xRIR_unseen.pth` (authors', frozen; sha256 `1762c702…`) | 8 | `ckpt/yaw_rotation/reference_manifest.json` (`47637a55…`) | **primary** — the FLAC analogue (released checkpoint), xRIR's paper setting |
+| `released_k1` | same | 1 | `ckpt/yaw_rotation/reference_manifest_k1.json` (`f6d71f86…`) | FLAC's K |
+| `control_k8` | `ckpt/xRIR_simple_8_shot/epoch_12.pth` | 8 | `47637a55…` | same-budget SimpleViT (exp_01) — context |
+| `cyl_k8` | `ckpt/xRIR_cyl_8_shot/epoch_12.pth` | 8 | `47637a55…` | CylindricalViT — the fix's starting point |
+
+Execution order = table order (the headline lands first). Settings identical to exp_03's sweeps: batch 16 with canonical padding, TF32 off, `gl_seed 0`, metrics on the first 8000 samples, unseen split, 6 337 queries / 17 rooms. Angles **k ∈ {0, 64, 128, 256, 384}** = 0°, 45°, 90°, 180°, 270° (FLAC's three axis angles plus 45°, where exp_03 found the peak; all five are on exp_03's acoustic grid, so every Metric-2 number here is a replication of exp_03's). Controls: **k = 512** (a full turn; must equal k = 0) on the first 256 queries, and a **repeated k = 0** pass on the same 256 queries (run-to-run determinism) — FLAC's `rot0 == baseline` check.
+
+## 4. Metrics (per query, then mean over queries; NaN = invalid, never imputed)
+
+**Metric 2 — accuracy vs GT at angle α (condition P):** EDT error (s), C50 error (dB), T60 error (%) via `tools.per_sample_metrics.acoustic_metrics` (exp_03's validity rules, 8000-sample window); log-STFT MSE and the test loss via `per_sample_losses`. Degradation Δ(α) = mean(e_α − e_0) over queries valid at both angles.
+
+**Metric 1 — prediction shift, P_α vs P_0, no GT:**
+- `wave_rel_l2` = ‖w_α − w_0‖₂ / (‖w_0‖₂ + 1e-8) and `wave_mad` = mean|w_α − w_0| over the 9 600-sample waveforms (FLAC's definitions, `compare_predictions.waveform_gap`);
+- `mag_rel_l2` = ‖M_α − M_0‖_F / ‖M_0‖_F on the predicted magnitude spectrograms (GL-free) and `logspec_mad` = mean|log M_α − log M_0| (= exp_03's `consistency`, replicated);
+- acoustic gaps `edt_gap`, `c50_gap`, `t60_gap` = `acoustic_metrics(pred = w_α, gt = w_0)` (T60 gap as % of T60(w_0)), FLAC's "P_ref as GT" convention.
+
+**Uncertainty:** paired query-level percentile bootstrap, 10 000 resamples, seed 0, 95 % two-sided, for Δ, G and G/Δ; convergence check with a second seed (bounds move < 10 % of the interval width). **Noise-floor band** for the figure (FLAC used exp_01's single-eval σ): exp_04's five-seed SDs of the same-budget SimpleViT at K = 8 (EDT 0.186 ms, C50 0.0053 dB, T60 0.009 %) and K = 1 (0.609 ms, 0.0133 dB, 0.101 %) — reference-draw + phase noise — drawn as 2σ; the released checkpoint has no five-seed set, stated in the caption. Room-cluster CIs are reported as a secondary robustness line (17 rooms).
+
+## 5. Planned code (new files only — exp_03's pinned closure is not touched; the frozen `eval_yaw_rotation.py` refuses to run without CUDA, so the CPU/GPU-agnostic path lives in the new tool, which reuses `pad_batch`, `rotate_scene_yaw`, `fixed_alignment`, `per_sample_losses`, `griffin_lim_seeded`, `sample_seed`, `acoustic_metrics`, `ManifestDataset`, `load_checked_manifest`)
+
+| File | Purpose |
+|---|---|
+| `tools/exp10_yaw_pilot.py` | `device_agnostic_apply_delay` (runtime replacement of `model.xRIR.apply_delay`, which hard-codes `.cuda()`; installed by `run` only, never edits the module); `angle_logspec(model, tensors, k, aligned0)` → log-magnitude `[n, F, T]` under `fixed_alignment`; `invert(logspec, keys, gl_seed)` → `[n, 9600]` float32 (9 579 GL samples zero-padded); `waveform_gap`, `spectrogram_gap`, `acoustic_gap`; `evaluate_batch(model, batch, ks, evaluator, gl_seed, batch_size, device)` → per-query metrics per k + waveforms; `run(args)`: hash-checked manifest, canonical order check, writes `ckpt/exp10/<arm>/per_sample.json`, `metrics.json`, `wav_k<k>.npy` (float32 `[N, 9600]`, ~243 MB each), `meta` (checkpoint sha256, manifest hash, gl_seed, device, torch, git commit, elapsed); CLI `--arm --backbone --checkpoint --manifest --manifest-hash --num-shot --ks --device --batch-size --max-samples --out-dir --controls` |
+| `tools/exp10_compare.py` | FLAC-style offline comparator: Metric 1 from two stored `wav_k*.npy` (+ meta guard: same arm/manifest/gl_seed/device); `check_online(per_sample.json)` asserts equality with the online values (1e-6); `parity_exp03(per_sample.json, <exp_03 per_sample_yaw.json>)`: same query list, per-angle mean |Δ| and max per-sample |Δ| of EDT/C50/T60/consistency at the shared angles (tolerances in §7) |
+| `tools/exp10_summarize.py` | tables (Markdown + canonical JSON with input sha256s): Metric 2 per angle (mean_0, mean_α, Δ, CI), Metric 1 per angle (each gap, CI), ratio G/Δ; controls (k = 512 vs 0, repeated 0: max |Δ| waveform/log-spec, must be 0 up to 1e-6); figure `yaw_pilot_gaps_<arm>.{pdf,png}` in FLAC's style (panels T60 / C50 / EDT; bars = accuracy degradation vs prediction shift per angle, 2σ band, values annotated) + a combined four-arm figure; CSV of plotted values |
+| `tests/test_exp10_yaw_pilot.py`, `tests/test_exp10_compare.py`, `tests/test_exp10_summarize.py` | §6 |
+
+## 6. Per-function tests (TDD; red → green; one small commit per cycle)
+
+`tools/exp10_yaw_pilot.py`
+1. `waveform_gap`: identity → (0, 0); `rel_l2(w, 2w) = 1`; zero reference → finite; shapes `[n, T]` → `[n]`.
+2. `spectrogram_gap`: identity → 0; `logspec_mad` equals `mean|a − b|` on a random pair; `mag_rel_l2` scale check.
+3. `acoustic_gap`: identity → EDT 0, C50 0, T60 0; `want_t60=False` → NaN T60; invalid (all-zero) input → NaN not exception.
+4. `device_agnostic_apply_delay`: equals the module's own `apply_delay` on CUDA when available (skip otherwise) and shifts correctly for positive/negative/zero delays on CPU; installation is scoped (restored after `run`).
+5. `angle_logspec`: on a random-init `build_xrir("simple", 2)` and a synthetic batch (CPU): k = 0 equals the plain forward exactly; k = 512 equals k = 0 (atol 1e-6); the pinned alignment is used (a counter on `shift_and_align` stays at 1).
+6. `invert`: same `(logspec, key, gl_seed)` twice → identical; different key → different; output `[n, 9600]`, last 21 samples zero.
+7. `evaluate_batch`: synthetic batch of 3 padded to 4 → results have `n = 3`; every k has both metric families; at k = 0 all gaps are exactly 0; padded rows do not change the kept rows (compare batch of 3 vs the same 3 inside a batch of 4).
+8. `run` smoke (`--max-samples 4`, real manifest; skipped when the data root is absent): outputs exist with the right shapes; meta carries the checkpoint sha256 and manifest hash; a second run is bit-identical on CPU; refuses a wrong `--manifest-hash`.
+
+`tools/exp10_compare.py`
+9. Offline Metric 1 from stored arrays equals the online per-sample values (1e-6); meta guard refuses different `gl_seed` / manifest / arm.
+10. `parity_exp03`: refuses a different query list; on a fixture with an injected per-sample offset reports the max |Δ| and the mean |Δ| exactly.
+
+`tools/exp10_summarize.py`
+11. Bootstrap: seeded reproducibility; a shifted synthetic sample yields Δ's CI containing the true shift; ratio undefined when Δ's CI contains 0.
+12. Controls table: flags a k = 512 mismatch > 1e-6.
+13. Figure/CSV: files written; CSV rows equal the JSON table values; refuses a JSON whose input sha256s do not match the files on disk.
+
+## 7. Validation ladder and acceptance
+
+Static checks → tests (new + the exp_03/04/07 record suites unchanged) → smoke (`--max-samples 4`, CPU) → probe (256 queries, CPU, timing) → full. **Parity gate before the full runs:** on the 256-query probe of `released_k8`, Metric 2 at k ∈ {0, 64, 128, 256, 384} vs exp_03's `sweep_released/per_sample_yaw.json` (GPU, TF32 off): mean |Δ| ≤ 1e-3 s EDT / 1e-2 dB C50 / 0.1 % T60 and `logspec_mad` mean within 1e-3 (CPU vs GPU float differences are expected at the 1e-5 level; a larger gap means a wrong reference/phase/alignment and blocks the launch). Controls (k = 512 ≡ 0; repeated 0) must be exact to 1e-6. Full-run acceptance: 6 337 queries in canonical order, every angle present, finite counts = 6 337 at k = 0 for EDT/C50 (T60 descriptive), meta complete, `check_online` passes.
+
+## 8. Compute and outputs
+
+CPU: ≈ 40 min per angle-pass per arm (measured on the qualitative export, 24 threads) → ≈ 3.5 h per arm, 4 arms ≈ 14 h serial, ≈ 7 h as two processes. GPU (if a card frees): ≈ 20 min per arm. Disk: 20 waveform arrays × 243 MB ≈ 4.9 GB under `ckpt/exp10/` (git-ignored; 51 GB free). Deliverables per SOP: `_params_set_up.md`, `_command.md`, teed logs, `_results.md`, `_analysis.md`, `yaw_pilot_01_results.html` + assets (figures, CSV, canonical JSON with sha256s), `commits_yaw_pilot.md`.
+
+## 9. Out of scope
+
+Training; condition E; angles beyond the five; retrieval metrics (xRIR has none); any change to pinned exp_03/exp_04 modules; confirmatory hypothesis tests (exp_03 holds them).
+# exp_10 yaw_pilot — Codex plan review (round 1, plan v1)
+
+**Reviewer identity:** OpenAI Codex `gpt-6-astra` (codex-cli 0.154.0, `codex exec -c 'model_reasoning_effort="xhigh"' -s read-only -C xRIR_code --skip-git-repo-check`, stdin closed) · **Prompt:** `review_prompts/plan_prompt.md` · **Raw log:** `yaw_pilot_2026-09-26_17:24:59_codex_plan_review.log` · **Date:** 2026-09-26. Note: the SOP mandates `ultra`; the shared `~/.codex/config.toml` had drifted to `xhigh` and this round used the explicit `xhigh` override (finding 11); round 2 onward runs at `ultra` (verified accepted by codex-cli 0.154.0).
+
+**Reviewer:** OpenAI Codex (`codex-cli 0.154.0`; configured `gpt-6-astra`, `xhigh`; `codex exec`, read-only) · **Date:** 2026-09-26
+
+Reviewed [plan v1](/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/plan_yaw_pilot.md), the requested experiment records and implementations, and exp_04’s five-seed table.
+
+The core design is sound: condition P consistently rotates the geometric conditioning while preserving reference audio, target audio, and baseline alignment. This is an appropriate analogue of FLAC’s conditioning rotation. Keeping exp_03’s modules frozen and excluding training, condition E, and confirmatory tests is appropriate.
+
+1. **Blocker — Specify the complete paired-bootstrap contract (§§1, 4, 6).**  
+   The intended ratio of means is correct, but Δ uses paired-valid errors while G’s validity mask is unspecified. Independently dropping invalid values can make the bars describe different queries and break ratio pairing.
+
+   **Minimal fix:** For each acoustic metric and angle, define a comparison mask where `e₀`, `eα`, and `gα` are all finite. Resample those query tuples once per replicate and compute `Δ*=mean(eα−e₀)`, `G*=mean(gα)`, and `R*=G*/Δ*`. Report the comparison count and exclusions; distinguish any standalone G computed on a broader population. Restrict ratios to metrics with corresponding error/gap definitions.
+
+   Keep the zero-crossing rule, but distinguish “denominator uncertain” from mathematical division by zero. Handle negative degradation explicitly: an entirely negative Δ interval means improvement, not a positive degradation multiple. Never take `abs(Δ)`, add an epsilon, or silently discard inconvenient bootstrap draws. Add tests for shared masks/resamples, negative and zero denominators, empty masks, and unequal room sizes. Room bootstraps must preserve query weighting and drawn-room multiplicities.
+
+2. **Blocker — The CPU/GPU parity gate can admit discrepancies comparable to the finding (§7).**  
+   The proposed limits are 1 ms EDT and 0.01 dB C50 per angle. In the released exp_03 records, ΔEDT at 45° is approximately **−0.585 ms**, while ΔC50 at 90° and 180° is approximately **−0.00277 and +0.00845 dB**. Passing the gate therefore does not establish preservation of the small effects or their signs. Per-sample maxima are reported but have no acceptance limits.
+
+   The probe is also geographically narrow: the first 256 queries contain **250 from one apartment and six from another**.
+
+   **Minimal fix:** Select intact canonical batches spanning all 17 rooms. Calibrate backend discrepancies through aligned references, predicted log-spectra, magnitudes, and acoustic metrics; gate the discrepancy in **paired Δ itself**, alongside per-sample diagnostics. Qualify each backbone/K execution path. Preserve exp_03’s operation placement: magnitude construction occurs before transfer to CPU, and Griffin–Lim runs on CPU. Pin the relevant library versions and precision settings. If backend equivalence cannot be established, report a separate CPU protocol rather than claiming numerical replication.
+
+3. **Should-fix — FLAC comparability and Griffin–Lim attribution need precise limits (§§1, 4).**  
+   The acoustic gaps follow the same reference convention and both pipelines use the first 8,000 samples at 22,050 Hz. However, xRIR’s waveform distances use 9,600 samples, including 21 padding samples; FLAC’s stored predictions have 10,240 samples. Their waveform distances are not directly matched measurements.
+
+   Shared phase initialization correctly removes independent initialization noise. It does **not** remove Griffin–Lim’s nonlinear response to magnitude changes. That affects acoustic gaps as well as waveform L2. The plan’s categorical claim that Griffin–Lim “inflates” distances is stronger than this experiment establishes.
+
+   **Minimal fix:** Label waveform and acoustic results as sensitivity of the **model-plus-Griffin–Lim pipeline**, conditional on the chosen seed. Say Griffin–Lim *can amplify* differences; retain GL-free spectral shift as separate evidence. Avoid direct FLAC/xRIR waveform-magnitude rankings unless evaluated on a common window. Define `M=exp(out)−1e−8` and `logspec_mad=mean|outα−out₀|` explicitly—the latter is exp_03’s consistency, not literally a fresh `log(M)` calculation.
+
+4. **Should-fix — T60’s two percentages have different denominators (§4).**  
+   T60 accuracy error is normalized by `T60(GT)`; prediction shift is normalized by `T60(P₀)`. Consequently, G/Δ is a valid descriptive convention, but its magnitude also reflects different normalizations. It is not a common-normalization measure of displacement versus accuracy loss.
+
+   **Minimal fix:** Label ΔT60 as **percentage-point change in GT-normalized error** and G as **percent of baseline-prediction T60**. Qualify any T60 multiple accordingly. EDT and C50 support the cleaner same-unit comparison; an additional absolute-T60 analysis is optional.
+
+5. **Should-fix — Controls need independent execution and a nonzero-angle wrapper test (§§3, 6).**  
+   `rotate_scene_yaw` reduces k modulo 512, so k=512 exercises the identity path. It checks plumbing but cannot establish correct nonzero-angle handling. Likewise, a repeated-zero control is ineffective if it reuses cached predictions. The current new-wrapper tests emphasize identity cases.
+
+   **Minimal fix:** Require fresh inference for repeated-zero controls, stored under distinct control identifiers. On the representative probe, repeat one nonzero angle on the selected backend and verify both waveforms and acoustic metrics. Add a nonzero-angle test against the trusted rotation/fixed-alignment composition, checking unchanged reference/target audio; add angle-order invariance and restoration-after-exception tests. These remain bounded diagnostics, without condition E or additional scientific angles.
+
+6. **Should-fix — Released K=1 is a new evaluation condition, not an exp_03 replication (§3).**  
+   “Every Metric-2 number here is a replication of exp_03” contradicts the notebook: there is no released K=1 predecessor. Evaluating a K=8-trained checkpoint with one reference is feasible, but matching FLAC’s reference count does not match its training/evaluation protocol. The K=1 manifest is also not simply the first reference from each K=8 entry.
+
+   **Minimal fix:** Label this arm **“released checkpoint, trained K=8, evaluated K=1”**, retain K=8 as primary, and mark released-K1 parity against exp_03 as unavailable. Validate strict checkpoint loading and agreement among CLI, manifest, and model K. Do not attribute K=1-versus-K=8 differences solely to reference count. Scope the cited P/E agreement to exp_03’s measured K=8 cells.
+
+7. **Should-fix — The borrowed band is not the noise floor of Δ or G (§4).**  
+   Exp_04’s SD describes variability of baseline error means when **both references and Griffin–Lim phases change**. This pilot fixes both across angles. That SD does not estimate the variability of paired Δ, prediction shift, or released-checkpoint results. Merely noting the missing released five-seed set does not resolve the statistical mismatch.
+
+   **Minimal fix:** Remove the band or label it **historical baseline evaluation variability, for context only**. Do not use it for significance or acceptance decisions. Use the available cylindrical SD for cylindrical context. Keep paired CIs and measured repeatability controls distinct from this historical scale.
+
+8. **Should-fix — Make float32 storage and artifact identity an explicit contract (§§5–7).**  
+   Float32 `.npy` storage is appropriate for the existing fp32 inversion path; increasing precision is unnecessary. The important requirement is that online and offline metrics consume the same waveform representation. Arm/manifest/seed/device labels alone do not establish checkpoint identity or array ordering.
+
+   **Minimal fix:** Compute online waveform/acoustic metrics from the exact float32 arrays being saved, without clipping or normalization. Record native/padded lengths, sample rate, metric window, ordered query IDs, checkpoint hash, backbone/K, batch/precision settings, and relevant software versions. Hash waveform artifacts and require matching metadata during comparison. Reject incomplete runs and mismatched identities; test the actual save/load round trip and missing-value masks. Verify the pinned source files remain unchanged before launch.
+
+9. **Should-fix — Deliverables must support negative and uncertain degradation, and visibly include the GL-free readout (§§1, 5, 8).**  
+   The figure specification lists acoustic panels, despite R3 requiring GL-free spectral shift beside waveform shift. It also does not explicitly require CI error bars, invalid counts, or negative-bar handling. These matter because the released checkpoint already shows improvements at several selected angles.
+
+   **Minimal fix:** Include the spectral readout, signed degradation bars, interval endpoints, paired-valid counts, and explicit ratio status in the canonical JSON/CSV and presentation. Permit wording such as “predictions shift while net error improves” or “net degradation is unresolved.” Do not translate a zero-crossing CI into equivalence or invariance. Keep claims descriptive, per angle, checkpoint, reference draw, and seed; disclose room-cluster disagreements. If claiming cancellation of improvements and deteriorations, show their paired contributions rather than inferring cancellation from G/Δ alone.
+
+10. **Should-fix — Runtime estimates need measurement of this evaluator (§8).**  
+    The approximately 4.9 GB waveform estimate is consistent. The runtime estimates are less secure: Griffin–Lim remains CPU work even with GPU inference, K=1 and K=8 have different forward costs, and two 24-thread processes need not halve elapsed time.
+
+    **Minimal fix:** Add an explicit thread/worker budget and time inference, inversion, metrics, and writing separately in the probe. Forecast each arm/backend from those measurements, including controls and offline comparison. Qualify concurrent CPU execution against available cores and ongoing jobs before assuming a twofold speedup.
+
+11. **Should-fix — Review configuration conflicts with the SOP (§0/header).**  
+    The plan and recorded invocation use `xhigh`; the SOP specifies `gpt-6-astra` at `ultra` for reviews.
+
+    **Minimal fix:** Run the revised-plan approval review at the mandated setting, or record an explicit user-authorized exception. Preserve the required per-round and final code reviews before full runs.
+
+**Verdict: REQUEST CHANGES.**
+# exp_10 yaw_pilot — Codex plan review (round 2, plan v2)
+
+**Reviewer identity:** OpenAI Codex `gpt-6-astra` at `ultra` (codex-cli 0.154.0, `codex exec -c 'model_reasoning_effort="ultra"' -s read-only -C xRIR_code --skip-git-repo-check`, stdin closed) · **Prompt:** `review_prompts/plan_round2_prompt.md` · **Raw log:** `yaw_pilot_2026-09-26_17:32:32_codex_plan_review_round2.log` · **Date:** 2026-09-26
+
+**Reviewer:** OpenAI Codex `gpt-6-astra`, `ultra` (`codex-cli 0.154.0`, `codex exec`, read-only) · **Date:** 2026-09-26
+
+Reviewed all requested records and source files against [plan v2](/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/plan_yaw_pilot.md).
+
+The core design is sound. Condition P is an appropriate analogue of FLAC’s conditioning rotation. The shared masks and resampling indices correctly pair Δ, G, and G/Δ; room resampling preserves query weighting. Fresh zero/nonzero controls, float32 waveform storage, the K=8-trained/K=1-evaluated qualification, Griffin–Lim attribution, and the contextual historical variability band adequately address their round-1 concerns.
+
+1. **Blocker — The CPU fallback mixes the quantities being compared (§7).**
+
+   After failed CPU parity, the plan permits proceeding “with Metric 2 quoted from exp_03.” That would compare new CPU prediction shifts with historical GPU accuracy changes precisely when backend equivalence failed. Matching query IDs cannot make these measurements describe the same predictions. Released K=1 additionally has no historical counterpart.
+
+   **Minimal fix:** Compute Δ, G, and their paired ratio entirely from the current CPU run. Show exp_03’s GPU values separately as historical comparisons. Add a rejection test for combining metrics from different run/protocol identities.
+
+2. **Should-fix — The parity comparator’s contract rejects the planned probe (§§5–7).**
+
+   `parity_exp03` requires identical query lists, but the probe contains 272 queries and the historical file contains 6,337. The launch rule also explicitly blocks failure of criterion (c), leaving enforcement of (a)/(b) ambiguous.
+
+   **Minimal fix:** Specify validated subset alignment: verify manifest identity and unique canonical query indices, extract exactly the probe’s historical rows, then require ordered equality. Test a valid noncontiguous probe and missing/duplicate/reordered queries. Make all three parity criteria binding and report validity-mask mismatches explicitly. Repeat the inexpensive offline comparison over the full results before calling an arm an exp_03 replication.
+
+3. **Should-fix — The named tests do not verify that the live pinned modules remain unchanged (§5).**
+
+   `tests/test_exp03_record_tools.py` tests provenance validators using [synthetic closure records](/home/yixunhu/codespace/xRIR_code/tests/test_exp03_record_tools.py:112). Passing it does not establish byte equality between the worktree’s evaluator dependencies and exp_03’s reviewed source.
+
+   **Minimal fix:** Add an explicit prelaunch comparison of the pinned files’ live hashes against reviewed commit `62c9107b4150e44c4ac410ff4cab359c1e71cc10`, fail on mismatch, and retain the comparison in exp_10 metadata. This fits inside the authorized new files.
+
+4. **Should-fix — Saved waveforms cannot reproduce every Metric-1 quantity (§§5–6).**
+
+   The comparator promises offline “Metric 1 == online,” but only waveforms and scalar metrics are retained. Native `logspec_mad` and `mag_rel_l2` cannot be reconstructed from finite-iteration Griffin–Lim waveforms. Taking another STFT would measure a different quantity.
+
+   **Minimal fix:** Explicitly restrict offline recomputation to waveform/acoustic gaps; retain and hash the online spectral measurements and verify their direct-output calculations in tests. Alternatively, retain native spectra and update storage estimates.
+
+5. **Should-fix — Acoustic comparability needs an estimator/validity audit, beyond matching windows (§§1, 4).**
+
+   Both evaluators use the first 8,000 samples at 22,050 Hz. However, FLAC substitutes `−1` for failed T60 measurements and [includes those values in AcousticRooms errors](/home/yixunhu/codespace/FLAC/src/metrics/modules/RT60.py:44); xRIR [returns NaN and excludes invalid measurements](/home/yixunhu/codespace/xRIR_code/tools/per_sample_metrics.py:165). FLAC also adds a small constant inside the C50 logarithm.
+
+   **Minimal fix:** Record estimator and invalid-policy differences alongside window verification. Qualify comparisons where matching validity has not been established. Keep the pinned xRIR evaluator unchanged. The common “P₀ as GT” convention establishes conceptual comparability, not automatically identical numerical protocols.
+
+6. **Should-fix — Paper wording must expose query/room disagreement (§§1, 4–5).**
+
+   The plan provides one ratio status and secondary room intervals without requiring disagreements to accompany headline multiples. This matters: exp_03’s released T60 results at +45°/+90° have positive query-level intervals while room intervals cross zero.
+
+   **Minimal fix:** Emit separate query- and room-bootstrap denominator/ratio statuses. Scope headline statements to the checkpoint, reference manifest, phase seed, and fixed split; disclose room-level uncertainty beside any multiple. Also retain round-1’s restriction: G/Δ alone does not establish that improvements and deteriorations cancel—such wording requires their paired contributions.
+
+7. **Nit — The convergence rule cannot pass deterministic zero-width intervals (§4).**
+
+   At k=0, Δ and G have intervals `[0, 0]`. Requiring endpoint movement strictly below 10% of width evaluates to `0 < 0`, which fails.
+
+   **Minimal fix:** Treat identical zero-width intervals as converged, changed zero-width intervals as failed, and absent ratio intervals as not applicable. Include a k=0 fixture; make exact-zero-denominator status precedence explicit.
+
+8. **Nit — The resource window and runtime forecast disagree (§§3, 8).**
+
+   The recorded GPU agreement covers approximately two hours, whereas the forecast is four to five hours plus comparison work.
+
+   **Minimal fix:** Reconcile the launch window with the measured per-arm forecast before scheduling the full sweep. The proposed probe timing breakdown and approximately 4.9 GB waveform estimate are otherwise reasonable.
+
+**Verdict: REQUEST CHANGES.**
+# exp_10 yaw_pilot — lab notebook
+
+## 2026-09-26T17:24:59-04:00 — scaffold
+- **Goal** — start the xRIR analogue of FLAC exp_02 (yaw non-invariance pilot) per Yixun's 2026-09-26 request.
+- **Result** — folder scaffolded; query file written; facts gathered: FLAC exp_02 = released checkpoint, unseen K = 1, α ∈ {0, 90, 180, 270}°, Metric 2 (vs GT) + Metric 1 (P_α vs P_0: waveform rel-L2 / MAD, T60/C50/EDT gaps with P_0 as GT), rot0 determinism control; figure = degradation vs shift bars per angle with a 2σ noise band. xRIR exp_03 has Metric 2 for control / cyl / released at K = 8 on the acoustic grid (k = 0, ±8, ±32, ±64, ±128, 256; P condition, manifest `47637a55…`, gl_seed 0, batch 16, TF32 off) and a log-spec consistency, but no stored waveforms; its K = 1 runs are k = 0 only (no released K = 1 run). Both GPUs held by cylindrical-dinov3 exp_13 tier-L trainings (day 6); asked that session for ETA / co-tenancy; CPU path prepared (runtime device-agnostic copy of `model.xRIR.apply_delay`, as in the qualitative-figure script).
+- **Next** — plan → Codex plan review → Coder round (Opus 5, worktree) → Codex code review → runs.
+
+## 2026-09-26T17:25:22-04:00 — plan v1 + Codex plan review launched
+- **Goal** — pre-registered descriptive pilot (plan §1–§9) reviewed before any code.
+- **Version Control** — plan committed `ac06bca` on main; Coder worktree `/home/yixunhu/codespace/xRIR_code_wt10` (branch `exp10-yaw-pilot` from `ac06bca`) created.
+- **Command / Validation** — `codex exec -c 'model_reasoning_effort="xhigh"' -s read-only -C xRIR_code …` with `review_prompts/plan_prompt.md`; log `yaw_pilot_2026-09-26_17:24:59_codex_plan_review.log`.
+- **Result** — in_progress.
+- **Next** — revise the plan per the review, then Coder round 1 (tools/exp10_yaw_pilot.py + tests).
+
+## 2026-09-26T17:32:34-04:00 — plan review round 1 → plan v2 → review round 2
+- **Result** — Codex round 1 (`yaw_pilot_codex_plan_review.md`): REQUEST CHANGES, 2 blockers (paired-bootstrap contract; CPU/GPU parity gate too loose) + 9 should-fixes. All addressed in plan v2 (§10 map): shared mask + one draw per replicate + ratio status; GPU 1 primary backend (cylindrical-dinov3 session agreed to a 4 GB co-tenant on GPU 1 at 17:3x: its trainings end ≈ Sep 29 (GPU 1) / Oct 3 (GPU 0), ≈ 30 % slowdown expected); probe = 17 room-spanning intact canonical batches; gate on paired Δ; fresh-inference controls incl. a nonzero repeat; released K = 1 relabelled; band = context only; identity contract; GL-free panel and signed bars; timing breakdown; reviews at `ultra` (verified accepted).
+- **Command / Validation** — round-2 review launched at `ultra`: log `yaw_pilot_2026-09-26_17:32:32_codex_plan_review_round2.log`.
+- **Next** — on approval: Coder round 1 in wt10.
+
+## 2026-09-26T17:33:46-04:00 — pre-Coder checks while the round-2 review runs
+- **Result** — `tests/test_exp03_record_tools.py`: 31 passed, 1 skipped (exp_03's pinned closure unchanged on main); manifest rooms contiguous in canonical order; probe batches (first intact batch inside each of the 17 rooms) = [0, 16, 32, 94, 110, 125, 141, 157, 214, 277, 292, 307, 322, 338, 353, 369, 381] (272 queries); `ckpt/exp10` absent; 50 GB free. Coder round-1 prompt drafted (`coder_prompts/round1_prompt.md`).
+
+## 2026-09-26T17:33:58-04:00 — GPU window correction from the cylindrical-dinov3 session
+- **Result** — GPU 1 has only ≈ 4.8 GB free until its exp_24 fine-tune exits (≈ 22:30); GPU 0 ≈ 3.6 GB free until ≈ 23:00. Agreed: no launch on either card before that session's ping; CPU for smoke/probe meanwhile; the 4–5 h GPU 1 window starts after the ping.
+
+## 2026-09-26T17:37:54-04:00 — plan review round 2 → plan v3 → review round 3
+- **Result** — Codex round 2 at ultra (`yaw_pilot_codex_plan_review_round2.md`): REQUEST CHANGES, 1 blocker (CPU fallback must not mix a CPU run's shifts with exp_03's GPU errors) + 5 should-fixes (parity subset alignment; live pin verification against `ckpt/yaw_rotation/binding_report.json`; offline recomputation limited to waveform/acoustic gaps; FLAC/xRIR estimator-policy audit; separate query/room ratio statuses) + 2 nits (zero-width convergence; GPU window). All incorporated in plan v3 (§11).
+- **Command / Validation** — round-3 review at ultra: log `yaw_pilot_2026-09-26_17:37:52_codex_plan_review_round3.log`.
+
+exec
+/bin/bash -lc 'cat worklog/worklog_yixun/announcement/*.md
+cat worklog/worklog_yixun/exp_10_yaw_pilot_claude/plan_yaw_pilot_v1_superseded.md' in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+cat: 'worklog/worklog_yixun/announcement/*.md': No such file or directory
+# Plan — exp_10 `yaw_pilot` (xRIR analogue of FLAC exp_02 `yaw_noninvariance`)
+
+**Planner:** Claude Fable 5.1 (session xrir-code-25). **Coder:** Claude Opus 5 (Agent, worktree `xRIR_code_wt10`, branch `exp10-yaw-pilot`). **Reviewer:** OpenAI Codex `gpt-6-astra` at xhigh. **Date:** 2026-09-26. **Status:** v1, for Codex plan review.
+
+## 1. Question and stance
+
+**Question (Yixun, 2026-09-26).** Mimicking FLAC's exp_02 pilot: when the *conditioning* of the released xRIR checkpoint is yaw-rotated on the AcousticRooms unseen split, how much does the **prediction itself move** (Metric 1, P_α vs P_0, no GT) compared with how much **accuracy vs GT degrades** (Metric 2)? FLAC's finding was "predictions move ~5× more than net accuracy loses" (T60 gap 3.3 % vs degradation 0.4–0.7 %; EDT gap 19–20 ms vs 3.5–6.3 ms). The pilot section needs the same two numbers, per angle, for xRIR.
+
+**Stance.** This is a **descriptive pilot**, like FLAC's: means with paired query-level bootstrap intervals, no confirmatory hypotheses (exp_03 already ran the Bonferroni-adjusted H1/H2 tests on Metric 2 and found degradation small, peaking at diagonal headings). Pre-registered readouts: (R1) per angle and metric, degradation Δ(α) = mean error(α) − mean error(0) vs GT and shift G(α) = mean gap of P_α w.r.t. P_0, each with a 95 % query-level bootstrap CI; (R2) the ratio G/Δ (CI by the same resamples; reported as "undefined" when the Δ interval contains 0) — the FLAC-style statement is "shift ≫ degradation" only if the ratio's lower bound exceeds 2; (R3) the GL-free spectrogram shift beside the waveform shift, because xRIR's waveform is a Griffin-Lim inversion of a predicted magnitude and GL's nonlinearity inflates waveform distances (FLAC decodes waveforms directly, so its rel-L2 has no such stage) — the caption must say which quantity is FLAC-comparable.
+
+## 2. Mechanism recap (from exp_03; unchanged)
+
+Geometry enters `xRIR.forward` through the ViT views `(loc − depth_coord)/5` and the sinusoidal embedding of raw xyz. Active yaw by k columns (W = 512): `depth' = Rz(2πk/W)·roll(depth, k)`, `src' = Rz·src`, `ref_locs' = Rz·ref_locs`; audio and target unchanged (`tools/yaw_rotation.rotate_scene_yaw`, oracle-tested in exp_03). Condition **P** pins the direct-path alignment at k = 0 (`fixed_alignment`) so only the geometry branches see the rotation; exp_03 showed E (end-to-end) = P to 2e-5, so E is not run here. The prediction is a log-magnitude spectrogram; waveforms come from Griffin-Lim with the phase seeded per query (`tools/per_sample_metrics.griffin_lim_seeded`, `sample_seed(gl_seed, query)`), so P_α and P_0 of one query start from the same random phase and differ only through the magnitudes.
+
+## 3. Arms, references, angles
+
+| Arm | Checkpoint | K | Manifest (exp_03's, hashed) | Role |
+|---|---|---|---|---|
+| `released_k8` | `checkpoints/xRIR_unseen.pth` (authors', frozen; sha256 `1762c702…`) | 8 | `ckpt/yaw_rotation/reference_manifest.json` (`47637a55…`) | **primary** — the FLAC analogue (released checkpoint), xRIR's paper setting |
+| `released_k1` | same | 1 | `ckpt/yaw_rotation/reference_manifest_k1.json` (`f6d71f86…`) | FLAC's K |
+| `control_k8` | `ckpt/xRIR_simple_8_shot/epoch_12.pth` | 8 | `47637a55…` | same-budget SimpleViT (exp_01) — context |
+| `cyl_k8` | `ckpt/xRIR_cyl_8_shot/epoch_12.pth` | 8 | `47637a55…` | CylindricalViT — the fix's starting point |
+
+Execution order = table order (the headline lands first). Settings identical to exp_03's sweeps: batch 16 with canonical padding, TF32 off, `gl_seed 0`, metrics on the first 8000 samples, unseen split, 6 337 queries / 17 rooms. Angles **k ∈ {0, 64, 128, 256, 384}** = 0°, 45°, 90°, 180°, 270° (FLAC's three axis angles plus 45°, where exp_03 found the peak; all five are on exp_03's acoustic grid, so every Metric-2 number here is a replication of exp_03's). Controls: **k = 512** (a full turn; must equal k = 0) on the first 256 queries, and a **repeated k = 0** pass on the same 256 queries (run-to-run determinism) — FLAC's `rot0 == baseline` check.
+
+## 4. Metrics (per query, then mean over queries; NaN = invalid, never imputed)
+
+**Metric 2 — accuracy vs GT at angle α (condition P):** EDT error (s), C50 error (dB), T60 error (%) via `tools.per_sample_metrics.acoustic_metrics` (exp_03's validity rules, 8000-sample window); log-STFT MSE and the test loss via `per_sample_losses`. Degradation Δ(α) = mean(e_α − e_0) over queries valid at both angles.
+
+**Metric 1 — prediction shift, P_α vs P_0, no GT:**
+- `wave_rel_l2` = ‖w_α − w_0‖₂ / (‖w_0‖₂ + 1e-8) and `wave_mad` = mean|w_α − w_0| over the 9 600-sample waveforms (FLAC's definitions, `compare_predictions.waveform_gap`);
+- `mag_rel_l2` = ‖M_α − M_0‖_F / ‖M_0‖_F on the predicted magnitude spectrograms (GL-free) and `logspec_mad` = mean|log M_α − log M_0| (= exp_03's `consistency`, replicated);
+- acoustic gaps `edt_gap`, `c50_gap`, `t60_gap` = `acoustic_metrics(pred = w_α, gt = w_0)` (T60 gap as % of T60(w_0)), FLAC's "P_ref as GT" convention.
+
+**Uncertainty:** paired query-level percentile bootstrap, 10 000 resamples, seed 0, 95 % two-sided, for Δ, G and G/Δ; convergence check with a second seed (bounds move < 10 % of the interval width). **Noise-floor band** for the figure (FLAC used exp_01's single-eval σ): exp_04's five-seed SDs of the same-budget SimpleViT at K = 8 (EDT 0.186 ms, C50 0.0053 dB, T60 0.009 %) and K = 1 (0.609 ms, 0.0133 dB, 0.101 %) — reference-draw + phase noise — drawn as 2σ; the released checkpoint has no five-seed set, stated in the caption. Room-cluster CIs are reported as a secondary robustness line (17 rooms).
+
+## 5. Planned code (new files only — exp_03's pinned closure is not touched; the frozen `eval_yaw_rotation.py` refuses to run without CUDA, so the CPU/GPU-agnostic path lives in the new tool, which reuses `pad_batch`, `rotate_scene_yaw`, `fixed_alignment`, `per_sample_losses`, `griffin_lim_seeded`, `sample_seed`, `acoustic_metrics`, `ManifestDataset`, `load_checked_manifest`)
+
+| File | Purpose |
+|---|---|
+| `tools/exp10_yaw_pilot.py` | `device_agnostic_apply_delay` (runtime replacement of `model.xRIR.apply_delay`, which hard-codes `.cuda()`; installed by `run` only, never edits the module); `angle_logspec(model, tensors, k, aligned0)` → log-magnitude `[n, F, T]` under `fixed_alignment`; `invert(logspec, keys, gl_seed)` → `[n, 9600]` float32 (9 579 GL samples zero-padded); `waveform_gap`, `spectrogram_gap`, `acoustic_gap`; `evaluate_batch(model, batch, ks, evaluator, gl_seed, batch_size, device)` → per-query metrics per k + waveforms; `run(args)`: hash-checked manifest, canonical order check, writes `ckpt/exp10/<arm>/per_sample.json`, `metrics.json`, `wav_k<k>.npy` (float32 `[N, 9600]`, ~243 MB each), `meta` (checkpoint sha256, manifest hash, gl_seed, device, torch, git commit, elapsed); CLI `--arm --backbone --checkpoint --manifest --manifest-hash --num-shot --ks --device --batch-size --max-samples --out-dir --controls` |
+| `tools/exp10_compare.py` | FLAC-style offline comparator: Metric 1 from two stored `wav_k*.npy` (+ meta guard: same arm/manifest/gl_seed/device); `check_online(per_sample.json)` asserts equality with the online values (1e-6); `parity_exp03(per_sample.json, <exp_03 per_sample_yaw.json>)`: same query list, per-angle mean |Δ| and max per-sample |Δ| of EDT/C50/T60/consistency at the shared angles (tolerances in §7) |
+| `tools/exp10_summarize.py` | tables (Markdown + canonical JSON with input sha256s): Metric 2 per angle (mean_0, mean_α, Δ, CI), Metric 1 per angle (each gap, CI), ratio G/Δ; controls (k = 512 vs 0, repeated 0: max |Δ| waveform/log-spec, must be 0 up to 1e-6); figure `yaw_pilot_gaps_<arm>.{pdf,png}` in FLAC's style (panels T60 / C50 / EDT; bars = accuracy degradation vs prediction shift per angle, 2σ band, values annotated) + a combined four-arm figure; CSV of plotted values |
+| `tests/test_exp10_yaw_pilot.py`, `tests/test_exp10_compare.py`, `tests/test_exp10_summarize.py` | §6 |
+
+## 6. Per-function tests (TDD; red → green; one small commit per cycle)
+
+`tools/exp10_yaw_pilot.py`
+1. `waveform_gap`: identity → (0, 0); `rel_l2(w, 2w) = 1`; zero reference → finite; shapes `[n, T]` → `[n]`.
+2. `spectrogram_gap`: identity → 0; `logspec_mad` equals `mean|a − b|` on a random pair; `mag_rel_l2` scale check.
+3. `acoustic_gap`: identity → EDT 0, C50 0, T60 0; `want_t60=False` → NaN T60; invalid (all-zero) input → NaN not exception.
+4. `device_agnostic_apply_delay`: equals the module's own `apply_delay` on CUDA when available (skip otherwise) and shifts correctly for positive/negative/zero delays on CPU; installation is scoped (restored after `run`).
+5. `angle_logspec`: on a random-init `build_xrir("simple", 2)` and a synthetic batch (CPU): k = 0 equals the plain forward exactly; k = 512 equals k = 0 (atol 1e-6); the pinned alignment is used (a counter on `shift_and_align` stays at 1).
+6. `invert`: same `(logspec, key, gl_seed)` twice → identical; different key → different; output `[n, 9600]`, last 21 samples zero.
+7. `evaluate_batch`: synthetic batch of 3 padded to 4 → results have `n = 3`; every k has both metric families; at k = 0 all gaps are exactly 0; padded rows do not change the kept rows (compare batch of 3 vs the same 3 inside a batch of 4).
+8. `run` smoke (`--max-samples 4`, real manifest; skipped when the data root is absent): outputs exist with the right shapes; meta carries the checkpoint sha256 and manifest hash; a second run is bit-identical on CPU; refuses a wrong `--manifest-hash`.
+
+`tools/exp10_compare.py`
+9. Offline Metric 1 from stored arrays equals the online per-sample values (1e-6); meta guard refuses different `gl_seed` / manifest / arm.
+10. `parity_exp03`: refuses a different query list; on a fixture with an injected per-sample offset reports the max |Δ| and the mean |Δ| exactly.
+
+`tools/exp10_summarize.py`
+11. Bootstrap: seeded reproducibility; a shifted synthetic sample yields Δ's CI containing the true shift; ratio undefined when Δ's CI contains 0.
+12. Controls table: flags a k = 512 mismatch > 1e-6.
+13. Figure/CSV: files written; CSV rows equal the JSON table values; refuses a JSON whose input sha256s do not match the files on disk.
+
+## 7. Validation ladder and acceptance
+
+Static checks → tests (new + the exp_03/04/07 record suites unchanged) → smoke (`--max-samples 4`, CPU) → probe (256 queries, CPU, timing) → full. **Parity gate before the full runs:** on the 256-query probe of `released_k8`, Metric 2 at k ∈ {0, 64, 128, 256, 384} vs exp_03's `sweep_released/per_sample_yaw.json` (GPU, TF32 off): mean |Δ| ≤ 1e-3 s EDT / 1e-2 dB C50 / 0.1 % T60 and `logspec_mad` mean within 1e-3 (CPU vs GPU float differences are expected at the 1e-5 level; a larger gap means a wrong reference/phase/alignment and blocks the launch). Controls (k = 512 ≡ 0; repeated 0) must be exact to 1e-6. Full-run acceptance: 6 337 queries in canonical order, every angle present, finite counts = 6 337 at k = 0 for EDT/C50 (T60 descriptive), meta complete, `check_online` passes.
+
+## 8. Compute and outputs
+
+CPU: ≈ 40 min per angle-pass per arm (measured on the qualitative export, 24 threads) → ≈ 3.5 h per arm, 4 arms ≈ 14 h serial, ≈ 7 h as two processes. GPU (if a card frees): ≈ 20 min per arm. Disk: 20 waveform arrays × 243 MB ≈ 4.9 GB under `ckpt/exp10/` (git-ignored; 51 GB free). Deliverables per SOP: `_params_set_up.md`, `_command.md`, teed logs, `_results.md`, `_analysis.md`, `yaw_pilot_01_results.html` + assets (figures, CSV, canonical JSON with sha256s), `commits_yaw_pilot.md`.
+
+## 9. Out of scope
+
+Training; condition E; angles beyond the five; retrieval metrics (xRIR has none); any change to pinned exp_03/exp_04 modules; confirmatory hypothesis tests (exp_03 holds them).
+
+exec
+/bin/bash -lc 'cat worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/plan_yaw_rotation_degradation.md
+cat worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_analysis.md' in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+# Plan — yaw_rotation_degradation
+
+**Status:** v2 (revised after the Codex plan review of v1, `yaw_rotation_degradation_codex_plan_review.md`), approved by the user on 2026-09-06 (tests in `tests/`, base commit `5bf4640`); implemented and executed the same day; post-approval amendments are listed in §12 and the outcome in `yaw_rotation_degradation_results.md` / `_analysis.md`. v1 is kept as `plan_yaw_rotation_degradation_v1_superseded.md`.
+
+## 1. Question
+
+Does **jointly rotating the receiver-centred depth panorama and the source / reference-source coordinates in yaw** (an *active* rotation of the whole scene about the receiver's vertical axis by +Δ; a symmetry of single-channel acoustics with omnidirectional source and monaural receiver, so the true RIR is unchanged) substantially degrade RIR synthesis quality in the xRIR pipeline?
+
+## 2. Mechanism (what can and cannot change)
+
+- Geometry enters `xRIR.forward` only through the ViT views `(loc − depth_coord)/5` (query source, receiver `−depth_coord`, each reference source) and the sinusoidal embedding of the raw xyz of `src_loc` / `ref_ir_locs`. Under the active yaw +Δ with k = ΔW/2π integer columns: `depth_coord' = Rz(Δ)·roll(depth_coord, k, axis=W)`, `src' = Rz(Δ)·src`, `ref_locs' = Rz(Δ)·ref_locs`; reference RIRs and the target are unchanged. Convention: column θ_c = (c+0.5)·2π/W − π with x = d cosφ cosθ, y = d cosφ sinθ (`convert_equirect_to_camera_coord`), so a +k roll followed by Rz(+2πk/W) maps the ray of column c−k onto column c (confirmed by the reviewer). The dataset's unused `rotation ∈ {90,180,270}` branches rotate about y and are **not** used.
+- `shift_and_align` is invariant algebraically but **not numerically**: float32 norms and `round()` to integer samples can flip a delay by one sample under rotation (reviewer's example: delay 80.5 → 80 unrotated, 80.500015 → 81 at k=4). Therefore the **primary** condition holds the direct-path alignment at the k=0 coordinates (cached aligned reference audio), so only the geometry branches see the rotation; a **secondary end-to-end** condition lets alignment use the rotated coordinates (what the pipeline would do at deployment), and the number of flipped integer delays per angle is audited over all real (query, reference) pairs.
+- Neither full model is yaw-invariant by construction: SimpleViT has absolute 2-D positional codes and an unconstrained flattened-xyz patch projection; CylindricalViT's tokens are equivariant for patch-aligned rolls, but xRIR pools tokens with `lin_proj_0` (a learned linear map over the 256 token *positions*) and embeds raw xyz. The experiment measures actual sensitivity and decomposes it (token-level vs pooled-level change for the cylindrical model).
+- Training used a fixed canonical heading, so rotated inputs are also out-of-distribution in wall orientation; this is part of the deployment-relevant phenomenon, stated so the effect is not over-attributed to positional codes.
+
+## 3. Hypotheses and pre-registered decision rules
+
+Primary SimpleViT model: the exp_01 **same-budget control** (`ckpt/xRIR_simple_8_shot/epoch_12.pth`, training-matched to the cylindrical model). The released checkpoint is a **replication** model. Cylindrical: `ckpt/xRIR_cyl_8_shot/epoch_12.pth`. Conclusions are scoped to these epoch-12, single-seed checkpoints.
+
+- **H1 (user's claim, confirmatory):** joint yaw rotation substantially degrades the primary SimpleViT model. **Rule:** define the relative degradation r_k = (ē_k − ē_0)/ē_0 for EDT error and C50 error, computed *inside* each paired bootstrap resample. H1 is supported if, for at least one angle in the acoustic angle set, the **Bonferroni-adjusted** (family = 2 metrics × 9 non-zero acoustic angles = 18 tests, i.e. 1 − 0.05/18 two-sided percentile intervals) lower bound of r_k exceeds **+10 %**. Verdict wording: "supported" (primary passes) / "supported and replicated" (released also passes) / "supported for the same-budget model only" or "replication only" (they disagree; both reported, no pooling) / "not supported". Absolute equivalents of the 10 % margin at k=0 are reported (≈0.005 s EDT, ≈0.12 dB C50 for the control).
+- **H2 (cross-model, confirmatory for the difference):** the cylindrical model degrades less than the primary SimpleViT. **Rule:** difference-in-differences D_k = r_k(cyl) − r_k(control) per angle and metric, paired per sample, Bonferroni-adjusted over the same family; H2 supported if D_k < 0 with the adjusted upper bound below 0 at the angles where H1 holds (and reported at all angles). **Patch-aligned near-invariance** (k ∈ 32ℤ): equivalence test with margin ±2 % (two one-sided tests on r_k at the adjusted level); "nearly unchanged" only if the interval lies within ±2 %.
+- **H0:** neither model degrades beyond the margins.
+- **Inference target (reviewer Q2):** primary inference is about **this fixed published split** (6337 queries, 17 rooms) via query-level paired bootstrap; a **room-cluster bootstrap** (resample the 17 rooms with replacement, keeping all queries of a drawn room, paired) is reported as a secondary, population-of-rooms robustness check and is expected to be wide.
+- **Invalid metrics (pre-registered mask):** per model and metric, a sample enters the paired analysis only if the metric is finite at k=0 *and* at the compared angle; the count and fraction of samples that become invalid at each angle are reported as a separate degradation indicator. T60 is reported descriptively only (exp_01 showed it is the noisiest metric; it is not in the confirmatory family).
+
+## 4. Design
+
+- **Data:** full AcousticRooms unseen test split (published config), K=8. **Reference manifest:** references are chosen deterministically per query from a sha256 hash of (manifest seed 0, query path), independent of batch size, worker count and model; the manifest (query path + 8 reference paths) is written once (`ckpt/yaw_rotation/reference_manifest.json`) and every run asserts its hash. Consequently k=0 is *not* per-sample identical to exp_01 (which used worker-local random draws that were never recorded); parity with exp_01 is checked distributionally (§8).
+- **Angles (integer column rolls, W=512):** spectral grid k ∈ {0, ±4, ±8, ±16, ±32, ±64, ±96, ±128, ±192, 256} (18 angles: 0°, ±2.8°, ±5.6°, ±11.25°, ±22.5°, ±45°, ±67.5°, ±90°, ±135°, 180°; negative k ≡ W−k; corrected from "19" in §12). **Acoustic grid** (Griffin-Lim metrics): k ∈ {0, ±8, ±32, ±64, ±128, 256} (10 angles).
+- **Conditions:** (P) primary, alignment fixed at k=0; (E) end-to-end, alignment from rotated coordinates — spectral metrics only for E at all angles, acoustic metrics for E at {±32, ±128} to bound its effect.
+- **Metrics per (model, condition, angle, sample):** spectral — test loss (STFT L1 + 0.01·decay, per-sample reduction by calling the existing loss functions on 1-sample slices so numerics equal the batch-1 path), log-STFT MSE vs GT, consistency = mean |log-spec(k) − log-spec(0)|; acoustic (acoustic grid only) — EDT, C50, T60 via `Evaluator` on the first 8000 samples exactly as exp_01, with **Griffin-Lim phase initialisation seeded per sample** (`torch.manual_seed(hash(manifest seed, query path))` immediately before each inversion) so k=0 and k≠0 use identical random phases for the same sample and results are angle-order- and model-order-invariant.
+- **Decomposition (cylindrical only, diagnostic):** at k=32, report the relative change of (a) ViT tokens after azimuth roll-back (expected ~0), (b) the pooled `lin_proj_0` output, (c) the coordinate-embedding features, (d) the final log-spectrogram — a trained `lin_proj_0` azimuth-shift audit.
+- **Delay-flip audit:** for every (query, reference) in the manifest and every angle, count integer-delay changes between rotated and unrotated coordinates (no model needed).
+
+## 5. Planned code (new files only; no baseline file is modified)
+
+| File | Purpose |
+|---|---|
+| `tools/yaw_rotation.py` | `yaw_angle_rad(k, W)`, `rotate_vectors_z(v, angle)`, `rotate_scene_yaw(depth_coord, src_loc, ref_locs, k, W)`; `fixed_alignment(model, aligned_refs)` context manager that makes `model.shift_and_align` return cached aligned audio (restores the original method on exit); `integer_delays(src, ref_locs)` reproducing `shift_and_align`'s rounding for the audit |
+| `tools/reference_manifest.py` | `build_manifest(dataset, seed)` (deterministic per-query reference paths), `manifest_hash`, `ManifestDataset` wrapper returning the exp_01 tuple plus the query path; loads audio/depth via the existing dataset helpers |
+| `tools/paired_stats.py` | `relative_degradation_bootstrap(e0, ek, n_boot, alpha, rng)` (r_k inside each resample), `bonferroni_alpha(m)`, `diff_in_diff_bootstrap`, `equivalence_tost`, `cluster_bootstrap(rooms, ...)`, `valid_mask(e0, ek)`; refactors the bootstrap now duplicated in `tools/compare_eval.py` (that file is left as is for exp_01 provenance) |
+| `tools/per_sample_metrics.py` | `per_sample_losses(out_spec, tgt_spec)` (1-sample slices through the original loss functions), `griffin_lim_seeded(mag, seed)`, `acoustic_metrics(pred_ir, gt_ir, evaluator, want_t60)` returning NaN for invalid |
+| `eval_yaw_rotation.py` | one pass per model over the manifest at batch 16: cache k=0 aligned refs per batch; loop angles; compute spectral metrics for P and E, acoustic metrics on the acoustic grid; write `ckpt/yaw_rotation/<model>/per_sample_yaw.json` + `metrics_yaw.json`; `--max-samples` for smoke only; `--batch-size 1` supported for the equality test |
+| `tools/summarize_yaw.py` | tables per model × angle (means, r_k with adjusted CI, verdicts), H1/H2/equivalence verdicts, cluster-bootstrap check, decomposition and delay-flip tables, JSON extract for the results page |
+| `tests/test_yaw_rotation.py`, `tests/test_reference_manifest.py`, `tests/test_paired_stats.py`, `tests/test_per_sample_metrics.py`, `tests/test_eval_yaw_rotation.py` | TDD, §6 |
+
+## 6. Per-function test list (test first; red → green; one small commit per cycle)
+
+`tools/yaw_rotation.py`
+1. `yaw_angle_rad`: k=0 → 0, k=W → 2π, k=128 → π/2.
+2. `rotate_vectors_z`: preserves norms and z; +π/2 maps (1,0,0) → (0,1,0) (active, right-handed).
+3. `rotate_scene_yaw`: k=0 identity; k=W equals k=0 (atol 1e-6); composition k1 then k2 == k1+k2 mod W.
+4. **Oracle:** for a random depth panorama, `Rz(Δ)·roll(convert(depth), k) == convert(roll(depth, k))` for all channels incl. z, checked at every column including the seam (c=0, W−1).
+5. **Covariance of all three views:** `(src' − depth')`, `(−depth')`, `(ref'_i − depth')` equal `Rz(Δ)·roll(·)` of the unrotated views.
+6. `integer_delays` equals the delays computed inside `shift_and_align` (monkeypatch-free re-implementation checked against the model on real coordinates); `fixed_alignment` returns the cached audio inside the context and restores `shift_and_align` after (also on exception); with k=0 cached audio the forward equals the plain forward exactly.
+7. CylindricalViT tokens reshaped to `[B,16,16,C]` and rolled by one **azimuth** patch at k=32 equal the k=0 tokens (atol 1e-4); SimpleViT tokens do not (sanity).
+8. **Full-model k=W vs k=0** equality under fixed alignment and seeded Griffin-Lim (acoustic metrics identical).
+
+`tools/reference_manifest.py`
+9. Same seed → identical manifest across two dataset instances and across `num_workers ∈ {0, 4}`; different seed → different; hash changes if one reference changes; references exclude the query's own source and come from the query's receiver.
+
+`tools/paired_stats.py`
+10. `relative_degradation_bootstrap`: ek = e0 → interval contains 0; ek = 1.2·e0 → point estimate 0.20 and the lower bound > 0.10 for n large; `bonferroni_alpha(18) == 0.05/18`; `equivalence_tost` passes for |r| < margin with tight data and fails otherwise; `valid_mask` drops NaN in either array and reports counts; `cluster_bootstrap` with one cluster per sample equals the query-level bootstrap in expectation (loose tolerance) and returns wider intervals when clusters are correlated (synthetic).
+
+`tools/per_sample_metrics.py`
+11. `per_sample_losses` on a batch of 4 equals the batch-1 loss values sample by sample (atol 1e-7).
+12. `griffin_lim_seeded` is deterministic for the same seed and differs for a different seed; identical magnitudes → identical waveforms.
+13. `acoustic_metrics` returns NaN (not an exception) for a degenerate IR, and `want_t60=False` skips T60.
+
+`eval_yaw_rotation.py`
+14. Batch-1 vs batch-16 equality of every per-sample metric on materialised inputs for 8 real queries (atol 1e-6 spectral, exact for acoustic given the seeded phases).
+15. Angle-order invariance: evaluating angles [0, 32] vs [32, 0] gives identical per-sample outputs.
+16. Result indexing: per-sample arrays keyed by query path match the manifest order and length.
+
+## 7. Validation ladder
+
+1. Static: `py_compile`, `bash -n`, `git diff --check`. 2. `pytest tests/`. 3. Tiny synthetic forward (rotate random tensors; one `xRIR` forward at k=0/32 on GPU). 4. Small real-data readback (8 manifest queries; shapes, dtypes, min/max/std of depth and audio vs the dataset). 5. Smoke `eval_yaw_rotation.py --max-samples 8` with all angles and acoustic grid. 6. Batch probe (batch 16 × 18 angles forward-only beside the running jobs; expected ≈3 GB). 7. **k=0 parity gate on the full split, before the full confirmatory sweep** (§8; the 32-query smoke in rung 5 had already read every angle, so the gate precedes the confirmatory runs, not the first rotated read). 8. Full runs.
+
+## 8. Parity audit (before the full run)
+
+- **Numeric recipe:** same `Evaluator`, Griffin-Lim parameters (n_fft 124, win 62, hop 31, 32 iters), 8000-sample metric window, loss functions and `compute_loss` semantics as exp_01; per-sample losses verified against batch-1 (test 11/14).
+- **Data parity:** the manifest's query set equals exp_01's per-sample index set (same 6337 paths); one query's depth/audio tensors byte-identical to the dataset's.
+- **The k=0 gate doubles as the properly paired re-evaluation of exp_01** (the exp_01 record was corrected on 2026-09-05: its references were not identical across models and its Griffin-Lim phases were unseeded). At k=0 the three models are evaluated on the hashed manifest with seeded phases; `tools/summarize_yaw.py` reports the cyl-vs-control paired comparison at k=0 with query-level and room-cluster CIs as a stand-alone table, which supersedes exp_01's epoch-12 comparison.
+- **k=0 gate (distributional, because references differ):** for each model, k=0 means of EDT / C50 / T60 / loss must lie within the exp_01 epoch-12 values ± the reference-draw noise measured by re-evaluating exp_01's epoch-12 checkpoint on two extra manifest seeds (expected ≈1–2 % for EDT); the released checkpoint must match its exp_01 baseline reproduction the same way. Failure blocks the sweep.
+
+## 9. Runs, cost, acceptance
+
+- 3 models × [18 spectral angles × 2 conditions forward-only ≈ 25 min + acoustic: 10 angles (P) + 4 (E) × 6337 × ≈0.15 s ≈ 3.7 h] ≈ 4 h per model → ≈6 h wall-clock on two GPUs (CPU Griffin-Lim contention may add), after the k=0 parity gate (≈20 min per model; the gate precedes the full confirmatory sweep, not the 32-query smoke, which had already read every angle) and after exp_02's queues finish.
+- Acceptance: all angles complete, no NaN in spectral metrics, manifest hash matches in every output, k=0 gate passed and logged, per-sample arrays have 6337 entries per angle, delay-flip audit written.
+- Outputs: `ckpt/yaw_rotation/{reference_manifest.json, <model>/per_sample_yaw.json, <model>/metrics_yaw.json, summary.txt}`; results page `yaw_rotation_degradation_01_results.html` (degradation vs angle with adjusted CIs, cross-model D_k, decomposition, delay-flip audit).
+
+## 10. Decisions requested from the user at approval
+
+1. **Tests folder:** `tests/` at the repo root (first tests in this repo).
+2. **Base commit:** commit the uncommitted exp_01/exp_02 code and the retrospective records as one known-good base before exp_03's first TDD commit.
+3. Angle grids, the 10 % / ±2 % margins and the Bonferroni family (18 tests) above; T60 descriptive only.
+4. Inference target: fixed split primary, room-cluster bootstrap secondary.
+5. Scope: AcousticRooms only (no HAA rooms in this experiment).
+
+## 11. v2 changelog — responses to the Codex plan review (v1)
+
+| Finding | Response in v2 |
+|---|---|
+| B1 `shift_and_align` not numerically invariant | Primary condition caches k=0 aligned audio via `fixed_alignment`; end-to-end condition kept as secondary; delay-flip audit over all real pairs and angles; tests 6, 8. |
+| B2 parity/pairing at batch 16; unrecorded references; batch loss reduction | Deterministic reference manifest with hash, written and asserted; per-sample losses through 1-sample slices; batch-1 vs batch-16 equality test (14); k=0 parity gate run *before* the sweep, distributional because exp_01 references were never recorded (§8). |
+| B3 Griffin-Lim randomness | Per-sample seeded phase init shared across angles/models; angle-order-invariance test (15); k=W==k=0 full-model test (8). |
+| B4 statistics | r_k inside the bootstrap; Bonferroni family declared (18); lower bound > 10 % required for the confirmatory claim; fixed-split inference primary, room-cluster bootstrap secondary; pre-registered invalid-metric mask and invalid-fraction reporting; T60 descriptive. |
+| B5 H1/H2 decidability, angle grid | Control = primary, released = replication with explicit disagreement wording; H2 as difference-in-differences with adjusted CI; equivalence margin ±2 % at patch-aligned angles; k=±96 (±67.5°) both included; signed acoustic grid (±8, ±32, ±64, ±128, 180). |
+| B6 evaluator TDD | Evaluator factored into `reference_manifest`, `paired_stats`, `per_sample_metrics`; tests 9–16; per-round Codex reviews and a `full` review before launch. |
+| Non-blocking | "Active +Δ yaw" naming; y-axis rotation branches excluded; SimpleViT patch-projection non-commutation noted; thresholds given absolute equivalents and labelled practical margins; cost restated (≈6 GPU-h, ≈6 h wall-clock); conclusions scoped to epoch-12 single-seed checkpoints. |
+| Missing tests | Oracle incl. seam (4), three-view covariance (5), azimuth-only token roll on [B,16,16,C] (7), full-model k=W (8), manifest equality (9), batch equality (14), threshold/equivalence/cluster/invalid tests (10), `lin_proj_0` shift audit (§4 decomposition). |
+| Q1 | 10 % is a confirmatory lower-bound threshold, not a point-estimate label. |
+| Q2 | Fixed 17-room split (primary); population-of-rooms only via the secondary cluster bootstrap. |
+| Q3 | Reported separately with the wording in §3; no pooling. |
+| Q4 | Cached k=0 alignment; hashed manifest; per-sample seeded Griffin-Lim. |
+| Q5 | Both added (k=±96; signed acoustic grid). |
+
+## 12. Amendments after approval (logged in `_worklog.md`)
+
+- 2026-09-06 13:41 — **H2 aggregation rule** (exact, as implemented in `tools/summarize_yaw.py::h2_verdict` and reviewed in `..._codex_code_evaluator_review.md`): H2 is decided cell by cell at the (metric, angle) cells at which H1 passes for the primary model; a cell passes when D_k = r_k(cyl) − r_k(control) is negative with its Bonferroni-adjusted upper bound below 0. Aggregate: "supported" if every H1-passing cell passes; "partially supported" if a non-empty proper subset passes; "not supported" if none passes; "not evaluable (H1 has no passing cell)" if H1 passes nowhere. D_k is reported at every angle regardless. Summarizer modes (`full` = confirmatory, refuses partial or re-parameterised sweeps; `k0-gate`; `exploratory` = no verdicts). k=0 gate band v1 = 2 × S_ref + 1e-6 per metric, S_ref = max over manifest seeds 1–2 of |mean(control, seed s) − mean(control, seed 0)|. Pre-registered in response to the round-3 code review.
+- 2026-09-06 14:17 — canonical batch shape (every batch padded to 16) after batch-size dependence was measured on trained checkpoints; TF32 off; provenance sidecars.
+- 2026-09-06 14:53 — k=0 gate **v1 FAILED** (2 of 11 cells: control EDT 0.000287 > 0.000247; cyl C50 0.0159 > 0.0065). Band v2 = 2 × (S_ref + S_phase + S_tf32) + 1e-6 pre-specified before the extra runs, with S_phase = |mean(control, gl_seed 1) − mean(control, gl_seed 0)| and S_tf32 = |mean(control, TF32 on) − mean(control, TF32 off)|, all on the seed-0 manifest at k=0; decision kept as `..._gate_decision_v1_FAILED.txt`.
+- 2026-09-06 15:07 — k=0 gate **v2 FAILED** (1 of 11: cyl C50 0.0159 > 0.0094). Band v3 pre-specified: band(model) = 2 × (S_ref(model) + S_phase + S_tf32 + S_shape(model)) + 1e-6 with S_ref(cyl) from the cylindrical checkpoint on manifest seeds 1–2 and S_shape(model) = |mean(batch 1) − mean(batch 16)| at k=0 (measured for cyl only; unmeasured terms enter as 0; S_phase and S_tf32 stay control-measured and are reused for every model); released judged with the control's terms. Decision kept as `..._gate_decision_v2_FAILED.txt`.
+- 2026-09-06 15:40 — k=0 gate **v3 PASSED** (11/11; `..._gate_decision_v3_PASSED.txt`; S_ref(cyl) = 0.000311 s / 0.00802 dB / 0.048 / 0.000055 for EDT / C50 / T60 / loss, S_shape(cyl) ≈ 1e-6 dB). Sweep launched 15:41 under launcher v2. Nothing about H1/H2, the angle grids, the thresholds or the family changed at any amendment.
+- Plan §4 wording: the spectral grid has 18 angles (the listed set), not 19 (§4 corrected in place on 2026-09-06 after the round-2 review of the record).
+- 2026-09-06 20:41 — after the Codex round-2 review of the record: the summarizer labels its room-cluster intervals as adjusted (they always were computed at α/18), renders TOST outcomes as "equivalent" / "not established", and emits the producer field `h1.bounds` (distance to the +10 % threshold); no computed number changed; the canonical JSON/summary were regenerated. The sweep runs were additionally bound to the reviewed source closure (12 files) post hoc.
+# Analysis — yaw_rotation_degradation
+
+## Outcome
+
+**The claim that jointly rotating the panorama and the source–receiver coordinates in yaw substantially degrades xRIR's RIR synthesis is not supported, for the same-budget SimpleViT model and for the released checkpoint alike.** Under the pre-registered rule (Bonferroni-adjusted lower bound of the relative error increase above +10 % for EDT or C50 at any of nine non-zero angles, condition P), no cell passes. On this fixed split the adjusted query-level upper bounds for EDT and C50 stay below +10 % at every angle in all three models (largest +7.56 %, released C50 at −45°); at the room level (17 rooms resampled, same adjusted level) four C50 upper bounds exceed +10 % (control +22.5° +10.99 % and +45° +11.37 %, cylindrical +45° +10.25 %, released −45° +10.75 %), so a substantial effect over rooms in general is not ruled out, only not shown. The degradation that is measured is small and angle-shaped. C50: control +5.09 % at +45° [+2.65, +7.52] and +4.12 % at +22.5°, +4.55 % at −45°; cylindrical +5.34 % at −45° [+3.26, +7.37] and +5.19 % at +45°; released +4.70 % at −45° [+1.82, +7.56], while its +22.5° and +45° rows (+1.54 %, +2.43 %) have adjusted intervals crossing zero. EDT: largest +1.34 % (control, +45°, interval crossing zero), +2.36 % (released, −45°, crossing zero) and +3.07 % (cylindrical, −45° [+0.90, +5.44]). For the control and the cylindrical model EDT and C50 return to within ±1 % at ±5.6° and at 180°; the released model's EDT is −2.2 % at 180° and −2.9 % at 90°. T60 (descriptive) moves between −3.6 % (180°) and +1.0 % for the control and up to +5.2 % (−45°) for the released checkpoint. H2 (the cylindrical backbone degrades less) is not evaluable under its rule because H1 has no passing cell. Descriptively, D_k = r_cyl − r_control is positive at −45° for EDT with the adjusted query-level interval excluding zero (+2.23 % [+0.38, +4.17]); no adjusted query-level D_k for C50 excludes zero (the adjusted room-cluster intervals at −90° do, EDT [+0.23, +2.55] and C50 [+0.13, +1.72]); TOST equivalence of the cylindrical model's own r_k to zero within ±2 % is not established at any patch-aligned angle except 180° (C50 query-level; EDT room-level). Nothing here is a cross-model equivalence test.
+
+## Reliability
+
+- **Design.** All three models are evaluated on the same 6337 unseen queries with the same eight references per query, fixed by a hashed manifest; the 12-file source closure (the evaluator plus its 11 repo-local imports) is byte-identical to the reviewed commit `62c9107b4150e44c4ac410ff4cab359c1e71cc10` (source-closure binding in every run's provenance sidecar, verified post hoc: no later commits, every file last modified before the runs started); fp32 with TF32 off; every batch padded to the canonical size 16 (acoustic metrics exactly batch-shape independent under this protocol); per-query seeded Griffin-Lim phases. The rotation is exact: an integer column roll of the panorama plus the same rigid rotation of every coordinate, so the target is unchanged and every per-sample difference belongs to the model-plus-evaluation pipeline (subject to the unquantified CUDA run-to-run residual noted below). Statistics are paired per query with r_k computed inside each bootstrap resample; query-level and room-cluster intervals are both at the adjusted level; the second bootstrap seed moved no decision-driving bound by more than 3.8 % of its width. No acoustic metric became invalid at any angle (newly-invalid fraction 0.0000 everywhere), so there is no survivor selection.
+- **Condition E versus condition P.** On the measured grid (four non-zero E angles × three acoustic metrics × three models) the end-to-end and pinned-alignment r_k agree to 2.0e-5 (computed from the canonical rows), and the mean loss agrees to 3e-6 at every one of the 18 angles. The delay-flip audit shows why: at most 4 of the 50 696 (query, reference) pairs change their integer direct-path delay at any angle. Under this protocol the measured contribution of the `shift_and_align` step is negligible on this grid; where the remaining change arises is not identified by this design (and an unquantified CUDA run-to-run residual remains). E was not evaluated acoustically at the other five angles.
+- **k = 0 parity gate and its amendments.** The pre-registered band (2 × reference-draw spread measured on the control) failed twice: first on control EDT and cylindrical C50, then, after adding the measured unseeded-phase and TF32 spreads (both measured on the control and reused for the other models), on cylindrical C50 alone. Both amendments were pre-specified before the extra measurements and the failed decisions are kept in the record. The v3 band, band(model) = 2 × (S_ref(model) + S_phase + S_tf32 + S_shape(model)) + 1e-6, adds the cylindrical model's own reference-draw spread (manifest seeds 1–2) and its batch-1 versus batch-16 shape spread; S_shape for the control and the released model was not measured and enters as 0, and S_phase and S_tf32 remain control-only measurements. It passed 11/11; the largest measured discrepancy against exp_01 is 1.3 % (cylindrical C50), about 7.7 × below the 10 % threshold. The amendments widen the band on the basis of measured nuisance only and do not touch the yaw analysis, whose comparisons are within-run and within-manifest.
+- **A finding from the gate.** The cylindrical model's k = 0 EDT and C50 move about 2.5 × more than the control's when the references are re-drawn (EDT 0.000311 s vs 0.000123 s, C50 0.0080 dB vs 0.0033 dB over manifest seeds 1–2; T60 and loss spreads are similar between the models), which is why the v1/v2 bands failed on its C50. The properly paired k = 0 comparison in this experiment (same references and phases for both models) gives cylindrical − control: EDT −4.4 % with both the query-level (−0.0025 to −0.0015 s) and the room-cluster (−0.0038 to −0.0001 s) intervals excluding zero, loss −1.5 % (both), log-STFT MSE −1.5 % (query only), T60 −1.3 % (query only), C50 no detected difference. These are nominal, unadjusted 95 % intervals on two single-seed checkpoints and are descriptive, not a pre-registered architecture result; the direction and size agree with exp_01 (EDT −3.7 %), and the room-level EDT interval clears zero only just.
+- **Nuisance and residual risks (from the full code review, updated).** (i) CUDA deterministic algorithms are not pinned and the sweep was run once per model, so angle-specific run-to-run nondeterminism is an unquantified residual; the k = 0 gate bounds only the k = 0 discrepancy against exp_01. (ii) The environment (Python 3.8.20, torch 2.0.1+cu117, cuDNN 8500, driver 590.48.01, two RTX A6000) is recorded post hoc in the sidecars; the runs' own metadata records only the torch version. (iii) The decomposition covers the receiver-view tokens, the pooled feature and the query-source coordinate embedding on one batch of 16; the reference-coordinate features are not decomposed, and its four relative changes live in different, non-additive spaces.
+- **Residual limitations (recorded, not fixable without re-running).** (i) Every provenance binding is post hoc: the source closure, the environment (Python/torch/CUDA/cuDNN/driver/GPUs), the content-hashed dataset inventory, the run-log digests and the chronology (start times read from log-file names and file modification times) were captured after the runs finished, so they prove that the retained bytes are consistent with each other and with the reviewed commit, not that exactly those bytes and that environment existed at execution time. (ii) Five gate sidecars (the launcher-v1 runs `gate_control`, `gate_cyl`, `gate_released`, `gate_noise_seed1`, `gate_noise_seed2`) carry a command template with a `<0|1>` GPU placeholder, and five (`gate_phase_seed1`, `gate_tf32`, `gate_noise_cyl_seed1`, `gate_noise_cyl_seed2`, `gate_shape_cyl_b1`) were written post hoc without a command; their commands in `_command.md` are reconstructions from the notebook and the logs. (iii) The retained launcher `launch_yaw_sweep_v3.sh` was never used for a real run (the gate and the sweep ran under v2); it has been exercised only by refusal self-tests and stub fault tests, and no isolated end-to-end gate → decision → binding → sweep run exists. (iv) CUDA run-to-run nondeterminism is unquantified (single pass per model). (v) The `delay_flips_max` denominator (6337 × 8) is not serialised because the evaluator's metadata carries no shot count. (vi) Binding chronology, from the retained binder logs: the three sweep sidecars were first bound by binder v2 at 20:20:18 (evaluator file only), all 13 sidecars by v3 at 21:06:20 (12-file closure), rebound by v4 at 21:45:06 (content-hashed data, logs, gate inputs) and touched by v5 at 22:47:24 (report migration only). Bindings became immutable with v6 (23:15:24), after those rebinds had overwritten the earlier `bound_at` values, so no sidecar carries a `binding_history` today (the list starts with the next migration, if any) and the report's `written` stamp is the v5 migration time; the earlier times survive only in the logs named here.
+- **Scope.** One checkpoint per backbone (exp_01, epoch 12, one training seed each) and the released checkpoint; AcousticRooms unseen split only, with every training room axis-aligned; rotations exact at integer columns (0.70° per column); source and receiver both omnidirectional in the simulation, so the invariance being tested is a true symmetry of the target.
+
+- **Open auxiliary tooling items (not part of the evidence path; recorded per the commit decision rule, Codex rounds 6–8).** (a) `launch_yaw_sweep_v3.sh`: the retained-copy steps after a gate decision are prose, not commands, and its decision command uses the working-tree producer while acceptance recomputes with the pinned commit; no clean end-to-end gate → decision → binding → sweep run has been executed with it (real evaluator-change, checkpoint-change and rename-failure guards unexercised). (b) The page and results.md generators refuse missing sections but still accept a single deleted row inside a section, an all-null TOST payload, and empty final `h1.bounds`/`h2.verdict` payloads; some Markdown column headings truncate the producer's metric names to fit the table (the full names follow in the same line). (c) The binder replaces files one by one after validating the whole transaction; the sequence is not crash-atomic across files, and a changed sidecar digest is accepted when the embedded old and new contents are identical. (d) No renderer-corruption or clean-launcher integration tests beyond those listed in the notebook. None of these can alter what this record shows: every canonical artefact is hash-bound, the acceptance checker recomputes the gate decision from the bound inputs, and the reviewer confirmed in round 8 that no malformed-input path could pass a different record as this one.
+
+## Interpretation
+
+The angular pattern is consistent with a diagonal-heading distribution-shift hypothesis rather than a general failure to handle rotation, but this design cannot separate the candidates: wall orientation relative to the training distribution, the periodicity of the positional encodings and of the learned position pool, and the absolute-coordinate embeddings all vary together with the angle. What the data show: every training room is axis-aligned in the receiver frame, so 90° and 180° yaws produce another axis-aligned scene while ±45° and ±135° produce wall azimuths never seen in training; for the control and the cylindrical model the spectral consistency (mean absolute change of the predicted log-spectrogram) peaks at ±45° / ±135° (control 0.127 / 0.135, cylindrical 0.114 / 0.119) and is roughly half as large at 90° and 180° (control 0.077 / 0.071, cylindrical 0.067 / 0.060); the loss and C50 increases peak at ±45° and vanish at 180°; the small-angle rows (±2.8° to ±11°) ramp smoothly. The released checkpoint does not follow the half-size pattern (0.161 / 0.170 at 90° / 180° versus 0.177–0.208 at diagonal headings) and is the least invariant of the three overall.
+
+The cylindrical encoder's tokens are azimuth-equivariant to 2e-7 under a one-patch yaw, yet the pooled feature changes by 1.7 %, the sinusoidal embedding of the raw query-source coordinates by 73 % (it encodes absolute xyz, which the rotation moves), and the output log-spectrogram by 0.35 %; the full model's acoustic degradation is then equal to or slightly larger than the SimpleViT control's. The learned position pool (`lin_proj_0`) and the coordinate branches, which both backbones share, are therefore the candidate downstream sources of the residual; the one-batch decomposition cannot rank them, and a hold-one-branch-fixed or replacement ablation is needed to attribute the effect. This is consistent with the hypothesis exp_02 raised for the hallway result (pooling as the bottleneck) but does not test it. Because H2 was not evaluable, the confirmatory evidence says only that the cylindrical backbone was not shown to degrade less; the descriptive D_k rows say it degraded slightly more on EDT at −45°.
+
+Practically, on this split a scene yaw costs at most about 5 % of C50 error at diagonal headings (largest point effect +5.34 %, largest adjusted query-level upper bound +7.56 %), roughly half the pre-registered "substantial" threshold; for scale, the k = 0 difference between the two backbones on the same metric is −0.8 % (C50) and on EDT −4.4 %. Whether that matters for deployment, and whether yaw augmentation would remove it, are hypotheses this experiment does not test.
+
+## Recommended next steps
+
+1. If heading robustness is a goal, test the augmentation hypothesis directly: fine-tune with random-yaw augmentation (exact roll plus coordinate rotation, `tools/yaw_rotation.py`) and re-run this evaluator; the ±45° C50 rows are the cells to watch.
+2. Attribute the residual with hold-one-fixed ablations: (a) replace the learned position pool with an azimuth-invariant pool, (b) express the coordinate embeddings in the panorama's gauge, each separately, then re-run exp_03 (and exp_01 for the accuracy cost).
+3. Repeat the k = 0 paired comparison with a second training seed per backbone, with a pre-registered rule, before quoting the EDT advantage at room level.
+4. Quantify run-to-run nondeterminism by repeating one model's sweep at two angles with identical settings.
+5. Housekeeping deferred from exp_02: seed the Griffin-Lim phase per query in `sim_to_real/eval_haa.py` and record `depth_variant` in its per-sample meta; add regression tests for `summarize_haa.py` and `summarize_epochs.py`.
+
