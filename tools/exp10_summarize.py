@@ -523,3 +523,405 @@ def controls_table(run_dir, wave_tol=CONTROL_WAVE_TOLERANCE,
             "validity_mismatches": mismatches, "ok": ok}
         table["ok"] = table["ok"] and ok
     return table
+
+
+#: Figure units: the stored EDT is in seconds, the figure (like FLAC's) plots milliseconds.
+FIGURE_SCALE = {"EDT": ("ms", 1000.0), "C50": ("dB", 1.0), "T60": ("%", 1.0),
+                "logspec_mad": ("log-magnitude", 1.0)}
+FIGURE_PANELS = ("T60", "C50", "EDT", "logspec_mad")
+PANEL_TITLES = {"T60": "T60", "C50": "C50", "EDT": "EDT",
+                "logspec_mad": "GL-free spectral shift"}
+#: exp_04's five-seed SD of the same-budget SimpleViT, in the figure's units.  It is
+#: drawn for context only -- it plays no part in any status, interval or decision.
+HISTORICAL_BAND = {("simple", 8): {"EDT": 0.186, "C50": 0.0053, "T60": 0.009},
+                   ("simple", 1): {"EDT": 0.609, "C50": 0.0133, "T60": 0.101}}
+BAND_LABEL = ("historical baseline evaluation variability "
+              "(references and phases redrawn), context only")
+COLOR_DEGRADATION = "#0072B2"   # Okabe-Ito blue
+COLOR_SHIFT = "#E69F00"         # Okabe-Ito orange
+
+
+def _sanitize(payload):
+    """Replace every non-finite float by ``None`` so the JSON can be strict."""
+    if isinstance(payload, dict):
+        return {key: _sanitize(value) for key, value in payload.items()}
+    if isinstance(payload, (list, tuple)):
+        return [_sanitize(value) for value in payload]
+    if isinstance(payload, (float, np.floating)):
+        value = float(payload)
+        return value if np.isfinite(value) else None
+    if isinstance(payload, (np.integer,)):
+        return int(payload)
+    if isinstance(payload, (np.bool_,)):
+        return bool(payload)
+    return payload
+
+
+def historical_band(meta):
+    """The context band for one arm, or ``None`` when no historical SD exists for it."""
+    return HISTORICAL_BAND.get((meta.get("backbone"), int(meta.get("num_shot", 0))))
+
+
+def build_summary(run_dirs, n_boot=N_BOOT, alpha=ALPHA, seeds=SEEDS):
+    """Summarise every arm and bind the result to the exact inputs it came from.
+
+    Args:
+        run_dirs: one run directory per arm, in reporting order.
+        n_boot: bootstrap resamples.
+        alpha: two-sided level.
+        seeds: ``(reporting seed, convergence seed)``.
+
+    Returns:
+        The canonical summary dict: the tool and its settings, the ``inputs`` (each run's
+        path, ``protocol_id``, ``execution_id`` and the sha256 of its ``per_sample.json``
+        and ``meta.json``), one entry per arm and the historical band's provenance note.
+    """
+    import datetime
+
+    from tools.exp10_yaw_pilot import file_sha256
+
+    loaded = guard_runs(run_dirs)
+    inputs, arms = [], []
+    for entry in loaded:
+        run_dir, meta = entry["run_dir"], entry["meta"]
+        inputs.append({"run_dir": os.path.abspath(run_dir), "arm": meta.get("arm"),
+                       "protocol_id": meta["protocol_id"],
+                       "execution_id": meta["execution_id"],
+                       "per_sample_sha256": file_sha256(
+                           os.path.join(run_dir, "per_sample.json")),
+                       "meta_sha256": file_sha256(os.path.join(run_dir, "meta.json"))})
+        arm = summarize_run(run_dir, n_boot=n_boot, alpha=alpha, seeds=seeds)
+        arm["controls"] = controls_table(run_dir)
+        arm["historical_band"] = historical_band(meta)
+        arms.append(arm)
+    return {"tool": "tools/exp10_summarize.py",
+            "generated_at": datetime.datetime.utcnow().isoformat() + "Z",
+            "n_boot": int(n_boot), "alpha": float(alpha), "seeds": list(seeds),
+            "convergence_tolerance": CONVERGENCE_TOLERANCE,
+            "band_label": BAND_LABEL, "inputs": inputs, "arms": arms}
+
+
+def verify_inputs(summary):
+    """Refuse a summary whose inputs are no longer the bytes it was computed from.
+
+    Raises:
+        ValueError: if a recorded ``per_sample.json`` / ``meta.json`` is missing or its
+            sha256 has changed.
+    """
+    from tools.exp10_yaw_pilot import file_sha256
+
+    for entry in summary["inputs"]:
+        for name in ("per_sample.json", "meta.json"):
+            path = os.path.join(entry["run_dir"], name)
+            key = name.replace(".json", "_sha256")
+            if not os.path.isfile(path):
+                raise ValueError("{} is missing; the summary cannot be verified".format(path))
+            if file_sha256(path) != entry[key]:
+                raise ValueError("{} no longer matches the sha256 this summary was built "
+                                 "from".format(path))
+    return True
+
+
+def figure_data(summary):
+    """The rows that the figures and the CSV both draw from (one per arm, angle, panel)."""
+    rows = []
+    for arm in summary["arms"]:
+        band = arm.get("historical_band") or {}
+        for k in sorted(int(k) for k in arm["angles"]):
+            if k == 0:
+                continue                      # k = 0 is the paired reference, not a bar
+            for metric in FIGURE_PANELS:
+                cell = arm["angles"][str(k)].get(metric)
+                if cell is None:
+                    continue
+                unit, scale = FIGURE_SCALE[metric]
+                query, ratio = cell["query"], cell["query"]["ratio"]
+
+                def _scaled(value):
+                    return None if value is None else float(value) * scale
+
+                rows.append({
+                    "arm": arm["arm"], "k": int(k),
+                    "angle_deg": 360.0 * int(k) / 512.0, "metric": metric, "unit": unit,
+                    "degradation": _scaled(query["delta"]["point"]),
+                    "degradation_lo": _scaled(query["delta"]["lo"]),
+                    "degradation_hi": _scaled(query["delta"]["hi"]),
+                    "shift": _scaled(query["gap"]["point"]),
+                    "shift_lo": _scaled(query["gap"]["lo"]),
+                    "shift_hi": _scaled(query["gap"]["hi"]),
+                    "n_mask": int(query["n"]), "ratio_status": ratio["status"],
+                    "ratio_status_room": cell["room"]["ratio"]["status"],
+                    "ratio_point": ratio["point"], "ratio_lo": ratio["lo"],
+                    "ratio_hi": ratio["hi"],
+                    "headline_reportable": cell["headline"]["reportable"],
+                    "headline_reason": cell["headline"]["reason"],
+                    "converged": cell["convergence"]["converged"],
+                    "band": band.get(metric)})
+    return rows
+
+
+def _pyplot():
+    """matplotlib's pyplot on a headless backend."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    return plt
+
+
+def _panel(ax, rows, metric, band, show_legend):
+    """One panel: signed change and shift per angle, with CIs and the context band."""
+    selected = [row for row in rows if row["metric"] == metric]
+    positions = list(range(len(selected)))
+    width = 0.38
+    handles = []
+
+    def _bars(offset, value_key, color, label):
+        values = [row[value_key] or 0.0 for row in selected]
+        lo = [max(0.0, (row[value_key] or 0.0) - (row[value_key + "_lo"] or 0.0))
+              for row in selected]
+        hi = [max(0.0, (row[value_key + "_hi"] or 0.0) - (row[value_key] or 0.0))
+              for row in selected]
+        return ax.bar([p + offset for p in positions], values, width, color=color,
+                      label=label, yerr=[lo, hi], capsize=2,
+                      error_kw={"elinewidth": 0.8, "ecolor": "#3a3a3a"})
+
+    if any(row["degradation"] is not None for row in selected):
+        handles.append(_bars(-width / 2, "degradation", COLOR_DEGRADATION,
+                             "accuracy change (vs GT)"))
+        handles.append(_bars(width / 2, "shift", COLOR_SHIFT,
+                             r"prediction shift (vs $P_0$)"))
+    else:
+        handles.append(_bars(0.0, "shift", COLOR_SHIFT, r"prediction shift (vs $P_0$)"))
+
+    if band:
+        ax.axhspan(-band, band, color="0.88", zorder=0, label=BAND_LABEL)
+    ax.axhline(0.0, color="0.3", linewidth=0.6, zorder=1)
+    ax.set_xticks(positions)
+    ax.set_xticklabels(["{:.0f}°".format(row["angle_deg"]) for row in selected])
+    ax.set_xlabel("conditioning yaw rotation")
+    ax.set_ylabel("{} ({})".format(PANEL_TITLES[metric], selected[0]["unit"]
+                                   if selected else ""))
+    ax.set_title(PANEL_TITLES[metric], fontsize=9)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.margins(y=0.30)
+    footer = "  ".join("n={}, {}".format(row["n_mask"], row["ratio_status"])
+                       for row in selected)
+    ax.annotate(footer, (0.0, -0.34), xycoords="axes fraction", fontsize=5.5,
+                color="#555555")
+    if show_legend:
+        ax.legend(loc="best", fontsize=5.5, frameon=False)
+    return handles
+
+
+def make_figure(summary, arm_name, path):
+    """The FLAC-style four-panel figure for one arm (T60, C50, EDT, GL-free shift)."""
+    plt = _pyplot()
+    rows = [row for row in figure_data(summary) if row["arm"] == arm_name]
+    if not rows:
+        raise ValueError("no figure rows for arm {!r}".format(arm_name))
+    plt.rcParams.update({"font.size": 8, "axes.linewidth": 0.6})
+    figure, axes = plt.subplots(1, len(FIGURE_PANELS), figsize=(11.0, 2.6))
+    for index, (ax, metric) in enumerate(zip(axes, FIGURE_PANELS)):
+        band = next((row["band"] for row in rows if row["metric"] == metric), None)
+        _panel(ax, rows, metric, band, show_legend=(index == 0))
+    figure.suptitle("exp_10 yaw pilot -- {}".format(arm_name), fontsize=9)
+    figure.tight_layout(rect=(0, 0.06, 1, 0.94))
+    figure.savefig(path, dpi=300, bbox_inches="tight")
+    return figure
+
+
+def make_combined_figure(summary, path):
+    """One row of panels per arm, so the four arms can be read against each other."""
+    plt = _pyplot()
+    rows = figure_data(summary)
+    arms = [arm["arm"] for arm in summary["arms"]]
+    plt.rcParams.update({"font.size": 8, "axes.linewidth": 0.6})
+    figure, axes = plt.subplots(len(arms), len(FIGURE_PANELS),
+                                figsize=(11.0, 2.8 * len(arms)), squeeze=False)
+    for row_index, arm in enumerate(arms):
+        arm_rows = [row for row in rows if row["arm"] == arm]
+        for column, metric in enumerate(FIGURE_PANELS):
+            band = next((row["band"] for row in arm_rows if row["metric"] == metric),
+                        None)
+            ax = axes[row_index][column]
+            _panel(ax, arm_rows, metric, band,
+                   show_legend=(row_index == 0 and column == 0))
+            if column == 0:
+                ax.set_ylabel("{}\n{}".format(arm, ax.get_ylabel()))
+    figure.tight_layout(rect=(0, 0.02, 1, 0.98))
+    figure.savefig(path, dpi=300, bbox_inches="tight")
+    return figure
+
+
+CSV_COLUMNS = ("arm", "k", "angle_deg", "metric", "unit", "degradation",
+               "degradation_lo", "degradation_hi", "shift", "shift_lo", "shift_hi",
+               "n_mask", "ratio_status", "ratio_status_room", "ratio_point", "ratio_lo",
+               "ratio_hi", "headline_reportable", "headline_reason", "converged", "band")
+
+
+def _markdown_tables(summary):
+    """The Markdown report: Metric 2, Metric 1, the ratio, room intervals and controls."""
+    lines = ["# exp_10 `yaw_pilot` -- descriptive summary", "",
+             "{} bootstrap resamples, {:.0f} % percentile intervals, seeds {} "
+             "(seed {} reports, seed {} checks convergence).".format(
+                 summary["n_boot"], 100 * (1 - summary["alpha"]), summary["seeds"],
+                 summary["seeds"][0], summary["seeds"][1]), "",
+             "The grey band in the figures is the {}.".format(summary["band_label"]),
+             ""]
+    for arm in summary["arms"]:
+        lines.extend(["## {}".format(arm["arm"]), "",
+                      "`{}` -- {} queries, {} rooms, execution `{}`.".format(
+                          arm["run_dir"], arm["n_queries"], len(arm["rooms"]),
+                          arm["execution_id"]), "",
+                      "### Metric 2 -- accuracy against the ground truth", "",
+                      "| angle | metric | mean k=0 | mean k | delta | 95 % CI | n_mask | "
+                      "excluded (0 / alpha / gap) |", "|---|---|---|---|---|---|---|---|"])
+        for k in sorted(int(k) for k in arm["angles"]):
+            for label, _, _, _ in METRIC_TRIPLES:
+                cell = arm["angles"][str(k)][label]["query"]
+                exclusions = cell["exclusions"]
+                lines.append("| {}° | {} | {} | {} | {} | [{}, {}] | {} | {} / {} / {} |"
+                             .format(_deg(k), label, _fmt(cell["mean_0"]),
+                                     _fmt(cell["mean_alpha"]), _fmt(cell["delta"]["point"]),
+                                     _fmt(cell["delta"]["lo"]), _fmt(cell["delta"]["hi"]),
+                                     cell["n"], exclusions["invalid_at_0"],
+                                     exclusions["invalid_at_alpha"],
+                                     exclusions["gap_invalid"]))
+        lines.extend(["", "### Metric 1 -- how far the prediction moved", "",
+                      "| angle | metric | G | 95 % CI | n |", "|---|---|---|---|---|"])
+        for k in sorted(int(k) for k in arm["angles"]):
+            for label in [triple[0] for triple in METRIC_TRIPLES] + \
+                    [name for name, _ in SHIFT_ONLY_METRICS]:
+                cell = arm["angles"][str(k)].get(label)
+                if cell is None:
+                    continue
+                gap = cell["query"]["gap"]
+                lines.append("| {}° | {} | {} | [{}, {}] | {} |".format(
+                    _deg(k), label, _fmt(gap["point"]), _fmt(gap["lo"]), _fmt(gap["hi"]),
+                    cell["query"]["n"]))
+        lines.extend(["", "### R2 -- the ratio G / delta, with its status", "",
+                      "| angle | metric | R (query) | 95 % CI | status (query) | "
+                      "status (room) | converged | headline |",
+                      "|---|---|---|---|---|---|---|---|"])
+        for k in sorted(int(k) for k in arm["angles"]):
+            for label, _, _, _ in METRIC_TRIPLES:
+                cell = arm["angles"][str(k)][label]
+                ratio = cell["query"]["ratio"]
+                headline = cell["headline"]
+                lines.append("| {}° | {} | {} | [{}, {}] | {} | {} | {} | {} |".format(
+                    _deg(k), label, _fmt(ratio["point"]), _fmt(ratio["lo"]),
+                    _fmt(ratio["hi"]), ratio["status"], cell["room_status"],
+                    cell["convergence"]["converged"],
+                    "yes" if headline["reportable"] else (headline["reason"] or "-")))
+        lines.extend(["", "### Room-cluster intervals (secondary)", "",
+                      "| angle | metric | delta CI (room) | G CI (room) | status |",
+                      "|---|---|---|---|---|"])
+        for k in sorted(int(k) for k in arm["angles"]):
+            for label, _, _, _ in METRIC_TRIPLES:
+                cell = arm["angles"][str(k)][label]["room"]
+                lines.append("| {}° | {} | [{}, {}] | [{}, {}] | {} |".format(
+                    _deg(k), label, _fmt(cell["delta"]["lo"]), _fmt(cell["delta"]["hi"]),
+                    _fmt(cell["gap"]["lo"]), _fmt(cell["gap"]["hi"]),
+                    cell["ratio"]["status"]))
+        controls = arm.get("controls", {})
+        lines.extend(["", "### Controls", "",
+                      "| control | k | repeats | max |dwave| | max |dlogspec| | "
+                      "max |dacoustic| | validity mismatches | ok |",
+                      "|---|---|---|---|---|---|---|---|"])
+        for name, cell in sorted(controls.get("controls", {}).items()):
+            lines.append("| {} | {} | k={} | {:.3e} | {:.3e} | {:.3e} | {} | {} |".format(
+                name, cell["k"], cell["compare_to"], cell["wave_max_abs_diff"],
+                cell["logspec_max_abs_diff"], cell["acoustic_max_abs_diff"],
+                cell["validity_mismatches"], "yes" if cell["ok"] else "NO"))
+        lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def _deg(k):
+    """A column roll as whole degrees."""
+    return "{:.0f}".format(360.0 * int(k) / 512.0)
+
+
+def _fmt(value, digits=6):
+    """A number for a Markdown cell (``-`` when it is withheld)."""
+    if value is None:
+        return "-"
+    return "{:.{}g}".format(float(value), digits)
+
+
+def write_outputs(summary, out_dir):
+    """Write the canonical JSON, the Markdown tables, the CSV and every figure.
+
+    The inputs are re-verified first: a summary whose per-sample files have changed on
+    disk since it was computed is refused rather than published.
+
+    Returns:
+        ``{"json", "markdown", "csv", "figures"}`` -- the paths written.
+    """
+    import csv
+
+    verify_inputs(summary)
+    os.makedirs(out_dir, exist_ok=True)
+    plt = _pyplot()
+
+    json_path = os.path.join(out_dir, "yaw_pilot_summary.json")
+    import json as _json
+
+    with open(json_path, "w") as fout:
+        _json.dump(_sanitize(summary), fout, indent=1, allow_nan=False, sort_keys=True)
+
+    markdown_path = os.path.join(out_dir, "yaw_pilot_tables.md")
+    with open(markdown_path, "w") as fout:
+        fout.write(_markdown_tables(summary))
+
+    csv_path = os.path.join(out_dir, "yaw_pilot_gaps.csv")
+    rows = figure_data(summary)
+    with open(csv_path, "w", newline="") as fout:
+        writer = csv.DictWriter(fout, fieldnames=list(CSV_COLUMNS))
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({column: row.get(column) for column in CSV_COLUMNS})
+
+    figures = []
+    for arm in summary["arms"]:
+        base = os.path.join(out_dir, "yaw_pilot_gaps_{}".format(arm["arm"]))
+        figure = make_figure(summary, arm["arm"], base + ".png")
+        figure.savefig(base + ".pdf", bbox_inches="tight")
+        plt.close(figure)
+        figures.extend([base + ".png", base + ".pdf"])
+    combined = os.path.join(out_dir, "yaw_pilot_gaps_all_arms")
+    figure = make_combined_figure(summary, combined + ".png")
+    figure.savefig(combined + ".pdf", bbox_inches="tight")
+    plt.close(figure)
+    figures.extend([combined + ".png", combined + ".pdf"])
+
+    return {"json": json_path, "markdown": markdown_path, "csv": csv_path,
+            "figures": figures}
+
+
+def main(argv=None):
+    """Summarise one or more run directories into the pilot's descriptive outputs."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--runs", nargs="+", required=True,
+                        help="one exp_10 run directory per arm, in reporting order")
+    parser.add_argument("--out", required=True)
+    parser.add_argument("--n-boot", type=int, default=N_BOOT)
+    parser.add_argument("--alpha", type=float, default=ALPHA)
+    parser.add_argument("--seeds", type=int, nargs=2, default=list(SEEDS))
+    args = parser.parse_args(argv)
+
+    summary = build_summary(args.runs, n_boot=args.n_boot, alpha=args.alpha,
+                            seeds=tuple(args.seeds))
+    written = write_outputs(summary, args.out)
+    for name, path in sorted(written.items()):
+        print("{}: {}".format(name, path if isinstance(path, str) else len(path)))
+    return summary
+
+
+if __name__ == "__main__":
+    main()

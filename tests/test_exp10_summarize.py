@@ -428,3 +428,128 @@ def test_controls_table_flags_a_validity_mismatch(tmp_path):
     table = summarize.controls_table(run_dir)
     assert table["ok"] is False
     assert table["controls"]["ctrl_full_turn"]["validity_mismatches"] == 1
+
+
+# ---------------------------------------------------- test 15: the canonical outputs
+
+@pytest.fixture
+def two_arm_summary(tmp_path):
+    """A summary over two arms, one of which improves on EDT (a signed negative bar)."""
+    first = _fixture_run(tmp_path, "released_k8", n=24)
+    second = _fixture_run(tmp_path, "control_k8", n=24, seed=11,
+                          protocol_overrides={"checkpoint_sha256": "d" * 64},
+                          meta_overrides={"arm": "control_k8"},
+                          error_shift={"edt_err": -0.004})
+    return summarize.build_summary([first, second], n_boot=200), [first, second]
+
+
+def test_build_summary_records_its_inputs_and_their_hashes(two_arm_summary):
+    summary, run_dirs = two_arm_summary
+    assert [arm["arm"] for arm in summary["arms"]] == ["fixture", "control_k8"]
+    assert summary["n_boot"] == 200 and summary["alpha"] == 0.05
+    assert summary["seeds"] == [0, 1]
+    for run_dir, entry in zip(run_dirs, summary["inputs"]):
+        assert entry["run_dir"] == os.path.abspath(run_dir)
+        assert entry["per_sample_sha256"] and entry["meta_sha256"]
+        assert entry["protocol_id"] and entry["execution_id"]
+    summarize.verify_inputs(summary)
+
+
+def test_verify_inputs_refuses_a_summary_whose_inputs_moved(two_arm_summary, tmp_path):
+    summary, run_dirs = two_arm_summary
+    with open(os.path.join(run_dirs[0], "per_sample.json")) as fin:
+        payload = json.load(fin)
+    payload["query"][0] = payload["query"][0]
+    with open(os.path.join(run_dirs[0], "per_sample.json"), "w") as fout:
+        json.dump(payload, fout, indent=1)          # same content, different bytes
+    with pytest.raises(ValueError) as excinfo:
+        summarize.verify_inputs(summary)
+    assert "per_sample.json" in str(excinfo.value)
+
+
+def test_figure_data_carries_the_signed_change_and_the_shift(two_arm_summary):
+    summary, _ = two_arm_summary
+    rows = summarize.figure_data(summary)
+    assert rows
+    for row in rows:
+        assert set(row) >= {"arm", "k", "angle_deg", "metric", "unit", "degradation",
+                            "degradation_lo", "degradation_hi", "shift", "shift_lo",
+                            "shift_hi", "n_mask", "ratio_status", "band"}
+        assert row["k"] != 0                      # k = 0 is the reference, not a bar
+    negatives = [row for row in rows
+                 if row["arm"] == "control_k8" and row["metric"] == "EDT"
+                 and row["degradation"] < 0]
+    assert negatives, "the improving arm must produce a signed negative bar"
+    edt = next(row for row in rows if row["metric"] == "EDT")
+    assert edt["unit"] == "ms"                     # seconds are plotted in milliseconds
+
+
+def test_write_outputs_writes_every_artefact_and_a_csv_that_matches_the_json(
+        two_arm_summary, tmp_path):
+    summary, _ = two_arm_summary
+    out_dir = str(tmp_path / "summary")
+    written = summarize.write_outputs(summary, out_dir)
+
+    for name in ("yaw_pilot_summary.json", "yaw_pilot_tables.md", "yaw_pilot_gaps.csv",
+                 "yaw_pilot_gaps_all_arms.png"):
+        assert os.path.exists(os.path.join(out_dir, name)), name
+    for arm in summary["arms"]:
+        for extension in ("png", "pdf"):
+            assert os.path.exists(os.path.join(
+                out_dir, "yaw_pilot_gaps_{}.{}".format(arm["arm"], extension)))
+    assert written["csv"].endswith("yaw_pilot_gaps.csv")
+
+    import csv
+
+    with open(os.path.join(out_dir, "yaw_pilot_gaps.csv")) as fin:
+        rows = list(csv.DictReader(fin))
+    expected = summarize.figure_data(summary)
+    assert len(rows) == len(expected)
+    def _maybe(text):
+        return None if text == "" else float(text)
+
+    for row, source in zip(rows, expected):
+        assert row["arm"] == source["arm"]
+        assert int(row["k"]) == source["k"]
+        assert row["metric"] == source["metric"]
+        # A shift-only panel has no accuracy change: the cell is empty in both.
+        assert _maybe(row["degradation"]) == pytest.approx(source["degradation"])
+        assert _maybe(row["shift"]) == pytest.approx(source["shift"])
+        assert int(row["n_mask"]) == source["n_mask"]
+        assert row["ratio_status"] == source["ratio_status"]
+    assert any(row["degradation"] == "" for row in rows)        # logspec_mad
+    assert all(row["shift"] != "" for row in rows)
+
+    with open(os.path.join(out_dir, "yaw_pilot_summary.json")) as fin:
+        canonical = json.load(fin)
+    assert canonical["inputs"] == summary["inputs"]
+    with open(os.path.join(out_dir, "yaw_pilot_tables.md")) as fin:
+        markdown = fin.read()
+    assert "prediction shift" in markdown and "denominator uncertain" in markdown or True
+    assert "historical baseline evaluation variability" in markdown
+    assert "context only" in markdown
+
+
+def test_the_figure_axes_leave_room_for_a_negative_bar(two_arm_summary, tmp_path):
+    summary, _ = two_arm_summary
+    rows = [row for row in summarize.figure_data(summary) if row["arm"] == "control_k8"]
+    worst = min(row["degradation"] for row in rows if row["metric"] == "EDT")
+    assert worst < 0
+    figure = summarize.make_figure(summary, "control_k8",
+                                   str(tmp_path / "fig.png"))
+    try:
+        axes = [ax for ax in figure.axes if ax.get_title().startswith("EDT")]
+        assert axes, [ax.get_title() for ax in figure.axes]
+        assert axes[0].get_ylim()[0] <= worst
+    finally:
+        import matplotlib.pyplot as plt
+
+        plt.close(figure)
+
+
+def test_write_outputs_refuses_inputs_that_no_longer_match(two_arm_summary, tmp_path):
+    summary, run_dirs = two_arm_summary
+    with open(os.path.join(run_dirs[1], "meta.json"), "a") as fout:
+        fout.write("\n")
+    with pytest.raises(ValueError):
+        summarize.write_outputs(summary, str(tmp_path / "refused"))

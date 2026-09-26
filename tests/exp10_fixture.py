@@ -28,7 +28,7 @@ def decaying_noise(n, length=pilot.PADDED_LEN, seed=0, tau=1200.0):
 def make_run(out_dir, ks=(0, 128), n=8, seed=0, controls=True, shift=0.01,
              meta_overrides=None, per_sample_meta_overrides=None, complete=True,
              queries=None, indices=None, batches=(0,), execution_id=None,
-             protocol_overrides=None):
+             protocol_overrides=None, error_shift=None):
     """Write a complete, self-consistent synthetic run directory and return its meta.
 
     Args:
@@ -46,6 +46,8 @@ def make_run(out_dir, ks=(0, 128), n=8, seed=0, controls=True, shift=0.01,
         complete: value of ``meta.complete``.
         queries / indices: override the canonical query list and their canonical indices.
         batches: the canonical batch indices the run claims to cover.
+        error_shift: ``{metric: value}`` added to the nonzero angles' Metric-2 errors, so
+            a test can build a cell whose accuracy change is negative (an improvement).
 
     Returns:
         The meta dict that was written.
@@ -90,6 +92,9 @@ def make_run(out_dir, ks=(0, 128), n=8, seed=0, controls=True, shift=0.01,
         cell["loss"] = 1.0 + magnitude + 0.01 * np.arange(n)
         cell["stft"] = 0.6 + magnitude
         cell["decay"] = 0.4 + 0.01 * np.arange(n)
+        for metric, value in (error_shift or {}).items():
+            if int(k) != 0:
+                cell[metric] = cell[metric] + float(value)
         cell["t60_gap_abs"] = np.abs(raw_k["t60"] - raw_0["t60"])
         cell["t60_err_abs"] = np.abs(raw_k["t60"] - raw_gt["t60"])
         for name in cell:
