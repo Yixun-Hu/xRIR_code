@@ -562,3 +562,22 @@ def test_build_summary_refuses_two_arms_with_the_same_label(tmp_path):
     with pytest.raises(ValueError) as excinfo:
         summarize.build_summary([first, second], n_boot=50)
     assert "arm label" in str(excinfo.value)
+
+
+def test_room_cell_records_how_many_clusters_it_resampled():
+    # A one-room subset makes the cluster bootstrap degenerate (every resample is the
+    # same room), so the count has to be visible beside the interval.
+    e0 = np.array([1.0, 1.0, 1.0, 1.0])
+    ek = np.array([1.2, 1.3, 1.9, 2.0])      # the two rooms differ, so the draws differ
+    gk = np.array([0.2, 0.3, 0.9, 1.0])
+    one_room = summarize.bootstrap_cell(e0, ek, gk, n_boot=100, seed=0,
+                                        clusters=["A"] * 4)
+    two_rooms = summarize.bootstrap_cell(e0, ek, gk, n_boot=100, seed=0,
+                                         clusters=["A", "A", "B", "B"])
+    query = summarize.bootstrap_cell(e0, ek, gk, n_boot=100, seed=0)
+
+    assert one_room["n_clusters"] == 1
+    assert two_rooms["n_clusters"] == 2
+    assert query["n_clusters"] is None
+    assert one_room["delta"]["lo"] == one_room["delta"]["hi"]   # degenerate by construction
+    assert two_rooms["delta"]["lo"] < two_rooms["delta"]["hi"]

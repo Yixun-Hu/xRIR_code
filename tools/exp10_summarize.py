@@ -177,7 +177,7 @@ def _empty_cell(exclusions, reason, unit=None):
                       "zero_draw_fraction": None, "reason": reason},
             "contributions": {"fraction_worse": None, "mean_positive_part": None,
                               "mean_negative_part": None},
-            "exclusions": exclusions, "unit_of_resampling": None}
+            "exclusions": exclusions, "unit_of_resampling": None, "n_clusters": None}
 
 
 def bootstrap_cell(e0, ek, gk, n_boot=N_BOOT, seed=0, alpha=ALPHA, clusters=None,
@@ -218,7 +218,10 @@ def bootstrap_cell(e0, ek, gk, n_boot=N_BOOT, seed=0, alpha=ALPHA, clusters=None
             "mean_alpha": float(ek[mask].mean()) if ek is not None else None,
             "mean_gap": float(gaps.mean()),
             "exclusions": exclusions,
-            "unit_of_resampling": "query" if clusters is None else "room"}
+            "unit_of_resampling": "query" if clusters is None else "room",
+            # With one cluster the cluster bootstrap is degenerate (every resample is the
+            # same set), so the count travels with the interval it explains.
+            "n_clusters": None if ids is None else int(np.unique(ids).size)}
     gap_lo, gap_hi = _interval(draws["gap"], alpha)
     cell["gap"] = {"point": float(gaps.mean()), "lo": gap_lo, "hi": gap_hi}
 
@@ -848,15 +851,15 @@ def _markdown_tables(summary):
                     cell["convergence"]["converged"],
                     "yes" if headline["reportable"] else (headline["reason"] or "-")))
         lines.extend(["", "### Room-cluster intervals (secondary)", "",
-                      "| angle | metric | delta CI (room) | G CI (room) | status |",
-                      "|---|---|---|---|---|"])
+                      "| angle | metric | delta CI (room) | G CI (room) | status | "
+                      "rooms |", "|---|---|---|---|---|---|"])
         for k in sorted(int(k) for k in arm["angles"]):
             for label, _, _, _ in METRIC_TRIPLES:
                 cell = arm["angles"][str(k)][label]["room"]
-                lines.append("| {}° | {} | [{}, {}] | [{}, {}] | {} |".format(
+                lines.append("| {}° | {} | [{}, {}] | [{}, {}] | {} | {} |".format(
                     _deg(k), label, _fmt(cell["delta"]["lo"]), _fmt(cell["delta"]["hi"]),
                     _fmt(cell["gap"]["lo"]), _fmt(cell["gap"]["hi"]),
-                    cell["ratio"]["status"]))
+                    cell["ratio"]["status"], cell.get("n_clusters")))
         controls = arm.get("controls", {})
         lines.extend(["", "### Controls", "",
                       "| control | k | repeats | max |dwave| | max |dlogspec| | "
