@@ -31,18 +31,25 @@ path.
 """
 from __future__ import annotations
 
+import argparse
 import contextlib
 import datetime
 import hashlib
 import json
 import os
+import subprocess
+import sys
+import time
 import uuid
 
 import numpy as np
 import torch
 
 import model.xRIR as model_xrir
-from eval_yaw_rotation import pad_batch
+from eval_unseen import Evaluator
+from eval_xRIR_backbone import load_model_state
+from eval_yaw_rotation import build_manifest_dataset, load_checked_manifest, pad_batch
+from model.xRIR_cyl import BACKBONES, build_xrir
 from tools.yaw_rotation import fixed_alignment, rotate_scene_yaw
 
 from tools.per_sample_metrics import (
@@ -474,11 +481,11 @@ def evaluate_batch(model, batch, ks, evaluator, gl_seed=0, batch_size=DEFAULT_BA
         want_t60: measure T60 (descriptive, and the noisiest metric).
 
     Returns:
-        ``{"keys", "n", "gt", "angles", "controls", "waveforms"}``: the ``n`` kept query
-        keys, the ground-truth raw measures, ``angles[k][metric] -> [n]`` float64,
-        ``controls[id][metric] -> [n]`` (plus the two deviation arrays) and
-        ``waveforms[k] -> [n, 9600]`` float32, the very arrays the metrics were computed
-        from.
+        ``{"keys", "n", "gt", "angles", "controls", "waveforms", "timing"}``: the ``n``
+        kept query keys, the ground-truth raw measures, ``angles[k][metric] -> [n]``
+        float64, ``controls[id][metric] -> [n]`` (plus the two deviation arrays),
+        ``waveforms[k] -> [n, 9600]`` float32 (the very arrays the metrics were computed
+        from) and the batch's inference / inversion / metric seconds.
 
     Raises:
         ValueError: if ``0`` is missing from ``ks``, ``ks`` repeats an angle, or a control
@@ -503,34 +510,58 @@ def evaluate_batch(model, batch, ks, evaluator, gl_seed=0, batch_size=DEFAULT_BA
     ref_locs = ref_locs.to(device)
     keys = list(keys)[:n_real]
 
+    timing = {"inference_s": 0.0, "inversion_s": 0.0, "metrics_s": 0.0}
     with patched_apply_delay():
+        clock = time.time()
         with torch.no_grad():
             aligned0 = model.shift_and_align(ref_irs, src_loc, ref_locs)
             out_0, _ = model(depth_coord, ref_irs, src_loc, ref_locs, tgt_wav)
         out_0 = out_0[:n_real]
+        timing["inference_s"] += time.time() - clock
+
+        clock = time.time()
         waves_0 = invert(out_0, keys, gl_seed)
+        timing["inversion_s"] += time.time() - clock
+
+        clock = time.time()
         gt_waves = tgt_wav[:n_real, 0].cpu().numpy()
         raw_0 = raw_measures(waves_0, evaluator, want_t60=want_t60, window=METRIC_WINDOW)
         raw_gt = raw_measures(gt_waves, evaluator, want_t60=want_t60, window=METRIC_WINDOW)
+        timing["metrics_s"] += time.time() - clock
 
         angles, waveforms, outs = {}, {}, {}
         for k in cols:
+            clock = time.time()
             out_k, tgt_spec = angle_logspec(model, depth_coord, ref_irs, src_loc,
                                             ref_locs, tgt_wav, k, aligned0)
             out_k, tgt_spec = out_k[:n_real], tgt_spec[:n_real]
+            timing["inference_s"] += time.time() - clock
+
+            clock = time.time()
             waves_k = invert(out_k, keys, gl_seed)
+            timing["inversion_s"] += time.time() - clock
+
+            clock = time.time()
             angles[k] = _angle_cell(out_k, out_0, tgt_spec, waves_k, waves_0, gt_waves,
                                     raw_0, raw_gt, evaluator, want_t60)
+            timing["metrics_s"] += time.time() - clock
             waveforms[k], outs[k] = waves_k, out_k
 
         control_cells = {}
         for name, k, reference in (CONTROL_SPECS if controls else ()):
+            clock = time.time()
             with torch.no_grad():
                 aligned_fresh = model.shift_and_align(ref_irs, src_loc, ref_locs)
             out_c, tgt_spec = angle_logspec(model, depth_coord, ref_irs, src_loc,
                                             ref_locs, tgt_wav, k, aligned_fresh)
             out_c, tgt_spec = out_c[:n_real], tgt_spec[:n_real]
+            timing["inference_s"] += time.time() - clock
+
+            clock = time.time()
             waves_c = invert(out_c, keys, gl_seed)
+            timing["inversion_s"] += time.time() - clock
+
+            clock = time.time()
             cell = _angle_cell(out_c, out_0, tgt_spec, waves_c, waves_0, gt_waves,
                                raw_0, raw_gt, evaluator, want_t60)
             cell["wave_max_abs_diff"] = np.abs(
@@ -538,11 +569,12 @@ def evaluate_batch(model, batch, ks, evaluator, gl_seed=0, batch_size=DEFAULT_BA
             ).max(axis=1)
             cell["logspec_max_abs_diff"] = (out_c - outs[reference]).abs().flatten(
                 1).max(dim=1).values.double().cpu().numpy()
+            timing["metrics_s"] += time.time() - clock
             control_cells[name] = cell
 
     gt_block = {"edt_gt": raw_gt["edt"], "c50_gt": raw_gt["c50"], "t60_gt": raw_gt["t60"]}
     return {"keys": keys, "n": int(n_real), "gt": gt_block, "angles": angles,
-            "controls": control_cells, "waveforms": waveforms}
+            "controls": control_cells, "waveforms": waveforms, "timing": timing}
 
 
 def _canonical_queries(dataset):
@@ -672,3 +704,285 @@ def write_json(payload, path):
     finally:
         if os.path.exists(tmp):
             os.remove(tmp)
+
+
+def _git_commit(repo_root=None):
+    """``HEAD`` of the tree this module lives in, plus whether it is dirty."""
+    root = repo_root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        commit = subprocess.check_output(["git", "-C", root, "rev-parse", "HEAD"],
+                                         stderr=subprocess.DEVNULL).decode().strip()
+        status = subprocess.check_output(["git", "-C", root, "status", "--porcelain"],
+                                         stderr=subprocess.DEVNULL).decode().strip()
+        return commit, bool(status)
+    except (OSError, subprocess.CalledProcessError):
+        return None, None
+
+
+def _parse_ks(text):
+    """``"0,64,128"`` -> ``[0, 64, 128]``, refusing repeats and a grid without ``k = 0``."""
+    cols = [int(token) for token in str(text).split(",") if token.strip() != ""]
+    if not cols:
+        raise ValueError("--ks is empty")
+    if len(set(cols)) != len(cols):
+        raise ValueError("--ks repeats an angle: {}".format(cols))
+    if 0 not in cols:
+        raise ValueError("k = 0 is the paired reference of every Metric-1 quantity; "
+                         "--ks must contain it, got {}".format(cols))
+    return cols
+
+
+def _parse_batches(text, dataset, batch_size):
+    """Resolve ``--batches`` (``all`` / ``probe`` / an explicit list) to batch indices.
+
+    Whatever the selection, a batch index always means the same window of the canonical
+    order -- queries ``[b * batch_size, (b + 1) * batch_size)`` -- so a subset run's rows
+    are a subset of the full run's rows, computed at the same batch composition.
+    """
+    total = -(-len(dataset) // int(batch_size))
+    if str(text) == "all":
+        return list(range(total))
+    if str(text) == "probe":
+        return select_probe_batches(dataset, batch_size=batch_size)
+    picked = [int(token) for token in str(text).split(",") if token.strip() != ""]
+    if not picked:
+        raise ValueError("--batches is empty")
+    if len(set(picked)) != len(picked):
+        raise ValueError("--batches repeats a batch: {}".format(picked))
+    outside = [b for b in picked if not 0 <= b < total]
+    if outside:
+        raise ValueError("--batches {} outside the {} canonical batches".format(
+            outside, total))
+    return sorted(picked)
+
+
+def _summarize(values):
+    """``{"mean", "n_valid", "n_nan"}`` of one per-sample array (mean over finite values)."""
+    array = np.asarray(values, dtype=np.float64)
+    finite = np.isfinite(array)
+    return {"mean": float(array[finite].mean()) if finite.any() else None,
+            "n_valid": int(finite.sum()), "n_nan": int((~finite).sum())}
+
+
+def run(args):
+    """Evaluate one checkpoint over the selected canonical batches at every angle.
+
+    The order of business is a ladder of refusals before any compute: exp_03's pinned
+    closure is re-verified, the manifest must hash to ``--manifest-hash``, the manifest's
+    shot count must equal ``--num-shot`` and the built model's ``num_channels``, the angle
+    grid must contain ``k = 0``, the batch selection must lie inside the canonical
+    batching, and the loader must return the manifest's canonical order.
+
+    Writes, in this order: ``wav_k<k>.npy`` (float32 ``[N, 9600]``, the arrays the metrics
+    were computed from), ``per_sample.json`` (strict JSON, invalid samples ``null``),
+    ``metrics.json`` and finally ``meta.json``, whose ``complete`` flag is the last thing
+    written -- a reader that sees it knows every other output is finished and hashed.
+
+    Args:
+        args: the parsed CLI namespace (see :func:`main`).
+
+    Returns:
+        The per-sample dict that was written.
+
+    Raises:
+        RuntimeError: if ``--device cuda`` is asked for and no GPU is visible.
+        ValueError: on any of the refusals above.
+    """
+    started = time.time()
+    execution_id, started_at = new_execution_id()
+    torch.set_num_threads(int(args.threads))
+    torch.backends.cuda.matmul.allow_tf32 = bool(args.tf32)
+    torch.backends.cudnn.allow_tf32 = bool(args.tf32)
+    torch.backends.cudnn.deterministic = True
+    if args.device == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("--device cuda asked for but no GPU is visible")
+
+    from tools.exp10_compare import verify_exp03_pins          # avoids a cyclic import
+    pins = verify_exp03_pins(args.binding_report)
+
+    manifest = load_checked_manifest(args.manifest, args.manifest_hash)
+    if int(manifest["num_shot"]) != int(args.num_shot):
+        raise ValueError("manifest num_shot {} != --num-shot {}".format(
+            manifest["num_shot"], args.num_shot))
+    cols = _parse_ks(args.ks)
+
+    dataset = build_manifest_dataset(manifest)
+    batches = _parse_batches(args.batches, dataset, args.batch_size)
+    indices = [i for b in batches
+               for i in range(b * args.batch_size,
+                              min((b + 1) * args.batch_size, len(dataset)))]
+    subset = torch.utils.data.Subset(dataset, indices)
+    loader = torch.utils.data.DataLoader(subset, batch_size=args.batch_size,
+                                         shuffle=False, num_workers=args.num_workers,
+                                         pin_memory=(args.device == "cuda"))
+
+    model = build_xrir(args.backbone, manifest["num_shot"])
+    model.load_state_dict(load_model_state(args.checkpoint), strict=True)
+    if int(model.num_channels) != int(args.num_shot):
+        raise ValueError("the built model has {} reference channels, expected {}".format(
+            model.num_channels, args.num_shot))
+    model.to(args.device).eval()
+    evaluator = Evaluator()
+    print("arm {}  backbone {}  device {}  queries {}  batches {}  angles {}".format(
+        args.arm, args.backbone, args.device, len(indices), len(batches), cols),
+        flush=True)
+
+    queries, angle_parts, control_parts, gt_parts, wave_parts = [], {}, {}, {}, {}
+    timing = {"inference_s": 0.0, "inversion_s": 0.0, "metrics_s": 0.0, "loading_s": 0.0}
+    loop_started = time.time()
+    with patched_apply_delay():
+        for i, batch in enumerate(loader):
+            batch_started = time.time()
+            timing["loading_s"] += batch_started - loop_started
+            result = evaluate_batch(model, batch, cols, evaluator, gl_seed=args.gl_seed,
+                                    batch_size=args.batch_size, device=args.device,
+                                    controls=bool(args.controls))
+            for name in ("inference_s", "inversion_s", "metrics_s"):
+                timing[name] += result["timing"][name]
+            queries.extend(result["keys"])
+            for metric, values in result["gt"].items():
+                gt_parts.setdefault(metric, []).append(values)
+            for k, cell in result["angles"].items():
+                for metric, values in cell.items():
+                    angle_parts.setdefault(k, {}).setdefault(metric, []).append(values)
+                wave_parts.setdefault(k, []).append(result["waveforms"][k])
+            for name, cell in result["controls"].items():
+                for metric, values in cell.items():
+                    control_parts.setdefault(name, {}).setdefault(metric, []).append(values)
+            if (i + 1) % args.log_interval == 0 or len(queries) == len(indices):
+                elapsed = time.time() - started
+                rate = len(queries) / max(elapsed, 1e-9)
+                print("[{}/{}] {:.2f} samples/s, eta {:.1f} min".format(
+                    len(queries), len(indices), rate,
+                    (len(indices) - len(queries)) / max(rate, 1e-9) / 60.0), flush=True)
+            loop_started = time.time()
+
+    entries = [dataset.entries[i] for i in indices]
+    if queries != [entry["query"] for entry in entries]:
+        raise ValueError("the loader did not return the manifest's canonical order")
+
+    write_started = time.time()
+    os.makedirs(args.out_dir, exist_ok=True)
+    arrays = {}
+    for k in cols:
+        block = np.concatenate(wave_parts[k]).astype(np.float32)
+        name = "wav_k{}.npy".format(k)
+        path = os.path.join(args.out_dir, name)
+        np.save(path, block)
+        arrays[name] = {"sha256": file_sha256(path), "shape": list(block.shape),
+                        "dtype": str(block.dtype), "k": int(k)}
+
+    commit, dirty = _git_commit()
+    tool_sha = file_sha256(os.path.abspath(__file__))
+    protocol_fields = {
+        "checkpoint_sha256": file_sha256(args.checkpoint),
+        "manifest_hash": args.manifest_hash, "gl_seed": int(args.gl_seed),
+        "num_shot": int(args.num_shot), "device": args.device,
+        "cudnn_deterministic": True, "cudnn_allow_tf32": bool(args.tf32),
+        "matmul_allow_tf32": bool(args.tf32), "batch_size": int(args.batch_size),
+        "batch_canonical": True, "torch_version": torch.__version__,
+        "numpy_version": np.__version__, "tool_sha256": tool_sha}
+    meta_core = dict(protocol_fields)
+    meta_core.update({
+        "arm": args.arm, "backbone": args.backbone, "checkpoint": args.checkpoint,
+        "manifest_path": args.manifest, "manifest_seed": manifest["seed"],
+        "split": "unseen", "ks": cols, "controls": bool(args.controls),
+        "control_specs": [{"id": name, "k": int(k), "compare_to": int(reference)}
+                          for name, k, reference in CONTROL_SPECS] if args.controls else [],
+        "tf32": bool(args.tf32), "batches_arg": str(args.batches), "batches": batches,
+        "n_batches_total": -(-len(dataset) // args.batch_size),
+        "n_queries": len(indices), "n_split": len(dataset),
+        "native_len": NATIVE_LEN, "padded_len": PADDED_LEN, "sample_rate": SAMPLE_RATE,
+        "metric_window": METRIC_WINDOW, "threads": int(args.threads),
+        "num_workers": int(args.num_workers),
+        "python_version": sys.version.split()[0], "git_commit": commit,
+        "git_dirty": dirty, "verify_exp03_pins": pins,
+        "run_id": protocol_id({key: protocol_fields[key] for key in (
+            "checkpoint_sha256", "manifest_hash", "gl_seed", "num_shot", "device",
+            "cudnn_deterministic", "cudnn_allow_tf32", "matmul_allow_tf32")}),
+        "protocol_id": protocol_id(protocol_fields), "execution_id": execution_id,
+        "started_at": started_at, "arrays": arrays,
+        "query_list_sha256": query_list_sha256(queries)})
+
+    def _cells(parts):
+        return {name: {metric: np.concatenate(chunks)
+                       for metric, chunks in metrics.items()}
+                for name, metrics in parts.items()}
+
+    angles = _cells(angle_parts)
+    controls = _cells(control_parts)
+    gt = {metric: np.concatenate(chunks) for metric, chunks in gt_parts.items()}
+
+    per_sample = {"meta": meta_core, "protocol_id": meta_core["protocol_id"],
+                  "execution_id": execution_id, "query": queries,
+                  "index": [entry["index"] for entry in entries], "batches": batches,
+                  "gt": {metric: json_values(values) for metric, values in gt.items()},
+                  "angles": {str(k): {metric: json_values(values)
+                                      for metric, values in cell.items()}
+                             for k, cell in angles.items()},
+                  "controls": {name: {metric: json_values(values)
+                                      for metric, values in cell.items()}
+                               for name, cell in controls.items()}}
+    metrics_out = {"meta": meta_core, "n_queries": len(queries),
+                   "gt": {metric: _summarize(values) for metric, values in gt.items()},
+                   "angles": {str(k): {metric: _summarize(values)
+                                       for metric, values in cell.items()}
+                              for k, cell in angles.items()},
+                   "controls": {name: {metric: _summarize(values)
+                                       for metric, values in cell.items()}
+                                for name, cell in controls.items()}}
+
+    per_sample_path = os.path.join(args.out_dir, "per_sample.json")
+    metrics_path = os.path.join(args.out_dir, "metrics.json")
+    write_json(per_sample, per_sample_path)
+    write_json(metrics_out, metrics_path)
+    timing["writing_s"] = time.time() - write_started
+    timing["total_min"] = (time.time() - started) / 60.0
+    meta = dict(meta_core)
+    meta.update({"per_sample_sha256": file_sha256(per_sample_path),
+                 "metrics_sha256": file_sha256(metrics_path),
+                 "timing": timing, "complete": True})
+    write_json(meta, os.path.join(args.out_dir, "meta.json"))
+    print("done: {} queries x {} angles in {:.2f} min ({})".format(
+        len(queries), len(cols), timing["total_min"], args.out_dir), flush=True)
+    return per_sample
+
+
+def main(argv=None):
+    """Parse the CLI and run the pilot (see the module docstring for an example)."""
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--arm", required=True, help="the plan's arm label, e.g. released_k8")
+    parser.add_argument("--backbone", choices=sorted(BACKBONES), required=True)
+    parser.add_argument("--checkpoint", required=True)
+    parser.add_argument("--manifest", required=True)
+    parser.add_argument("--manifest-hash", required=True,
+                        help="sha256 of the manifest's content; the run refuses to start "
+                             "unless it matches, so every arm sees the same references")
+    parser.add_argument("--num-shot", type=int, required=True,
+                        help="must equal the manifest's num_shot and the model's channels")
+    parser.add_argument("--out-dir", required=True)
+    parser.add_argument("--ks", default=",".join(str(k) for k in DEFAULT_KS),
+                        help="comma-separated column rolls (W=512); must contain 0")
+    parser.add_argument("--batches", default="all",
+                        help="all | probe | a comma-separated list of canonical batch "
+                             "indices")
+    parser.add_argument("--controls", action="store_true",
+                        help="also run the three plumbing controls as fresh inferences")
+    parser.add_argument("--device", choices=("cpu", "cuda"), default="cuda")
+    parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    parser.add_argument("--num-workers", type=int, default=6)
+    parser.add_argument("--gl-seed", type=int, default=0)
+    parser.add_argument("--threads", type=int, default=16)
+    parser.add_argument("--tf32", action="store_true",
+                        help="allow TF32; off by default, as in exp_03")
+    parser.add_argument("--binding-report",
+                        default=os.path.join(
+                            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "ckpt", "yaw_rotation", "binding_report.json"))
+    parser.add_argument("--log-interval", type=int, default=5)
+    return run(parser.parse_args(argv))
+
+
+if __name__ == "__main__":
+    main()

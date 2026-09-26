@@ -626,3 +626,139 @@ def test_write_json_is_strict_atomic_and_maps_nan_to_null(tmp_path):
     with pytest.raises(ValueError):
         pilot.write_json({"bad": float("nan")}, str(tmp_path / "bad.json"))
     assert not os.path.exists(str(tmp_path / "bad.json"))
+
+
+# ----------------------------------------------------------------- test 9: run smoke
+
+MANIFEST_HASH = "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d"
+CHECKPOINT = os.path.join(REPO_ROOT, "checkpoints", "xRIR_unseen.pth")
+DATA_ROOT = os.environ.get("XRIR_DATA_PATH", os.path.join(REPO_ROOT, "data"))
+HAVE_RUN_INPUTS = (os.path.exists(REAL_MANIFEST) and os.path.exists(CHECKPOINT) and
+                   os.path.isdir(os.path.join(DATA_ROOT, "single_channel_ir")))
+needs_run_inputs = pytest.mark.skipif(
+    not HAVE_RUN_INPUTS, reason="the AcousticRooms cache, the manifest or the released "
+                                "checkpoint is not available")
+
+
+def _run_argv(out_dir, **overrides):
+    argv = {"--arm": "smoke_test", "--backbone": "simple", "--checkpoint": CHECKPOINT,
+            "--manifest": REAL_MANIFEST, "--manifest-hash": MANIFEST_HASH,
+            "--num-shot": "8", "--ks": "0,128", "--batches": "0", "--device": "cpu",
+            "--threads": "8", "--num-workers": "2", "--out-dir": out_dir}
+    argv.update(overrides)
+    return [token for pair in argv.items() for token in pair]
+
+
+@pytest.fixture(scope="module")
+def smoke_runs(tmp_path_factory):
+    """Two identically configured CPU runs of the first canonical batch."""
+    if not HAVE_RUN_INPUTS:
+        pytest.skip("the AcousticRooms cache, the manifest or the checkpoint is missing")
+    directories = []
+    for name in ("first", "second"):
+        out_dir = str(tmp_path_factory.mktemp(name))
+        pilot.main(_run_argv(out_dir))
+        directories.append(out_dir)
+    return directories
+
+
+@needs_run_inputs
+def test_run_writes_every_planned_output_with_a_complete_meta(smoke_runs):
+    out_dir = smoke_runs[0]
+    for name in ("per_sample.json", "metrics.json", "meta.json", "wav_k0.npy",
+                 "wav_k128.npy"):
+        assert os.path.exists(os.path.join(out_dir, name)), name
+
+    with open(os.path.join(out_dir, "meta.json")) as fin:
+        meta = json.load(fin)
+    for field in ("arm", "backbone", "checkpoint", "checkpoint_sha256", "manifest_path",
+                  "manifest_hash", "manifest_seed", "num_shot", "gl_seed", "ks",
+                  "batches", "batches_arg", "batch_size", "batch_canonical", "device",
+                  "tf32", "cudnn_deterministic", "n_queries", "native_len", "padded_len",
+                  "sample_rate", "metric_window", "torch_version", "numpy_version",
+                  "git_commit", "tool_sha256", "run_id", "protocol_id", "execution_id",
+                  "started_at", "verify_exp03_pins", "arrays", "query_list_sha256",
+                  "per_sample_sha256", "timing", "complete"):
+        assert field in meta, field
+    assert meta["complete"] is True
+    assert meta["batch_canonical"] is True and meta["batch_size"] == 16
+    assert meta["native_len"] == 9579 and meta["padded_len"] == 9600
+    assert meta["metric_window"] == 8000 and meta["sample_rate"] == 22050
+    assert meta["verify_exp03_pins"]["ok"] is True
+    assert meta["n_queries"] == 16 and meta["batches"] == [0]
+    assert set(meta["timing"]) >= {"inference_s", "inversion_s", "metrics_s",
+                                   "writing_s", "loading_s", "total_min"}
+
+    for name, entry in meta["arrays"].items():
+        path = os.path.join(out_dir, name)
+        assert pilot.file_sha256(path) == entry["sha256"]
+        assert entry["shape"] == [16, 9600] and entry["dtype"] == "float32"
+    assert meta["per_sample_sha256"] == pilot.file_sha256(
+        os.path.join(out_dir, "per_sample.json"))
+
+
+@needs_run_inputs
+def test_run_ties_the_per_sample_file_to_its_meta(smoke_runs):
+    out_dir = smoke_runs[0]
+    with open(os.path.join(out_dir, "meta.json")) as fin:
+        meta = json.load(fin)
+    with open(os.path.join(out_dir, "per_sample.json")) as fin:
+        per_sample = json.load(fin)
+
+    assert per_sample["protocol_id"] == meta["protocol_id"]
+    assert per_sample["execution_id"] == meta["execution_id"]
+    for field, value in per_sample["meta"].items():
+        assert meta[field] == value, field
+    assert len(per_sample["query"]) == 16
+    assert per_sample["index"] == list(range(16))
+    assert pilot.query_list_sha256(per_sample["query"]) == meta["query_list_sha256"]
+    assert sorted(per_sample["angles"]) == ["0", "128"]
+    for name in pilot.GT_NAMES:
+        assert len(per_sample["gt"][name]) == 16
+    for k in ("0", "128"):
+        for name in pilot.ANGLE_METRIC_NAMES:
+            assert len(per_sample["angles"][k][name]) == 16, (k, name)
+    for name in ("wave_rel_l2", "wave_mad", "logspec_mad", "mag_rel_l2"):
+        assert per_sample["angles"]["0"][name] == [0.0] * 16
+    assert max(abs(v) for v in per_sample["angles"]["128"]["logspec_mad"]) > 0
+
+
+@needs_run_inputs
+def test_run_is_reproducible_bit_for_bit_on_the_cpu(smoke_runs):
+    first, second = smoke_runs
+    for name in ("wav_k0.npy", "wav_k128.npy"):
+        a = np.load(os.path.join(first, name))
+        b = np.load(os.path.join(second, name))
+        assert a.dtype == np.float32 and a.shape == (16, 9600)
+        np.testing.assert_array_equal(a, b)          # save/load round trip is exact too
+
+    payloads = []
+    for out_dir in (first, second):
+        with open(os.path.join(out_dir, "per_sample.json")) as fin:
+            payload = json.load(fin)
+        payload.pop("meta"), payload.pop("execution_id")
+        payloads.append(payload)
+    assert payloads[0] == payloads[1]
+
+    metas = []
+    for out_dir in (first, second):
+        with open(os.path.join(out_dir, "meta.json")) as fin:
+            metas.append(json.load(fin))
+    assert metas[0]["protocol_id"] == metas[1]["protocol_id"]
+    assert metas[0]["execution_id"] != metas[1]["execution_id"]
+    assert (metas[0]["arrays"]["wav_k128.npy"]["sha256"] ==
+            metas[1]["arrays"]["wav_k128.npy"]["sha256"])
+
+
+@needs_run_inputs
+def test_run_refuses_a_wrong_manifest_hash_or_shot_count(tmp_path):
+    with pytest.raises(ValueError):
+        pilot.main(_run_argv(str(tmp_path / "bad_hash"), **{"--manifest-hash": "0" * 64}))
+    with pytest.raises(ValueError):
+        pilot.main(_run_argv(str(tmp_path / "bad_shots"), **{"--num-shot": "4"}))
+
+
+@needs_run_inputs
+def test_run_refuses_an_out_of_range_batch_selection(tmp_path):
+    with pytest.raises(ValueError):
+        pilot.main(_run_argv(str(tmp_path / "bad_batch"), **{"--batches": "99999"}))
