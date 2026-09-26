@@ -525,7 +525,12 @@ def test_write_outputs_writes_every_artefact_and_a_csv_that_matches_the_json(
     assert canonical["inputs"] == summary["inputs"]
     with open(os.path.join(out_dir, "yaw_pilot_tables.md")) as fin:
         markdown = fin.read()
-    assert "prediction shift" in markdown and "denominator uncertain" in markdown or True
+    assert "### Metric 1 -- how far the prediction moved" in markdown
+    statuses = {arm["angles"][str(k)][label]["query"]["ratio"]["status"]
+                for arm in summary["arms"] for k in (0, 128)
+                for label, _, _, _ in summarize.METRIC_TRIPLES}
+    for status in statuses:
+        assert status in markdown, status
     assert "historical baseline evaluation variability" in markdown
     assert "context only" in markdown
 
@@ -947,7 +952,14 @@ def _markdown(summary, tmp_path, name):
 
 
 def _table_rows(markdown, heading):
-    """The data rows of the Markdown table under one heading."""
+    """The data rows of the Markdown table under one heading.
+
+    Cells are split on *unescaped* pipes, which is what a Markdown renderer does -- so a
+    header that forgets to escape the pipes of ``|dwave|`` shows up here as more cells
+    than the rows have.
+    """
+    import re
+
     lines = markdown.splitlines()
     start = next(i for i, line in enumerate(lines) if line.startswith(heading))
     rows = []
@@ -955,7 +967,8 @@ def _table_rows(markdown, heading):
         if line.startswith("###") and not line.startswith(heading):
             break
         if line.startswith("|") and not set(line) <= set("|- "):
-            rows.append([cell.strip() for cell in line.strip("|").split("|")])
+            cells = re.split(r"(?<!\\)\|", line)[1:-1]
+            rows.append([cell.strip() for cell in cells])
     return rows[0], rows[1:]
 
 
@@ -989,3 +1002,17 @@ def test_the_markdown_room_table_carries_the_ratio_and_its_qualification(two_arm
     # The room ratio of at least one cell is actually printed, not left blank.
     ratio_column = header.index("R (room)")
     assert any(row[ratio_column] not in ("", "-") for row in rows)
+
+
+# --------------------- round 2, finding 11: a Markdown header with the right cell count
+
+def test_the_controls_table_header_has_one_cell_per_column(two_arm_summary, tmp_path):
+    summary, _ = two_arm_summary
+    markdown = _markdown(summary, tmp_path, "controls_md")
+    header, rows = _table_rows(markdown, "### Controls")
+
+    assert rows, "the controls table has no data rows"
+    for row in rows:
+        assert len(row) == len(header), (header, row)
+    assert any("dwave" in cell for cell in header)
+    assert "problems" in header

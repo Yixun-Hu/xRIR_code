@@ -1122,14 +1122,25 @@ def _markdown_tables(summary):
                                  entry["convergence_room"]["converged"]))
         controls = arm.get("controls", {})
         lines.extend(["", "### Controls", "",
-                      "| control | k | repeats | max |dwave| | max |dlogspec| | "
-                      "max |dacoustic| | validity mismatches | ok |",
-                      "|---|---|---|---|---|---|---|---|"])
+                      # The pipes of |dwave| are escaped: an unescaped one would end the
+                      # cell and the header would claim more columns than the rows have.
+                      "| control | k | repeats | max \\|dwave\\| | max \\|dlogspec\\| | "
+                      "max \\|dacoustic\\| | validity mismatches | non-finite | "
+                      "problems | ok |",
+                      "|---|---|---|---|---|---|---|---|---|---|"])
         for name, cell in sorted(controls.get("controls", {}).items()):
-            lines.append("| {} | {} | k={} | {:.3e} | {:.3e} | {:.3e} | {} | {} |".format(
-                name, cell["k"], cell["compare_to"], cell["wave_max_abs_diff"],
-                cell["logspec_max_abs_diff"], cell["acoustic_max_abs_diff"],
-                cell["validity_mismatches"], "yes" if cell["ok"] else "NO"))
+            lines.append("| {} | {} | k={} | {} | {} | {} | {} | {} | {} | {} |".format(
+                name, cell["k"], cell["compare_to"], _exp(cell["wave_max_abs_diff"]),
+                _exp(cell["logspec_max_abs_diff"]), _exp(cell["acoustic_max_abs_diff"]),
+                cell["validity_mismatches"], cell.get("nonfinite_deviations", 0),
+                "; ".join(cell.get("problems") or []) or "-",
+                "yes" if cell["ok"] else "NO"))
+        for key, label in (("missing_controls", "declared but missing"),
+                           ("undeclared_controls", "present but undeclared")):
+            if controls.get(key):
+                lines.append("")
+                lines.append("**Controls {}:** {}.".format(
+                    label, ", ".join(controls[key])))
         lines.append("")
     return "\n".join(lines) + "\n"
 
@@ -1137,6 +1148,13 @@ def _markdown_tables(summary):
 def _deg(k):
     """A column roll as whole degrees."""
     return "{:.0f}".format(360.0 * int(k) / 512.0)
+
+
+def _exp(value, digits=3):
+    """A deviation for a Markdown cell in exponential form (``-`` when unavailable)."""
+    if value is None:
+        return "-"
+    return "{:.{}e}".format(float(value), digits)
 
 
 def _fmt(value, digits=6):
