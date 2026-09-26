@@ -577,3 +577,52 @@ def test_select_probe_batches_reproduces_the_planned_probe_on_the_real_manifest(
     assert picked == [0, 16, 32, 94, 110, 125, 141, 157, 214, 277, 292, 307, 322, 338,
                       353, 369, 381]
     assert len(picked) == 17
+
+
+# -------------------------------------------- identity and serialisation helpers (A2)
+
+def test_protocol_id_hashes_the_configuration_not_its_key_order():
+    fields = {"checkpoint_sha256": "a" * 64, "manifest_hash": "b" * 64, "gl_seed": 0,
+              "num_shot": 8, "device": "cpu", "batch_size": 16}
+    digest = pilot.protocol_id(fields)
+    assert len(digest) == 64 and int(digest, 16) >= 0
+    assert digest == pilot.protocol_id(dict(reversed(list(fields.items()))))
+    assert digest != pilot.protocol_id(dict(fields, gl_seed=1))
+    assert digest != pilot.protocol_id(dict(fields, device="cuda"))
+
+
+def test_new_execution_id_is_unique_and_carries_its_start_timestamp():
+    first, started = pilot.new_execution_id()
+    second, _ = pilot.new_execution_id()
+    assert first != second
+    assert started in first
+    assert started.endswith("Z")
+
+
+def test_query_list_sha256_pins_the_order_of_the_queries():
+    a = pilot.query_list_sha256(["x/a.wav", "x/b.wav"])
+    assert a != pilot.query_list_sha256(["x/b.wav", "x/a.wav"])
+    assert a == pilot.query_list_sha256(["x/a.wav", "x/b.wav"])
+
+
+def test_file_sha256_reads_the_bytes_on_disk(tmp_path):
+    import hashlib
+
+    path = tmp_path / "blob.bin"
+    path.write_bytes(b"exp_10")
+    assert pilot.file_sha256(str(path)) == hashlib.sha256(b"exp_10").hexdigest()
+
+
+def test_write_json_is_strict_atomic_and_maps_nan_to_null(tmp_path):
+    path = str(tmp_path / "per_sample.json")
+    payload = {"values": pilot.json_values([1.0, float("nan"), float("inf"), 2.5])}
+    pilot.write_json(payload, path)
+    assert not os.path.exists(path + ".tmp")
+    with open(path) as fin:
+        text = fin.read()
+    assert "NaN" not in text and "Infinity" not in text
+    assert json.loads(text) == {"values": [1.0, None, None, 2.5]}
+
+    with pytest.raises(ValueError):
+        pilot.write_json({"bad": float("nan")}, str(tmp_path / "bad.json"))
+    assert not os.path.exists(str(tmp_path / "bad.json"))

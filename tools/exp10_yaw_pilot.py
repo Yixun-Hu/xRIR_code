@@ -32,7 +32,11 @@ path.
 from __future__ import annotations
 
 import contextlib
+import datetime
+import hashlib
+import json
 import os
+import uuid
 
 import numpy as np
 import torch
@@ -596,3 +600,75 @@ def select_probe_batches(dataset, batch_size=DEFAULT_BATCH_SIZE, per_room=1):
                                  room, last - first + 1, first, len(inside), size, wanted))
         picked.extend(inside[:wanted])
     return sorted(picked)
+
+
+def file_sha256(path, chunk=1 << 20):
+    """sha256 of a file's bytes, so a reader can re-verify it from disk alone."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as fin:
+        for block in iter(lambda: fin.read(chunk), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def query_list_sha256(queries):
+    """sha256 of the newline-joined query list -- pins both the set and its order."""
+    return hashlib.sha256("\n".join(queries).encode()).hexdigest()
+
+
+def protocol_id(fields):
+    """The run's **protocol** identity (plan amendment A2).
+
+    A sha256 over everything that decides what the numbers mean -- checkpoint, manifest,
+    Griffin-Lim seed, K, device, precision flags, batch shape, library versions and the
+    sha256 of this tool.  Two runs with the same ``protocol_id`` are two executions of the
+    same protocol (which the summariser refuses to combine); a different id means the
+    numbers are not interchangeable.
+
+    Args:
+        fields: the protocol fields; key order is irrelevant.
+
+    Returns:
+        The 64-character hex digest.
+    """
+    return hashlib.sha256(json.dumps(fields, sort_keys=True,
+                                     separators=(",", ":")).encode()).hexdigest()
+
+
+def new_execution_id():
+    """A fresh **execution** identity: one uuid4, minted once per ``run`` (A2).
+
+    Returns:
+        ``(execution_id, started_at)`` -- ``"<ISO-8601 UTC>-<uuid4 hex>"`` and the
+        timestamp on its own, so a per-sample file can be tied to exactly the execution
+        that wrote it (not merely to a protocol that could have been run twice).
+    """
+    started = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S%fZ")
+    return "{}-{}".format(started, uuid.uuid4().hex), started
+
+
+def json_values(values):
+    """One per-sample array as strict JSON: every non-finite value becomes ``null``.
+
+    exp_03's rule, kept identical: NaN marks a sample the angle invalidated and has to
+    survive the round trip, but the JSON ``NaN`` literal is not valid JSON, so the files
+    are written with ``allow_nan=False`` and invalid samples are ``null``.
+    """
+    return [None if not np.isfinite(value) else float(value) for value in values]
+
+
+def write_json(payload, path):
+    """Write ``payload`` as strict JSON atomically: the full file or no file.
+
+    Raises:
+        ValueError: if the payload still contains a non-finite float (run the arrays
+            through :func:`json_values` first).
+    """
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "w") as fout:
+            json.dump(payload, fout, allow_nan=False)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
