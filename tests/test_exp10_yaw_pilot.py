@@ -170,3 +170,70 @@ def test_acoustic_gap_rejects_mismatched_blocks(evaluator):
         pilot.acoustic_gap(np.zeros((2, 16)), np.zeros((3, 16)), evaluator)
     with pytest.raises(ValueError):
         pilot.raw_measures(np.zeros(16), evaluator)
+
+
+# ------------------------------- test 4: device-agnostic apply_delay and its patch point
+
+def test_device_agnostic_apply_delay_shifts_like_the_model(tmp_path):
+    signal = torch.arange(12, dtype=torch.float32).reshape(3, 4)
+    delays = torch.tensor([2, -1, 0], dtype=torch.int32)
+    out = pilot.device_agnostic_apply_delay(signal, delays)
+
+    expected = torch.zeros_like(signal)
+    expected[0, 2:] = signal[0, :-2]      # positive: shift right, zero-pad the front
+    expected[1, :-1] = signal[1, 1:]      # negative: shift left, zero-pad the tail
+    expected[2] = signal[2]               # zero: copy
+    torch.testing.assert_close(out, expected)
+    assert out.device == signal.device and out.dtype == signal.dtype
+    torch.testing.assert_close(signal, torch.arange(12, dtype=torch.float32).reshape(3, 4))
+
+
+def test_device_agnostic_apply_delay_works_where_the_model_version_cannot():
+    import model.xRIR as model_xrir
+
+    signal = torch.randn(2, 8)
+    delays = torch.tensor([3, -2], dtype=torch.int32)
+    if torch.cuda.is_available():
+        reference = model_xrir.apply_delay(signal.cuda(), delays.cuda()).cpu()
+        torch.testing.assert_close(pilot.device_agnostic_apply_delay(signal, delays),
+                                   reference)
+    else:
+        with pytest.raises(Exception):
+            model_xrir.apply_delay(signal, delays)
+        assert pilot.device_agnostic_apply_delay(signal, delays).shape == signal.shape
+
+
+def test_patched_apply_delay_installs_and_restores_the_module_attribute():
+    import model.xRIR as model_xrir
+
+    original = model_xrir.apply_delay
+    with pilot.patched_apply_delay():
+        assert model_xrir.apply_delay is pilot.device_agnostic_apply_delay
+    assert model_xrir.apply_delay is original
+
+
+def test_patched_apply_delay_restores_even_when_the_block_raises():
+    import model.xRIR as model_xrir
+
+    original = model_xrir.apply_delay
+    with pytest.raises(RuntimeError):
+        with pilot.patched_apply_delay():
+            raise RuntimeError("boom")
+    assert model_xrir.apply_delay is original
+
+
+def test_patched_apply_delay_lets_the_model_run_on_the_cpu():
+    from model.xRIR_cyl import build_xrir
+
+    torch.manual_seed(0)
+    model = build_xrir("simple", 2).eval()
+    refs = torch.randn(2, 2, 512)
+    src = torch.randn(2, 3)
+    ref_locs = torch.randn(2, 2, 3)
+    with pytest.raises(Exception):
+        with torch.no_grad():
+            model.shift_and_align(refs, src, ref_locs)
+    with pilot.patched_apply_delay():
+        with torch.no_grad():
+            aligned = model.shift_and_align(refs, src, ref_locs)
+    assert aligned.shape == refs.shape

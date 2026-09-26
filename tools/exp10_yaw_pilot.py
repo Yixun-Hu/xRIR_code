@@ -31,8 +31,12 @@ path.
 """
 from __future__ import annotations
 
+import contextlib
+
 import numpy as np
 import torch
+
+import model.xRIR as model_xrir
 
 from tools.per_sample_metrics import acoustic_metrics
 
@@ -222,3 +226,55 @@ def raw_measures(waves, evaluator, want_t60=True, window=METRIC_WINDOW):
             for name, value in (("edt", edt), ("c50", clarity), ("t60", t60)):
                 values[name].append(float(value) if np.isfinite(value) else nan)
     return {name: np.asarray(vals, dtype=np.float64) for name, vals in values.items()}
+
+
+def device_agnostic_apply_delay(signal, delay_tensor):
+    """``model.xRIR.apply_delay`` without its hard-coded ``.cuda()``.
+
+    The shifting semantics are the model's, line for line -- positive delay shifts right
+    and zero-pads the front, negative shifts left and zero-pads the tail, zero copies --
+    but the output buffer is allocated on the **signal's own device**, so the same
+    forward pass runs on the CPU and on the GPU.  On CUDA the two implementations are
+    identical (``torch.zeros_like(x).cuda()`` is a no-op for a CUDA tensor).
+
+    Args:
+        signal: ``[batch, sequence_length]`` (or ``[batch, sequence_length, channels]``).
+        delay_tensor: ``[batch]`` integer sample delays.
+
+    Returns:
+        A new tensor of the signal's shape, dtype and device.
+    """
+    delayed_signal = torch.zeros_like(signal)
+    for i in range(signal.shape[0]):
+        delay = delay_tensor[i].item()
+        if delay > 0:
+            delayed_signal[i, delay:] = signal[i, :-delay]
+        elif delay < 0:
+            delayed_signal[i, :delay] = signal[i, -delay:]
+        else:
+            delayed_signal[i] = signal[i]
+    return delayed_signal
+
+
+@contextlib.contextmanager
+def patched_apply_delay():
+    """Run the block with :func:`device_agnostic_apply_delay` installed in ``model.xRIR``.
+
+    ``xRIR.shift_and_align`` calls the *module-level* ``apply_delay``, so swapping the
+    module attribute redirects every model instance for the duration of the block and
+    nothing else about the model is touched.  The original is restored in a ``finally``,
+    including when the block raises.
+
+    The patch is installed for **every** device (not only the CPU) so that a GPU run and
+    a CPU run of this tool execute the same code; it mutates a module attribute, so it is
+    for serial, eager evaluation only and is not thread-safe.
+
+    Yields:
+        The replacement function that is installed.
+    """
+    original = model_xrir.apply_delay
+    model_xrir.apply_delay = device_agnostic_apply_delay
+    try:
+        yield device_agnostic_apply_delay
+    finally:
+        model_xrir.apply_delay = original
