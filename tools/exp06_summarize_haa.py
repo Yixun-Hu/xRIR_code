@@ -1352,6 +1352,107 @@ def exp11_screens(arms, families, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED
         for pair in families)
 
 
+# --- R1: historical rows, copied from the hash-bound canonical records -------------------
+
+EXP06_STATS = 'ckpt/exp06/stats.json'
+EXP09_STATS = 'ckpt/exp09/stats.json'
+# The universe of decision-bearing fields a copied row may carry. A source records some
+# of them; the rest are null here and named in ``not_recorded``.
+HISTORICAL_FIELDS = ('diff', 'two_way', 'nominal_two_way', 'convergence', 'verdict',
+                     'category', 'non_inferior_at_margin')
+DECISION_ROW = ('diff', 'two_way', 'convergence', 'verdict')
+DESCRIPTIVE_ROW = ('diff', 'nominal_two_way')
+# Plan section 3's source-field map: which record, which table, which row, which fields.
+EXP11_HISTORICAL = (
+    {'name': 'C - D', 'source': EXP06_STATS, 'table': 'D', 'kind': 'descriptive',
+     'contrast': 'cyl_or - control_hf', 'fields': DESCRIPTIVE_ROW},
+    {'name': 'D - A', 'source': EXP06_STATS, 'table': 'D', 'kind': 'descriptive',
+     'contrast': 'control_hf - control', 'fields': DESCRIPTIVE_ROW},
+    {'name': 'C - A', 'source': EXP06_STATS, 'table': 'H1', 'kind': 'decision',
+     'contrast': 'cyl_or - control', 'fields': DECISION_ROW},
+    {'name': 'C - F', 'source': EXP06_STATS, 'table': 'H1b', 'kind': 'decision',
+     'contrast': 'cyl_or - cyl_hf', 'fields': DECISION_ROW},
+    {'name': 'E - A', 'source': EXP09_STATS, 'table': 'E1', 'kind': 'decision',
+     'contrast': 'yawaug - control',
+     'fields': DECISION_ROW + ('category', 'non_inferior_at_margin')})
+
+
+def historical_source(path, label, inputs=None):
+    """One canonical record, admitted only with the summary its own bytes bind."""
+    path = Path(path)
+    _require(path.is_file(), 'missing historical source {}'.format(path))
+    digest = provenance.sha256_file(path)
+    record = _read_json(path, label, inputs, digest)
+    summary = path.with_name('summary.txt')
+    _require(summary.is_file(),
+             'the historical source {} has no {}'.format(path, summary.name))
+    published = provenance.sha256_file(summary)
+    _require(published == record.get('summary_sha256'),
+             'the summary {} hashes to {}, not the summary_sha256 {} the record '
+             'binds'.format(summary, published, record.get('summary_sha256')))
+    if inputs is not None:
+        bind(inputs, summary, published)
+    return record, digest
+
+
+def historical_row(record, spec, room, metric):
+    """The row the selector names -- by contrast, room and metric, never by position."""
+    table = record.get(spec['table'])
+    if isinstance(table, list):
+        found = [row for row in table
+                 if (row.get('contrast'), row.get('room'), row.get('metric'))
+                 == (spec['contrast'], room, metric)]
+        _require(len(found) == 1, 'the historical table {} holds {} rows for {} {} '
+                 '{}'.format(spec['table'], len(found), spec['contrast'], room, metric))
+        row = found[0]
+    else:
+        row = table
+        _require(isinstance(row, dict),
+                 'the historical record has no {}'.format(spec['table']))
+    for field, value in (('contrast', spec['contrast']), ('room', room),
+                         ('metric', metric)):
+        _require(row.get(field) == value, 'the historical {} records {} {!r}, not the '
+                 'selected {!r}'.format(spec['table'], field, row.get(field), value))
+    return row
+
+
+def historical_rows(specs=EXP11_HISTORICAL, repo=REPO, room=H1_ROOM, metric=H1_METRIC,
+                    inputs=None):
+    """R1: rows re-reported from exp_06's and exp_09's canonical records.
+
+    Extant fields are copied exactly, keeping their original names, meaning and interval
+    convention (``nominal_two_way`` stays a descriptive nominal interval); a field the
+    source does not record is ``null`` here and named in ``not_recorded``. Each row
+    carries the source path, that file's sha256 and the selector it was found by.
+    Nothing is recomputed, no convergence is manufactured, and a descriptive row is never
+    reclassified as a decision.
+    """
+    rows, sources = [], {}
+    for spec in specs:
+        if spec['source'] not in sources:
+            sources[spec['source']] = historical_source(
+                Path(repo) / spec['source'], 'historical ' + spec['source'], inputs)
+        record, digest = sources[spec['source']]
+        found = historical_row(record, spec, room, metric)
+        copied = OrderedDict()
+        for field in HISTORICAL_FIELDS:
+            if field not in spec['fields']:
+                copied[field] = None
+                continue
+            _require(field in found, 'the historical row {} records no {}'.format(
+                spec['name'], field))
+            copied[field] = found[field]
+        rows.append(dict(copied, name=spec['name'], kind=spec['kind'],
+                         contrast=spec['contrast'], room=room, metric=metric,
+                         inference='none (copied)', source=spec['source'],
+                         source_sha256=digest,
+                         selector={'table': spec['table'], 'contrast': spec['contrast'],
+                                   'room': room, 'metric': metric},
+                         not_recorded=[field for field in HISTORICAL_FIELDS
+                                       if field not in spec['fields']]))
+    return rows
+
+
 def check_output_paths(experiment, json_path, summary_path):
     """No experiment's run may write another's canonical record."""
     targets = {str(Path(path).resolve()) for path in (json_path, summary_path)}

@@ -362,3 +362,150 @@ def test_an_empty_cohort_is_withheld_rather_than_not_available(arms):
     cell = cells[('hallway', 'c50')]
     assert cell['withheld'] is True and cell['label'] is None
     assert cell['nominal_two_way'] is None and cell['cohort'] == 0
+
+
+# --- R1: historical rows copied from the hash-bound canonical records --------------------
+
+import hashlib                                                           # noqa: E402
+
+REAL_EXP06 = Path(subject.REPO) / subject.EXP06_STATS
+REAL_EXP09 = Path(subject.REPO) / subject.EXP09_STATS
+
+
+def write_source(directory, name, tables, summary='historical summary\n'):
+    """A canonical record and the summary its own bytes bind."""
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / 'summary.txt').write_text(summary)
+    record = dict(tables, summary_sha256=hashlib.sha256(summary.encode()).hexdigest())
+    (directory / name).write_text(json.dumps(record))
+    return directory / name
+
+
+def source_tables(extra=None):
+    descriptive = [
+        {'contrast': 'cyl_hf - cyl', 'room': 'hallway', 'metric': 'c50', 'diff': 1.09,
+         'nominal_two_way': {'lo': 0.9, 'hi': 1.2}},
+        {'contrast': 'cyl_or - control_hf', 'room': 'hallway', 'metric': 'edt',
+         'diff': -0.01, 'nominal_two_way': {'lo': -0.02, 'hi': 0.0}},
+        {'contrast': 'cyl_or - control_hf', 'room': 'hallway', 'metric': 'c50',
+         'diff': -0.6289887046267822,
+         'nominal_two_way': {'lo': -0.7643895950033573, 'hi': -0.5001049541194548}},
+        {'contrast': 'control_hf - control', 'room': 'hallway', 'metric': 'c50',
+         'diff': 0.6307393052674443,
+         'nominal_two_way': {'lo': 0.5001244137920259, 'hi': 0.7701659721472814}}]
+    decision = {'contrast': 'cyl_or - control', 'room': 'hallway', 'metric': 'c50',
+                'diff': 0.0017506006406620145, 'two_way': {'lo': -0.057, 'hi': 0.060},
+                'convergence': {'status': 'converged', 'n_boot': 10000},
+                'verdict': 'pass', 'margin': 0.23}
+    tables = {'D': descriptive, 'H1': decision,
+              'H1b': dict(decision, contrast='cyl_or - cyl_hf', diff=-2.0078617508011820)}
+    return dict(tables, **(extra or {}))
+
+
+@pytest.fixture
+def sources(tmp_path):
+    """exp_06's and exp_09's canonical records, as R1 must read them."""
+    write_source(tmp_path / 'ckpt/exp06', 'stats.json', source_tables())
+    write_source(tmp_path / 'ckpt/exp09', 'stats.json', {
+        'E1': {'contrast': 'yawaug - control', 'room': 'hallway', 'metric': 'c50',
+               'diff': 0.2765036091404135, 'two_way': {'lo': 0.204, 'hi': 0.352},
+               'convergence': {'status': 'converged', 'n_boot': 10000},
+               'verdict': 'fail', 'category': 'detected harm',
+               'non_inferior_at_margin': False}}, summary='exp09 summary\n')
+    return tmp_path
+
+
+def test_the_historical_rows_are_the_registered_five(sources):
+    rows = subject.historical_rows(repo=sources)
+    assert [row['name'] for row in rows] == ['C - D', 'D - A', 'C - A', 'C - F', 'E - A']
+    assert [row['contrast'] for row in rows] == [
+        'cyl_or - control_hf', 'control_hf - control', 'cyl_or - control',
+        'cyl_or - cyl_hf', 'yawaug - control']
+    assert {row['room'] for row in rows} == {'hallway'}
+    assert {row['metric'] for row in rows} == {'c50'}
+    assert {row['inference'] for row in rows} == {'none (copied)'}
+    assert [row['kind'] for row in rows] == ['descriptive', 'descriptive', 'decision',
+                                             'decision', 'decision']
+
+
+def test_a_descriptive_row_is_copied_as_descriptive_and_never_promoted(sources):
+    row = subject.historical_rows(repo=sources)[0]
+    assert row['diff'] == -0.6289887046267822
+    assert row['nominal_two_way'] == {'lo': -0.7643895950033573, 'hi': -0.5001049541194548}
+    assert row['two_way'] is None and row['convergence'] is None
+    assert row['verdict'] is None and row['category'] is None
+    assert row['not_recorded'] == ['two_way', 'convergence', 'verdict', 'category',
+                                   'non_inferior_at_margin']
+    assert row['selector'] == {'table': 'D', 'contrast': 'cyl_or - control_hf',
+                               'room': 'hallway', 'metric': 'c50'}
+    assert row['source'] == subject.EXP06_STATS
+    assert row['source_sha256'] == subject.provenance.sha256_file(
+        Path(sources) / subject.EXP06_STATS)
+
+
+def test_a_decision_row_keeps_every_field_its_source_recorded(sources):
+    rows = {row['name']: row for row in subject.historical_rows(repo=sources)}
+    assert rows['C - A']['verdict'] == 'pass'
+    assert rows['C - A']['convergence'] == {'status': 'converged', 'n_boot': 10000}
+    assert rows['C - A']['two_way'] == {'lo': -0.057, 'hi': 0.060}
+    assert rows['C - A']['nominal_two_way'] is None
+    assert rows['E - A']['category'] == 'detected harm'
+    assert rows['E - A']['non_inferior_at_margin'] is False
+    assert rows['E - A']['source'] == subject.EXP09_STATS
+    assert rows['E - A']['not_recorded'] == ['nominal_two_way']
+
+
+def test_a_row_is_selected_by_its_contrast_and_never_by_a_list_position(sources):
+    path = Path(sources) / subject.EXP06_STATS
+    record = json.loads(path.read_text())
+    record['D'] = list(reversed(record['D']))
+    path.write_text(json.dumps(record))
+    assert subject.historical_rows(repo=sources)[0]['diff'] == -0.6289887046267822
+    duplicate = [row for row in record['D']
+                 if row['contrast'] == 'cyl_or - control_hf' and row['metric'] == 'c50']
+    record['D'] = record['D'] + [dict(duplicate[0])]
+    path.write_text(json.dumps(record))
+    with pytest.raises(ValueError, match='rows for'):
+        subject.historical_rows(repo=sources)
+
+
+def test_a_missing_source_a_changed_summary_or_a_missing_field_is_refused(sources, tmp_path):
+    path = Path(sources) / subject.EXP06_STATS
+    record = json.loads(path.read_text())
+    (Path(sources) / 'ckpt/exp06/summary.txt').write_text('edited\n')
+    with pytest.raises(ValueError, match='summary_sha256'):
+        subject.historical_rows(repo=sources)
+    (Path(sources) / 'ckpt/exp06/summary.txt').write_text('historical summary\n')
+    del record['H1']['verdict']
+    path.write_text(json.dumps(record))
+    with pytest.raises(ValueError, match='records no verdict'):
+        subject.historical_rows(repo=sources)
+    with pytest.raises(ValueError, match='missing historical source'):
+        subject.historical_rows(repo=tmp_path / 'empty')
+
+
+def test_the_copied_rows_bind_the_bytes_they_were_read_from(sources):
+    inputs = {}
+    subject.historical_rows(repo=sources, inputs=inputs)
+    assert sorted(Path(path).name for path in inputs) == ['stats.json', 'stats.json',
+                                                          'summary.txt', 'summary.txt']
+    for path, digest in inputs.items():
+        assert subject.provenance.sha256_file(path) == digest
+
+
+@pytest.mark.skipif(not (REAL_EXP06.is_file() and REAL_EXP09.is_file()),
+                    reason='needs the exp_06 and exp_09 canonical records')
+def test_the_real_canonical_records_carry_exactly_the_mapped_rows():
+    """The source-field map against the files themselves, not a fixture's idea of them."""
+    rows = {row['name']: row for row in subject.historical_rows()}
+    assert rows['C - D']['diff'] == -0.6289887046267822
+    assert rows['C - D']['nominal_two_way']['lo'] == -0.7643895950033573
+    assert rows['C - D']['verdict'] is None and rows['C - D']['convergence'] is None
+    assert rows['D - A']['diff'] == 0.6307393052674443
+    assert rows['C - A']['verdict'] == 'pass' and rows['C - A']['convergence']['status'] \
+        == 'converged'
+    assert rows['C - F']['verdict'] == 'pass' and rows['C - F']['diff'] < 0
+    assert rows['E - A']['verdict'] == 'fail'
+    assert rows['E - A']['category'] == 'detected harm'
+    assert rows['E - A']['non_inferior_at_margin'] is False
+    assert rows['E - A']['diff'] == 0.2765036091404135
