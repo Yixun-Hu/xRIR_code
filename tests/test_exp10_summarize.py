@@ -553,3 +553,12 @@ def test_write_outputs_refuses_inputs_that_no_longer_match(two_arm_summary, tmp_
         fout.write("\n")
     with pytest.raises(ValueError):
         summarize.write_outputs(summary, str(tmp_path / "refused"))
+
+
+def test_build_summary_refuses_two_arms_with_the_same_label(tmp_path):
+    first = _fixture_run(tmp_path, "one")
+    second = _fixture_run(tmp_path, "two",
+                          protocol_overrides={"checkpoint_sha256": "d" * 64})
+    with pytest.raises(ValueError) as excinfo:
+        summarize.build_summary([first, second], n_boot=50)
+    assert "arm label" in str(excinfo.value)

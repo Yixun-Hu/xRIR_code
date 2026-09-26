@@ -581,6 +581,12 @@ def build_summary(run_dirs, n_boot=N_BOOT, alpha=ALPHA, seeds=SEEDS):
     from tools.exp10_yaw_pilot import file_sha256
 
     loaded = guard_runs(run_dirs)
+    labels = [entry["meta"].get("arm") for entry in loaded]
+    duplicates = sorted({label for label in labels if labels.count(label) > 1})
+    if duplicates:
+        raise ValueError("two runs share the arm label {}: the figures and tables are "
+                         "keyed by it, so the arms must be named distinctly".format(
+                             ", ".join(str(label) for label in duplicates)))
     inputs, arms = [], []
     for entry in loaded:
         run_dir, meta = entry["run_dir"], entry["meta"]
