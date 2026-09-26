@@ -3330,3 +3330,1021 @@ eval_unseen.py:412:            pred_c50 = evaluator.measure_clarity(out_wav[0, 0
 eval_unseen.py:419:            gt_t60 = evaluator.measure_rt60(tgt_wav[0, 0, :8000].cpu().numpy())
 eval_unseen.py:420:            pred_t60 = evaluator.measure_rt60(out_wav[0, 0, :8000].cpu().numpy())
 
+exec
+/bin/bash -lc "sed -n '1,150p' tests/test_exp03_record_tools.py
+rg -n 'def source_closure|REVIEWED_COMMIT|CLOSURE|closure_record|source_closure\\(' worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/bind_provenance.py worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/check_acceptance.py
+sed -n '1,26p' worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_17:32:32_codex_plan_review_round2.log" in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+"""Adversarial tests for the exp_03 record tools (Planner one-offs in the record's assets folder): the acceptance
+checker's pure validators must reject fabricated, stale or malformed inputs (Codex round-3 findings 2-3)."""
+import copy
+import datetime
+import math
+import os
+import sys
+
+import pytest
+
+ASSETS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "worklog", "worklog_yixun",
+                      "exp_03_yaw_rotation_degradation_claude", "yaw_rotation_degradation_results_assets")
+sys.path.insert(0, ASSETS)
+import check_sweep_acceptance as c  # noqa: E402
+
+N = 4
+
+
+def good_gate():
+    return {"mode": "k0-gate", "gate_pass": True, "band_rule": "v3 (2026-09-06 per-model amendment)", "manifest_hash": c.MANIFEST_HASH,
+            "config": {"runs": list(c.GATE_RUNS["runs"])}, "noise_runs": list(c.GATE_RUNS["noise_runs"]), "noise_runs_cyl": list(c.GATE_RUNS["noise_runs_cyl"]),
+            "nuisance_runs": list(c.GATE_RUNS["nuisance_runs"]), "shape_runs": list(c.GATE_RUNS["shape_runs"]), "summary_path": "x.txt", "summary_sha256": "abc",
+            "gate_rows": [{"metric": "edt", "diff": 0.1}], "band_terms": {"control": {"s_ref": 0.1}}}
+
+
+def test_a_minimal_fabricated_gate_is_rejected():
+    fake = {"mode": "k0-gate", "gate_pass": True, "manifest_hash": c.MANIFEST_HASH, "summary_path": "x", "summary_sha256": "y"}
+    f = c.check_gate_json(fake, summary_sha="y")
+    assert any("band rule" in x for x in f) and any("runs" in x for x in f)
+
+
+def test_a_complete_gate_passes_and_each_requirement_is_enforced():
+    assert c.check_gate_json(good_gate(), summary_sha="abc", decision_copy_sha="abc") == []
+    for mutate, needle in [(lambda g: g.update(band_rule="v2"), "band rule"), (lambda g: g.update(gate_pass=False), "gate_pass"),
+                           (lambda g: g.update(shape_runs=[]), "shape_runs"), (lambda g: g["config"].update(runs=g["config"]["runs"][:2]), "runs"),
+                           (lambda g: g.update(manifest_hash="0" * 64), "manifest")]:
+        g = good_gate(); mutate(g)
+        assert any(needle in x for x in c.check_gate_json(g, summary_sha="abc", decision_copy_sha="abc")), needle
+    assert any("decision copy" in x for x in c.check_gate_json(good_gate(), summary_sha="abc", decision_copy_sha="other"))
+    assert any("digest" in x for x in c.check_gate_json(good_gate(), summary_sha="zzz", decision_copy_sha="abc"))
+
+
+def test_a_gate_written_after_the_sweep_started_is_rejected():
+    g = good_gate(); t = datetime.datetime(2026, 9, 6, 15, 41, tzinfo=datetime.timezone.utc)
+    g["_summary_mtime"] = t + datetime.timedelta(minutes=1)
+    assert any("after the sweep" in x for x in c.check_gate_json(g, sweep_start=t, summary_sha="abc", decision_copy_sha="abc"))
+    g["_summary_mtime"] = t - datetime.timedelta(minutes=1)
+    assert c.check_gate_json(g, sweep_start=t, summary_sha="abc", decision_copy_sha="abc") == []
+
+
+def manifest_entries():
+    rooms = [f"Cat/Room_{i}" for i in range(c.EXPECTED_ROOMS)]
+    return [{"index": i, "query": f"{rooms[i % len(rooms)]}/S00{i}_R001_hybrid_IR.wav"} for i in range(c.EXPECTED_ROOMS)]
+
+
+def test_query_lists_must_equal_the_manifest_in_order():
+    ents = manifest_entries(); q = [e["query"] for e in ents]; i = [e["index"] for e in ents]
+    assert c.check_manifest_order(q, i, ents) == []
+    assert c.check_manifest_order(list(reversed(q)), i, ents)
+    assert c.check_manifest_order(q, [0] * len(i), ents)
+    invented = [f"Cat/Room_{k}/S00{k}_R009_hybrid_IR.wav" for k in range(c.EXPECTED_ROOMS)]
+    assert c.check_manifest_order(invented, i, ents)
+
+
+def synthetic_run(n=N):
+    ps = {"P": {}, "E": {}}; m = {"P": {}, "E": {}}
+    for cond in ("P", "E"):
+        for k in c.SPECTRAL:
+            rows = {key: [0.1 * (j + 1) for j in range(n)] for key in c.SPECTRAL_KEYS}
+            for key in c.ACOUSTIC_KEYS:
+                rows[key] = [0.5 * (j + 1) for j in range(n)]
+            ps[cond][str(k)] = rows
+            m[cond][str(k)] = {key: {"mean": sum(rows[key]) / n, "n_valid": n, "n_nan": 0} for key in c.SPECTRAL_KEYS}
+            for key in c.ACOUSTIC_KEYS:
+                m[cond][str(k)][key] = {"mean": sum(rows[key]) / n, "n_valid": n, "n_nan": 0}
+    return ps, m
+
+
+def test_synthetic_content_passes_then_every_hole_is_caught():
+    ps, m = synthetic_run(); assert c.check_arrays(ps, m, n=N) == []
+    bad = copy.deepcopy(ps); bad["P"]["32"]["loss"][0] = float("nan"); assert any("loss" in x for x in c.check_arrays(bad, m, n=N))
+    bad = copy.deepcopy(ps); bad["P"]["32"]["edt"][0] = float("inf"); assert any("edt" in x for x in c.check_arrays(bad, m, n=N))
+    bad = copy.deepcopy(ps); bad["P"]["32"]["edt"][0] = "0.5"; assert any("edt" in x for x in c.check_arrays(bad, m, n=N))
+    bad = copy.deepcopy(ps); bad["P"]["32"]["c50"][0] = None; assert any("n_valid" in x for x in c.check_arrays(bad, m, n=N))
+    bad = copy.deepcopy(ps); bad["P"]["32"]["decay"] = bad["P"]["32"]["decay"][:-1]; assert any("decay" in x for x in c.check_arrays(bad, m, n=N))
+    badm = copy.deepcopy(m); badm["P"]["32"]["log_mse"]["mean"] += 1e-6; assert any("log_mse" in x for x in c.check_arrays(ps, badm, n=N))
+    bad = copy.deepcopy(ps); bad["E"]["0"]["t60"][1] += 1.0; badm = copy.deepcopy(m); badm["E"]["0"]["t60"]["mean"] = sum(bad["E"]["0"]["t60"]) / N
+    assert any("P and E differ at k=0" in x for x in c.check_arrays(bad, badm, n=N))
+    bad = copy.deepcopy(ps); del bad["E"]["508"]; assert any("E k=508 missing" in x for x in c.check_arrays(bad, m, n=N))
+
+
+def test_delay_flips_are_bounded_integers_equal_everywhere():
+    good = {str(k): 0 for k in c.SPECTRAL}; good["480"] = 4
+    assert c.check_delay_flips(good, dict(good)) == []
+    assert c.check_delay_flips({str(k): True for k in c.SPECTRAL}, {str(k): True for k in c.SPECTRAL})
+    assert c.check_delay_flips({**good, "32": -1}, {**good, "32": -1})
+    assert c.check_delay_flips({**good, "32": c.EXPECTED_N * c.NUM_SHOT + 1}, {**good, "32": c.EXPECTED_N * c.NUM_SHOT + 1})
+    assert c.check_delay_flips(good, {**good, "32": 1})
+    assert c.check_delay_flips({k: v for k, v in good.items() if k != "4"}, good)
+
+
+def test_meta_must_match_the_pre_registered_settings():
+    meta = {"backbone": "simple", "checkpoint": "ckpt/xRIR_simple_8_shot/epoch_12.pth", "manifest_hash": c.MANIFEST_HASH, "manifest_seed": 0, "manifest_path": c.MANIFEST,
+            "n_samples": c.EXPECTED_N, "max_samples": 0, "batch_size": 16, "batch_canonical": True, "tf32": False, "gl_seed": 0,
+            "yaw_cols": list(c.SPECTRAL), "acoustic_cols": list(c.ACOUSTIC), "e_acoustic_cols": list(c.E_ACOUSTIC)}
+    assert c.check_meta(meta, "simple", "ckpt/xRIR_simple_8_shot/epoch_12.pth") == []
+    for key, val in [("tf32", True), ("batch_size", 1), ("gl_seed", 1), ("manifest_seed", 1), ("max_samples", 32), ("yaw_cols", [0, 32])]:
+        bad = dict(meta); bad[key] = val
+        assert c.check_meta(bad, "simple", "ckpt/xRIR_simple_8_shot/epoch_12.pth"), key
+
+
+def test_provenance_requires_closure_environment_and_data_identity(tmp_path, monkeypatch):
+    run = tmp_path / "sweep_x"; run.mkdir(); (run / "per_sample_yaw.json").write_text("{}"); (run / "metrics_yaw.json").write_text('{"meta": {"elapsed_min": 1}}')
+    ck = tmp_path / "ck.pth"; ck.write_bytes(b"weights"); record = tmp_path / "record"; record.mkdir(); monkeypatch.setattr(c.bp, "RECORD", str(record))
+    log = record / "yaw_rotation_degradation_2026-09-06_15:41:19_sweep_x.log"; log.write_text("log")
+    rec = [{"path": "eval_yaw_rotation.py", "reviewed_blob_sha256": "a", "working_tree_sha256": "a"}]
+    pv = {"evaluator_sha256": c.bp.REVIEWED_EVAL_SHA, "reviewed_evaluator_commit": c.bp.REVIEWED_COMMIT, "source_closure_sha256": "dig", "source_closure": rec, "git_sha": c.LAUNCHER_HEAD,
+          "per_sample_sha256": c.bp.sha(str(run / "per_sample_yaw.json")), "metrics_sha256": c.bp.sha(str(run / "metrics_yaw.json")), "checkpoint": str(ck), "checkpoint_sha256": c.bp.sha(str(ck)),
+          "environment": {k: "x" for k in c.ENV_KEYS}, "data_identity": {"manifest_hash": c.MANIFEST_HASH, "inventory_missing": 0, "inventory_files": 3, "manifest_file_sha256": "mf", "inventory_sha256": "inv"},
+          "log": str(log), "log_sha256": c.bp.sha(str(log)), "run_start": c.bp.run_start({"log": str(log)}, str(run))[0].isoformat()}
+    gate = {"checkpoint_sha256": c.bp.sha(str(ck))}
+    assert c.check_provenance(pv, str(run), rec, "dig", gate, "mf") == []
+    for key, val, needle in [("source_closure_sha256", "other", "closure digest"), ("git_sha", "0" * 40, "HEAD"), ("evaluator_sha256", "0" * 64, "reviewed commit"),
+                             ("environment", {}, "environment"), ("data_identity", {"manifest_hash": c.MANIFEST_HASH, "inventory_missing": 3, "manifest_file_sha256": "mf", "inventory_sha256": "inv"}, "data identity")]:
+        bad = dict(pv); bad[key] = val
+        assert any(needle in x for x in c.check_provenance(bad, str(run), rec, "dig", gate, "mf")), key
+    assert any("gate sidecar" in x or "checkpoint" in x for x in c.check_provenance(pv, str(run), rec, "dig", {"checkpoint_sha256": "zzz"}, "mf"))
+    assert any("stale" in x or "data identity" in x for x in c.check_provenance(pv, str(run), rec, "dig", gate, "changed"))
+
+
+def test_the_pinned_grids_match_the_summarizer_constants():
+    sys.path.insert(0, ASSETS.split("/worklog/")[0])
+    from tools import summarize_yaw as sy
+    assert tuple(sy.PREREGISTERED_SPECTRAL_COLS) == c.SPECTRAL and tuple(sy.PREREGISTERED_ACOUSTIC_COLS) == c.ACOUSTIC and tuple(sy.PREREGISTERED_E_ACOUSTIC_COLS) == c.E_ACOUSTIC
+    assert not math.isfinite(float("nan")) and c.is_num(1) and not c.is_num(True) and not c.is_num("1")
+
+
+# ---------------------------------------------------------------- round-4 additions
+def test_gate_requires_the_exact_band_rule_an_existing_summary_and_finite_rows():
+    g = good_gate(); g["gate_rows"] = [{"metric": "edt", "diff": 0.1}]; g["band_terms"] = {"control": {"s_ref": 0.1}}
+    assert c.check_gate_json(g, summary_sha="abc", decision_copy_sha="abc") == []
+    g2 = dict(g); g2["band_rule"] = "v3 (something else)"
+    assert any("band rule" in x for x in c.check_gate_json(g2, summary_sha="abc", decision_copy_sha="abc"))
+    assert any("summary file missing" in x for x in c.check_gate_json(g, summary_sha=None, decision_copy_sha="abc"))
+    g3 = dict(g); g3["gate_rows"] = [{"metric": "edt", "diff": float("nan")}]
+    assert any("non-finite" in x for x in c.check_gate_json(g3, summary_sha="abc", decision_copy_sha="abc"))
+    g4 = dict(g); g4["gate_rows"] = []
+    assert any("gate rows" in x for x in c.check_gate_json(g4, summary_sha="abc", decision_copy_sha="abc"))
+    t = datetime.datetime(2026, 9, 6, 15, 41, tzinfo=datetime.timezone.utc)
+    assert any("chronology" in x for x in c.check_gate_json(g, sweep_start=t, summary_sha="abc", decision_copy_sha="abc"))
+rg: worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/bind_provenance.py: No such file or directory (os error 2)
+rg: worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/check_acceptance.py: No such file or directory (os error 2)
+Reading additional input from stdin...
+OpenAI Codex v0.154.0
+--------
+workdir: /home/yixunhu/codespace/xRIR_code
+model: gpt-6-astra
+provider: openai
+approval: on-request
+sandbox: read-only
+reasoning effort: ultra
+reasoning summaries: none
+session id: 01a0dfa2-5699-7b31-aebe-424c52aee0de
+--------
+user
+You are the plan Reviewer for exp_10 `yaw_pilot` in /home/yixunhu/codespace/xRIR_code (read-only). Before judging, read: worklog/experiment_SOP.md; worklog/worklog_yixun/exp_10_yaw_pilot_claude/{yaw_pilot_yixun_query.md, plan_yaw_pilot.md (v2), plan_yaw_pilot_v1_superseded.md, yaw_pilot_codex_plan_review.md (your round-1 review), yaw_pilot_worklog.md}; the prior experiment this builds on: worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/{plan_yaw_rotation_degradation.md, yaw_rotation_degradation_results.md, yaw_rotation_degradation_analysis.md} and its code eval_yaw_rotation.py, tools/yaw_rotation.py, tools/per_sample_metrics.py, tools/reference_manifest.py; the FLAC counterpart being mimicked: /home/yixunhu/codespace/FLAC/worklog/worklog_yixun/exp_02_yaw_noninvariance_claude/{plan_yaw_noninvariance.md, yaw_noninvariance_results.md, compare_predictions.py} and /home/yixunhu/codespace/FLAC/analysis/pilot_study/plot_pilot_yaw_gaps.py; exp_04's five-seed table worklog/worklog_yixun/model_comparison.md (noise floors). Task statement: the Planner will have Claude Opus 5 implement ONLY the plan's §5 new files (tools/exp10_{yaw_pilot,compare,summarize}.py + tests) on a worktree; exp_03's pinned modules must not change; runs are evaluation-only on the released xRIR checkpoint (+ control/cyl) at five yaw angles, CPU or GPU. Out of scope: training, condition E, confirmatory tests. Review the plan for: method soundness (is Metric 1 for xRIR defined so that it is comparable with FLAC's, and is the Griffin-Lim inflation handled honestly? is the P-condition the right conditioning-rotation analogue of FLAC's --rotate-deg? are the controls sufficient? is the paired bootstrap on Δ, G and G/Δ correct, including the ratio's undefined case?), hidden assumptions (CPU-vs-GPU parity tolerances vs exp_03's GPU runs; float32 waveform storage; the released checkpoint at K = 1 although trained at K = 8; noise-floor band borrowed from the control), missing tests/controls, run design and cost, and whether the deliverables let the paper state "shift vs degradation" per angle without overclaiming. Report numbered findings with severity (blocker / should-fix / nit), each with a minimal concrete fix, then a verdict: APPROVE / APPROVE WITH CHANGES / REQUEST CHANGES. Your final message is the review.
+codex
+I’ll read the full plan and supporting evidence, then review the metric definitions, controls, statistics, and implementation scope. I’ll keep the workspace read-only.
+exec
+/bin/bash -lc "pwd && rg --files -g 'AGENTS.md' -g '*exp10*' -g 'experiment_SOP.md' -g '*yaw_pilot*' -g '*yaw_rotation*' -g 'per_sample_metrics.py' -g 'reference_manifest.py' -g 'model_comparison.md'" in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+/home/yixunhu/codespace/xRIR_code
+eval_yaw_rotation.py
+worklog/experiment_SOP.md
+worklog/worklog_yixun/model_comparison.md
+tests/test_eval_yaw_rotation.py
+tests/test_yaw_rotation.py
+tools/yaw_rotation.py
+
+exec
+/bin/bash -lc "sed -n '1,55p' eval_unseen.py
+sed -n '198,278p' eval_unseen.py
+cat /home/yixunhu/codespace/FLAC/src/metrics/modules/RT60.py /home/yixunhu/codespace/FLAC/src/metrics/modules/C50.py /home/yixunhu/codespace/FLAC/src/metrics/modules/EDT.py
+sed -n '278,314p' /home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py" in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+import sys
+import numpy as np
+import os
+
+from scipy import stats
+import matplotlib.pyplot as plt
+from scipy.interpolate import interp1d
+import torchaudio
+from scipy.signal import hilbert
+
+def griffin_lim(spec, n_fft=124, win_length=62, hop_length=31, power=1, n_iter=32):
+    transform = torchaudio.transforms.GriffinLim(
+        n_fft=n_fft, n_iter=n_iter,win_length=win_length,hop_length=hop_length,power=power
+    )
+    return transform(spec)
+
+
+def normalize(audio, norm='peak'):
+    """
+    normalize IR
+    :param audio: IR
+    :param norm: normalization mode
+    :return: normalized IR
+    """
+    if norm == 'peak':
+        peak = abs(audio).max()
+        if peak != 0:
+            return audio / peak
+        else:
+            return audio
+    elif norm == 'rms':
+        if torch.is_tensor(audio):
+            audio = audio.numpy()
+        audio_without_padding = np.trim_zeros(audio, trim='b')
+        rms = np.sqrt(np.mean(np.square(audio_without_padding))) * 100
+        if rms != 0:
+            return audio / rms
+        else:
+            return audio
+    else:
+        raise NotImplementedError
+
+
+def measure_drr_energy_ratio(y, cutoff_time=0.003, fs=22050):
+    """
+    get direct to reverberant energy ratio (DRR)
+    :param y: IR
+    :param cutoff_time: cutoff time to compute DRR
+    :param fs: sampling frequency
+    :return: DRR
+    """
+    direct_sound_idx = int(cutoff_time * fs)
+
+    # removing leading silence
+    y = normalize(y)
+            else:
+                t = int((50 / 1000.0) * fs + 1)
+            c50[band] = 10.0 * np.log10((np.sum(pow_energy[:t]) / np.sum(pow_energy[t:])))
+        return t60, out_sch_db, c50, init_sample
+    
+    def measure_edt(self, h, fs=22050, decay_db=10):
+        h = np.array(h)
+        fs = float(fs)
+
+        # The power of the impulse response in dB
+        power = h ** 2
+        energy = np.cumsum(power[::-1])[::-1]  # Integration according to Schroeder
+
+        # remove the possibly all zero tail
+        i_nz = np.max(np.where(energy > 0)[0])
+        energy = energy[:i_nz]
+        energy_db = 10 * np.log10(energy)
+        energy_db -= energy_db[0]
+
+        i_decay = np.min(np.where(- decay_db - energy_db > 0)[0])
+        t_decay = i_decay / fs
+        # compute the decay time
+        decay_time = t_decay
+        est_edt = (60 / decay_db) * decay_time
+        return est_edt
+
+    def measure_rt60(self, h, fs=22050, decay_db=20, plot=False, rt60_tgt=None):
+        """
+        Analyze the RT60 of an impulse response. Optionaly plots some useful information.
+        Parameters
+        ----------
+        h: array_like
+            The impulse response.
+        fs: float or int, optional
+            The sampling frequency of h (default to 1, i.e., samples).
+        decay_db: float or int, optional
+            The decay in decibels for which we actually estimate the time. Although
+            we would like to estimate the RT60, it might not be practical. Instead,
+            we measure the RT20 or RT30 and extrapolate to RT60.
+        plot: bool, optional
+            If set to ``True``, the power decay and different estimated values will
+            be plotted (default False).
+        rt60_tgt: float
+            This parameter can be used to indicate a target RT60 to which we want
+            to compare the estimated value.
+        """
+
+        h = np.array(h)
+        fs = float(fs)
+
+        # The power of the impulse response in dB
+        power = h ** 2
+        energy = np.cumsum(power[::-1])[::-1]  # Integration according to Schroeder
+
+        # remove the possibly all zero tail
+        i_nz = np.max(np.where(energy > 0)[0])
+        energy = energy[:i_nz]
+        energy_db = 10 * np.log10(energy)
+        energy_db -= energy_db[0]
+        # -5 dB headroom
+        i_5db = np.min(np.where(-5 - energy_db > 0)[0])
+        e_5db = energy_db[i_5db]
+        t_5db = i_5db / fs
+
+        i_decay = np.min(np.where(-5 - decay_db - energy_db > 0)[0])
+        t_decay = i_decay / fs
+
+        # compute the decay time
+        decay_time = t_decay - t_5db
+        est_rt60 = (60 / decay_db) * decay_time
+
+        return est_rt60
+    def measure_clarity(self, signal, time=50, fs=22050):
+        h2 = signal**2
+        t = int((time/1000)*fs + 1)
+        return 10*np.log10(np.sum(h2[:t])/np.sum(h2[t:]))
+    def compute_energy_db(self, h):
+        h = np.array(h)
+        # The power of the impulse response in dB
+        power = h ** 2
+        energy = np.cumsum(power[::-1])[::-1]  # Integration according to Schroeder
+import torch
+import pyroomacoustics
+from torchmetrics import Metric
+
+class RT60Error(Metric):
+    def __init__(self, 
+                 fs=22050,
+                 n_audio_ch=1, 
+                 dataset_name='AcousticRooms',
+                 name="RT60Error", 
+                 **kwargs):
+        super().__init__(**kwargs)
+
+        self.add_state("t60_error", default=[], dist_reduce_fx="cat")
+        self.add_state("total_invalids", default=[], dist_reduce_fx="cat")
+        self.fs = fs    
+        self.n_audio_ch = n_audio_ch
+        
+        self.dataset = dataset_name
+
+        # Following xRIR code 
+        if self.dataset == 'AcousticRooms':
+            self.decay_db = 20
+        elif self.dataset == 'HAA': 
+            self.decay_db = 30
+        else:
+            raise NotImplementedError(f"Dataset {self.dataset} not recognized for RT60 computation.")
+
+    def compute_t60(self, wav_gt_ff, wav_prd):
+        t60s_gt = _mesure_rt60_pyroomacoustics(wav_gt_ff, fs=self.fs, decay_db=self.decay_db)
+        t60s_prd = _mesure_rt60_pyroomacoustics(wav_prd, fs=self.fs, decay_db=self.decay_db)
+        return t60s_gt, t60s_prd
+
+    def compute(self):
+        mean_t60error = torch.mean(torch.cat(self.t60_error)) if isinstance(self.t60_error, list) else torch.mean(self.t60_error)
+        mean_invalids = torch.mean(torch.cat(self.total_invalids)) if isinstance(self.total_invalids, list) else torch.mean(self.total_invalids)
+        mean_t60error = round(mean_t60error.item(), 4)
+        return mean_t60error, mean_invalids.item()
+    
+    def reset(self):
+        self.t60_error = []
+        self.total_invalids = []
+        
+    def update(self, wav_prd, wav_gt_ff):
+        t60s_gt, t60s_prd = self.compute_t60(wav_gt_ff, wav_prd)
+        t60s = torch.cat((t60s_gt, t60s_prd), dim=-1)  # Shape [B, 2 * n_ch]
+
+        # Diff Rel 
+        diff = torch.abs(t60s[...,self.n_audio_ch:] - t60s[...,:self.n_audio_ch]) / torch.abs(t60s[...,:self.n_audio_ch])
+
+        if self.dataset == 'AcousticRooms':
+            diff = diff.mean(dim=1) * 100
+            self.t60_error.append(diff)
+            device = t60s_gt.device
+            self.total_invalids.append(torch.tensor([0.0], device=device))
+        else:
+            mask = (t60s < -0.5).any(dim=1)
+            diff_mean = diff.mean(dim=1)  # Mean error per audio 
+            diff_mean[mask] = 1.0  # Assign max error to invalid samples
+            mean_t60error = diff_mean * 100  # Convert to percentage
+            invalid = mask.sum().expand_as(mean_t60error).float()  # Count invalid samples
+            self.t60_error.append(mean_t60error)
+            self.total_invalids.append(invalid)
+        
+def _mesure_rt60_pyroomacoustics(signal, fs, decay_db=30):
+    device = signal.device
+    B, C, T = signal.shape
+    if B > 1:
+        raise ValueError("Only one channel is supported, use torch version for batch processing.")
+    signal = signal.squeeze(0).cpu().numpy()
+    t60s = []
+    for c in range(C):
+        try:
+            T60 = pyroomacoustics.experimental.measure_rt60(signal[c], fs=fs, decay_db=decay_db)
+        except ValueError:
+            T60 = -1
+        t60s.append(T60)
+    t60s = torch.tensor(t60s, device=device).unsqueeze(0)
+    return t60s
+
+def _measure_rt60_torch(h, fs=1, decay_db=60, energy_thres=1.0):
+    """
+    Torch implementation of T60 computation. Allows batch processing.
+    """
+    power = h ** 2  # Compute power
+    energy = torch.flip(torch.cumsum(torch.flip(power, dims=[-1]), dim=-1), dims=[-1])  # Schroeder integration
+    
+    if energy_thres < 1.0:
+        assert 0.0 < energy_thres < 1.0
+        energy = energy - energy[..., :1] * (1.0 - energy_thres)
+        energy = torch.clamp(energy, min=0.0)
+    
+    # Find the last non-zero index
+    mask = energy > 0
+    i_nz = torch.max(mask * torch.arange(energy.shape[-1], device=h.device), dim=-1).values
+    energy_db = 10 * torch.log10(energy + 1e-10)
+    energy_db = energy_db - energy_db[..., :1]
+    
+    min_energy_db = -torch.min(energy_db, dim=-1).values
+    decay_db = torch.minimum(decay_db * torch.ones_like(min_energy_db), min_energy_db - 5)
+    
+    # Find index where energy drops below -5 dB
+    mask_5db = energy_db < -5
+    i_5db = torch.where(mask_5db, torch.arange(energy.shape[-1], device=h.device), energy.shape[-1]).min(dim=-1).values
+    t_5db = i_5db / fs
+    
+    # Find index where energy drops below -5 - decay_db
+    mask_decay = energy_db < (-5 - decay_db.unsqueeze(-1))
+    i_decay = torch.where(mask_decay, torch.arange(energy.shape[-1], device=h.device), energy.shape[-1]).min(dim=-1).values
+    t_decay = i_decay / fs
+    
+    # Compute T60
+    decay_time = t_decay - t_5db
+    est_rt60 = (60.0 / decay_db) * decay_time
+    return est_rt60
+import torch
+import numpy as np
+from torchmetrics import Metric
+
+class C50(Metric):
+    def __init__(self, 
+                 fs=22050,
+                 n_audio_ch=1, 
+                 name="C50", 
+                 **kwargs):
+        super().__init__(**kwargs)
+
+        self.add_state("c50", default=[], dist_reduce_fx="cat")
+        self.fs = fs    
+        self.n_audio_ch = n_audio_ch
+    
+    def compute_c50(self, wav_prd, wav_gt_ff):
+        c50_gt = _measure_clarity(wav_gt_ff, fs=self.fs)
+        c50_prd = _measure_clarity(wav_prd, fs=self.fs)
+        return c50_gt, c50_prd
+
+    def compute(self):
+        mean_c50 = torch.mean(torch.cat(self.c50)) if isinstance(self.c50, list) else torch.mean(self.c50)
+        mean_c50 = round(mean_c50.item(), 4)
+        return mean_c50
+
+    def reset(self):
+        self.c50 = []
+        
+    def update(self, wav_prd, wav_gt_ff):
+        c50_gt, c50_prd = self.compute_c50(wav_prd, wav_gt_ff)
+        c50_instance = torch.abs(c50_prd - c50_gt)  # Shape [B, n_ch])
+        mean_c50 = torch.mean(c50_instance, dim=1)  # Shape [B]
+        self.c50.append(mean_c50)
+
+def _measure_clarity(h, time=50, fs=22050):
+    device = h.device
+    B, C, T = h.shape
+    if B > 1:
+        raise ValueError("Only one channel is supported, use torch version for batch processing.")
+    signal = h.squeeze(0).cpu().numpy()
+    C50s = []
+    for c in range(C):
+        C50 = _c50(signal[c], time=time, fs=fs)
+        C50s.append(C50)
+    C50s = torch.tensor(C50s, device=device).unsqueeze(0)
+    return C50s
+
+def _c50(signal, time=50, fs=22050):
+    h2 = signal**2
+    t = int((time/1000)*fs + 1) 
+    c50 = 10*np.log10((np.sum(h2[:t])/np.sum(h2[t:])) + 1e-10)
+    return c50
+
+def measure_clarity_torch(signal, time=50, fs=22050):
+    """
+    C50 calculation with torch that supports batch processing.
+    """
+    h2 = signal ** 2  # Shape [B, n_ch, n_time]
+    t = int((time / 1000) * fs)  
+
+    early_energy = torch.sum(h2[..., :t], dim=-1)  
+    late_energy = torch.sum(h2[..., t:], dim=-1)  
+
+    c50 = 10 * torch.log10(torch.clamp(early_energy / late_energy, min=1e-10))
+    return c50 
+import torch
+from torchmetrics import Metric
+import numpy as np
+
+class EDT(Metric):
+    def __init__(self, 
+                 fs=22050, 
+                 n_audio_ch=1, 
+                 name="EDT", 
+                 **kwargs):
+        super().__init__(**kwargs)
+
+        self.add_state("edt_error", default=[], dist_reduce_fx="cat")
+        self.fs = fs    
+        self.n_audio_ch = n_audio_ch
+    
+    def compute_edt(self, wav_prd, wav_gt_ff):
+        edt_gt = _measure_edt(wav_gt_ff, fs=self.fs)
+        edt_prd = _measure_edt(wav_prd, fs=self.fs)
+        return edt_gt, edt_prd
+
+    def compute(self, stats=False):
+        mean_edt = torch.mean(torch.cat(self.edt_error)) if isinstance(self.edt_error, list) else torch.mean(self.edt_error)
+        mean_edt = mean_edt * 1000 # s to ms 
+        mean_edt = round(mean_edt.item(), 4)
+        return mean_edt
+
+    def reset(self):
+        self.edt_error = []
+        
+    def update(self, wav_prd, wav_gt_ff):
+        edt_gt, edt_prd = self.compute_edt(wav_prd, wav_gt_ff)
+        edt_error = torch.abs(edt_prd - edt_gt)  
+        mean_edt = torch.mean(edt_error, dim=1) 
+        self.edt_error.append(mean_edt)
+
+def _measure_edt(h, fs=22050):
+    device = h.device   
+    B, C, T = h.shape
+    if B > 1:
+        raise ValueError("Only one channel is supported")
+    signal = h.squeeze(0).cpu().numpy()
+    EDTs = []
+    for c in range(C):
+        EDT = _edt(signal[c], fs=fs)
+        EDTs.append(EDT)
+    EDTs = torch.tensor(EDTs, device=device).unsqueeze(0)
+    return EDTs
+
+def _edt(h, fs=22050, decay_db=10):
+    h = np.array(h)
+    # check if h is only nans
+    if np.all(np.isnan(h)):
+        return np.nan
+    fs = float(fs)
+    # The power of the impulse response in dB
+    power = h ** 2
+    energy = np.cumsum(power[::-1])[::-1]  # Integration according to Schroeder
+
+    # remove the possibly all zero tail
+    if np.all(energy == 0):
+        return np.nan
+
+    if np.where(energy > 0)[0].shape[0] == 0:
+        return np.nan
+    
+    i_nz = np.max(np.where(energy > 0)[0])
+    energy = energy[:i_nz]
+    energy_db = 10 * np.log10(energy)
+    energy_db -= energy_db[0]
+
+    i_decay = np.min(np.where(- decay_db - energy_db > 0)[0])
+    t_decay = i_decay / fs
+    # compute the decay time
+    decay_time = t_decay
+    est_edt = (60 / decay_db) * decay_time 
+
+    return est_edt                pred = torch.nn.functional.pad(pred, (0, ref.shape[-1] - pred.shape[-1]))
+            else:
+                ref = torch.nn.functional.pad(ref, (0, pred.shape[-1] - ref.shape[-1]))
+
+        if self.eval_l1_distance:
+            pred_stft_id = self.stft(pred.squeeze(1)[..., :self.max_len_magenv])
+            ref_stft_id = self.stft(ref.squeeze(1)[..., :self.max_len_magenv])
+
+        for index in range(pred.shape[0]):
+            pred_id = pred[index, ..., :self.max_len].unsqueeze(0)
+            ref_id = ref[index, ..., :self.max_len].unsqueeze(0)
+
+            if self.dump_dir is not None:
+                assert filename is not None
+                assert scene is not None
+                name = eval_type[index] + '/' + scene[index] + '/' + filename[index]
+                (self.dump_dir / eval_type[index] / scene[index] / filename[index].split('/')[0]).mkdir(parents=True, exist_ok=True)
+                wav.write(self.dump_dir / (name + '_pred.wav'), self.sample_rate, pred_id.squeeze(0).cpu().numpy())
+                wav.write(self.dump_dir / (name + '_ref.wav'), self.sample_rate, ref_id.squeeze(0).cpu().numpy())
+
+            if self.eval_T60:
+                if scene==None or 'dampened' not in scene[index]: # exclude dampened rooms for T60
+                    self.RT60[stage].update(pred_id, ref_id)
+            if self.eval_C50:
+                self.C50[stage].update(pred_id, ref_id)
+            if self.eval_EDT:
+                self.EDT[stage].update(pred_id, ref_id)
+            if self.eval_l1_distance: # Mag STFT metric
+                self.l1_stft[stage].update(pred_stft_id, ref_stft_id)
+            if self.eval_l1_distance_multires: # DiffRIR MAG metric 
+                self.l1_stft_multires[stage].update(pred_id, ref_id) # using waveforms
+            if self.eval_FD:
+                self.FD[stage].update(pred_id, ref_id)
+            if self.eval_retrieval:
+                self.retrieval[stage].update(pred_id, ref_id, depth=depth[index] if depth is not None else None)
+            if self.eval_env:
+                self.Env[stage].update(pred[index, ..., :self.max_len_magenv].unsqueeze(0), ref[index, ..., :self.max_len_magenv].unsqueeze(0))
+
+exec
+/bin/bash -lc "rg -n 'def source_closure|REVIEWED_COMMIT|CLOSURE|closure_record|source_closure\\(' worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results_assets/{bind_provenance.py,check_sweep_acceptance.py}
+sed -n '25,125p' worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results_assets/bind_provenance.py
+rg -n 'closure_record|source_closure' tests/test_exp04_record_tools.py tests/test_exp07_record_tools.py
+rg -n 'cuda|apply_delay|shift_and_align|num_shot|def forward' model/xRIR.py model/xRIR_cyl.py" in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results_assets/check_sweep_acceptance.py:249:    if pv.get("evaluator_sha256") != bp.REVIEWED_EVAL_SHA or pv.get("reviewed_evaluator_commit") != bp.REVIEWED_COMMIT:
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results_assets/check_sweep_acceptance.py:415:    rec, digest = bp.closure_record(bp.source_closure(os.getcwd()), os.getcwd())
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results_assets/check_sweep_acceptance.py:436:    rec, digest = closure if closure else bp.closure_record(bp.source_closure(os.getcwd()), os.getcwd())
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results_assets/check_sweep_acceptance.py:499:    rec, digest = bp.closure_record(bp.source_closure(os.getcwd()), os.getcwd())
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results_assets/bind_provenance.py:32:REVIEWED_COMMIT = "62c9107b4150e44c4ac410ff4cab359c1e71cc10"
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results_assets/bind_provenance.py:64:def source_closure(repo):
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results_assets/bind_provenance.py:76:def closure_record(files, repo):
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results_assets/bind_provenance.py:80:            blob = hashlib.sha256(subprocess.check_output(["git", "show", f"{REVIEWED_COMMIT}:{f}"], stderr=subprocess.DEVNULL)).hexdigest()
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results_assets/bind_provenance.py:83:        later = git("log", "--format=%H", f"{REVIEWED_COMMIT}..HEAD", "--", f).split()
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results_assets/bind_provenance.py:305:    files = source_closure(repo); rec, digest = closure_record(files, repo)
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results_assets/bind_provenance.py:306:    print(f"source closure ({len(files)} files) reviewed at {REVIEWED_COMMIT}; digest {digest}")
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results_assets/bind_provenance.py:351:        binding = {"evaluator_sha256": REVIEWED_EVAL_SHA, "reviewed_evaluator_commit": REVIEWED_COMMIT, "launcher_head": pv["git_sha"],
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results_assets/bind_provenance.py:370:    report = {"reviewed_commit": REVIEWED_COMMIT, "evaluator_sha256": REVIEWED_EVAL_SHA, "source_closure_sha256": digest, "source_closure": rec, "environment": env,
+import json
+import os
+import platform
+import re
+import subprocess
+import sys
+
+REVIEWED_COMMIT = "62c9107b4150e44c4ac410ff4cab359c1e71cc10"
+REVIEWED_EVAL_SHA = "82a53bea3cd74b4805ea1680fb457fec27abf02e3d24a0997d21a5b2e7f21171"
+EVALUATOR = "eval_yaw_rotation.py"
+SWEEP_RUNS = ("ckpt/yaw_rotation/sweep_control", "ckpt/yaw_rotation/sweep_cyl", "ckpt/yaw_rotation/sweep_released")
+GATE_RUNS = tuple(f"ckpt/yaw_rotation/gate_{t}" for t in ("control", "cyl", "released", "noise_seed1", "noise_seed2", "phase_seed1", "tf32", "noise_cyl_seed1", "noise_cyl_seed2", "shape_cyl_b1"))
+ROLE_OF = {"sweep_control": "control", "sweep_cyl": "cyl", "sweep_released": "released"}
+MANIFESTS = {0: "ckpt/yaw_rotation/reference_manifest.json", 1: "ckpt/yaw_rotation/reference_manifest_seed1.json", 2: "ckpt/yaw_rotation/reference_manifest_seed2.json"}
+DATA_ROOT = "/home/yixunhu/data_cache/AcousticRooms"
+RECORD = "worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude"
+GATE_PRODUCER_COMMIT = "5febf471318e37e60477ebe72afd48f03879c67e"   # HEAD when the v3 gate decision was taken
+GATE_PRODUCER_FILES = ("tools/summarize_yaw.py", "tools/paired_stats.py", "tools/__init__.py")   # repo-local closure of the gate producer (import graph at the pinned commit)
+GATE_INPUTS = {"exp01_control": "ckpt/xRIR_simple_8_shot/per_sample_unseen_epoch12.json", "exp01_cyl": "ckpt/xRIR_cyl_8_shot/per_sample_unseen_epoch12.json",
+               "gate_json": "ckpt/yaw_rotation/gate_stats.json", "gate_summary": "ckpt/yaw_rotation/gate_summary.txt",
+               "decision_v1": f"{RECORD}/yaw_rotation_degradation_2026-09-06_14:53:35_gate_decision_v1_FAILED.txt",
+               "decision_v2": f"{RECORD}/yaw_rotation_degradation_2026-09-06_15:07:30_gate_decision_v2_FAILED.txt",
+               "decision_v3": f"{RECORD}/yaw_rotation_degradation_2026-09-06_15:40:32_gate_decision_v3_PASSED.txt"}
+PYTHON = os.path.expanduser("~/miniconda3/envs/xRIR/bin/python")
+REPORT = "ckpt/yaw_rotation/binding_report.json"
+
+
+def sha(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def git(*args):
+    return subprocess.check_output(["git", *args]).decode()
+
+
+def source_closure(repo):
+    """Repo-local files imported by the evaluator, found by importing it in a subprocess (sorted, repo-relative)."""
+    code = (
+        "import sys, os, importlib; repo = os.getcwd(); sys.path.insert(0, repo); importlib.import_module('%s');"
+        "files = sorted({os.path.relpath(os.path.abspath(m.__file__), repo) for m in list(sys.modules.values())"
+        " if getattr(m, '__file__', None) and os.path.abspath(m.__file__).startswith(repo + os.sep)"
+        " and 'site-packages' not in m.__file__ and os.sep + 'envs' + os.sep not in m.__file__});"
+        "print('\\n'.join(files))" % EVALUATOR[:-3])
+    out = subprocess.check_output([PYTHON, "-c", code], cwd=repo, env={**os.environ, "PYTHONPATH": repo}).decode().split()
+    return [f for f in sorted(set(out) | {EVALUATOR}) if not f.startswith("tests" + os.sep)]
+
+
+def closure_record(files, repo):
+    rec = []
+    for f in files:
+        try:
+            blob = hashlib.sha256(subprocess.check_output(["git", "show", f"{REVIEWED_COMMIT}:{f}"], stderr=subprocess.DEVNULL)).hexdigest()
+        except subprocess.CalledProcessError:
+            blob = None
+        later = git("log", "--format=%H", f"{REVIEWED_COMMIT}..HEAD", "--", f).split()
+        rec.append({"path": f, "reviewed_blob_sha256": blob, "working_tree_sha256": sha(os.path.join(repo, f)), "commits_after_reviewed": later,
+                    "mtime": datetime.datetime.fromtimestamp(os.stat(os.path.join(repo, f)).st_mtime).astimezone().isoformat()})
+    digest = hashlib.sha256(json.dumps([[r["path"], r["reviewed_blob_sha256"]] for r in rec], sort_keys=True).encode()).hexdigest()
+    return rec, digest
+
+
+def environment():
+    code = ("import torch, numpy, platform, json, torchaudio, torchvision, einops, scipy;"
+            "print(json.dumps({'python': platform.python_version(), 'torch': torch.__version__, 'torchaudio': torchaudio.__version__,"
+            " 'torchvision': torchvision.__version__, 'einops': einops.__version__, 'numpy': numpy.__version__, 'scipy': scipy.__version__,"
+            " 'cuda': torch.version.cuda, 'cudnn': torch.backends.cudnn.version(),"
+            " 'gpus': [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]}))")
+    env = json.loads(subprocess.check_output([PYTHON, "-c", code]).decode())
+    try:
+        env["nvidia_driver"] = subprocess.check_output(["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"]).decode().split()[0]
+    except Exception:  # noqa: BLE001
+        env["nvidia_driver"] = None
+    env["host"] = platform.node(); env["python_executable"] = PYTHON
+    env["note"] = "recorded post hoc by bind_provenance.py on the host and conda env that ran the runs; each run's metrics meta records torch_version independently"
+    return env
+
+
+def data_identity(manifest_path):
+    """Semantic manifest hash, sha256 of the manifest file, and an inventory digest over (relpath, sha256 of the bytes) of every referenced dataset file."""
+    sys.path.insert(0, os.getcwd())
+    from tools.reference_manifest import load_manifest, manifest_hash
+    m = load_manifest(manifest_path)
+    raw = json.load(open(manifest_path))
+    wavs = set()
+    def collect(x):
+        if isinstance(x, str) and x.endswith(".wav"):
+            wavs.add(x)
+        elif isinstance(x, dict):
+            for v in x.values():
+                collect(v)
+        elif isinstance(x, list):
+            for v in x:
+                collect(v)
+    collect(raw)
+    files = set()
+    for w in wavs:
+        rel = w.split("single_channel_ir/")[-1] if "single_channel_ir/" in w else w
+tests/test_exp07_record_tools.py:877:    'calibration_sidecar_without_closure_records': (
+tests/test_exp04_record_tools.py:106:                 source_closures={}, train_data_identity=inventory, effective_args={},
+tests/test_exp04_record_tools.py:119:        source_closures={}, evaluator_closure={'files': []}, data_identity=inventory,
+model/xRIR_cyl.py:40:def build_xrir(backbone, num_shot, **kwargs):
+model/xRIR_cyl.py:44:    return BACKBONES[backbone](num_channels=num_shot, **kwargs)
+model/xRIR_cyl.py:58:        m = build_xrir(name, K).cuda().eval()
+model/xRIR_cyl.py:61:            out, tgt_spec = m(depth.cuda(), refs.cuda(), src.cuda(), ref_locs.cuda(), tgt.cuda())
+model/xRIR.py:29:def apply_delay(signal, delay_tensor):
+model/xRIR.py:43:    delayed_signal = torch.zeros_like(signal).cuda()
+model/xRIR.py:103:    def forward(self, audio_spect,):
+model/xRIR.py:131:    def forward(self, x_input):
+model/xRIR.py:146:    def forward(self, x):
+model/xRIR.py:180:    def forward(self, depth_coord, x, src_loc, ref_ir_locs, tgt_wav):
+model/xRIR.py:182:        x = self.shift_and_align(x, src_loc, ref_ir_locs)
+model/xRIR.py:254:    def shift_and_align(self, x, src_loc, ref_ir_locs):
+model/xRIR.py:263:            cur_delayed_x = apply_delay(x[:, i, :], delay_unit[:, i]).unsqueeze(1)
+
+codex
+The core design is sound: condition P is the appropriate conditioning-rotation analogue, float32 waveform storage fits the existing inversion path, and the revised paired bootstrap is correctly structured. The remaining fixes concern protocol consistency, verification contracts, and paper wording. I also confirmed that both acoustic evaluators use 8,000 samples, but their invalid-T60 handling differs and needs disclosure.
+exec
+/bin/bash -lc "sed -n '1,28p' tools/per_sample_metrics.py
+sed -n '1,8p' worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results.md
+nl -ba /home/yixunhu/codespace/FLAC/src/metrics/modules/RT60.py | sed -n '40,79p'
+nl -ba tests/test_exp03_record_tools.py | sed -n '108,132p'
+rg -n 'hash|pin|source_closure|closure_record|check_all|main\\(' tests/test_exp03_record_tools.py" in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+"""Per-sample versions of the exp_01 evaluation metrics (exp_03).
+
+exp_03's unit of analysis is a single query compared with *itself* under a yaw
+rotation, so every metric has to exist per sample and be numerically identical to what
+the baseline scripts compute:
+
+* the loss halves go through the original ``utils.spec_utils`` functions on 1-sample
+  slices, laid out exactly as ``train_xRIR_backbone.compute_loss`` calls them;
+* the waveform comes from ``eval_unseen.griffin_lim``, but with its random phase
+  initialisation seeded per sample so that ``k = 0`` and ``k != 0`` -- and every model,
+  in any angle order -- invert the same magnitudes to the same waveform;
+* the acoustic errors apply ``eval_xRIR_backbone.py``'s validity rules unchanged,
+  returning NaN instead of raising or dropping a sample.
+"""
+from __future__ import annotations
+
+import contextlib
+import hashlib
+import io
+import numbers
+
+import numpy as np
+import torch
+
+from eval_unseen import griffin_lim
+from utils.spec_utils import compute_spect_energy_decay_losses, stft_l1_loss
+
+
+# Results — yaw_rotation_degradation
+
+AcousticRooms unseen test split, all 6337 queries in 17 rooms; references per query fixed by the hashed manifest `47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d` (identical for every model and angle; its seed and shot count are recorded in `_params_set_up.md`). Evaluation settings per run are in §6 (from the runs' own metadata). The whole scene (receiver-centred depth panorama and all source / reference-source coordinates) is rotated in yaw by k panorama columns; the true RIR and target are unchanged. Condition P = pinned k=0 alignment; condition E = end to end. r_k = (mean error at k - mean error at 0 deg) / mean error at 0 deg over the queries valid at both angles; the bootstrap resamples those pairs and recomputes the whole ratio inside each resample. n_boot=20000 seed=0 family=18 tests -> adjusted level 0.00278; the query-level and room-cluster intervals on r_k and D_k are both two-sided 99.72% (section 3's k=0 table is nominal 95%, unadjusted) (99.72 % query-level and 99.72 % room-cluster intervals, 17 rooms resampled; k = 0 at nominal 95.00 %). T60 is descriptive only. Canonical numbers: `ckpt/yaw_rotation/full_stats.json` (sha256 `5d4afce8b81c47e148b714f351c670c4bb32e30cd4cc1f07587a73ba05a3809c`, copy in `_results_assets/`) and the hash-bound `ckpt/yaw_rotation/full_summary.txt` (sha256 `52f1e62eced6cdc55417e97876d3ca85fbbac37832a3a7271dfa8ed745db45f9`, copy `yaw_rotation_degradation_full_summary.txt`); `tools/summarize_yaw.py --mode full` reported `valid_for_confirmatory: true`.
+
+## 1. Pre-registered verdicts and distance to the threshold (producer fields h1 / h2 / h1.bounds)
+
+- **H1: not supported** — rule: H1 (joint yaw rotation substantially degrades the model): supported if the adjusted lower bound of r exceeds +10% for EDT or C50 at any angle k != 0, condition P. Wording: Verdict wording (--mode full only; the other modes record "not evaluated (<mode> mode)"): the same-budget control (role primary) and the released checkpoint (role released) are reported separately and never pooled -- both pass: "supported and replicated"; the control only: "supported for the same-budget model only"; the released checkpoint only: "replication only"; neither: "not supported". A role with no run in the summary counts as not passing. Roles evaluated: primary, released (simple, checkpoints/xRIR_unseen.pth). The +10 % margins at 0° are control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth): 0.0047 s EDT error, 0.124 dB C50 error; released (simple, checkpoints/xRIR_unseen.pth): 0.0055 s EDT error, 0.136 dB C50 error.
+- **H2: not evaluable (H1 has no passing cell)** — rule: H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, paired on the same resamples; decided cell by cell at the H1-passing cells of the primary model, where a cell passes when D_k is negative and its adjusted upper bound is below zero; the aggregate is "supported" when every such cell passes, "partially supported" when some do, "not supported" when none does and "not evaluable (H1 has no passing cell)" when H1 has no passing cell. (0 of 0 H1-passing cells). D_k and the TOST results are in §4.
+    40	    def reset(self):
+    41	        self.t60_error = []
+    42	        self.total_invalids = []
+    43	        
+    44	    def update(self, wav_prd, wav_gt_ff):
+    45	        t60s_gt, t60s_prd = self.compute_t60(wav_gt_ff, wav_prd)
+    46	        t60s = torch.cat((t60s_gt, t60s_prd), dim=-1)  # Shape [B, 2 * n_ch]
+    47	
+    48	        # Diff Rel 
+    49	        diff = torch.abs(t60s[...,self.n_audio_ch:] - t60s[...,:self.n_audio_ch]) / torch.abs(t60s[...,:self.n_audio_ch])
+    50	
+    51	        if self.dataset == 'AcousticRooms':
+    52	            diff = diff.mean(dim=1) * 100
+    53	            self.t60_error.append(diff)
+    54	            device = t60s_gt.device
+    55	            self.total_invalids.append(torch.tensor([0.0], device=device))
+    56	        else:
+    57	            mask = (t60s < -0.5).any(dim=1)
+    58	            diff_mean = diff.mean(dim=1)  # Mean error per audio 
+    59	            diff_mean[mask] = 1.0  # Assign max error to invalid samples
+    60	            mean_t60error = diff_mean * 100  # Convert to percentage
+    61	            invalid = mask.sum().expand_as(mean_t60error).float()  # Count invalid samples
+    62	            self.t60_error.append(mean_t60error)
+    63	            self.total_invalids.append(invalid)
+    64	        
+    65	def _mesure_rt60_pyroomacoustics(signal, fs, decay_db=30):
+    66	    device = signal.device
+    67	    B, C, T = signal.shape
+    68	    if B > 1:
+    69	        raise ValueError("Only one channel is supported, use torch version for batch processing.")
+    70	    signal = signal.squeeze(0).cpu().numpy()
+    71	    t60s = []
+    72	    for c in range(C):
+    73	        try:
+    74	            T60 = pyroomacoustics.experimental.measure_rt60(signal[c], fs=fs, decay_db=decay_db)
+    75	        except ValueError:
+    76	            T60 = -1
+    77	        t60s.append(T60)
+    78	    t60s = torch.tensor(t60s, device=device).unsqueeze(0)
+    79	    return t60s
+   108	        bad = dict(meta); bad[key] = val
+   109	        assert c.check_meta(bad, "simple", "ckpt/xRIR_simple_8_shot/epoch_12.pth"), key
+   110	
+   111	
+   112	def test_provenance_requires_closure_environment_and_data_identity(tmp_path, monkeypatch):
+   113	    run = tmp_path / "sweep_x"; run.mkdir(); (run / "per_sample_yaw.json").write_text("{}"); (run / "metrics_yaw.json").write_text('{"meta": {"elapsed_min": 1}}')
+   114	    ck = tmp_path / "ck.pth"; ck.write_bytes(b"weights"); record = tmp_path / "record"; record.mkdir(); monkeypatch.setattr(c.bp, "RECORD", str(record))
+   115	    log = record / "yaw_rotation_degradation_2026-09-06_15:41:19_sweep_x.log"; log.write_text("log")
+   116	    rec = [{"path": "eval_yaw_rotation.py", "reviewed_blob_sha256": "a", "working_tree_sha256": "a"}]
+   117	    pv = {"evaluator_sha256": c.bp.REVIEWED_EVAL_SHA, "reviewed_evaluator_commit": c.bp.REVIEWED_COMMIT, "source_closure_sha256": "dig", "source_closure": rec, "git_sha": c.LAUNCHER_HEAD,
+   118	          "per_sample_sha256": c.bp.sha(str(run / "per_sample_yaw.json")), "metrics_sha256": c.bp.sha(str(run / "metrics_yaw.json")), "checkpoint": str(ck), "checkpoint_sha256": c.bp.sha(str(ck)),
+   119	          "environment": {k: "x" for k in c.ENV_KEYS}, "data_identity": {"manifest_hash": c.MANIFEST_HASH, "inventory_missing": 0, "inventory_files": 3, "manifest_file_sha256": "mf", "inventory_sha256": "inv"},
+   120	          "log": str(log), "log_sha256": c.bp.sha(str(log)), "run_start": c.bp.run_start({"log": str(log)}, str(run))[0].isoformat()}
+   121	    gate = {"checkpoint_sha256": c.bp.sha(str(ck))}
+   122	    assert c.check_provenance(pv, str(run), rec, "dig", gate, "mf") == []
+   123	    for key, val, needle in [("source_closure_sha256", "other", "closure digest"), ("git_sha", "0" * 40, "HEAD"), ("evaluator_sha256", "0" * 64, "reviewed commit"),
+   124	                             ("environment", {}, "environment"), ("data_identity", {"manifest_hash": c.MANIFEST_HASH, "inventory_missing": 3, "manifest_file_sha256": "mf", "inventory_sha256": "inv"}, "data identity")]:
+   125	        bad = dict(pv); bad[key] = val
+   126	        assert any(needle in x for x in c.check_provenance(bad, str(run), rec, "dig", gate, "mf")), key
+   127	    assert any("gate sidecar" in x or "checkpoint" in x for x in c.check_provenance(pv, str(run), rec, "dig", {"checkpoint_sha256": "zzz"}, "mf"))
+   128	    assert any("stale" in x or "data identity" in x for x in c.check_provenance(pv, str(run), rec, "dig", gate, "changed"))
+   129	
+   130	
+   131	def test_the_pinned_grids_match_the_summarizer_constants():
+   132	    sys.path.insert(0, ASSETS.split("/worklog/")[0])
+20:    return {"mode": "k0-gate", "gate_pass": True, "band_rule": "v3 (2026-09-06 per-model amendment)", "manifest_hash": c.MANIFEST_HASH,
+27:    fake = {"mode": "k0-gate", "gate_pass": True, "manifest_hash": c.MANIFEST_HASH, "summary_path": "x", "summary_sha256": "y"}
+36:                           (lambda g: g.update(manifest_hash="0" * 64), "manifest")]:
+103:    meta = {"backbone": "simple", "checkpoint": "ckpt/xRIR_simple_8_shot/epoch_12.pth", "manifest_hash": c.MANIFEST_HASH, "manifest_seed": 0, "manifest_path": c.MANIFEST,
+117:    pv = {"evaluator_sha256": c.bp.REVIEWED_EVAL_SHA, "reviewed_evaluator_commit": c.bp.REVIEWED_COMMIT, "source_closure_sha256": "dig", "source_closure": rec, "git_sha": c.LAUNCHER_HEAD,
+119:          "environment": {k: "x" for k in c.ENV_KEYS}, "data_identity": {"manifest_hash": c.MANIFEST_HASH, "inventory_missing": 0, "inventory_files": 3, "manifest_file_sha256": "mf", "inventory_sha256": "inv"},
+123:    for key, val, needle in [("source_closure_sha256", "other", "closure digest"), ("git_sha", "0" * 40, "HEAD"), ("evaluator_sha256", "0" * 64, "reviewed commit"),
+124:                             ("environment", {}, "environment"), ("data_identity", {"manifest_hash": c.MANIFEST_HASH, "inventory_missing": 3, "manifest_file_sha256": "mf", "inventory_sha256": "inv"}, "data identity")]:
+131:def test_the_pinned_grids_match_the_summarizer_constants():
+161:    meta = {"backbone": "simple", "checkpoint": "ckpt/xRIR_simple_8_shot/epoch_12.pth", "manifest_hash": c.MANIFEST_HASH, "manifest_seed": 0, "manifest_path": c.MANIFEST,
+171:def test_decomposition_is_pinned_to_the_preregistered_probe():
+190:    import hashlib, subprocess
+195:        gi.update({"gate_producer_commit": c.bp.GATE_PRODUCER_COMMIT, "gate_producer_sha256": hashlib.sha256(blob).hexdigest(), "gate_producer_closure": c.bp.gate_producer_closure()})
+219:    env = {k: "x" for k in c.ENV_KEYS}; data = {"manifest_hash": c.MANIFEST_HASH, "inventory_missing": 0, "inventory_files": 3, "manifest_file_sha256": "mf", "inventory_sha256": "inv"}
+220:    pv = {"evaluator_sha256": c.bp.REVIEWED_EVAL_SHA, "reviewed_evaluator_commit": c.bp.REVIEWED_COMMIT, "source_closure_sha256": "dig", "source_closure": rec, "git_sha": c.LAUNCHER_HEAD,
+281:            "manifest_hash": c.MANIFEST_HASH, "n_samples": c.EXPECTED_N, "max_samples": 0, "yaw_cols": [0], "acoustic_cols": [0], "e_acoustic_cols": []}
+311:    prev = {"written": "t0", "source_closure_sha256": "d", "runs": {"r1": {"sidecar_sha256": "s1"}}, "gate_inputs": {"gate_json": {"path": "p", "sha256": None}, "exp01_cyl": {"path": "q", "sha256": "e"}}}
+312:    new = {"source_closure_sha256": "d", "runs": {"r1": {"sidecar_sha256": "s1"}}, "gate_inputs": {"gate_json": {"path": "p", "sha256": "now"}, "exp01_cyl": {"path": "q", "sha256": "e"}}}
+318:def test_skipping_the_gate_recomputation_is_not_acceptance():
+328:def test_changed_producer_labels_propagate_to_every_consumer_and_missing_mappings_are_refused(tmp_path):
+329:    """Round-5 finding 6: HTML, Markdown and data.json must follow every producer mapping; nested missing keys are refused."""
+389:    meta = {"backbone": "simple", "checkpoint": "ckpt/xRIR_simple_8_shot/epoch_12.pth", "manifest_hash": c.MANIFEST_HASH, "manifest_seed": 0, "manifest_path": c.MANIFEST,
+396:          "manifest_hash": c.MANIFEST_HASH, "n_samples": c.EXPECTED_N, "max_samples": 0, "yaw_cols": [0], "acoustic_cols": [0], "e_acoustic_cols": []}
+405:    env = {k: "x" for k in c.ENV_KEYS}; data = {"manifest_hash": c.MANIFEST_HASH, "inventory_missing": 0, "inventory_files": 3, "manifest_file_sha256": "mf", "inventory_sha256": "inv"}
+406:    pv = {"evaluator_sha256": c.bp.REVIEWED_EVAL_SHA, "reviewed_evaluator_commit": c.bp.REVIEWED_COMMIT, "source_closure_sha256": "dig", "source_closure": rec, "git_sha": c.LAUNCHER_HEAD,
+422:    import hashlib, subprocess
+429:        gi.update({"gate_producer_commit": c.bp.GATE_PRODUCER_COMMIT, "gate_producer_sha256": hashlib.sha256(blob).hexdigest(), "gate_producer_closure": c.bp.gate_producer_closure()})
+497:    # main() would stop here; assert the guard fires and that not calling commit leaves the files unchanged
+506:    env = {k: "x" for k in c.ENV_KEYS}; data = {"manifest_hash": c.MANIFEST_HASH, "inventory_missing": 0, "inventory_files": 3, "manifest_file_sha256": "mf", "inventory_sha256": "inv"}
+508:    pv = {"evaluator_sha256": c.bp.REVIEWED_EVAL_SHA, "reviewed_evaluator_commit": c.bp.REVIEWED_COMMIT, "source_closure_sha256": "dig", "source_closure": rec, "git_sha": c.LAUNCHER_HEAD,
+522:          "manifest_hash": c.MANIFEST_HASH, "n_samples": c.EXPECTED_N, "max_samples": 0, "yaw_cols": [0], "acoustic_cols": [0], "e_acoustic_cols": []}
+531:    """Integrated: project() -> report_drift() -> commit_transaction() twice, with the history append main() performs."""
+559:    # refusal through the same path: a changed bound value -> drift reported by both guards, and main() would not reach commit
+563:    # main() computes binding_drift(existing sidecar, fresh binding) before projecting; here the fresh binding says "v" while the
+
+codex
+**Reviewer:** OpenAI Codex `gpt-6-astra`, `ultra` (`codex-cli 0.154.0`, `codex exec`, read-only) · **Date:** 2026-09-26
+
+Reviewed all requested records and source files against [plan v2](/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/plan_yaw_pilot.md).
+
+The core design is sound. Condition P is an appropriate analogue of FLAC’s conditioning rotation. The shared masks and resampling indices correctly pair Δ, G, and G/Δ; room resampling preserves query weighting. Fresh zero/nonzero controls, float32 waveform storage, the K=8-trained/K=1-evaluated qualification, Griffin–Lim attribution, and the contextual historical variability band adequately address their round-1 concerns.
+
+1. **Blocker — The CPU fallback mixes the quantities being compared (§7).**
+
+   After failed CPU parity, the plan permits proceeding “with Metric 2 quoted from exp_03.” That would compare new CPU prediction shifts with historical GPU accuracy changes precisely when backend equivalence failed. Matching query IDs cannot make these measurements describe the same predictions. Released K=1 additionally has no historical counterpart.
+
+   **Minimal fix:** Compute Δ, G, and their paired ratio entirely from the current CPU run. Show exp_03’s GPU values separately as historical comparisons. Add a rejection test for combining metrics from different run/protocol identities.
+
+2. **Should-fix — The parity comparator’s contract rejects the planned probe (§§5–7).**
+
+   `parity_exp03` requires identical query lists, but the probe contains 272 queries and the historical file contains 6,337. The launch rule also explicitly blocks failure of criterion (c), leaving enforcement of (a)/(b) ambiguous.
+
+   **Minimal fix:** Specify validated subset alignment: verify manifest identity and unique canonical query indices, extract exactly the probe’s historical rows, then require ordered equality. Test a valid noncontiguous probe and missing/duplicate/reordered queries. Make all three parity criteria binding and report validity-mask mismatches explicitly. Repeat the inexpensive offline comparison over the full results before calling an arm an exp_03 replication.
+
+3. **Should-fix — The named tests do not verify that the live pinned modules remain unchanged (§5).**
+
+   `tests/test_exp03_record_tools.py` tests provenance validators using [synthetic closure records](/home/yixunhu/codespace/xRIR_code/tests/test_exp03_record_tools.py:112). Passing it does not establish byte equality between the worktree’s evaluator dependencies and exp_03’s reviewed source.
+
+   **Minimal fix:** Add an explicit prelaunch comparison of the pinned files’ live hashes against reviewed commit `62c9107b4150e44c4ac410ff4cab359c1e71cc10`, fail on mismatch, and retain the comparison in exp_10 metadata. This fits inside the authorized new files.
+
+4. **Should-fix — Saved waveforms cannot reproduce every Metric-1 quantity (§§5–6).**
+
+   The comparator promises offline “Metric 1 == online,” but only waveforms and scalar metrics are retained. Native `logspec_mad` and `mag_rel_l2` cannot be reconstructed from finite-iteration Griffin–Lim waveforms. Taking another STFT would measure a different quantity.
+
+   **Minimal fix:** Explicitly restrict offline recomputation to waveform/acoustic gaps; retain and hash the online spectral measurements and verify their direct-output calculations in tests. Alternatively, retain native spectra and update storage estimates.
+
+5. **Should-fix — Acoustic comparability needs an estimator/validity audit, beyond matching windows (§§1, 4).**
+
+   Both evaluators use the first 8,000 samples at 22,050 Hz. However, FLAC substitutes `−1` for failed T60 measurements and [includes those values in AcousticRooms errors](/home/yixunhu/codespace/FLAC/src/metrics/modules/RT60.py:44); xRIR [returns NaN and excludes invalid measurements](/home/yixunhu/codespace/xRIR_code/tools/per_sample_metrics.py:165). FLAC also adds a small constant inside the C50 logarithm.
+
+   **Minimal fix:** Record estimator and invalid-policy differences alongside window verification. Qualify comparisons where matching validity has not been established. Keep the pinned xRIR evaluator unchanged. The common “P₀ as GT” convention establishes conceptual comparability, not automatically identical numerical protocols.
+
+6. **Should-fix — Paper wording must expose query/room disagreement (§§1, 4–5).**
+
+   The plan provides one ratio status and secondary room intervals without requiring disagreements to accompany headline multiples. This matters: exp_03’s released T60 results at +45°/+90° have positive query-level intervals while room intervals cross zero.
+
+   **Minimal fix:** Emit separate query- and room-bootstrap denominator/ratio statuses. Scope headline statements to the checkpoint, reference manifest, phase seed, and fixed split; disclose room-level uncertainty beside any multiple. Also retain round-1’s restriction: G/Δ alone does not establish that improvements and deteriorations cancel—such wording requires their paired contributions.
+
+7. **Nit — The convergence rule cannot pass deterministic zero-width intervals (§4).**
+
+   At k=0, Δ and G have intervals `[0, 0]`. Requiring endpoint movement strictly below 10% of width evaluates to `0 < 0`, which fails.
+
+   **Minimal fix:** Treat identical zero-width intervals as converged, changed zero-width intervals as failed, and absent ratio intervals as not applicable. Include a k=0 fixture; make exact-zero-denominator status precedence explicit.
+
+8. **Nit — The resource window and runtime forecast disagree (§§3, 8).**
+
+   The recorded GPU agreement covers approximately two hours, whereas the forecast is four to five hours plus comparison work.
+
+   **Minimal fix:** Reconcile the launch window with the measured per-arm forecast before scheduling the full sweep. The proposed probe timing breakdown and approximately 4.9 GB waveform estimate are otherwise reasonable.
+
+**Verdict: REQUEST CHANGES.**
+tokens used
+111,208
+**Reviewer:** OpenAI Codex `gpt-6-astra`, `ultra` (`codex-cli 0.154.0`, `codex exec`, read-only) · **Date:** 2026-09-26
+
+Reviewed all requested records and source files against [plan v2](/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/plan_yaw_pilot.md).
+
+The core design is sound. Condition P is an appropriate analogue of FLAC’s conditioning rotation. The shared masks and resampling indices correctly pair Δ, G, and G/Δ; room resampling preserves query weighting. Fresh zero/nonzero controls, float32 waveform storage, the K=8-trained/K=1-evaluated qualification, Griffin–Lim attribution, and the contextual historical variability band adequately address their round-1 concerns.
+
+1. **Blocker — The CPU fallback mixes the quantities being compared (§7).**
+
+   After failed CPU parity, the plan permits proceeding “with Metric 2 quoted from exp_03.” That would compare new CPU prediction shifts with historical GPU accuracy changes precisely when backend equivalence failed. Matching query IDs cannot make these measurements describe the same predictions. Released K=1 additionally has no historical counterpart.
+
+   **Minimal fix:** Compute Δ, G, and their paired ratio entirely from the current CPU run. Show exp_03’s GPU values separately as historical comparisons. Add a rejection test for combining metrics from different run/protocol identities.
+
+2. **Should-fix — The parity comparator’s contract rejects the planned probe (§§5–7).**
+
+   `parity_exp03` requires identical query lists, but the probe contains 272 queries and the historical file contains 6,337. The launch rule also explicitly blocks failure of criterion (c), leaving enforcement of (a)/(b) ambiguous.
+
+   **Minimal fix:** Specify validated subset alignment: verify manifest identity and unique canonical query indices, extract exactly the probe’s historical rows, then require ordered equality. Test a valid noncontiguous probe and missing/duplicate/reordered queries. Make all three parity criteria binding and report validity-mask mismatches explicitly. Repeat the inexpensive offline comparison over the full results before calling an arm an exp_03 replication.
+
+3. **Should-fix — The named tests do not verify that the live pinned modules remain unchanged (§5).**
+
+   `tests/test_exp03_record_tools.py` tests provenance validators using [synthetic closure records](/home/yixunhu/codespace/xRIR_code/tests/test_exp03_record_tools.py:112). Passing it does not establish byte equality between the worktree’s evaluator dependencies and exp_03’s reviewed source.
+
+   **Minimal fix:** Add an explicit prelaunch comparison of the pinned files’ live hashes against reviewed commit `62c9107b4150e44c4ac410ff4cab359c1e71cc10`, fail on mismatch, and retain the comparison in exp_10 metadata. This fits inside the authorized new files.
+
+4. **Should-fix — Saved waveforms cannot reproduce every Metric-1 quantity (§§5–6).**
+
+   The comparator promises offline “Metric 1 == online,” but only waveforms and scalar metrics are retained. Native `logspec_mad` and `mag_rel_l2` cannot be reconstructed from finite-iteration Griffin–Lim waveforms. Taking another STFT would measure a different quantity.
+
+   **Minimal fix:** Explicitly restrict offline recomputation to waveform/acoustic gaps; retain and hash the online spectral measurements and verify their direct-output calculations in tests. Alternatively, retain native spectra and update storage estimates.
+
+5. **Should-fix — Acoustic comparability needs an estimator/validity audit, beyond matching windows (§§1, 4).**
+
+   Both evaluators use the first 8,000 samples at 22,050 Hz. However, FLAC substitutes `−1` for failed T60 measurements and [includes those values in AcousticRooms errors](/home/yixunhu/codespace/FLAC/src/metrics/modules/RT60.py:44); xRIR [returns NaN and excludes invalid measurements](/home/yixunhu/codespace/xRIR_code/tools/per_sample_metrics.py:165). FLAC also adds a small constant inside the C50 logarithm.
+
+   **Minimal fix:** Record estimator and invalid-policy differences alongside window verification. Qualify comparisons where matching validity has not been established. Keep the pinned xRIR evaluator unchanged. The common “P₀ as GT” convention establishes conceptual comparability, not automatically identical numerical protocols.
+
+6. **Should-fix — Paper wording must expose query/room disagreement (§§1, 4–5).**
+
+   The plan provides one ratio status and secondary room intervals without requiring disagreements to accompany headline multiples. This matters: exp_03’s released T60 results at +45°/+90° have positive query-level intervals while room intervals cross zero.
+
+   **Minimal fix:** Emit separate query- and room-bootstrap denominator/ratio statuses. Scope headline statements to the checkpoint, reference manifest, phase seed, and fixed split; disclose room-level uncertainty beside any multiple. Also retain round-1’s restriction: G/Δ alone does not establish that improvements and deteriorations cancel—such wording requires their paired contributions.
+
+7. **Nit — The convergence rule cannot pass deterministic zero-width intervals (§4).**
+
+   At k=0, Δ and G have intervals `[0, 0]`. Requiring endpoint movement strictly below 10% of width evaluates to `0 < 0`, which fails.
+
+   **Minimal fix:** Treat identical zero-width intervals as converged, changed zero-width intervals as failed, and absent ratio intervals as not applicable. Include a k=0 fixture; make exact-zero-denominator status precedence explicit.
+
+8. **Nit — The resource window and runtime forecast disagree (§§3, 8).**
+
+   The recorded GPU agreement covers approximately two hours, whereas the forecast is four to five hours plus comparison work.
+
+   **Minimal fix:** Reconcile the launch window with the measured per-arm forecast before scheduling the full sweep. The proposed probe timing breakdown and approximately 4.9 GB waveform estimate are otherwise reasonable.
+
+**Verdict: REQUEST CHANGES.**
+CODEX_E10PLAN2_DONE exit=0

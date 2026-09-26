@@ -22,3 +22,7 @@
 
 ## 2026-09-26T17:33:58-04:00 — GPU window correction from the cylindrical-dinov3 session
 - **Result** — GPU 1 has only ≈ 4.8 GB free until its exp_24 fine-tune exits (≈ 22:30); GPU 0 ≈ 3.6 GB free until ≈ 23:00. Agreed: no launch on either card before that session's ping; CPU for smoke/probe meanwhile; the 4–5 h GPU 1 window starts after the ping.
+
+## 2026-09-26T17:37:54-04:00 — plan review round 2 → plan v3 → review round 3
+- **Result** — Codex round 2 at ultra (`yaw_pilot_codex_plan_review_round2.md`): REQUEST CHANGES, 1 blocker (CPU fallback must not mix a CPU run's shifts with exp_03's GPU errors) + 5 should-fixes (parity subset alignment; live pin verification against `ckpt/yaw_rotation/binding_report.json`; offline recomputation limited to waveform/acoustic gaps; FLAC/xRIR estimator-policy audit; separate query/room ratio statuses) + 2 nits (zero-width convergence; GPU window). All incorporated in plan v3 (§11).
+- **Command / Validation** — round-3 review at ultra: log `yaw_pilot_2026-09-26_17:37:52_codex_plan_review_round3.log`.
