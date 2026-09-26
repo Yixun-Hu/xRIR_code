@@ -1,6 +1,6 @@
 # Plan — exp_10 `yaw_pilot` (xRIR analogue of FLAC exp_02 `yaw_noninvariance`)
 
-**Planner:** Claude Fable 5.1 (session xrir-code-25). **Coder:** Claude Opus 5 (Agent, worktree `xRIR_code_wt10`, branch `exp10-yaw-pilot`). **Reviewer:** OpenAI Codex `gpt-6-astra` at **ultra** (SOP setting; round 1 ran at xhigh, see §10). **Date:** 2026-09-26. **Status:** **v3** after the round-2 plan review at ultra (`yaw_pilot_codex_plan_review_round2.md`, REQUEST CHANGES, 1 blocker + 5 should-fixes + 2 nits; §11 maps them); v2 was the round-1 revision (`yaw_pilot_codex_plan_review.md`; §10). v1 kept as `plan_yaw_pilot_v1_superseded.md`.
+**Planner:** Claude Fable 5.1 (session xrir-code-25). **Coder:** Claude Opus 5 (Agent, worktree `xRIR_code_wt10`, branch `exp10-yaw-pilot`). **Reviewer:** OpenAI Codex `gpt-6-astra` at **ultra** (SOP setting; round 1 ran at xhigh, see §10). **Date:** 2026-09-26. **Status:** **v3.1 — APPROVED WITH CHANGES** by the round-3 review at ultra (`yaw_pilot_codex_plan_review_round3.md`; its 3 should-fixes + 1 nit are the binding amendments A1–A4 of §12). v3 was the round-2 revision at ultra (`yaw_pilot_codex_plan_review_round2.md`, REQUEST CHANGES, 1 blocker + 5 should-fixes + 2 nits; §11 maps them); v2 was the round-1 revision (`yaw_pilot_codex_plan_review.md`; §10). v1 kept as `plan_yaw_pilot_v1_superseded.md`.
 
 ## 1. Question and stance
 
@@ -117,3 +117,10 @@ Training; condition E; angles beyond the five; retrieval metrics; changes to pin
 | 6 | should-fix | §1 R2 separate query- and room-level statuses, headline scope, cancellation wording only with paired contributions |
 | 7 | nit | §4 zero-width convergence rule and status precedence; k = 0 fixture (test 12) |
 | 8 | nit | §3/§8 window reconciled: 4–5 h on GPU 1 after the ≈ 22:30 ping; sweep scheduled from the probe forecast |
+
+## 12. Round-3 amendments (binding; APPROVE WITH CHANGES)
+
+- **A1 — validity masks in the parity rule (§7).** An arm/angle/metric cell is an exp_03 replication only if the per-query validity masks of the new run and of exp_03 are **identical** on the compared population (probe rows, then the full split) and criteria (a)–(c) pass on the common-finite rows; any mask mismatch labels the cell "nonreplication (validity mismatch)" and is listed in the results. The historical Δ comparison population is the common-finite rows of that identical mask. Test: a fixture with one nonzero-angle NaN whose numerical differences would otherwise pass must be flagged.
+- **A2 — execution identity (§5).** Two identifiers in meta and inside `per_sample.json`: `protocol_id` = sha256 over the complete protocol (checkpoint sha256, manifest hash, gl_seed, K, device, cudnn/TF32 flags, batch size and canonical padding, torch/numpy versions, sha256 of `tools/exp10_yaw_pilot.py`) and `execution_id` = a uuid4 + start timestamp minted once per `run`. Δ, G and R are computed from **one** `per_sample.json` whose `execution_id` matches its `meta.json` and whose bound waveform arrays' sha256s match. The summariser refuses (test 16) two executions with identical configuration, and same-device runs whose batch or implementation settings differ.
+- **A3 — ratio point estimate and convergence (§1, §4).** If the observed Δ is exactly 0, the point ratio is null with reason "observed Δ = 0" (before any division); a headline multiple requires bound convergence **and** identical denominator status under seeds 0 and 1, otherwise the cell reports "unresolved Monte Carlo uncertainty". Fixtures for both.
+- **A4 — `log_mse` contract (§4).** `log_mse` is exp_03's per-query mean over [F, T] of `(out − log(tgt_spec + 1e-8))²` (`eval_yaw_rotation.spectral_metrics`, not `per_sample_losses`, which returns loss / stft / decay only).
