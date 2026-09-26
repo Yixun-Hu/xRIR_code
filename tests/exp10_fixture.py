@@ -187,12 +187,28 @@ def make_run(out_dir, ks=(0, 128), n=8, seed=0, controls=True, shift=0.01,
     return meta
 
 
-def edit_json(path, mutate):
-    """Load a JSON file, hand it to ``mutate`` and write it back (for corruption tests)."""
+def edit_json(path, mutate, rehash_meta=False):
+    """Load a JSON file, hand it to ``mutate`` and write it back (for corruption tests).
+
+    Args:
+        path: the JSON file to rewrite.
+        mutate: a callable that edits the loaded payload in place.
+        rehash_meta: re-bind ``meta.per_sample_sha256`` to the rewritten file.  A run
+            whose stored per-sample hash no longer matches is refused outright (the
+            integrity guard), so a test that wants to exercise a *numerical* check has to
+            hand the guard a run that is internally consistent -- a wrong value that the
+            run really did record -- which is what this does.
+    """
     with open(path) as fin:
         payload = json.load(fin)
     mutate(payload)
     pilot.write_json(payload, path)
+    if rehash_meta:
+        meta_path = os.path.join(os.path.dirname(path), "meta.json")
+        with open(meta_path) as fin:
+            meta = json.load(fin)
+        meta["per_sample_sha256"] = pilot.file_sha256(path)
+        pilot.write_json(meta, meta_path)
     return payload
 
 

@@ -134,7 +134,7 @@ def test_load_run_refuses_a_reordered_query_list(tmp_path):
     def swap(payload):
         payload["query"][0], payload["query"][1] = payload["query"][1], payload["query"][0]
 
-    edit_json(os.path.join(out_dir, "per_sample.json"), swap)
+    edit_json(os.path.join(out_dir, "per_sample.json"), swap, rehash_meta=True)
     with pytest.raises(ValueError) as excinfo:
         compare.load_run(out_dir)
     assert "query_list_sha256" in str(excinfo.value)
@@ -161,7 +161,8 @@ def test_check_online_flags_a_stored_value_that_the_arrays_do_not_support(tmp_pa
 
     out_dir = _run(tmp_path)
     edit_json(os.path.join(out_dir, "per_sample.json"),
-              lambda payload: payload["angles"]["128"]["wave_mad"].__setitem__(2, 0.5))
+              lambda payload: payload["angles"]["128"]["wave_mad"].__setitem__(2, 0.5),
+              rehash_meta=True)
     report = compare.check_online(out_dir)
     assert report["ok"] is False
     assert report["angles"]["128"]["wave_mad"]["ok"] is False
@@ -174,7 +175,8 @@ def test_check_online_flags_a_validity_mismatch(tmp_path):
 
     out_dir = _run(tmp_path)
     edit_json(os.path.join(out_dir, "per_sample.json"),
-              lambda payload: payload["angles"]["128"]["edt_gap"].__setitem__(1, None))
+              lambda payload: payload["angles"]["128"]["edt_gap"].__setitem__(1, None),
+              rehash_meta=True)
     report = compare.check_online(out_dir)
     assert report["ok"] is False
     assert report["angles"]["128"]["edt_gap"]["validity_mismatches"] == 1
@@ -298,3 +300,88 @@ def test_parity_exp03_flags_a_validity_mismatch_even_when_the_numbers_agree(tmp_
     assert cell["n_common"] == 15
     assert cell["max_abs_diff"] == 0.0      # the surviving rows still agree exactly
     assert report["angles"]["128"]["c50_err"]["status"] == "replication"
+
+
+# ------------------------------- round 2, finding 1: the per-sample file's own binding
+
+def test_load_run_refuses_a_per_sample_file_whose_recorded_hash_no_longer_holds(tmp_path):
+    from tests.exp10_fixture import edit_json
+
+    out_dir = _run(tmp_path)
+    edit_json(os.path.join(out_dir, "per_sample.json"),
+              lambda payload: payload["angles"]["128"]["logspec_mad"].__setitem__(0, 999.0))
+    with pytest.raises(ValueError) as excinfo:
+        compare.load_run(out_dir)
+    assert "per_sample_sha256" in str(excinfo.value)
+
+
+def test_load_run_refuses_a_meta_that_never_recorded_the_per_sample_hash(tmp_path):
+    from tests.exp10_fixture import edit_json
+
+    out_dir = _run(tmp_path)
+    edit_json(os.path.join(out_dir, "meta.json"),
+              lambda payload: payload.pop("per_sample_sha256"))
+    with pytest.raises(ValueError) as excinfo:
+        compare.load_run(out_dir)
+    assert "per_sample_sha256" in str(excinfo.value)
+
+
+def test_check_online_refuses_a_tampered_per_sample_file(tmp_path):
+    from tests.exp10_fixture import edit_json
+
+    out_dir = _run(tmp_path)
+    edit_json(os.path.join(out_dir, "per_sample.json"),
+              lambda payload: payload["angles"]["128"]["logspec_mad"].__setitem__(0, 999.0))
+    with pytest.raises(ValueError) as excinfo:
+        compare.check_online(out_dir)
+    assert "per_sample_sha256" in str(excinfo.value)
+
+
+def test_parity_exp03_refuses_a_tampered_per_sample_file(tmp_path):
+    from tests.exp10_fixture import edit_json
+
+    run_dir = _probe_like_run(tmp_path)
+    history = _history(tmp_path, run_dir)
+    edit_json(os.path.join(run_dir, "per_sample.json"),
+              lambda payload: payload["angles"]["128"]["edt_err"].__setitem__(0, 999.0))
+    with pytest.raises(ValueError) as excinfo:
+        compare.parity_exp03(run_dir, history)
+    assert "per_sample_sha256" in str(excinfo.value)
+
+
+def _edit_run_meta(out_dir, mutate):
+    """Apply one edit to ``meta.json`` *and* to ``per_sample.json``'s embedded copy.
+
+    The two copies must agree (that is its own guard), so a test about a third rule has to
+    change both and re-bind the per-sample hash, or it would trip the wrong refusal.
+    """
+    from tests.exp10_fixture import edit_json
+    from tools.exp10_yaw_pilot import file_sha256
+
+    per_sample = os.path.join(out_dir, "per_sample.json")
+    edit_json(per_sample, lambda payload: mutate(payload["meta"]))
+
+    def _apply(meta):
+        mutate(meta)
+        meta["per_sample_sha256"] = file_sha256(per_sample)
+
+    edit_json(os.path.join(out_dir, "meta.json"), _apply)
+
+
+def test_load_run_refuses_a_waveform_array_whose_binding_was_deleted(tmp_path):
+    out_dir = _run(tmp_path)
+    _edit_run_meta(out_dir, lambda meta: meta["arrays"].pop("wav_k128.npy"))
+    with pytest.raises(ValueError) as excinfo:
+        compare.load_run(out_dir)
+    message = str(excinfo.value)
+    assert "wav_k128.npy" in message and "binding" in message
+
+
+def test_load_run_refuses_a_binding_whose_recorded_shape_is_wrong(tmp_path):
+    out_dir = _run(tmp_path)
+    _edit_run_meta(out_dir,
+                   lambda meta: meta["arrays"]["wav_k128.npy"].__setitem__("shape",
+                                                                           [3, 9600]))
+    with pytest.raises(ValueError) as excinfo:
+        compare.load_run(out_dir)
+    assert "wav_k128.npy" in str(excinfo.value)

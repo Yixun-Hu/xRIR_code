@@ -392,7 +392,7 @@ def test_controls_table_flags_a_waveform_or_logspec_mismatch(tmp_path, metric, v
     run_dir = _fixture_run(tmp_path, "controls_" + metric)
     edit_json(os.path.join(run_dir, "per_sample.json"),
               lambda payload: payload["controls"]["ctrl_k128_repeat"][metric]
-              .__setitem__(1, value))
+              .__setitem__(1, value), rehash_meta=True)
     table = summarize.controls_table(run_dir)
     assert table["ok"] is False
     assert table["controls"]["ctrl_k128_repeat"]["ok"] is False
@@ -409,7 +409,7 @@ def test_controls_table_flags_an_acoustic_mismatch_above_1e_9(tmp_path):
         cell = payload["controls"]["ctrl_zero_repeat"]
         cell["c50_err"][0] = cell["c50_err"][0] + 1e-8
 
-    edit_json(os.path.join(run_dir, "per_sample.json"), nudge)
+    edit_json(os.path.join(run_dir, "per_sample.json"), nudge, rehash_meta=True)
     table = summarize.controls_table(run_dir)
     assert table["ok"] is False
     cell = table["controls"]["ctrl_zero_repeat"]
@@ -424,7 +424,7 @@ def test_controls_table_flags_a_validity_mismatch(tmp_path):
     run_dir = _fixture_run(tmp_path, "controls_validity")
     edit_json(os.path.join(run_dir, "per_sample.json"),
               lambda payload: payload["controls"]["ctrl_full_turn"]["edt_err"]
-              .__setitem__(0, None))
+              .__setitem__(0, None), rehash_meta=True)
     table = summarize.controls_table(run_dir)
     assert table["ok"] is False
     assert table["controls"]["ctrl_full_turn"]["validity_mismatches"] == 1
@@ -581,3 +581,34 @@ def test_room_cell_records_how_many_clusters_it_resampled():
     assert query["n_clusters"] is None
     assert one_room["delta"]["lo"] == one_room["delta"]["hi"]   # degenerate by construction
     assert two_rooms["delta"]["lo"] < two_rooms["delta"]["hi"]
+
+
+# ------------------- round 2, finding 1: the per-sample binding, all the way to the summary
+
+def test_build_summary_refuses_a_tampered_per_sample_file(tmp_path):
+    from tests.exp10_fixture import edit_json
+
+    run_dir = _fixture_run(tmp_path, "tampered", n=12)
+    edit_json(os.path.join(run_dir, "per_sample.json"),
+              lambda payload: payload["angles"]["128"]["logspec_mad"].__setitem__(0, 999.0))
+    with pytest.raises(ValueError) as excinfo:
+        summarize.build_summary([run_dir], n_boot=50)
+    assert "per_sample_sha256" in str(excinfo.value)
+
+
+def test_verify_inputs_refuses_a_run_that_no_longer_binds_its_per_sample_file(tmp_path):
+    from tests.exp10_fixture import edit_json
+    from tools.exp10_yaw_pilot import file_sha256
+
+    run_dir = _fixture_run(tmp_path, "unbound", n=12)
+    edit_json(os.path.join(run_dir, "meta.json"),
+              lambda payload: payload.__setitem__("per_sample_sha256", "0" * 64))
+    # A summary whose recorded hashes match the files on disk, but whose run no longer
+    # binds its own per-sample file: the verification has to catch that too.
+    summary = {"inputs": [{
+        "run_dir": os.path.abspath(run_dir),
+        "per_sample_sha256": file_sha256(os.path.join(run_dir, "per_sample.json")),
+        "meta_sha256": file_sha256(os.path.join(run_dir, "meta.json"))}]}
+    with pytest.raises(ValueError) as excinfo:
+        summarize.verify_inputs(summary)
+    assert "per_sample_sha256" in str(excinfo.value)

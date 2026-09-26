@@ -118,10 +118,12 @@ def load_run(run_dir, require_complete=True):
     """Load one run directory and refuse it unless its own identity holds.
 
     The guard is what lets everything downstream speak about "the run": the per-sample
-    file must be the one this meta describes (same ``protocol_id`` **and**
-    ``execution_id``, same configuration field by field), the meta must say the run
-    finished, the waveform arrays on disk must still hash to what was recorded, and the
-    query list must hash to ``query_list_sha256`` -- so a reordered, truncated or
+    file must hash to the ``meta.per_sample_sha256`` the run recorded **before a single
+    value of it is consumed**, it must be the one this meta describes (same
+    ``protocol_id`` **and** ``execution_id``, same configuration field by field), the meta
+    must say the run finished, every angle in ``meta.ks`` must have a waveform array whose
+    binding is present and whose bytes and shape still match it, and the query list must
+    hash to ``query_list_sha256`` -- so a reordered, truncated, edited or
     re-run-and-overwritten output cannot be read as if it were intact.
 
     Args:
@@ -136,7 +138,22 @@ def load_run(run_dir, require_complete=True):
     """
     with open(os.path.join(run_dir, "meta.json")) as fin:
         meta = json.load(fin)
-    with open(os.path.join(run_dir, "per_sample.json")) as fin:
+
+    # The per-sample file is evidence, so its own binding is checked before it is read:
+    # a run that never recorded the hash is as unusable as one whose file has changed.
+    per_sample_path = os.path.join(run_dir, "per_sample.json")
+    recorded = meta.get("per_sample_sha256")
+    if not recorded:
+        raise ValueError("{}: meta has no per_sample_sha256; per_sample.json is "
+                         "unbound and cannot be believed".format(run_dir))
+    if not os.path.isfile(per_sample_path):
+        raise ValueError("{}: per_sample.json is missing".format(run_dir))
+    live = file_sha256(per_sample_path)
+    if live != recorded:
+        raise ValueError("{}: per_sample.json hashes to {} but meta.per_sample_sha256 is "
+                         "{}; the file is not the one the run recorded".format(
+                             run_dir, live, recorded))
+    with open(per_sample_path) as fin:
         per_sample = json.load(fin)
 
     if require_complete and meta.get("complete") is not True:
@@ -163,6 +180,11 @@ def load_run(run_dir, require_complete=True):
     if len(queries) != int(meta["n_queries"]):
         raise ValueError("{}: {} queries but meta.n_queries is {}".format(
             run_dir, len(queries), meta["n_queries"]))
+    expected = ["wav_k{}.npy".format(int(k)) for k in meta["ks"]]
+    missing = [name for name in expected if name not in meta["arrays"]]
+    if missing:
+        raise ValueError("{}: meta.arrays has no binding for {}; every angle in meta.ks "
+                         "must carry one".format(run_dir, ", ".join(missing)))
     for name, entry in meta["arrays"].items():
         path = os.path.join(run_dir, name)
         if not os.path.isfile(path):

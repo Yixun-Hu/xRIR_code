@@ -620,10 +620,17 @@ def build_summary(run_dirs, n_boot=N_BOOT, alpha=ALPHA, seeds=SEEDS):
 def verify_inputs(summary):
     """Refuse a summary whose inputs are no longer the bytes it was computed from.
 
+    Two bindings are checked, not one: the files must still hash to what the summary
+    recorded, **and** each run must still bind its own per-sample file
+    (``meta.per_sample_sha256``) -- a run that has lost that binding cannot support the
+    numbers in the summary however well the summary's own hashes match.
+
     Raises:
-        ValueError: if a recorded ``per_sample.json`` / ``meta.json`` is missing or its
-            sha256 has changed.
+        ValueError: if a recorded ``per_sample.json`` / ``meta.json`` is missing, its
+            sha256 has changed, or the run's meta no longer binds its per-sample file.
     """
+    import json as _json
+
     from tools.exp10_yaw_pilot import file_sha256
 
     for entry in summary["inputs"]:
@@ -635,6 +642,14 @@ def verify_inputs(summary):
             if file_sha256(path) != entry[key]:
                 raise ValueError("{} no longer matches the sha256 this summary was built "
                                  "from".format(path))
+        with open(os.path.join(entry["run_dir"], "meta.json")) as fin:
+            meta = _json.load(fin)
+        if meta.get("per_sample_sha256") != entry["per_sample_sha256"]:
+            raise ValueError(
+                "{}: meta.per_sample_sha256 is {!r}, not the {} this summary was built "
+                "from; the run no longer binds its per-sample file".format(
+                    entry["run_dir"], meta.get("per_sample_sha256"),
+                    entry["per_sample_sha256"]))
     return True
 
 
