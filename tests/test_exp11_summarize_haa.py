@@ -73,3 +73,110 @@ def test_a_forged_exp04_pin_refuses_arm_g():
     with pytest.raises(ValueError, match='exp04_approved_digests_sha256'):
         subject.expected_inits(wrong, (G,), {})
 
+
+# --- the notation block of section 3, as named fields ------------------------------------
+
+M = subject.H1_MARGIN_DB
+ALL_FIELDS = ('category', 'y_non_inferior_at_margin', 'x_margin_advantage',
+              'equivalent_at_margin')
+HARM, BETTER, NONE = 'detected harm', 'detected improvement', 'no detected difference'
+
+
+@pytest.mark.parametrize('interval,expected', [
+    ((0.1, 0.4), (HARM, True, False, False)),
+    ((-0.4, -0.1), (BETTER, False, False, False)),
+    ((-0.5, -0.3), (BETTER, False, True, False)),
+    ((-0.1, 0.1), (NONE, True, False, True)),
+    ((0.0, 0.4), (NONE, True, False, False)),
+    ((-0.23, 0.0), (NONE, False, False, False)),      # -L == m establishes nothing
+    ((-0.23, 0.23), (NONE, False, False, False)),     # both endpoints on the boundary
+    ((-0.6, -0.23), (BETTER, False, False, False)),   # U == -m establishes no advantage
+    ((-0.2, 0.22), (NONE, True, False, True))])
+def test_every_decision_field_reads_the_interval_in_its_own_direction(interval, expected):
+    """X - Y = [L, U] at m: category two-sided, -L < m, U < -m and (-m, m) containment.
+
+    Every inequality is strict, so an endpoint exactly on a decision boundary
+    establishes neither the statement nor its negation.
+    """
+    values = subject.decision_fields(interval, M, ALL_FIELDS)
+    assert tuple(values[name] for name in ALL_FIELDS) == expected
+    assert list(values) == list(ALL_FIELDS)
+    assert all(isinstance(values[name], bool) for name in ALL_FIELDS[1:])
+
+
+def test_a_cell_without_an_interval_withholds_every_field():
+    assert subject.decision_fields(None, M, ALL_FIELDS) == {name: None
+                                                            for name in ALL_FIELDS}
+    assert subject.decision_fields(None, None, ('category',)) == {'category': None}
+
+
+def test_only_the_registered_fields_are_computable_and_margins_are_required():
+    with pytest.raises(ValueError, match='unknown decision field'):
+        subject.decision_fields((0.0, 1.0), M, ('verdict',))
+    for field in ALL_FIELDS[1:]:
+        with pytest.raises(ValueError, match='margin'):
+            subject.decision_fields((0.0, 1.0), None, (field,))
+    assert subject.decision_fields((0.1, 0.4), None, ('category',)) == {'category': HARM}
+
+
+# --- the exp_11 decision cell: status, not a margin verdict ------------------------------
+
+
+def flat_rows(difference=1.0, cohort=2, n_test=2, arms_of=(G, D)):
+    """Rows whose paired difference is the same in every row: a zero-width interval."""
+    import numpy as np
+    size = cohort * len(subject.SEEDS)
+    return {'a': np.full(size, difference), 'b': np.zeros(size),
+            'clusters': np.asarray(list(range(cohort)) * len(subject.SEEDS)),
+            'seeds': np.asarray([seed for seed in subject.SEEDS for _ in range(cohort)]),
+            'cohort': cohort, 'n_test': n_test,
+            'per_seed_diff': {seed: difference for seed in subject.SEEDS},
+            'excluded': {arm: {'queries': 0, 'seeds': {seed: 0 for seed in subject.SEEDS}}
+                         for arm in arms_of}}
+
+
+def contrast_cell(arms, x, y, room='hallway', metric='c50', fields=ALL_FIELDS,
+                  margin=M, n_boot=200):
+    rows = subject.cell_rows(arms, x, y, room, metric)
+    base = {'name': 'N1', 'kind': 'contrast', 'x': x, 'y': y, 'room': room,
+            'metric': metric, 'contrast': '{} - {}'.format(x, y)}
+    return subject.exp11_cell(rows, subject.void_reasons(rows, x, y), base, margin,
+                              fields, n_boot=n_boot)
+
+
+def test_a_decision_cell_reports_its_interval_and_its_fields(arms):
+    cell = contrast_cell(arms, G, D)
+    assert cell['status'] == 'reported' and 'verdict' not in cell
+    assert cell['contrast'] == 'yawaug_hf - control_hf' and cell['x'] == G and cell['y'] == D
+    assert cell['kind'] == 'contrast' and cell['name'] == 'N1'
+    assert cell['cohort'] == SIZE['hallway'] and cell['void_reasons'] == []
+    assert cell['convergence']['status'] == 'converged'
+    assert cell['category'] in (HARM, BETTER, NONE)
+    assert subject.decision_fields(cell['convergence']['interval'], M, ALL_FIELDS) == {
+        name: cell[name] for name in ALL_FIELDS}
+
+
+def test_a_void_cell_withholds_every_field(arms):
+    for job in subject.JOBS:
+        per = arms[G]['per'][job]['hallway']
+        per['c50'] = [float('nan')] * len(per['index'])
+    cell = contrast_cell(arms, G, D)
+    assert cell['status'] == 'void' and cell['void_reasons']
+    assert cell['diff'] is None and cell['two_way'] is None
+    assert all(cell[name] is None for name in ALL_FIELDS)
+
+
+def test_a_degenerate_interval_is_a_defined_unavailable_cell_not_an_abort():
+    """Cancellation can give a zero-width interval; the frozen helper refuses it, and the
+    exp_11 wrapper reports that refusal instead of aborting the whole summary."""
+    rows = flat_rows()
+    with pytest.raises(ValueError, match='zero-width'):
+        subject.converged_two_way(rows, subject.ALPHA, 200)
+    cell = subject.exp11_cell(rows, [], {'name': 'N1i', 'kind': 'interaction'}, M,
+                              ALL_FIELDS, n_boot=200)
+    assert cell['status'] == 'unavailable'
+    assert cell['convergence']['status'] == 'unavailable'
+    assert 'zero-width' in cell['convergence']['reason']
+    assert cell['convergence']['interval'] is None
+    assert cell['diff'] == 1.0 and cell['two_way']['lo'] == cell['two_way']['hi'] == 1.0
+    assert all(cell[name] is None for name in ALL_FIELDS)

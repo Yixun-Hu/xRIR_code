@@ -1129,6 +1129,101 @@ def classify_cell(cell):
                 non_inferior_at_margin=bool(interval[1] < cell['margin']))
 
 
+# --- exp_11's decision notation and its cells (plan section 3) ---------------------------
+
+EXP11_FIELDS = ('category', 'y_non_inferior_at_margin', 'x_margin_advantage',
+                'equivalent_at_margin')
+MARGIN_FIELDS = EXP11_FIELDS[1:]                 # the three that read the margin m
+# A status that carries no interval withholds every decision-bearing field.
+WITHHELD = ('void', 'not_converged', 'unavailable', 'suppressed (draft)')
+
+
+def decision_fields(interval, margin, fields):
+    """Plan section 3's notation block, for one contrast X - Y with interval [L, U] at m:
+
+    ``category``                  two-sided, exactly ``h2_label``'s semantics: harm for X
+                                  if L > 0, improvement for X if U < 0, else no detected
+                                  difference;
+    ``y_non_inferior_at_margin``  Y is non-inferior to X at m iff -L < m;
+    ``x_margin_advantage``        X has a margin-sized advantage iff U < -m;
+    ``equivalent_at_margin``      95 % containment: L > -m and U < m.
+
+    The direction is the cell's own ``contrast`` string, so X and Y are never guessed
+    from a field name. Every inequality is strict: an endpoint exactly on a decision
+    boundary establishes neither the statement nor its negation. Every field is ``None``
+    -- withheld -- when the cell carries no interval, which is how a void, unconverged,
+    degenerate or draft cell reports.
+    """
+    unknown = [name for name in fields if name not in EXP11_FIELDS]
+    _require(not unknown, 'unknown decision field(s): ' + ', '.join(unknown))
+    if [name for name in fields if name in MARGIN_FIELDS]:
+        _require(isinstance(margin, (int, float)) and not isinstance(margin, bool),
+                 'the fields {} need a margin, not {!r}'.format(
+                     ', '.join(name for name in fields if name in MARGIN_FIELDS), margin))
+    values = OrderedDict((name, None) for name in fields)
+    if interval is None:
+        return values
+    low, high = float(interval[0]), float(interval[1])
+    for name in values:
+        if name == 'category':
+            values[name] = h2_label((low, high))
+        elif name == 'y_non_inferior_at_margin':
+            values[name] = bool(-low < margin)
+        elif name == 'x_margin_advantage':
+            values[name] = bool(high < -margin)
+        else:
+            values[name] = bool(low > -margin and high < margin)
+    return values
+
+
+def decision_interval(cell):
+    """The one interval every field of an exp_11 cell reads, or nothing at all.
+
+    It is the interval exp_06's margin verdict reads -- the seed-0 two-way interval of
+    the resample size that converged -- and a status in ``WITHHELD`` suppresses it even
+    though a nominal interval may still exist.
+    """
+    if cell.get('status') in WITHHELD:
+        return None
+    return (cell.get('convergence') or {}).get('interval')
+
+
+def exp11_cell(rows, void, base, margin, fields, n_boot=N_BOOT, alpha=ALPHA):
+    """One exp_11 decision cell: the invalidity policy, the convergence gate and the
+    named fields of section 3.
+
+    exp_06's ``decision_cell`` answers a margin verdict; exp_11's decisions are the
+    statements above instead, so a cell carries a ``status`` and never a ``verdict``.
+    A degenerate (zero-width) interval -- reachable by cancellation in an interaction --
+    is a defined ``unavailable`` result: the frozen convergence helper refuses it, and
+    that refusal is caught here rather than aborting the summary or being worked around
+    in the helper.
+    """
+    cell = dict(base, margin=margin, alpha=alpha, fields=list(fields),
+                cohort=rows['cohort'], n_test=rows['n_test'], excluded=rows['excluded'],
+                per_seed_diff=rows['per_seed_diff'], void_reasons=list(void),
+                bootstrap_seeds=list(BOOT_SEEDS))
+    if void:   # decided before anything is resampled, exactly as decision_cell decides it
+        cell.update(diff=None, query=None, two_way=None, status='void',
+                    convergence={'status': 'void', 'n_boot': None, 'interval': None,
+                                 'attempts': []})
+        return dict(cell, **decision_fields(None, margin, fields))
+    try:
+        convergence = converged_two_way(rows, alpha, n_boot)
+    except ValueError as error:
+        nominal = intervals(rows, alpha, n_boot)
+        cell.update(diff=nominal['diff'], query=nominal['query'],
+                    two_way=nominal['two_way'], status='unavailable',
+                    convergence={'status': 'unavailable', 'n_boot': None, 'interval': None,
+                                 'attempts': [], 'reason': str(error)})
+        return dict(cell, **decision_fields(None, margin, fields))
+    nominal = intervals(rows, alpha, convergence['n_boot'] or n_boot)
+    cell.update(diff=nominal['diff'], query=nominal['query'], two_way=nominal['two_way'],
+                convergence=convergence, status=('reported' if convergence['status']
+                                                 == 'converged' else 'not_converged'))
+    return dict(cell, **decision_fields(decision_interval(cell), margin, fields))
+
+
 def check_output_paths(experiment, json_path, summary_path):
     """No experiment's run may write another's canonical record."""
     targets = {str(Path(path).resolve()) for path in (json_path, summary_path)}
