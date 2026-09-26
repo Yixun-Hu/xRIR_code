@@ -11,3 +11,8 @@
 - **Command / Validation** — `codex exec -c 'model_reasoning_effort="xhigh"' -s read-only -C xRIR_code …` with `review_prompts/plan_prompt.md`; log `yaw_pilot_2026-09-26_17:24:59_codex_plan_review.log`.
 - **Result** — in_progress.
 - **Next** — revise the plan per the review, then Coder round 1 (tools/exp10_yaw_pilot.py + tests).
+
+## 2026-09-26T17:32:34-04:00 — plan review round 1 → plan v2 → review round 2
+- **Result** — Codex round 1 (`yaw_pilot_codex_plan_review.md`): REQUEST CHANGES, 2 blockers (paired-bootstrap contract; CPU/GPU parity gate too loose) + 9 should-fixes. All addressed in plan v2 (§10 map): shared mask + one draw per replicate + ratio status; GPU 1 primary backend (cylindrical-dinov3 session agreed to a 4 GB co-tenant on GPU 1 at 17:3x: its trainings end ≈ Sep 29 (GPU 1) / Oct 3 (GPU 0), ≈ 30 % slowdown expected); probe = 17 room-spanning intact canonical batches; gate on paired Δ; fresh-inference controls incl. a nonzero repeat; released K = 1 relabelled; band = context only; identity contract; GL-free panel and signed bars; timing breakdown; reviews at `ultra` (verified accepted).
+- **Command / Validation** — round-2 review launched at `ultra`: log `yaw_pilot_2026-09-26_17:32:32_codex_plan_review_round2.log`.
+- **Next** — on approval: Coder round 1 in wt10.
