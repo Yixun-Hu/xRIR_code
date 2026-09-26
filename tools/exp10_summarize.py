@@ -282,6 +282,29 @@ def bootstrap_cell(e0, ek, gk, n_boot=N_BOOT, seed=0, alpha=ALPHA, clusters=None
     return cell
 
 
+#: How the standalone G of plan section 4 is labelled wherever it is reported.
+BROADER_POPULATION = "every query with a finite g_alpha (not the paired mask)"
+
+
+def gap_only_cell(gk, n_boot=N_BOOT, seed=0, alpha=ALPHA, clusters=None, unit=None):
+    """``G`` alone, on the broader population of plan section 4.
+
+    The paired readout drops a query whose *error* is invalid at either angle, even when
+    its gap is perfectly well defined -- necessary for the ratio, but it silently changes
+    which predictions the shift describes.  This is the same estimator on every query with
+    a finite ``g_alpha``, reported separately and labelled, never mixed into the paired
+    ``delta`` / ``G`` / ``R``.
+
+    Returns:
+        A cell as :func:`bootstrap_cell` returns, with ``population`` naming the
+        population it was computed on.
+    """
+    cell = bootstrap_cell(None, None, gk, n_boot=n_boot, seed=seed, alpha=alpha,
+                          clusters=clusters, unit=unit)
+    cell["population"] = BROADER_POPULATION
+    return cell
+
+
 def _bound_movement(first, second):
     """Movement of one interval's bounds between two seeds, relative to its width."""
     if first["lo"] is None or second["lo"] is None:
@@ -454,7 +477,8 @@ def summarize_run(run_dir, n_boot=N_BOOT, alpha=ALPHA, seeds=SEEDS):
     Returns:
         ``{"arm", "run_dir", "execution_id", "protocol_id", "meta", "queries", "rooms",
         "angles"}`` where ``angles[str(k)][label]`` carries ``query``, ``room``,
-        ``convergence``, ``convergence_room`` and ``headline``.
+        ``convergence``, ``convergence_room``, ``headline`` and -- for a paired metric --
+        ``broader``, the standalone ``G`` of :func:`gap_only_cell`.
     """
     from tools.exp10_compare import load_run
 
@@ -487,6 +511,16 @@ def summarize_run(run_dir, n_boot=N_BOOT, alpha=ALPHA, seeds=SEEDS):
                                         alpha=alpha, clusters=ids, unit=unit)
                 key = "convergence" if name == "query" else "convergence_room"
                 entry[key] = convergence(entry[name], second)
+            if gap is not None and error is not None:
+                broader = {"population": BROADER_POPULATION}
+                for name, ids in (("query", None), ("room", clusters)):
+                    broader[name] = gap_only_cell(gk, n_boot=n_boot, seed=seeds[0],
+                                                  alpha=alpha, clusters=ids, unit=unit)
+                    second = gap_only_cell(gk, n_boot=n_boot, seed=seeds[1], alpha=alpha,
+                                           clusters=ids, unit=unit)
+                    broader["convergence" if name == "query" else
+                            "convergence_room"] = convergence(broader[name], second)
+                entry["broader"] = broader
             if gap is None:
                 for scope in ("query", "room"):
                     entry[scope]["gap"] = {"point": None, "lo": None, "hi": None}
@@ -944,6 +978,28 @@ def _markdown_tables(summary):
                 lines.append("| {}° | {} | {} | [{}, {}] | {} |".format(
                     _deg(k), label, _fmt(gap["point"]), _fmt(gap["lo"]), _fmt(gap["hi"]),
                     cell["query"]["n"]))
+        lines.extend(["", "### Standalone G on the broader population", "",
+                      "The paired table above drops a query whose error is invalid at "
+                      "either angle; this one keeps {}. It is reported separately and "
+                      "never mixed into the paired delta / G / R.".format(
+                          BROADER_POPULATION), "",
+                      "| angle | metric | unit | G | 95 % CI (query) | n | "
+                      "95 % CI (room) | rooms | converged |",
+                      "|---|---|---|---|---|---|---|---|---|"])
+        for k in sorted(int(k) for k in arm["angles"]):
+            for label, _, _, _ in METRIC_TRIPLES:
+                entry = arm["angles"][str(k)][label]
+                broader = entry.get("broader")
+                if broader is None:
+                    continue
+                query, room = broader["query"], broader["room"]
+                lines.append("| {}° | {} | {} | {} | [{}, {}] | {} | [{}, {}] | {} | {} |"
+                             .format(_deg(k), label, query.get("unit") or "-",
+                                     _fmt(query["gap"]["point"]),
+                                     _fmt(query["gap"]["lo"]), _fmt(query["gap"]["hi"]),
+                                     query["n"], _fmt(room["gap"]["lo"]),
+                                     _fmt(room["gap"]["hi"]), room.get("n_clusters"),
+                                     broader["convergence"]["gap"]["converged"]))
         lines.extend(["", "### R2 -- the ratio G / delta, with its status", "",
                       "| angle | metric | R (query) | 95 % CI | status (query) | "
                       "status (room) | converged | headline |",

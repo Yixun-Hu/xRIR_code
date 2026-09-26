@@ -753,3 +753,61 @@ def test_a_failed_convergence_outranks_the_uncertain_denominator_wording():
                "status_seed_0": "denominator uncertain",
                "status_seed_1": "denominator uncertain"})
     assert headline["reason"] == "unresolved Monte Carlo uncertainty"
+
+
+# ------------- round 2, finding 5: the standalone G on the broader gap population
+
+def test_the_broader_gap_population_is_estimated_beside_the_paired_one():
+    # The first query has no valid baseline error, so the paired readout must drop it --
+    # and with it the largest gap.  Section 4 also asks for G on every query whose gap is
+    # finite, reported separately: n = 4 and G = 26.5, not n = 3 and G = 2.
+    nan = float("nan")
+    e0 = np.array([nan, 1.0, 1.0, 1.0])
+    ek = np.array([1.0, 1.1, 1.2, 1.3])
+    gk = np.array([100.0, 1.0, 2.0, 3.0])
+
+    paired = summarize.bootstrap_cell(e0, ek, gk, n_boot=200, seed=0)
+    broader = summarize.gap_only_cell(gk, n_boot=200, seed=0)
+
+    assert paired["n"] == 3
+    assert paired["gap"]["point"] == pytest.approx(2.0)
+    assert broader["n"] == 4
+    assert broader["gap"]["point"] == pytest.approx(26.5)
+    assert broader["population"] == summarize.BROADER_POPULATION
+    assert broader["delta"]["point"] is None      # it is a shift, not a paired change
+    assert broader["gap"]["lo"] <= broader["gap"]["point"] <= broader["gap"]["hi"]
+
+
+def test_summarize_run_carries_the_broader_population_without_moving_the_paired_one(
+        tmp_path):
+    run_dir = _fixture_run(tmp_path, "broader", n=24)
+    summary = summarize.summarize_run(run_dir, n_boot=100)
+    entry = summary["angles"]["128"]["EDT"]
+
+    assert entry["broader"]["population"] == summarize.BROADER_POPULATION
+    assert entry["broader"]["query"]["n"] >= entry["query"]["n"]
+    assert entry["broader"]["room"]["unit_of_resampling"] == "room"
+    assert entry["broader"]["convergence"]["gap"]["converged"] in (True, False,
+                                                                   "not applicable")
+    # The paired readouts are untouched by its presence.
+    assert entry["query"]["delta"]["point"] is not None
+    assert entry["query"]["gap"]["point"] == pytest.approx(
+        summarize.bootstrap_cell(
+            [None if v is None else v
+             for v in json.load(open(os.path.join(run_dir, "per_sample.json")))
+             ["angles"]["0"]["edt_err"]],
+            json.load(open(os.path.join(run_dir, "per_sample.json")))
+            ["angles"]["128"]["edt_err"],
+            json.load(open(os.path.join(run_dir, "per_sample.json")))
+            ["angles"]["128"]["edt_gap"], n_boot=100, seed=0)["gap"]["point"])
+
+
+def test_the_markdown_reports_the_broader_population_as_its_own_table(two_arm_summary,
+                                                                      tmp_path):
+    summary, _ = two_arm_summary
+    out_dir = str(tmp_path / "broader_md")
+    summarize.write_outputs(summary, out_dir)
+    with open(os.path.join(out_dir, "yaw_pilot_tables.md")) as fin:
+        markdown = fin.read()
+    assert summarize.BROADER_POPULATION in markdown
+    assert "Standalone G" in markdown
