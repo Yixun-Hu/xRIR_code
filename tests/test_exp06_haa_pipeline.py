@@ -330,6 +330,20 @@ def test_the_exp11_record_takes_its_own_child_log_prefix(tmp_path):
     assert 'yawaug_haa_' not in printed
 
 
+def test_arm_gs_job_declares_the_four_heading_rolls(tmp_path, cache):
+    """The positive control: G's declaration is cyl_or's, with SimpleViT and E's weights."""
+    result, events = run_lib(INVOKE.format('run_finetune yawaug_hf 0'), tmp_path,
+                             EXP06_HEADING_DIR=cache['heading'], HAA_XRIR_ROOT=cache['root'],
+                             EXP09_YAWAUG_CKPT=cache['init'])
+    assert 'STATUS 0' in result.stdout, result.stderr
+    assert len([line for line in events if line.startswith('CHILD ')]) == 9
+    spec = json.loads((tmp_path / 'out/yawaug_hf/seed0/job_spec.json').read_text())
+    assert spec['heading'] == {room: 128 for room in ROOMS}
+    assert spec['frame'] == 'heading' and spec['backbone'] == 'simple'
+    assert spec['init'] == 'yawaug_hf' and spec['expect'] == 'finetune'
+    assert spec['rooms'] == sorted(ROOMS) and spec['seed'] == 0
+
+
 def test_the_real_approvals_gate_pins_arm_gs_initialisation(tmp_path):
     """G's identity gate is E's: exp_04's approved checkpoints.aug, never epoch_012."""
     other = tmp_path / 'epoch_012.pth'
