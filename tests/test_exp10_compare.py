@@ -385,3 +385,41 @@ def test_load_run_refuses_a_binding_whose_recorded_shape_is_wrong(tmp_path):
     with pytest.raises(ValueError) as excinfo:
         compare.load_run(out_dir)
     assert "wav_k128.npy" in str(excinfo.value)
+
+
+# --------------------------- round 2, finding 2: the parity grid must be complete
+
+def test_parity_exp03_refuses_a_missing_required_angle(tmp_path):
+    run_dir = _probe_like_run(tmp_path)
+    history = _history(tmp_path, run_dir, drop_angles=[128])
+    report = compare.parity_exp03(run_dir, history)
+
+    assert report["ok"] is False
+    assert report["angles_missing_in_exp03"] == [128]
+    assert {(entry["k"], entry["metric"]) for entry in report["missing_required"]} == {
+        (128, metric) for metric in compare.REQUIRED_PARITY_METRICS}
+
+
+def test_parity_exp03_refuses_a_missing_required_metric(tmp_path):
+    run_dir = _probe_like_run(tmp_path)
+    history = _history(tmp_path, run_dir, drop_cells=[(128, "c50_err")])
+    report = compare.parity_exp03(run_dir, history)
+
+    assert report["ok"] is False
+    assert [(entry["k"], entry["metric"]) for entry in report["missing_required"]] == [
+        (128, "c50_err")]
+    assert report["angles"]["128"]["edt_err"]["status"] == "replication"
+
+
+def test_parity_exp03_tolerates_a_missing_optional_diagnostic(tmp_path):
+    run_dir = _probe_like_run(tmp_path)
+    history = _history(tmp_path, run_dir, drop_cells=[(128, "log_mse"), (0, "log_mse")])
+    report = compare.parity_exp03(run_dir, history)
+
+    assert report["ok"] is True
+    assert report["missing_required"] == []
+    assert {(entry["k"], entry["metric"]) for entry in report["missing_optional"]} == {
+        (0, "log_mse"), (128, "log_mse")}
+    assert report["required_metrics"] == list(compare.REQUIRED_PARITY_METRICS)
+    assert report["angles"]["128"]["edt_err"]["required"] is True
+    assert report["angles"]["128"]["loss"]["required"] is False

@@ -219,7 +219,8 @@ EXP03_KEYS = {"edt_err": "edt", "c50_err": "c50", "t60_err": "t60",
 
 
 def make_exp03_file(path, run_per_sample, n_total=40, manifest_hash=None, offsets=None,
-                    nan_cells=None, drop_index=None, duplicate_index=None):
+                    nan_cells=None, drop_index=None, duplicate_index=None,
+                    drop_angles=None, drop_cells=None):
     """An exp_03-shaped historical per-sample file that contains the run's rows.
 
     The run's rows are placed at their canonical indices and everything else is filler,
@@ -238,12 +239,17 @@ def make_exp03_file(path, run_per_sample, n_total=40, manifest_hash=None, offset
             historical file only, to simulate a validity-mask mismatch.
         drop_index: a canonical index to remove from the historical file entirely.
         duplicate_index: a canonical index to list twice.
+        drop_angles: angles the historical file does not carry at all.
+        drop_cells: ``{(angle, metric)}`` pairs the historical file does not carry, so a
+            test can make one comparison of the parity grid unavailable.
 
     Returns:
         The payload that was written.
     """
     offsets = offsets or {}
     nan_cells = nan_cells or {}
+    dropped_angles = {int(k) for k in (drop_angles or ())}
+    dropped_cells = {(int(k), metric) for k, metric in (drop_cells or ())}
     run_rows = {int(idx): row for row, idx in enumerate(run_per_sample["index"])}
     angles = sorted(int(k) for k in run_per_sample["angles"])
 
@@ -266,8 +272,12 @@ def make_exp03_file(path, run_per_sample, n_total=40, manifest_hash=None, offset
                "query": queries, "index": indices, "P": {}, "E": {}}
     rng = np.random.RandomState(7)
     for k in angles:
+        if k in dropped_angles:
+            continue
         cell = {}
         for metric, exp03_key in EXP03_KEYS.items():
+            if (k, metric) in dropped_cells:
+                continue
             values = []
             for row, i in enumerate(indices):
                 if i in run_rows:

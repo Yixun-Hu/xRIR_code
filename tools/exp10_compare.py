@@ -58,6 +58,13 @@ PARITY_METRICS = {
     "decay": {"exp03": "decay"},
 }
 PAIRED_RELATIVE_ALLOWANCE = 0.05
+#: Plan section 7 asks for every requested angle x these four metrics.  A cell of this
+#: grid that the historical file cannot supply is missing *coverage*, not merely a
+#: diagnostic, so the parity report fails rather than quietly listing it.
+REQUIRED_PARITY_METRICS = ("edt_err", "c50_err", "t60_err", "logspec_mad")
+#: Reported when available, never required: they carry no parity threshold.
+OPTIONAL_PARITY_METRICS = tuple(name for name in PARITY_METRICS
+                                if name not in REQUIRED_PARITY_METRICS)
 
 
 def verify_exp03_pins(binding_report=DEFAULT_BINDING_REPORT, repo_root=REPO_ROOT):
@@ -386,6 +393,13 @@ def parity_exp03(run_dir, exp03_per_sample, condition="P"):
     **identical** on the compared population; otherwise it is labelled
     ``"nonreplication (validity mismatch)"`` however well the surviving numbers agree.
 
+    Coverage is part of the verdict: every requested angle crossed with
+    :data:`REQUIRED_PARITY_METRICS` must actually be comparable.  A required cell the
+    historical file cannot supply is listed in ``missing_required`` and sets ``ok`` to
+    False -- "we could not compare it" is not "it agreed".  The optional diagnostics
+    (``log_mse``, ``loss``, ``stft``, ``decay``) are listed in ``missing_optional`` and
+    change nothing.
+
     This function reports; it does not decide a launch.
 
     Args:
@@ -411,7 +425,20 @@ def parity_exp03(run_dir, exp03_per_sample, condition="P"):
               "exp03_sha256": file_sha256(exp03_per_sample),
               "manifest_hash": meta["manifest_hash"], "condition": condition,
               "n_rows": len(rows), "angles": {},
-              "angles_missing_in_exp03": [], "metrics_missing_in_exp03": []}
+              "required_metrics": list(REQUIRED_PARITY_METRICS),
+              "optional_metrics": list(OPTIONAL_PARITY_METRICS),
+              "angles_missing_in_exp03": [], "metrics_missing_in_exp03": [],
+              "missing_required": [], "missing_optional": []}
+
+    def _missing(k, metric, reason):
+        entry = {"k": int(k), "metric": metric, "reason": reason,
+                 "required": metric in REQUIRED_PARITY_METRICS}
+        report["metrics_missing_in_exp03"].append(entry)
+        if entry["required"]:
+            report["missing_required"].append(entry)
+            report["ok"] = False
+        else:
+            report["missing_optional"].append(entry)
 
     historical = history[condition]
     if "0" not in historical:
@@ -419,19 +446,25 @@ def parity_exp03(run_dir, exp03_per_sample, condition="P"):
     for k in sorted(int(k) for k in meta["ks"]):
         if str(k) not in historical:
             report["angles_missing_in_exp03"].append(k)
+            for metric in PARITY_METRICS:
+                _missing(k, metric, "the historical file has no angle {}".format(k))
+            report["angles"][str(k)] = {}
             continue
         cell = {}
         for metric, rules in PARITY_METRICS.items():
             key = rules["exp03"]
-            if (key not in historical[str(k)] or key not in historical["0"] or
-                    metric not in per_sample["angles"][str(k)]):
-                report["metrics_missing_in_exp03"].append({"k": k, "metric": metric})
+            if key not in historical[str(k)] or key not in historical["0"]:
+                _missing(k, metric, "the historical file has no {!r}".format(key))
+                continue
+            if metric not in per_sample["angles"][str(k)]:
+                _missing(k, metric, "the run did not record {!r}".format(metric))
                 continue
             run_k = _as_array(per_sample["angles"][str(k)][metric])
             run_0 = _as_array(per_sample["angles"]["0"][metric])
             hist_k = _as_array(historical[str(k)][key])[rows]
             hist_0 = _as_array(historical["0"][key])[rows]
             cell[metric] = _parity_cell(run_k, run_0, hist_k, hist_0, rules, k == 0)
+            cell[metric]["required"] = metric in REQUIRED_PARITY_METRICS
             if cell[metric]["status"].startswith("nonreplication"):
                 report["ok"] = False
         report["angles"][str(k)] = cell
