@@ -34,17 +34,38 @@ from __future__ import annotations
 import numpy as np
 import torch
 
+from tools.per_sample_metrics import acoustic_metrics
+
 MAG_EPS = 1e-8
 REL_L2_EPS = 1e-8
+METRIC_WINDOW = 8000          # exp_01's acoustic window, enforced by acoustic_metrics
+SAMPLE_RATE = 22050
 
 
-def _as_waveforms(array, name):
-    """Validate one ``[n, T]`` waveform block and return it as float64."""
+def _as_block(array, name):
+    """Validate one ``[n, T]`` waveform block, leaving its dtype alone.
+
+    The evaluator is sensitive to the dtype it is handed (a float32 and a float64 C50 of
+    the same waveform differ at ~1e-6 dB), and the frozen
+    ``tools.per_sample_metrics.acoustic_metrics`` measures whatever it is given.  Every
+    function that feeds the evaluator therefore passes the **stored float32** samples
+    through unchanged, so the canonical errors, the gaps and the raw measures are all
+    measurements of one and the same array.
+    """
     values = np.asarray(array)
     if values.ndim != 2:
         raise ValueError("{} must be a [n, T] waveform block, got shape {}".format(
             name, values.shape))
-    return values.astype(np.float64)
+    return values
+
+
+def _as_waveforms(array, name):
+    """Validate one ``[n, T]`` waveform block and return it as float64.
+
+    Used only by :func:`waveform_gap`, whose norms and means are pure accumulations that
+    never reach the evaluator: float64 keeps them reproducible across devices.
+    """
+    return _as_block(array, name).astype(np.float64)
 
 
 def waveform_gap(w0, wk):
@@ -119,3 +140,85 @@ def spectrogram_gap(out0, outk):
         mag_k = torch.exp(rotated) - MAG_EPS
         rel_l2 = torch.linalg.norm(mag_k - mag_0, dim=1) / torch.linalg.norm(mag_0, dim=1)
     return {"logspec_mad": mad.cpu().numpy(), "mag_rel_l2": rel_l2.cpu().numpy()}
+
+
+def acoustic_gap(w0, wk, evaluator, want_t60=True, window=METRIC_WINDOW):
+    """EDT / C50 / T60 **shift** of a rotated prediction against its ``k = 0`` twin.
+
+    FLAC's "P_0 as ground truth" convention: the unrotated prediction takes the place of
+    the reference IR, so the numbers say how far the prediction moved, never how wrong it
+    is.  The measurement itself is exp_03's frozen
+    ``tools.per_sample_metrics.acoustic_metrics`` -- same 8000-sample window, same
+    validity rules (NaN, never imputed), same exception set.
+
+    Args:
+        w0: the ``k = 0`` waveforms ``[n, T]`` (used as ``gt``).
+        wk: the rotated-angle waveforms ``[n, T]`` (used as ``pred``).
+        evaluator: an ``eval_unseen.Evaluator``.
+        want_t60: compute the T60 gap (NaN for every row when False).
+        window: leading samples measured; exp_01's 8000.
+
+    Returns:
+        ``{"edt_gap": [n], "c50_gap": [n], "t60_gap": [n]}`` as float64 ``np.ndarray``s,
+        NaN where the pair is invalid.  ``t60_gap`` is a percentage of ``T60(w0)``.
+
+    Raises:
+        ValueError: if either block is not 2-D or the two shapes differ.
+    """
+    base = _as_block(w0, "w0")
+    rotated = _as_block(wk, "wk")
+    if base.shape != rotated.shape:
+        raise ValueError("w0 {} and wk {} must have the same shape".format(
+            base.shape, rotated.shape))
+    values = {"edt_gap": [], "c50_gap": [], "t60_gap": []}
+    for i in range(base.shape[0]):
+        cell = acoustic_metrics(rotated[i], base[i], evaluator, want_t60=want_t60,
+                                window=window)
+        values["edt_gap"].append(cell["edt"])
+        values["c50_gap"].append(cell["c50"])
+        values["t60_gap"].append(cell["t60"])
+    return {name: np.asarray(vals, dtype=np.float64) for name, vals in values.items()}
+
+
+def raw_measures(waves, evaluator, want_t60=True, window=METRIC_WINDOW):
+    """The **raw** EDT / C50 / T60 of each waveform, under ``acoustic_metrics``' rules.
+
+    The canonical metrics are differences, which fixes their normalisation forever; the
+    raw measurements are stored beside them so any other normalisation (absolute seconds,
+    a different reference) can be rebuilt offline without re-running the model.  The
+    window, the exception set (``ValueError`` / ``IndexError`` for the Schroeder-decay
+    measurements, plus ``ZeroDivisionError`` for T60) and the "non-finite becomes NaN"
+    rule are exactly ``tools.per_sample_metrics.acoustic_metrics``'.
+
+    Args:
+        waves: waveforms ``[n, T]``.
+        evaluator: an ``eval_unseen.Evaluator``.
+        want_t60: measure T60 (NaN for every row when False).
+        window: leading samples measured; exp_01's 8000.
+
+    Returns:
+        ``{"edt": [n] (s), "c50": [n] (dB), "t60": [n] (s)}`` as float64 ``np.ndarray``s,
+        NaN where the measurement is invalid.
+
+    Raises:
+        ValueError: if ``waves`` is not a ``[n, T]`` block.
+    """
+    block = _as_block(waves, "waves")[:, :int(window)]
+    nan = float("nan")
+    values = {"edt": [], "c50": [], "t60": []}
+    with np.errstate(divide="ignore", invalid="ignore"):
+        for row in block:
+            try:
+                edt = evaluator.measure_edt(row)
+            except (ValueError, IndexError):
+                edt = nan
+            clarity = evaluator.measure_clarity(row)
+            t60 = nan
+            if want_t60:
+                try:
+                    t60 = evaluator.measure_rt60(row)
+                except (ValueError, IndexError, ZeroDivisionError):
+                    t60 = nan
+            for name, value in (("edt", edt), ("c50", clarity), ("t60", t60)):
+                values[name].append(float(value) if np.isfinite(value) else nan)
+    return {name: np.asarray(vals, dtype=np.float64) for name, vals in values.items()}

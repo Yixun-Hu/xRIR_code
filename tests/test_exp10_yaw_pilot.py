@@ -91,3 +91,82 @@ def test_spectrogram_gap_accepts_three_dimensional_outputs_and_rejects_mismatche
                                   np.zeros(2))
     with pytest.raises(ValueError):
         pilot.spectrogram_gap(torch.randn(2, 3, 4), torch.randn(3, 3, 4))
+
+
+# ------------------------------------------------- test 3: acoustic_gap / raw_measures
+
+def _decaying_ir(seed, n=9600, tau=1200.0, scale=1.0):
+    """A synthetic, well-behaved impulse response (noise under an exponential decay)."""
+    rng = np.random.RandomState(seed)
+    envelope = np.exp(-np.arange(n) / tau)
+    return (scale * rng.randn(n) * envelope).astype(np.float32)
+
+
+@pytest.fixture(scope="module")
+def evaluator():
+    from eval_unseen import Evaluator
+    return Evaluator()
+
+
+def test_acoustic_gap_of_a_waveform_with_itself_is_exactly_zero(evaluator):
+    waves = np.stack([_decaying_ir(0), _decaying_ir(1, tau=800.0)])
+    gap = pilot.acoustic_gap(waves, waves, evaluator)
+    assert sorted(gap) == ["c50_gap", "edt_gap", "t60_gap"]
+    for name in gap:
+        assert gap[name].shape == (2,)
+        np.testing.assert_array_equal(gap[name], np.zeros(2))
+
+
+def test_acoustic_gap_skips_t60_when_it_is_not_wanted(evaluator):
+    waves = np.stack([_decaying_ir(2)])
+    gap = pilot.acoustic_gap(waves, waves + 1e-3, evaluator, want_t60=False)
+    assert np.isnan(gap["t60_gap"]).all()
+    assert np.isfinite(gap["edt_gap"]).all()
+
+
+def test_acoustic_gap_and_raw_measures_return_nan_on_a_silent_waveform(evaluator):
+    zeros = np.zeros((1, 9600), dtype=np.float32)
+    gap = pilot.acoustic_gap(zeros, zeros, evaluator)
+    for name in gap:
+        assert np.isnan(gap[name]).all()
+    raw = pilot.raw_measures(zeros, evaluator)
+    for name in raw:
+        assert np.isnan(raw[name]).all()
+
+
+def test_raw_measures_reproduce_the_canonical_errors_where_both_are_finite(evaluator):
+    from tools.per_sample_metrics import acoustic_metrics
+
+    preds = np.stack([_decaying_ir(3), _decaying_ir(4, tau=2000.0)])
+    gts = np.stack([_decaying_ir(5, tau=900.0), _decaying_ir(6, tau=1500.0)])
+    raw_pred = pilot.raw_measures(preds, evaluator)
+    raw_gt = pilot.raw_measures(gts, evaluator)
+    canonical = [acoustic_metrics(preds[i], gts[i], evaluator) for i in range(2)]
+
+    for i, cell in enumerate(canonical):
+        assert np.isfinite(cell["edt"]) and np.isfinite(cell["c50"]) and np.isfinite(cell["t60"])
+        np.testing.assert_allclose(cell["edt"], abs(raw_gt["edt"][i] - raw_pred["edt"][i]),
+                                   rtol=1e-12)
+        np.testing.assert_allclose(cell["c50"], abs(raw_gt["c50"][i] - raw_pred["c50"][i]),
+                                   rtol=1e-12)
+        np.testing.assert_allclose(
+            cell["t60"],
+            abs(raw_gt["t60"][i] - raw_pred["t60"][i]) / raw_gt["t60"][i] * 100.0,
+            rtol=1e-12)
+
+
+def test_raw_measures_only_look_at_the_metric_window(evaluator):
+    wave = _decaying_ir(7)
+    tail_changed = wave.copy()
+    tail_changed[pilot.METRIC_WINDOW:] = 3.0
+    a = pilot.raw_measures(wave[None, :], evaluator)
+    b = pilot.raw_measures(tail_changed[None, :], evaluator)
+    for name in a:
+        np.testing.assert_array_equal(a[name], b[name])
+
+
+def test_acoustic_gap_rejects_mismatched_blocks(evaluator):
+    with pytest.raises(ValueError):
+        pilot.acoustic_gap(np.zeros((2, 16)), np.zeros((3, 16)), evaluator)
+    with pytest.raises(ValueError):
+        pilot.raw_measures(np.zeros(16), evaluator)
