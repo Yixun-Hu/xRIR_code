@@ -612,3 +612,76 @@ def test_verify_inputs_refuses_a_run_that_no_longer_binds_its_per_sample_file(tm
     with pytest.raises(ValueError) as excinfo:
         summarize.verify_inputs(summary)
     assert "per_sample_sha256" in str(excinfo.value)
+
+
+# ------------------- round 2, finding 3: the controls table validates its own evidence
+
+def test_controls_table_refuses_a_declared_control_that_is_missing(tmp_path):
+    from tests.exp10_fixture import edit_json
+
+    run_dir = _fixture_run(tmp_path, "controls_absent")
+    edit_json(os.path.join(run_dir, "per_sample.json"),
+              lambda payload: payload["controls"].pop("ctrl_full_turn"),
+              rehash_meta=True)
+    table = summarize.controls_table(run_dir)
+    assert table["ok"] is False
+    assert table["missing_controls"] == ["ctrl_full_turn"]
+    assert "ctrl_full_turn" not in table["controls"]
+    assert table["controls"]["ctrl_zero_repeat"]["ok"] is True
+
+
+def test_controls_table_refuses_a_control_no_spec_declared(tmp_path):
+    from tests.exp10_fixture import edit_json
+
+    run_dir = _fixture_run(tmp_path, "controls_extra")
+
+    def add(payload):
+        payload["controls"]["ctrl_mystery"] = payload["controls"]["ctrl_zero_repeat"]
+
+    edit_json(os.path.join(run_dir, "per_sample.json"), add, rehash_meta=True)
+    table = summarize.controls_table(run_dir)
+    assert table["ok"] is False
+    assert table["undeclared_controls"] == ["ctrl_mystery"]
+
+
+def test_controls_table_refuses_a_null_deviation_instead_of_dropping_it(tmp_path):
+    from tests.exp10_fixture import edit_json
+
+    run_dir = _fixture_run(tmp_path, "controls_null")
+    edit_json(os.path.join(run_dir, "per_sample.json"),
+              lambda payload: payload["controls"]["ctrl_k128_repeat"]
+              ["wave_max_abs_diff"].__setitem__(1, None), rehash_meta=True)
+    table = summarize.controls_table(run_dir)
+    cell = table["controls"]["ctrl_k128_repeat"]
+    assert table["ok"] is False
+    assert cell["ok"] is False
+    assert cell["nonfinite_deviations"] == 1
+    assert any("finite" in problem for problem in cell["problems"])
+
+
+def test_controls_table_refuses_a_deviation_array_of_the_wrong_length(tmp_path):
+    from tests.exp10_fixture import edit_json
+
+    run_dir = _fixture_run(tmp_path, "controls_short")
+    edit_json(os.path.join(run_dir, "per_sample.json"),
+              lambda payload: payload["controls"]["ctrl_zero_repeat"].__setitem__(
+                  "logspec_max_abs_diff",
+                  payload["controls"]["ctrl_zero_repeat"]["logspec_max_abs_diff"][:-1]),
+              rehash_meta=True)
+    table = summarize.controls_table(run_dir)
+    cell = table["controls"]["ctrl_zero_repeat"]
+    assert table["ok"] is False and cell["ok"] is False
+    assert any("length" in problem for problem in cell["problems"])
+
+
+def test_controls_table_refuses_a_control_missing_a_required_array(tmp_path):
+    from tests.exp10_fixture import edit_json
+
+    run_dir = _fixture_run(tmp_path, "controls_incomplete")
+    edit_json(os.path.join(run_dir, "per_sample.json"),
+              lambda payload: payload["controls"]["ctrl_zero_repeat"].pop("c50_err"),
+              rehash_meta=True)
+    table = summarize.controls_table(run_dir)
+    cell = table["controls"]["ctrl_zero_repeat"]
+    assert table["ok"] is False and cell["ok"] is False
+    assert any("c50_err" in problem for problem in cell["problems"])

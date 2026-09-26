@@ -472,6 +472,28 @@ def summarize_run(run_dir, n_boot=N_BOOT, alpha=ALPHA, seeds=SEEDS):
             "n_queries": len(queries), "rooms": sorted(set(clusters)), "angles": angles}
 
 
+def _control_deviation(values, n, name, problems):
+    """One per-query deviation array: present, the right length and finite throughout.
+
+    A null deviation is a missing measurement, not a small one, so it is counted and
+    reported instead of being dropped by ``nanmax`` -- a control must never pass because
+    the evidence against it was unavailable.
+    """
+    if values is None:
+        problems.append("{} is missing".format(name))
+        return None, 0
+    array = _as_float(values)
+    if array.size != n:
+        problems.append("{} has length {}, not the run's {}".format(name, array.size, n))
+        return None, 0
+    nonfinite = int((~np.isfinite(array)).sum())
+    if nonfinite:
+        problems.append("{} is not finite for {} of {} queries".format(
+            name, nonfinite, n))
+    finite = array[np.isfinite(array)]
+    return (float(finite.max()) if finite.size else None), nonfinite
+
+
 def controls_table(run_dir, wave_tol=CONTROL_WAVE_TOLERANCE,
                    acoustic_tol=CONTROL_ACOUSTIC_TOLERANCE):
     """The plumbing controls: does a repeated inference reproduce the cell it repeats?
@@ -481,35 +503,68 @@ def controls_table(run_dir, wave_tol=CONTROL_WAVE_TOLERANCE,
     all three must land on their original to 1e-6 (waveform and log-spectrogram) and 1e-9
     (acoustic metrics), and must invalidate exactly the same queries.
 
+    The evidence is validated before any tolerance is applied: every control the run
+    **declared** in ``meta.control_specs`` must be present, no undeclared control may
+    appear, each cell must carry its two deviation arrays and every acoustic metric at the
+    run's length, and every per-query deviation must be finite.  A control with any of
+    those problems fails -- it cannot be said to have reproduced anything.
+
     Args:
         run_dir: the run directory (its controls must have been written).
         wave_tol: tolerance on the stored per-query waveform / log-spec deviations.
         acoustic_tol: tolerance on the acoustic metrics.
 
     Returns:
-        ``{"ok", "run_dir", "tolerances", "controls"}``; each control carries its maximum
-        waveform, log-spec and acoustic deviation, the worst acoustic metric, the validity
-        mismatches and ``ok``.
+        ``{"ok", "run_dir", "tolerances", "declared_controls", "missing_controls",
+        "undeclared_controls", "controls"}``; each control carries its maximum waveform,
+        log-spec and acoustic deviation, the worst acoustic metric, the validity
+        mismatches, the count of non-finite deviations, the problems found and ``ok``.
     """
     from tools.exp10_compare import load_run
 
     meta, per_sample = load_run(run_dir)
     specs = {entry["id"]: entry for entry in meta.get("control_specs", [])}
+    stored_controls = per_sample.get("controls", {})
+    n = len(per_sample["query"])
     table = {"ok": True, "run_dir": run_dir,
              "tolerances": {"waveform": float(wave_tol), "logspec": float(wave_tol),
                             "acoustic": float(acoustic_tol)},
+             "declared_controls": sorted(specs),
+             "missing_controls": sorted(set(specs) - set(stored_controls)),
+             "undeclared_controls": sorted(set(stored_controls) - set(specs)),
              "controls": {}}
-    for name, stored in sorted(per_sample.get("controls", {}).items()):
-        reference = str(int(specs.get(name, {}).get("compare_to", 0)))
-        original = per_sample["angles"][reference]
-        wave = float(np.nanmax(_as_float(stored["wave_max_abs_diff"])))
-        logspec = float(np.nanmax(_as_float(stored["logspec_max_abs_diff"])))
+    if table["missing_controls"] or table["undeclared_controls"]:
+        table["ok"] = False
+
+    for name in sorted(set(specs) & set(stored_controls)):
+        stored = stored_controls[name]
+        spec = specs[name]
+        problems = []
+        reference = str(int(spec.get("compare_to", 0)))
+        original = per_sample["angles"].get(reference)
+        if original is None:
+            problems.append("the reference angle {} is not in the run".format(reference))
+            original = {}
+
+        wave, wave_nonfinite = _control_deviation(
+            stored.get("wave_max_abs_diff"), n, "wave_max_abs_diff", problems)
+        logspec, logspec_nonfinite = _control_deviation(
+            stored.get("logspec_max_abs_diff"), n, "logspec_max_abs_diff", problems)
+
         worst_metric, worst_value, mismatches = None, 0.0, 0
         for metric in CONTROL_ACOUSTIC_METRICS:
-            if metric not in stored or metric not in original:
+            if metric not in stored:
+                problems.append("{} is missing from the control".format(metric))
+                continue
+            if metric not in original:
+                problems.append("{} is missing from the angle it repeats".format(metric))
                 continue
             control_values = _as_float(stored[metric])
             original_values = _as_float(original[metric])
+            if control_values.size != n or original_values.size != n:
+                problems.append("{} has length {}, not the run's {}".format(
+                    metric, control_values.size, n))
+                continue
             invalid = np.isfinite(control_values) != np.isfinite(original_values)
             mismatches += int(invalid.sum())
             both = np.isfinite(control_values) & np.isfinite(original_values)
@@ -517,13 +572,18 @@ def controls_table(run_dir, wave_tol=CONTROL_WAVE_TOLERANCE,
                 worst = float(np.abs(control_values[both] - original_values[both]).max())
                 if worst > worst_value:
                     worst_metric, worst_value = metric, worst
-        ok = bool(wave <= wave_tol and logspec <= wave_tol and
-                  worst_value <= acoustic_tol and mismatches == 0)
+
+        within = (wave is not None and logspec is not None and
+                  wave <= wave_tol and logspec <= wave_tol and
+                  worst_value <= acoustic_tol)
+        ok = bool(within and not problems and mismatches == 0)
         table["controls"][name] = {
-            "k": specs.get(name, {}).get("k"), "compare_to": int(reference),
+            "k": spec.get("k"), "compare_to": int(reference), "n": n,
             "wave_max_abs_diff": wave, "logspec_max_abs_diff": logspec,
             "acoustic_max_abs_diff": worst_value, "worst_acoustic_metric": worst_metric,
-            "validity_mismatches": mismatches, "ok": ok}
+            "validity_mismatches": mismatches,
+            "nonfinite_deviations": wave_nonfinite + logspec_nonfinite,
+            "problems": problems, "ok": ok}
         table["ok"] = table["ok"] and ok
     return table
 
