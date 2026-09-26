@@ -17,7 +17,7 @@ from tools import exp06_summarize_haa as subject
 
 from test_exp06_summarize_haa import (  # noqa: F401  (fixtures used by name)
     HEADING, NEW_OFFSETS, ROOMS, SIZE, arms, build_cache, cache_root, legacy_root,
-    stub_new_arms, synthetic_arm)
+    room_frame_child, stub_new_arms, synthetic_arm)
 
 G, E, D, A, C = 'yawaug_hf', 'yawaug', 'control_hf', 'control', 'cyl_or'
 
@@ -48,6 +48,21 @@ def test_the_cli_takes_exp11s_root_as_its_own_option():
     parsed = subject.build_parser().parse_args([])
     assert parsed.exp11_root == subject.EXP11_ROOT
     assert subject.build_parser().parse_args(['--exp11-root', 'x']).exp11_root == 'x'
+
+
+def test_arm_g_is_admitted_only_in_the_heading_frame(arms, tmp_path):
+    """G is registered in the heading frame, so a child that ran in the room frame -- or
+    one that bound no roll -- is refused, as D's and C's are."""
+    per = arms[G]['per']['seed0']['hallway']
+    assert per['meta']['frame'] == 'heading' and per['meta']['heading'] == HEADING
+    record = room_frame_child(tmp_path, per)
+    assert subject.child_per_sample(tmp_path, 'eval/hallway', record, G)['index']
+    record = room_frame_child(tmp_path, per, frame='room', heading=None)
+    with pytest.raises(ValueError, match="frame 'room', not the 'heading'"):
+        subject.child_per_sample(tmp_path, 'eval/hallway', record, G)
+    record = room_frame_child(tmp_path, per, heading={})
+    with pytest.raises(ValueError, match='binds no heading'):
+        subject.child_per_sample(tmp_path, 'eval/hallway', record, G)
 
 
 # --- the initialisation identity: G is checked exactly like E ---------------------------
