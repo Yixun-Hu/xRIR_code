@@ -14,3 +14,1188 @@ user
 Follow the briefing in /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/code_review_briefing.md (record on the MAIN tree; code in this worktree /home/yixunhu/codespace/xRIR_code_wt10, branch `exp10-yaw-pilot`). CLOSE review of Coder round 2 = the 12 commits `02b567a..d3e927b` (`02b567a` is the merge of main; fixes `6bfd393, 6685344, e19a6f5, 8202d22, 08ece38, c5c349e, 3781f7a, 4ac265b, a4d0584, 941ad2f, 4b33da1, d3e927b`), per the MAIN-tree `coder_prompts/round2_prompt.md`, closing your round-1 findings 1–12 (`yaw_pilot_codex_code_round1_full_review.md` on main). Coder claims: 156 exp_10 tests green (53/33/70); exp_03/exp_04 record suites 80/1; py_compile of the seven files OK; `git diff --check` clean; only the seven new files changed vs `02b567a`; the CPU smoke on batch 0 reproduces round 1's numbers (k = 0 gaps 0, controls 0, `check_online` OK, parity vs exp_03 masks identical, EDT/T60 exact, C50 4.6e-5, logspec 6.3e-6, `missing_required: []`), 6.20 s per batch-16 CPU forward (matches your 6.225 s; the round-1 "4.4 s" is withdrawn), 46 ms per query/angle inversion. Finding → commit → test map is in the Coder's report (recorded on main in the worklog after this review). Declared deviations (Planner accepts unless you find them unsound): (1) timing correction; (2) fixture `edit_json(rehash_meta=…)` so numerical-check tests use internally consistent runs while integrity tests leave the binding broken; (3) finding 4 tested with deterministic hand-built seed-0/seed-1 cells rather than a 10 000-draw fixture; (4) undeclared controls also fail; (5) a fourth paired metric `T60_abs` in the tables, not in the figure panels; (6) band label structure (generic header label + per-arm model-named label).
 
 Verify actively (read-only on tracked files; write only under `.review-round2/`; no GPU; Python 3.8; `CUDA_VISIBLE_DEVICES=""`; `XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms`; `ckpt`/`checkpoints` read-only): for each of your 12 findings, re-run your own round-1 reproduction and confirm it is now refused/fixed — in particular: (1) tamper one `per_sample.json` value → `load_run`, `check_online`, `parity_exp03`, `build_summary`, `verify_inputs` all refuse; delete one array binding → refused; (2) missing required angle/metric → `ok=False`; (3) null control deviation / missing declared control / wrong-length array → `ok=False`; (4) seed-0 negative + seed-1 crossing → headline "unresolved Monte Carlo uncertainty"; null point ratio always with a reason; (5) broader G n=4/26.5 beside paired n=3/2; (6) denominators, T60_abs, GL qualification in JSON/MD/figure footer; (7) null → no bar, actual zero → bar; (8) strict JSON on an all-invalid population; (9) Markdown rows; (10) sync at stage boundaries (source + stub tests); (11) header cell count, `or True` gone; (12) cylindrical band values and (backbone, K) keying. Also: no regression in the round-1 verified behaviours (composition, invert, bootstrap contract, identity guards, parity subset alignment, A1 mask rule, `verify_exp03_pins`); scope (only the seven files vs `02b567a`); Python 3.8 syntax; `git diff --check`; all `tests/test_exp10_*.py` and the exp_03/exp_04 record suites; re-run the CPU smoke on batch 0 + `check-online` + `parity-exp03` + summariser; dry-run `--no-ff` merge onto main (`e755792` or later) in a clone (delete it after) and confirm the merge changes only the seven files. Report: numbered findings with severity, file:line, minimal fix; "Verified"; the round-2 verdict and the merge verdict ("approved for merge" / "not approved") with the exact blocking list. Your final message is the review.
+codex
+I’ll read the briefing and round-1 findings on main, then rerun the reproductions and CPU checks in this worktree. I’ll keep tracked files untouched and put generated artifacts under `.review-round2/`.
+
+exec
+/bin/bash -lc 'pwd && git status --short && git branch --show-current && git rev-parse HEAD && cat /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/code_review_briefing.md' in /home/yixunhu/codespace/xRIR_code_wt10
+ succeeded in 0ms:
+/home/yixunhu/codespace/xRIR_code_wt10
+?? .review-round1/
+?? checkpoints
+exp10-yaw-pilot
+d3e927b2b331058dfb8045a0b50213156f1bd30a
+# exp_10 yaw_pilot — code-review briefing (read before every code review)
+
+Read, in this order: (1) `worklog/experiment_SOP.md` (this repo has no `announcement/` directory); (2) `worklog/worklog_yixun/exp_10_yaw_pilot_claude/plan_yaw_pilot.md` (v3.1, incl. §10–§12 amendment maps) and `yaw_pilot_worklog.md`; (3) the prior work this builds on: `worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/{plan_yaw_rotation_degradation.md, yaw_rotation_degradation_results.md}` and the pinned code it reuses unchanged (`eval_yaw_rotation.py`, `tools/yaw_rotation.py`, `tools/per_sample_metrics.py`, `tools/reference_manifest.py`; pins in `ckpt/yaw_rotation/binding_report.json`), plus the FLAC counterpart `/home/yixunhu/codespace/FLAC/worklog/worklog_yixun/exp_02_yaw_noninvariance_claude/{plan_yaw_noninvariance.md, yaw_noninvariance_results.md, compare_predictions.py}` and `/home/yixunhu/codespace/FLAC/analysis/pilot_study/plot_pilot_yaw_gaps.py`; (4) the round statement in the review prompt.
+
+Scope of the whole experiment: evaluation only; new files `tools/exp10_{yaw_pilot,compare,summarize}.py` + `tests/test_exp10_*.py`; no pre-existing file may change; Python 3.8; CPU or GPU; outputs under `ckpt/exp10/<arm>/`. Out of scope: training, condition E, confirmatory tests, angles beyond {0, 64, 128, 256, 384}, any FLAC/xRIR waveform-distance ranking.
+
+Review conventions: numbered findings with severity (blocker / should-fix / nit), file:line, minimal fix; a "Verified" section listing what you actually executed (tests, static checks, adversarial reproductions — write only under `.review-round*/` in the worktree); a round verdict and, when asked, a merge verdict with the exact blocking list. Your final message is the review; it is saved verbatim with an identity header.
+
+exec
+/bin/bash -lc "rg --files -g AGENTS.md -g '*exp10*' -g '*round1*' -g '*round2*' -g '*binding_report*' . /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude /home/yixunhu/codespace/xRIR_code 2>/dev/null | head -n 130" in /home/yixunhu/codespace/xRIR_code_wt10
+ succeeded in 0ms:
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_2026-09-20_00:49:27_codex_code_round1_close_review.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/coder_prompts/round1_fix_opus_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/coder_prompts/round1_opus_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_2026-09-20_00:48:30_coder_round1_fix_opus_report.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_codex_code_round1_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_2026-09-19_23:10:23_codex_code_round1_review.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/review_prompts/codex_code_round1_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/review_prompts/codex_code_round1_close_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_2026-09-19_22:19:21_coder_round1_opus_report.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_codex_code_round1_close_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/coder_prompts/round2_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/coder_prompts/round1_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_17:32:32_codex_plan_review_round2.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_code_round1_full_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_18:44:55_codex_code_round1_full.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_19:41:48_codex_code_round2_close.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/code_round1_full_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/plan_round2_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/code_round2_close_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/scripts/exp10_run_arm.sh
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_plan_review_round2.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round2_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round2_close_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_round2_closeout_full_suite.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_15:05:25_coder_round1.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/coder_prompts/round2_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/coder_prompts/round1_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_17:32:32_codex_plan_review_round2.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-15_10:07:05_codex_plan_round2_review.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_code_round1_full_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_18:44:55_codex_code_round1_full.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round2_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_19:41:48_codex_code_round2_close.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/review_prompts/code_round1_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/review_prompts/oneoffs_round2_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/review_prompts/code_round2_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-15_10:40:49_codex_code_round1.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-20_02:39:10_codex_record_review_round2.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/code_round1_full_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/plan_round2_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/code_round2_close_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round11_close_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round1_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_plan_round2_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round13_close_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round12_close_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round13b_close_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round2_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-18_22:20:33_codex_code_round11_close.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_round10_close_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/plan_round2_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_round2_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_codex_plan_round2_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/coder_prompts/round12_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/coder_prompts/round13_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_round2_closeout_rung5.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/coder_prompts/round11_relocation_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/coder_prompts/round2_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_15:43:21_coder_round2.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/coder_prompts/round1_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/coder_prompts/round13b_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/coder_prompts/round10_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-20_04:18:39_codex_code_round13_close.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_round12_close_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_record_review_round2.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-15_11:42:33_codex_code_round2.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-19_01:03:48_codex_code_round12_close.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_round13_close_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-20_05:53:01_codex_code_round13b_close.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-16_02:33:01_codex_code_round10_close.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round10_close_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_round1_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round1_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results_assets/binding_report.json
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_round13b_close_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_16:31:31_coder_round2fix.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_15:19:31_coder_round1b.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/record_review_round2_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_round11_close_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/coder_prompts/round1_opus_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/coder_prompts/round2_opus_prompt_DRAFT.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_plan_round2_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_17:44:43_codex_plan_round2_review.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/plan_round2_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/coder_prompts/round2_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/coder_prompts/round1_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/coder_prompts/round1b_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/coder_prompts/round2_fix_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_fable_code_round2_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_codex_record_review_round2.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_2026-09-12_21:40:36_coder_round1.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_2026-09-12_23:39:54_coder_round2fix.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_fable_code_round2_close_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_plan_review_round2.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/archive_codex_round2a_superseded_2026-09-15/codex_round2a_commits_a950605..edfacd3.patch
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/archive_codex_round2a_superseded_2026-09-15/codex_round2a_commits.txt
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/archive_codex_round2a_superseded_2026-09-15/codex_round2a_uncommitted.patch
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_2026-09-12_22:05:28_coder_round2.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_codex_plan_round2_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_05_param_efficiency_claude/review_prompts/record_review_round2_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_05_param_efficiency_claude/review_prompts/plan_round2_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_fable_code_round1_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_2026-09-18_21:46:17_codex_record_review_round2.log
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/scripts/exp10_run_arm.sh
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_05_param_efficiency_claude/coder_prompts/round1_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_05_param_efficiency_claude/coder_prompts/round2_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_05_param_efficiency_claude/coder_prompts/round2_fix_prompt.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/review_prompts/plan_round2_prompt.md
+./.review-round1/main/tests_test_exp10_yaw_pilot.pyc
+./tools/exp10_compare.py
+./tools/exp10_yaw_pilot.py
+./tools/exp10_summarize.py
+./.review-round1/main/tests_test_exp10_compare.pyc
+./.review-round1/main/tools_exp10_compare.pyc
+./.review-round1/main/tests_test_exp10_summarize.pyc
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round2a_close2_review.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_00:57:18_coder_round2a_opus_report.md
+/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_05:07:00_coder_round2a_fix4_opus_report.md
+./tests/test_exp10_summarize.py
+./tests/test_exp10_compare.py
+./tests/exp10_fixture.py
+./tests/test_exp10_yaw_pilot.py
+./worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_2026-09-20_00:49:27_codex_code_round1_close_review.log
+./worklog/worklog_yixun/exp_09_yawaug_haa_claude/coder_prompts/round1_fix_opus_prompt.md
+./worklog/worklog_yixun/exp_09_yawaug_haa_claude/coder_prompts/round1_opus_prompt.md
+./worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_2026-09-20_00:48:30_coder_round1_fix_opus_report.md
+./worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_codex_code_round1_review.md
+./worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_2026-09-19_23:10:23_codex_code_round1_review.log
+./worklog/worklog_yixun/exp_09_yawaug_haa_claude/review_prompts/codex_code_round1_prompt.md
+./worklog/worklog_yixun/exp_09_yawaug_haa_claude/review_prompts/codex_code_round1_close_prompt.md
+
+exec
+/bin/bash -lc 'cat /home/yixunhu/codespace/xRIR_code/worklog/experiment_SOP.md' in /home/yixunhu/codespace/xRIR_code_wt10
+ succeeded in 0ms:
+# Experiment SOP (portable)
+
+A generalizable standard operating procedure for AI-assisted research experiments. Drop this file into any project and reference it from that project's `CLAUDE.md` (e.g. "Follow `worklog/experiment_SOP.md` for all experiment work"). Written for Claude Code, but the roles are model-agnostic.
+
+## Roles (three-model separation of duties)
+
+| Role | Who | Duty |
+|---|---|---|
+| **Planner / Analyst** | The main-session model (strongest reasoning tier; currently Claude Fable 5.1) | Writes plans, judges reliability, writes analyses. Does NOT write implementation code directly. |
+| **Coder** | The strongest coding model at its highest reasoning setting — **currently Claude Opus 5 at max effort, a separate subagent launched from the main session (Agent tool, model `opus`) working in a dedicated git worktree (per Yixun 2026-09-15; 2026-09-12 → 2026-09-15 it was OpenAI Codex `gpt-6-astra` at Ultra via `codex exec`; before that a Claude Opus 4.8 max-effort subagent)** | Implements exactly what the approved plan specifies. |
+| **Reviewer** | **The opposite model family from the Coder** (mandatory cross-model review; see reciprocity note below). | Reviews all newly written code; review is saved, not just read. If the reviewer is unavailable, say so — never silently substitute. |
+
+> **Reviewer reciprocity — no model reviews its own code.** The Reviewer is always the opposite model family from the **Coder**. With the current roles (Planner Claude Fable 5.1, Coder Claude Opus 5; per Yixun 2026-09-15), the code Reviewer is **OpenAI Codex `gpt-6-astra` at Ultra** (`codex exec -s read-only` in the worktree; its final message is saved as the review file with the identity header). When the Coder was Codex (2026-09-12 → 2026-09-15), the code Reviewer was a separate Claude Fable 5.1 subagent launched from the main session with the reviewer briefing, so the review context was independent of the Planner's. Plan reviews follow the same rule (the Planner is Claude, so plans are reviewed by Codex). The Coder and Reviewer must always be different model families, so review is genuinely independent.
+
+> **Reviewer briefing — load context before judging.** Every review prompt (plan or code) must direct the Reviewer to read, before reviewing: (1) this SOP and all `worklog/worklog_<username>/announcement/` directives; (2) the experiment's `plan_*.md` and `_worklog.md` notebook (what was decided and why, including plan amendments); (3) the results/analyses of the PRIOR experiments the work builds on (e.g. baseline numbers and noise floor); (4) a one-paragraph statement of what the current Coder round was tasked to do and what is explicitly out of scope for this round. A reviewer without this context produces generic reviews, flags out-of-scope "gaps", and misses violations of experiment-specific decisions.
+
+## Directory layout
+
+All experiment bookkeeping lives in `worklog/` at the repo root, **namespaced per user** (rule updated 2026-07-12):
+
+- `worklog/experiment_SOP.md` — **this file lives directly under `worklog/`, NOT inside any user namespace** (it is shared/portable across users).
+- `worklog/worklog_<username>/` — one namespace folder per user; ALL of that user's experiment logging goes inside it (in this project `<username>` = `yixun` → `worklog/worklog_yixun/`). Every logging path that previously sat directly under `worklog/` now sits under `worklog_<username>/`:
+  - `worklog/worklog_<username>/announcement/<NN>_<topic>.md` — standing directives from the user. **Read every announcement before planning or running anything.** New standing instructions get the next number.
+  - `worklog/worklog_<username>/exp_<NN>_<exp name>_claude/` — one folder per experiment, `<NN>` zero-padded and sequential.
+  - `worklog/worklog_<username>/archive_<reason>_<date>/` — archived/superseded code (see Development discipline).
+
+## Per-experiment artifacts (in lifecycle order)
+
+Inside `worklog/worklog_<username>/exp_<NN>_<exp name>_claude/`:
+
+1. `<exp name>_<username>_query.md` — the user's driving queries: each one verbatim, plus a summary, the user's assumption/hypothesis, and why the experiment needs to run. Started at scaffold time, appended as new queries arrive. (`<username>` is the same name as in the `worklog_<username>` namespace folder — here `yixun`, e.g. `<exp name>_yixun_query.md`.)
+2. `plan_<exp name>.md` — written by the Planner BEFORE any code: the English plan AND the planned code laid out per file (each existing file to edit, each new file to create). Surfaced for user approval before implementation.
+3. `<exp name>_<reviewer>_plan_review.md` — the Reviewer's review of the PLAN, before user approval and before any implementation: method soundness, hidden assumptions, missing tests/controls, run design. Same reviewer-naming and identity-header rules as the code review below. Planner addresses the findings (revising the plan) before the user signs off.
+4. *(the implementation itself)* — the code, written by the Coder subagent per the approved plan. No dedicated markdown artifact; this step is the source-code changes.
+5. `<exp name>_<reviewer>_code_<marker>_review.md` — **one small review per Coder round, not one big review at the end**: after EVERY round of Coder output (a TDD red→green cycle, a code snippet, or a coherent commit group), the Reviewer reviews that round's commits BEFORE the next round starts. `<reviewer>` names the reviewing model (`codex` / `opus`); `<marker>` identifies the round — the TDD-cycle or snippet name, or the short name of the main commit (e.g. `<exp name>_codex_code_cyl_pose_review.md`, `<exp name>_codex_code_dispatch_review.md`). **A round is CLOSED only when its full loop has run: code written → review returned → strengthening/fixes applied by the Coder for every blocking finding → fixes re-verified (tests green; re-review or Planner verification of the fix) → loop outcome logged in `_worklog.md` with the fix commit SHAs.** No new round starts, and no run launches, while any round is open. Nits may be batched into the next round; blocking findings may not. A final integrative review of the whole experiment diff (marker `full`) still runs before the first expensive launch. Record "N/A — no code written" for code-free experiments. Every review file MUST open with a header giving the reviewer's exact identity: model/product name and version, invocation method, and review date — e.g. `**Reviewer:** OpenAI Codex (codex-cli 0.144.1, \`codex exec\`, read-only sandbox) · **Date:** 2026-07-10`. **Reviews (plan and code) always use the Reviewer family's strongest available model at its highest reasoning setting** — currently `gpt-6-astra` at Ultra (`model = "gpt-6-astra"`, `model_reasoning_effort = "ultra"` in `~/.codex/config.toml`; per Yixun 2026-09-12; supersedes `gpt-5.6-sol`; requires codex-cli ≥ 0.154 — 0.144.1 rejects the model) for Codex, Claude Fable 5.1 for Claude (per Yixun 2026-09-12; previously Claude Opus 4.8 at max effort). Since 2026-09-15 the Coder is Claude Opus 5, so code reviews are Codex (`<exp name>_codex_code_<marker>_review.md`) and plan reviews stay Codex; a Coder change mid-experiment is logged in the notebook and rounds keep single authorship (an in-flight round of the previous Coder is archived, not mixed).
+6. `<exp name>_params_set_up.md` — full hyperparameters/configuration, written at launch.
+7. `<exp name>_command.md` — exact reproduction command(s). **Rule: EVERY experiment/run launched gets its command added to this file AT LAUNCH TIME, not retroactively** — including reruns, amended iterations, probes that produce run artifacts, and diagnostics; failed/superseded runs stay in the file (marked as such) because reproducing the failure is part of the record. The notebook records *why*, this file records *how to reproduce*.
+8. `<exp name>_worklog.md` — an append-only, timestamped **lab notebook: one entry per action**, not per run. Started at scaffold, appended continuously through implementation, debugging, and every launch. This is where the validation ladder, parity audit, and failure triage (below) get recorded as they happen. Entry format in **Worklog entry template** below. Complements `_results.md` (final numbers) and `_analysis.md` (final judgment) by capturing the decision/debug trail in between.
+9. `<exp name>_<YYYY-MM-DD_HH:MM:SS>.log` — ALL terminal output, one timestamped log per run (tee/redirect every training/eval command into the folder). Aborted runs keep their log, renamed with an `_ABORTED_<reason>` suffix.
+10. `<exp name>_results.md` — results, appended as runs finish.
+11. `<exp name>_analysis.md` — written by the Planner after results land: analyze all code + configuration + results; judge whether the result is reliable; state the outcome and the recommended next step.
+12. `commits_<exp name>.md` — SHA + one-line description of every commit belonging to this experiment.
+13. `<exp name>_<idx>_results.html` — **rich HTML results visualization, produced after the experiment finishes** (alongside, not replacing, `_results.md`): tables, equations (MathJax/KaTeX or clean HTML math), figures/plots, color-coded verdict blocks, run-trajectory charts — use the full expressive range of HTML/CSS to make the results maximally human-readable. `<idx>` is chosen by the author to separate distinct parts of the visualization when one page would overload (e.g. `..._01_results.html` for gate tables, `..._02_results.html` for mechanism decomposition); a single `_01_` page is fine for simple experiments. **All sourced assets (generated plot images, data extracts, JS/CSS) live in a corresponding folder inside the experiment directory** (e.g. `exp_<NN>_<exp name>_claude/<exp name>_results_assets/`) and are referenced relatively, so the HTML renders offline from a repo checkout. Charts follow the project's visualization standards (load the dataviz guidance before writing chart code). The HTML must be self-consistent with `_results.md` numbers — it is a presentation layer, never a place where numbers appear first.
+
+## Worklog entry template
+
+Each `_worklog.md` entry is one action, headed by an ISO-8601 timestamp in **local time with UTC offset** (same clock as the run-log filenames) and a short title, then these fields. Use the full set for substantive actions (code, launches, fixes); a lightweight **Goal / Result / Analysis / Next** is enough for routine monitoring checks.
+
+`## <YYYY-MM-DDThh:mm:ss±hh:mm> — <short title>`
+
+- **Goal** — what this action is for. *(every entry)*
+- **Hypothesis** — the belief being tested, stated *before* the evidence. *(only when testing something)*
+- **Change** — exact files/behavior touched. *(when code changed)*
+- **Version Control** — branch, `base_commit`, `implementation_commit`, push/pull, changed_files. Every SHA inline.
+- **Command / Validation** — exact commands (or static checks), job ids, run dirs, log + artifact paths.
+- **Acceptance criteria** — the exact conditions that count as success, written *before* a launch (see **Running & failure discipline**).
+- **Result** — status (`passed` / `partial` / `in_progress` / `launched` / `fix_ready`) + metrics/artifacts + key evidence.
+- **Analysis** — interpretation; in particular classify any failure as *infrastructure vs. real bug*.
+- **Next** — the immediate next step.
+
+## Development discipline
+
+- Develop **commit by commit, experiment by experiment** from a known-good base commit. No long-lived uncommitted state: an experiment concludes by committing its code and its worklog folder.
+- **Each commit generally < 200 changed lines of code.** Several small commits per experiment are preferred over one large one. Log every SHA in `commits_<exp name>.md`.
+- **Test-driven development (mandatory for all new functions)** — per [TDD](https://en.wikipedia.org/wiki/Test-driven_development): for each small function, write its test FIRST (pytest, in a dedicated `tests/` folder — **ask the user where to place it** the first time tests are added to a project; do not assume repo root), run it to confirm it fails (red), then implement the minimal function that passes (green), then refactor with tests green. Each red→green cycle maps naturally onto one small commit (tests may land in the same commit as the implementation or the commit immediately before it — never after). Tests are permanent regression assets: they stay in `tests/` and must keep passing in later experiments; run the relevant test subset as rung 1½ of the validation ladder.
+- **Universal review coverage (2026-07-06):** EVERY piece of code — Coder-written source, AND Planner-written one-off scripts (page/visual generators, probe drivers, analysis one-offs) — goes through the Reviewer loop before its round closes. Small scripts may be batched into one consolidated review round; nothing executable that informs a decision or artifact ships unreviewed.
+- Superseded or exploratory code is archived (patch + files) under `worklog/worklog_<username>/archive_<reason>_<date>/` before being removed from the working tree — never destroyed.
+
+## Validation ladder (cheapest-first)
+
+Never jump straight to the expensive run. Climb this ladder; advance only when the current rung passes, and record each rung in `_worklog.md`.
+
+1. **Static checks** — `python -m py_compile <changed .py>`, config parse (`yaml.safe_load`), `bash -n <changed .sh>`, `git diff --check` (whitespace). Seconds, no accelerator.
+2. **Tiny synthetic forward** — smallest module instantiation + one forward/step on a small/cheap device with synthetic tensors. Catches graph/mesh/shape/dtype/timestep errors without loading full weights or data.
+3. **Small real-data readback** — parse a few real records; assert shapes, byte lengths, and min/max/std match the schema. Catches data-pipeline mismatches.
+4. **Bounded data build** — if the experiment produces a dataset, build the val split (or a bounded slice) first and read it back before the full build.
+5. **Smoke run** — a few steps at the smallest batch on the target hardware, checkpointing/final-save **disabled** (storage-light), just to reach one completed optimizer step and produce logs.
+6. **Fit / batch-size probe** — find the max batch that fits, still storage-light (no checkpoints), before committing to the full run.
+7. **Full run** — only after 1–6 pass and the parity audit below is clean.
+
+## Parity audit before scaling
+
+Before spending real compute on a new method, audit the implementation **component by component against the reference** (paper code / upstream repo), and diff the *numbers*, not just the shapes:
+
+- **Numeric recipe defaults** — LayerNorm eps, weight decay, betas, LR schedule, loss type, sigma/noise schedule, CFG handling. Silent mismatches (e.g. eps `1e-6` vs `1e-5`, weight decay `0` vs `1e-2`) don't crash; they quietly corrupt results.
+- **Structural parity** — which params are trainable vs frozen, residual/injection points, stop-gradient boundaries, any pinning/masking.
+- **Data parity** — take one concrete source example and its processed/cached counterpart; confirm identical dtype, byte counts, and min/max/std.
+
+Record the audit in `_worklog.md`; launch the full-scale run only from the audited commit.
+
+## Running & failure discipline
+
+- **Pre-launch acceptance criteria.** Before every launch, write in `_worklog.md` the exact conditions that count as success: the commit SHA the worker must report, device/host count, per-device and global batch, parallelism axes, which params are trainable, and "reaches ≥1 optimizer step with no OOM / NaN / parse failure." Judge the run against these, not vibes.
+- **Infrastructure vs. real bug.** In every failure Analysis, classify the cause: *infrastructure* (spot preemption, host maintenance, download/network stall, launch-env/PATH, quota) vs. *real bug* (wrong shape/sharding, wrong objective, bad schedule). Only real bugs get a code fix; infra failures get retry/resume. Prevents thrashing on non-bugs.
+- **Commit + push before running remotely.** Any remote (TPU/cluster) run executes a *pushed* SHA; verify the SHA the worker actually checked out. Never run uncommitted code on a remote.
+- **Never edit a script while it is running.** Wait for a safe boundary, then patch; fix orchestration bugs separately from the data/model path.
+- **Resume from the last safe boundary.** On a mid-pipeline crash, find the last fully-committed unit (contiguous shard / checkpoint) and resume from the next; never duplicate or lose work, never reuse stale staging.
+- **Storage guardrail.** Long data/checkpoint jobs hold only a bounded working set (one batch/segment resident), clean up after each unit, and stay above an explicit free-space floor; contiguous coverage is the correctness check.
+- **Shared-resource etiquette.** Inspect a shared machine's processes before using it; don't interrupt others' jobs without approval; verify zero stale processes/watchers/queued-resources after a failed run before relaunching.
+
+## Evaluation integrity
+
+- Always compare against the baseline method on its **full published evaluation configuration** — the complete split files and dataset configs the baseline's paper used. Never invent new eval configurations (subsampled items, hand-picked examples, reduced splits) for comparisons; subsets are for debugging only and never appear in `_results.md`.
+- Reproduce the baseline's reported numbers (within its reported variance) **before** evaluating any new method, to calibrate the pipeline and establish the noise floor.
+- Match the baseline's aggregation convention (e.g. per-scene means) and its variance protocol (e.g. mean ± std over N generations/seeds).
+- If a run is launched and the code state then changes (revert, edit), kill and relaunch rather than mixing code states across a sweep; document the abort in `_params_set_up.md`.
+
+## Sequencing summary
+
+scaffold folder + `_yixun_query.md` + `_worklog.md` → `plan_*.md` (Planner, incl. per-function test list) → `_<reviewer>_plan_review.md` (Reviewer, strongest model at highest reasoning) → Planner revises → user approves → **TDD loop**, per round: (Coder: test first → red → implement → green, one small commit per cycle) → `_<reviewer>_code_<marker>_review.md` (Reviewer, per-round small review; blocking findings fixed before the next round) → next round … → **validation ladder** (static → tests → smoke → probe) → `_<reviewer>_code_full_review.md` (Reviewer, integrative) → **parity audit** vs reference → `_params_set_up.md` + `_command.md` + **acceptance criteria** → launch with teed timestamped logs, triaging *infra-vs-bug* on failure → `_results.md` → `_analysis.md` (Planner) → **`<exp name>_<idx>_results.html`** (+ assets folder) → commit(s) + `commits_*.md`. Log every action in `_worklog.md` as it happens.
+
+exec
+/bin/bash -lc 'cat /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/plan_yaw_pilot.md /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_worklog.md' in /home/yixunhu/codespace/xRIR_code_wt10
+ succeeded in 0ms:
+# Plan — exp_10 `yaw_pilot` (xRIR analogue of FLAC exp_02 `yaw_noninvariance`)
+
+**Planner:** Claude Fable 5.1 (session xrir-code-25). **Coder:** Claude Opus 5 (Agent, worktree `xRIR_code_wt10`, branch `exp10-yaw-pilot`). **Reviewer:** OpenAI Codex `gpt-6-astra` at **ultra** (SOP setting; round 1 ran at xhigh, see §10). **Date:** 2026-09-26. **Status:** **v3.1 — APPROVED WITH CHANGES** by the round-3 review at ultra (`yaw_pilot_codex_plan_review_round3.md`; its 3 should-fixes + 1 nit are the binding amendments A1–A4 of §12). v3 was the round-2 revision at ultra (`yaw_pilot_codex_plan_review_round2.md`, REQUEST CHANGES, 1 blocker + 5 should-fixes + 2 nits; §11 maps them); v2 was the round-1 revision (`yaw_pilot_codex_plan_review.md`; §10). v1 kept as `plan_yaw_pilot_v1_superseded.md`.
+
+## 1. Question and stance
+
+**Question (Yixun, 2026-09-26).** Mimicking FLAC's exp_02 pilot: when the *conditioning* of the released xRIR checkpoint is yaw-rotated on the AcousticRooms unseen split, how much does the **prediction itself move** (Metric 1, P_α vs P_0, no GT) compared with how much **accuracy vs GT changes** (Metric 2)? FLAC's finding: "predictions move ~5× more than net accuracy loses".
+
+**Stance.** A **descriptive pilot**, like FLAC's: paired means with query-level bootstrap intervals; no confirmatory hypotheses (exp_03 already ran the Bonferroni-adjusted H1/H2 tests on Metric 2 for K = 8). Pre-registered readouts, per arm, angle and metric:
+
+- **R1** signed accuracy change Δ(α) = mean(e_α − e_0) vs GT, and prediction shift G(α) = mean(g_α), each with a 95 % paired query-level percentile bootstrap interval, on the **shared comparison mask** of §4; paired-valid count and exclusions reported.
+- **R2** the ratio R = G/Δ, from the **same resamples**, with an explicit **status**: `defined` (Δ interval entirely positive), `improvement` (Δ interval entirely negative — reported as "predictions shift while net error improves", never as a positive multiple), `denominator uncertain` (Δ interval contains 0 — no ratio interval is reported, and this is **not** equivalence or invariance), `undefined` (any resample with Δ* exactly 0; the fraction of such draws is reported; draws are never discarded, no epsilon, no |Δ|). The status and the ratio interval are computed and reported **separately for the query-level and the room-cluster bootstrap**; the FLAC-style statement "shift ≫ change" requires status `defined` and a ratio lower bound > 2 **at the query level, with the room-level status printed beside it** (exp_03 showed query-level T60 intervals excluding 0 whose room-level intervals cross 0). Every headline statement is scoped to the checkpoint, the reference manifest, the phase seed and this fixed split. "Improvements and deteriorations cancel" may only be written with their paired contributions shown (fraction of queries with e_α > e_0, and the mean positive and mean negative parts of e_α − e_0); it is never inferred from G/Δ alone. Ratios only for metrics whose error and gap share a definition (EDT seconds, C50 dB; T60 is qualified, §4).
+- **R3** the **GL-free spectral shift** (`logspec_mad`, `mag_rel_l2`) reported beside the waveform/acoustic shift, and labelled: waveform and acoustic gaps are the sensitivity of the **model-plus-Griffin-Lim pipeline** conditional on the per-query phase seed (shared phase initialisation removes initialisation noise; Griffin-Lim's nonlinear response to magnitude changes remains and **can amplify** differences). No FLAC/xRIR *waveform-distance* ranking is made (FLAC's rel-L2 is over 10 240 directly decoded samples; xRIR's over 9 600 samples of an inverted magnitude, 21 of them padding); the FLAC-comparable quantities are the acoustic gaps under the same "P_0 as GT" convention — a **conceptual**, not a numerically identical, comparability: both evaluators use the first 8 000 samples at 22 050 Hz (verified by the reviewer), but FLAC substitutes −1 for a failed T60 measurement and includes it in the AcousticRooms error (`FLAC/src/metrics/modules/RT60.py`), whereas xRIR returns NaN and excludes the query (`tools/per_sample_metrics.py`), and FLAC adds a small constant inside the C50 logarithm. The analysis records these estimator / invalid-policy differences beside every cross-family comparison and qualifies T60 and C50 comparisons accordingly; the pinned xRIR evaluator is not changed.
+
+## 2. Mechanism recap (exp_03; unchanged)
+
+Geometry enters `xRIR.forward` through the ViT views `(loc − depth_coord)/5` and the sinusoidal embedding of raw xyz. Active yaw by k columns (W = 512): `depth' = Rz(2πk/W)·roll(depth, k)`, `src' = Rz·src`, `ref_locs' = Rz·ref_locs`; reference audio and target unchanged (`tools/yaw_rotation.rotate_scene_yaw`, oracle-tested in exp_03). Condition **P** pins the direct-path alignment at k = 0 (`tools/yaw_rotation.fixed_alignment`) so only the geometry branches see the rotation — the analogue of FLAC's `--rotate-deg`, which rotates the conditioning and leaves the audio untouched. exp_03 measured E (end-to-end alignment) = P to 2e-5 **at K = 8**; E is not run here. The model outputs a log-magnitude `out` `[F=63, T=310]`; the magnitude is `M = exp(out) − 1e-8` (built on the inference device, then moved to CPU exactly as exp_03's `acoustic_metrics_batch` does) and the waveform is Griffin-Lim on CPU (`tools/per_sample_metrics.griffin_lim_seeded`, 32 iterations, phase seeded by `sample_seed(gl_seed, query)`), 9 579 samples zero-padded to 9 600.
+
+## 3. Arms, references, angles, backend
+
+| Arm | Checkpoint | K | Manifest (exp_03's, hashed) | Role |
+|---|---|---|---|---|
+| `released_k8` | `checkpoints/xRIR_unseen.pth` (authors', frozen; sha256 `1762c702…`) | 8 | `ckpt/yaw_rotation/reference_manifest.json` (`47637a55…`) | **primary** — FLAC analogue at xRIR's paper setting; Metric 2 replicates exp_03 `sweep_released` |
+| `released_k1` | same | **trained K = 8, evaluated K = 1** | `ckpt/yaw_rotation/reference_manifest_k1.json` (`f6d71f86…`) | FLAC's reference count only (not its protocol); **no exp_03 predecessor** — parity vs exp_03 unavailable; K = 1 vs K = 8 differences are not attributed to reference count alone |
+| `control_k8` | `ckpt/xRIR_simple_8_shot/epoch_12.pth` | 8 | `47637a55…` | same-budget SimpleViT; replicates exp_03 `sweep_control` |
+| `cyl_k8` | `ckpt/xRIR_cyl_8_shot/epoch_12.pth` | 8 | `47637a55…` | CylindricalViT; replicates exp_03 `sweep_cyl` |
+
+Execution order = table order. Settings identical to exp_03's sweeps: batch 16 with canonical padding (`eval_yaw_rotation.pad_batch`), TF32 off, float32, `gl_seed 0`, acoustic metrics on the first 8 000 samples, unseen split, 6 337 queries / 17 rooms, canonical manifest order. Strict `load_state_dict`; the CLI `--num-shot`, the manifest's `num_shot` and the built model's K must agree (refused otherwise). **Angles k ∈ {0, 64, 128, 256, 384}** = 0°, 45°, 90°, 180°, 270° (FLAC's three axis angles plus 45°, exp_03's peak; all on exp_03's acoustic grid).
+
+**Backend.** Primary backend is **GPU 1** (A6000, the same class exp_03 used; a **4–5 h** co-tenancy window at ≈ 4 GB, starting after the cylindrical-dinov3 session's ping when its exp_24 fine-tune exits (≈ 22:30 on 2026-09-26), agreed by that session; ≈ 30 % slowdown expected; the earlier "≈ 2 h" figure is superseded, and the full sweep is scheduled only after the probe's per-arm forecast fits the window). The tool also runs on CPU (runtime, scoped replacement of `model.xRIR.apply_delay`, which hard-codes `.cuda()`); the CPU path is the fallback and, if used for any arm, is reported as a **separate CPU protocol** unless the §7 parity gate passes on it. Library and precision pins recorded in meta: torch 2.0.1+cu117, numpy 1.23, TF32 off, `torch.backends.cudnn.deterministic = True`, float32.
+
+## 4. Metrics (per query; NaN = invalid, never imputed)
+
+**Metric 2 — accuracy vs GT at angle α (condition P):** `edt_err` (s), `c50_err` (dB), `t60_err` (% of T60(GT)) via `tools.per_sample_metrics.acoustic_metrics(pred = w_α, gt = GT)` (exp_03's validity rules, 8 000-sample window); `log_mse` and the test `loss` via `per_sample_losses`. **Raw measures** are also stored per angle (`edt_pred`, `c50_pred`, `t60_pred` and once `edt_gt`, `c50_gt`, `t60_gt`, from the same `Evaluator` calls, NaN under the same exceptions) so any normalisation can be recomputed offline; a test checks that the canonical error equals the error rebuilt from the raw measures wherever both are finite.
+
+**Metric 1 — prediction shift, P_α vs P_0, no GT:**
+- `wave_rel_l2` = ‖w_α − w_0‖₂ / (‖w_0‖₂ + 1e-8) and `wave_mad` = mean|w_α − w_0| over the stored 9 600-sample float32 waveforms (FLAC's `compare_predictions.waveform_gap` definitions; window difference stated in §1);
+- `mag_rel_l2` = ‖M_α − M_0‖_F / ‖M_0‖_F with `M = exp(out) − 1e-8`, and `logspec_mad` = mean|out_α − out_0| (**= exp_03's `consistency`**, computed on the model's log-magnitude output, not a fresh log of M);
+- acoustic gaps `edt_gap` (s), `c50_gap` (dB), `t60_gap` (% of T60(w_0)) = `acoustic_metrics(pred = w_α, gt = w_0)` — FLAC's "P_ref as GT" convention; plus the absolute supplement `t60_gap_abs` = |T60(w_α) − T60(w_0)| (s) and `t60_err_abs` = |T60(w_α) − T60(GT)| (s) from the raw measures.
+
+**T60 normalisations.** ΔT60 is a **percentage-point change in the GT-normalised error**; G_T60 is a **percent of the baseline prediction's T60**; their ratio is reported only with that qualification, and the absolute-seconds pair (`t60_err_abs`, `t60_gap_abs`) gives the same-unit comparison. EDT (s) and C50 (dB) are same-unit by construction.
+
+**Paired-bootstrap contract (per arm, angle, metric).** Comparison mask = queries where `e_0`, `e_α` and `g_α` are all finite (for spectral metrics the mask is all queries). One draw of query indices per replicate (10 000 replicates, seed 0, 95 % two-sided percentile); from the same draw compute Δ* = mean(e_α − e_0), G* = mean(g_α), R* = G*/Δ*. Report n_mask and the exclusion counts by cause (invalid at 0, at α, gap invalid). A standalone G on the broader "g_α finite" population is reported separately and labelled as such. Ratio status per R2. **Room-cluster bootstrap** (secondary): resample the 17 rooms with replacement, keep every query of a drawn room with the drawn multiplicity, recompute the query-weighted means (no per-room averaging). **Status precedence:** `undefined` (any exact-zero Δ* draw) is decided first; then `improvement` / `defined` / `denominator uncertain` from the interval; the same rule is applied to the query-level and the room-level intervals independently. **Convergence:** every reported bound recomputed with seed 1; movement < 10 % of the interval width; an interval of zero width that is identical under both seeds (k = 0: Δ = G = [0, 0]) counts as converged, a zero-width interval that changed counts as failed, and an absent ratio interval is "not applicable" (test 12 includes a k = 0 fixture). **Historical variability band** (figure only): exp_04's five-seed SD of the same-budget SimpleViT at K = 8 (EDT 0.186 ms, C50 0.0053 dB, T60 0.009 %) / K = 1 (0.609 ms, 0.0133 dB, 0.101 %) and the cylindrical SDs for `cyl_k8` — labelled "historical baseline evaluation variability (references and phases redrawn), context only"; it plays no role in any decision or acceptance; the paired CIs are the uncertainty statement.
+
+## 5. Planned code (new files only; exp_03's pinned closure untouched — verified before launch by `tests/test_exp03_record_tools.py`, whose pins cover `eval_yaw_rotation.py`, `tools/{yaw_rotation,reference_manifest,per_sample_metrics}.py`, `model/*`, the dataset and `utils/spec_utils.py`)
+
+Reused unchanged: `eval_yaw_rotation.pad_batch`, `load_checked_manifest`, `build_manifest_dataset`; `tools.yaw_rotation.rotate_scene_yaw`, `fixed_alignment`; `tools.per_sample_metrics.per_sample_losses`, `griffin_lim_seeded`, `sample_seed`, `acoustic_metrics`; `eval_unseen.Evaluator`; `model.xRIR_cyl.build_xrir`; `eval_xRIR_backbone.load_model_state`.
+
+| File | Purpose |
+|---|---|
+| `tools/exp10_yaw_pilot.py` | `device_agnostic_apply_delay(signal, delays)`; `patched_apply_delay()` context manager (installs/restores `model.xRIR.apply_delay`; used by `run` for every device so GPU and CPU take one code path); `angle_logspec(model, depth, refs, src, ref_locs, tgt, k, aligned0)` → `out_k [n, F, T]` (under `fixed_alignment`); `invert(out, keys, gl_seed)` → float32 `[n, 9600]` (M built on the output's device, GL on CPU); `waveform_gap(w0, wk)`, `spectrogram_gap(out0, outk)`, `acoustic_gap(w0, wk, evaluator, want_t60)`, `raw_measures(w, evaluator)`; `evaluate_batch(model, batch, ks, evaluator, gl_seed, batch_size, device)` → per-query metrics per k and the float32 waveforms the metrics were computed from; `select_probe_batches(dataset, per_room=1)` → the first canonical batch lying entirely inside each room (17 batches, 272 queries); `run(args)` with `--batches all|probe|<list>`, `--controls` (§7), hash-checked manifest, canonical-order check, K agreement check, outputs under `ckpt/exp10/<arm>/`: `per_sample.json` (all metrics + raw measures per k, ordered query ids, controls), `metrics.json`, `wav_k<k>.npy` float32 `[N, 9600]`, `meta.json` (a `run_id` = checkpoint sha256 + manifest hash + gl_seed + K + device + backend flags, backbone, manifest path, cudnn/TF32 flags, torch/numpy versions, git commit, the `verify_exp03_pins` comparison, native length 9 579, padded 9 600, sample rate, metric window, per-array sha256, query-list sha256, `per_sample.json` sha256, timing breakdown, complete = true only after the last write) |
+| `tools/exp10_compare.py` | FLAC-style offline comparator from stored arrays (meta guard: checkpoint sha256, manifest hash, gl_seed, K, array sha256s, query-list sha256, `complete`); `check_online` (offline **waveform and acoustic** gaps == online, 1e-6 — the spectral quantities `logspec_mad` / `mag_rel_l2` are computed online from the model's direct output, retained and hashed in `per_sample.json`, and are NOT recomputable from finite-iteration Griffin-Lim waveforms, so they are excluded from the offline check by contract); `parity_exp03(run, exp03_per_sample)`: verifies manifest-hash identity, maps the run's canonical query indices into the historical file (unique indices, `index`/`query` agreement), extracts exactly those rows and requires ordered equality of the query lists — refuses missing, duplicate or reordered queries — then reports, per angle and metric, the paired Δ from both sources, the per-sample |Δ| distribution of `edt_err`/`c50_err`/`t60_err`/`logspec_mad`, sign agreement and the validity-mask mismatches; runs on the probe subset (272 rows) and again over the full results; `verify_exp03_pins(binding_report)`: sha256 of every `source_closure` path in `ckpt/yaw_rotation/binding_report.json` (12 files, reviewed commit `62c9107b…`) compared with its `reviewed_blob_sha256` — refuses on any mismatch and returns the comparison for the run meta |
+| `tools/exp10_summarize.py` | canonical JSON (with input sha256s) + Markdown tables: Metric 2 (mean_0, mean_α, Δ, CI, n_mask, exclusions), Metric 1 (each gap, CI, n), ratio + status, room-cluster intervals, convergence, controls; figure `yaw_pilot_gaps_<arm>.{pdf,png}` in FLAC's style — panels T60 / C50 / EDT / GL-free spectral shift; **signed** degradation bars with CI error bars, shift bars with CI, n_mask and ratio status annotated, historical band labelled — plus a four-arm combined figure; CSV of every plotted value |
+| `tests/test_exp10_yaw_pilot.py`, `tests/test_exp10_compare.py`, `tests/test_exp10_summarize.py` | §6 |
+
+## 6. Per-function tests (TDD; red → green; one small commit per cycle)
+
+`tools/exp10_yaw_pilot.py`
+1. `waveform_gap`: identity → (0, 0); `rel_l2(w, 2w) = 1`; zero reference → finite; `[n, T]` → `[n]`.
+2. `spectrogram_gap`: identity → 0; `logspec_mad` = mean|a − b|; `mag_rel_l2` uses `exp(out) − 1e-8` (checked against a hand computation).
+3. `acoustic_gap` / `raw_measures`: identity → EDT 0, C50 0, T60 0; `want_t60=False` → NaN; all-zero input → NaN, no exception; canonical error == error rebuilt from raw measures where both finite.
+4. `device_agnostic_apply_delay`: positive / negative / zero delays on CPU; equals `model.xRIR.apply_delay` on CUDA when available (skip otherwise); `patched_apply_delay` restores the original, also when the block raises.
+5. `angle_logspec` (random-init `build_xrir("simple", 2)`, synthetic batch, CPU): k = 0 equals the plain forward exactly; **k = 128 equals the trusted composition** `rotate_scene_yaw` + `fixed_alignment` + `model(...)` written out in the test; reference and target audio are unchanged by the call; `shift_and_align` is not called inside the pinned block (counter); angle-order invariance (ks in two orders → identical outputs); restoration after an exception inside the block.
+6. `invert`: same `(out, key, gl_seed)` twice → identical; different key → different; `[n, 9600]` float32, last 21 samples zero; the returned array is the one the metrics consume (no clipping/normalisation).
+7. `evaluate_batch`: batch of 3 padded to 4 → n = 3; both metric families + raw measures at every k; k = 0 gaps exactly 0; kept rows identical whether the 3 queries are alone or inside a batch of 4; controls with distinct ids run **fresh inference** (call counter increases).
+8. `select_probe_batches`: on a synthetic manifest with contiguous rooms returns one intact batch per room, each entirely inside its room; refuses rooms with no full batch.
+9. `run` smoke (`--batches 0`, real manifest, CPU; skipped without data): outputs and meta complete (all §5 fields, array sha256s match, `complete` true); refuses a wrong `--manifest-hash` and a K mismatch; a second run is bit-identical on CPU; save/load round trip of `wav_k*.npy` is exact.
+
+`tools/exp10_compare.py`
+10. Offline Metric 1 == online (1e-6); meta guard refuses different gl_seed / manifest / checkpoint sha / K / array sha / `complete = false`.
+11. `parity_exp03`: accepts a valid non-contiguous probe subset (rows extracted by canonical index, ordered equality); refuses a different manifest hash, and missing / duplicate / reordered queries; on a fixture with an injected per-sample offset reports max |Δ|, mean |Δ|, paired-Δ difference, sign agreement and validity-mask mismatches exactly. `verify_exp03_pins`: passes on the untouched tree; fails on a fixture whose one file is altered; the comparison is written into meta by `run`.
+
+`tools/exp10_summarize.py`
+12. Bootstrap contract: one shared draw per replicate (Δ*, G*, R* from the same indices — checked by injecting a query whose exclusion changes all three); shared mask excludes a query invalid in any of `e_0`, `e_α`, `g_α`; exclusion counts by cause; seeded reproducibility; synthetic shift recovered inside the CI; status `defined` / `improvement` / `denominator uncertain` / `undefined` each hit by a fixture (including exact-zero draws counted, not dropped); empty mask → reported as n = 0 with no interval, no exception.
+13. Room-cluster bootstrap: drawn-room multiplicities preserved and query-weighted (a fixture with unequal room sizes where per-room averaging would give a different answer).
+14. Controls table: flags `ctrl_full_turn` / `ctrl_zero_repeat` / `ctrl_k128_repeat` mismatches > 1e-6 (waveform and log-spec) and > 1e-9 on acoustic metrics.
+15. Figure/CSV: files written; signed negative bars rendered; CSV rows equal the JSON values; refuses a JSON whose input sha256s do not match disk.
+16. Run-identity guard: the summariser refuses to combine Δ, G or R from per-sample files with different `run_id`s (e.g. a CPU run's gaps with exp_03's GPU errors); historical exp_03 values can only enter a separately labelled "historical comparison" table.
+
+## 7. Validation ladder, controls, parity gate, acceptance
+
+Static checks → new tests + `verify_exp03_pins` against `ckpt/yaw_rotation/binding_report.json` (live sha256 of the 12 pinned files == their reviewed blobs at `62c9107b…`; `tests/test_exp03_record_tools.py` alone only exercises the validators on synthetic records) + the exp_04/exp_07 record suites → smoke (`--batches 0`, CPU) → **probe** on GPU 1: `released_k8` on the 17 room-spanning canonical batches (272 queries; identical batch composition to the full run, so its per-sample values are a subset of the full run's) at all five angles, with timing of inference / inversion / metrics / writing separately and a thread budget of 16 torch threads, one process; **controls** on the same probe: `ctrl_full_turn` (k = 512; identity path through `rotate_scene_yaw`, plumbing only), `ctrl_zero_repeat` (fresh k = 0 inference under its own id), `ctrl_k128_repeat` (fresh nonzero repeat) — all three must match their originals to 1e-6 (waveforms, log-spec) and 1e-9 (acoustic metrics). **Parity gate vs exp_03** (`sweep_released/per_sample_yaw.json`, same GPU class, TF32 off, same manifest / gl_seed / batch shape) on the probe queries, per angle in {0, 64, 128, 256, 384}: (a) per-sample `logspec_mad` |Δ| ≤ 1e-5 for every query; (b) per-sample `edt_err` / `c50_err` / `t60_err` |Δ| ≤ 1e-4 s / 1e-3 dB / 0.01 % for ≥ 99.5 % of queries (Griffin-Lim can amplify float noise for a few); (c) the **paired Δ on the probe queries** from the new run and from exp_03 agree within max(5 % of |Δ_exp03|, 2e-5 s / 2e-4 dB / 2e-3 %) and have the same sign, for every angle and metric. **All three criteria (a), (b), (c) are binding**: if the GPU probe fails any of them the launch is blocked and the cause investigated. If only the CPU fallback is available and fails any criterion, the arm proceeds as a **separate CPU protocol**: Δ, G and R are computed **entirely from that CPU run** (never from exp_03's GPU errors — test 16), exp_03's values appear only in a separately labelled historical-comparison table with the discrepancy tabulated, and no "replication" wording is used. An arm is called an exp_03 replication only after `parity_exp03` passes on the probe **and** on the full results. `control_k8` / `cyl_k8` run the same probe gate against `sweep_control` / `sweep_cyl`; `released_k1` runs the controls only (no predecessor). Each arm's full run is forecast from its own probe timing (K = 1 and K = 8 forward costs differ). **Full-run acceptance:** 6 337 queries in canonical order, every angle present, `meta.complete`, `check_online` passes, EDT/C50 finite counts at k = 0 equal exp_03's for the replicated arms, waveform arrays' sha256s recorded, worklog acceptance entry written before launch.
+
+## 8. Compute and outputs
+
+GPU 1 (co-tenant, ≈ 30 % slower; 4–5 h window after the ≈ 22:30 ping, see §3): forecast from the probe and reconciled with the window before the full sweep is scheduled (if the forecast exceeds the window, the arms are queued across windows in table order); prior: ≈ 12–15 min per angle-pass per K = 8 arm (exp_04's K = 8 seed run took 7.6 min for one angle solo, GL on CPU), so ≈ 1–1.3 h per arm, ≈ 4–5 h for four arms plus controls and offline comparison. CPU fallback: ≈ 40 min per angle-pass (measured on the qualitative export, 24 threads). Disk: 20 waveform arrays × 243 MB ≈ 4.9 GB under `ckpt/exp10/` (git-ignored; 51 GB free). Deliverables per SOP: `_params_set_up.md`, `_command.md`, teed logs, `_results.md`, `_analysis.md`, `yaw_pilot_01_results.html` + assets (figures, CSV, canonical JSON with sha256s), `commits_yaw_pilot.md`.
+
+## 9. Out of scope
+
+Training; condition E; angles beyond the five; retrieval metrics; changes to pinned exp_03/exp_04 modules; confirmatory tests; FLAC/xRIR waveform-distance rankings.
+
+## 10. Round-1 review findings → v2 changes
+
+| # | Severity | Change in v2 |
+|---|---|---|
+| 1 | blocker | §4 paired-bootstrap contract: shared mask, one draw per replicate for Δ*/G*/R*, exclusion counts, ratio status incl. `improvement` and exact-zero draws, room bootstrap with multiplicities; tests 12–13 |
+| 2 | blocker | §3 GPU 1 as primary backend (same class as exp_03); §7 probe = 17 room-spanning intact canonical batches; gate on the paired Δ itself plus per-sample limits; operation placement preserved; pins recorded; CPU = separate protocol unless it passes |
+| 3 | should-fix | §1 R3 labels (pipeline sensitivity, GL "can amplify", no waveform ranking, windows to verify); §4 explicit `M` and `logspec_mad` definitions |
+| 4 | should-fix | §4 T60 normalisation labels + absolute-seconds supplement from stored raw measures |
+| 5 | should-fix | §7 controls with fresh inference and distinct ids incl. a nonzero repeat; tests 5 and 7 (nonzero-angle composition, audio unchanged, order invariance, restoration after exception) |
+| 6 | should-fix | §3 `released_k1` relabelled "trained K = 8, evaluated K = 1", no exp_03 parity, K agreement check, P/E claim scoped to K = 8 |
+| 7 | should-fix | §4 band = historical variability, context only; cylindrical SD for `cyl_k8`; no decision use |
+| 8 | should-fix | §5 meta/identity contract (lengths, window, ordered ids, checkpoint/array/query-list sha256s, versions, `complete`), metrics computed from the saved arrays; tests 9–10; pinned files verified by the exp_03 record test |
+| 9 | should-fix | §5 figure with GL-free panel, signed bars, CI endpoints, n_mask, ratio status; R2 wording rules |
+| 10 | should-fix | §7 probe timing breakdown and thread budget; §8 forecast per arm/backend from the probe |
+| 11 | should-fix | reviews at `ultra` from round 2 (verified accepted by codex-cli 0.154.0); the shared config's `xhigh` drift noted |
+
+## 11. Round-2 review findings → v3 changes
+
+| # | Severity | Change in v3 |
+|---|---|---|
+| 1 | blocker | §7: a CPU-protocol arm computes Δ, G, R entirely from its own run; exp_03 values only in a separate historical table; run-identity guard (§5 `run_id`, test 16) |
+| 2 | should-fix | §5 `parity_exp03` subset alignment (manifest identity, canonical-index extraction, ordered equality, refusals), validity-mask mismatches, all three criteria binding (§7), repeated over the full results before the replication label; test 11 |
+| 3 | should-fix | §5/§7 `verify_exp03_pins` against the binding report's `source_closure` (reviewed `62c9107b…`), refusal on mismatch, comparison in meta; test 11 |
+| 4 | should-fix | §5 offline recomputation restricted to waveform/acoustic gaps; spectral quantities online-only, retained and hashed |
+| 5 | should-fix | §1 R3 estimator / invalid-policy audit (T60 −1 substitution and C50 constant in FLAC vs NaN-exclusion in xRIR) recorded beside every cross-family comparison |
+| 6 | should-fix | §1 R2 separate query- and room-level statuses, headline scope, cancellation wording only with paired contributions |
+| 7 | nit | §4 zero-width convergence rule and status precedence; k = 0 fixture (test 12) |
+| 8 | nit | §3/§8 window reconciled: 4–5 h on GPU 1 after the ≈ 22:30 ping; sweep scheduled from the probe forecast |
+
+## 12. Round-3 amendments (binding; APPROVE WITH CHANGES)
+
+- **A1 — validity masks in the parity rule (§7).** An arm/angle/metric cell is an exp_03 replication only if the per-query validity masks of the new run and of exp_03 are **identical** on the compared population (probe rows, then the full split) and criteria (a)–(c) pass on the common-finite rows; any mask mismatch labels the cell "nonreplication (validity mismatch)" and is listed in the results. The historical Δ comparison population is the common-finite rows of that identical mask. Test: a fixture with one nonzero-angle NaN whose numerical differences would otherwise pass must be flagged.
+- **A2 — execution identity (§5).** Two identifiers in meta and inside `per_sample.json`: `protocol_id` = sha256 over the complete protocol (checkpoint sha256, manifest hash, gl_seed, K, device, cudnn/TF32 flags, batch size and canonical padding, torch/numpy versions, sha256 of `tools/exp10_yaw_pilot.py`) and `execution_id` = a uuid4 + start timestamp minted once per `run`. Δ, G and R are computed from **one** `per_sample.json` whose `execution_id` matches its `meta.json` and whose bound waveform arrays' sha256s match. The summariser refuses (test 16) two executions with identical configuration, and same-device runs whose batch or implementation settings differ.
+- **A3 — ratio point estimate and convergence (§1, §4).** If the observed Δ is exactly 0, the point ratio is null with reason "observed Δ = 0" (before any division); a headline multiple requires bound convergence **and** identical denominator status under seeds 0 and 1, otherwise the cell reports "unresolved Monte Carlo uncertainty". Fixtures for both.
+- **A4 — `log_mse` contract (§4).** `log_mse` is exp_03's per-query mean over [F, T] of `(out − log(tgt_spec + 1e-8))²` (`eval_yaw_rotation.spectral_metrics`, not `per_sample_losses`, which returns loss / stft / decay only).
+# exp_10 yaw_pilot — lab notebook
+
+## 2026-09-26T17:24:59-04:00 — scaffold
+- **Goal** — start the xRIR analogue of FLAC exp_02 (yaw non-invariance pilot) per Yixun's 2026-09-26 request.
+- **Result** — folder scaffolded; query file written; facts gathered: FLAC exp_02 = released checkpoint, unseen K = 1, α ∈ {0, 90, 180, 270}°, Metric 2 (vs GT) + Metric 1 (P_α vs P_0: waveform rel-L2 / MAD, T60/C50/EDT gaps with P_0 as GT), rot0 determinism control; figure = degradation vs shift bars per angle with a 2σ noise band. xRIR exp_03 has Metric 2 for control / cyl / released at K = 8 on the acoustic grid (k = 0, ±8, ±32, ±64, ±128, 256; P condition, manifest `47637a55…`, gl_seed 0, batch 16, TF32 off) and a log-spec consistency, but no stored waveforms; its K = 1 runs are k = 0 only (no released K = 1 run). Both GPUs held by cylindrical-dinov3 exp_13 tier-L trainings (day 6); asked that session for ETA / co-tenancy; CPU path prepared (runtime device-agnostic copy of `model.xRIR.apply_delay`, as in the qualitative-figure script).
+- **Next** — plan → Codex plan review → Coder round (Opus 5, worktree) → Codex code review → runs.
+
+## 2026-09-26T17:25:22-04:00 — plan v1 + Codex plan review launched
+- **Goal** — pre-registered descriptive pilot (plan §1–§9) reviewed before any code.
+- **Version Control** — plan committed `ac06bca` on main; Coder worktree `/home/yixunhu/codespace/xRIR_code_wt10` (branch `exp10-yaw-pilot` from `ac06bca`) created.
+- **Command / Validation** — `codex exec -c 'model_reasoning_effort="xhigh"' -s read-only -C xRIR_code …` with `review_prompts/plan_prompt.md`; log `yaw_pilot_2026-09-26_17:24:59_codex_plan_review.log`.
+- **Result** — in_progress.
+- **Next** — revise the plan per the review, then Coder round 1 (tools/exp10_yaw_pilot.py + tests).
+
+## 2026-09-26T17:32:34-04:00 — plan review round 1 → plan v2 → review round 2
+- **Result** — Codex round 1 (`yaw_pilot_codex_plan_review.md`): REQUEST CHANGES, 2 blockers (paired-bootstrap contract; CPU/GPU parity gate too loose) + 9 should-fixes. All addressed in plan v2 (§10 map): shared mask + one draw per replicate + ratio status; GPU 1 primary backend (cylindrical-dinov3 session agreed to a 4 GB co-tenant on GPU 1 at 17:3x: its trainings end ≈ Sep 29 (GPU 1) / Oct 3 (GPU 0), ≈ 30 % slowdown expected); probe = 17 room-spanning intact canonical batches; gate on paired Δ; fresh-inference controls incl. a nonzero repeat; released K = 1 relabelled; band = context only; identity contract; GL-free panel and signed bars; timing breakdown; reviews at `ultra` (verified accepted).
+- **Command / Validation** — round-2 review launched at `ultra`: log `yaw_pilot_2026-09-26_17:32:32_codex_plan_review_round2.log`.
+- **Next** — on approval: Coder round 1 in wt10.
+
+## 2026-09-26T17:33:46-04:00 — pre-Coder checks while the round-2 review runs
+- **Result** — `tests/test_exp03_record_tools.py`: 31 passed, 1 skipped (exp_03's pinned closure unchanged on main); manifest rooms contiguous in canonical order; probe batches (first intact batch inside each of the 17 rooms) = [0, 16, 32, 94, 110, 125, 141, 157, 214, 277, 292, 307, 322, 338, 353, 369, 381] (272 queries); `ckpt/exp10` absent; 50 GB free. Coder round-1 prompt drafted (`coder_prompts/round1_prompt.md`).
+
+## 2026-09-26T17:33:58-04:00 — GPU window correction from the cylindrical-dinov3 session
+- **Result** — GPU 1 has only ≈ 4.8 GB free until its exp_24 fine-tune exits (≈ 22:30); GPU 0 ≈ 3.6 GB free until ≈ 23:00. Agreed: no launch on either card before that session's ping; CPU for smoke/probe meanwhile; the 4–5 h GPU 1 window starts after the ping.
+
+## 2026-09-26T17:37:54-04:00 — plan review round 2 → plan v3 → review round 3
+- **Result** — Codex round 2 at ultra (`yaw_pilot_codex_plan_review_round2.md`): REQUEST CHANGES, 1 blocker (CPU fallback must not mix a CPU run's shifts with exp_03's GPU errors) + 5 should-fixes (parity subset alignment; live pin verification against `ckpt/yaw_rotation/binding_report.json`; offline recomputation limited to waveform/acoustic gaps; FLAC/xRIR estimator-policy audit; separate query/room ratio statuses) + 2 nits (zero-width convergence; GPU window). All incorporated in plan v3 (§11).
+- **Command / Validation** — round-3 review at ultra: log `yaw_pilot_2026-09-26_17:37:52_codex_plan_review_round3.log`.
+- **Note** — the round-2 and round-3 review prompts carry the updated file lists (plan version, prior review files) but the intended extra sentence "verify that the previous findings are resolved" was not inserted (a line-anchored substitution on a single-line prompt matched nothing); the round-2 reviewer nevertheless reported resolution status finding by finding, and round 3 has the round-2 review in its reading list. Prompts are recorded as sent.
+
+## 2026-09-26T17:43:00-04:00 — plan APPROVED WITH CHANGES (round 3) → Coder round 1 launched
+- **Result** — Codex round 3 at ultra: no methodological blocker; 3 should-fixes (validity masks binding in parity; execution identity; ratio zero/convergence rules) + 1 nit (`log_mse` contract) → plan v3.1 §12 A1–A4, binding for the Coder. Reviewer confirmed all 12 live pinned files match their reviewed hashes and storage ≈ 4.87 GB.
+- **Command / Validation** — Coder = Claude Opus 5 (Agent, max effort) in `/home/yixunhu/codespace/xRIR_code_wt10` with `coder_prompts/round1_prompt.md`; tests run with `CUDA_VISIBLE_DEVICES=""`.
+- **Acceptance criteria** — tests 1–16 green; `py_compile`; `git diff --check`; exp_03/exp_04 record suites green; CPU smoke on batch 0 with controls matching to 1e-6; no pre-existing file changed.
+
+## 2026-09-26T18:44:57-04:00 — Coder round 1 delivered → Codex full code review launched
+- **Result** — 19 commits `52a5d5f..26562f0` on `exp10-yaw-pilot` (six new files only; merge base `023071f`): 112 exp_10 tests green; exp_03/exp_04 record suites 80/1; static checks clean. CPU smoke (batch 0, 16 queries, 5 angles + 3 fresh controls): k = 0 gaps exactly 0; controls bit-identical; `check_online` OK; **parity vs exp_03's GPU sweep_released on the same 16 queries: identical validity masks, EDT and T60 errors exactly equal, C50 max |Δ| 4.6e-5 dB, logspec_mad max |Δ| 6.3e-6, paired Δ same sign** — CPU already inside the §7 gate on this batch. Timing: 4.4 s per batch-16 CPU forward (16 threads), Griffin-Lim ≈ 49 ms/query/angle. Coder deviations 1–11 recorded (Planner accepts 1–6, 9–11; item 7 = cylindrical five-seed SDs to be supplied: exp_04 CylindricalViT K = 8 EDT 0.253 ms / C50 0.0059 dB / T60 0.014 %; item 8 = two commits over 200 lines, accepted).
+- **Command / Validation** — Codex full review at ultra: log `yaw_pilot_2026-09-26_18:44:55_codex_code_round1_full.log`.
+- **Next** — fix round (if any) → merge → GPU 1 probe after the cylindrical-dinov3 ping.
+
+## 2026-09-26T18:54:54-04:00 — Codex full review of round 1: request changes → Coder round 2 (fix) launched
+- **Result** — `yaw_pilot_codex_code_round1_full_review.md`: 1 blocker (per-sample sha256 never enforced) + 9 should-fixes, all merge-blocking (parity coverage, controls validation, A3 precedence, standalone G, T60/GL qualifications, null→0 in figures, strict JSON in the comparator, Markdown omissions, CUDA stage timing) + 2 nits (Markdown header/assert bypass; cylindrical band). Reviewer independently reproduced the smoke: k = 0 gaps 0, controls exactly 0, exp_03 parity EDT/T60 exact, C50 4.6e-5, logspec 6.3e-6, masks identical; 6.2 s per batch-16 CPU forward (Coder's 4.4 s not reproduced), 47 ms/query inversion. Seven new files (incl. `tests/exp10_fixture.py`).
+- **Next** — Coder round 2 with `coder_prompts/round2_prompt.md` (cylindrical SDs supplied: EDT 0.253 ms / C50 0.0059 dB / T60 0.014 %), then Codex close review.
+
+## 2026-09-26T19:41:50-04:00 — Coder round 2 delivered → Codex close review launched
+- **Result** — 12 fix commits `6bfd393..d3e927b` (after merge `02b567a`), one per finding, each with a reproducing test: per-sample sha256 + complete array bindings enforced everywhere (blocker 1); parity required-coverage → ok=False; controls validated (declared set, arrays, lengths, finiteness; undeclared controls also fail); A3 precedence (unresolved Monte Carlo uncertainty outranks wording; null point ratio always with a reason); broader-population G; T60 denominators + `T60_abs` table metric + GL qualification in JSON/MD/figure footer; no null→0 bars; strict comparator JSON; Markdown rows; CUDA stage sync; header/assert nits; cylindrical band keyed by (backbone, K). 156 exp_10 tests green; record suites 80/1; scope clean. Smoke numbers unchanged (parity EDT/T60 exact, C50 4.6e-5, logspec 6.3e-6); **CPU forward 6.20 s per batch-16** (round-1's 4.4 s withdrawn), inversion 46 ms/query/angle → CPU full arm ≈ 397 × 5 × 6.2 s ≈ 3.4 h + GL 0.4 h ≈ 3.8 h; probe (17 batches × 9 passes) ≈ 16 min + GL 2 min.
+- **Command / Validation** — Codex close review at ultra: log `yaw_pilot_2026-09-26_19:41:48_codex_code_round2_close.log`.
+
+exec
+/bin/bash -lc 'for p in /AGENTS.md /home/AGENTS.md /home/yixunhu/AGENTS.md /home/yixunhu/codespace/AGENTS.md /home/yixunhu/codespace/xRIR_code_wt10/AGENTS.md; do if test -f "$p"; then cat "$p"; fi; done; rg --files -g AGENTS.md -g '"'python*' -g '*repro*' .review-round1 tests tools; ls /home/yixunhu/miniconda3/envs" in /home/yixunhu/codespace/xRIR_code_wt10
+ succeeded in 0ms:
+tests/test_exp05_reprobe.py
+acousticx
+alphaflow
+avnerf
+avr
+bsann
+equi
+flac
+latex
+lfd
+rir2rir
+soundinv
+thermal_tomo
+thermo_nerf
+thermo_nerf_jaxfem
+thermo_nerf_warp
+xRIR
+
+exec
+/bin/bash -lc 'cat /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/plan_yaw_rotation_degradation.md /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results.md /home/yixunhu/codespace/FLAC/worklog/worklog_yixun/exp_02_yaw_noninvariance_claude/plan_yaw_noninvariance.md /home/yixunhu/codespace/FLAC/worklog/worklog_yixun/exp_02_yaw_noninvariance_claude/yaw_noninvariance_results.md' in /home/yixunhu/codespace/xRIR_code_wt10
+ succeeded in 0ms:
+# Plan — yaw_rotation_degradation
+
+**Status:** v2 (revised after the Codex plan review of v1, `yaw_rotation_degradation_codex_plan_review.md`), approved by the user on 2026-09-06 (tests in `tests/`, base commit `5bf4640`); implemented and executed the same day; post-approval amendments are listed in §12 and the outcome in `yaw_rotation_degradation_results.md` / `_analysis.md`. v1 is kept as `plan_yaw_rotation_degradation_v1_superseded.md`.
+
+## 1. Question
+
+Does **jointly rotating the receiver-centred depth panorama and the source / reference-source coordinates in yaw** (an *active* rotation of the whole scene about the receiver's vertical axis by +Δ; a symmetry of single-channel acoustics with omnidirectional source and monaural receiver, so the true RIR is unchanged) substantially degrade RIR synthesis quality in the xRIR pipeline?
+
+## 2. Mechanism (what can and cannot change)
+
+- Geometry enters `xRIR.forward` only through the ViT views `(loc − depth_coord)/5` (query source, receiver `−depth_coord`, each reference source) and the sinusoidal embedding of the raw xyz of `src_loc` / `ref_ir_locs`. Under the active yaw +Δ with k = ΔW/2π integer columns: `depth_coord' = Rz(Δ)·roll(depth_coord, k, axis=W)`, `src' = Rz(Δ)·src`, `ref_locs' = Rz(Δ)·ref_locs`; reference RIRs and the target are unchanged. Convention: column θ_c = (c+0.5)·2π/W − π with x = d cosφ cosθ, y = d cosφ sinθ (`convert_equirect_to_camera_coord`), so a +k roll followed by Rz(+2πk/W) maps the ray of column c−k onto column c (confirmed by the reviewer). The dataset's unused `rotation ∈ {90,180,270}` branches rotate about y and are **not** used.
+- `shift_and_align` is invariant algebraically but **not numerically**: float32 norms and `round()` to integer samples can flip a delay by one sample under rotation (reviewer's example: delay 80.5 → 80 unrotated, 80.500015 → 81 at k=4). Therefore the **primary** condition holds the direct-path alignment at the k=0 coordinates (cached aligned reference audio), so only the geometry branches see the rotation; a **secondary end-to-end** condition lets alignment use the rotated coordinates (what the pipeline would do at deployment), and the number of flipped integer delays per angle is audited over all real (query, reference) pairs.
+- Neither full model is yaw-invariant by construction: SimpleViT has absolute 2-D positional codes and an unconstrained flattened-xyz patch projection; CylindricalViT's tokens are equivariant for patch-aligned rolls, but xRIR pools tokens with `lin_proj_0` (a learned linear map over the 256 token *positions*) and embeds raw xyz. The experiment measures actual sensitivity and decomposes it (token-level vs pooled-level change for the cylindrical model).
+- Training used a fixed canonical heading, so rotated inputs are also out-of-distribution in wall orientation; this is part of the deployment-relevant phenomenon, stated so the effect is not over-attributed to positional codes.
+
+## 3. Hypotheses and pre-registered decision rules
+
+Primary SimpleViT model: the exp_01 **same-budget control** (`ckpt/xRIR_simple_8_shot/epoch_12.pth`, training-matched to the cylindrical model). The released checkpoint is a **replication** model. Cylindrical: `ckpt/xRIR_cyl_8_shot/epoch_12.pth`. Conclusions are scoped to these epoch-12, single-seed checkpoints.
+
+- **H1 (user's claim, confirmatory):** joint yaw rotation substantially degrades the primary SimpleViT model. **Rule:** define the relative degradation r_k = (ē_k − ē_0)/ē_0 for EDT error and C50 error, computed *inside* each paired bootstrap resample. H1 is supported if, for at least one angle in the acoustic angle set, the **Bonferroni-adjusted** (family = 2 metrics × 9 non-zero acoustic angles = 18 tests, i.e. 1 − 0.05/18 two-sided percentile intervals) lower bound of r_k exceeds **+10 %**. Verdict wording: "supported" (primary passes) / "supported and replicated" (released also passes) / "supported for the same-budget model only" or "replication only" (they disagree; both reported, no pooling) / "not supported". Absolute equivalents of the 10 % margin at k=0 are reported (≈0.005 s EDT, ≈0.12 dB C50 for the control).
+- **H2 (cross-model, confirmatory for the difference):** the cylindrical model degrades less than the primary SimpleViT. **Rule:** difference-in-differences D_k = r_k(cyl) − r_k(control) per angle and metric, paired per sample, Bonferroni-adjusted over the same family; H2 supported if D_k < 0 with the adjusted upper bound below 0 at the angles where H1 holds (and reported at all angles). **Patch-aligned near-invariance** (k ∈ 32ℤ): equivalence test with margin ±2 % (two one-sided tests on r_k at the adjusted level); "nearly unchanged" only if the interval lies within ±2 %.
+- **H0:** neither model degrades beyond the margins.
+- **Inference target (reviewer Q2):** primary inference is about **this fixed published split** (6337 queries, 17 rooms) via query-level paired bootstrap; a **room-cluster bootstrap** (resample the 17 rooms with replacement, keeping all queries of a drawn room, paired) is reported as a secondary, population-of-rooms robustness check and is expected to be wide.
+- **Invalid metrics (pre-registered mask):** per model and metric, a sample enters the paired analysis only if the metric is finite at k=0 *and* at the compared angle; the count and fraction of samples that become invalid at each angle are reported as a separate degradation indicator. T60 is reported descriptively only (exp_01 showed it is the noisiest metric; it is not in the confirmatory family).
+
+## 4. Design
+
+- **Data:** full AcousticRooms unseen test split (published config), K=8. **Reference manifest:** references are chosen deterministically per query from a sha256 hash of (manifest seed 0, query path), independent of batch size, worker count and model; the manifest (query path + 8 reference paths) is written once (`ckpt/yaw_rotation/reference_manifest.json`) and every run asserts its hash. Consequently k=0 is *not* per-sample identical to exp_01 (which used worker-local random draws that were never recorded); parity with exp_01 is checked distributionally (§8).
+- **Angles (integer column rolls, W=512):** spectral grid k ∈ {0, ±4, ±8, ±16, ±32, ±64, ±96, ±128, ±192, 256} (18 angles: 0°, ±2.8°, ±5.6°, ±11.25°, ±22.5°, ±45°, ±67.5°, ±90°, ±135°, 180°; negative k ≡ W−k; corrected from "19" in §12). **Acoustic grid** (Griffin-Lim metrics): k ∈ {0, ±8, ±32, ±64, ±128, 256} (10 angles).
+- **Conditions:** (P) primary, alignment fixed at k=0; (E) end-to-end, alignment from rotated coordinates — spectral metrics only for E at all angles, acoustic metrics for E at {±32, ±128} to bound its effect.
+- **Metrics per (model, condition, angle, sample):** spectral — test loss (STFT L1 + 0.01·decay, per-sample reduction by calling the existing loss functions on 1-sample slices so numerics equal the batch-1 path), log-STFT MSE vs GT, consistency = mean |log-spec(k) − log-spec(0)|; acoustic (acoustic grid only) — EDT, C50, T60 via `Evaluator` on the first 8000 samples exactly as exp_01, with **Griffin-Lim phase initialisation seeded per sample** (`torch.manual_seed(hash(manifest seed, query path))` immediately before each inversion) so k=0 and k≠0 use identical random phases for the same sample and results are angle-order- and model-order-invariant.
+- **Decomposition (cylindrical only, diagnostic):** at k=32, report the relative change of (a) ViT tokens after azimuth roll-back (expected ~0), (b) the pooled `lin_proj_0` output, (c) the coordinate-embedding features, (d) the final log-spectrogram — a trained `lin_proj_0` azimuth-shift audit.
+- **Delay-flip audit:** for every (query, reference) in the manifest and every angle, count integer-delay changes between rotated and unrotated coordinates (no model needed).
+
+## 5. Planned code (new files only; no baseline file is modified)
+
+| File | Purpose |
+|---|---|
+| `tools/yaw_rotation.py` | `yaw_angle_rad(k, W)`, `rotate_vectors_z(v, angle)`, `rotate_scene_yaw(depth_coord, src_loc, ref_locs, k, W)`; `fixed_alignment(model, aligned_refs)` context manager that makes `model.shift_and_align` return cached aligned audio (restores the original method on exit); `integer_delays(src, ref_locs)` reproducing `shift_and_align`'s rounding for the audit |
+| `tools/reference_manifest.py` | `build_manifest(dataset, seed)` (deterministic per-query reference paths), `manifest_hash`, `ManifestDataset` wrapper returning the exp_01 tuple plus the query path; loads audio/depth via the existing dataset helpers |
+| `tools/paired_stats.py` | `relative_degradation_bootstrap(e0, ek, n_boot, alpha, rng)` (r_k inside each resample), `bonferroni_alpha(m)`, `diff_in_diff_bootstrap`, `equivalence_tost`, `cluster_bootstrap(rooms, ...)`, `valid_mask(e0, ek)`; refactors the bootstrap now duplicated in `tools/compare_eval.py` (that file is left as is for exp_01 provenance) |
+| `tools/per_sample_metrics.py` | `per_sample_losses(out_spec, tgt_spec)` (1-sample slices through the original loss functions), `griffin_lim_seeded(mag, seed)`, `acoustic_metrics(pred_ir, gt_ir, evaluator, want_t60)` returning NaN for invalid |
+| `eval_yaw_rotation.py` | one pass per model over the manifest at batch 16: cache k=0 aligned refs per batch; loop angles; compute spectral metrics for P and E, acoustic metrics on the acoustic grid; write `ckpt/yaw_rotation/<model>/per_sample_yaw.json` + `metrics_yaw.json`; `--max-samples` for smoke only; `--batch-size 1` supported for the equality test |
+| `tools/summarize_yaw.py` | tables per model × angle (means, r_k with adjusted CI, verdicts), H1/H2/equivalence verdicts, cluster-bootstrap check, decomposition and delay-flip tables, JSON extract for the results page |
+| `tests/test_yaw_rotation.py`, `tests/test_reference_manifest.py`, `tests/test_paired_stats.py`, `tests/test_per_sample_metrics.py`, `tests/test_eval_yaw_rotation.py` | TDD, §6 |
+
+## 6. Per-function test list (test first; red → green; one small commit per cycle)
+
+`tools/yaw_rotation.py`
+1. `yaw_angle_rad`: k=0 → 0, k=W → 2π, k=128 → π/2.
+2. `rotate_vectors_z`: preserves norms and z; +π/2 maps (1,0,0) → (0,1,0) (active, right-handed).
+3. `rotate_scene_yaw`: k=0 identity; k=W equals k=0 (atol 1e-6); composition k1 then k2 == k1+k2 mod W.
+4. **Oracle:** for a random depth panorama, `Rz(Δ)·roll(convert(depth), k) == convert(roll(depth, k))` for all channels incl. z, checked at every column including the seam (c=0, W−1).
+5. **Covariance of all three views:** `(src' − depth')`, `(−depth')`, `(ref'_i − depth')` equal `Rz(Δ)·roll(·)` of the unrotated views.
+6. `integer_delays` equals the delays computed inside `shift_and_align` (monkeypatch-free re-implementation checked against the model on real coordinates); `fixed_alignment` returns the cached audio inside the context and restores `shift_and_align` after (also on exception); with k=0 cached audio the forward equals the plain forward exactly.
+7. CylindricalViT tokens reshaped to `[B,16,16,C]` and rolled by one **azimuth** patch at k=32 equal the k=0 tokens (atol 1e-4); SimpleViT tokens do not (sanity).
+8. **Full-model k=W vs k=0** equality under fixed alignment and seeded Griffin-Lim (acoustic metrics identical).
+
+`tools/reference_manifest.py`
+9. Same seed → identical manifest across two dataset instances and across `num_workers ∈ {0, 4}`; different seed → different; hash changes if one reference changes; references exclude the query's own source and come from the query's receiver.
+
+`tools/paired_stats.py`
+10. `relative_degradation_bootstrap`: ek = e0 → interval contains 0; ek = 1.2·e0 → point estimate 0.20 and the lower bound > 0.10 for n large; `bonferroni_alpha(18) == 0.05/18`; `equivalence_tost` passes for |r| < margin with tight data and fails otherwise; `valid_mask` drops NaN in either array and reports counts; `cluster_bootstrap` with one cluster per sample equals the query-level bootstrap in expectation (loose tolerance) and returns wider intervals when clusters are correlated (synthetic).
+
+`tools/per_sample_metrics.py`
+11. `per_sample_losses` on a batch of 4 equals the batch-1 loss values sample by sample (atol 1e-7).
+12. `griffin_lim_seeded` is deterministic for the same seed and differs for a different seed; identical magnitudes → identical waveforms.
+13. `acoustic_metrics` returns NaN (not an exception) for a degenerate IR, and `want_t60=False` skips T60.
+
+`eval_yaw_rotation.py`
+14. Batch-1 vs batch-16 equality of every per-sample metric on materialised inputs for 8 real queries (atol 1e-6 spectral, exact for acoustic given the seeded phases).
+15. Angle-order invariance: evaluating angles [0, 32] vs [32, 0] gives identical per-sample outputs.
+16. Result indexing: per-sample arrays keyed by query path match the manifest order and length.
+
+## 7. Validation ladder
+
+1. Static: `py_compile`, `bash -n`, `git diff --check`. 2. `pytest tests/`. 3. Tiny synthetic forward (rotate random tensors; one `xRIR` forward at k=0/32 on GPU). 4. Small real-data readback (8 manifest queries; shapes, dtypes, min/max/std of depth and audio vs the dataset). 5. Smoke `eval_yaw_rotation.py --max-samples 8` with all angles and acoustic grid. 6. Batch probe (batch 16 × 18 angles forward-only beside the running jobs; expected ≈3 GB). 7. **k=0 parity gate on the full split, before the full confirmatory sweep** (§8; the 32-query smoke in rung 5 had already read every angle, so the gate precedes the confirmatory runs, not the first rotated read). 8. Full runs.
+
+## 8. Parity audit (before the full run)
+
+- **Numeric recipe:** same `Evaluator`, Griffin-Lim parameters (n_fft 124, win 62, hop 31, 32 iters), 8000-sample metric window, loss functions and `compute_loss` semantics as exp_01; per-sample losses verified against batch-1 (test 11/14).
+- **Data parity:** the manifest's query set equals exp_01's per-sample index set (same 6337 paths); one query's depth/audio tensors byte-identical to the dataset's.
+- **The k=0 gate doubles as the properly paired re-evaluation of exp_01** (the exp_01 record was corrected on 2026-09-05: its references were not identical across models and its Griffin-Lim phases were unseeded). At k=0 the three models are evaluated on the hashed manifest with seeded phases; `tools/summarize_yaw.py` reports the cyl-vs-control paired comparison at k=0 with query-level and room-cluster CIs as a stand-alone table, which supersedes exp_01's epoch-12 comparison.
+- **k=0 gate (distributional, because references differ):** for each model, k=0 means of EDT / C50 / T60 / loss must lie within the exp_01 epoch-12 values ± the reference-draw noise measured by re-evaluating exp_01's epoch-12 checkpoint on two extra manifest seeds (expected ≈1–2 % for EDT); the released checkpoint must match its exp_01 baseline reproduction the same way. Failure blocks the sweep.
+
+## 9. Runs, cost, acceptance
+
+- 3 models × [18 spectral angles × 2 conditions forward-only ≈ 25 min + acoustic: 10 angles (P) + 4 (E) × 6337 × ≈0.15 s ≈ 3.7 h] ≈ 4 h per model → ≈6 h wall-clock on two GPUs (CPU Griffin-Lim contention may add), after the k=0 parity gate (≈20 min per model; the gate precedes the full confirmatory sweep, not the 32-query smoke, which had already read every angle) and after exp_02's queues finish.
+- Acceptance: all angles complete, no NaN in spectral metrics, manifest hash matches in every output, k=0 gate passed and logged, per-sample arrays have 6337 entries per angle, delay-flip audit written.
+- Outputs: `ckpt/yaw_rotation/{reference_manifest.json, <model>/per_sample_yaw.json, <model>/metrics_yaw.json, summary.txt}`; results page `yaw_rotation_degradation_01_results.html` (degradation vs angle with adjusted CIs, cross-model D_k, decomposition, delay-flip audit).
+
+## 10. Decisions requested from the user at approval
+
+1. **Tests folder:** `tests/` at the repo root (first tests in this repo).
+2. **Base commit:** commit the uncommitted exp_01/exp_02 code and the retrospective records as one known-good base before exp_03's first TDD commit.
+3. Angle grids, the 10 % / ±2 % margins and the Bonferroni family (18 tests) above; T60 descriptive only.
+4. Inference target: fixed split primary, room-cluster bootstrap secondary.
+5. Scope: AcousticRooms only (no HAA rooms in this experiment).
+
+## 11. v2 changelog — responses to the Codex plan review (v1)
+
+| Finding | Response in v2 |
+|---|---|
+| B1 `shift_and_align` not numerically invariant | Primary condition caches k=0 aligned audio via `fixed_alignment`; end-to-end condition kept as secondary; delay-flip audit over all real pairs and angles; tests 6, 8. |
+| B2 parity/pairing at batch 16; unrecorded references; batch loss reduction | Deterministic reference manifest with hash, written and asserted; per-sample losses through 1-sample slices; batch-1 vs batch-16 equality test (14); k=0 parity gate run *before* the sweep, distributional because exp_01 references were never recorded (§8). |
+| B3 Griffin-Lim randomness | Per-sample seeded phase init shared across angles/models; angle-order-invariance test (15); k=W==k=0 full-model test (8). |
+| B4 statistics | r_k inside the bootstrap; Bonferroni family declared (18); lower bound > 10 % required for the confirmatory claim; fixed-split inference primary, room-cluster bootstrap secondary; pre-registered invalid-metric mask and invalid-fraction reporting; T60 descriptive. |
+| B5 H1/H2 decidability, angle grid | Control = primary, released = replication with explicit disagreement wording; H2 as difference-in-differences with adjusted CI; equivalence margin ±2 % at patch-aligned angles; k=±96 (±67.5°) both included; signed acoustic grid (±8, ±32, ±64, ±128, 180). |
+| B6 evaluator TDD | Evaluator factored into `reference_manifest`, `paired_stats`, `per_sample_metrics`; tests 9–16; per-round Codex reviews and a `full` review before launch. |
+| Non-blocking | "Active +Δ yaw" naming; y-axis rotation branches excluded; SimpleViT patch-projection non-commutation noted; thresholds given absolute equivalents and labelled practical margins; cost restated (≈6 GPU-h, ≈6 h wall-clock); conclusions scoped to epoch-12 single-seed checkpoints. |
+| Missing tests | Oracle incl. seam (4), three-view covariance (5), azimuth-only token roll on [B,16,16,C] (7), full-model k=W (8), manifest equality (9), batch equality (14), threshold/equivalence/cluster/invalid tests (10), `lin_proj_0` shift audit (§4 decomposition). |
+| Q1 | 10 % is a confirmatory lower-bound threshold, not a point-estimate label. |
+| Q2 | Fixed 17-room split (primary); population-of-rooms only via the secondary cluster bootstrap. |
+| Q3 | Reported separately with the wording in §3; no pooling. |
+| Q4 | Cached k=0 alignment; hashed manifest; per-sample seeded Griffin-Lim. |
+| Q5 | Both added (k=±96; signed acoustic grid). |
+
+## 12. Amendments after approval (logged in `_worklog.md`)
+
+- 2026-09-06 13:41 — **H2 aggregation rule** (exact, as implemented in `tools/summarize_yaw.py::h2_verdict` and reviewed in `..._codex_code_evaluator_review.md`): H2 is decided cell by cell at the (metric, angle) cells at which H1 passes for the primary model; a cell passes when D_k = r_k(cyl) − r_k(control) is negative with its Bonferroni-adjusted upper bound below 0. Aggregate: "supported" if every H1-passing cell passes; "partially supported" if a non-empty proper subset passes; "not supported" if none passes; "not evaluable (H1 has no passing cell)" if H1 passes nowhere. D_k is reported at every angle regardless. Summarizer modes (`full` = confirmatory, refuses partial or re-parameterised sweeps; `k0-gate`; `exploratory` = no verdicts). k=0 gate band v1 = 2 × S_ref + 1e-6 per metric, S_ref = max over manifest seeds 1–2 of |mean(control, seed s) − mean(control, seed 0)|. Pre-registered in response to the round-3 code review.
+- 2026-09-06 14:17 — canonical batch shape (every batch padded to 16) after batch-size dependence was measured on trained checkpoints; TF32 off; provenance sidecars.
+- 2026-09-06 14:53 — k=0 gate **v1 FAILED** (2 of 11 cells: control EDT 0.000287 > 0.000247; cyl C50 0.0159 > 0.0065). Band v2 = 2 × (S_ref + S_phase + S_tf32) + 1e-6 pre-specified before the extra runs, with S_phase = |mean(control, gl_seed 1) − mean(control, gl_seed 0)| and S_tf32 = |mean(control, TF32 on) − mean(control, TF32 off)|, all on the seed-0 manifest at k=0; decision kept as `..._gate_decision_v1_FAILED.txt`.
+- 2026-09-06 15:07 — k=0 gate **v2 FAILED** (1 of 11: cyl C50 0.0159 > 0.0094). Band v3 pre-specified: band(model) = 2 × (S_ref(model) + S_phase + S_tf32 + S_shape(model)) + 1e-6 with S_ref(cyl) from the cylindrical checkpoint on manifest seeds 1–2 and S_shape(model) = |mean(batch 1) − mean(batch 16)| at k=0 (measured for cyl only; unmeasured terms enter as 0; S_phase and S_tf32 stay control-measured and are reused for every model); released judged with the control's terms. Decision kept as `..._gate_decision_v2_FAILED.txt`.
+- 2026-09-06 15:40 — k=0 gate **v3 PASSED** (11/11; `..._gate_decision_v3_PASSED.txt`; S_ref(cyl) = 0.000311 s / 0.00802 dB / 0.048 / 0.000055 for EDT / C50 / T60 / loss, S_shape(cyl) ≈ 1e-6 dB). Sweep launched 15:41 under launcher v2. Nothing about H1/H2, the angle grids, the thresholds or the family changed at any amendment.
+- Plan §4 wording: the spectral grid has 18 angles (the listed set), not 19 (§4 corrected in place on 2026-09-06 after the round-2 review of the record).
+- 2026-09-06 20:41 — after the Codex round-2 review of the record: the summarizer labels its room-cluster intervals as adjusted (they always were computed at α/18), renders TOST outcomes as "equivalent" / "not established", and emits the producer field `h1.bounds` (distance to the +10 % threshold); no computed number changed; the canonical JSON/summary were regenerated. The sweep runs were additionally bound to the reviewed source closure (12 files) post hoc.
+# Results — yaw_rotation_degradation
+
+AcousticRooms unseen test split, all 6337 queries in 17 rooms; references per query fixed by the hashed manifest `47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d` (identical for every model and angle; its seed and shot count are recorded in `_params_set_up.md`). Evaluation settings per run are in §6 (from the runs' own metadata). The whole scene (receiver-centred depth panorama and all source / reference-source coordinates) is rotated in yaw by k panorama columns; the true RIR and target are unchanged. Condition P = pinned k=0 alignment; condition E = end to end. r_k = (mean error at k - mean error at 0 deg) / mean error at 0 deg over the queries valid at both angles; the bootstrap resamples those pairs and recomputes the whole ratio inside each resample. n_boot=20000 seed=0 family=18 tests -> adjusted level 0.00278; the query-level and room-cluster intervals on r_k and D_k are both two-sided 99.72% (section 3's k=0 table is nominal 95%, unadjusted) (99.72 % query-level and 99.72 % room-cluster intervals, 17 rooms resampled; k = 0 at nominal 95.00 %). T60 is descriptive only. Canonical numbers: `ckpt/yaw_rotation/full_stats.json` (sha256 `5d4afce8b81c47e148b714f351c670c4bb32e30cd4cc1f07587a73ba05a3809c`, copy in `_results_assets/`) and the hash-bound `ckpt/yaw_rotation/full_summary.txt` (sha256 `52f1e62eced6cdc55417e97876d3ca85fbbac37832a3a7271dfa8ed745db45f9`, copy `yaw_rotation_degradation_full_summary.txt`); `tools/summarize_yaw.py --mode full` reported `valid_for_confirmatory: true`.
+
+## 1. Pre-registered verdicts and distance to the threshold (producer fields h1 / h2 / h1.bounds)
+
+- **H1: not supported** — rule: H1 (joint yaw rotation substantially degrades the model): supported if the adjusted lower bound of r exceeds +10% for EDT or C50 at any angle k != 0, condition P. Wording: Verdict wording (--mode full only; the other modes record "not evaluated (<mode> mode)"): the same-budget control (role primary) and the released checkpoint (role released) are reported separately and never pooled -- both pass: "supported and replicated"; the control only: "supported for the same-budget model only"; the released checkpoint only: "replication only"; neither: "not supported". A role with no run in the summary counts as not passing. Roles evaluated: primary, released (simple, checkpoints/xRIR_unseen.pth). The +10 % margins at 0° are control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth): 0.0047 s EDT error, 0.124 dB C50 error; released (simple, checkpoints/xRIR_unseen.pth): 0.0055 s EDT error, 0.136 dB C50 error.
+- **H2: not evaluable (H1 has no passing cell)** — rule: H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, paired on the same resamples; decided cell by cell at the H1-passing cells of the primary model, where a cell passes when D_k is negative and its adjusted upper bound is below zero; the aggregate is "supported" when every such cell passes, "partially supported" when some do, "not supported" when none does and "not evaluable (H1 has no passing cell)" when H1 has no passing cell. (0 of 0 H1-passing cells). D_k and the TOST results are in §4.
+- Bootstrap convergence: every decision-driving bound recomputed with a second seed, as a fraction of its own interval width (limit 0.10). 72 bounds; max movement 0.0378 of the interval width (limit 0.1): pass.
+- Distance to the +10 % threshold (condition P, non-zero acoustic angles):
+
+    model                                                   metric          largest adjusted query-level upper bound   query-level bounds above threshold   largest adjusted room-cluster upper bound   room-cluster bounds above threshold
+    control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth)  EDT error         +3.76 % at +45.0°                    none                                    +5.65 % at +45.0°                    none
+    control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth)  C50 error         +7.52 % at +45.0°                    none                                   +11.37 % at +45.0°                    +22.5° (+10.99 %), +45.0° (+11.37 %)
+    cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth)    EDT error         +5.44 % at -45.0°                    none                                    +4.91 % at -90.0°                    none
+    cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth)    C50 error         +7.37 % at -45.0°                    none                                   +10.25 % at +45.0°                    +45.0° (+10.25 %)
+    released (simple, checkpoints/xRIR_unseen.pth)          EDT error         +5.45 % at -45.0°                    none                                    +6.96 % at -45.0°                    none
+    released (simple, checkpoints/xRIR_unseen.pth)          C50 error         +7.56 % at -45.0°                    none                                   +10.75 % at -45.0°                    -45.0° (+10.75 %)
+
+## 2. Acoustic metrics per angle (EDT error [s], C50 error [dB], T60 error [%])
+
+Columns: mean at 0°, mean at k, r_k, adjusted query-level interval (99.72 %), adjusted room-cluster interval (99.72 %), n paired-valid, fraction of usable baselines the angle broke (newly invalid). Condition P at the 10-angle grid, condition E at k = 0 and the 4 E angles.
+
+    control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth) | condition P | EDT error (s)
+      deg      mean0     mean_k        r_k       adj. query CI          adj. room CI      n   newinv
+      -90.0     0.0470     0.0473     +0.68 %     [-1.08, +2.40]     [-3.37, +2.77]   6337   0.0000
+      -45.0     0.0470     0.0474     +0.84 %     [-1.51, +3.31]     [-1.02, +4.00]   6337   0.0000
+      -22.5     0.0470     0.0472     +0.36 %     [-1.74, +2.51]     [-1.87, +2.30]   6337   0.0000
+       -5.6     0.0470     0.0466     -0.82 %     [-1.98, +0.31]     [-1.94, +0.19]   6337   0.0000
+       +0.0     0.0470     0.0470     +0.00 %     [+0.00, +0.00]     [+0.00, +0.00]   6337   0.0000
+       +5.6     0.0470     0.0471     +0.34 %     [-0.77, +1.50]     [-0.76, +1.62]   6337   0.0000
+      +22.5     0.0470     0.0475     +1.02 %     [-1.12, +3.12]     [-0.71, +3.79]   6337   0.0000
+      +45.0     0.0470     0.0476     +1.34 %     [-1.01, +3.76]     [-0.84, +5.65]   6337   0.0000
+      +90.0     0.0470     0.0476     +1.25 %     [-0.47, +2.96]     [-2.61, +3.06]   6337   0.0000
+     +180.0     0.0470     0.0470     -0.06 %     [-1.74, +1.71]     [-4.87, +1.81]   6337   0.0000
+
+    control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth) | condition P | C50 error (dB)
+      deg      mean0     mean_k        r_k       adj. query CI          adj. room CI      n   newinv
+      -90.0      1.235      1.247     +0.94 %     [-0.81, +2.82]     [-2.70, +4.54]   6337   0.0000
+      -45.0      1.235      1.291     +4.55 %     [+2.18, +7.09]     [-0.10, +9.42]   6337   0.0000
+      -22.5      1.235      1.267     +2.58 %     [+0.44, +4.68]     [-1.09, +8.10]   6337   0.0000
+       -5.6      1.235      1.235     -0.03 %     [-1.26, +1.21]     [-1.50, +0.50]   6337   0.0000
+       +0.0      1.235      1.235     +0.00 %     [+0.00, +0.00]     [+0.00, +0.00]   6337   0.0000
+       +5.6      1.235      1.245     +0.84 %     [-0.31, +2.01]     [-0.65, +2.05]   6337   0.0000
+      +22.5      1.235      1.286     +4.12 %     [+1.86, +6.42]    [-1.07, +10.99]   6337   0.0000
+      +45.0      1.235      1.298     +5.09 %     [+2.65, +7.52]    [-0.10, +11.37]   6337   0.0000
+      +90.0      1.235      1.259     +1.95 %     [+0.26, +3.70]     [-3.13, +6.40]   6337   0.0000
+     +180.0      1.235      1.232     -0.27 %     [-2.12, +1.56]     [-5.63, +3.49]   6337   0.0000
+
+    control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth) | condition P | T60 error (%)
+      deg      mean0     mean_k        r_k       adj. query CI          adj. room CI      n   newinv
+      -90.0       9.56       9.39     -1.79 %     [-2.95, -0.60]     [-4.78, +0.35]   6337   0.0000
+      -45.0       9.56       9.41     -1.53 %     [-3.20, +0.17]     [-8.56, +2.82]   6337   0.0000
+      -22.5       9.56       9.49     -0.74 %     [-2.14, +0.70]     [-3.11, +1.42]   6337   0.0000
+       -5.6       9.56       9.49     -0.75 %     [-1.48, -0.03]     [-1.55, -0.06]   6337   0.0000
+       +0.0       9.56       9.56     +0.00 %     [+0.00, +0.00]     [+0.00, +0.00]   6337   0.0000
+       +5.6       9.56       9.65     +0.94 %     [+0.12, +1.73]     [-0.34, +1.63]   6337   0.0000
+      +22.5       9.56       9.66     +1.04 %     [-0.44, +2.64]     [-1.95, +3.57]   6337   0.0000
+      +45.0       9.56       9.59     +0.29 %     [-1.36, +2.01]     [-3.55, +3.59]   6337   0.0000
+      +90.0       9.56       9.44     -1.25 %     [-2.53, +0.07]     [-4.32, +0.87]   6337   0.0000
+     +180.0       9.56       9.22     -3.57 %     [-4.82, -2.34]     [-9.52, -0.49]   6337   0.0000
+
+    cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth) | condition P | EDT error (s)
+      deg      mean0     mean_k        r_k       adj. query CI          adj. room CI      n   newinv
+      -90.0     0.0449     0.0458     +1.98 %     [+0.51, +3.41]     [-1.06, +4.91]   6337   0.0000
+      -45.0     0.0449     0.0463     +3.07 %     [+0.90, +5.44]     [+0.95, +4.78]   6337   0.0000
+      -22.5     0.0449     0.0456     +1.54 %     [-0.22, +3.41]     [-0.54, +4.01]   6337   0.0000
+       -5.6     0.0449     0.0446     -0.73 %     [-1.74, +0.29]     [-1.49, +0.07]   6337   0.0000
+       +0.0     0.0449     0.0449     +0.00 %     [+0.00, +0.00]     [+0.00, +0.00]   6337   0.0000
+       +5.6     0.0449     0.0450     +0.23 %     [-0.91, +1.41]     [-0.79, +1.22]   6337   0.0000
+      +22.5     0.0449     0.0455     +1.22 %     [-0.75, +3.15]     [-1.17, +4.17]   6337   0.0000
+      +45.0     0.0449     0.0461     +2.55 %     [+0.43, +4.75]     [+1.04, +4.22]   6337   0.0000
+      +90.0     0.0449     0.0459     +2.05 %     [+0.58, +3.55]     [-0.52, +4.62]   6337   0.0000
+     +180.0     0.0449     0.0454     +0.94 %     [-0.50, +2.36]     [-0.40, +1.96]   6337   0.0000
+
+    cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth) | condition P | C50 error (dB)
+      deg      mean0     mean_k        r_k       adj. query CI          adj. room CI      n   newinv
+      -90.0      1.226      1.248     +1.82 %     [+0.48, +3.22]     [-1.34, +5.39]   6337   0.0000
+      -45.0      1.226      1.291     +5.34 %     [+3.26, +7.37]     [+0.52, +9.53]   6337   0.0000
+      -22.5      1.226      1.265     +3.23 %     [+1.42, +5.10]     [-0.72, +7.97]   6337   0.0000
+       -5.6      1.226      1.225     -0.01 %     [-1.09, +1.11]     [-1.00, +0.91]   6337   0.0000
+       +0.0      1.226      1.226     +0.00 %     [+0.00, +0.00]     [+0.00, +0.00]   6337   0.0000
+       +5.6      1.226      1.232     +0.49 %     [-0.63, +1.63]     [-0.81, +1.32]   6337   0.0000
+      +22.5      1.226      1.267     +3.37 %     [+1.53, +5.22]     [-1.14, +8.55]   6337   0.0000
+      +45.0      1.226      1.289     +5.19 %     [+3.09, +7.24]    [+0.43, +10.25]   6337   0.0000
+      +90.0      1.226      1.258     +2.61 %     [+1.22, +4.10]     [-0.86, +8.04]   6337   0.0000
+     +180.0      1.226      1.229     +0.27 %     [-1.22, +1.79]     [-1.35, +2.70]   6337   0.0000
+
+    cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth) | condition P | T60 error (%)
+      deg      mean0     mean_k        r_k       adj. query CI          adj. room CI      n   newinv
+      -90.0       9.44       9.36     -0.76 %     [-1.79, +0.26]     [-4.18, +1.42]   6337   0.0000
+      -45.0       9.44       9.44     +0.08 %     [-1.58, +1.70]     [-6.33, +4.49]   6337   0.0000
+      -22.5       9.44       9.42     -0.18 %     [-1.48, +1.13]     [-2.41, +1.66]   6337   0.0000
+       -5.6       9.44       9.40     -0.43 %     [-1.13, +0.27]     [-1.20, +0.40]   6337   0.0000
+       +0.0       9.44       9.44     +0.00 %     [+0.00, +0.00]     [+0.00, +0.00]   6337   0.0000
+       +5.6       9.44       9.45     +0.14 %     [-0.58, +0.84]     [-1.20, +0.80]   6337   0.0000
+      +22.5       9.44       9.59     +1.60 %     [+0.22, +2.97]     [-1.88, +4.87]   6337   0.0000
+      +45.0       9.44       9.59     +1.66 %     [+0.06, +3.32]     [-1.65, +4.90]   6337   0.0000
+      +90.0       9.44       9.39     -0.44 %     [-1.49, +0.61]     [-2.12, +0.66]   6337   0.0000
+     +180.0       9.44       9.13     -3.23 %     [-4.26, -2.24]     [-9.51, +0.42]   6337   0.0000
+
+    released (simple, checkpoints/xRIR_unseen.pth) | condition P | EDT error (s)
+      deg      mean0     mean_k        r_k       adj. query CI          adj. room CI      n   newinv
+      -90.0     0.0551     0.0542     -1.70 %     [-4.46, +1.22]     [-3.23, +1.10]   6337   0.0000
+      -45.0     0.0551     0.0564     +2.36 %     [-0.67, +5.45]     [+0.21, +6.96]   6337   0.0000
+      -22.5     0.0551     0.0556     +0.76 %     [-1.86, +3.36]     [-1.15, +3.06]   6337   0.0000
+       -5.6     0.0551     0.0549     -0.34 %     [-2.34, +1.67]     [-1.04, +1.13]   6337   0.0000
+       +0.0     0.0551     0.0551     +0.00 %     [+0.00, +0.00]     [+0.00, +0.00]   6337   0.0000
+       +5.6     0.0551     0.0548     -0.52 %     [-2.40, +1.30]     [-2.05, +1.20]   6337   0.0000
+      +22.5     0.0551     0.0552     +0.16 %     [-2.52, +2.90]     [-2.74, +6.31]   6337   0.0000
+      +45.0     0.0551     0.0546     -1.06 %     [-4.29, +2.29]     [-4.39, +6.48]   6337   0.0000
+      +90.0     0.0551     0.0535     -2.88 %     [-5.85, +0.17]     [-5.17, +1.81]   6337   0.0000
+     +180.0     0.0551     0.0539     -2.22 %     [-5.21, +1.06]     [-7.79, +1.51]   6337   0.0000
+
+    released (simple, checkpoints/xRIR_unseen.pth) | condition P | C50 error (dB)
+      deg      mean0     mean_k        r_k       adj. query CI          adj. room CI      n   newinv
+      -90.0      1.360      1.382     +1.59 %     [-1.14, +4.29]     [-3.02, +6.75]   6337   0.0000
+      -45.0      1.360      1.424     +4.70 %     [+1.82, +7.56]    [-1.65, +10.75]   6337   0.0000
+      -22.5      1.360      1.391     +2.23 %     [-0.15, +4.63]     [-1.36, +5.45]   6337   0.0000
+       -5.6      1.360      1.365     +0.33 %     [-1.42, +2.05]     [-0.61, +1.62]   6337   0.0000
+       +0.0      1.360      1.360     +0.00 %     [+0.00, +0.00]     [+0.00, +0.00]   6337   0.0000
+       +5.6      1.360      1.360     -0.02 %     [-1.78, +1.73]     [-3.22, +2.39]   6337   0.0000
+      +22.5      1.360      1.381     +1.54 %     [-0.97, +4.19]     [-2.54, +8.82]   6337   0.0000
+      +45.0      1.360      1.394     +2.43 %     [-0.58, +5.55]     [-1.69, +8.85]   6337   0.0000
+      +90.0      1.360      1.358     -0.20 %     [-3.28, +2.90]     [-2.56, +2.61]   6337   0.0000
+     +180.0      1.360      1.369     +0.62 %     [-2.31, +3.60]     [-4.55, +6.05]   6337   0.0000
+
+    released (simple, checkpoints/xRIR_unseen.pth) | condition P | T60 error (%)
+      deg      mean0     mean_k        r_k       adj. query CI          adj. room CI      n   newinv
+      -90.0       9.70       9.87     +1.69 %     [-0.27, +3.66]     [-2.47, +5.33]   6337   0.0000
+      -45.0       9.70      10.21     +5.18 %     [+2.91, +7.57]    [+0.14, +10.15]   6337   0.0000
+      -22.5       9.70       9.86     +1.60 %     [-0.37, +3.64]     [-1.52, +6.46]   6337   0.0000
+       -5.6       9.70       9.68     -0.25 %     [-1.48, +0.92]     [-1.18, +1.11]   6337   0.0000
+       +0.0       9.70       9.70     +0.00 %     [+0.00, +0.00]     [+0.00, +0.00]   6337   0.0000
+       +5.6       9.70       9.85     +1.51 %     [+0.25, +2.81]     [-0.89, +2.72]   6337   0.0000
+      +22.5       9.70      10.01     +3.20 %     [+1.12, +5.34]     [-2.20, +7.80]   6337   0.0000
+      +45.0       9.70      10.18     +4.87 %     [+2.45, +7.29]     [-1.16, +9.48]   6337   0.0000
+      +90.0       9.70       9.96     +2.67 %     [+0.67, +4.69]    [-2.11, +10.31]   6337   0.0000
+     +180.0       9.70       9.47     -2.43 %     [-4.43, -0.46]     [-9.27, +1.48]   6337   0.0000
+
+    control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth) | condition E | EDT error (s)
+      deg      mean0     mean_k        r_k       adj. query CI          adj. room CI      n   newinv
+      -90.0     0.0470     0.0473     +0.68 %     [-1.08, +2.40]     [-3.37, +2.77]   6337   0.0000
+      -22.5     0.0470     0.0472     +0.36 %     [-1.74, +2.51]     [-1.86, +2.30]   6337   0.0000
+       +0.0     0.0470     0.0470     +0.00 %     [+0.00, +0.00]     [+0.00, +0.00]   6337   0.0000
+      +22.5     0.0470     0.0475     +1.02 %     [-1.12, +3.12]     [-0.71, +3.79]   6337   0.0000
+      +90.0     0.0470     0.0476     +1.25 %     [-0.47, +2.96]     [-2.61, +3.06]   6337   0.0000
+
+    control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth) | condition E | C50 error (dB)
+      deg      mean0     mean_k        r_k       adj. query CI          adj. room CI      n   newinv
+      -90.0      1.235      1.247     +0.94 %     [-0.81, +2.82]     [-2.70, +4.54]   6337   0.0000
+      -22.5      1.235      1.267     +2.58 %     [+0.44, +4.68]     [-1.09, +8.10]   6337   0.0000
+       +0.0      1.235      1.235     +0.00 %     [+0.00, +0.00]     [+0.00, +0.00]   6337   0.0000
+      +22.5      1.235      1.286     +4.12 %     [+1.86, +6.42]    [-1.07, +10.99]   6337   0.0000
+      +90.0      1.235      1.259     +1.95 %     [+0.26, +3.70]     [-3.13, +6.40]   6337   0.0000
+
+    control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth) | condition E | T60 error (%)
+      deg      mean0     mean_k        r_k       adj. query CI          adj. room CI      n   newinv
+      -90.0       9.56       9.39     -1.79 %     [-2.95, -0.60]     [-4.78, +0.35]   6337   0.0000
+      -22.5       9.56       9.49     -0.74 %     [-2.14, +0.70]     [-3.11, +1.42]   6337   0.0000
+       +0.0       9.56       9.56     +0.00 %     [+0.00, +0.00]     [+0.00, +0.00]   6337   0.0000
+      +22.5       9.56       9.66     +1.04 %     [-0.44, +2.64]     [-1.95, +3.57]   6337   0.0000
+      +90.0       9.56       9.44     -1.25 %     [-2.53, +0.07]     [-4.32, +0.87]   6337   0.0000
+
+    cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth) | condition E | EDT error (s)
+      deg      mean0     mean_k        r_k       adj. query CI          adj. room CI      n   newinv
+      -90.0     0.0449     0.0458     +1.98 %     [+0.51, +3.41]     [-1.06, +4.91]   6337   0.0000
+      -22.5     0.0449     0.0456     +1.54 %     [-0.22, +3.41]     [-0.54, +4.01]   6337   0.0000
+       +0.0     0.0449     0.0449     +0.00 %     [+0.00, +0.00]     [+0.00, +0.00]   6337   0.0000
+      +22.5     0.0449     0.0455     +1.22 %     [-0.75, +3.15]     [-1.17, +4.17]   6337   0.0000
+      +90.0     0.0449     0.0459     +2.05 %     [+0.58, +3.55]     [-0.52, +4.62]   6337   0.0000
+
+    cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth) | condition E | C50 error (dB)
+      deg      mean0     mean_k        r_k       adj. query CI          adj. room CI      n   newinv
+      -90.0      1.226      1.248     +1.82 %     [+0.48, +3.22]     [-1.35, +5.39]   6337   0.0000
+      -22.5      1.226      1.265     +3.23 %     [+1.41, +5.10]     [-0.73, +7.97]   6337   0.0000
+       +0.0      1.226      1.226     +0.00 %     [+0.00, +0.00]     [+0.00, +0.00]   6337   0.0000
+      +22.5      1.226      1.267     +3.37 %     [+1.53, +5.22]     [-1.14, +8.55]   6337   0.0000
+      +90.0      1.226      1.258     +2.61 %     [+1.22, +4.10]     [-0.86, +8.04]   6337   0.0000
+
+    cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth) | condition E | T60 error (%)
+      deg      mean0     mean_k        r_k       adj. query CI          adj. room CI      n   newinv
+      -90.0       9.44       9.36     -0.76 %     [-1.79, +0.25]     [-4.18, +1.42]   6337   0.0000
+      -22.5       9.44       9.42     -0.18 %     [-1.48, +1.13]     [-2.41, +1.66]   6337   0.0000
+       +0.0       9.44       9.44     +0.00 %     [+0.00, +0.00]     [+0.00, +0.00]   6337   0.0000
+      +22.5       9.44       9.59     +1.60 %     [+0.22, +2.97]     [-1.88, +4.87]   6337   0.0000
+      +90.0       9.44       9.39     -0.44 %     [-1.49, +0.61]     [-2.12, +0.66]   6337   0.0000
+
+    released (simple, checkpoints/xRIR_unseen.pth) | condition E | EDT error (s)
+      deg      mean0     mean_k        r_k       adj. query CI          adj. room CI      n   newinv
+      -90.0     0.0551     0.0542     -1.70 %     [-4.46, +1.22]     [-3.23, +1.10]   6337   0.0000
+      -22.5     0.0551     0.0556     +0.76 %     [-1.86, +3.36]     [-1.15, +3.06]   6337   0.0000
+       +0.0     0.0551     0.0551     +0.00 %     [+0.00, +0.00]     [+0.00, +0.00]   6337   0.0000
+      +22.5     0.0551     0.0552     +0.16 %     [-2.52, +2.90]     [-2.74, +6.31]   6337   0.0000
+      +90.0     0.0551     0.0535     -2.88 %     [-5.85, +0.17]     [-5.17, +1.81]   6337   0.0000
+
+    released (simple, checkpoints/xRIR_unseen.pth) | condition E | C50 error (dB)
+      deg      mean0     mean_k        r_k       adj. query CI          adj. room CI      n   newinv
+      -90.0      1.360      1.382     +1.59 %     [-1.14, +4.29]     [-3.02, +6.75]   6337   0.0000
+      -22.5      1.360      1.391     +2.23 %     [-0.15, +4.63]     [-1.36, +5.45]   6337   0.0000
+       +0.0      1.360      1.360     +0.00 %     [+0.00, +0.00]     [+0.00, +0.00]   6337   0.0000
+      +22.5      1.360      1.381     +1.54 %     [-0.97, +4.19]     [-2.54, +8.82]   6337   0.0000
+      +90.0      1.360      1.358     -0.20 %     [-3.28, +2.90]     [-2.56, +2.61]   6337   0.0000
+
+    released (simple, checkpoints/xRIR_unseen.pth) | condition E | T60 error (%)
+      deg      mean0     mean_k        r_k       adj. query CI          adj. room CI      n   newinv
+      -90.0       9.70       9.87     +1.69 %     [-0.27, +3.66]     [-2.47, +5.33]   6337   0.0000
+      -22.5       9.70       9.86     +1.60 %     [-0.37, +3.64]     [-1.52, +6.46]   6337   0.0000
+       +0.0       9.70       9.70     +0.00 %     [+0.00, +0.00]     [+0.00, +0.00]   6337   0.0000
+      +22.5       9.70      10.01     +3.20 %     [+1.12, +5.34]     [-2.20, +7.80]   6337   0.0000
+      +90.0       9.70       9.96     +2.67 %     [+0.67, +4.69]    [-2.11, +10.31]   6337   0.0000
+
+## 3. Spectral metrics per angle (all 18 angles, conditions P and E)
+
+loss = test loss = STFT L1 + 0.01 x decay; log_mse = log-STFT MSE; consistency = mean|log-spec(k) - log-spec(0)| (baseline 0, so no ratio). Intervals: adjusted query-level (99.72 %).
+
+    control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth) | condition P
+      deg   test loss =    r(loss)       adj. query CI  log-STFT MS   r(logmse)       adj. query CI   consistency =   (full names: loss = test loss = STFT L1 + 0.01 x decay; log_mse = log-STFT MSE; consistency = consistency = mean|log-spec(k) - log-spec(0)|)
+     -135.0     0.01647    +2.02 %     [+0.94, +3.12]     0.42188    -0.10 %     [-1.43, +1.31]       0.13468
+      -90.0     0.01620    +0.36 %     [-0.48, +1.17]     0.42395    +0.39 %     [-0.33, +1.09]       0.07682
+      -67.5     0.01646    +1.94 %     [+0.98, +2.93]     0.42089    -0.34 %     [-1.49, +0.93]       0.11661
+      -45.0     0.01641    +1.69 %     [+0.69, +2.71]     0.42245    +0.03 %     [-1.26, +1.41]       0.12521
+      -22.5     0.01631    +1.06 %     [+0.23, +1.88]     0.42223    -0.02 %     [-1.03, +1.00]       0.10329
+      -11.2     0.01616    +0.10 %     [-0.55, +0.76]     0.42201    -0.07 %     [-0.74, +0.61]       0.07262
+       -5.6     0.01611    -0.19 %     [-0.63, +0.25]     0.42215    -0.04 %     [-0.45, +0.37]       0.04545
+       -2.8     0.01612    -0.12 %     [-0.42, +0.17]     0.42208    -0.05 %     [-0.32, +0.21]       0.02744
+       +0.0     0.01614    +0.00 %     [+0.00, +0.00]     0.42231    +0.00 %     [+0.00, +0.00]       0.00000
+       +2.8     0.01619    +0.33 %     [+0.03, +0.62]     0.42138    -0.22 %     [-0.51, +0.07]       0.02771
+       +5.6     0.01625    +0.68 %     [+0.21, +1.14]     0.42006    -0.53 %     [-1.01, -0.07]       0.04605
+      +11.2     0.01630    +1.00 %     [+0.34, +1.64]     0.41912    -0.75 %     [-1.45, -0.08]       0.07404
+      +22.5     0.01636    +1.35 %     [+0.48, +2.20]     0.42017    -0.51 %     [-1.50, +0.52]       0.10690
+      +45.0     0.01649    +2.14 %     [+1.13, +3.11]     0.42431    +0.48 %     [-0.82, +1.83]       0.12743
+      +67.5     0.01641    +1.69 %     [+0.72, +2.67]     0.42402    +0.41 %     [-0.74, +1.54]       0.11550
+      +90.0     0.01622    +0.48 %     [-0.27, +1.25]     0.42368    +0.33 %     [-0.31, +0.95]       0.07693
+     +135.0     0.01642    +1.75 %     [+0.67, +2.85]     0.42113    -0.28 %     [-1.60, +1.09]       0.13195
+     +180.0     0.01611    -0.17 %     [-0.99, +0.63]     0.42036    -0.46 %     [-1.08, +0.13]       0.07116
+
+    cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth) | condition P
+      deg   test loss =    r(loss)       adj. query CI  log-STFT MS   r(logmse)       adj. query CI   consistency =   (full names: loss = test loss = STFT L1 + 0.01 x decay; log_mse = log-STFT MSE; consistency = consistency = mean|log-spec(k) - log-spec(0)|)
+     -135.0     0.01628    +2.47 %     [+1.56, +3.38]     0.41666    +0.14 %     [-0.86, +1.20]       0.11877
+      -90.0     0.01603    +0.88 %     [+0.32, +1.43]     0.41765    +0.38 %     [-0.15, +0.92]       0.06456
+      -67.5     0.01629    +2.48 %     [+1.68, +3.30]     0.41476    -0.31 %     [-1.18, +0.57]       0.10233
+      -45.0     0.01628    +2.47 %     [+1.57, +3.37]     0.41710    +0.25 %     [-0.75, +1.28]       0.11277
+      -22.5     0.01612    +1.41 %     [+0.68, +2.11]     0.41686    +0.19 %     [-0.54, +0.93]       0.09174
+      -11.2     0.01592    +0.18 %     [-0.45, +0.77]     0.41634    +0.07 %     [-0.52, +0.67]       0.06750
+       -5.6     0.01588    -0.05 %     [-0.47, +0.37]     0.41692    +0.20 %     [-0.15, +0.58]       0.04305
+       -2.8     0.01588    -0.07 %     [-0.34, +0.21]     0.41655    +0.12 %     [-0.11, +0.35]       0.02623
+       +0.0     0.01589    +0.00 %     [+0.00, +0.00]     0.41607    +0.00 %     [+0.00, +0.00]       0.00000
+       +2.8     0.01591    +0.13 %     [-0.15, +0.40]     0.41532    -0.18 %     [-0.42, +0.05]       0.02714
+       +5.6     0.01594    +0.30 %     [-0.13, +0.73]     0.41483    -0.30 %     [-0.72, +0.12]       0.04514
+      +11.2     0.01600    +0.70 %     [+0.09, +1.30]     0.41464    -0.34 %     [-0.98, +0.30]       0.07011
+      +22.5     0.01616    +1.70 %     [+0.96, +2.45]     0.41516    -0.22 %     [-1.05, +0.63]       0.09548
+      +45.0     0.01631    +2.61 %     [+1.74, +3.49]     0.41969    +0.87 %     [-0.14, +1.92]       0.11424
+      +67.5     0.01611    +1.36 %     [+0.60, +2.13]     0.41898    +0.70 %     [-0.25, +1.61]       0.10196
+      +90.0     0.01594    +0.27 %     [-0.26, +0.81]     0.41963    +0.86 %     [+0.26, +1.49]       0.06676
+     +135.0     0.01622    +2.06 %     [+1.16, +2.94]     0.41799    +0.46 %     [-0.56, +1.52]       0.11712
+     +180.0     0.01586    -0.23 %     [-0.73, +0.29]     0.41542    -0.16 %     [-0.67, +0.38]       0.06047
+
+    released (simple, checkpoints/xRIR_unseen.pth) | condition P
+      deg   test loss =    r(loss)       adj. query CI  log-STFT MS   r(logmse)       adj. query CI   consistency =   (full names: loss = test loss = STFT L1 + 0.01 x decay; log_mse = log-STFT MSE; consistency = consistency = mean|log-spec(k) - log-spec(0)|)
+     -135.0     0.01746    +2.86 %     [+1.35, +4.40]     0.44915    +2.36 %     [+0.80, +3.95]       0.20811
+      -90.0     0.01697    -0.02 %     [-1.25, +1.20]     0.44495    +1.41 %     [+0.11, +2.71]       0.15672
+      -67.5     0.01745    +2.81 %     [+1.49, +4.22]     0.44400    +1.19 %     [-0.19, +2.58]       0.17698
+      -45.0     0.01753    +3.30 %     [+1.93, +4.68]     0.44050    +0.39 %     [-0.85, +1.61]       0.17745
+      -22.5     0.01718    +1.23 %     [+0.09, +2.38]     0.44101    +0.51 %     [-0.60, +1.65]       0.15140
+      -11.2     0.01704    +0.38 %     [-0.59, +1.36]     0.43823    -0.12 %     [-1.31, +0.99]       0.12259
+       -5.6     0.01695    -0.12 %     [-0.86, +0.66]     0.43827    -0.11 %     [-1.00, +0.79]       0.09179
+       -2.8     0.01690    -0.40 %     [-0.92, +0.14]     0.43970    +0.21 %     [-0.46, +0.91]       0.06661
+       +0.0     0.01697    +0.00 %     [+0.00, +0.00]     0.43877    +0.00 %     [+0.00, +0.00]       0.00000
+       +2.8     0.01699    +0.08 %     [-0.48, +0.64]     0.43884    +0.01 %     [-0.66, +0.73]       0.06632
+       +5.6     0.01698    +0.06 %     [-0.71, +0.79]     0.43877    +0.00 %     [-0.86, +0.88]       0.09114
+      +11.2     0.01707    +0.57 %     [-0.33, +1.54]     0.43753    -0.28 %     [-1.31, +0.71]       0.12206
+      +22.5     0.01725    +1.64 %     [+0.52, +2.82]     0.44288    +0.94 %     [-0.26, +2.14]       0.15331
+      +45.0     0.01747    +2.91 %     [+1.56, +4.26]     0.43691    -0.42 %     [-1.65, +0.87]       0.17996
+      +67.5     0.01728    +1.82 %     [+0.38, +3.20]     0.44056    +0.41 %     [-0.94, +1.81]       0.18039
+      +90.0     0.01703    +0.33 %     [-0.86, +1.55]     0.43962    +0.19 %     [-1.14, +1.49]       0.16119
+     +135.0     0.01747    +2.91 %     [+1.41, +4.43]     0.44274    +0.90 %     [-0.53, +2.41]       0.20396
+     +180.0     0.01686    -0.64 %     [-1.88, +0.59]     0.44713    +1.90 %     [+0.40, +3.53]       0.17016
+
+    control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth) | condition E
+      deg   test loss =    r(loss)       adj. query CI  log-STFT MS   r(logmse)       adj. query CI   consistency =   (full names: loss = test loss = STFT L1 + 0.01 x decay; log_mse = log-STFT MSE; consistency = consistency = mean|log-spec(k) - log-spec(0)|)
+     -135.0     0.01647    +2.02 %     [+0.94, +3.12]     0.42188    -0.10 %     [-1.43, +1.31]       0.13468
+      -90.0     0.01620    +0.36 %     [-0.48, +1.17]     0.42395    +0.39 %     [-0.33, +1.09]       0.07682
+      -67.5     0.01646    +1.94 %     [+0.98, +2.93]     0.42089    -0.34 %     [-1.49, +0.93]       0.11661
+      -45.0     0.01641    +1.69 %     [+0.69, +2.71]     0.42245    +0.03 %     [-1.26, +1.41]       0.12521
+      -22.5     0.01631    +1.06 %     [+0.23, +1.88]     0.42223    -0.02 %     [-1.03, +1.00]       0.10329
+      -11.2     0.01616    +0.10 %     [-0.55, +0.76]     0.42201    -0.07 %     [-0.74, +0.61]       0.07262
+       -5.6     0.01611    -0.19 %     [-0.63, +0.25]     0.42215    -0.04 %     [-0.45, +0.37]       0.04545
+       -2.8     0.01612    -0.12 %     [-0.42, +0.17]     0.42208    -0.05 %     [-0.32, +0.21]       0.02744
+       +0.0     0.01614    +0.00 %     [+0.00, +0.00]     0.42231    +0.00 %     [+0.00, +0.00]       0.00000
+       +2.8     0.01619    +0.33 %     [+0.03, +0.62]     0.42138    -0.22 %     [-0.51, +0.07]       0.02771
+       +5.6     0.01625    +0.68 %     [+0.21, +1.14]     0.42006    -0.53 %     [-1.01, -0.07]       0.04605
+      +11.2     0.01630    +1.00 %     [+0.34, +1.64]     0.41912    -0.75 %     [-1.45, -0.08]       0.07404
+      +22.5     0.01636    +1.35 %     [+0.48, +2.20]     0.42017    -0.51 %     [-1.50, +0.52]       0.10690
+      +45.0     0.01649    +2.14 %     [+1.13, +3.11]     0.42431    +0.48 %     [-0.82, +1.83]       0.12743
+      +67.5     0.01641    +1.69 %     [+0.72, +2.67]     0.42402    +0.41 %     [-0.74, +1.54]       0.11550
+      +90.0     0.01622    +0.48 %     [-0.27, +1.25]     0.42368    +0.33 %     [-0.31, +0.95]       0.07693
+     +135.0     0.01642    +1.75 %     [+0.67, +2.85]     0.42113    -0.28 %     [-1.60, +1.09]       0.13195
+     +180.0     0.01611    -0.17 %     [-0.99, +0.63]     0.42036    -0.46 %     [-1.08, +0.13]       0.07116
+
+    cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth) | condition E
+      deg   test loss =    r(loss)       adj. query CI  log-STFT MS   r(logmse)       adj. query CI   consistency =   (full names: loss = test loss = STFT L1 + 0.01 x decay; log_mse = log-STFT MSE; consistency = consistency = mean|log-spec(k) - log-spec(0)|)
+     -135.0     0.01628    +2.47 %     [+1.56, +3.38]     0.41666    +0.14 %     [-0.86, +1.20]       0.11877
+      -90.0     0.01603    +0.88 %     [+0.32, +1.43]     0.41765    +0.38 %     [-0.15, +0.92]       0.06456
+      -67.5     0.01629    +2.48 %     [+1.68, +3.30]     0.41476    -0.31 %     [-1.18, +0.57]       0.10233
+      -45.0     0.01628    +2.47 %     [+1.57, +3.37]     0.41710    +0.25 %     [-0.75, +1.28]       0.11277
+      -22.5     0.01612    +1.41 %     [+0.68, +2.10]     0.41686    +0.19 %     [-0.54, +0.93]       0.09174
+      -11.2     0.01592    +0.18 %     [-0.45, +0.77]     0.41634    +0.07 %     [-0.52, +0.67]       0.06750
+       -5.6     0.01588    -0.05 %     [-0.47, +0.37]     0.41692    +0.20 %     [-0.15, +0.58]       0.04305
+       -2.8     0.01588    -0.07 %     [-0.34, +0.21]     0.41655    +0.12 %     [-0.11, +0.35]       0.02623
+       +0.0     0.01589    +0.00 %     [+0.00, +0.00]     0.41607    +0.00 %     [+0.00, +0.00]       0.00000
+       +2.8     0.01591    +0.13 %     [-0.15, +0.40]     0.41532    -0.18 %     [-0.42, +0.05]       0.02714
+       +5.6     0.01594    +0.30 %     [-0.13, +0.73]     0.41483    -0.30 %     [-0.72, +0.12]       0.04514
+      +11.2     0.01600    +0.70 %     [+0.09, +1.30]     0.41464    -0.34 %     [-0.98, +0.30]       0.07011
+      +22.5     0.01616    +1.70 %     [+0.96, +2.45]     0.41516    -0.22 %     [-1.05, +0.63]       0.09548
+      +45.0     0.01631    +2.61 %     [+1.74, +3.49]     0.41969    +0.87 %     [-0.14, +1.92]       0.11424
+      +67.5     0.01611    +1.36 %     [+0.60, +2.13]     0.41898    +0.70 %     [-0.25, +1.61]       0.10196
+      +90.0     0.01594    +0.27 %     [-0.26, +0.81]     0.41963    +0.86 %     [+0.26, +1.49]       0.06676
+     +135.0     0.01622    +2.06 %     [+1.16, +2.94]     0.41799    +0.46 %     [-0.56, +1.52]       0.11712
+     +180.0     0.01586    -0.23 %     [-0.73, +0.29]     0.41542    -0.16 %     [-0.67, +0.38]       0.06047
+
+    released (simple, checkpoints/xRIR_unseen.pth) | condition E
+      deg   test loss =    r(loss)       adj. query CI  log-STFT MS   r(logmse)       adj. query CI   consistency =   (full names: loss = test loss = STFT L1 + 0.01 x decay; log_mse = log-STFT MSE; consistency = consistency = mean|log-spec(k) - log-spec(0)|)
+     -135.0     0.01746    +2.86 %     [+1.35, +4.40]     0.44915    +2.36 %     [+0.80, +3.95]       0.20811
+      -90.0     0.01697    -0.02 %     [-1.25, +1.20]     0.44495    +1.41 %     [+0.11, +2.71]       0.15672
+      -67.5     0.01745    +2.81 %     [+1.49, +4.22]     0.44400    +1.19 %     [-0.19, +2.58]       0.17698
+      -45.0     0.01753    +3.30 %     [+1.93, +4.68]     0.44050    +0.39 %     [-0.85, +1.61]       0.17745
+      -22.5     0.01718    +1.23 %     [+0.09, +2.38]     0.44101    +0.51 %     [-0.60, +1.65]       0.15140
+      -11.2     0.01704    +0.38 %     [-0.59, +1.36]     0.43823    -0.12 %     [-1.31, +0.99]       0.12259
+       -5.6     0.01695    -0.12 %     [-0.86, +0.66]     0.43827    -0.11 %     [-1.00, +0.79]       0.09179
+       -2.8     0.01690    -0.40 %     [-0.92, +0.14]     0.43970    +0.21 %     [-0.46, +0.91]       0.06661
+       +0.0     0.01697    +0.00 %     [+0.00, +0.00]     0.43877    +0.00 %     [+0.00, +0.00]       0.00000
+       +2.8     0.01699    +0.08 %     [-0.48, +0.64]     0.43884    +0.01 %     [-0.66, +0.73]       0.06632
+       +5.6     0.01698    +0.06 %     [-0.71, +0.79]     0.43877    +0.00 %     [-0.86, +0.88]       0.09114
+      +11.2     0.01707    +0.57 %     [-0.33, +1.54]     0.43753    -0.28 %     [-1.31, +0.71]       0.12206
+      +22.5     0.01725    +1.64 %     [+0.52, +2.82]     0.44288    +0.94 %     [-0.26, +2.14]       0.15331
+      +45.0     0.01747    +2.91 %     [+1.56, +4.26]     0.43691    -0.42 %     [-1.65, +0.87]       0.17996
+      +67.5     0.01728    +1.82 %     [+0.38, +3.20]     0.44056    +0.41 %     [-0.94, +1.81]       0.18039
+      +90.0     0.01703    +0.33 %     [-0.86, +1.55]     0.43962    +0.19 %     [-1.14, +1.49]       0.16119
+     +135.0     0.01747    +2.91 %     [+1.41, +4.43]     0.44274    +0.90 %     [-0.53, +2.41]       0.20396
+     +180.0     0.01686    -0.64 %     [-1.88, +0.59]     0.44713    +1.90 %     [+0.40, +3.53]       0.17016
+
+## 4. Paired cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth) − control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth) at k = 0, and H2 per angle
+
+k = 0; nominal 95.00 % intervals, unadjusted, descriptive (two single-seed checkpoints). Same references and same Griffin-Lim phases for both models: this supersedes exp_01's epoch-12 comparison.
+
+    metric             [A]        [B]        diff    rel %                query CI                 room CI      n   ([A] = cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth); [B] = control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth))
+    EDT error (s)       0.04494    0.04699   -0.00205    -4.4 [  -0.00255,   -0.00154] [  -0.00377,   -0.00013]   6337
+    C50 error (dB)       1.2256     1.2351    -0.0095    -0.8 [   -0.0227,    +0.0032] [   -0.0381,    +0.0151]   6337
+    T60 error (%)         9.436      9.559     -0.123    -1.3 [    -0.201,     -0.044] [    -0.361,     +0.110]   6337
+    log-STFT MSE        0.41607    0.42231   -0.00624    -1.5 [  -0.00823,   -0.00422] [  -0.02185,   +0.00422]   6337
+    test loss = STFT L1 + 0.01 x decay   0.015893   0.016142  -0.000249    -1.5 [ -0.000336,  -0.000161] [ -0.000457,  -0.000024]   6337
+
+H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, paired on the same resamples; decided cell by cell at the H1-passing cells of the primary model, where a cell passes when D_k is negative and its adjusted upper bound is below zero; the aggregate is "supported" when every such cell passes, "partially supported" when some do, "not supported" when none does and "not evaluable (H1 has no passing cell)" when H1 has no passing cell. Intervals: adjusted query-level 99.72 % and room-cluster 99.72 %. TOST equivalence of r_cyl to zero within +-2% at the adjusted level (query / room) at the patch-aligned angles. Rendered as "equivalent" or "not established" (a failed TOST does not show inequivalence).
+
+    EDT error (s)
+      deg      r[A]     r[B]       D_k       adj. query CI          adj. room CI   TOST r[A] (query / room)   ([A] = cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth); [B] = control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth))
+      -90.0    +1.98 %    +0.68 %    +1.30 %     [-0.44, +2.94]     [+0.23, +2.55]   not established / not established
+      -45.0    +3.07 %    +0.84 %    +2.23 %     [+0.38, +4.17]     [-0.44, +3.06]   not established / not established
+      -22.5    +1.54 %    +0.36 %    +1.18 %     [-0.54, +2.88]     [-1.35, +2.06]   not established / not established
+       -5.6    -0.73 %    -0.82 %    +0.10 %     [-1.11, +1.31]     [-1.01, +1.19]   –
+       +0.0    +0.00 %    +0.00 %    +0.00 %     [+0.00, +0.00]     [+0.00, +0.00]   –
+       +5.6    +0.23 %    +0.34 %    -0.12 %     [-1.31, +1.06]     [-1.91, +1.00]   –
+      +22.5    +1.22 %    +1.02 %    +0.20 %     [-1.53, +2.03]     [-1.78, +1.76]   not established / not established
+      +45.0    +2.55 %    +1.34 %    +1.21 %     [-0.66, +3.05]     [-2.88, +2.46]   not established / not established
+      +90.0    +2.05 %    +1.25 %    +0.79 %     [-0.86, +2.42]     [-2.15, +3.12]   not established / not established
+     +180.0    +0.94 %    -0.06 %    +1.00 %     [-0.67, +2.67]     [-0.97, +4.79]   not established / equivalent
+
+    C50 error (dB)
+      deg      r[A]     r[B]       D_k       adj. query CI          adj. room CI   TOST r[A] (query / room)   ([A] = cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth); [B] = control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth))
+      -90.0    +1.82 %    +0.94 %    +0.89 %     [-0.86, +2.61]     [+0.13, +1.72]   not established / not established
+      -45.0    +5.34 %    +4.55 %    +0.79 %     [-1.13, +2.64]     [-1.85, +1.84]   not established / not established
+      -22.5    +3.23 %    +2.58 %    +0.65 %     [-1.01, +2.27]     [-1.70, +2.10]   not established / not established
+       -5.6    -0.01 %    -0.03 %    +0.02 %     [-1.18, +1.23]     [-0.99, +1.22]   –
+       +0.0    +0.00 %    +0.00 %    +0.00 %     [+0.00, +0.00]     [+0.00, +0.00]   –
+       +5.6    +0.49 %    +0.84 %    -0.35 %     [-1.65, +0.94]     [-1.94, +0.49]   –
+      +22.5    +3.37 %    +4.12 %    -0.74 %     [-2.61, +1.15]     [-3.06, +1.63]   not established / not established
+      +45.0    +5.19 %    +5.09 %    +0.10 %     [-1.82, +2.08]     [-3.56, +1.73]   not established / not established
+      +90.0    +2.61 %    +1.95 %    +0.67 %     [-0.99, +2.37]     [-2.04, +3.38]   not established / not established
+     +180.0    +0.27 %    -0.27 %    +0.55 %     [-1.21, +2.31]     [-1.26, +5.78]   equivalent / not established
+
+## 5. Delay-flip audit and decomposition
+
+(query, reference) pairs whose integer direct-path delay moves under the rotation -- the numerical noise condition P excludes (producer field delay_flips):
+
+    k                                                           0    4    8   16   32   64   96  128  192  256  320  384  416  448  480  496  504  508
+    control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth)      0    0    0    2    0    0    4    0    0    0    0    0    2    0    4    4    2    0
+    cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth)        0    0    0    2    0    0    4    0    0    0    0    0    2    0    4    4    2    0
+    released (simple, checkpoints/xRIR_unseen.pth)              0    0    0    2    0    0    4    0    0    0    0    0    2    0    4    4    2    0
+
+Decomposition (cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth), k = 32, 1 batch): receiver-view tokens 2.08e-07, pooled receiver feature 1.67e-02, query-source coordinate embedding 7.28e-01, output log-spectrogram 3.46e-03. Scope: receiver-view tokens and pooling plus the query-source coordinate embedding; reference-coordinate features not decomposed. Relative changes of different representation spaces; not additive.
+
+## 6. Selected evaluation settings (from each run's metrics meta)
+
+    run                                                       backbone     checkpoint                              n    batch  canonical  tf32   gl_seed  elapsed (min)
+    control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth)    simple       ckpt/xRIR_simple_8_shot/epoch_12.pth     6337     16  True       False        0         120.8
+    cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth)      cylindrical  ckpt/xRIR_cyl_8_shot/epoch_12.pth        6337     16  True       False        0         125.5
+    released (simple, checkpoints/xRIR_unseen.pth)            simple       checkpoints/xRIR_unseen.pth              6337     16  True       False        0         119.0
+# Plan — exp_02_yaw_noninvariance
+
+**Author:** Fable 5 (plan) · **Coder:** Opus 4.8 max (one small script) · **Reviewer:** Codex · **Date:** 2026-07-04
+
+## Goal
+
+Measure, on pristine `0bd5da0` and the full unseen K=1 split (6337 items / 17 rooms), how much yaw-rotating the conditioning hurts FLAC:
+
+- **Metric 2 (accuracy vs GT):** T60/C50/EDT/FD/R@k of P_α vs ground truth, for α ∈ {0, 90, 180, 270}°, against the unrotated baseline.
+- **Metric 1 (invariance gap, no GT):** how different P_α is from P_0 (waveform rel-L2 / L1, plus T60/C50/EDT computed with P_0 as reference), from stored predictions.
+
+## Key facts (verified)
+
+- `--rotate-deg` and `src/data/yaw_rotation.py` (`rotate_scene_metadata`, sign self-check) are already in pristine history (commit `dfb849d` "equi test") — **Metric 2 needs no new code**.
+- `rotate_deg == 0.0` skips the rotation branch entirely (eval_FLAC.py:109), so the `rot0` run is computationally identical to baseline → it doubles as a determinism check: any difference is run-to-run noise, not rotation.
+- Output filenames: metrics JSON gets `_rot<deg>` suffix; predictions `.pt` distinguishes runs via `--eval-name` (distinct names per run → no overwrite).
+
+## Runs (5 total, sequential on GPU 0)
+
+All: FLAC_AR.json model config, `acousticroom_unseeneval_1.json` (K=1), `FLAC_EMA.ckpt`, `--steps 1 --cfg-scale 1.0 --batch-size 32 --num-workers 4 --seed 42 --store_predictions` (per Yixun's spec).
+
+| # | eval-name | --rotate-deg | Role |
+|---|---|---|---|
+| 1 | yaw_baseline | (absent) | baseline P_0 |
+| 2 | yaw_rot0 | 0 | sanity: must equal #1 |
+| 3 | yaw_rot90 | 90 | rotated |
+| 4 | yaw_rot180 | 180 | rotated (largest expected effect) |
+| 5 | yaw_rot270 | 270 | rotated |
+
+## Code to write (the only new code)
+
+**`worklog/exp_02_yaw_noninvariance_claude/compare_predictions.py`** (~100 lines), written by Opus 4.8 max effort, reviewed by Codex:
+
+- Prepends the repo root to `sys.path` before importing `src.*` (known stale-site-packages pitfall on this machine).
+- Loads two prediction `.pt` files (`P_ref`, `P_alpha`) plus the eval dataset order-independent pairing (predictions are saved in dataloader order with a fixed seed, so index i pairs across runs — the identical seed/config guarantees identical item order; the rot0-vs-baseline check validates this assumption end-to-end).
+- Computes per-sample waveform rel-L2 and mean-|·| between P_alpha and P_ref, and T60/C50/EDT "gap" metrics using `AcousticMetricsCallback` with P_ref in place of GT.
+- Writes a JSON + prints a table; CLI: `python compare_predictions.py --ref <pt> --alt <pt> [--out <json>]`.
+
+No repo-source files are touched; the script lives in the experiment folder.
+
+## Acceptance / readout
+
+- Sanity: yaw_rot0 metrics ≡ yaw_baseline (bitwise or to 4 decimals); Metric-1 gap(rot0, baseline) ≈ 0.
+- Hypothesis confirmed if T60/EDT/C50 vs GT are worse at 90/180/270 than baseline by ≫ exp_01's noise floor (T60 ±0.04, EDT ±0.37 at K=1), and Metric-1 gaps are large.
+- Deliverables per SOP: params/command at launch, timestamped logs, results, analysis, codex review of the script, commits logged.
+
+## Risks
+
+- Disk: 5 × ~250 MB prediction tensors next to the checkpoint (gitignored; kept for reproducibility, can be pruned after analysis).
+- If prediction/dataloader order were seed-dependent across processes, Metric 1 pairing would break — caught immediately by the rot0 control (gap would be nonzero even though metrics match).
+# Results — exp_02_yaw_noninvariance
+
+**Runs:** 5/5 exit 0 (log `yaw_noninvariance_2026-07-04_20:49:36.log`, 20:49–21:42, ~8–13 min/run).
+**Setup:** frozen `FLAC_EMA.ckpt`, pristine `0bd5da0`, full unseen K=1 split (6337 items / 17 rooms), seed 42, steps 1, cfg 1.0, batch 32. Metric-2 JSONs in `metrics_json/`; Metric-1 JSONs `metric1_rot{0,90,180,270}.json`.
+
+## Determinism / pairing control (α = 0)
+
+`yaw_rot0` vs `yaw_baseline`: **identical to the last digit** on all 7 GT metrics, and the comparator reports `max_abs_diff = 0.0` over all 6337×10240 samples. The pipeline is exactly deterministic under fixed seed, and index-pairing across prediction files is valid. Any nonzero number below is caused by rotation alone.
+
+## Metric 2 — accuracy vs GT under rotated conditioning
+
+| run | T60 (%)↓ | C50 (dB)↓ | EDT (ms)↓ | FD↓ | R@1↑ | R@5↑ | R@10↑ |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| baseline (α=0) | 9.99 | 1.047 | 40.11 | 0.3027 | 6.71 | 19.00 | 26.89 |
+| rot90 | 10.38 | 1.074 | 43.58 | 0.3088 | 6.30 | 17.47 | 25.09 |
+| rot180 | **10.72** | **1.189** | **46.39** | 0.3032 | 6.38 | 17.85 | 25.14 |
+| rot270 | 10.44 | 1.126 | 44.07 | 0.3088 | 6.11 | 17.80 | 25.33 |
+
+Degradation vs baseline, in units of the exp_01 single-eval noise floor (T60 σ≈0.04, C50 σ≈0.006, EDT σ≈0.37):
+
+- T60: +0.39 / **+0.73** / +0.45 → ~10–18σ
+- C50: +0.027 / **+0.142** / +0.079 → ~4–22σ
+- EDT: +3.47 / **+6.28** / +3.96 ms → ~9–17σ
+- R@1: −0.41 / −0.33 / −0.60 (recall drops at every k and every angle)
+
+180° is the worst angle on all perceptual metrics, consistent with Yixun's prior partial-run observation (EDT ~46.4 at 180°: reproduced here as 46.39 on the full split).
+
+## Metric 1 — invariance gap P_α vs P_0 (no GT involved)
+
+| α | waveform rel-L2 | mean abs diff | T60 gap (%) | C50 gap (dB) | EDT gap (ms) |
+|---|---:|---:|---:|---:|---:|
+| 0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| 90 | 0.221 | 1.38e-4 | 3.34 | 0.563 | 18.65 |
+| 180 | 0.193 | 1.21e-4 | 3.33 | 0.550 | 20.11 |
+| 270 | 0.214 | 1.35e-4 | 3.41 | 0.600 | 19.98 |
+
+The prediction itself moves by ~20% relative L2 under a conditioning rotation that, physically, should change nothing. The Metric-1 acoustic gaps (T60 ~3.4 %, EDT ~19–20 ms between P_α and P_0) are roughly 5× larger than the net Metric-2 degradation — rotations scatter predictions in both directions around GT, partially cancelling in aggregate accuracy.
+
+## Reference targets for the fix (exp_03+)
+
+A yaw-invariant FLAC must achieve: Metric-1 gaps ≡ 0 at all α (canonicalization gives this by construction for column-quantized angles) while Metric 2 at α=0 stays within ~2σ of baseline (T60 9.99, C50 1.047, EDT 40.11).
+
+exec
+/bin/bash -lc 'cat /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/coder_prompts/round2_prompt.md /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_code_round1_full_review.md; ls -la .review-round1; git diff --stat 02b567a..d3e927b' in /home/yixunhu/codespace/xRIR_code_wt10
+ succeeded in 0ms:
+# exp_10 yaw_pilot — Coder round 2 (fix round for the Codex full review of round 1)
+
+Coder = Claude Opus 5 in `/home/yixunhu/codespace/xRIR_code_wt10` (branch `exp10-yaw-pilot`, tip `26562f0`; first `git merge main`). Same rules as round 1 (Python 3.8; `CUDA_VISIBLE_DEVICES=""`; `ckpt`/`checkpoints` read-only symlinks; only the seven new files `tools/exp10_{yaw_pilot,compare,summarize}.py`, `tests/test_exp10_*.py`, `tests/exp10_fixture.py` may change; TDD, small commits prefixed `exp_10 round 2:`, Opus trailer; no push/amend; never touch `.review-round*/`). Read `yaw_pilot_codex_code_round1_full_review.md` on the MAIN tree in full and close every finding 1–12 (1–10 are merge-blocking):
+
+1. (blocker) `load_run` must require and validate `meta.per_sample_sha256` before consuming `per_sample.json`, and require the complete expected waveform-binding set (every `wav_k<k>.npy` for every k in `meta.ks` must have a binding whose sha256 and shape are verified; a missing binding refuses). Tests: tamper one stored value → refused everywhere (`load_run`, `check_online`, summary, summary-input verification); delete one array binding → refused.
+2. `parity_exp03`: required coverage = every requested angle × the required metrics (`edt_err`, `c50_err`, `t60_err`, `logspec_mad`); any missing required cell → `ok=False` with the missing list (optional diagnostics `log_mse`/`loss` stay optional and labelled). Tests for a removed angle and a removed required metric.
+3. Controls table: validate the requested control set against `meta.control_specs` (a declared control missing from per_sample → `ok=False`), required arrays/lengths, and that every per-query waveform/log-spectrum deviation is finite before tolerances (a null deviation → `ok=False`, never `nanmax`-dropped). Tests for both reproductions.
+4. A3 precedence: convergence and status agreement (seed 0 vs seed 1) are checked BEFORE any substantive status wording; disagreement or failed convergence → "unresolved Monte Carlo uncertainty" as the headline status, with the seed-0 and seed-1 statuses recorded beside it. Record the observed-Δ-zero reason independently of the bootstrap status (a null point ratio always carries its reason). Fixture: seed-0 interval entirely negative, seed-1 crossing zero → headline "unresolved Monte Carlo uncertainty".
+5. Canonical summary + Markdown: add the standalone G on the broader "g_α finite" population (n, estimate, query and room intervals, convergence), labelled as such, without changing paired Δ/G/R. Test with gaps [100, 1, 2, 3] and an invalid baseline error on the first query → paired n=3, G=2; broader n=4, G=26.5.
+6. Report qualifications: T60 rows carry explicit denominators ("ΔT60 = change in GT-normalised error, percentage points"; "G_T60 = % of the baseline prediction's T60"); summarise the stored absolute-seconds pair (`t60_err_abs`, `t60_gap_abs`) with Δ/G/CIs like the other metrics; every generated report (JSON `notes`, Markdown header, figure footer) states that waveform/acoustic gaps measure the sensitivity of the model-plus-Griffin-Lim pipeline conditional on the per-query phase seed and that Griffin-Lim can amplify magnitude changes, and that `logspec_mad`/`mag_rel_l2` are the GL-free readout.
+7. Figures: never coerce a null estimate/bound to 0 (`value or 0.0` is forbidden); omit unavailable bars/error bars and annotate the angle as "unavailable (n=…)"; preserve actual zero estimates. Test with an empty EDT cell.
+8. Comparator output strict JSON: nonfinite → null, `json.dump(..., allow_nan=False)`; test with an all-invalid common population.
+9. Markdown: render Metric-2 `log_mse` and `loss` rows with units, and the room table's ratio estimates/intervals/convergence with the room-level qualification.
+10. GPU timing: `torch.cuda.synchronize()` at every stage boundary when the device is CUDA (inference / inversion / metrics / writing) so the breakdown is reliable; CPU path unchanged. Unit-test the boundary calls with a stub (no GPU).
+11. Nits: escape the `|Δ…|` pipes in the controls Markdown header (or relabel) so header cells equal data columns; remove the `or True` bypass in `tests/test_exp10_summarize.py:528` and make that assertion real.
+12. Cylindrical historical band for `cyl_k8` (Planner-supplied, from exp_04's canonical `ckpt/yaw_aug/results/TABLE_V1.json` five-seed SDs of CylindricalViT at K = 8): EDT 0.253 ms, C50 0.0059 dB, T60 0.014 % (verify against `worklog/worklog_yixun/model_comparison.md`: 45.0629 ± 0.253312 ms, 1.23094 ± 0.00593518 dB, 9.44256 ± 0.0135858 %); label "historical baseline evaluation variability (CylindricalViT, exp_04), context only". The band key must be selected by (backbone, K), not by arm name.
+
+Also: the Coder's round-1 report said "six new files" — there are seven (`tests/exp10_fixture.py`); state seven. Verification to report: all `tests/test_exp10_*.py` (count), exp_03/exp_04 record suites, py_compile, `git diff --check`, scope check vs `023071f` (only the seven files), the CPU smoke re-run on batch 0 (+ `check-online`, `parity-exp03`, summariser) with the timing line, and for each finding the commit SHA that closes it and the test that proves it. Final report: SHAs with one-line descriptions, summary lines, the finding → commit → test map, deviations (Planner decides).
+# exp_10 yaw_pilot — Codex code review, round 1 (full)
+
+**Reviewer identity:** OpenAI Codex `gpt-6-astra` at `ultra` (codex-cli 0.154.0, `codex exec -c 'model_reasoning_effort="ultra"' -s read-only -C /home/yixunhu/codespace/xRIR_code_wt10 --skip-git-repo-check`, stdin closed) · **Reviewed:** commits `023071f..26562f0` (19, Claude Opus 5) on `exp10-yaw-pilot` · **Prompt:** `review_prompts/code_round1_full_prompt.md` · **Raw log:** `yaw_pilot_2026-09-26_18:44:55_codex_code_round1_full.log` · **Date:** 2026-09-26 · **Verdict:** request changes; not approved for merge (blocking: findings 1–10)
+
+**Round-1 verdict: request changes. Merge verdict: not approved.** Reviewed all 19 commits `023071f..26562f0`. The numerical smoke claims reproduce, but integrity checks, acceptance reporting, and several required outputs need fixes.
+
+**Findings**
+
+1. **Blocker — the recorded per-sample hash is never enforced.** [tools/exp10_compare.py:139](/home/yixunhu/codespace/xRIR_code_wt10/tools/exp10_compare.py:139). Changing one stored `logspec_mad` value to `999.0` still passes `load_run`, `check_online`, summary generation, and summary-input verification. The summariser simply hashes the altered file anew. **Minimal fix:** require and validate `meta.per_sample_sha256` before consuming the file. Also require the complete expected waveform-binding set; deleting an array’s binding currently bypasses its validation.
+
+2. **Should-fix — parity can succeed with required comparisons missing.** [tools/exp10_compare.py:397](/home/yixunhu/codespace/xRIR_code_wt10/tools/exp10_compare.py:397). Removing historical angle 128, or its C50 metric, produces `ok=True`; missing cells are listed and skipped. This does not satisfy §7’s criteria for every requested angle and required metric. **Minimal fix:** refuse incomplete required coverage or return `ok=False`, distinguishing optional diagnostics.
+
+3. **Should-fix — controls can pass with missing or invalid evidence.** [tools/exp10_summarize.py:502](/home/yixunhu/codespace/xRIR_code_wt10/tools/exp10_summarize.py:502). One null waveform/log-spectrum deviation is silently discarded by `nanmax`; the control still passes. Removing declared `ctrl_full_turn` also leaves overall `ok=True`. Both were reproduced with otherwise consistent fixture metadata. **Minimal fix:** validate the requested control set, required arrays, lengths, and finite per-query waveform/log-spectrum deviations before applying tolerances.
+
+4. **Should-fix — A3’s uncertainty qualification loses precedence.** [tools/exp10_summarize.py:317](/home/yixunhu/codespace/xRIR_code_wt10/tools/exp10_summarize.py:317). A 10,000-draw fixture gives an entirely negative seed-0 Δ interval and a seed-1 interval crossing zero. Although `status_agrees=False`, the headline says “predictions shift while net error improves.” **Minimal fix:** check convergence and status agreement before substantive status wording, returning “unresolved Monte Carlo uncertainty.” Also record the observed-Δ-zero reason independently of bootstrap status; currently a null point ratio can lack A3’s required reason.
+
+5. **Should-fix — the canonical summary omits standalone G on the broader population.** [tools/exp10_summarize.py:439](/home/yixunhu/codespace/xRIR_code_wt10/tools/exp10_summarize.py:439). With gaps `[100,1,2,3]` and an invalid baseline error for the first query, the summary reports only paired `n=3, G=2`; §4’s separately labelled gap-finite result is `n=4, G=26.5`. Broader means exist in the pilot’s `metrics.json`, but disappear from the canonical summary and Markdown. **Minimal fix:** add the separate population, count, estimate, intervals, and convergence without changing paired Δ/G/R.
+
+6. **Should-fix — T60 and pipeline qualifications are missing from the report.** [tools/exp10_summarize.py:335](/home/yixunhu/codespace/xRIR_code_wt10/tools/exp10_summarize.py:335), [tools/exp10_summarize.py:532](/home/yixunhu/codespace/xRIR_code_wt10/tools/exp10_summarize.py:532). T60 bars use `%`, and ratios omit the distinction between GT-normalised error change and baseline-prediction-normalised shift. The stored absolute-seconds T60 pair is not summarised. Generated reports also omit R3’s model-plus-Griffin-Lim qualification. **Minimal fix:** include the absolute-seconds comparison, explicit denominators, and the statement that waveform/acoustic gaps measure pipeline sensitivity and GL can amplify magnitude changes.
+
+7. **Should-fix — figures turn unavailable estimates into measured zeros.** [tools/exp10_summarize.py:697](/home/yixunhu/codespace/xRIR_code_wt10/tools/exp10_summarize.py:697). `value or 0.0` converts null estimates and bounds into zero-height bars. An empty EDT cell remained null in JSON/CSV but appeared as zero change and zero shift in the figure. **Minimal fix:** omit unavailable bars/error bars and identify the affected angle as unavailable with its count; preserve actual zero estimates.
+
+8. **Should-fix — comparator output is not strict JSON.** [tools/exp10_compare.py:421](/home/yixunhu/codespace/xRIR_code_wt10/tools/exp10_compare.py:421). An all-invalid common population produces literal `NaN` in the written parity report; a strict parser rejects it. **Minimal fix:** convert nonfinite values to null and serialize with `allow_nan=False`.
+
+9. **Should-fix — Markdown omits required results already computed in JSON.** [tools/exp10_summarize.py:816](/home/yixunhu/codespace/xRIR_code_wt10/tools/exp10_summarize.py:816), [tools/exp10_summarize.py:856](/home/yixunhu/codespace/xRIR_code_wt10/tools/exp10_summarize.py:856). Metric 2 omits `log_mse` and `loss`; the room table omits room ratio estimates/intervals and convergence. **Minimal fix:** render those stored results, including their units and separate room-level qualifications.
+
+10. **Should-fix — GPU timing assigns unfinished inference to inversion.** [tools/exp10_yaw_pilot.py:538](/home/yixunhu/codespace/xRIR_code_wt10/tools/exp10_yaw_pilot.py:538). Inference timing stops before CUDA synchronization; the subsequent `.cpu()` in `invert` waits for outstanding work inside the inversion timer. The required GPU stage breakdown is therefore unreliable, although total elapsed time remains meaningful. **Minimal fix:** synchronize at stage boundaries or use synchronized CUDA events. This finding is from source inspection; no GPU was used.
+
+11. **Nit — malformed Markdown controls header and ineffective assertion.** [tools/exp10_summarize.py:865](/home/yixunhu/codespace/xRIR_code_wt10/tools/exp10_summarize.py:865) contains unescaped absolute-value pipes, creating fourteen header cells for eight data columns. [tests/test_exp10_summarize.py:528](/home/yixunhu/codespace/xRIR_code_wt10/tests/test_exp10_summarize.py:528) ends its content assertion with `or True`. **Minimal fix:** escape/relabel the header and remove the unconditional bypass.
+
+12. **Nit — the declared cylindrical historical band remains deferred.** [tools/exp10_summarize.py:539](/home/yixunhu/codespace/xRIR_code_wt10/tools/exp10_summarize.py:539). Omitting a context-only band does not invalidate the statistics, but the cylindrical figure is incomplete against the plan. **Minimal fix:** add the Planner-supplied, verified cylindrical SDs before producing final cylindrical figures.
+
+**Verified**
+
+- **Scope:** exactly 19 commits and **seven new files**, including `tests/exp10_fixture.py`. The Coder prompt explicitly permits fixtures; the six-file claim is inaccurate, but no pre-existing tracked file changed.
+- **Static checks:** Python **3.8.20** compilation of all seven files passed; both range and working-tree `git diff --check` passed. Live `verify_exp03_pins` matched **12/12** reviewed files. Altering a copied pinned file correctly caused refusal.
+- **Suites:** `tests/test_exp10_*.py`: **112 passed**. Exp_03/exp_04 record suites: **80 passed, 1 skipped**.
+- **Inference and metrics:** executed composition/identity, audio-preservation, restoration, inversion/seeding/padding, and canonical-batching tests. Fresh saved float32 waveforms recomputed online waveform/acoustic gaps exactly. Raw measurements reconstructed the canonical acoustic errors and gaps exactly. A4 `log_mse` and loss-component paths match the pinned definitions.
+- **Bootstrap:** independent query and room oracles verified shared masks/draws, unequal room sizes, multiplicities, and query weighting. All-zero Δ, a single exact-zero draw, undefined precedence, and zero-width convergence rules passed. Duplicate executions and same-device batch/implementation mismatches were refused.
+- **Parity guards:** missing/duplicate/reordered queries and manifest mismatch were refused. Injecting one nonzero-angle NaN correctly produced **nonreplication (validity mismatch)**.
+- **Outputs:** fresh run JSON was strict, required metadata was present, hashes matched, and completion metadata was written last. Generated JSON/Markdown/CSV/PNG/PDF; all fields of 16 plotted CSV rows matched canonical JSON. Inspected signed bars, GL-free panel, and “context only” band label. Changed inputs after summary construction were refused.
+
+Two independent batch-0 CPU smokes covered 16 queries, five angles, and three fresh controls. All five waveform arrays and all per-query metrics/controls were identical between executions, with matching protocol IDs and distinct execution IDs.
+
+| Check | Observed |
+|---|---:|
+| k=0 gaps | Exactly 0 |
+| Control waveform/log-spectrum/acoustic differences | Exactly 0 |
+| Offline waveform/acoustic gap differences | Exactly 0 |
+| Exp_03 EDT error maximum difference | 0 |
+| Exp_03 T60 error maximum difference | 0 |
+| Exp_03 C50 error maximum difference | `4.6491623e-5 dB` |
+| Exp_03 logspec_mad maximum difference | `6.2820358e-6` |
+
+All compared validity masks matched; paired signs and tolerances passed. The isolated repeat took **65.0 s**, averaging **6.225 s per batch-16 forward** and **47.2 ms per query/inversion**. Thus the numerical and GL-timing claims reproduce; the claimed 4.4-second forward timing was not reproduced.
+
+Evidence is retained under [.review-round1/](/home/yixunhu/codespace/xRIR_code_wt10/.review-round1), including the [smoke audit](/home/yixunhu/codespace/xRIR_code_wt10/.review-round1/main/smoke-audit.log) and [adversarial guard results](/home/yixunhu/codespace/xRIR_code_wt10/.review-round1/compare/adversarial_results.json). Tracked files and checkpoint symlinks were left untouched.
+
+Declared deviations 1–6 and 9–11 are reasonable implementation choices; the control representation still needs finding 3’s validation. Item 7 is safely deferred context, not completed functionality. Commit size is a process concern rather than a correctness blocker; additional commits also exceed the guideline, so item 8 understates that deviation.
+
+**Exact merge-blocking list: findings 1–10. Findings 11–12 are nonblocking nits. Round 1 remains open; not approved for merge.**
+total 24
+drwxrwxr-x  6 yixunhu yixunhu 4096 Sep 26 18:46 .
+drwxrwxr-x 12 yixunhu yixunhu 4096 Sep 26 18:46 ..
+drwxrwxr-x  7 yixunhu yixunhu 4096 Sep 26 18:47 bootstrap
+drwxrwxr-x 16 yixunhu yixunhu 4096 Sep 26 18:49 compare
+drwxrwxr-x 10 yixunhu yixunhu 4096 Sep 26 18:51 main
+drwxrwxr-x  8 yixunhu yixunhu 4096 Sep 26 18:47 outputs
+ tests/exp10_fixture.py        |  32 ++-
+ tests/test_exp10_compare.py   | 164 +++++++++++++-
+ tests/test_exp10_summarize.py | 487 ++++++++++++++++++++++++++++++++++++++++-
+ tests/test_exp10_yaw_pilot.py |  59 +++++
+ tools/exp10_compare.py        | 100 ++++++++-
+ tools/exp10_summarize.py      | 491 ++++++++++++++++++++++++++++++++++--------
+ tools/exp10_yaw_pilot.py      | 131 ++++++-----
+ 7 files changed, 1304 insertions(+), 160 deletions(-)
+
+codex
+I’ve read the prior review and the round-2 requirements. I’ll split the close review across integrity/parity, statistical reporting, and rendering, while I run the suites, CPU smoke, timing audit, and merge rehearsal.
+
