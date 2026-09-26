@@ -326,3 +326,200 @@ def headline_multiple(cell, convergence_report):
         return result
     result["reportable"] = True
     return result
+
+
+#: The three paired readouts: (label, Metric-2 error, Metric-1 gap, unit).
+METRIC_TRIPLES = (("EDT", "edt_err", "edt_gap", "s"),
+                  ("C50", "c50_err", "c50_gap", "dB"),
+                  ("T60", "t60_err", "t60_gap", "% of T60"))
+#: Shift-only quantities: the Griffin-Lim-free pair plus the waveform distances (R3).
+SHIFT_ONLY_METRICS = (("logspec_mad", "log-magnitude"), ("mag_rel_l2", "relative"),
+                      ("wave_rel_l2", "relative"), ("wave_mad", "amplitude"))
+#: Accuracy-only quantities (no Metric-1 counterpart exists for them).
+DELTA_ONLY_METRICS = (("log_mse", "log-magnitude^2"), ("loss", "test loss"))
+#: Fields that must agree between two runs on the same device (A2).
+IMPLEMENTATION_FIELDS = ("batch_size", "batch_canonical", "tool_sha256", "gl_seed",
+                         "cudnn_deterministic", "cudnn_allow_tf32", "matmul_allow_tf32",
+                         "torch_version", "numpy_version", "native_len", "padded_len",
+                         "metric_window")
+CONTROL_WAVE_TOLERANCE = 1e-6
+CONTROL_ACOUSTIC_TOLERANCE = 1e-9
+CONTROL_ACOUSTIC_METRICS = ("edt_err", "c50_err", "t60_err",
+                            "edt_gap", "c50_gap", "t60_gap")
+
+
+def guard_runs(run_dirs):
+    """Load the runs to be summarised, refusing any combination A2 forbids.
+
+    Every arm's ``delta``, ``G`` and ``R`` come from **one** per-sample file whose
+    ``execution_id`` matches its meta and whose waveform arrays still hash as recorded
+    (``tools.exp10_compare.load_run``).  On top of that, two runs may not share a
+    ``protocol_id`` -- that would be the same configuration executed twice, and nothing
+    downstream could say which numbers came from which -- and two runs on the same device
+    may not differ in their batch or implementation settings, because their per-query
+    values are then not computed the same way.
+
+    Args:
+        run_dirs: the run directories, in the order they should be reported.
+
+    Returns:
+        A list of ``{"run_dir", "meta", "per_sample"}``.
+
+    Raises:
+        ValueError: on a failed run guard, a duplicated ``protocol_id`` or an
+            implementation mismatch within one device.
+    """
+    from tools.exp10_compare import load_run
+
+    loaded = []
+    for run_dir in run_dirs:
+        meta, per_sample = load_run(run_dir)
+        loaded.append({"run_dir": run_dir, "meta": meta, "per_sample": per_sample})
+
+    seen = {}
+    for entry in loaded:
+        protocol = entry["meta"]["protocol_id"]
+        if protocol in seen:
+            raise ValueError(
+                "{} and {} have the same protocol_id {}: two executions of one "
+                "configuration cannot be combined".format(
+                    seen[protocol], entry["run_dir"], protocol))
+        seen[protocol] = entry["run_dir"]
+
+    by_device = {}
+    for entry in loaded:
+        device = entry["meta"]["device"]
+        first = by_device.setdefault(device, entry)
+        for field in IMPLEMENTATION_FIELDS:
+            if entry["meta"].get(field) != first["meta"].get(field):
+                raise ValueError(
+                    "{} and {} both ran on {} but their {} differs ({!r} vs {!r}): their "
+                    "per-query values are not computed the same way".format(
+                        first["run_dir"], entry["run_dir"], device, field,
+                        first["meta"].get(field), entry["meta"].get(field)))
+    return loaded
+
+
+def _series(per_sample, angle, metric):
+    """One stored per-sample series of an angle cell (``None`` when the metric is absent)."""
+    cell = per_sample["angles"][str(int(angle))]
+    return cell[metric] if metric in cell else None
+
+
+def summarize_run(run_dir, n_boot=N_BOOT, alpha=ALPHA, seeds=SEEDS):
+    """Every cell of one arm: query-level and room-level, both seeds, plus convergence.
+
+    Args:
+        run_dir: the arm's run directory (one execution; see :func:`guard_runs`).
+        n_boot: bootstrap resamples.
+        alpha: two-sided level.
+        seeds: ``(reporting seed, convergence seed)``.
+
+    Returns:
+        ``{"arm", "run_dir", "execution_id", "protocol_id", "meta", "queries", "rooms",
+        "angles"}`` where ``angles[str(k)][label]`` carries ``query``, ``room``,
+        ``convergence``, ``convergence_room`` and ``headline``.
+    """
+    from tools.exp10_compare import load_run
+
+    meta, per_sample = load_run(run_dir)
+    queries = per_sample["query"]
+    clusters = room_ids(queries)
+
+    angles = {}
+    for k in sorted(int(k) for k in meta["ks"]):
+        cell = {}
+        specs = ([(label, error, gap, unit) for label, error, gap, unit in METRIC_TRIPLES] +
+                 [(name, None, name, unit) for name, unit in SHIFT_ONLY_METRICS] +
+                 [(name, name, None, unit) for name, unit in DELTA_ONLY_METRICS])
+        for label, error, gap, unit in specs:
+            e0 = _series(per_sample, 0, error) if error else None
+            ek = _series(per_sample, k, error) if error else None
+            if gap is not None:
+                gk = _series(per_sample, k, gap)
+            else:
+                # An accuracy-only metric has no gap: its "gap" series is all-NaN, so the
+                # mask still comes from the two errors and only delta is estimated.
+                gk = [0.0] * len(queries)
+            if (error and (e0 is None or ek is None)) or gk is None:
+                continue
+            entry = {}
+            for name, ids in (("query", None), ("room", clusters)):
+                entry[name] = bootstrap_cell(e0, ek, gk, n_boot=n_boot, seed=seeds[0],
+                                             alpha=alpha, clusters=ids, unit=unit)
+                second = bootstrap_cell(e0, ek, gk, n_boot=n_boot, seed=seeds[1],
+                                        alpha=alpha, clusters=ids, unit=unit)
+                key = "convergence" if name == "query" else "convergence_room"
+                entry[key] = convergence(entry[name], second)
+            if gap is None:
+                for scope in ("query", "room"):
+                    entry[scope]["gap"] = {"point": None, "lo": None, "hi": None}
+                    entry[scope]["mean_gap"] = None
+                    entry[scope]["ratio"] = {
+                        "point": None, "lo": None, "hi": None, "status": "undefined",
+                        "zero_draw_fraction": None,
+                        "reason": "no prediction shift is defined for this metric"}
+            entry["headline"] = headline_multiple(entry["query"], entry["convergence"])
+            entry["room_status"] = entry["room"]["ratio"]["status"]
+            cell[label] = entry
+        angles[str(k)] = cell
+
+    return {"arm": meta.get("arm"), "run_dir": run_dir, "meta": meta,
+            "execution_id": meta["execution_id"], "protocol_id": meta["protocol_id"],
+            "n_queries": len(queries), "rooms": sorted(set(clusters)), "angles": angles}
+
+
+def controls_table(run_dir, wave_tol=CONTROL_WAVE_TOLERANCE,
+                   acoustic_tol=CONTROL_ACOUSTIC_TOLERANCE):
+    """The plumbing controls: does a repeated inference reproduce the cell it repeats?
+
+    ``ctrl_zero_repeat`` and ``ctrl_k128_repeat`` re-run an angle from scratch and
+    ``ctrl_full_turn`` runs ``k = 512``, which is the identity path through the rotation;
+    all three must land on their original to 1e-6 (waveform and log-spectrogram) and 1e-9
+    (acoustic metrics), and must invalidate exactly the same queries.
+
+    Args:
+        run_dir: the run directory (its controls must have been written).
+        wave_tol: tolerance on the stored per-query waveform / log-spec deviations.
+        acoustic_tol: tolerance on the acoustic metrics.
+
+    Returns:
+        ``{"ok", "run_dir", "tolerances", "controls"}``; each control carries its maximum
+        waveform, log-spec and acoustic deviation, the worst acoustic metric, the validity
+        mismatches and ``ok``.
+    """
+    from tools.exp10_compare import load_run
+
+    meta, per_sample = load_run(run_dir)
+    specs = {entry["id"]: entry for entry in meta.get("control_specs", [])}
+    table = {"ok": True, "run_dir": run_dir,
+             "tolerances": {"waveform": float(wave_tol), "logspec": float(wave_tol),
+                            "acoustic": float(acoustic_tol)},
+             "controls": {}}
+    for name, stored in sorted(per_sample.get("controls", {}).items()):
+        reference = str(int(specs.get(name, {}).get("compare_to", 0)))
+        original = per_sample["angles"][reference]
+        wave = float(np.nanmax(_as_float(stored["wave_max_abs_diff"])))
+        logspec = float(np.nanmax(_as_float(stored["logspec_max_abs_diff"])))
+        worst_metric, worst_value, mismatches = None, 0.0, 0
+        for metric in CONTROL_ACOUSTIC_METRICS:
+            if metric not in stored or metric not in original:
+                continue
+            control_values = _as_float(stored[metric])
+            original_values = _as_float(original[metric])
+            invalid = np.isfinite(control_values) != np.isfinite(original_values)
+            mismatches += int(invalid.sum())
+            both = np.isfinite(control_values) & np.isfinite(original_values)
+            if both.any():
+                worst = float(np.abs(control_values[both] - original_values[both]).max())
+                if worst > worst_value:
+                    worst_metric, worst_value = metric, worst
+        ok = bool(wave <= wave_tol and logspec <= wave_tol and
+                  worst_value <= acoustic_tol and mismatches == 0)
+        table["controls"][name] = {
+            "k": specs.get(name, {}).get("k"), "compare_to": int(reference),
+            "wave_max_abs_diff": wave, "logspec_max_abs_diff": logspec,
+            "acoustic_max_abs_diff": worst_value, "worst_acoustic_metric": worst_metric,
+            "validity_mismatches": mismatches, "ok": ok}
+        table["ok"] = table["ok"] and ok
+    return table

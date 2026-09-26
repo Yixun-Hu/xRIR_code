@@ -27,7 +27,8 @@ def decaying_noise(n, length=pilot.PADDED_LEN, seed=0, tau=1200.0):
 
 def make_run(out_dir, ks=(0, 128), n=8, seed=0, controls=True, shift=0.01,
              meta_overrides=None, per_sample_meta_overrides=None, complete=True,
-             queries=None, indices=None, batches=(0,), execution_id=None):
+             queries=None, indices=None, batches=(0,), execution_id=None,
+             protocol_overrides=None):
     """Write a complete, self-consistent synthetic run directory and return its meta.
 
     Args:
@@ -37,6 +38,8 @@ def make_run(out_dir, ks=(0, 128), n=8, seed=0, controls=True, shift=0.01,
         seed: seed of the synthetic waveforms.
         controls: also write the three control cells (as exact repeats of their angles).
         shift: how far the rotated waveforms are moved away from the ``k = 0`` ones.
+        protocol_overrides: fields to change *before* ``protocol_id`` is computed, so a
+            test can build two runs with genuinely different (or identical) protocols.
         meta_overrides: fields to overwrite in ``meta.json`` after it is built.
         per_sample_meta_overrides: fields to overwrite in ``per_sample.json``'s meta copy
             (this is what the guard compares against ``meta.json``).
@@ -118,6 +121,8 @@ def make_run(out_dir, ks=(0, 128), n=8, seed=0, controls=True, shift=0.01,
                        "matmul_allow_tf32": False, "batch_size": 16,
                        "batch_canonical": True, "torch_version": "2.0.1+cu117",
                        "numpy_version": "1.23.5", "tool_sha256": "t" * 64}
+    if protocol_overrides:
+        protocol_fields.update(protocol_overrides)
     execution, started = pilot.new_execution_id()
     meta_core = dict(protocol_fields)
     meta_core.update({

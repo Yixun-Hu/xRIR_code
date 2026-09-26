@@ -289,3 +289,142 @@ def test_room_level_cell_masks_before_it_clusters():
     assert cell["exclusions"]["gap_invalid"] == 1
     # Room A now holds one query and room B two: the draws are the query-weighted means.
     assert cell["delta"]["point"] == pytest.approx((0.2 + 0.4 + 0.4) / 3.0)
+
+
+# ------------------------------------------- test 16: the run-identity guard (A2)
+
+def _fixture_run(tmp_path, name, **kwargs):
+    from tests.exp10_fixture import make_run
+
+    out_dir = str(tmp_path / name)
+    make_run(out_dir, **kwargs)
+    return out_dir
+
+
+def test_guard_runs_accepts_two_arms_of_one_protocol_family(tmp_path):
+    first = _fixture_run(tmp_path, "released_k8")
+    second = _fixture_run(tmp_path, "control_k8",
+                          protocol_overrides={"checkpoint_sha256": "d" * 64})
+    loaded = summarize.guard_runs([first, second])
+    assert [entry["run_dir"] for entry in loaded] == [first, second]
+    assert loaded[0]["meta"]["protocol_id"] != loaded[1]["meta"]["protocol_id"]
+
+
+def test_guard_runs_refuses_two_executions_of_the_same_configuration(tmp_path):
+    first = _fixture_run(tmp_path, "run_a")
+    second = _fixture_run(tmp_path, "run_b")
+    with pytest.raises(ValueError) as excinfo:
+        summarize.guard_runs([first, second])
+    assert "same protocol_id" in str(excinfo.value)
+
+
+def test_guard_runs_refuses_same_device_runs_with_different_batch_settings(tmp_path):
+    first = _fixture_run(tmp_path, "batch16")
+    second = _fixture_run(tmp_path, "batch8",
+                          protocol_overrides={"batch_size": 8,
+                                              "checkpoint_sha256": "e" * 64})
+    with pytest.raises(ValueError) as excinfo:
+        summarize.guard_runs([first, second])
+    assert "batch_size" in str(excinfo.value)
+
+
+def test_guard_runs_refuses_same_device_runs_built_by_different_tool_versions(tmp_path):
+    first = _fixture_run(tmp_path, "tool_a")
+    second = _fixture_run(tmp_path, "tool_b",
+                          protocol_overrides={"tool_sha256": "f" * 64,
+                                              "checkpoint_sha256": "e" * 64})
+    with pytest.raises(ValueError) as excinfo:
+        summarize.guard_runs([first, second])
+    assert "tool_sha256" in str(excinfo.value)
+
+
+def test_guard_runs_refuses_a_per_sample_file_from_another_execution(tmp_path):
+    run_dir = _fixture_run(tmp_path, "mixed",
+                           per_sample_meta_overrides={"execution_id": "someone-else"})
+    with pytest.raises(ValueError):
+        summarize.guard_runs([run_dir])
+
+
+def test_summarize_run_reads_one_execution_and_labels_it(tmp_path):
+    run_dir = _fixture_run(tmp_path, "arm", n=24)
+    summary = summarize.summarize_run(run_dir, n_boot=200)
+    assert summary["arm"] == "fixture"
+    assert summary["execution_id"] == summary["meta"]["execution_id"]
+    assert summary["protocol_id"] == summary["meta"]["protocol_id"]
+    assert sorted(summary["angles"]) == ["0", "128"]
+
+    cell = summary["angles"]["128"]["EDT"]
+    assert cell["query"]["n"] > 0
+    assert cell["room"]["unit_of_resampling"] == "room"
+    assert cell["convergence"]["status_agrees"] in (True, False)
+    assert "headline" in cell
+    zero = summary["angles"]["0"]["EDT"]
+    assert zero["query"]["delta"]["point"] == 0.0
+    assert zero["query"]["ratio"]["status"] == "undefined"
+    shift_only = summary["angles"]["128"]["logspec_mad"]
+    assert shift_only["query"]["gap"]["point"] > 0
+    assert shift_only["query"]["delta"]["point"] is None
+
+
+# ------------------------------------------------------- test 14: the controls table
+
+def test_controls_table_passes_on_exact_repeats(tmp_path):
+    run_dir = _fixture_run(tmp_path, "controls_ok")
+    table = summarize.controls_table(run_dir)
+    assert table["ok"] is True
+    assert sorted(table["controls"]) == ["ctrl_full_turn", "ctrl_k128_repeat",
+                                         "ctrl_zero_repeat"]
+    for cell in table["controls"].values():
+        assert cell["ok"] is True
+        assert cell["wave_max_abs_diff"] == 0.0
+        assert cell["logspec_max_abs_diff"] == 0.0
+        assert cell["acoustic_max_abs_diff"] == 0.0
+
+
+@pytest.mark.parametrize("metric,value,field", [
+    ("wave_max_abs_diff", 1e-3, "wave_max_abs_diff"),
+    ("logspec_max_abs_diff", 1e-5, "logspec_max_abs_diff"),
+])
+def test_controls_table_flags_a_waveform_or_logspec_mismatch(tmp_path, metric, value,
+                                                             field):
+    from tests.exp10_fixture import edit_json
+
+    run_dir = _fixture_run(tmp_path, "controls_" + metric)
+    edit_json(os.path.join(run_dir, "per_sample.json"),
+              lambda payload: payload["controls"]["ctrl_k128_repeat"][metric]
+              .__setitem__(1, value))
+    table = summarize.controls_table(run_dir)
+    assert table["ok"] is False
+    assert table["controls"]["ctrl_k128_repeat"]["ok"] is False
+    assert table["controls"]["ctrl_k128_repeat"][field] == pytest.approx(value)
+    assert table["controls"]["ctrl_zero_repeat"]["ok"] is True
+
+
+def test_controls_table_flags_an_acoustic_mismatch_above_1e_9(tmp_path):
+    from tests.exp10_fixture import edit_json
+
+    run_dir = _fixture_run(tmp_path, "controls_acoustic")
+
+    def nudge(payload):
+        cell = payload["controls"]["ctrl_zero_repeat"]
+        cell["c50_err"][0] = cell["c50_err"][0] + 1e-8
+
+    edit_json(os.path.join(run_dir, "per_sample.json"), nudge)
+    table = summarize.controls_table(run_dir)
+    assert table["ok"] is False
+    cell = table["controls"]["ctrl_zero_repeat"]
+    assert cell["ok"] is False
+    assert cell["acoustic_max_abs_diff"] == pytest.approx(1e-8, rel=1e-3)
+    assert cell["worst_acoustic_metric"] == "c50_err"
+
+
+def test_controls_table_flags_a_validity_mismatch(tmp_path):
+    from tests.exp10_fixture import edit_json
+
+    run_dir = _fixture_run(tmp_path, "controls_validity")
+    edit_json(os.path.join(run_dir, "per_sample.json"),
+              lambda payload: payload["controls"]["ctrl_full_turn"]["edt_err"]
+              .__setitem__(0, None))
+    table = summarize.controls_table(run_dir)
+    assert table["ok"] is False
+    assert table["controls"]["ctrl_full_turn"]["validity_mismatches"] == 1
