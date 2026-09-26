@@ -12,3 +12,282 @@ session id: 01a0df9b-6b68-74a1-b099-24dc061c93c9
 --------
 user
 You are the plan Reviewer for exp_10 `yaw_pilot` in /home/yixunhu/codespace/xRIR_code (read-only). Before judging, read: worklog/experiment_SOP.md; worklog/worklog_yixun/exp_10_yaw_pilot_claude/{yaw_pilot_yixun_query.md, plan_yaw_pilot.md, yaw_pilot_worklog.md}; the prior experiment this builds on: worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/{plan_yaw_rotation_degradation.md, yaw_rotation_degradation_results.md, yaw_rotation_degradation_analysis.md} and its code eval_yaw_rotation.py, tools/yaw_rotation.py, tools/per_sample_metrics.py, tools/reference_manifest.py; the FLAC counterpart being mimicked: /home/yixunhu/codespace/FLAC/worklog/worklog_yixun/exp_02_yaw_noninvariance_claude/{plan_yaw_noninvariance.md, yaw_noninvariance_results.md, compare_predictions.py} and /home/yixunhu/codespace/FLAC/analysis/pilot_study/plot_pilot_yaw_gaps.py; exp_04's five-seed table worklog/worklog_yixun/model_comparison.md (noise floors). Task statement: the Planner will have Claude Opus 5 implement ONLY the plan's §5 new files (tools/exp10_{yaw_pilot,compare,summarize}.py + tests) on a worktree; exp_03's pinned modules must not change; runs are evaluation-only on the released xRIR checkpoint (+ control/cyl) at five yaw angles, CPU or GPU. Out of scope: training, condition E, confirmatory tests. Review the plan for: method soundness (is Metric 1 for xRIR defined so that it is comparable with FLAC's, and is the Griffin-Lim inflation handled honestly? is the P-condition the right conditioning-rotation analogue of FLAC's --rotate-deg? are the controls sufficient? is the paired bootstrap on Δ, G and G/Δ correct, including the ratio's undefined case?), hidden assumptions (CPU-vs-GPU parity tolerances vs exp_03's GPU runs; float32 waveform storage; the released checkpoint at K = 1 although trained at K = 8; noise-floor band borrowed from the control), missing tests/controls, run design and cost, and whether the deliverables let the paper state "shift vs degradation" per angle without overclaiming. Report numbered findings with severity (blocker / should-fix / nit), each with a minimal concrete fix, then a verdict: APPROVE / APPROVE WITH CHANGES / REQUEST CHANGES. Your final message is the review.
+codex
+I’ll read the plan, prior results and code, and FLAC comparison before assessing the method and reporting concrete fixes.
+exec
+/bin/bash -lc "pwd; rg --files -g 'AGENTS.md' -g 'experiment_SOP.md' -g 'plan_yaw_pilot.md' -g 'yaw_pilot_yixun_query.md' -g 'yaw_pilot_worklog.md' -g 'plan_yaw_rotation_degradation.md' -g 'yaw_rotation_degradation_results.md' -g 'yaw_rotation_degradation_analysis.md' -g 'eval_yaw_rotation.py' -g 'yaw_rotation.py' -g 'per_sample_metrics.py' -g 'reference_manifest.py' -g 'model_comparison.md'" in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+/home/yixunhu/codespace/xRIR_code
+eval_yaw_rotation.py
+tools/yaw_rotation.py
+tools/per_sample_metrics.py
+tools/reference_manifest.py
+worklog/experiment_SOP.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_worklog.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_yixun_query.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/plan_yaw_pilot.md
+worklog/worklog_yixun/model_comparison.md
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/plan_yaw_rotation_degradation.md
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_analysis.md
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results.md
+
+exec
+/bin/bash -lc 'for p in /AGENTS.md /home/AGENTS.md /home/yixunhu/AGENTS.md /home/yixunhu/codespace/AGENTS.md; do if test -f "$p"; then printf '"'\\n%s\\n' \""'$p"; cat "$p"; fi; done' in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+exec
+/bin/bash -lc "rg --files --hidden -g AGENTS.md -g '"'!'"\\.git' . /home/yixunhu/codespace/FLAC" in /home/yixunhu/codespace/xRIR_code
+ exited 1 in 0ms:
+exec
+/bin/bash -lc 'wc -l worklog/experiment_SOP.md worklog/worklog_yixun/exp_10_yaw_pilot_claude/*.md worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/*.md eval_yaw_rotation.py tools/yaw_rotation.py tools/per_sample_metrics.py tools/reference_manifest.py worklog/worklog_yixun/model_comparison.md /home/yixunhu/codespace/FLAC/worklog/worklog_yixun/exp_02_yaw_noninvariance_claude/{plan_yaw_noninvariance.md,yaw_noninvariance_results.md,compare_predictions.py} /home/yixunhu/codespace/FLAC/analysis/pilot_study/plot_pilot_yaw_gaps.py' in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+   110 worklog/experiment_SOP.md
+    77 worklog/worklog_yixun/exp_10_yaw_pilot_claude/plan_yaw_pilot.md
+     6 worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_worklog.md
+    13 worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_yixun_query.md
+   107 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/commits_yaw_rotation_degradation.md
+   126 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/plan_yaw_rotation_degradation.md
+    90 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/plan_yaw_rotation_degradation_v1_superseded.md
+    33 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_analysis.md
+    73 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_code_evaluator_review.md
+    57 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_code_full_review.md
+    55 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_code_manifest_stats_metrics_review.md
+    53 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_code_yaw_rotation_review.md
+    45 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_review.md
+    96 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round2_review.md
+   116 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round3_review.md
+   144 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round4_review.md
+   136 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round5_review.md
+   154 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round6_review.md
+    65 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round7_review.md
+    51 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round8_review.md
+    89 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_plan_review.md
+   184 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_command.md
+    37 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_params_set_up.md
+   398 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results.md
+   507 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_worklog.md
+    11 worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_yixun_query.md
+   687 eval_yaw_rotation.py
+   216 tools/yaw_rotation.py
+   172 tools/per_sample_metrics.py
+   282 tools/reference_manifest.py
+    30 worklog/worklog_yixun/model_comparison.md
+    50 /home/yixunhu/codespace/FLAC/worklog/worklog_yixun/exp_02_yaw_noninvariance_claude/plan_yaw_noninvariance.md
+    41 /home/yixunhu/codespace/FLAC/worklog/worklog_yixun/exp_02_yaw_noninvariance_claude/yaw_noninvariance_results.md
+   300 /home/yixunhu/codespace/FLAC/worklog/worklog_yixun/exp_02_yaw_noninvariance_claude/compare_predictions.py
+    89 /home/yixunhu/codespace/FLAC/analysis/pilot_study/plot_pilot_yaw_gaps.py
+  4700 total
+
+exec
+/bin/bash -lc 'cat worklog/experiment_SOP.md worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_yixun_query.md worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_worklog.md' in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+# Experiment SOP (portable)
+
+A generalizable standard operating procedure for AI-assisted research experiments. Drop this file into any project and reference it from that project's `CLAUDE.md` (e.g. "Follow `worklog/experiment_SOP.md` for all experiment work"). Written for Claude Code, but the roles are model-agnostic.
+
+## Roles (three-model separation of duties)
+
+| Role | Who | Duty |
+|---|---|---|
+| **Planner / Analyst** | The main-session model (strongest reasoning tier; currently Claude Fable 5.1) | Writes plans, judges reliability, writes analyses. Does NOT write implementation code directly. |
+| **Coder** | The strongest coding model at its highest reasoning setting — **currently Claude Opus 5 at max effort, a separate subagent launched from the main session (Agent tool, model `opus`) working in a dedicated git worktree (per Yixun 2026-09-15; 2026-09-12 → 2026-09-15 it was OpenAI Codex `gpt-6-astra` at Ultra via `codex exec`; before that a Claude Opus 4.8 max-effort subagent)** | Implements exactly what the approved plan specifies. |
+| **Reviewer** | **The opposite model family from the Coder** (mandatory cross-model review; see reciprocity note below). | Reviews all newly written code; review is saved, not just read. If the reviewer is unavailable, say so — never silently substitute. |
+
+> **Reviewer reciprocity — no model reviews its own code.** The Reviewer is always the opposite model family from the **Coder**. With the current roles (Planner Claude Fable 5.1, Coder Claude Opus 5; per Yixun 2026-09-15), the code Reviewer is **OpenAI Codex `gpt-6-astra` at Ultra** (`codex exec -s read-only` in the worktree; its final message is saved as the review file with the identity header). When the Coder was Codex (2026-09-12 → 2026-09-15), the code Reviewer was a separate Claude Fable 5.1 subagent launched from the main session with the reviewer briefing, so the review context was independent of the Planner's. Plan reviews follow the same rule (the Planner is Claude, so plans are reviewed by Codex). The Coder and Reviewer must always be different model families, so review is genuinely independent.
+
+> **Reviewer briefing — load context before judging.** Every review prompt (plan or code) must direct the Reviewer to read, before reviewing: (1) this SOP and all `worklog/worklog_<username>/announcement/` directives; (2) the experiment's `plan_*.md` and `_worklog.md` notebook (what was decided and why, including plan amendments); (3) the results/analyses of the PRIOR experiments the work builds on (e.g. baseline numbers and noise floor); (4) a one-paragraph statement of what the current Coder round was tasked to do and what is explicitly out of scope for this round. A reviewer without this context produces generic reviews, flags out-of-scope "gaps", and misses violations of experiment-specific decisions.
+
+## Directory layout
+
+All experiment bookkeeping lives in `worklog/` at the repo root, **namespaced per user** (rule updated 2026-07-12):
+
+- `worklog/experiment_SOP.md` — **this file lives directly under `worklog/`, NOT inside any user namespace** (it is shared/portable across users).
+- `worklog/worklog_<username>/` — one namespace folder per user; ALL of that user's experiment logging goes inside it (in this project `<username>` = `yixun` → `worklog/worklog_yixun/`). Every logging path that previously sat directly under `worklog/` now sits under `worklog_<username>/`:
+  - `worklog/worklog_<username>/announcement/<NN>_<topic>.md` — standing directives from the user. **Read every announcement before planning or running anything.** New standing instructions get the next number.
+  - `worklog/worklog_<username>/exp_<NN>_<exp name>_claude/` — one folder per experiment, `<NN>` zero-padded and sequential.
+  - `worklog/worklog_<username>/archive_<reason>_<date>/` — archived/superseded code (see Development discipline).
+
+## Per-experiment artifacts (in lifecycle order)
+
+Inside `worklog/worklog_<username>/exp_<NN>_<exp name>_claude/`:
+
+1. `<exp name>_<username>_query.md` — the user's driving queries: each one verbatim, plus a summary, the user's assumption/hypothesis, and why the experiment needs to run. Started at scaffold time, appended as new queries arrive. (`<username>` is the same name as in the `worklog_<username>` namespace folder — here `yixun`, e.g. `<exp name>_yixun_query.md`.)
+2. `plan_<exp name>.md` — written by the Planner BEFORE any code: the English plan AND the planned code laid out per file (each existing file to edit, each new file to create). Surfaced for user approval before implementation.
+3. `<exp name>_<reviewer>_plan_review.md` — the Reviewer's review of the PLAN, before user approval and before any implementation: method soundness, hidden assumptions, missing tests/controls, run design. Same reviewer-naming and identity-header rules as the code review below. Planner addresses the findings (revising the plan) before the user signs off.
+4. *(the implementation itself)* — the code, written by the Coder subagent per the approved plan. No dedicated markdown artifact; this step is the source-code changes.
+5. `<exp name>_<reviewer>_code_<marker>_review.md` — **one small review per Coder round, not one big review at the end**: after EVERY round of Coder output (a TDD red→green cycle, a code snippet, or a coherent commit group), the Reviewer reviews that round's commits BEFORE the next round starts. `<reviewer>` names the reviewing model (`codex` / `opus`); `<marker>` identifies the round — the TDD-cycle or snippet name, or the short name of the main commit (e.g. `<exp name>_codex_code_cyl_pose_review.md`, `<exp name>_codex_code_dispatch_review.md`). **A round is CLOSED only when its full loop has run: code written → review returned → strengthening/fixes applied by the Coder for every blocking finding → fixes re-verified (tests green; re-review or Planner verification of the fix) → loop outcome logged in `_worklog.md` with the fix commit SHAs.** No new round starts, and no run launches, while any round is open. Nits may be batched into the next round; blocking findings may not. A final integrative review of the whole experiment diff (marker `full`) still runs before the first expensive launch. Record "N/A — no code written" for code-free experiments. Every review file MUST open with a header giving the reviewer's exact identity: model/product name and version, invocation method, and review date — e.g. `**Reviewer:** OpenAI Codex (codex-cli 0.144.1, \`codex exec\`, read-only sandbox) · **Date:** 2026-07-10`. **Reviews (plan and code) always use the Reviewer family's strongest available model at its highest reasoning setting** — currently `gpt-6-astra` at Ultra (`model = "gpt-6-astra"`, `model_reasoning_effort = "ultra"` in `~/.codex/config.toml`; per Yixun 2026-09-12; supersedes `gpt-5.6-sol`; requires codex-cli ≥ 0.154 — 0.144.1 rejects the model) for Codex, Claude Fable 5.1 for Claude (per Yixun 2026-09-12; previously Claude Opus 4.8 at max effort). Since 2026-09-15 the Coder is Claude Opus 5, so code reviews are Codex (`<exp name>_codex_code_<marker>_review.md`) and plan reviews stay Codex; a Coder change mid-experiment is logged in the notebook and rounds keep single authorship (an in-flight round of the previous Coder is archived, not mixed).
+6. `<exp name>_params_set_up.md` — full hyperparameters/configuration, written at launch.
+7. `<exp name>_command.md` — exact reproduction command(s). **Rule: EVERY experiment/run launched gets its command added to this file AT LAUNCH TIME, not retroactively** — including reruns, amended iterations, probes that produce run artifacts, and diagnostics; failed/superseded runs stay in the file (marked as such) because reproducing the failure is part of the record. The notebook records *why*, this file records *how to reproduce*.
+8. `<exp name>_worklog.md` — an append-only, timestamped **lab notebook: one entry per action**, not per run. Started at scaffold, appended continuously through implementation, debugging, and every launch. This is where the validation ladder, parity audit, and failure triage (below) get recorded as they happen. Entry format in **Worklog entry template** below. Complements `_results.md` (final numbers) and `_analysis.md` (final judgment) by capturing the decision/debug trail in between.
+9. `<exp name>_<YYYY-MM-DD_HH:MM:SS>.log` — ALL terminal output, one timestamped log per run (tee/redirect every training/eval command into the folder). Aborted runs keep their log, renamed with an `_ABORTED_<reason>` suffix.
+10. `<exp name>_results.md` — results, appended as runs finish.
+11. `<exp name>_analysis.md` — written by the Planner after results land: analyze all code + configuration + results; judge whether the result is reliable; state the outcome and the recommended next step.
+12. `commits_<exp name>.md` — SHA + one-line description of every commit belonging to this experiment.
+13. `<exp name>_<idx>_results.html` — **rich HTML results visualization, produced after the experiment finishes** (alongside, not replacing, `_results.md`): tables, equations (MathJax/KaTeX or clean HTML math), figures/plots, color-coded verdict blocks, run-trajectory charts — use the full expressive range of HTML/CSS to make the results maximally human-readable. `<idx>` is chosen by the author to separate distinct parts of the visualization when one page would overload (e.g. `..._01_results.html` for gate tables, `..._02_results.html` for mechanism decomposition); a single `_01_` page is fine for simple experiments. **All sourced assets (generated plot images, data extracts, JS/CSS) live in a corresponding folder inside the experiment directory** (e.g. `exp_<NN>_<exp name>_claude/<exp name>_results_assets/`) and are referenced relatively, so the HTML renders offline from a repo checkout. Charts follow the project's visualization standards (load the dataviz guidance before writing chart code). The HTML must be self-consistent with `_results.md` numbers — it is a presentation layer, never a place where numbers appear first.
+
+## Worklog entry template
+
+Each `_worklog.md` entry is one action, headed by an ISO-8601 timestamp in **local time with UTC offset** (same clock as the run-log filenames) and a short title, then these fields. Use the full set for substantive actions (code, launches, fixes); a lightweight **Goal / Result / Analysis / Next** is enough for routine monitoring checks.
+
+`## <YYYY-MM-DDThh:mm:ss±hh:mm> — <short title>`
+
+- **Goal** — what this action is for. *(every entry)*
+- **Hypothesis** — the belief being tested, stated *before* the evidence. *(only when testing something)*
+- **Change** — exact files/behavior touched. *(when code changed)*
+- **Version Control** — branch, `base_commit`, `implementation_commit`, push/pull, changed_files. Every SHA inline.
+- **Command / Validation** — exact commands (or static checks), job ids, run dirs, log + artifact paths.
+- **Acceptance criteria** — the exact conditions that count as success, written *before* a launch (see **Running & failure discipline**).
+- **Result** — status (`passed` / `partial` / `in_progress` / `launched` / `fix_ready`) + metrics/artifacts + key evidence.
+- **Analysis** — interpretation; in particular classify any failure as *infrastructure vs. real bug*.
+- **Next** — the immediate next step.
+
+## Development discipline
+
+- Develop **commit by commit, experiment by experiment** from a known-good base commit. No long-lived uncommitted state: an experiment concludes by committing its code and its worklog folder.
+- **Each commit generally < 200 changed lines of code.** Several small commits per experiment are preferred over one large one. Log every SHA in `commits_<exp name>.md`.
+- **Test-driven development (mandatory for all new functions)** — per [TDD](https://en.wikipedia.org/wiki/Test-driven_development): for each small function, write its test FIRST (pytest, in a dedicated `tests/` folder — **ask the user where to place it** the first time tests are added to a project; do not assume repo root), run it to confirm it fails (red), then implement the minimal function that passes (green), then refactor with tests green. Each red→green cycle maps naturally onto one small commit (tests may land in the same commit as the implementation or the commit immediately before it — never after). Tests are permanent regression assets: they stay in `tests/` and must keep passing in later experiments; run the relevant test subset as rung 1½ of the validation ladder.
+- **Universal review coverage (2026-07-06):** EVERY piece of code — Coder-written source, AND Planner-written one-off scripts (page/visual generators, probe drivers, analysis one-offs) — goes through the Reviewer loop before its round closes. Small scripts may be batched into one consolidated review round; nothing executable that informs a decision or artifact ships unreviewed.
+- Superseded or exploratory code is archived (patch + files) under `worklog/worklog_<username>/archive_<reason>_<date>/` before being removed from the working tree — never destroyed.
+
+## Validation ladder (cheapest-first)
+
+Never jump straight to the expensive run. Climb this ladder; advance only when the current rung passes, and record each rung in `_worklog.md`.
+
+1. **Static checks** — `python -m py_compile <changed .py>`, config parse (`yaml.safe_load`), `bash -n <changed .sh>`, `git diff --check` (whitespace). Seconds, no accelerator.
+2. **Tiny synthetic forward** — smallest module instantiation + one forward/step on a small/cheap device with synthetic tensors. Catches graph/mesh/shape/dtype/timestep errors without loading full weights or data.
+3. **Small real-data readback** — parse a few real records; assert shapes, byte lengths, and min/max/std match the schema. Catches data-pipeline mismatches.
+4. **Bounded data build** — if the experiment produces a dataset, build the val split (or a bounded slice) first and read it back before the full build.
+5. **Smoke run** — a few steps at the smallest batch on the target hardware, checkpointing/final-save **disabled** (storage-light), just to reach one completed optimizer step and produce logs.
+6. **Fit / batch-size probe** — find the max batch that fits, still storage-light (no checkpoints), before committing to the full run.
+7. **Full run** — only after 1–6 pass and the parity audit below is clean.
+
+## Parity audit before scaling
+
+Before spending real compute on a new method, audit the implementation **component by component against the reference** (paper code / upstream repo), and diff the *numbers*, not just the shapes:
+
+- **Numeric recipe defaults** — LayerNorm eps, weight decay, betas, LR schedule, loss type, sigma/noise schedule, CFG handling. Silent mismatches (e.g. eps `1e-6` vs `1e-5`, weight decay `0` vs `1e-2`) don't crash; they quietly corrupt results.
+- **Structural parity** — which params are trainable vs frozen, residual/injection points, stop-gradient boundaries, any pinning/masking.
+- **Data parity** — take one concrete source example and its processed/cached counterpart; confirm identical dtype, byte counts, and min/max/std.
+
+Record the audit in `_worklog.md`; launch the full-scale run only from the audited commit.
+
+## Running & failure discipline
+
+- **Pre-launch acceptance criteria.** Before every launch, write in `_worklog.md` the exact conditions that count as success: the commit SHA the worker must report, device/host count, per-device and global batch, parallelism axes, which params are trainable, and "reaches ≥1 optimizer step with no OOM / NaN / parse failure." Judge the run against these, not vibes.
+- **Infrastructure vs. real bug.** In every failure Analysis, classify the cause: *infrastructure* (spot preemption, host maintenance, download/network stall, launch-env/PATH, quota) vs. *real bug* (wrong shape/sharding, wrong objective, bad schedule). Only real bugs get a code fix; infra failures get retry/resume. Prevents thrashing on non-bugs.
+- **Commit + push before running remotely.** Any remote (TPU/cluster) run executes a *pushed* SHA; verify the SHA the worker actually checked out. Never run uncommitted code on a remote.
+- **Never edit a script while it is running.** Wait for a safe boundary, then patch; fix orchestration bugs separately from the data/model path.
+- **Resume from the last safe boundary.** On a mid-pipeline crash, find the last fully-committed unit (contiguous shard / checkpoint) and resume from the next; never duplicate or lose work, never reuse stale staging.
+- **Storage guardrail.** Long data/checkpoint jobs hold only a bounded working set (one batch/segment resident), clean up after each unit, and stay above an explicit free-space floor; contiguous coverage is the correctness check.
+- **Shared-resource etiquette.** Inspect a shared machine's processes before using it; don't interrupt others' jobs without approval; verify zero stale processes/watchers/queued-resources after a failed run before relaunching.
+
+## Evaluation integrity
+
+- Always compare against the baseline method on its **full published evaluation configuration** — the complete split files and dataset configs the baseline's paper used. Never invent new eval configurations (subsampled items, hand-picked examples, reduced splits) for comparisons; subsets are for debugging only and never appear in `_results.md`.
+- Reproduce the baseline's reported numbers (within its reported variance) **before** evaluating any new method, to calibrate the pipeline and establish the noise floor.
+- Match the baseline's aggregation convention (e.g. per-scene means) and its variance protocol (e.g. mean ± std over N generations/seeds).
+- If a run is launched and the code state then changes (revert, edit), kill and relaunch rather than mixing code states across a sweep; document the abort in `_params_set_up.md`.
+
+## Sequencing summary
+
+scaffold folder + `_yixun_query.md` + `_worklog.md` → `plan_*.md` (Planner, incl. per-function test list) → `_<reviewer>_plan_review.md` (Reviewer, strongest model at highest reasoning) → Planner revises → user approves → **TDD loop**, per round: (Coder: test first → red → implement → green, one small commit per cycle) → `_<reviewer>_code_<marker>_review.md` (Reviewer, per-round small review; blocking findings fixed before the next round) → next round … → **validation ladder** (static → tests → smoke → probe) → `_<reviewer>_code_full_review.md` (Reviewer, integrative) → **parity audit** vs reference → `_params_set_up.md` + `_command.md` + **acceptance criteria** → launch with teed timestamped logs, triaging *infra-vs-bug* on failure → `_results.md` → `_analysis.md` (Planner) → **`<exp name>_<idx>_results.html`** (+ assets folder) → commit(s) + `commits_*.md`. Log every action in `_worklog.md` as it happens.
+# exp_10 yaw_pilot — driving queries
+
+## 2026-09-26 (verbatim)
+
+> I need you to run this similar to exp_02 in FLAC for xrir: ## 3. xRIR pilot study
+>
+> mimic FLAC, doing the rotation experiments of xRIR on AR dataset to finish all the pilot study
+
+**Summary.** The ICLR 2027 paper's pilot-study section has a FLAC part (FLAC repo exp_02 `yaw_noninvariance`, 2026-07-04: released FLAC_EMA checkpoint, AcousticRooms unseen K = 1 split, conditioning yaw-rotated by 90/180/270°; Metric 2 = accuracy vs GT per angle, Metric 1 = prediction shift P_α vs P_0 without GT; figure `FLAC/analysis/pilot_study/plot_pilot_yaw_gaps.py`, commit 435407f: "predictions move ~5x more than net accuracy loses"). Yixun wants the same pilot for xRIR on AcousticRooms so the section is complete for both model families.
+
+**Assumption / hypothesis (Yixun's).** Like FLAC, the released xRIR is not yaw-invariant: rotating the receiver-frame conditioning (depth panorama + coordinates) changes its prediction substantially even where the aggregate accuracy loss is small.
+
+**Why it needs to run.** exp_03 (2026-09-06) already measured Metric 2 for xRIR at many angles (small degradation, peaks at diagonal headings) and a log-spectrogram consistency, but never stored predicted waveforms, so FLAC's Metric 1 (waveform rel-L2 and EDT/C50/T60 gaps with P_0 as the reference) and the degradation-vs-shift figure do not exist for xRIR.
+# exp_10 yaw_pilot — lab notebook
+
+## 2026-09-26T17:24:59-04:00 — scaffold
+- **Goal** — start the xRIR analogue of FLAC exp_02 (yaw non-invariance pilot) per Yixun's 2026-09-26 request.
+- **Result** — folder scaffolded; query file written; facts gathered: FLAC exp_02 = released checkpoint, unseen K = 1, α ∈ {0, 90, 180, 270}°, Metric 2 (vs GT) + Metric 1 (P_α vs P_0: waveform rel-L2 / MAD, T60/C50/EDT gaps with P_0 as GT), rot0 determinism control; figure = degradation vs shift bars per angle with a 2σ noise band. xRIR exp_03 has Metric 2 for control / cyl / released at K = 8 on the acoustic grid (k = 0, ±8, ±32, ±64, ±128, 256; P condition, manifest `47637a55…`, gl_seed 0, batch 16, TF32 off) and a log-spec consistency, but no stored waveforms; its K = 1 runs are k = 0 only (no released K = 1 run). Both GPUs held by cylindrical-dinov3 exp_13 tier-L trainings (day 6); asked that session for ETA / co-tenancy; CPU path prepared (runtime device-agnostic copy of `model.xRIR.apply_delay`, as in the qualitative-figure script).
+- **Next** — plan → Codex plan review → Coder round (Opus 5, worktree) → Codex code review → runs.
+
+exec
+/bin/bash -lc 'nl -ba worklog/worklog_yixun/exp_10_yaw_pilot_claude/plan_yaw_pilot.md' in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+     1	# Plan — exp_10 `yaw_pilot` (xRIR analogue of FLAC exp_02 `yaw_noninvariance`)
+     2	
+     3	**Planner:** Claude Fable 5.1 (session xrir-code-25). **Coder:** Claude Opus 5 (Agent, worktree `xRIR_code_wt10`, branch `exp10-yaw-pilot`). **Reviewer:** OpenAI Codex `gpt-6-astra` at xhigh. **Date:** 2026-09-26. **Status:** v1, for Codex plan review.
+     4	
+     5	## 1. Question and stance
+     6	
+     7	**Question (Yixun, 2026-09-26).** Mimicking FLAC's exp_02 pilot: when the *conditioning* of the released xRIR checkpoint is yaw-rotated on the AcousticRooms unseen split, how much does the **prediction itself move** (Metric 1, P_α vs P_0, no GT) compared with how much **accuracy vs GT degrades** (Metric 2)? FLAC's finding was "predictions move ~5× more than net accuracy loses" (T60 gap 3.3 % vs degradation 0.4–0.7 %; EDT gap 19–20 ms vs 3.5–6.3 ms). The pilot section needs the same two numbers, per angle, for xRIR.
+     8	
+     9	**Stance.** This is a **descriptive pilot**, like FLAC's: means with paired query-level bootstrap intervals, no confirmatory hypotheses (exp_03 already ran the Bonferroni-adjusted H1/H2 tests on Metric 2 and found degradation small, peaking at diagonal headings). Pre-registered readouts: (R1) per angle and metric, degradation Δ(α) = mean error(α) − mean error(0) vs GT and shift G(α) = mean gap of P_α w.r.t. P_0, each with a 95 % query-level bootstrap CI; (R2) the ratio G/Δ (CI by the same resamples; reported as "undefined" when the Δ interval contains 0) — the FLAC-style statement is "shift ≫ degradation" only if the ratio's lower bound exceeds 2; (R3) the GL-free spectrogram shift beside the waveform shift, because xRIR's waveform is a Griffin-Lim inversion of a predicted magnitude and GL's nonlinearity inflates waveform distances (FLAC decodes waveforms directly, so its rel-L2 has no such stage) — the caption must say which quantity is FLAC-comparable.
+    10	
+    11	## 2. Mechanism recap (from exp_03; unchanged)
+    12	
+    13	Geometry enters `xRIR.forward` through the ViT views `(loc − depth_coord)/5` and the sinusoidal embedding of raw xyz. Active yaw by k columns (W = 512): `depth' = Rz(2πk/W)·roll(depth, k)`, `src' = Rz·src`, `ref_locs' = Rz·ref_locs`; audio and target unchanged (`tools/yaw_rotation.rotate_scene_yaw`, oracle-tested in exp_03). Condition **P** pins the direct-path alignment at k = 0 (`fixed_alignment`) so only the geometry branches see the rotation; exp_03 showed E (end-to-end) = P to 2e-5, so E is not run here. The prediction is a log-magnitude spectrogram; waveforms come from Griffin-Lim with the phase seeded per query (`tools/per_sample_metrics.griffin_lim_seeded`, `sample_seed(gl_seed, query)`), so P_α and P_0 of one query start from the same random phase and differ only through the magnitudes.
+    14	
+    15	## 3. Arms, references, angles
+    16	
+    17	| Arm | Checkpoint | K | Manifest (exp_03's, hashed) | Role |
+    18	|---|---|---|---|---|
+    19	| `released_k8` | `checkpoints/xRIR_unseen.pth` (authors', frozen; sha256 `1762c702…`) | 8 | `ckpt/yaw_rotation/reference_manifest.json` (`47637a55…`) | **primary** — the FLAC analogue (released checkpoint), xRIR's paper setting |
+    20	| `released_k1` | same | 1 | `ckpt/yaw_rotation/reference_manifest_k1.json` (`f6d71f86…`) | FLAC's K |
+    21	| `control_k8` | `ckpt/xRIR_simple_8_shot/epoch_12.pth` | 8 | `47637a55…` | same-budget SimpleViT (exp_01) — context |
+    22	| `cyl_k8` | `ckpt/xRIR_cyl_8_shot/epoch_12.pth` | 8 | `47637a55…` | CylindricalViT — the fix's starting point |
+    23	
+    24	Execution order = table order (the headline lands first). Settings identical to exp_03's sweeps: batch 16 with canonical padding, TF32 off, `gl_seed 0`, metrics on the first 8000 samples, unseen split, 6 337 queries / 17 rooms. Angles **k ∈ {0, 64, 128, 256, 384}** = 0°, 45°, 90°, 180°, 270° (FLAC's three axis angles plus 45°, where exp_03 found the peak; all five are on exp_03's acoustic grid, so every Metric-2 number here is a replication of exp_03's). Controls: **k = 512** (a full turn; must equal k = 0) on the first 256 queries, and a **repeated k = 0** pass on the same 256 queries (run-to-run determinism) — FLAC's `rot0 == baseline` check.
+    25	
+    26	## 4. Metrics (per query, then mean over queries; NaN = invalid, never imputed)
+    27	
+    28	**Metric 2 — accuracy vs GT at angle α (condition P):** EDT error (s), C50 error (dB), T60 error (%) via `tools.per_sample_metrics.acoustic_metrics` (exp_03's validity rules, 8000-sample window); log-STFT MSE and the test loss via `per_sample_losses`. Degradation Δ(α) = mean(e_α − e_0) over queries valid at both angles.
+    29	
+    30	**Metric 1 — prediction shift, P_α vs P_0, no GT:**
+    31	- `wave_rel_l2` = ‖w_α − w_0‖₂ / (‖w_0‖₂ + 1e-8) and `wave_mad` = mean|w_α − w_0| over the 9 600-sample waveforms (FLAC's definitions, `compare_predictions.waveform_gap`);
+    32	- `mag_rel_l2` = ‖M_α − M_0‖_F / ‖M_0‖_F on the predicted magnitude spectrograms (GL-free) and `logspec_mad` = mean|log M_α − log M_0| (= exp_03's `consistency`, replicated);
+    33	- acoustic gaps `edt_gap`, `c50_gap`, `t60_gap` = `acoustic_metrics(pred = w_α, gt = w_0)` (T60 gap as % of T60(w_0)), FLAC's "P_ref as GT" convention.
+    34	
+    35	**Uncertainty:** paired query-level percentile bootstrap, 10 000 resamples, seed 0, 95 % two-sided, for Δ, G and G/Δ; convergence check with a second seed (bounds move < 10 % of the interval width). **Noise-floor band** for the figure (FLAC used exp_01's single-eval σ): exp_04's five-seed SDs of the same-budget SimpleViT at K = 8 (EDT 0.186 ms, C50 0.0053 dB, T60 0.009 %) and K = 1 (0.609 ms, 0.0133 dB, 0.101 %) — reference-draw + phase noise — drawn as 2σ; the released checkpoint has no five-seed set, stated in the caption. Room-cluster CIs are reported as a secondary robustness line (17 rooms).
+    36	
+    37	## 5. Planned code (new files only — exp_03's pinned closure is not touched; the frozen `eval_yaw_rotation.py` refuses to run without CUDA, so the CPU/GPU-agnostic path lives in the new tool, which reuses `pad_batch`, `rotate_scene_yaw`, `fixed_alignment`, `per_sample_losses`, `griffin_lim_seeded`, `sample_seed`, `acoustic_metrics`, `ManifestDataset`, `load_checked_manifest`)
+    38	
+    39	| File | Purpose |
+    40	|---|---|
+    41	| `tools/exp10_yaw_pilot.py` | `device_agnostic_apply_delay` (runtime replacement of `model.xRIR.apply_delay`, which hard-codes `.cuda()`; installed by `run` only, never edits the module); `angle_logspec(model, tensors, k, aligned0)` → log-magnitude `[n, F, T]` under `fixed_alignment`; `invert(logspec, keys, gl_seed)` → `[n, 9600]` float32 (9 579 GL samples zero-padded); `waveform_gap`, `spectrogram_gap`, `acoustic_gap`; `evaluate_batch(model, batch, ks, evaluator, gl_seed, batch_size, device)` → per-query metrics per k + waveforms; `run(args)`: hash-checked manifest, canonical order check, writes `ckpt/exp10/<arm>/per_sample.json`, `metrics.json`, `wav_k<k>.npy` (float32 `[N, 9600]`, ~243 MB each), `meta` (checkpoint sha256, manifest hash, gl_seed, device, torch, git commit, elapsed); CLI `--arm --backbone --checkpoint --manifest --manifest-hash --num-shot --ks --device --batch-size --max-samples --out-dir --controls` |
+    42	| `tools/exp10_compare.py` | FLAC-style offline comparator: Metric 1 from two stored `wav_k*.npy` (+ meta guard: same arm/manifest/gl_seed/device); `check_online(per_sample.json)` asserts equality with the online values (1e-6); `parity_exp03(per_sample.json, <exp_03 per_sample_yaw.json>)`: same query list, per-angle mean |Δ| and max per-sample |Δ| of EDT/C50/T60/consistency at the shared angles (tolerances in §7) |
+    43	| `tools/exp10_summarize.py` | tables (Markdown + canonical JSON with input sha256s): Metric 2 per angle (mean_0, mean_α, Δ, CI), Metric 1 per angle (each gap, CI), ratio G/Δ; controls (k = 512 vs 0, repeated 0: max |Δ| waveform/log-spec, must be 0 up to 1e-6); figure `yaw_pilot_gaps_<arm>.{pdf,png}` in FLAC's style (panels T60 / C50 / EDT; bars = accuracy degradation vs prediction shift per angle, 2σ band, values annotated) + a combined four-arm figure; CSV of plotted values |
+    44	| `tests/test_exp10_yaw_pilot.py`, `tests/test_exp10_compare.py`, `tests/test_exp10_summarize.py` | §6 |
+    45	
+    46	## 6. Per-function tests (TDD; red → green; one small commit per cycle)
+    47	
+    48	`tools/exp10_yaw_pilot.py`
+    49	1. `waveform_gap`: identity → (0, 0); `rel_l2(w, 2w) = 1`; zero reference → finite; shapes `[n, T]` → `[n]`.
+    50	2. `spectrogram_gap`: identity → 0; `logspec_mad` equals `mean|a − b|` on a random pair; `mag_rel_l2` scale check.
+    51	3. `acoustic_gap`: identity → EDT 0, C50 0, T60 0; `want_t60=False` → NaN T60; invalid (all-zero) input → NaN not exception.
+    52	4. `device_agnostic_apply_delay`: equals the module's own `apply_delay` on CUDA when available (skip otherwise) and shifts correctly for positive/negative/zero delays on CPU; installation is scoped (restored after `run`).
+    53	5. `angle_logspec`: on a random-init `build_xrir("simple", 2)` and a synthetic batch (CPU): k = 0 equals the plain forward exactly; k = 512 equals k = 0 (atol 1e-6); the pinned alignment is used (a counter on `shift_and_align` stays at 1).
+    54	6. `invert`: same `(logspec, key, gl_seed)` twice → identical; different key → different; output `[n, 9600]`, last 21 samples zero.
+    55	7. `evaluate_batch`: synthetic batch of 3 padded to 4 → results have `n = 3`; every k has both metric families; at k = 0 all gaps are exactly 0; padded rows do not change the kept rows (compare batch of 3 vs the same 3 inside a batch of 4).
+    56	8. `run` smoke (`--max-samples 4`, real manifest; skipped when the data root is absent): outputs exist with the right shapes; meta carries the checkpoint sha256 and manifest hash; a second run is bit-identical on CPU; refuses a wrong `--manifest-hash`.
+    57	
+    58	`tools/exp10_compare.py`
+    59	9. Offline Metric 1 from stored arrays equals the online per-sample values (1e-6); meta guard refuses different `gl_seed` / manifest / arm.
+    60	10. `parity_exp03`: refuses a different query list; on a fixture with an injected per-sample offset reports the max |Δ| and the mean |Δ| exactly.
+    61	
+    62	`tools/exp10_summarize.py`
+    63	11. Bootstrap: seeded reproducibility; a shifted synthetic sample yields Δ's CI containing the true shift; ratio undefined when Δ's CI contains 0.
+    64	12. Controls table: flags a k = 512 mismatch > 1e-6.
+    65	13. Figure/CSV: files written; CSV rows equal the JSON table values; refuses a JSON whose input sha256s do not match the files on disk.
+    66	
+    67	## 7. Validation ladder and acceptance
+    68	
+    69	Static checks → tests (new + the exp_03/04/07 record suites unchanged) → smoke (`--max-samples 4`, CPU) → probe (256 queries, CPU, timing) → full. **Parity gate before the full runs:** on the 256-query probe of `released_k8`, Metric 2 at k ∈ {0, 64, 128, 256, 384} vs exp_03's `sweep_released/per_sample_yaw.json` (GPU, TF32 off): mean |Δ| ≤ 1e-3 s EDT / 1e-2 dB C50 / 0.1 % T60 and `logspec_mad` mean within 1e-3 (CPU vs GPU float differences are expected at the 1e-5 level; a larger gap means a wrong reference/phase/alignment and blocks the launch). Controls (k = 512 ≡ 0; repeated 0) must be exact to 1e-6. Full-run acceptance: 6 337 queries in canonical order, every angle present, finite counts = 6 337 at k = 0 for EDT/C50 (T60 descriptive), meta complete, `check_online` passes.
+    70	
+    71	## 8. Compute and outputs
+    72	
+    73	CPU: ≈ 40 min per angle-pass per arm (measured on the qualitative export, 24 threads) → ≈ 3.5 h per arm, 4 arms ≈ 14 h serial, ≈ 7 h as two processes. GPU (if a card frees): ≈ 20 min per arm. Disk: 20 waveform arrays × 243 MB ≈ 4.9 GB under `ckpt/exp10/` (git-ignored; 51 GB free). Deliverables per SOP: `_params_set_up.md`, `_command.md`, teed logs, `_results.md`, `_analysis.md`, `yaw_pilot_01_results.html` + assets (figures, CSV, canonical JSON with sha256s), `commits_yaw_pilot.md`.
+    74	
+    75	## 9. Out of scope
+    76	
+    77	Training; condition E; angles beyond the five; retrieval metrics (xRIR has none); any change to pinned exp_03/exp_04 modules; confirmatory hypothesis tests (exp_03 holds them).
+
