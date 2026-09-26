@@ -697,6 +697,13 @@ COLOR_SHIFT = "#E69F00"         # Okabe-Ito orange
 #: multiple when its denominator is uncertain.
 STATUS_CODES = {"defined": "def", "improvement": "impr",
                 "denominator uncertain": "den?", "undefined": "und"}
+#: What a room-level interval is, and is not.  exp_03 found query-level intervals that
+#: exclude 0 whose room-level intervals do not, so the two are always printed side by side.
+ROOM_QUALIFICATION = (
+    "Room-cluster intervals resample the rooms with replacement and keep every query of a "
+    "drawn room with its multiplicity (query-weighted, never averaged per room). With so "
+    "few clusters they are wide, and a room-level ratio inherits its denominator's status: "
+    "they qualify the query-level intervals, they do not replace them.")
 STATUS_FOOTNOTE = ("ratio status under each angle: def = defined, impr = net error "
                    "improves, den? = denominator uncertain (no ratio), und = undefined; "
                    "n = queries in the shared comparison mask")
@@ -1024,21 +1031,30 @@ def _markdown_tables(summary):
                           arm["run_dir"], arm["n_queries"], len(arm["rooms"]),
                           arm["execution_id"]), "",
                       "### Metric 2 -- accuracy against the ground truth", "",
-                      "| angle | metric | mean k=0 | mean k | delta | 95 % CI | n_mask | "
-                      "excluded (0 / alpha / gap) |", "|---|---|---|---|---|---|---|---|"])
+                      "| angle | metric | unit | mean k=0 | mean k | delta | 95 % CI | "
+                      "n_mask | excluded (0 / alpha / gap) |",
+                      "|---|---|---|---|---|---|---|---|---|"])
+        metric2_labels = ([label for label, _, _, _ in METRIC_TRIPLES] +
+                          [name for name, _ in DELTA_ONLY_METRICS])
         for k in sorted(int(k) for k in arm["angles"]):
-            for label, _, _, _ in METRIC_TRIPLES:
-                cell = arm["angles"][str(k)][label]["query"]
+            for label in metric2_labels:
+                entry = arm["angles"][str(k)].get(label)
+                if entry is None:
+                    continue
+                cell = entry["query"]
                 exclusions = cell["exclusions"]
-                lines.append("| {}° | {} | {} | {} | {} | [{}, {}] | {} | {} / {} / {} |"
-                             .format(_deg(k), label, _fmt(cell["mean_0"]),
+                lines.append("| {}° | {} | {} | {} | {} | {} | [{}, {}] | {} | "
+                             "{} / {} / {} |"
+                             .format(_deg(k), label, cell.get("unit") or "-",
+                                     _fmt(cell["mean_0"]),
                                      _fmt(cell["mean_alpha"]), _fmt(cell["delta"]["point"]),
                                      _fmt(cell["delta"]["lo"]), _fmt(cell["delta"]["hi"]),
                                      cell["n"], exclusions["invalid_at_0"],
                                      exclusions["invalid_at_alpha"],
                                      exclusions["gap_invalid"]))
         lines.extend(["", "### Metric 1 -- how far the prediction moved", "",
-                      "| angle | metric | G | 95 % CI | n |", "|---|---|---|---|---|"])
+                      "| angle | metric | unit | G | 95 % CI | n |",
+                      "|---|---|---|---|---|---|"])
         for k in sorted(int(k) for k in arm["angles"]):
             for label in [triple[0] for triple in METRIC_TRIPLES] + \
                     [name for name, _ in SHIFT_ONLY_METRICS]:
@@ -1046,8 +1062,9 @@ def _markdown_tables(summary):
                 if cell is None:
                     continue
                 gap = cell["query"]["gap"]
-                lines.append("| {}° | {} | {} | [{}, {}] | {} |".format(
-                    _deg(k), label, _fmt(gap["point"]), _fmt(gap["lo"]), _fmt(gap["hi"]),
+                lines.append("| {}° | {} | {} | {} | [{}, {}] | {} |".format(
+                    _deg(k), label, cell["query"].get("unit") or "-",
+                    _fmt(gap["point"]), _fmt(gap["lo"]), _fmt(gap["hi"]),
                     cell["query"]["n"]))
         lines.extend(["", "### Standalone G on the broader population", "",
                       "The paired table above drops a query whose error is invalid at "
@@ -1086,15 +1103,23 @@ def _markdown_tables(summary):
                     cell["convergence"]["converged"],
                     "yes" if headline["reportable"] else (headline["reason"] or "-")))
         lines.extend(["", "### Room-cluster intervals (secondary)", "",
-                      "| angle | metric | delta CI (room) | G CI (room) | status | "
-                      "rooms |", "|---|---|---|---|---|---|"])
+                      ROOM_QUALIFICATION, "",
+                      "| angle | metric | delta CI (room) | G CI (room) | R (room) | "
+                      "95 % CI (room) | status | rooms | converged (room) |",
+                      "|---|---|---|---|---|---|---|---|---|"])
         for k in sorted(int(k) for k in arm["angles"]):
             for label, _, _, _ in METRIC_TRIPLES:
-                cell = arm["angles"][str(k)][label]["room"]
-                lines.append("| {}° | {} | [{}, {}] | [{}, {}] | {} | {} |".format(
-                    _deg(k), label, _fmt(cell["delta"]["lo"]), _fmt(cell["delta"]["hi"]),
-                    _fmt(cell["gap"]["lo"]), _fmt(cell["gap"]["hi"]),
-                    cell["ratio"]["status"], cell.get("n_clusters")))
+                entry = arm["angles"][str(k)][label]
+                cell = entry["room"]
+                ratio = cell["ratio"]
+                lines.append("| {}° | {} | [{}, {}] | [{}, {}] | {} | [{}, {}] | {} | "
+                             "{} | {} |".format(
+                                 _deg(k), label, _fmt(cell["delta"]["lo"]),
+                                 _fmt(cell["delta"]["hi"]), _fmt(cell["gap"]["lo"]),
+                                 _fmt(cell["gap"]["hi"]), _fmt(ratio["point"]),
+                                 _fmt(ratio["lo"]), _fmt(ratio["hi"]), ratio["status"],
+                                 cell.get("n_clusters"),
+                                 entry["convergence_room"]["converged"]))
         controls = arm.get("controls", {})
         lines.extend(["", "### Controls", "",
                       "| control | k | repeats | max |dwave| | max |dlogspec| | "

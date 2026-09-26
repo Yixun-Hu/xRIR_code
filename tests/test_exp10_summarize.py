@@ -935,3 +935,57 @@ def test_a_figure_draws_a_bar_without_error_bars_when_only_the_interval_is_missi
         import matplotlib.pyplot as plt
 
         plt.close(figure)
+
+
+# ------------- round 2, finding 9: the Markdown must show what the JSON already holds
+
+def _markdown(summary, tmp_path, name):
+    out_dir = str(tmp_path / name)
+    summarize.write_outputs(summary, out_dir)
+    with open(os.path.join(out_dir, "yaw_pilot_tables.md")) as fin:
+        return fin.read()
+
+
+def _table_rows(markdown, heading):
+    """The data rows of the Markdown table under one heading."""
+    lines = markdown.splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith(heading))
+    rows = []
+    for line in lines[start:]:
+        if line.startswith("###") and not line.startswith(heading):
+            break
+        if line.startswith("|") and not set(line) <= set("|- "):
+            rows.append([cell.strip() for cell in line.strip("|").split("|")])
+    return rows[0], rows[1:]
+
+
+def test_the_markdown_reports_log_mse_and_loss_with_their_units(two_arm_summary,
+                                                                tmp_path):
+    summary, _ = two_arm_summary
+    markdown = _markdown(summary, tmp_path, "metric2")
+    header, rows = _table_rows(markdown, "### Metric 2")
+
+    assert "unit" in header
+    metrics = {row[1] for row in rows}
+    assert {"log_mse", "loss"} <= metrics
+    units = {row[1]: row[2] for row in rows}
+    assert units["log_mse"] == "log-magnitude^2"
+    assert units["loss"] == "test loss"
+    for row in rows:
+        assert len(row) == len(header)
+
+
+def test_the_markdown_room_table_carries_the_ratio_and_its_qualification(two_arm_summary,
+                                                                         tmp_path):
+    summary, _ = two_arm_summary
+    markdown = _markdown(summary, tmp_path, "rooms")
+    assert summarize.ROOM_QUALIFICATION in markdown
+    header, rows = _table_rows(markdown, "### Room-cluster intervals")
+
+    assert "R (room)" in header
+    assert any("converged" in cell for cell in header)
+    for row in rows:
+        assert len(row) == len(header)
+    # The room ratio of at least one cell is actually printed, not left blank.
+    ratio_column = header.index("R (room)")
+    assert any(row[ratio_column] not in ("", "-") for row in rows)
