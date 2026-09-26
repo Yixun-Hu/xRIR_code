@@ -811,3 +811,62 @@ def test_the_markdown_reports_the_broader_population_as_its_own_table(two_arm_su
         markdown = fin.read()
     assert summarize.BROADER_POPULATION in markdown
     assert "Standalone G" in markdown
+
+
+# ------------- round 2, finding 6: T60's denominators and the pipeline qualification
+
+def test_the_absolute_seconds_t60_pair_is_summarised_like_the_other_metrics(tmp_path):
+    run_dir = _fixture_run(tmp_path, "t60_abs", n=24)
+    summary = summarize.summarize_run(run_dir, n_boot=100)
+    entry = summary["angles"]["128"]["T60_abs"]
+
+    assert entry["query"]["unit"] == "s"
+    assert entry["query"]["delta"]["point"] is not None
+    assert entry["query"]["gap"]["point"] is not None
+    assert entry["query"]["gap"]["lo"] <= entry["query"]["gap"]["point"] <= \
+        entry["query"]["gap"]["hi"]
+    assert entry["room"]["unit_of_resampling"] == "room"
+    assert "headline" in entry
+
+
+def test_every_metric_carries_the_denominator_of_its_change_and_its_shift():
+    for label in ("EDT", "C50", "T60", "T60_abs"):
+        qualification = summarize.METRIC_QUALIFICATIONS[label]
+        assert qualification["delta"] and qualification["gap"]
+    assert "percentage point" in summarize.METRIC_QUALIFICATIONS["T60"]["delta"]
+    assert "baseline prediction" in summarize.METRIC_QUALIFICATIONS["T60"]["gap"]
+    assert "second" in summarize.METRIC_QUALIFICATIONS["T60_abs"]["gap"]
+
+
+def test_the_canonical_json_and_markdown_carry_the_pipeline_qualification(
+        two_arm_summary, tmp_path):
+    summary, _ = two_arm_summary
+    out_dir = str(tmp_path / "qualified")
+    summarize.write_outputs(summary, out_dir)
+
+    with open(os.path.join(out_dir, "yaw_pilot_summary.json")) as fin:
+        canonical = json.load(fin)
+    assert canonical["notes"]["pipeline"] == summarize.PIPELINE_NOTE
+    assert canonical["notes"]["gl_free"] == summarize.GL_FREE_NOTE
+    assert canonical["metric_qualifications"]["T60"]["gap"] == \
+        summarize.METRIC_QUALIFICATIONS["T60"]["gap"]
+
+    with open(os.path.join(out_dir, "yaw_pilot_tables.md")) as fin:
+        markdown = fin.read()
+    for text in (summarize.PIPELINE_NOTE, summarize.GL_FREE_NOTE,
+                 summarize.METRIC_QUALIFICATIONS["T60"]["delta"],
+                 summarize.METRIC_QUALIFICATIONS["T60"]["gap"]):
+        assert text in markdown, text
+
+
+def test_the_figure_footer_states_the_pipeline_qualification(two_arm_summary, tmp_path):
+    summary, _ = two_arm_summary
+    figure = summarize.make_figure(summary, "fixture", str(tmp_path / "footer.png"))
+    try:
+        footer = " ".join(text.get_text() for text in figure.texts)
+        assert "Griffin-Lim" in footer
+        assert "GL-free" in footer or "Griffin-Lim-free" in footer
+    finally:
+        import matplotlib.pyplot as plt
+
+        plt.close(figure)

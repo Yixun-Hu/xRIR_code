@@ -387,10 +387,34 @@ def headline_multiple(cell, convergence_report):
     return result
 
 
-#: The three paired readouts: (label, Metric-2 error, Metric-1 gap, unit).
+#: The paired readouts: (label, Metric-2 error, Metric-1 gap, unit).  ``T60`` is the
+#: percentage-normalised pair of exp_03, ``T60_abs`` the same-unit supplement in seconds
+#: that plan section 4 asks for beside it -- the two normalisations answer different
+#: questions and are never compared with each other.
 METRIC_TRIPLES = (("EDT", "edt_err", "edt_gap", "s"),
                   ("C50", "c50_err", "c50_gap", "dB"),
-                  ("T60", "t60_err", "t60_gap", "% of T60"))
+                  ("T60", "t60_err", "t60_gap", "% of T60"),
+                  ("T60_abs", "t60_err_abs", "t60_gap_abs", "s"))
+#: What the change and the shift of each paired metric are *denominated in*.  A T60 row
+#: mixes two normalisations (the error is a percentage of the ground truth, the shift a
+#: percentage of the k = 0 prediction), so every table that prints them says so.
+METRIC_QUALIFICATIONS = {
+    "EDT": {"delta": "change in the EDT error against the ground truth, seconds",
+            "gap": "EDT distance from the k = 0 prediction, seconds"},
+    "C50": {"delta": "change in the C50 error against the ground truth, dB",
+            "gap": "C50 distance from the k = 0 prediction, dB"},
+    "T60": {"delta": "change in the GT-normalised error, percentage points",
+            "gap": "percent of the baseline prediction's T60"},
+    "T60_abs": {"delta": "change in |T60(prediction) - T60(GT)|, seconds",
+                "gap": "|T60(P_alpha) - T60(P_0)|, seconds"}}
+#: Printed on every artefact: what a waveform or acoustic gap is a measurement *of*.
+PIPELINE_NOTE = (
+    "waveform and acoustic gaps measure the sensitivity of the model-plus-Griffin-Lim "
+    "pipeline, conditional on the per-query phase seed; the shared phase initialisation "
+    "removes initialisation noise, but Griffin-Lim is a nonlinear inverse and can "
+    "amplify a magnitude change")
+GL_FREE_NOTE = ("logspec_mad and mag_rel_l2 are the Griffin-Lim-free readout of the same "
+                "shift, computed on the model's direct log-magnitude output")
 #: Shift-only quantities: the Griffin-Lim-free pair plus the waveform distances (R3).
 SHIFT_ONLY_METRICS = (("logspec_mad", "log-magnitude"), ("mag_rel_l2", "relative"),
                       ("wave_rel_l2", "relative"), ("wave_mad", "amplitude"))
@@ -711,7 +735,8 @@ def build_summary(run_dirs, n_boot=N_BOOT, alpha=ALPHA, seeds=SEEDS):
     Returns:
         The canonical summary dict: the tool and its settings, the ``inputs`` (each run's
         path, ``protocol_id``, ``execution_id`` and the sha256 of its ``per_sample.json``
-        and ``meta.json``), one entry per arm and the historical band's provenance note.
+        and ``meta.json``), one entry per arm, the qualifications every report has to
+        carry (``notes``, ``metric_qualifications``) and the historical band's note.
     """
     import datetime
 
@@ -741,7 +766,11 @@ def build_summary(run_dirs, n_boot=N_BOOT, alpha=ALPHA, seeds=SEEDS):
             "generated_at": datetime.datetime.utcnow().isoformat() + "Z",
             "n_boot": int(n_boot), "alpha": float(alpha), "seeds": list(seeds),
             "convergence_tolerance": CONVERGENCE_TOLERANCE,
-            "band_label": BAND_LABEL, "inputs": inputs, "arms": arms}
+            "band_label": BAND_LABEL,
+            "notes": {"pipeline": PIPELINE_NOTE, "gl_free": GL_FREE_NOTE,
+                      "broader_population": BROADER_POPULATION, "band": BAND_LABEL},
+            "metric_qualifications": METRIC_QUALIFICATIONS,
+            "inputs": inputs, "arms": arms}
 
 
 def verify_inputs(summary):
@@ -898,11 +927,22 @@ def make_figure(summary, arm_name, path):
     return figure
 
 
+def _wrap(text, width=150):
+    """One long footnote as a few lines, so a figure caption stays inside the canvas."""
+    import textwrap
+
+    return "\n".join(textwrap.wrap(text, width))
+
+
 def _figure_legend(figure, handles):
-    """One legend and one status-code footnote for the whole figure."""
+    """One legend, the status codes and the pipeline qualification, for the whole figure."""
     figure.legend(handles=handles, loc="lower center", ncol=len(handles), frameon=False,
                   fontsize=6.5, bbox_to_anchor=(0.5, -0.09))
-    figure.text(0.5, -0.14, STATUS_FOOTNOTE, ha="center", fontsize=6, color="#555555")
+    figure.text(0.5, -0.14, _wrap(STATUS_FOOTNOTE), ha="center", fontsize=6,
+                color="#555555")
+    figure.text(0.5, -0.20, _wrap("{}. {}. T60: delta = {}, G = {}.".format(
+        PIPELINE_NOTE, GL_FREE_NOTE, METRIC_QUALIFICATIONS["T60"]["delta"],
+        METRIC_QUALIFICATIONS["T60"]["gap"])), ha="center", fontsize=6, color="#555555")
 
 
 def make_combined_figure(summary, path):
@@ -946,6 +986,14 @@ def _markdown_tables(summary):
                  summary["n_boot"], 100 * (1 - summary["alpha"]), summary["seeds"],
                  summary["seeds"][0], summary["seeds"][1]), "",
              "The grey band in the figures is the {}.".format(summary["band_label"]),
+             "",
+             "**How to read the shift.** {}. {}.".format(PIPELINE_NOTE, GL_FREE_NOTE),
+             "",
+             "**Denominators.** " + "; ".join(
+                 "{}: delta = {}, G = {}".format(label,
+                                                 METRIC_QUALIFICATIONS[label]["delta"],
+                                                 METRIC_QUALIFICATIONS[label]["gap"])
+                 for label, _, _, _ in METRIC_TRIPLES) + ".",
              ""]
     for arm in summary["arms"]:
         lines.extend(["## {}".format(arm["arm"]), "",
