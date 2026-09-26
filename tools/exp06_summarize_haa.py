@@ -1257,7 +1257,8 @@ def exp11_cell(rows, void, base, margin, fields, n_boot=N_BOOT, alpha=ALPHA):
     A degenerate (zero-width) interval -- reachable by cancellation in an interaction --
     is a defined ``unavailable`` result: the frozen convergence helper refuses it, and
     that refusal is caught here rather than aborting the summary or being worked around
-    in the helper.
+    in the helper. Only that case is caught: a refusal on an interval of positive width
+    is a fault and is re-raised.
     """
     cell = dict(base, margin=margin, alpha=alpha, fields=list(fields),
                 cohort=rows['cohort'], n_test=rows['n_test'], excluded=rows['excluded'],
@@ -1268,10 +1269,16 @@ def exp11_cell(rows, void, base, margin, fields, n_boot=N_BOOT, alpha=ALPHA):
                     convergence={'status': 'void', 'n_boot': None, 'interval': None,
                                  'attempts': []})
         return dict(cell, **decision_fields(None, margin, fields))
+    _require(rows['cohort'], 'an empty cohort is never bootstrapped: it is void')
     try:
         convergence = converged_two_way(rows, alpha, n_boot)
     except ValueError as error:
         nominal = intervals(rows, alpha, n_boot)
+        # Only the degenerate interval the plan registers is a defined cell. Any other
+        # refusal of the frozen helper is a fault, and is raised rather than published as
+        # an unavailable statement.
+        if nominal['two_way']['hi'] > nominal['two_way']['lo']:
+            raise
         cell.update(diff=nominal['diff'], query=nominal['query'],
                     two_way=nominal['two_way'], status='unavailable',
                     convergence={'status': 'unavailable', 'n_boot': None, 'interval': None,

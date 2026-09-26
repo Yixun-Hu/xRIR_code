@@ -677,3 +677,25 @@ def test_exp06_and_exp09_publish_exactly_what_main_publishes(arms, tmp_path):
         assert subject.render(after) == base.render(before), experiment
         assert 'phase' not in after and 'screens' not in after
         assert 'historical' not in after and 'decisions' not in after
+
+
+# --- the unavailable path is the degenerate interval, and nothing else ------------------
+
+
+def test_a_convergence_refusal_that_is_not_degenerate_still_aborts(arms, monkeypatch):
+    """Only the zero-width case of the plan becomes a defined cell; every other refusal
+    of the frozen helper is an error, not a quietly unavailable statement."""
+    def refuse(rows, alpha, n_boot):
+        raise ValueError('the interval function did not return endpoints: broken')
+    monkeypatch.setattr(subject, 'converged_two_way', refuse)
+    with pytest.raises(ValueError, match='did not return endpoints'):
+        contrast_cell(arms, G, D)
+
+
+def test_an_empty_cohort_is_never_bootstrapped_even_without_a_void_reason():
+    rows = flat_rows()
+    rows.update(cohort=0, a=rows['a'][:0], b=rows['b'][:0], clusters=rows['clusters'][:0],
+                seeds=rows['seeds'][:0])
+    with pytest.raises(ValueError, match='empty cohort'):
+        subject.exp11_cell(rows, [], {'name': 'N1', 'kind': 'contrast'}, M, ALL_FIELDS,
+                           n_boot=200)
