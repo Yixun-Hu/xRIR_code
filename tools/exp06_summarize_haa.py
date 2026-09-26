@@ -88,15 +88,24 @@ ARMS = OrderedDict([
     # expected_inits through 6.4's reused pin -- never exp_06's artifacts.epoch_012.
     ('yawaug', {'label': 'E', 'branch': 'new', 'root': 'ckpt/exp09/sim2real/yawaug',
                 'backbone': 'simple', 'frame': 'room', 'experiment': 'exp09',
-                'init_sha256': None})])
+                'init_sha256': None}),
+    # exp_11's arm G: the same approved exp_04 checkpoint as E, fine-tuned and evaluated
+    # in exp_06's HEADING frame (D's frame), under exp_11's own tree. Its initialisation
+    # is resolved by expected_inits exactly as E's, never by a literal here.
+    ('yawaug_hf', {'label': 'G', 'branch': 'new', 'root': 'ckpt/exp11/sim2real/yawaug_hf',
+                   'backbone': 'simple', 'frame': 'heading', 'experiment': 'exp11',
+                   'init_sha256': None})])
 LEGACY_ARMS = tuple(name for name, arm in ARMS.items() if arm['branch'] == 'legacy')
 NEW_ARMS = tuple(name for name, arm in ARMS.items() if arm['branch'] == 'new')
 LEGACY_ROOT = 'ckpt/sim2real'
 NEW_ROOT = 'ckpt/exp06/sim2real'
 EXP09_ROOT = 'ckpt/exp09/sim2real'
+EXP11_ROOT = 'ckpt/exp11/sim2real'
 CANONICAL = ('stats.json', 'summary.txt')            # exp_02's hash-bound record
 
 # The contrasts of section 7. H1 and H1b are decision bearing; the rest describe.
+EXP04_AUG_ARMS = ('yawaug', 'yawaug_hf')    # the arms exp_04's approved checkpoint starts
+
 H1 = ('cyl_or', 'control')
 H1B = ('cyl_or', 'cyl_hf')
 DESCRIPTIVE = (('cyl_or', 'control_hf'), ('control_hf', 'control'), ('cyl_hf', 'cyl'))
@@ -542,12 +551,13 @@ def check_test_indices(name, room, index):
 
 def expected_inits(approved, arms=NEW_ARMS, inputs=None):
     """What each new arm must have started from: exp_01's weights, exp_06's approved
-    epoch, or -- for arm E -- exp_04's approved ``checkpoints.aug``.
+    epoch, or -- for arms E and G -- exp_04's approved ``checkpoints.aug``.
 
-    E's identity is resolved through 6.4's ``reused`` exp_04 pin rather than a literal, so
-    only the approvals a reviewer committed can name it; the record it was read from is
-    bound into ``inputs`` and published with the analysis. It is resolved only when E is
-    among the arms being loaded, so an exp_06 run depends on nothing further.
+    Their identity is resolved through 6.4's ``reused`` exp_04 pin rather than a literal,
+    so only the approvals a reviewer committed can name it; the record it was read from is
+    bound into ``inputs`` and published with the analysis. It is resolved only when one of
+    them is among the arms being loaded, so an exp_06 run depends on nothing further, and
+    a registered arm with a null ``init_sha256`` is never left unchecked.
     """
     inits = {arm: ARMS[arm]['init_sha256'] for arm in arms
              if ARMS[arm]['branch'] == 'new'}   # an experiment's arms include the legacy two
@@ -555,9 +565,11 @@ def expected_inits(approved, arms=NEW_ARMS, inputs=None):
         return inits
     if 'cyl_or' in inits:
         inits['cyl_or'] = approved.get('artifacts', {}).get('epoch_012', {}).get('sha256')
-    if 'yawaug' in inits:
+    augmented = [arm for arm in EXP04_AUG_ARMS if arm in inits]
+    if augmented:      # exp_09's E and exp_11's G start from the one approved checkpoint
         record = finalizer.exp04_aug_checkpoint(approved)
-        inits['yawaug'] = record['checkpoint']['sha256']
+        for arm in augmented:
+            inits[arm] = record['checkpoint']['sha256']
         if inputs is not None:
             bind(inputs, record['path'], record['sha256'])
     return inits
@@ -1319,6 +1331,7 @@ def build_parser():
     parser.add_argument('--legacy-root', default=LEGACY_ROOT)
     parser.add_argument('--new-root', default=NEW_ROOT)
     parser.add_argument('--exp09-root', default=EXP09_ROOT)
+    parser.add_argument('--exp11-root', default=EXP11_ROOT)
     parser.add_argument('--legacy-receipt', default='ckpt/exp06/legacy_receipt.json')
     parser.add_argument('--write-legacy-receipt')
     parser.add_argument('--approved')
@@ -1354,7 +1367,8 @@ def main(argv=None):
     _require(args.json and args.summary, 'both --json and --summary are required')
     check_output_paths(args.experiment, args.json, args.summary)
     config = EXPERIMENTS[args.experiment]
-    roots = {'exp06': args.new_root, 'exp09': args.exp09_root}
+    roots = {'exp06': args.new_root, 'exp09': args.exp09_root,
+             'exp11': args.exp11_root}
     new_arms = tuple(arm for arm in config['arms'] if ARMS[arm]['branch'] == 'new')
     binding = approved['reused']['legacy_receipt'] if approved else None
     if binding is not None and binding.get('sha256') is None:
