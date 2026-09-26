@@ -1,0 +1,14 @@
+Reading additional input from stdin...
+OpenAI Codex v0.154.0
+--------
+workdir: /home/yixunhu/codespace/xRIR_code
+model: gpt-6-astra
+provider: openai
+approval: on-request
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 01a0df9b-6b68-74a1-b099-24dc061c93c9
+--------
+user
+You are the plan Reviewer for exp_10 `yaw_pilot` in /home/yixunhu/codespace/xRIR_code (read-only). Before judging, read: worklog/experiment_SOP.md; worklog/worklog_yixun/exp_10_yaw_pilot_claude/{yaw_pilot_yixun_query.md, plan_yaw_pilot.md, yaw_pilot_worklog.md}; the prior experiment this builds on: worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/{plan_yaw_rotation_degradation.md, yaw_rotation_degradation_results.md, yaw_rotation_degradation_analysis.md} and its code eval_yaw_rotation.py, tools/yaw_rotation.py, tools/per_sample_metrics.py, tools/reference_manifest.py; the FLAC counterpart being mimicked: /home/yixunhu/codespace/FLAC/worklog/worklog_yixun/exp_02_yaw_noninvariance_claude/{plan_yaw_noninvariance.md, yaw_noninvariance_results.md, compare_predictions.py} and /home/yixunhu/codespace/FLAC/analysis/pilot_study/plot_pilot_yaw_gaps.py; exp_04's five-seed table worklog/worklog_yixun/model_comparison.md (noise floors). Task statement: the Planner will have Claude Opus 5 implement ONLY the plan's §5 new files (tools/exp10_{yaw_pilot,compare,summarize}.py + tests) on a worktree; exp_03's pinned modules must not change; runs are evaluation-only on the released xRIR checkpoint (+ control/cyl) at five yaw angles, CPU or GPU. Out of scope: training, condition E, confirmatory tests. Review the plan for: method soundness (is Metric 1 for xRIR defined so that it is comparable with FLAC's, and is the Griffin-Lim inflation handled honestly? is the P-condition the right conditioning-rotation analogue of FLAC's --rotate-deg? are the controls sufficient? is the paired bootstrap on Δ, G and G/Δ correct, including the ratio's undefined case?), hidden assumptions (CPU-vs-GPU parity tolerances vs exp_03's GPU runs; float32 waveform storage; the released checkpoint at K = 1 although trained at K = 8; noise-floor band borrowed from the control), missing tests/controls, run design and cost, and whether the deliverables let the paper state "shift vs degradation" per angle without overclaiming. Report numbered findings with severity (blocker / should-fix / nit), each with a minimal concrete fix, then a verdict: APPROVE / APPROVE WITH CHANGES / REQUEST CHANGES. Your final message is the review.
