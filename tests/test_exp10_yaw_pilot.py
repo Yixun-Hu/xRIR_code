@@ -6,11 +6,17 @@ changes (Metric 2).  Both are built out of the frozen exp_03 helpers, so most of
 tests pin the composition -- "this call is exactly that call" -- rather than re-deriving
 the numerics the exp_03 record already certified.
 """
+import json
+import os
+
 import numpy as np
 import pytest
 import torch
 
 from tools import exp10_yaw_pilot as pilot
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REAL_MANIFEST = os.path.join(REPO_ROOT, "ckpt", "yaw_rotation", "reference_manifest.json")
 
 
 # ---------------------------------------------------------------- test 1: waveform_gap
@@ -510,3 +516,64 @@ def test_evaluate_batch_refuses_a_control_without_its_reference_angle(
     with pytest.raises(ValueError):
         pilot.evaluate_batch(tiny_model, batch_of_three, [64, 128], evaluator, gl_seed=0,
                              batch_size=4, device="cpu")
+
+
+# ------------------------------------------------------ test 8: select_probe_batches
+
+class _FakeManifestDataset:
+    """The only thing :func:`select_probe_batches` needs: canonical-order entries."""
+
+    def __init__(self, sizes):
+        self.entries = []
+        for room, size in enumerate(sizes):
+            for i in range(size):
+                self.entries.append({
+                    "index": len(self.entries),
+                    "query": "Cat/Room_idx_{}/S{:03d}_R001_hybrid_IR.wav".format(room, i)})
+
+    def __len__(self):
+        return len(self.entries)
+
+
+def test_select_probe_batches_returns_one_intact_batch_inside_every_room():
+    dataset = _FakeManifestDataset([40, 35, 48])
+    picked = pilot.select_probe_batches(dataset, batch_size=16)
+    assert picked == [0, 3, 5]
+    rooms = [entry["query"].rsplit("/", 1)[0] for entry in dataset.entries]
+    for b in picked:
+        window = rooms[16 * b:16 * b + 16]
+        assert len(window) == 16 and len(set(window)) == 1
+
+
+def test_select_probe_batches_can_take_several_batches_per_room():
+    dataset = _FakeManifestDataset([64, 32])
+    assert pilot.select_probe_batches(dataset, batch_size=16, per_room=2) == [0, 1, 4, 5]
+
+
+def test_select_probe_batches_refuses_a_room_with_no_intact_batch():
+    with pytest.raises(ValueError):
+        pilot.select_probe_batches(_FakeManifestDataset([8, 40]), batch_size=16)
+    with pytest.raises(ValueError):
+        pilot.select_probe_batches(_FakeManifestDataset([64, 32]), batch_size=16,
+                                   per_room=3)
+
+
+def test_select_probe_batches_refuses_a_room_that_is_not_contiguous():
+    dataset = _FakeManifestDataset([32, 32])
+    dataset.entries[0], dataset.entries[40] = dataset.entries[40], dataset.entries[0]
+    with pytest.raises(ValueError):
+        pilot.select_probe_batches(dataset, batch_size=16)
+
+
+@pytest.mark.skipif(not os.path.exists(REAL_MANIFEST),
+                    reason="exp_03's pinned reference manifest is not available")
+def test_select_probe_batches_reproduces_the_planned_probe_on_the_real_manifest():
+    import types
+
+    with open(REAL_MANIFEST) as fin:
+        manifest = json.load(fin)
+    dataset = types.SimpleNamespace(entries=manifest["entries"])
+    picked = pilot.select_probe_batches(dataset, batch_size=16)
+    assert picked == [0, 16, 32, 94, 110, 125, 141, 157, 214, 277, 292, 307, 322, 338,
+                      353, 369, 381]
+    assert len(picked) == 17

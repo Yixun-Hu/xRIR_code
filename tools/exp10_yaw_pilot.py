@@ -32,6 +32,7 @@ path.
 from __future__ import annotations
 
 import contextlib
+import os
 
 import numpy as np
 import torch
@@ -538,3 +539,60 @@ def evaluate_batch(model, batch, ks, evaluator, gl_seed=0, batch_size=DEFAULT_BA
     gt_block = {"edt_gt": raw_gt["edt"], "c50_gt": raw_gt["c50"], "t60_gt": raw_gt["t60"]}
     return {"keys": keys, "n": int(n_real), "gt": gt_block, "angles": angles,
             "controls": control_cells, "waveforms": waveforms}
+
+
+def _canonical_queries(dataset):
+    """The dataset's query paths in canonical (manifest) order."""
+    entries = getattr(dataset, "entries", dataset)
+    return [entry["query"] if isinstance(entry, dict) else str(entry) for entry in entries]
+
+
+def select_probe_batches(dataset, batch_size=DEFAULT_BATCH_SIZE, per_room=1):
+    """The probe: ``per_room`` canonical batches lying entirely inside each room.
+
+    The probe has to be a *subset of the full run*, not a re-batching of it, or its
+    per-sample values would be computed at a different batch composition and could not be
+    compared with the full results (nor with exp_03's).  Each returned index ``b`` is
+    therefore a batch of the full run -- queries ``[b * batch_size, (b + 1) * batch_size)``
+    in canonical order -- chosen so that the whole window sits inside one room, which also
+    makes the probe cover every room.
+
+    Args:
+        dataset: anything exposing the canonical ``entries`` (a ``ManifestDataset``), or
+            the entry list itself.
+        batch_size: the run's canonical batch size.
+        per_room: how many intact batches to take from each room.
+
+    Returns:
+        A sorted list of batch indices (``per_room`` per room, 17 for exp_03's manifest).
+
+    Raises:
+        ValueError: if ``batch_size`` or ``per_room`` is not positive, if a room's queries
+            are not contiguous in canonical order, or if a room has fewer than
+            ``per_room`` intact batches.
+    """
+    size, wanted = int(batch_size), int(per_room)
+    if size < 1 or wanted < 1:
+        raise ValueError("batch_size and per_room must be positive, got {} and {}".format(
+            batch_size, per_room))
+    queries = _canonical_queries(dataset)
+    rooms = [os.path.dirname(query) for query in queries]
+
+    bounds = {}
+    for position, room in enumerate(rooms):
+        first, last = bounds.get(room, (position, position))
+        bounds[room] = (min(first, position), max(last, position))
+
+    picked = []
+    for room, (first, last) in sorted(bounds.items(), key=lambda item: item[1]):
+        if any(rooms[i] != room for i in range(first, last + 1)):
+            raise ValueError("room {} is not contiguous in canonical order (queries {} "
+                             "to {})".format(room, first, last))
+        start = -(-first // size)                       # first batch starting at or after
+        inside = [b for b in range(start, (last + 1) // size) if b * size >= first]
+        if len(inside) < wanted:
+            raise ValueError("room {} ({} queries from {}) has {} intact batches of {}, "
+                             "fewer than the {} the probe needs".format(
+                                 room, last - first + 1, first, len(inside), size, wanted))
+        picked.extend(inside[:wanted])
+    return sorted(picked)
