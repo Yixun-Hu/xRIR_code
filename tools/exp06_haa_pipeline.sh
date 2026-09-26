@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # exp_06 HAA pipeline (plan v4 sections 6.2 and 6.4): one queue of jobs on one GPU.
 #   tools/exp06_haa_pipeline.sh <gpu> <job>... [--dry-run]
-#     job = <init>:<seed>  with init in {cyl_or, control_hf, cyl_hf, yawaug},
+#     job = <init>:<seed>  with init in {cyl_or, control_hf, cyl_hf, yawaug, yawaug_hf},
 #           <init>:zeroshot  (that arm's zero-shot set),  or  zeroshot (exp_06's three arms)
 # Every child runs in its own exclusive directory under
 #   $EXP06_HAA_OUT/<init>/{seed<s>/{stage1,stage2_<room>,eval/<room>}, zeroshot/eval/<room>}
 # (default ckpt/exp06/sim2real; exp_09's arm E runs the same pipeline in the ROOM frame
-# under ckpt/exp09/sim2real, with $EXP06_HAA_RECORD for its child logs)
+# under ckpt/exp09/sim2real, and exp_11's arm G runs it in the HEADING frame under
+# ckpt/exp11/sim2real, each with $EXP06_HAA_RECORD for its child logs)
 # and is finalized by tools/exp06_finalize.py as soon as it has exited; the job itself is
 # finalized once every child of it is complete, from the --job-spec written before the
 # first child starts. The live launcher's pid lives ONLY at the job root
@@ -50,8 +51,9 @@ INIT_FRAME=heading                  # set by init_of too: a mixed queue resets i
 
 usage() {
     echo "usage: $0 <gpu> <job>... [--dry-run]   job = <init>:<seed> | <init>:zeroshot | zeroshot" >&2
-    echo "       init in cyl_or | control_hf | cyl_hf | yawaug" >&2
-    echo "       bare zeroshot is exp_06's three arms; yawaug:zeroshot is exp_09's" >&2
+    echo "       init in cyl_or | control_hf | cyl_hf | yawaug | yawaug_hf" >&2
+    echo "       bare zeroshot is exp_06's three arms; yawaug:zeroshot is exp_09's," >&2
+    echo "       yawaug_hf:zeroshot is exp_11's" >&2
     exit 2
 }
 
@@ -66,13 +68,20 @@ init_of() { INIT_FRAME=heading; case "$1" in
   cyl_hf) INIT_BACKBONE=cylindrical; INIT_CKPT=ckpt/xRIR_cyl_8_shot/epoch_12.pth;;
   yawaug) INIT_BACKBONE=simple; INIT_FRAME=room   # exp_09: exp_04's yaw-augmented SimpleViT
           INIT_CKPT="${EXP09_YAWAUG_CKPT:-ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth}";;
+  yawaug_hf) INIT_BACKBONE=simple                # exp_11 arm G: the same checkpoint, in
+          # exp_06's heading frame -- E's initialisation and D's frame, so the queue
+          # declares frame=heading and every child takes --heading-json-dir.
+          INIT_CKPT="${EXP09_YAWAUG_CKPT:-ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth}";;
   *) echo "refusing: unknown init $1" >&2; return 1;; esac; }
 
 # The child log of one experiment's record. The prefix follows the record root, so an
 # exp_09 queue never writes oriented_cyl_* logs into exp_09's folder.
 child_log() {  # child_log <init> <tag> <stage>
     local prefix=oriented_cyl
-    case "$RECORD" in *exp_09*) prefix=yawaug_haa;; esac
+    case "$RECORD" in
+        *exp_09*) prefix=yawaug_haa;;
+        *exp_11*) prefix=orientation_cue_fairness_haa;;
+    esac
     echo "$RECORD/${prefix}_${STAMP}_haa_${1}_${2}_${3}.log"
 }
 
@@ -138,6 +147,9 @@ check_spec() {  # check_spec <path> <expect>
 # children reads one: they are approved artefacts, hashing them is cheap, and the
 # HEADING_COMPLETE rule (which refuses a haa_children producer that offers fewer than four)
 # stays exactly as reviewed -- a room-frame exception would widen the API for no evidence.
+#
+# exp_11 arm G (yawaug_hf) is exp_04's checkpoint in the heading frame, so the resolver
+# below answers for both of the inits that start from it.
 APPROVALS_PY='
 import sys
 from pathlib import Path
@@ -152,7 +164,7 @@ try:
     registered = {"control_hf": exp04_profiles.CONTROL, "cyl_hf": exp04_profiles.CYL}.get(init)
     pinned = None if registered is None else registered["sha256"]
     source = "the registered exp_01"
-    if init == "yawaug":
+    if init in ("yawaug", "yawaug_hf"):
         # Code review round 1 finding 1: the resolver belongs to the finalizer, so that
         # the shared approvals module keeps the bytes the ten completed evaluations are
         # verified against. Imported here and not above: only this init needs it, and it
