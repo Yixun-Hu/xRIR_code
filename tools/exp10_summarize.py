@@ -539,6 +539,13 @@ BAND_LABEL = ("historical baseline evaluation variability "
               "(references and phases redrawn), context only")
 COLOR_DEGRADATION = "#0072B2"   # Okabe-Ito blue
 COLOR_SHIFT = "#E69F00"         # Okabe-Ito orange
+#: Short codes for the R2 status, printed under each angle so a bar is never read as a
+#: multiple when its denominator is uncertain.
+STATUS_CODES = {"defined": "def", "improvement": "impr",
+                "denominator uncertain": "den?", "undefined": "und"}
+STATUS_FOOTNOTE = ("ratio status under each angle: def = defined, impr = net error "
+                   "improves, den? = denominator uncertain (no ratio), und = undefined; "
+                   "n = queries in the shared comparison mask")
 
 
 def _sanitize(payload):
@@ -676,7 +683,7 @@ def _pyplot():
     return plt
 
 
-def _panel(ax, rows, metric, band, show_legend):
+def _panel(ax, rows, metric, band, annotate_n=True):
     """One panel: signed change and shift per angle, with CIs and the context band."""
     selected = [row for row in rows if row["metric"] == metric]
     positions = list(range(len(selected)))
@@ -693,31 +700,36 @@ def _panel(ax, rows, metric, band, show_legend):
                       label=label, yerr=[lo, hi], capsize=2,
                       error_kw={"elinewidth": 0.8, "ecolor": "#3a3a3a"})
 
-    if any(row["degradation"] is not None for row in selected):
+    paired = any(row["degradation"] is not None for row in selected)
+    if paired:
         handles.append(_bars(-width / 2, "degradation", COLOR_DEGRADATION,
                              "accuracy change (vs GT)"))
         handles.append(_bars(width / 2, "shift", COLOR_SHIFT,
                              r"prediction shift (vs $P_0$)"))
     else:
-        handles.append(_bars(0.0, "shift", COLOR_SHIFT, r"prediction shift (vs $P_0$)"))
+        handles.append(_bars(0.0, "shift", COLOR_SHIFT,
+                             r"prediction shift (vs $P_0$)"))
 
     if band:
-        ax.axhspan(-band, band, color="0.88", zorder=0, label=BAND_LABEL)
+        band_handle = ax.axhspan(-band, band, color="0.88", zorder=0, label=BAND_LABEL)
+        handles.append(band_handle)
     ax.axhline(0.0, color="0.3", linewidth=0.6, zorder=1)
     ax.set_xticks(positions)
-    ax.set_xticklabels(["{:.0f}°".format(row["angle_deg"]) for row in selected])
-    ax.set_xlabel("conditioning yaw rotation")
-    ax.set_ylabel("{} ({})".format(PANEL_TITLES[metric], selected[0]["unit"]
-                                   if selected else ""))
+    ax.set_xticklabels(["{:.0f}°\n{}".format(row["angle_deg"],
+                                             STATUS_CODES.get(row["ratio_status"], "")
+                                             if paired else "")
+                        for row in selected], fontsize=7)
+    ax.set_ylabel("({})".format(selected[0]["unit"]) if selected else "", fontsize=7)
     ax.set_title(PANEL_TITLES[metric], fontsize=9)
     ax.spines[["top", "right"]].set_visible(False)
-    ax.margins(y=0.30)
-    footer = "  ".join("n={}, {}".format(row["n_mask"], row["ratio_status"])
-                       for row in selected)
-    ax.annotate(footer, (0.0, -0.34), xycoords="axes fraction", fontsize=5.5,
-                color="#555555")
-    if show_legend:
-        ax.legend(loc="best", fontsize=5.5, frameon=False)
+    ax.tick_params(labelsize=7)
+    ax.margins(y=0.28)
+    if annotate_n:
+        counts = sorted({row["n_mask"] for row in selected})
+        text = "n = {}".format(counts[0]) if len(counts) == 1 else \
+            "n = {}-{}".format(counts[0], counts[-1])
+        ax.annotate(text, (0.02, 0.94), xycoords="axes fraction", fontsize=6,
+                    color="#555555", va="top")
     return handles
 
 
@@ -728,35 +740,49 @@ def make_figure(summary, arm_name, path):
     if not rows:
         raise ValueError("no figure rows for arm {!r}".format(arm_name))
     plt.rcParams.update({"font.size": 8, "axes.linewidth": 0.6})
-    figure, axes = plt.subplots(1, len(FIGURE_PANELS), figsize=(11.0, 2.6))
-    for index, (ax, metric) in enumerate(zip(axes, FIGURE_PANELS)):
+    figure, axes = plt.subplots(1, len(FIGURE_PANELS), figsize=(11.0, 3.1),
+                                constrained_layout=True)
+    handles = []
+    for ax, metric in zip(axes, FIGURE_PANELS):
         band = next((row["band"] for row in rows if row["metric"] == metric), None)
-        _panel(ax, rows, metric, band, show_legend=(index == 0))
-    figure.suptitle("exp_10 yaw pilot -- {}".format(arm_name), fontsize=9)
-    figure.tight_layout(rect=(0, 0.06, 1, 0.94))
+        drawn = _panel(ax, rows, metric, band)
+        handles = handles or drawn
+    figure.suptitle("exp_10 yaw pilot -- {}".format(arm_name), fontsize=10)
+    _figure_legend(figure, handles)
     figure.savefig(path, dpi=300, bbox_inches="tight")
     return figure
 
 
+def _figure_legend(figure, handles):
+    """One legend and one status-code footnote for the whole figure."""
+    figure.legend(handles=handles, loc="lower center", ncol=len(handles), frameon=False,
+                  fontsize=6.5, bbox_to_anchor=(0.5, -0.09))
+    figure.text(0.5, -0.14, STATUS_FOOTNOTE, ha="center", fontsize=6, color="#555555")
+
+
 def make_combined_figure(summary, path):
-    """One row of panels per arm, so the four arms can be read against each other."""
+    """One row of panels per arm, so the arms can be read against each other."""
     plt = _pyplot()
     rows = figure_data(summary)
     arms = [arm["arm"] for arm in summary["arms"]]
     plt.rcParams.update({"font.size": 8, "axes.linewidth": 0.6})
     figure, axes = plt.subplots(len(arms), len(FIGURE_PANELS),
-                                figsize=(11.0, 2.8 * len(arms)), squeeze=False)
+                                figsize=(11.0, 3.0 * len(arms)), squeeze=False,
+                                constrained_layout=True)
+    handles = []
     for row_index, arm in enumerate(arms):
         arm_rows = [row for row in rows if row["arm"] == arm]
         for column, metric in enumerate(FIGURE_PANELS):
             band = next((row["band"] for row in arm_rows if row["metric"] == metric),
                         None)
             ax = axes[row_index][column]
-            _panel(ax, arm_rows, metric, band,
-                   show_legend=(row_index == 0 and column == 0))
+            drawn = _panel(ax, arm_rows, metric, band)
+            handles = handles or drawn
             if column == 0:
-                ax.set_ylabel("{}\n{}".format(arm, ax.get_ylabel()))
-    figure.tight_layout(rect=(0, 0.02, 1, 0.98))
+                ax.set_ylabel("{}\n{}".format(arm, ax.get_ylabel()), fontsize=7)
+            if row_index:
+                ax.set_title("")
+    _figure_legend(figure, handles)
     figure.savefig(path, dpi=300, bbox_inches="tight")
     return figure
 
