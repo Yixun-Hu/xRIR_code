@@ -1192,9 +1192,9 @@ def classify_cell(cell):
 
 EXP11_FIELDS = ('category', 'y_non_inferior_at_margin', 'x_margin_advantage',
                 'equivalent_at_margin')
-MARGIN_FIELDS = EXP11_FIELDS[1:]                 # the three that read the margin m
+EXP11_MARGIN_FIELDS = EXP11_FIELDS[1:]                 # the three that read the margin m
 # A status that carries no interval withholds every decision-bearing field.
-WITHHELD = ('void', 'not_converged', 'unavailable', 'suppressed (draft)')
+EXP11_WITHHELD = ('void', 'not_converged', 'unavailable', 'suppressed (draft)')
 
 
 def decision_fields(interval, margin, fields):
@@ -1215,10 +1215,10 @@ def decision_fields(interval, margin, fields):
     """
     unknown = [name for name in fields if name not in EXP11_FIELDS]
     _require(not unknown, 'unknown decision field(s): ' + ', '.join(unknown))
-    if [name for name in fields if name in MARGIN_FIELDS]:
+    if [name for name in fields if name in EXP11_MARGIN_FIELDS]:
         _require(isinstance(margin, (int, float)) and not isinstance(margin, bool),
                  'the fields {} need a margin, not {!r}'.format(
-                     ', '.join(name for name in fields if name in MARGIN_FIELDS), margin))
+                     ', '.join(name for name in fields if name in EXP11_MARGIN_FIELDS), margin))
     values = OrderedDict((name, None) for name in fields)
     if interval is None:
         return values
@@ -1239,10 +1239,10 @@ def decision_interval(cell):
     """The one interval every field of an exp_11 cell reads, or nothing at all.
 
     It is the interval exp_06's margin verdict reads -- the seed-0 two-way interval of
-    the resample size that converged -- and a status in ``WITHHELD`` suppresses it even
+    the resample size that converged -- and a withholding status suppresses it even
     though a nominal interval may still exist.
     """
-    if cell.get('status') in WITHHELD:
+    if cell.get('status') in EXP11_WITHHELD:
         return None
     return (cell.get('convergence') or {}).get('interval')
 
