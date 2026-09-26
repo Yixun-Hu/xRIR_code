@@ -6,9 +6,11 @@ so every exp_11 test here runs against the same fixtures those experiments are a
 on, and the regression test at the end compares their payloads with the module ``main``
 carries.
 """
+import hashlib
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from tools import exp06_summarize_haa as subject
@@ -124,7 +126,6 @@ def test_only_the_registered_fields_are_computable_and_margins_are_required():
 
 def flat_rows(difference=1.0, cohort=2, n_test=2, arms_of=(G, D)):
     """Rows whose paired difference is the same in every row: a zero-width interval."""
-    import numpy as np
     size = cohort * len(subject.SEEDS)
     return {'a': np.full(size, difference), 'b': np.zeros(size),
             'clusters': np.asarray(list(range(cohort)) * len(subject.SEEDS)),
@@ -183,8 +184,6 @@ def test_a_degenerate_interval_is_a_defined_unavailable_cell_not_an_abort():
 
 
 # --- N1i: the four-arm interaction (G - E) - (D - A) -------------------------------------
-
-import numpy as np                                                       # noqa: E402
 
 QUAD = (G, E, D, A)
 N1I = {'name': 'N1i', 'kind': 'interaction', 'arms': QUAD, 'room': 'hallway',
@@ -365,8 +364,6 @@ def test_an_empty_cohort_is_withheld_rather_than_not_available(arms):
 
 
 # --- R1: historical rows copied from the hash-bound canonical records --------------------
-
-import hashlib                                                           # noqa: E402
 
 REAL_EXP06 = Path(subject.REPO) / subject.EXP06_STATS
 REAL_EXP09 = Path(subject.REPO) / subject.EXP09_STATS
