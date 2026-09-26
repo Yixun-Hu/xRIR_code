@@ -219,3 +219,73 @@ def test_headline_multiple_needs_convergence_and_an_agreeing_status():
         {"converged": True, "status_agrees": True})
     assert uncertain["reportable"] is False
     assert uncertain["reason"] == "denominator uncertain"
+
+
+# ------------------------------------------------ test 13: the room-cluster bootstrap
+
+def test_room_ids_are_the_room_directories_of_the_queries():
+    queries = ["Cat/Room_idx_1/S001_R001_hybrid_IR.wav",
+               "Cat/Room_idx_1/S002_R001_hybrid_IR.wav",
+               "Other/Room_idx_2/S001_R003_hybrid_IR.wav"]
+    assert summarize.room_ids(queries) == ["Cat/Room_idx_1", "Cat/Room_idx_1",
+                                           "Other/Room_idx_2"]
+
+
+def test_room_bootstrap_keeps_every_query_of_a_drawn_room_and_weights_by_size():
+    # Room A: 90 queries at 1.0, room B: 10 queries at 5.0.  Query-weighted, the three
+    # possible draws give 1.0, 1.4 and 5.0; averaging per room first would give 3.0.
+    deltas = np.concatenate([np.ones(90), np.full(10, 5.0)])
+    gaps = deltas.copy()
+    clusters = ["A"] * 90 + ["B"] * 10
+    draws = summarize.bootstrap_draws(deltas, gaps, n_boot=400, seed=0,
+                                      clusters=clusters)
+    values = np.unique(np.round(draws["delta"], 10))
+    np.testing.assert_allclose(sorted(values), [1.0, 1.4, 5.0])
+    assert not np.any(np.isclose(draws["delta"], 3.0))
+
+
+def test_room_bootstrap_counts_a_twice_drawn_room_twice():
+    # One query at 0.0 in room A, two queries at 3.0 in room B.
+    deltas = np.array([0.0, 3.0, 3.0])
+    clusters = ["A", "B", "B"]
+    draws = summarize.bootstrap_draws(deltas, deltas, n_boot=300, seed=1,
+                                      clusters=clusters)
+    values = np.unique(np.round(draws["delta"], 10))
+    np.testing.assert_allclose(sorted(values), [0.0, 2.0, 3.0])
+
+
+def test_room_level_cell_is_labelled_and_wider_than_the_query_level_one():
+    rng = np.random.RandomState(5)
+    per_room = []
+    clusters = []
+    for room in range(6):
+        offset = 0.4 * room
+        per_room.append(offset + 0.01 * rng.randn(40))
+        clusters.extend(["Room_{}".format(room)] * 40)
+    deltas = np.concatenate(per_room)
+    e0 = np.abs(rng.randn(deltas.size)) + 2.0
+    ek = e0 + deltas
+    gk = np.abs(deltas) + 0.1
+
+    query_cell = summarize.bootstrap_cell(e0, ek, gk, n_boot=2000, seed=0)
+    room_cell = summarize.bootstrap_cell(e0, ek, gk, n_boot=2000, seed=0,
+                                         clusters=clusters)
+    assert query_cell["unit_of_resampling"] == "query"
+    assert room_cell["unit_of_resampling"] == "room"
+    assert room_cell["delta"]["point"] == pytest.approx(query_cell["delta"]["point"])
+    query_width = query_cell["delta"]["hi"] - query_cell["delta"]["lo"]
+    room_width = room_cell["delta"]["hi"] - room_cell["delta"]["lo"]
+    assert room_width > 3 * query_width
+
+
+def test_room_level_cell_masks_before_it_clusters():
+    nan = float("nan")
+    e0 = np.array([1.0, 1.0, 1.0, 1.0])
+    ek = np.array([1.2, 1.2, 1.4, 1.4])
+    gk = np.array([0.2, nan, 0.4, 0.4])
+    clusters = ["A", "A", "B", "B"]
+    cell = summarize.bootstrap_cell(e0, ek, gk, n_boot=200, seed=0, clusters=clusters)
+    assert cell["n"] == 3
+    assert cell["exclusions"]["gap_invalid"] == 1
+    # Room A now holds one query and room B two: the draws are the query-weighted means.
+    assert cell["delta"]["point"] == pytest.approx((0.2 + 0.4 + 0.4) / 3.0)

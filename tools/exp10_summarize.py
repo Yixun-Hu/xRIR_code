@@ -20,6 +20,8 @@ and re-weights queries, never averaging per room first.
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 N_BOOT = 10000
@@ -73,6 +75,15 @@ def shared_mask(e0, ek, gk):
     counts["n_mask"] = int(mask.sum())
     counts["excluded_total"] = counts["n_total"] - counts["n_mask"]
     return mask, counts
+
+
+def room_ids(queries):
+    """The room each query belongs to -- the cluster unit of the secondary bootstrap.
+
+    A query path is ``<Category>/<Room>/S00i_R00j_hybrid_IR.wav``, so the room is its
+    directory: 17 rooms over the unseen split's 6337 queries.
+    """
+    return [os.path.dirname(str(query)) for query in queries]
 
 
 def bootstrap_draws(deltas, gaps, n_boot=N_BOOT, seed=0, clusters=None):
