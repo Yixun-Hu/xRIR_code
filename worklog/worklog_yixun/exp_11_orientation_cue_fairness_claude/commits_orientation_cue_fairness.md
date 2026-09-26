@@ -2,4 +2,4 @@
 
 | SHA | branch | description |
 |---|---|---|
-| (none yet) | | record files uncommitted until the first bookkeeping commit |
+| 585804d | main | record opened: plan v1→v3, Codex plan reviews 1–2, Coder round-1 prompt, params, query log |
