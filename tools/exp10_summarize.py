@@ -685,10 +685,20 @@ FIGURE_SCALE = {"EDT": ("ms", 1000.0), "C50": ("dB", 1.0), "T60": ("%", 1.0),
 FIGURE_PANELS = ("T60", "C50", "EDT", "logspec_mad")
 PANEL_TITLES = {"T60": "T60", "C50": "C50", "EDT": "EDT",
                 "logspec_mad": "GL-free spectral shift"}
-#: exp_04's five-seed SD of the same-budget SimpleViT, in the figure's units.  It is
-#: drawn for context only -- it plays no part in any status, interval or decision.
+#: exp_04's five-seed SDs (``worklog/worklog_yixun/model_comparison.md``), in the
+#: figure's units, keyed by **(backbone, K)** -- the model that produced the numbers, not
+#: the arm label, which is free text.  Drawn for context only: they play no part in any
+#: status, interval or decision.  SimpleViT K = 8 47.0176 +- 0.185805 ms /
+#: 1.23833 +- 0.00532373 dB / 9.57524 +- 0.00894945 %; K = 1 68.2756 +- 0.609058 /
+#: 1.88976 +- 0.0132673 / 13.3828 +- 0.101397; CylindricalViT K = 8 45.0629 +- 0.253312 /
+#: 1.23094 +- 0.00593518 / 9.44256 +- 0.0135858.
 HISTORICAL_BAND = {("simple", 8): {"EDT": 0.186, "C50": 0.0053, "T60": 0.009},
-                   ("simple", 1): {"EDT": 0.609, "C50": 0.0133, "T60": 0.101}}
+                   ("simple", 1): {"EDT": 0.609, "C50": 0.0133, "T60": 0.101},
+                   ("cylindrical", 8): {"EDT": 0.253, "C50": 0.0059, "T60": 0.014}}
+#: Which historical model each band describes; it is named in the label so two arms with
+#: different backbones are never read against one band.
+BAND_SOURCE = {("simple", 8): "SimpleViT, exp_04", ("simple", 1): "SimpleViT, exp_04",
+               ("cylindrical", 8): "CylindricalViT, exp_04"}
 BAND_LABEL = ("historical baseline evaluation variability "
               "(references and phases redrawn), context only")
 COLOR_DEGRADATION = "#0072B2"   # Okabe-Ito blue
@@ -725,9 +735,22 @@ def _sanitize(payload):
     return payload
 
 
+def _band_key(meta):
+    """(backbone, K) -- what decides an arm's context band; the arm label never does."""
+    return (meta.get("backbone"), int(meta.get("num_shot", 0)))
+
+
 def historical_band(meta):
     """The context band for one arm, or ``None`` when no historical SD exists for it."""
-    return HISTORICAL_BAND.get((meta.get("backbone"), int(meta.get("num_shot", 0))))
+    return HISTORICAL_BAND.get(_band_key(meta))
+
+
+def band_label(meta):
+    """How this arm's context band is labelled, or ``None`` when it has none."""
+    source = BAND_SOURCE.get(_band_key(meta))
+    if source is None or _band_key(meta) not in HISTORICAL_BAND:
+        return None
+    return "historical baseline evaluation variability ({}), context only".format(source)
 
 
 def build_summary(run_dirs, n_boot=N_BOOT, alpha=ALPHA, seeds=SEEDS):
@@ -768,6 +791,7 @@ def build_summary(run_dirs, n_boot=N_BOOT, alpha=ALPHA, seeds=SEEDS):
         arm = summarize_run(run_dir, n_boot=n_boot, alpha=alpha, seeds=seeds)
         arm["controls"] = controls_table(run_dir)
         arm["historical_band"] = historical_band(meta)
+        arm["historical_band_label"] = band_label(meta)
         arms.append(arm)
     return {"tool": "tools/exp10_summarize.py",
             "generated_at": datetime.datetime.utcnow().isoformat() + "Z",
@@ -821,6 +845,7 @@ def figure_data(summary):
     rows = []
     for arm in summary["arms"]:
         band = arm.get("historical_band") or {}
+        label = arm.get("historical_band_label")
         for k in sorted(int(k) for k in arm["angles"]):
             if k == 0:
                 continue                      # k = 0 is the paired reference, not a bar
@@ -850,7 +875,8 @@ def figure_data(summary):
                     "headline_reportable": cell["headline"]["reportable"],
                     "headline_reason": cell["headline"]["reason"],
                     "converged": cell["convergence"]["converged"],
-                    "band": band.get(metric)})
+                    "band": band.get(metric),
+                    "band_label": label if band.get(metric) is not None else None})
     return rows
 
 
@@ -864,7 +890,7 @@ def _pyplot():
     return plt
 
 
-def _panel(ax, rows, metric, band, annotate_n=True):
+def _panel(ax, rows, metric, band, annotate_n=True, band_label=BAND_LABEL):
     """One panel: signed change and shift per angle, with CIs and the context band.
 
     A missing estimate is *missing*: it is never coerced to zero, because a zero-height
@@ -915,7 +941,8 @@ def _panel(ax, rows, metric, band, annotate_n=True):
                     color="#8a5a00", rotation=90 if len(absent) < len(series) else 0)
 
     if band:
-        band_handle = ax.axhspan(-band, band, color="0.88", zorder=0, label=BAND_LABEL)
+        band_handle = ax.axhspan(-band, band, color="0.88", zorder=0,
+                                 label=band_label or BAND_LABEL)
         handles.append(band_handle)
     ax.axhline(0.0, color="0.3", linewidth=0.6, zorder=1)
     ax.set_xticks(positions)
@@ -947,9 +974,10 @@ def make_figure(summary, arm_name, path):
     figure, axes = plt.subplots(1, len(FIGURE_PANELS), figsize=(11.0, 3.1),
                                 constrained_layout=True)
     handles = []
+    label = next((row["band_label"] for row in rows if row["band_label"]), BAND_LABEL)
     for ax, metric in zip(axes, FIGURE_PANELS):
         band = next((row["band"] for row in rows if row["metric"] == metric), None)
-        drawn = _panel(ax, rows, metric, band)
+        drawn = _panel(ax, rows, metric, band, band_label=label)
         handles = handles or drawn
     figure.suptitle("exp_10 yaw pilot -- {}".format(arm_name), fontsize=10)
     _figure_legend(figure, handles)
@@ -987,11 +1015,13 @@ def make_combined_figure(summary, path):
     handles = []
     for row_index, arm in enumerate(arms):
         arm_rows = [row for row in rows if row["arm"] == arm]
+        label = next((row["band_label"] for row in arm_rows if row["band_label"]),
+                     BAND_LABEL)
         for column, metric in enumerate(FIGURE_PANELS):
             band = next((row["band"] for row in arm_rows if row["metric"] == metric),
                         None)
             ax = axes[row_index][column]
-            drawn = _panel(ax, arm_rows, metric, band)
+            drawn = _panel(ax, arm_rows, metric, band, band_label=label)
             handles = handles or drawn
             if column == 0:
                 ax.set_ylabel("{}\n{}".format(arm, ax.get_ylabel()), fontsize=7)
@@ -1005,7 +1035,8 @@ def make_combined_figure(summary, path):
 CSV_COLUMNS = ("arm", "k", "angle_deg", "metric", "unit", "degradation",
                "degradation_lo", "degradation_hi", "shift", "shift_lo", "shift_hi",
                "n_mask", "ratio_status", "ratio_status_room", "ratio_point", "ratio_lo",
-               "ratio_hi", "headline_reportable", "headline_reason", "converged", "band")
+               "ratio_hi", "headline_reportable", "headline_reason", "converged", "band",
+               "band_label")
 
 
 def _markdown_tables(summary):
@@ -1030,6 +1061,14 @@ def _markdown_tables(summary):
                       "`{}` -- {} queries, {} rooms, execution `{}`.".format(
                           arm["run_dir"], arm["n_queries"], len(arm["rooms"]),
                           arm["execution_id"]), "",
+                      "Context band: {}.".format(
+                          "{} -- {}".format(
+                              arm["historical_band_label"],
+                              ", ".join("{} {}".format(metric, value) for metric, value
+                                        in sorted((arm.get("historical_band") or {})
+                                                  .items())))
+                          if arm.get("historical_band_label")
+                          else "none for this backbone and K"), "",
                       "### Metric 2 -- accuracy against the ground truth", "",
                       "| angle | metric | unit | mean k=0 | mean k | delta | 95 % CI | "
                       "n_mask | excluded (0 / alpha / gap) |",

@@ -1016,3 +1016,47 @@ def test_the_controls_table_header_has_one_cell_per_column(two_arm_summary, tmp_
         assert len(row) == len(header), (header, row)
     assert any("dwave" in cell for cell in header)
     assert "problems" in header
+
+
+# --------- round 2, finding 12: the cylindrical context band, keyed by backbone and K
+
+def test_the_cylindrical_band_is_exp_04s_five_seed_sd_of_cylindrical_vit():
+    # model_comparison.md, CylindricalViT K = 8: EDT 45.0629 +- 0.253312 ms,
+    # C50 1.23094 +- 0.00593518 dB, T60 9.44256 +- 0.0135858 %.
+    assert summarize.HISTORICAL_BAND[("cylindrical", 8)] == {"EDT": 0.253, "C50": 0.0059,
+                                                             "T60": 0.014}
+    label = summarize.band_label({"backbone": "cylindrical", "num_shot": 8})
+    assert "CylindricalViT" in label and "exp_04" in label and "context only" in label
+    assert "SimpleViT" in summarize.band_label({"backbone": "simple", "num_shot": 8})
+    assert summarize.band_label({"backbone": "cylindrical", "num_shot": 1}) is None
+
+
+def test_the_band_is_chosen_by_backbone_and_k_not_by_the_arm_label(tmp_path):
+    # An arm may be called anything; what decides the band is the model that produced it.
+    cyl = _fixture_run(tmp_path, "cyl", n=12,
+                       meta_overrides={"arm": "released_k8", "backbone": "cylindrical"})
+    simple = _fixture_run(tmp_path, "simple", n=12,
+                          protocol_overrides={"checkpoint_sha256": "d" * 64},
+                          meta_overrides={"arm": "cyl_k8", "backbone": "simple"})
+    summary = summarize.build_summary([cyl, simple], n_boot=50)
+
+    assert summary["arms"][0]["historical_band"] == summarize.HISTORICAL_BAND[
+        ("cylindrical", 8)]
+    assert "CylindricalViT" in summary["arms"][0]["historical_band_label"]
+    assert summary["arms"][1]["historical_band"] == summarize.HISTORICAL_BAND[
+        ("simple", 8)]
+    assert "SimpleViT" in summary["arms"][1]["historical_band_label"]
+
+    rows = summarize.figure_data(summary)
+    cyl_edt = next(row for row in rows if row["arm"] == "released_k8"
+                   and row["metric"] == "EDT")
+    assert cyl_edt["band"] == 0.253
+    assert "CylindricalViT" in cyl_edt["band_label"]
+
+
+def test_the_markdown_names_each_arms_context_band(tmp_path):
+    run_dir = _fixture_run(tmp_path, "cyl_md", n=12,
+                           meta_overrides={"arm": "cyl_k8", "backbone": "cylindrical"})
+    summary = summarize.build_summary([run_dir], n_boot=50)
+    markdown = _markdown(summary, tmp_path, "band_md")
+    assert summarize.band_label(summary["arms"][0]["meta"]) in markdown
