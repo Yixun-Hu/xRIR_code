@@ -40,6 +40,25 @@ ONLINE_TOLERANCE = 1e-6
 OFFLINE_METRICS = ("wave_rel_l2", "wave_mad", "edt_gap", "c50_gap", "t60_gap")
 ONLINE_ONLY_METRICS = ("logspec_mad", "mag_rel_l2")
 
+#: exp_10 metric -> exp_03 per-sample key, with the plan's section 7 parity criteria.
+#: ``per_sample_tol`` / ``min_fraction`` are criteria (a) and (b); ``paired_abs`` with a
+#: 5 % relative allowance is criterion (c).  Metrics with no thresholds are reported only.
+PARITY_METRICS = {
+    "logspec_mad": {"exp03": "consistency", "per_sample_tol": 1e-5, "min_fraction": 1.0,
+                    "paired_abs": None, "unit": "log-magnitude"},
+    "edt_err": {"exp03": "edt", "per_sample_tol": 1e-4, "min_fraction": 0.995,
+                "paired_abs": 2e-5, "unit": "s"},
+    "c50_err": {"exp03": "c50", "per_sample_tol": 1e-3, "min_fraction": 0.995,
+                "paired_abs": 2e-4, "unit": "dB"},
+    "t60_err": {"exp03": "t60", "per_sample_tol": 0.01, "min_fraction": 0.995,
+                "paired_abs": 2e-3, "unit": "% of T60(GT)"},
+    "log_mse": {"exp03": "log_mse"},
+    "loss": {"exp03": "loss"},
+    "stft": {"exp03": "stft"},
+    "decay": {"exp03": "decay"},
+}
+PAIRED_RELATIVE_ALLOWANCE = 0.05
+
 
 def verify_exp03_pins(binding_report=DEFAULT_BINDING_REPORT, repo_root=REPO_ROOT):
     """Re-verify exp_03's pinned source closure against the live tree.
@@ -222,19 +241,232 @@ def check_online(run_dir, tol=ONLINE_TOLERANCE, evaluator=None):
     return report
 
 
+def _align_rows(meta, per_sample, history):
+    """Map the run's canonical indices onto rows of exp_03's historical file.
+
+    Refuses everything that would silently compare different queries: a different
+    manifest, a run that is not in canonical order, an index the history does not carry,
+    a duplicated index on either side, and any row whose query string does not match.
+    """
+    history_hash = history.get("meta", {}).get("manifest_hash")
+    if history_hash != meta["manifest_hash"]:
+        raise ValueError("the historical file's manifest {} is not the run's manifest {}"
+                         .format(history_hash, meta["manifest_hash"]))
+
+    run_index = [int(i) for i in per_sample["index"]]
+    if any(b <= a for a, b in zip(run_index, run_index[1:])):
+        raise ValueError("the run's indices are not in canonical (increasing) order")
+
+    history_index = [int(i) for i in history["index"]]
+    if len(set(history_index)) != len(history_index):
+        raise ValueError("the historical file lists a duplicate canonical index")
+    position = {index: row for row, index in enumerate(history_index)}
+
+    rows = []
+    for index in run_index:
+        if index not in position:
+            raise ValueError("canonical index {} is missing from the historical file"
+                             .format(index))
+        rows.append(position[index])
+    if len(set(rows)) != len(rows):
+        raise ValueError("the run maps two queries onto the same historical row "
+                         "(duplicate index)")
+    extracted = [history["query"][row] for row in rows]
+    if extracted != list(per_sample["query"]):
+        first = next(i for i, (a, b) in enumerate(zip(extracted, per_sample["query"]))
+                     if a != b)
+        raise ValueError("historical query {!r} at canonical index {} is not the run's "
+                         "query {!r}".format(extracted[first], run_index[first],
+                                             per_sample["query"][first]))
+    return rows
+
+
+def _parity_cell(run_k, run_0, hist_k, hist_0, rules, is_zero_angle):
+    """One angle x metric parity cell: masks, per-sample spread and the paired deltas."""
+    mask_run = np.isfinite(run_k) & np.isfinite(run_0)
+    mask_hist = np.isfinite(hist_k) & np.isfinite(hist_0)
+    mask_identical = bool(np.array_equal(mask_run, mask_hist))
+    mismatches = int(np.count_nonzero(mask_run != mask_hist))
+    common = mask_run & mask_hist
+
+    diffs = np.abs(run_k[common] - hist_k[common])
+    n = int(common.sum())
+    quantiles = {}
+    for label, q in (("p50", 50), ("p90", 90), ("p99", 99)):
+        quantiles[label] = float(np.percentile(diffs, q)) if n else 0.0
+    quantiles["max"] = float(diffs.max()) if n else 0.0
+
+    paired_run = float((run_k[common] - run_0[common]).mean()) if n else float("nan")
+    paired_hist = float((hist_k[common] - hist_0[common]).mean()) if n else float("nan")
+    signs = (np.sign(run_k[common] - run_0[common]) ==
+             np.sign(hist_k[common] - hist_0[common]))
+    cell = {"n_common": n, "n_run_valid": int(mask_run.sum()),
+            "n_exp03_valid": int(mask_hist.sum()), "mask_identical": mask_identical,
+            "validity_mismatches": mismatches,
+            "max_abs_diff": quantiles["max"],
+            "mean_abs_diff": float(diffs.mean()) if n else 0.0,
+            "quantiles": quantiles,
+            "sign_agreement": float(signs.mean()) if n else float("nan"),
+            "paired_delta_run": paired_run, "paired_delta_exp03": paired_hist,
+            "paired_delta_diff": paired_run - paired_hist if n else float("nan"),
+            "paired_same_sign": bool(np.sign(paired_run) == np.sign(paired_hist)) if n
+                                else False}
+
+    tol = rules.get("per_sample_tol")
+    if tol is None:
+        cell.update({"status": "reported", "criterion_a": None, "criterion_b": None,
+                     "criterion_c": None, "fraction_within_tolerance": None})
+        return cell
+
+    within = int(np.count_nonzero(diffs <= tol))
+    fraction = float(within) / n if n else 0.0
+    cell["per_sample_tol"] = tol
+    cell["n_within_tolerance"] = within
+    cell["fraction_within_tolerance"] = fraction
+    passes_per_sample = bool(n > 0 and fraction >= rules["min_fraction"])
+    if rules["min_fraction"] >= 1.0:
+        cell["criterion_a"], cell["criterion_b"] = passes_per_sample, None
+    else:
+        cell["criterion_a"], cell["criterion_b"] = None, passes_per_sample
+
+    paired_abs = rules.get("paired_abs")
+    if paired_abs is None or is_zero_angle:
+        cell["criterion_c"] = None if paired_abs is None else True
+    else:
+        allowance = max(PAIRED_RELATIVE_ALLOWANCE * abs(paired_hist), paired_abs)
+        cell["paired_allowance"] = float(allowance)
+        cell["criterion_c"] = bool(abs(cell["paired_delta_diff"]) <= allowance and
+                                   cell["paired_same_sign"])
+
+    decided = [value for value in (cell["criterion_a"], cell["criterion_b"],
+                                   cell["criterion_c"]) if value is not None]
+    if not mask_identical:
+        cell["status"] = "nonreplication (validity mismatch)"
+    elif all(decided):
+        cell["status"] = "replication"
+    else:
+        cell["status"] = "nonreplication (tolerance)"
+    return cell
+
+
+def parity_exp03(run_dir, exp03_per_sample, condition="P"):
+    """Compare one run against exp_03's historical per-sample file, row by row.
+
+    The run's rows are located in the historical file **by canonical index**, and the
+    extracted query strings must equal the run's in order -- a subset is fine (the probe
+    is 272 of 6337 rows), a permutation or a near-miss is not.  For every angle and metric
+    the report carries the per-query spread (max / mean / p50 / p90 / p99), the sign
+    agreement, the paired delta from *both* sources and the validity masks, plus the
+    plan's criteria (a) per-query tolerance for ``logspec_mad``, (b) the 99.5 % tolerance
+    for the acoustic errors and (c) the agreement of the paired delta itself.
+
+    Amendment A1: a cell can only be called a replication if the two validity masks are
+    **identical** on the compared population; otherwise it is labelled
+    ``"nonreplication (validity mismatch)"`` however well the surviving numbers agree.
+
+    This function reports; it does not decide a launch.
+
+    Args:
+        run_dir: the run directory.
+        exp03_per_sample: path to exp_03's ``per_sample_yaw.json``.
+        condition: which exp_03 condition to read (``"P"``; ``"E"`` exists in the file but
+            exp_10 only runs P).
+
+    Returns:
+        A report dict; ``ok`` is True when every compared cell replicates.
+
+    Raises:
+        ValueError: on a manifest mismatch, a non-canonical run order, or a missing,
+            duplicated or mismatched query.
+    """
+    meta, per_sample = load_run(run_dir)
+    with open(exp03_per_sample) as fin:
+        history = json.load(fin)
+    rows = _align_rows(meta, per_sample, history)
+
+    report = {"ok": True, "run_dir": os.path.abspath(run_dir),
+              "exp03_path": os.path.abspath(exp03_per_sample),
+              "exp03_sha256": file_sha256(exp03_per_sample),
+              "manifest_hash": meta["manifest_hash"], "condition": condition,
+              "n_rows": len(rows), "angles": {},
+              "angles_missing_in_exp03": [], "metrics_missing_in_exp03": []}
+
+    historical = history[condition]
+    if "0" not in historical:
+        raise ValueError("the historical file has no k = 0 cell to pair against")
+    for k in sorted(int(k) for k in meta["ks"]):
+        if str(k) not in historical:
+            report["angles_missing_in_exp03"].append(k)
+            continue
+        cell = {}
+        for metric, rules in PARITY_METRICS.items():
+            key = rules["exp03"]
+            if (key not in historical[str(k)] or key not in historical["0"] or
+                    metric not in per_sample["angles"][str(k)]):
+                report["metrics_missing_in_exp03"].append({"k": k, "metric": metric})
+                continue
+            run_k = _as_array(per_sample["angles"][str(k)][metric])
+            run_0 = _as_array(per_sample["angles"]["0"][metric])
+            hist_k = _as_array(historical[str(k)][key])[rows]
+            hist_0 = _as_array(historical["0"][key])[rows]
+            cell[metric] = _parity_cell(run_k, run_0, hist_k, hist_0, rules, k == 0)
+            if cell[metric]["status"].startswith("nonreplication"):
+                report["ok"] = False
+        report["angles"][str(k)] = cell
+    return report
+
+
+def _print_json(report, path=None):
+    """Print a report (and optionally save it) without losing NaN to strict JSON."""
+    text = json.dumps(report, indent=2, sort_keys=True, default=str)
+    print(text)
+    if path:
+        with open(path, "w") as fout:
+            fout.write(text + "\n")
+        print("wrote {}".format(path))
+    return report
+
+
 def main(argv=None):
     """Parse the CLI and dispatch to one of the comparator's commands."""
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command")
+    sub.required = True
+
     pins = sub.add_parser("verify-pins", help="re-verify exp_03's pinned closure")
     pins.add_argument("binding_report", nargs="?", default=DEFAULT_BINDING_REPORT)
+
+    online = sub.add_parser("check-online",
+                            help="recompute Metric 1's waveform and acoustic halves")
+    online.add_argument("run_dir")
+    online.add_argument("--tolerance", type=float, default=ONLINE_TOLERANCE)
+    online.add_argument("--json", dest="json_path", default=None)
+
+    parity = sub.add_parser("parity-exp03", help="compare a run with exp_03's per-sample file")
+    parity.add_argument("run_dir")
+    parity.add_argument("exp03_per_sample")
+    parity.add_argument("--condition", default="P", choices=("P", "E"))
+    parity.add_argument("--json", dest="json_path", default=None)
+
     args = parser.parse_args(argv)
 
     if args.command == "verify-pins":
         report = verify_exp03_pins(args.binding_report)
         print("exp_03 pins OK: {} files at reviewed commit {}".format(
             report["n_files"], report["reviewed_commit"]))
+        return report
+    if args.command == "check-online":
+        report = check_online(args.run_dir, tol=args.tolerance)
+        _print_json(report, args.json_path)
+        print("check_online: {}".format("OK" if report["ok"] else "MISMATCH"))
+        return report
+    if args.command == "parity-exp03":
+        report = parity_exp03(args.run_dir, args.exp03_per_sample,
+                              condition=args.condition)
+        _print_json(report, args.json_path)
+        print("parity_exp03: {} rows, every compared cell replicates: {}".format(
+            report["n_rows"], report["ok"]))
         return report
     raise ValueError("unknown command {!r}".format(args.command))
 

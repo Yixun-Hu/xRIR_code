@@ -184,3 +184,77 @@ def edit_json(path, mutate):
     mutate(payload)
     pilot.write_json(payload, path)
     return payload
+
+
+#: How exp_10's metric names map onto exp_03's per-sample keys.
+EXP03_KEYS = {"edt_err": "edt", "c50_err": "c50", "t60_err": "t60",
+              "logspec_mad": "consistency", "log_mse": "log_mse", "loss": "loss",
+              "stft": "stft", "decay": "decay"}
+
+
+def make_exp03_file(path, run_per_sample, n_total=40, manifest_hash=None, offsets=None,
+                    nan_cells=None, drop_index=None, duplicate_index=None):
+    """An exp_03-shaped historical per-sample file that contains the run's rows.
+
+    The run's rows are placed at their canonical indices and everything else is filler,
+    which is the situation ``parity_exp03`` has to cope with: a 272-query probe inside a
+    6337-query historical file.
+
+    Args:
+        path: file to write.
+        run_per_sample: the run's ``per_sample.json`` payload (its queries, indices and
+            angle values are copied under exp_03's key names).
+        n_total: size of the historical population.
+        manifest_hash: the historical manifest hash (defaults to the run's).
+        offsets: ``{(angle, metric): value}`` added to the copied rows, to simulate a
+            numerical discrepancy.
+        nan_cells: ``{(angle, metric): [row, ...]}`` set to ``None`` (invalid) in the
+            historical file only, to simulate a validity-mask mismatch.
+        drop_index: a canonical index to remove from the historical file entirely.
+        duplicate_index: a canonical index to list twice.
+
+    Returns:
+        The payload that was written.
+    """
+    offsets = offsets or {}
+    nan_cells = nan_cells or {}
+    run_rows = {int(idx): row for row, idx in enumerate(run_per_sample["index"])}
+    angles = sorted(int(k) for k in run_per_sample["angles"])
+
+    indices, queries = [], []
+    for i in range(n_total):
+        if i == drop_index:
+            continue
+        indices.append(i)
+        queries.append(run_per_sample["query"][run_rows[i]] if i in run_rows
+                       else "Filler/Filler_idx_0/S{:03d}_R001_hybrid_IR.wav".format(i))
+    if duplicate_index is not None:
+        position = indices.index(duplicate_index)
+        indices.append(duplicate_index)
+        queries.append(queries[position])
+
+    payload = {"meta": {"manifest_hash": manifest_hash or
+                        run_per_sample["meta"]["manifest_hash"],
+                        "gl_seed": run_per_sample["meta"]["gl_seed"],
+                        "backbone": "simple", "batch_size": 16, "yaw_cols": angles},
+               "query": queries, "index": indices, "P": {}, "E": {}}
+    rng = np.random.RandomState(7)
+    for k in angles:
+        cell = {}
+        for metric, exp03_key in EXP03_KEYS.items():
+            values = []
+            for row, i in enumerate(indices):
+                if i in run_rows:
+                    value = run_per_sample["angles"][str(k)][metric][run_rows[i]]
+                    if value is not None:
+                        value = value + offsets.get((k, metric), 0.0)
+                else:
+                    value = float(rng.rand())
+                if row in nan_cells.get((k, metric), []):
+                    value = None
+                values.append(value)
+            cell[exp03_key] = values
+        payload["P"][str(k)] = cell
+    with open(path, "w") as fout:
+        json.dump(payload, fout)
+    return payload

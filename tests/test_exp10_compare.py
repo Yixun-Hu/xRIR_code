@@ -178,3 +178,123 @@ def test_check_online_flags_a_validity_mismatch(tmp_path):
     report = compare.check_online(out_dir)
     assert report["ok"] is False
     assert report["angles"]["128"]["edt_gap"]["validity_mismatches"] == 1
+
+
+# ------------------------------------------------------------ test 11: parity_exp03
+
+def _probe_like_run(tmp_path, name="probe_run", **kwargs):
+    """A run over a non-contiguous subset of a larger canonical population."""
+    from tests.exp10_fixture import make_run
+
+    indices = list(range(0, 8)) + list(range(16, 24))
+    queries = ["Cat/Room_idx_{}/S{:03d}_R001_hybrid_IR.wav".format(i // 8, i)
+               for i in indices]
+    out_dir = str(tmp_path / name)
+    make_run(out_dir, n=len(indices), queries=queries, indices=indices, batches=(0, 2),
+             **kwargs)
+    return out_dir
+
+
+def _history(tmp_path, run_dir, name="per_sample_yaw.json", **kwargs):
+    from tests.exp10_fixture import make_exp03_file
+
+    with open(os.path.join(run_dir, "per_sample.json")) as fin:
+        per_sample = json.load(fin)
+    path = str(tmp_path / name)
+    make_exp03_file(path, per_sample, **kwargs)
+    return path
+
+
+def test_parity_exp03_accepts_a_non_contiguous_subset_and_replicates_it(tmp_path):
+    run_dir = _probe_like_run(tmp_path)
+    history = _history(tmp_path, run_dir)
+    report = compare.parity_exp03(run_dir, history)
+
+    assert report["ok"] is True
+    assert report["n_rows"] == 16
+    assert report["manifest_hash"] == "m" * 64
+    for angle in report["angles"].values():
+        for metric in ("edt_err", "c50_err", "t60_err", "logspec_mad"):
+            cell = angle[metric]
+            assert cell["status"] == "replication", (metric, cell)
+            assert cell["mask_identical"] is True
+            assert cell["max_abs_diff"] == 0.0
+            assert cell["sign_agreement"] == 1.0
+
+
+def test_parity_exp03_refuses_a_different_manifest(tmp_path):
+    run_dir = _probe_like_run(tmp_path)
+    history = _history(tmp_path, run_dir, manifest_hash="z" * 64)
+    with pytest.raises(ValueError) as excinfo:
+        compare.parity_exp03(run_dir, history)
+    assert "manifest" in str(excinfo.value)
+
+
+def test_parity_exp03_refuses_a_missing_or_duplicated_historical_query(tmp_path):
+    run_dir = _probe_like_run(tmp_path)
+    with pytest.raises(ValueError) as excinfo:
+        compare.parity_exp03(run_dir, _history(tmp_path, run_dir, name="dropped.json",
+                                               drop_index=3))
+    assert "missing" in str(excinfo.value)
+    with pytest.raises(ValueError) as excinfo:
+        compare.parity_exp03(run_dir, _history(tmp_path, run_dir, name="dup.json",
+                                               duplicate_index=3))
+    assert "duplicate" in str(excinfo.value)
+
+
+def test_parity_exp03_refuses_a_run_that_is_not_in_canonical_order(tmp_path):
+    from tests.exp10_fixture import make_run
+
+    indices = [5, 1, 2, 3]
+    queries = ["Cat/Room_idx_0/S{:03d}_R001_hybrid_IR.wav".format(i) for i in indices]
+    out_dir = str(tmp_path / "shuffled")
+    make_run(out_dir, n=4, queries=queries, indices=indices)
+    history = _history(tmp_path, out_dir)
+    with pytest.raises(ValueError) as excinfo:
+        compare.parity_exp03(out_dir, history)
+    assert "canonical" in str(excinfo.value)
+
+
+def test_parity_exp03_refuses_a_historical_row_whose_query_does_not_match(tmp_path):
+    from tests.exp10_fixture import edit_json
+
+    run_dir = _probe_like_run(tmp_path)
+    history = _history(tmp_path, run_dir)
+    edit_json(history, lambda payload: payload["query"].__setitem__(
+        2, "Cat/Room_idx_9/S999_R001_hybrid_IR.wav"))
+    with pytest.raises(ValueError) as excinfo:
+        compare.parity_exp03(run_dir, history)
+    assert "query" in str(excinfo.value)
+
+
+def test_parity_exp03_reports_an_injected_offset_exactly(tmp_path):
+    run_dir = _probe_like_run(tmp_path)
+    history = _history(tmp_path, run_dir, offsets={(128, "edt_err"): 0.002})
+    report = compare.parity_exp03(run_dir, history)
+
+    cell = report["angles"]["128"]["edt_err"]
+    assert report["ok"] is False
+    assert cell["status"] == "nonreplication (tolerance)"
+    assert cell["mask_identical"] is True
+    assert cell["max_abs_diff"] == pytest.approx(0.002, abs=1e-12)
+    assert cell["mean_abs_diff"] == pytest.approx(0.002, abs=1e-12)
+    assert cell["fraction_within_tolerance"] == 0.0
+    # exp_03's every row moved by the same constant, so the paired delta moved with it.
+    assert cell["paired_delta_exp03"] - cell["paired_delta_run"] == pytest.approx(
+        0.002, abs=1e-12)
+    assert report["angles"]["128"]["c50_err"]["status"] == "replication"
+
+
+def test_parity_exp03_flags_a_validity_mismatch_even_when_the_numbers_agree(tmp_path):
+    run_dir = _probe_like_run(tmp_path)
+    history = _history(tmp_path, run_dir, nan_cells={(128, "edt_err"): [4]})
+    report = compare.parity_exp03(run_dir, history)
+
+    cell = report["angles"]["128"]["edt_err"]
+    assert report["ok"] is False
+    assert cell["status"] == "nonreplication (validity mismatch)"
+    assert cell["mask_identical"] is False
+    assert cell["validity_mismatches"] == 1
+    assert cell["n_common"] == 15
+    assert cell["max_abs_diff"] == 0.0      # the surviving rows still agree exactly
+    assert report["angles"]["128"]["c50_err"]["status"] == "replication"
