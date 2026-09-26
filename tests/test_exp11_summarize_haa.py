@@ -592,3 +592,88 @@ def test_a_draft_exp11_run_states_no_conclusion(arms, sources):
         assert cell['status'] == 'suppressed (draft)'
         assert all(cell[field] is None for field in cell['fields'])
     assert result['historical'][0]['diff'] is not None   # a copied row states nothing new
+
+
+# --- the published phase outputs, and what the historical experiments still publish -----
+
+
+def test_no_experiments_run_may_write_anothers_canonical_record(tmp_path):
+    eleven = [str(subject.REPO / name) for name in subject.EXPERIMENTS['exp11']['outputs']]
+    six = [str(subject.REPO / name) for name in subject.EXPERIMENTS['exp06']['outputs']]
+    nine = [str(subject.REPO / name) for name in subject.EXPERIMENTS['exp09']['outputs']]
+    for other in (six, nine):
+        with pytest.raises(ValueError, match='canonical'):
+            subject.check_output_paths('exp11', other[0], str(tmp_path / 'summary.txt'))
+        with pytest.raises(ValueError, match='canonical'):
+            subject.check_output_paths('exp11', str(tmp_path / 'stats.json'), other[1])
+    for experiment in ('exp06', 'exp09'):
+        with pytest.raises(ValueError, match='canonical'):
+            subject.check_output_paths(experiment, eleven[0],
+                                       str(tmp_path / 'summary.txt'))
+    subject.check_output_paths('exp11', eleven[0], eleven[1])
+
+
+def test_the_rendered_phase_summary_carries_every_exp11_block(phase1):
+    text = subject.render(phase1)
+    assert 'N1 yawaug_hf - control_hf hallway c50' in text
+    assert 'N1i (yawaug_hf - yawaug) - (control_hf - control)' in text
+    assert 'category:' in text and 'y_non_inferior_at_margin:' in text
+    assert 'equivalent_at_margin:' in text
+    for name in ('yawaug_hf - control_hf', 'cyl_or - yawaug_hf', 'yawaug_hf - yawaug'):
+        assert 'S1 screen {}'.format(name) in text
+    assert 'R1 historical rows (copied; no new inference)' in text
+    assert 'C - D' in text and 'not recorded' in text
+    assert 'Room-frame side split' in text and 'yawaug_hf|hallway|c50' in text
+
+
+def test_a_withheld_statement_renders_as_not_available(arms, sources):
+    for job in subject.JOBS:
+        per = arms[G]['per'][job]['hallway']
+        per['c50'] = [float('nan')] * len(per['index'])
+    result = subject.analyse(arms, n_boot=200, adjusted_n_boot=200, experiment='exp11',
+                             historical_root=sources)
+    assert result['N1']['status'] == 'void' and result['N1']['category'] is None
+    text = subject.render(result)
+    assert 'category: not available' in text
+    assert '-> void' in text and 'void: ' in text
+
+
+@pytest.mark.skipif(not (REAL_EXP06.is_file() and REAL_EXP09.is_file()),
+                    reason='needs the exp_06 and exp_09 canonical records')
+def test_the_cli_publishes_exp11s_phase_outputs_and_nothing_elses(legacy_root,
+                                                                  stub_new_arms, tmp_path):
+    receipt = tmp_path / 'r.json'
+    subject.write_legacy_receipt(receipt, legacy_root, strict=False)
+    out, summary = tmp_path / 'phase1.json', tmp_path / 'phase1.txt'
+    assert subject.main(['--experiment', 'exp11', '--legacy-root', str(legacy_root),
+                         '--new-root', 'unused', '--exp09-root', 'unused',
+                         '--exp11-root', 'unused', '--legacy-receipt', str(receipt),
+                         '--json', str(out), '--summary', str(summary), '--n-boot', '200',
+                         '--n-boot-adjusted', '200', '--exploratory']) == 0
+    record = json.loads(out.read_text())
+    assert record['experiment'] == 'exp11' and record['phase'] == 'phase1'
+    assert sorted(record['arms']) == sorted(subject.EXPERIMENTS['exp11']['arms'])
+    assert record['decisions'] == ['N1', 'N1i', 'N2', 'N3']
+    assert all(record[name]['status'] == 'suppressed (draft)' for name in record['decisions'])
+    assert len(record['historical']) == 5 and len(record['screens']) == 3
+    assert not {'H1', 'H1b', 'H2', 'D', 'E1', 'E2', 'E3'} & set(record)
+    assert record['summary_sha256'] == hashlib.sha256(summary.read_bytes()).hexdigest()
+    with pytest.raises(FileExistsError):    # a phase record is never overwritten
+        subject.write_outputs(record, str(out), str(summary))
+
+
+def test_exp06_and_exp09_publish_exactly_what_main_publishes(arms, tmp_path):
+    """The schema extension changes no historical statistic and no historical summary."""
+    from test_exp06_summarize_haa import base_summariser
+    base = base_summariser(tmp_path)
+    settings = dict(n_boot=200, adjusted_n_boot=200, exploratory=True)
+    for experiment in ('exp06', 'exp09'):
+        selected = {name: arms[name] for name in base.EXPERIMENTS[experiment]['arms']}
+        named = {} if experiment == 'exp06' else {'experiment': experiment}
+        before = base.analyse(selected, **dict(settings, **named))
+        after = subject.analyse(selected, **dict(settings, **named))
+        assert list(after) == list(before), experiment
+        assert json.dumps(after, sort_keys=True) == json.dumps(before, sort_keys=True)
+        assert subject.render(after) == base.render(before), experiment
+        assert 'phase' not in after and 'screens' not in after
+        assert 'historical' not in after and 'decisions' not in after

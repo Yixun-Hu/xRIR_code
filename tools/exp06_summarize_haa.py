@@ -1614,31 +1614,10 @@ def _bounds(interval):
     return '[{:+.4f}, {:+.4f}]'.format(interval['lo'], interval['hi'])
 
 
-def render(result):
-    """The printed summary: exp_02's arm table, then the paired tables and the verdicts."""
+def render_decisions(result, config):
+    """exp_06's and exp_09's blocks: the decisions, the screen and the descriptive
+    contrasts, printed exactly as they have always been printed."""
     lines = []
-    if result.get('mode') == 'sensitivity':
-        lines.append('SENSITIVITY - relaxed admission; not the primary comparison of 6.2')
-    if result['exploratory']:
-        lines.append('DRAFT - exploratory run; verdicts are suppressed')
-    if result['exploratory'] or result.get('mode') == 'sensitivity':
-        lines.extend('Deviation: ' + item for item in result['deviations'])
-    lines.append('{:22s}'.format('model') + ''.join('| {:39s}'.format(r) for r in ROOMS))
-    lines.append('{:22s}'.format('') + ''.join(
-        '| ' + ''.join('{:>13s}'.format(name) for _, name, _ in METRICS) for _ in ROOMS))
-    for arm in ARMS:
-        if arm not in result['arms']:
-            continue
-        for kind in ('zero-shot', 'fine-tuned'):
-            line = '{:22s}'.format('{} {}'.format(arm, kind))
-            for room in ROOMS:
-                cells = []
-                for key, _, nd in METRICS:
-                    row = result['rows']['{}|{}|{}|{}'.format(arm, kind, room, key)]
-                    cells.append(legacy.fmt(row['per_run'], nd))
-                line += '| ' + ''.join(cells)
-            lines.append(line)
-    config = EXPERIMENTS[result.get('experiment', 'exp06')]
     for name, *_ in config['decisions']:
         cell = result[name]
         lines.append('\n{} {} {} {}: diff {}, two-way {}, margin {}, cohort {}/{} -> '
@@ -1666,6 +1645,74 @@ def render(result):
         lines.append('  {:22s} {:14s} {:4s} diff {} {}'.format(
             cell['contrast'], cell['room'], cell['metric'], _number(cell['diff']),
             _bounds(cell['nominal_two_way'])))
+    return lines
+
+
+def render_exp11(result):
+    """exp_11's blocks: each registered statement under the contrast whose direction it
+    names, the three declared screen families, and the copied historical rows."""
+    lines = []
+    for name in result['decisions']:
+        cell = result[name]
+        lines.append('\n{} {} {} {}: diff {}, two-way {}, cohort {}/{} -> {}'.format(
+            name, cell['contrast'], cell['room'], cell['metric'], _number(cell['diff']),
+            _bounds(cell['two_way']), cell['cohort'], cell['n_test'], cell['status']))
+        for field in cell['fields']:
+            lines.append('  {}: {}'.format(
+                field, UNAVAILABLE if cell[field] is None else cell[field]))
+        if cell['margin'] is not None:
+            lines.append('  margin: {} dB'.format(cell['margin']))
+        lines.append('  reading: {}'.format(cell['reading']))
+        lines.extend('  void: ' + reason for reason in cell['void_reasons'])
+    for name in result['screens']:
+        cells = result['screens'][name]
+        lines.append('\nS1 screen {} ({} cells, adjusted at alpha/{})'.format(
+            name, len(cells), H2_FAMILY))
+        for cell in cells:
+            lines.append('  {:14s} {:4s} diff {} nominal {} adjusted {} -> {}'.format(
+                cell['room'], cell['metric'], _number(cell['diff']),
+                _bounds(cell['nominal_two_way']),
+                UNAVAILABLE if cell['adjusted_two_way'] is None
+                else cell['adjusted_two_way'],
+                UNAVAILABLE if cell['label'] is None else cell['label']))
+    lines.append('\nR1 historical rows (copied; no new inference)')
+    for row in result['historical']:
+        lines.append('  {:8s} {:22s} {:4s} diff {} two-way {} nominal {} -> {}'.format(
+            row['name'], row['contrast'], row['metric'], _number(row['diff']),
+            _bounds(row['two_way']), _bounds(row['nominal_two_way']),
+            UNAVAILABLE if row['verdict'] is None else row['verdict']))
+        lines.append('    source {} ({}) not recorded: {}'.format(
+            row['source'], row['source_sha256'][:12], ', '.join(row['not_recorded'])))
+    return lines
+
+
+def render(result):
+    """The printed summary: exp_02's arm table, then the paired tables and the verdicts."""
+    lines = []
+    if result.get('mode') == 'sensitivity':
+        lines.append('SENSITIVITY - relaxed admission; not the primary comparison of 6.2')
+    if result['exploratory']:
+        lines.append('DRAFT - exploratory run; verdicts are suppressed')
+    if result['exploratory'] or result.get('mode') == 'sensitivity':
+        lines.extend('Deviation: ' + item for item in result['deviations'])
+    lines.append('{:22s}'.format('model') + ''.join('| {:39s}'.format(r) for r in ROOMS))
+    lines.append('{:22s}'.format('') + ''.join(
+        '| ' + ''.join('{:>13s}'.format(name) for _, name, _ in METRICS) for _ in ROOMS))
+    for arm in ARMS:
+        if arm not in result['arms']:
+            continue
+        for kind in ('zero-shot', 'fine-tuned'):
+            line = '{:22s}'.format('{} {}'.format(arm, kind))
+            for room in ROOMS:
+                cells = []
+                for key, _, nd in METRICS:
+                    row = result['rows']['{}|{}|{}|{}'.format(arm, kind, room, key)]
+                    cells.append(legacy.fmt(row['per_run'], nd))
+                line += '| ' + ''.join(cells)
+            lines.append(line)
+    config = EXPERIMENTS[result.get('experiment', 'exp06')]
+    lines.extend(render_exp11(result) if 'phase' in config
+                 else render_decisions(result, config))
     lines.append('\nRoom-frame side split ({} job)'.format(result['side_split']['job']))
     for key in sorted(result['side_split']['cells']):
         entry = result['side_split']['cells'][key]
@@ -1780,6 +1827,9 @@ def main(argv=None):
                  'summary_sha256': record['summary_sha256']}
     if args.experiment != 'exp06':     # exp_06 prints the keys it has always printed
         published['experiment'] = args.experiment
+    if 'phase' in config:      # exp_11 reports a status per registered statement
+        published['phase'] = config['phase']
+        published.update({name: record[name]['status'] for name in record['decisions']})
     published.update({name: record[name]['verdict'] for name, *_ in config['decisions']})
     print(json.dumps(published))
     return 0
