@@ -37,6 +37,7 @@ import numpy as np
 import torch
 
 import model.xRIR as model_xrir
+from tools.yaw_rotation import fixed_alignment, rotate_scene_yaw
 
 from tools.per_sample_metrics import acoustic_metrics
 
@@ -278,3 +279,43 @@ def patched_apply_delay():
         yield device_agnostic_apply_delay
     finally:
         model_xrir.apply_delay = original
+
+
+def angle_logspec(model, depth, refs, src, ref_locs, tgt, k, aligned0):
+    """One batch's prediction at one yaw angle, under condition **P**.
+
+    The composition is exp_03's, unchanged: rotate the whole scene by ``k`` panorama
+    columns (``tools.yaw_rotation.rotate_scene_yaw`` -- panorama roll plus ``Rz`` on the
+    source and reference coordinates), then run the forward pass with the direct-path
+    alignment **pinned** at the ``k = 0`` value (``tools.yaw_rotation.fixed_alignment``),
+    so only the geometry branches of the model see the rotation and the float32
+    quantisation of ``shift_and_align`` cannot leak into the comparison.  The reference
+    audio and the target are never rotated: the acoustics are yaw-invariant.
+
+    Args:
+        model: an ``xRIR`` (or ``xRIR_Cyl``) in ``eval()`` mode on the run's device.
+        depth: **unrotated** receiver-frame panorama coordinates ``[B, 3, H, W]``.
+        refs: reference RIRs ``[B, K, L]``.
+        src: unrotated query-source position ``[B, 3]``.
+        ref_locs: unrotated reference-source positions ``[B, K, 3]``.
+        tgt: target RIR ``[B, 1, L]``.
+        k: integer column roll; any integer is accepted (``512`` reduces to ``0`` inside
+            ``rotate_scene_yaw``, which is what the ``ctrl_full_turn`` control uses).
+        aligned0: the ``k = 0`` aligned reference audio, computed once per batch as
+            ``model.shift_and_align(refs, src, ref_locs)``.
+
+    Returns:
+        ``(out_k, tgt_spec)``: the ``[B, F, T, 1]`` log-magnitude prediction (the model's
+        native layout, so it feeds ``per_sample_losses`` and exp_03's spectral metrics
+        unchanged) and the ``[B, 1, F, T]`` target magnitude spectrogram.
+
+    Note:
+        ``model.xRIR.apply_delay`` is ``.cuda()``-only, so the caller must hold
+        :func:`patched_apply_delay` (``run`` does, for every device).
+    """
+    depth_k, src_k, ref_locs_k = rotate_scene_yaw(depth, src, ref_locs, int(k),
+                                                  W=depth.shape[-1])
+    with torch.no_grad():
+        with fixed_alignment(model, aligned0):
+            out_k, tgt_spec = model(depth_k, refs, src_k, ref_locs_k, tgt)
+    return out_k, tgt_spec

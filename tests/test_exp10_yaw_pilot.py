@@ -237,3 +237,113 @@ def test_patched_apply_delay_lets_the_model_run_on_the_cpu():
         with torch.no_grad():
             aligned = model.shift_and_align(refs, src, ref_locs)
     assert aligned.shape == refs.shape
+
+
+# ------------------------------------------------------------- test 5: angle_logspec
+
+class _CountingAlign:
+    """An instance-level ``shift_and_align`` that counts its calls and then delegates."""
+
+    def __init__(self, model):
+        self.model = model
+        self.calls = 0
+
+    def __call__(self, x, src_loc, ref_ir_locs):
+        self.calls += 1
+        return type(self.model).shift_and_align(self.model, x, src_loc, ref_ir_locs)
+
+
+@pytest.fixture(scope="module")
+def tiny_scene():
+    """A random-init two-shot xRIR plus one synthetic two-query batch (CPU)."""
+    from model.xRIR_cyl import build_xrir
+
+    torch.manual_seed(0)
+    model = build_xrir("simple", 2).eval()
+    batch = {
+        "depth": torch.rand(2, 3, 256, 512) * 5.0,
+        "refs": torch.randn(2, 2, 9600) * 0.1,
+        "src": torch.randn(2, 3),
+        "ref_locs": torch.randn(2, 2, 3),
+        "tgt": torch.randn(2, 1, 9600) * 0.1,
+    }
+    with pilot.patched_apply_delay():
+        with torch.no_grad():
+            batch["aligned0"] = model.shift_and_align(batch["refs"], batch["src"],
+                                                      batch["ref_locs"])
+    return model, batch
+
+
+def _angle_logspec(model, batch, k):
+    with pilot.patched_apply_delay():
+        return pilot.angle_logspec(model, batch["depth"], batch["refs"], batch["src"],
+                                   batch["ref_locs"], batch["tgt"], k, batch["aligned0"])
+
+
+def test_angle_logspec_at_zero_equals_the_plain_forward(tiny_scene):
+    model, batch = tiny_scene
+    with pilot.patched_apply_delay():
+        with torch.no_grad():
+            plain, plain_tgt = model(batch["depth"], batch["refs"], batch["src"],
+                                     batch["ref_locs"], batch["tgt"])
+    out, tgt_spec = _angle_logspec(model, batch, 0)
+    assert torch.equal(out, plain)
+    assert torch.equal(tgt_spec, plain_tgt)
+
+
+def test_angle_logspec_is_the_trusted_rotation_composition(tiny_scene):
+    from tools.yaw_rotation import fixed_alignment, rotate_scene_yaw
+
+    model, batch = tiny_scene
+    out, tgt_spec = _angle_logspec(model, batch, 128)
+
+    depth_k, src_k, ref_locs_k = rotate_scene_yaw(
+        batch["depth"], batch["src"], batch["ref_locs"], 128, W=batch["depth"].shape[-1])
+    with pilot.patched_apply_delay():
+        with torch.no_grad():
+            with fixed_alignment(model, batch["aligned0"]):
+                expected, expected_tgt = model(depth_k, batch["refs"], src_k,
+                                               ref_locs_k, batch["tgt"])
+    assert torch.equal(out, expected)
+    assert torch.equal(tgt_spec, expected_tgt)
+    assert not torch.equal(out, _angle_logspec(model, batch, 0)[0])
+
+
+def test_angle_logspec_leaves_the_reference_and_target_audio_untouched(tiny_scene):
+    model, batch = tiny_scene
+    refs_before = batch["refs"].clone()
+    tgt_before = batch["tgt"].clone()
+    depth_before = batch["depth"].clone()
+    _angle_logspec(model, batch, 256)
+    assert torch.equal(batch["refs"], refs_before)
+    assert torch.equal(batch["tgt"], tgt_before)
+    assert torch.equal(batch["depth"], depth_before)
+
+
+def test_angle_logspec_never_recomputes_the_alignment(tiny_scene):
+    model, batch = tiny_scene
+    counter = _CountingAlign(model)
+    model.shift_and_align = counter
+    try:
+        _angle_logspec(model, batch, 64)
+        assert counter.calls == 0
+        assert model.shift_and_align is counter       # the pin was restored
+    finally:
+        del model.shift_and_align
+
+
+def test_angle_logspec_does_not_depend_on_the_order_of_the_angles(tiny_scene):
+    model, batch = tiny_scene
+    forward = [_angle_logspec(model, batch, k)[0] for k in (0, 64, 384)]
+    backward = {k: _angle_logspec(model, batch, k)[0] for k in (384, 64, 0)}
+    for out, k in zip(forward, (0, 64, 384)):
+        assert torch.equal(out, backward[k])
+
+
+def test_angle_logspec_restores_the_alignment_after_an_exception(tiny_scene):
+    model, batch = tiny_scene
+    with pytest.raises(Exception):
+        with pilot.patched_apply_delay():
+            pilot.angle_logspec(model, batch["depth"], batch["refs"], batch["src"],
+                                batch["ref_locs"], None, 64, batch["aligned0"])
+    assert "shift_and_align" not in vars(model)
