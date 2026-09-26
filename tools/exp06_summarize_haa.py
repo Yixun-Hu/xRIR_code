@@ -1318,6 +1318,40 @@ def exp11_decision(arms, spec, n_boot=N_BOOT, alpha=ALPHA):
     return exp11_cell(rows, void, base, margin, tuple(spec['fields']), n_boot, alpha)
 
 
+def exp11_screen_cells(arms, pair, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED,
+                       alpha=ALPHA):
+    """One exp_11 screen family: the eleven Bonferroni-adjusted cells of exp_09's E2,
+    under the universal suppression plan section 3 registers for exp_11.
+
+    The historical screens label any cell with a non-empty cohort; exp_11 withholds the
+    label of every cell the invalidity policy voids or the convergence check refuses, and
+    says why. The gate is exp_11's own: ``screen_cells`` -- what exp_06 and exp_09
+    publish -- is called here unchanged and is not modified.
+    """
+    treatment, comparator = pair
+    cells = []
+    for cell in screen_cells(arms, pair, n_boot, adjusted_n_boot, alpha):
+        rows = cell_rows(arms, treatment, comparator, cell['room'], cell['metric'])
+        void = void_reasons(rows, treatment, comparator)
+        withheld = bool(void) or cell['adjusted_two_way'] is None
+        cells.append(dict(cell, void_reasons=void, withheld=withheld,
+                          label=None if withheld else cell['label']))
+    return cells
+
+
+def exp11_screens(arms, families, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED,
+                  alpha=ALPHA):
+    """The declared screen families, keyed by their own contrast.
+
+    Each is its own eleven-cell Bonferroni family: the adjustment protects within a
+    family and no claim is made across them (section 3, S1).
+    """
+    return OrderedDict(
+        ('{} - {}'.format(*pair),
+         exp11_screen_cells(arms, tuple(pair), n_boot, adjusted_n_boot, alpha))
+        for pair in families)
+
+
 def check_output_paths(experiment, json_path, summary_path):
     """No experiment's run may write another's canonical record."""
     targets = {str(Path(path).resolve()) for path in (json_path, summary_path)}

@@ -294,3 +294,71 @@ def test_an_interaction_that_cancels_exactly_is_unavailable_not_an_abort(arms):
     cell = subject.exp11_decision(arms, N1I, n_boot=200)
     assert cell['status'] == 'unavailable' and cell['category'] is None
     assert cell['diff'] == 0.0 and 'zero-width' in cell['convergence']['reason']
+
+
+# --- S1: three declared screen families, under exp_11's own suppression ------------------
+
+FAMILIES = ((G, D), (C, G), (G, E))
+
+
+def test_the_three_screen_families_are_declared_separately(arms):
+    """Bonferroni-11 protects inside each family; no claim is made across the three."""
+    screens = subject.exp11_screens(arms, FAMILIES, n_boot=200, adjusted_n_boot=200)
+    assert list(screens) == ['yawaug_hf - control_hf', 'cyl_or - yawaug_hf',
+                             'yawaug_hf - yawaug']
+    for name, cells in screens.items():
+        assert len(cells) == 11 and {cell['contrast'] for cell in cells} == {name}
+        assert {cell['family'] for cell in cells} == {11}
+        assert {cell['adjusted_alpha'] for cell in cells} == {0.05 / 11}
+        assert {cell['label'] for cell in cells} <= {'detected harm', 'no detected '
+                                                     'difference', 'detected improvement'}
+        assert not any(cell['withheld'] for cell in cells)
+
+
+def test_a_void_screen_cell_is_withheld_for_exp11_and_labelled_for_exp06(arms):
+    """The universal suppression is exp_11's own gate: the historical screens keep the
+    behaviour exp_06 and exp_09 registered."""
+    for job in subject.JOBS:
+        arms[G]['per'][job]['hallway']['c50'][0] = float('nan')
+    cells = {(cell['room'], cell['metric']): cell
+             for cell in subject.exp11_screen_cells(arms, (G, D), n_boot=200,
+                                                    adjusted_n_boot=200)}
+    voided = cells[('hallway', 'c50')]
+    assert voided['withheld'] is True and voided['label'] is None
+    assert voided['void_reasons'] and voided['nominal_two_way'] is not None
+    assert cells[('hallway', 'edt')]['withheld'] is False
+    assert cells[('hallway', 'edt')]['label'] in ('detected harm', 'detected improvement',
+                                                  'no detected difference')
+    historical = {(cell['room'], cell['metric']): cell
+                  for cell in subject.screen_cells(arms, (G, D), n_boot=200,
+                                                   adjusted_n_boot=200)}
+    same = historical[('hallway', 'c50')]
+    assert same['label'] in ('detected harm', 'detected improvement',
+                             'no detected difference')
+    assert 'withheld' not in same and 'void_reasons' not in same
+
+
+def test_an_unconverged_screen_cell_carries_no_exp11_label(arms, monkeypatch):
+    real = subject.converged_two_way
+    monkeypatch.setattr(subject, 'converged_two_way',
+                        lambda rows, alpha, n_boot: dict(real(rows, alpha, n_boot),
+                                                         status='not_converged',
+                                                         interval=None, n_boot=None))
+    cells = subject.exp11_screen_cells(arms, (G, D), n_boot=200, adjusted_n_boot=200)
+    assert all(cell['withheld'] and cell['label'] is None for cell in cells)
+    assert all(cell['adjusted_two_way'] is None for cell in cells)
+    assert all(cell['label'] == 'not converged'
+               for cell in subject.screen_cells(arms, (G, D), n_boot=200,
+                                                adjusted_n_boot=200))
+
+
+def test_an_empty_cohort_is_withheld_rather_than_not_available(arms):
+    for job in subject.JOBS:
+        per = arms[G]['per'][job]['hallway']
+        per['c50'] = [float('nan')] * len(per['index'])
+    cells = {(cell['room'], cell['metric']): cell
+             for cell in subject.exp11_screen_cells(arms, (G, D), n_boot=200,
+                                                    adjusted_n_boot=200)}
+    cell = cells[('hallway', 'c50')]
+    assert cell['withheld'] is True and cell['label'] is None
+    assert cell['nominal_two_way'] is None and cell['cohort'] == 0
