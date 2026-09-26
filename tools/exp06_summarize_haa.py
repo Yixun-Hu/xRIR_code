@@ -1224,6 +1224,100 @@ def exp11_cell(rows, void, base, margin, fields, n_boot=N_BOOT, alpha=ALPHA):
     return dict(cell, **decision_fields(decision_interval(cell), margin, fields))
 
 
+def interaction_rows(arms, quad, room, metric):
+    """The four-arm cohort of an interaction ``(X1 - Y1) - (X2 - Y2)``.
+
+    ``cell_rows`` assembles two arms; an interaction must be estimated on the queries
+    finite in **all four** arms and all three seeds, so the mask is built once here
+    rather than by combining two independently assembled cohorts. Every arm is paired
+    against the first with exp_02's own assertions -- the query index, the ``ir_path``
+    entries and the protocol metadata (``eval_seed``, ``num_shot``) -- and each arm's
+    own exclusions are reported, not only the joint ones.
+
+    The returned rows are ``a`` = X1 - Y1 and ``b`` = X2 - Y2 on that one cohort, so the
+    frozen ``paired_intervals(a, b, clusters, seeds)`` resamples the interaction jointly
+    and keeps its covariance; two separately bootstrapped intervals are never subtracted.
+    """
+    _require(len(quad) == 4 and len(set(quad)) == 4,
+             'an interaction needs four distinct arms, not {}'.format(list(quad)))
+    columns, index = {arm: [] for arm in quad}, None
+    for seed in SEEDS:
+        for arm in quad:
+            _require(seed in arms[arm]['per'] and room in arms[arm]['per'][seed],
+                     'arm {} has no {} of {}'.format(arm, room, seed))
+        first = arms[quad[0]]['per'][seed][room]
+        for arm in quad[1:]:
+            assert_pairing(first, arms[arm]['per'][seed][room],
+                           '{}-{} {} {}'.format(quad[0], arm, room, seed))
+        index = list(first['index']) if index is None else index
+        _require(list(first['index']) == index,
+                 'the seeds of {}/{} do not share one query order'.format(room, metric))
+        for arm in quad:
+            columns[arm].append(np.asarray(arms[arm]['per'][seed][room][metric],
+                                           dtype=float))
+    stacked = {arm: np.stack(columns[arm]) for arm in quad}
+    finite = {arm: np.isfinite(stacked[arm]).all(axis=0) for arm in quad}
+    cohort = np.ones(len(index), dtype=bool)
+    for arm in quad:
+        cohort = cohort & finite[arm]
+    sides = [stacked[quad[0]] - stacked[quad[1]], stacked[quad[2]] - stacked[quad[3]]]
+    rows = [np.concatenate([side[i][cohort] for i in range(len(SEEDS))]) for side in sides]
+    queries = np.asarray(index)[cohort]
+    return {'a': rows[0], 'b': rows[1],
+            'clusters': np.concatenate([queries] * len(SEEDS)),
+            'seeds': np.concatenate([np.full(int(cohort.sum()), seed) for seed in SEEDS]),
+            'cohort': int(cohort.sum()), 'n_test': len(index),
+            'per_seed_diff': {seed: (float((sides[0][i][cohort]
+                                            - sides[1][i][cohort]).mean())
+                                     if cohort.any() else None)
+                              for i, seed in enumerate(SEEDS)},
+            'excluded': {arm: {'queries': int((~finite[arm]).sum()),
+                               'seeds': {seed: int((~np.isfinite(stacked[arm][i])).sum())
+                                         for i, seed in enumerate(SEEDS)}}
+                         for arm in quad}}
+
+
+def interaction_void_reasons(arms, quad, rows, room, metric):
+    """The interaction's invalidity policy: the joint cohort, plus both components.
+
+    The joint cohort must cover at least 99 % of the room's test split, and the
+    component contrasts keep exactly the checks section 7 gives them -- a component the
+    two-arm policy would void cannot be rescued by the interaction's own cohort.
+    """
+    reasons = []
+    if not rows['cohort']:
+        reasons.append('no query of the {} test split is finite in all four compared '
+                       'arms'.format(rows['n_test']))
+    if rows['cohort'] < VOID_COHORT_FRACTION * rows['n_test']:
+        reasons.append('the joint cohort of {} queries is below {:.0%} of the {} in the '
+                       'test split'.format(rows['cohort'], VOID_COHORT_FRACTION,
+                                           rows['n_test']))
+    for treatment, comparator in ((quad[0], quad[1]), (quad[2], quad[3])):
+        component = cell_rows(arms, treatment, comparator, room, metric)
+        reasons.extend('{} - {}: {}'.format(treatment, comparator, reason)
+                       for reason in void_reasons(component, treatment, comparator))
+    return reasons
+
+
+def exp11_decision(arms, spec, n_boot=N_BOOT, alpha=ALPHA):
+    """One registered exp_11 decision: a two-arm contrast, or the four-arm interaction."""
+    room, metric, margin = spec['room'], spec['metric'], spec.get('margin')
+    base = {'name': spec['name'], 'room': room, 'metric': metric,
+            'reading': spec.get('reading')}
+    if spec.get('kind') == 'interaction':
+        quad = tuple(spec['arms'])
+        rows = interaction_rows(arms, quad, room, metric)
+        void = interaction_void_reasons(arms, quad, rows, room, metric)
+        base.update(kind='interaction', arms=list(quad),
+                    contrast='({} - {}) - ({} - {})'.format(*quad))
+    else:
+        x, y = spec['pair']
+        rows = cell_rows(arms, x, y, room, metric)
+        void = void_reasons(rows, x, y)
+        base.update(kind='contrast', x=x, y=y, contrast='{} - {}'.format(x, y))
+    return exp11_cell(rows, void, base, margin, tuple(spec['fields']), n_boot, alpha)
+
+
 def check_output_paths(experiment, json_path, summary_path):
     """No experiment's run may write another's canonical record."""
     targets = {str(Path(path).resolve()) for path in (json_path, summary_path)}
