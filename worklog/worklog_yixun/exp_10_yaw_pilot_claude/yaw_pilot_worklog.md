@@ -19,3 +19,6 @@
 
 ## 2026-09-26T17:33:46-04:00 — pre-Coder checks while the round-2 review runs
 - **Result** — `tests/test_exp03_record_tools.py`: 31 passed, 1 skipped (exp_03's pinned closure unchanged on main); manifest rooms contiguous in canonical order; probe batches (first intact batch inside each of the 17 rooms) = [0, 16, 32, 94, 110, 125, 141, 157, 214, 277, 292, 307, 322, 338, 353, 369, 381] (272 queries); `ckpt/exp10` absent; 50 GB free. Coder round-1 prompt drafted (`coder_prompts/round1_prompt.md`).
+
+## 2026-09-26T17:33:58-04:00 — GPU window correction from the cylindrical-dinov3 session
+- **Result** — GPU 1 has only ≈ 4.8 GB free until its exp_24 fine-tune exits (≈ 22:30); GPU 0 ≈ 3.6 GB free until ≈ 23:00. Agreed: no launch on either card before that session's ping; CPU for smoke/probe meanwhile; the 4–5 h GPU 1 window starts after the ping.

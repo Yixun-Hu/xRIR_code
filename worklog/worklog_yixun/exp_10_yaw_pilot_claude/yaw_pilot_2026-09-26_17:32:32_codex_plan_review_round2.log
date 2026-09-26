@@ -3125,3 +3125,208 @@ def guard_meta(meta_ref, meta_alt, ref_path: str = "ref", alt_path: str = "alt")
     """Hard-error when two runs' sidecar meta make their predictions incomparable.
 
 
+codex
+I found a substantive problem in the CPU fallback: after failed parity, the plan would take prediction shift from the new CPU run but accuracy change from exp_03’s GPU run. Those values cannot form the promised paired comparison. I’m also checking two implementation contracts: validating a probe against the full historical file, and recomputing spectral gaps from the retained artifacts.
+exec
+/bin/bash -lc "sed -n '181,330p' /home/yixunhu/codespace/FLAC/worklog/worklog_yixun/exp_02_yaw_noninvariance_claude/compare_predictions.py
+rg -n 'closure|pin|test_|source' tests/test_exp03_record_tools.py
+rg -n 'def measure_|def griffin_lim|8000|sample_rate|sample_size' eval_unseen.py /home/yixunhu/codespace/FLAC/src/metrics/modules/{RT60,C50,EDT}.py /home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py
+rg --files worklog/worklog_yixun/announcement -g '*.md'" in /home/yixunhu/codespace/xRIR_code
+ exited 1 in 0ms:
+    When BOTH files carry meta, a mismatch on any of :data:`_GUARD_KEYS`
+    (``dataset_config`` / ``seed`` / ``batch_size`` -- sample correspondence --
+    plus ``cond_method`` / ``frame_avg_angles`` / ``cond_autocast`` -- method
+    and precision comparability) makes the Metric-1 comparison meaningless ->
+    :class:`ValueError`. ``rotate_deg``
+    is deliberately not guarded: rotated-vs-unrotated is the point of the tool.
+    When only one side (or neither) carries meta the check is skipped with a
+    warning (legacy bare-tensor interop, so old exp_02 artifacts still compare).
+    """
+    if meta_ref is None and meta_alt is None:
+        return
+    if meta_ref is None or meta_alt is None:
+        present = alt_path if meta_ref is None else ref_path
+        print(
+            f"WARNING: only {present} carries prediction meta; skipping the "
+            "meta-consistency check (legacy bare-tensor interop)."
+        )
+        return
+    mismatches = [
+        f"{key}: ref={_guard_value(meta_ref, key)!r} vs alt={_guard_value(meta_alt, key)!r}"
+        for key in _GUARD_KEYS
+        if _guard_value(meta_ref, key) != _guard_value(meta_alt, key)
+    ]
+    if mismatches:
+        raise ValueError(
+            "Refusing to compare mismatched prediction runs: "
+            + "; ".join(mismatches) + ". Re-run both with the same "
+            "dataset_config, seed, batch_size, cond_method, frame_avg_angles "
+            "and cond_autocast (only rotate_deg may differ)."
+        )
+
+
+def compare(
+    ref_path: str, alt_path: str, batch_size: int, sample_rate: int, device: str, allow_trim: bool = False
+) -> Dict[str, Any]:
+    """Run the full comparison and return the assembled results dict."""
+    ref_raw, ref_meta = _load_raw(ref_path)
+    alt_raw, alt_meta = _load_raw(alt_path)
+    # Refuse to compare runs whose meta disagrees on any _GUARD_KEYS entry
+    # (both present); single-sided meta warns only (legacy bare-tensor interop).
+    guard_meta(ref_meta, alt_meta, ref_path, alt_path)
+    ref = _normalise(ref_raw, ref_path)
+    alt = _normalise(alt_raw, alt_path)
+    if tuple(ref.shape) != tuple(alt.shape):
+        if not allow_trim:
+            raise ValueError(
+                f"Shape mismatch: ref {tuple(ref.shape)} vs alt {tuple(alt.shape)}. "
+                "Pass --allow-trim to trim to the common length instead of erroring."
+            )
+        if ref.shape[0] != alt.shape[0]:
+            raise ValueError(f"Sample count mismatch: ref has {ref.shape[0]}, alt has {alt.shape[0]}")
+        print(
+            f"WARNING: shape mismatch ref {tuple(ref.shape)} vs alt {tuple(alt.shape)}; "
+            "trimming both to the common length (tail differences dropped)."
+        )
+
+    common_len = min(ref.shape[-1], alt.shape[-1])
+    ref = ref[..., :common_len].contiguous()
+    alt = alt[..., :common_len].contiguous()
+
+    results: Dict[str, Any] = {
+        "ref_path": ref_path,
+        "alt_path": alt_path,
+        "num_samples": int(ref.shape[0]),
+        "common_length": int(common_len),
+        "waveform_gap": waveform_gap(ref, alt, batch_size),
+        "acoustic_gap": acoustic_gap(ref, alt, batch_size, sample_rate, device),
+    }
+    return results
+
+
+def print_table(results: Dict[str, Any]) -> None:
+    """Print a readable summary of the comparison to stdout."""
+    print("=" * 60)
+    print("Metric-1 invariance-gap comparison (alt vs. ref)")
+    print("=" * 60)
+    print(f"ref: {results['ref_path']}")
+    print(f"alt: {results['alt_path']}")
+    print(f"samples: {results['num_samples']}   common length: {results['common_length']}")
+    print("-" * 60)
+    print("Waveform gap:")
+    for key, val in results["waveform_gap"].items():
+        print(f"  {key:<16s} {val:.6g}")
+    print("Acoustic gap (P_ref as GT, P_alt as prediction):")
+    for key, val in results["acoustic_gap"].items():
+        pretty = f"{val:.6g}" if isinstance(val, float) else str(val)
+        print(f"  {key:<16s} {pretty}")
+    print("=" * 60)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--ref", type=str, required=True, help="Reference (baseline) predictions .pt")
+    parser.add_argument("--alt", type=str, required=True, help="Alternative (rotated) predictions .pt")
+    parser.add_argument("--out", type=str, required=True, help="Output JSON path")
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cuda" if torch.cuda.is_available() else "cpu",
+        help="Device for metric computation",
+    )
+    parser.add_argument("--sample-rate", type=int, default=22050, help="Audio sample rate (Hz)")
+    parser.add_argument("--batch-size", type=int, default=64, help="Mini-batch size to bound memory")
+    parser.add_argument(
+        "--allow-trim",
+        action="store_true",
+        help="If ref/alt shapes differ, trim both to the common length instead of erroring",
+    )
+    args = parser.parse_args()
+
+    results = compare(args.ref, args.alt, args.batch_size, args.sample_rate, args.device, args.allow_trim)
+    print_table(results)
+
+    with open(args.out, "w") as f:
+        json.dump(results, f, indent=4)
+    print(f"Results written to {args.out}")
+
+
+if __name__ == "__main__":
+    main()
+26:def test_a_minimal_fabricated_gate_is_rejected():
+32:def test_a_complete_gate_passes_and_each_requirement_is_enforced():
+43:def test_a_gate_written_after_the_sweep_started_is_rejected():
+56:def test_query_lists_must_equal_the_manifest_in_order():
+79:def test_synthetic_content_passes_then_every_hole_is_caught():
+92:def test_delay_flips_are_bounded_integers_equal_everywhere():
+102:def test_meta_must_match_the_pre_registered_settings():
+112:def test_provenance_requires_closure_environment_and_data_identity(tmp_path, monkeypatch):
+117:    pv = {"evaluator_sha256": c.bp.REVIEWED_EVAL_SHA, "reviewed_evaluator_commit": c.bp.REVIEWED_COMMIT, "source_closure_sha256": "dig", "source_closure": rec, "git_sha": c.LAUNCHER_HEAD,
+123:    for key, val, needle in [("source_closure_sha256", "other", "closure digest"), ("git_sha", "0" * 40, "HEAD"), ("evaluator_sha256", "0" * 64, "reviewed commit"),
+131:def test_the_pinned_grids_match_the_summarizer_constants():
+139:def test_gate_requires_the_exact_band_rule_an_existing_summary_and_finite_rows():
+153:def test_spectral_counts_all_null_means_and_exact_grids():
+171:def test_decomposition_is_pinned_to_the_preregistered_probe():
+182:def test_delay_flips_reject_non_digit_keys():
+187:def test_binding_report_must_match_live_sidecars_and_gate_inputs(tmp_path, monkeypatch):
+195:        gi.update({"gate_producer_commit": c.bp.GATE_PRODUCER_COMMIT, "gate_producer_sha256": hashlib.sha256(blob).hexdigest(), "gate_producer_closure": c.bp.gate_producer_closure()})
+214:def test_provenance_requires_live_environment_data_identity_and_log(tmp_path, monkeypatch):
+220:    pv = {"evaluator_sha256": c.bp.REVIEWED_EVAL_SHA, "reviewed_evaluator_commit": c.bp.REVIEWED_COMMIT, "source_closure_sha256": "dig", "source_closure": rec, "git_sha": c.LAUNCHER_HEAD,
+233:def test_k0_content_of_a_gate_run_is_checked():
+243:def test_changed_producer_labels_propagate_to_the_page(tmp_path):
+266:def test_gate_run_k0_content_applies_the_sweep_rules():
+279:def test_gate_run_meta_requires_exact_integer_grids():
+289:def test_sweep_chronology_requires_a_timestamp_for_every_run(tmp_path):
+297:def test_decomposition_consumed_by_the_producer_must_equal_the_aggregate():
+305:def test_binder_refuses_drift_and_accepts_additive_migration():
+311:    prev = {"written": "t0", "source_closure_sha256": "d", "runs": {"r1": {"sidecar_sha256": "s1"}}, "gate_inputs": {"gate_json": {"path": "p", "sha256": None}, "exp01_cyl": {"path": "q", "sha256": "e"}}}
+312:    new = {"source_closure_sha256": "d", "runs": {"r1": {"sidecar_sha256": "s1"}}, "gate_inputs": {"gate_json": {"path": "p", "sha256": "now"}, "exp01_cyl": {"path": "q", "sha256": "e"}}}
+318:def test_skipping_the_gate_recomputation_is_not_acceptance():
+328:def test_changed_producer_labels_propagate_to_every_consumer_and_missing_mappings_are_refused(tmp_path):
+329:    """Round-5 finding 6: HTML, Markdown and data.json must follow every producer mapping; nested missing keys are refused."""
+369:def test_binder_drift_covers_deletions_paths_and_monotonic_migrations():
+385:def test_scalar_counts_and_profiles_reject_booleans():
+400:def test_provenance_ties_checkpoint_identities_and_canonical_log_names(tmp_path, monkeypatch):
+406:    pv = {"evaluator_sha256": c.bp.REVIEWED_EVAL_SHA, "reviewed_evaluator_commit": c.bp.REVIEWED_COMMIT, "source_closure_sha256": "dig", "source_closure": rec, "git_sha": c.LAUNCHER_HEAD,
+421:def test_report_check_requires_every_decision_copy_and_fresh_closure_digests(tmp_path):
+429:        gi.update({"gate_producer_commit": c.bp.GATE_PRODUCER_COMMIT, "gate_producer_sha256": hashlib.sha256(blob).hexdigest(), "gate_producer_closure": c.bp.gate_producer_closure()})
+434:        bad = copy.deepcopy(report); bad["gate_inputs"]["gate_producer_closure"][0]["working_tree_sha256"] = "0" * 64
+440:def test_consumers_refuse_missing_result_structures_and_data_json_follows_labels(tmp_path):
+465:def test_binder_transaction_is_idempotent_after_migration_and_preserves_timestamps(tmp_path):
+501:def test_acceptance_rejects_empty_run_start_boolean_inventory_and_non_canonical_gate_batches(tmp_path, monkeypatch):
+508:    pv = {"evaluator_sha256": c.bp.REVIEWED_EVAL_SHA, "reviewed_evaluator_commit": c.bp.REVIEWED_COMMIT, "source_closure_sha256": "dig", "source_closure": rec, "git_sha": c.LAUNCHER_HEAD,
+530:def test_binder_projection_then_migration_then_identical_rerun_through_the_real_projection_path(tmp_path):
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:42:            sample_rate: int=22050, 
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:43:            sample_size: int=22050,
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:62:        self._validate_parameters(dataset_name, sample_rate, audio_channels, eval_retrieval, eval_FD, AGREE_ckpt)
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:64:        self.sample_rate = sample_rate
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:66:        self.sample_size = sample_size
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:93:    def _validate_parameters(self, dataset_name: str, sample_rate: int, audio_channels: int, 
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:101:            if sample_rate != 22050:
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:102:                raise ValueError(f"{dataset_name} dataset requires a sample rate of 22050 Hz, got {sample_rate}")
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:114:            self.max_len = 9600 if self.dataset_name == "HAA" else 8000
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:137:                lambda: RT60Error(fs=self.sample_rate, n_audio_ch=self.audio_channels, dataset_name=self.dataset_name),
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:143:                lambda: C50(fs=self.sample_rate, n_audio_ch=self.audio_channels),
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:149:                lambda: EDT(fs=self.sample_rate, n_audio_ch=self.audio_channels),
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:167:                lambda: FD(fs=self.sample_rate, n_audio_ch=self.audio_channels, encoder=encoder),
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:179:                lambda: Env(fs=self.sample_rate, n_audio_ch=self.audio_channels),
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:203:                    fs=self.sample_rate, 
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:210:                    fs=self.sample_rate, 
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:217:                    fs=self.sample_rate, 
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:233:                    fs=self.sample_rate, 
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:245:                    fs=self.sample_rate, 
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:295:                wav.write(self.dump_dir / (name + '_pred.wav'), self.sample_rate, pred_id.squeeze(0).cpu().numpy())
+/home/yixunhu/codespace/FLAC/src/metrics/metric_callback.py:296:                wav.write(self.dump_dir / (name + '_ref.wav'), self.sample_rate, ref_id.squeeze(0).cpu().numpy())
+/home/yixunhu/codespace/FLAC/src/metrics/modules/C50.py:55:def measure_clarity_torch(signal, time=50, fs=22050):
+eval_unseen.py:11:def griffin_lim(spec, n_fft=124, win_length=62, hop_length=31, power=1, n_iter=32):
+eval_unseen.py:44:def measure_drr_energy_ratio(y, cutoff_time=0.003, fs=22050):
+eval_unseen.py:203:    def measure_edt(self, h, fs=22050, decay_db=10):
+eval_unseen.py:224:    def measure_rt60(self, h, fs=22050, decay_db=20, plot=False, rt60_tgt=None):
+eval_unseen.py:270:    def measure_clarity(self, signal, time=50, fs=22050):
+eval_unseen.py:405:            gt_edt = evaluator.measure_edt(tgt_wav[0, 0, :8000].cpu().numpy())
+eval_unseen.py:406:            pred_edt = evaluator.measure_edt(out_wav[0, 0, :8000].cpu().numpy())
+eval_unseen.py:411:            gt_c50 = evaluator.measure_clarity(tgt_wav[0, 0, :8000].cpu().numpy())
+eval_unseen.py:412:            pred_c50 = evaluator.measure_clarity(out_wav[0, 0, :8000].cpu().numpy())
+eval_unseen.py:419:            gt_t60 = evaluator.measure_rt60(tgt_wav[0, 0, :8000].cpu().numpy())
+eval_unseen.py:420:            pred_t60 = evaluator.measure_rt60(out_wav[0, 0, :8000].cpu().numpy())
+
