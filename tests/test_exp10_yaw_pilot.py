@@ -391,3 +391,122 @@ def test_invert_rejects_a_key_count_or_layout_it_cannot_pair():
         pilot.invert(out, ["only-one"], 0)
     with pytest.raises(ValueError):
         pilot.invert(out[..., 0], ["a", "b"], 0)
+
+
+# ------------------------------------------------------------ test 7: evaluate_batch
+
+def _collated_batch(n, num_shot=2, seed=3):
+    """A synthetic ``ManifestDataset`` seven-tuple, collated, with ``n`` real rows."""
+    torch.manual_seed(seed)
+    keys = ["Room/Room_idx_1/S00{}_R001_hybrid_IR.wav".format(i) for i in range(n)]
+    envelope = torch.exp(-torch.arange(9600, dtype=torch.float32) / 1200.0)
+    return (torch.zeros(n, 3),
+            torch.randn(n, 3),
+            torch.rand(n, 3, 256, 512) * 5.0,
+            (torch.randn(n, 1, 9600) * envelope),
+            (torch.randn(n, num_shot, 9600) * envelope),
+            torch.randn(n, num_shot, 3),
+            keys)
+
+
+@pytest.fixture(scope="module")
+def tiny_model():
+    from model.xRIR_cyl import build_xrir
+
+    torch.manual_seed(0)
+    return build_xrir("simple", 2).eval()
+
+
+@pytest.fixture(scope="module")
+def batch_of_three():
+    return _collated_batch(3)
+
+
+def test_evaluate_batch_drops_the_padded_rows_and_fills_every_metric_family(
+        tiny_model, batch_of_three, evaluator):
+    result = pilot.evaluate_batch(tiny_model, batch_of_three, [0, 128], evaluator,
+                                  gl_seed=0, batch_size=4, device="cpu")
+    assert result["n"] == 3
+    assert result["keys"] == list(batch_of_three[-1])
+    for name in pilot.GT_NAMES:
+        assert result["gt"][name].shape == (3,)
+    for k in (0, 128):
+        cell = result["angles"][k]
+        assert sorted(cell) == sorted(pilot.ANGLE_METRIC_NAMES)
+        for name in pilot.ANGLE_METRIC_NAMES:
+            assert cell[name].shape == (3,), name
+        assert result["waveforms"][k].shape == (3, pilot.PADDED_LEN)
+        assert result["waveforms"][k].dtype == np.float32
+
+
+def test_evaluate_batch_reports_exactly_zero_shift_at_k_zero(
+        tiny_model, batch_of_three, evaluator):
+    result = pilot.evaluate_batch(tiny_model, batch_of_three, [0, 128], evaluator,
+                                  gl_seed=0, batch_size=4, device="cpu")
+    zero = result["angles"][0]
+    for name in ("wave_rel_l2", "wave_mad", "logspec_mad", "mag_rel_l2"):
+        np.testing.assert_array_equal(zero[name], np.zeros(3))
+    for name in ("edt_gap", "c50_gap", "t60_gap", "t60_gap_abs"):
+        values = zero[name]
+        assert np.all(np.isnan(values) | (values == 0.0)), name
+    assert np.abs(result["angles"][128]["logspec_mad"]).max() > 0
+
+
+def test_evaluate_batch_keeps_the_real_rows_free_of_the_padding(
+        tiny_model, batch_of_three, evaluator):
+    alone = pilot.evaluate_batch(tiny_model, batch_of_three, [0, 128], evaluator,
+                                 gl_seed=0, batch_size=None, device="cpu")
+    padded = pilot.evaluate_batch(tiny_model, batch_of_three, [0, 128], evaluator,
+                                  gl_seed=0, batch_size=4, device="cpu")
+    # Not bit-identical: CPU GEMM kernels depend on the batch shape (measured 1.9e-8 on
+    # the log-spectrogram), which is exactly why pad_batch pins a canonical shape.  What
+    # the padding must not do is leak a padded row into a kept row.
+    for name in ("wave_rel_l2", "wave_mad", "logspec_mad", "mag_rel_l2", "log_mse"):
+        np.testing.assert_allclose(alone["angles"][128][name],
+                                   padded["angles"][128][name], rtol=0, atol=1e-6)
+    for name in ("edt_err", "c50_err", "edt_gap", "c50_gap"):
+        np.testing.assert_allclose(alone["angles"][128][name],
+                                   padded["angles"][128][name], rtol=0, atol=1e-3)
+    # Griffin-Lim amplifies that 1.9e-8 into ~5e-5 on the waveform (the plan's R3 note).
+    np.testing.assert_allclose(alone["waveforms"][128], padded["waveforms"][128],
+                               rtol=0, atol=1e-3)
+
+
+def test_evaluate_batch_controls_are_fresh_inferences_under_their_own_ids(
+        tiny_model, batch_of_three, evaluator):
+    counter = _CountingAlign(tiny_model)
+    tiny_model.shift_and_align = counter
+    try:
+        plain = pilot.evaluate_batch(tiny_model, batch_of_three, [0, 128], evaluator,
+                                     gl_seed=0, batch_size=4, device="cpu")
+        without_controls = counter.calls
+        # The explicit k = 0 alignment plus the plain k = 0 forward that computes the
+        # paired reference -- exp_03's op sequence; every angle after that is pinned.
+        assert without_controls == 2
+        assert plain["controls"] == {}
+
+        counter.calls = 0
+        with_controls = pilot.evaluate_batch(tiny_model, batch_of_three, [0, 128],
+                                             evaluator, gl_seed=0, batch_size=4,
+                                             device="cpu", controls=True)
+        control_calls = counter.calls
+    finally:
+        del tiny_model.shift_and_align
+
+    assert control_calls == without_controls + len(pilot.CONTROL_SPECS)
+    assert sorted(with_controls["controls"]) == sorted(spec[0] for spec in pilot.CONTROL_SPECS)
+    for name, cell in with_controls["controls"].items():
+        for metric in pilot.ANGLE_METRIC_NAMES:
+            assert cell[metric].shape == (3,), (name, metric)
+        assert cell["wave_max_abs_diff"].max() < 1e-6
+        assert cell["logspec_max_abs_diff"].max() < 1e-6
+
+
+def test_evaluate_batch_refuses_a_control_without_its_reference_angle(
+        tiny_model, batch_of_three, evaluator):
+    with pytest.raises(ValueError):
+        pilot.evaluate_batch(tiny_model, batch_of_three, [0], evaluator, gl_seed=0,
+                             batch_size=4, device="cpu", controls=True)
+    with pytest.raises(ValueError):
+        pilot.evaluate_batch(tiny_model, batch_of_three, [64, 128], evaluator, gl_seed=0,
+                             batch_size=4, device="cpu")

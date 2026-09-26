@@ -37,11 +37,13 @@ import numpy as np
 import torch
 
 import model.xRIR as model_xrir
+from eval_yaw_rotation import pad_batch
 from tools.yaw_rotation import fixed_alignment, rotate_scene_yaw
 
 from tools.per_sample_metrics import (
     acoustic_metrics,
     griffin_lim_seeded,
+    per_sample_losses,
     sample_seed,
 )
 
@@ -51,6 +53,26 @@ METRIC_WINDOW = 8000          # exp_01's acoustic window, enforced by acoustic_m
 SAMPLE_RATE = 22050
 NATIVE_LEN = 9579             # (310 - 1) * hop 31: what Griffin-Lim returns
 PADDED_LEN = 9600             # exp_01's max_len, the length the waveforms are stored at
+DEFAULT_BATCH_SIZE = 16       # exp_03's canonical compute shape
+DEFAULT_KS = (0, 64, 128, 256, 384)
+
+# Metric 2 -- accuracy against the ground-truth RIR (exp_03's numbers).
+METRIC2_NAMES = ("edt_err", "c50_err", "t60_err", "log_mse", "loss", "stft", "decay")
+# The raw measurements behind Metric 2, so any other normalisation is recoverable.
+RAW_PRED_NAMES = ("edt_pred", "c50_pred", "t60_pred")
+GT_NAMES = ("edt_gt", "c50_gt", "t60_gt")
+# Metric 1 -- how far the prediction moved from its own k = 0 prediction.
+METRIC1_NAMES = ("wave_rel_l2", "wave_mad", "mag_rel_l2", "logspec_mad",
+                 "edt_gap", "c50_gap", "t60_gap")
+# Same-unit supplements (seconds) for the two percentage-normalised T60 quantities.
+SUPPLEMENT_NAMES = ("t60_gap_abs", "t60_err_abs")
+ANGLE_METRIC_NAMES = METRIC2_NAMES + RAW_PRED_NAMES + METRIC1_NAMES + SUPPLEMENT_NAMES
+# What a control additionally records: its deviation from the cell it repeats.
+CONTROL_EXTRA_NAMES = ("wave_max_abs_diff", "logspec_max_abs_diff")
+# (control id, angle to run, angle it must reproduce).
+CONTROL_SPECS = (("ctrl_zero_repeat", 0, 0),
+                 ("ctrl_k128_repeat", 128, 128),
+                 ("ctrl_full_turn", 512, 0))
 
 
 def _as_block(array, name):
@@ -369,3 +391,150 @@ def invert(out, keys, gl_seed):
                                  "length {}".format(samples.shape[0], PADDED_LEN))
             waves[i, :samples.shape[0]] = samples
     return waves
+
+
+def _log_mse(out_k, tgt_spec):
+    """exp_03's ``log_mse``: per-query mean of ``(out - log(tgt_spec + 1e-8))^2``.
+
+    Literally ``eval_yaw_rotation.spectral_metrics``' line (``per_sample_losses`` returns
+    only loss / stft / decay), kept here so the pilot's Metric 2 is the same number
+    exp_03 recorded.
+    """
+    with torch.no_grad():
+        log_tgt = torch.log(tgt_spec[:, 0] + MAG_EPS)
+        return ((out_k[..., 0] - log_tgt) ** 2).flatten(1).mean(dim=1).detach().cpu()
+
+
+def _angle_cell(out_k, out_0, tgt_spec, waves_k, waves_0, gt_waves, raw_0, raw_gt,
+                evaluator, want_t60):
+    """Every per-query metric of one angle (or one control), as float64 ``[n]`` arrays."""
+    cell = {}
+
+    # --- Metric 2: accuracy against the ground truth -------------------------------
+    errors = [acoustic_metrics(waves_k[i], gt_waves[i], evaluator, want_t60=want_t60,
+                               window=METRIC_WINDOW) for i in range(waves_k.shape[0])]
+    for name, key in (("edt_err", "edt"), ("c50_err", "c50"), ("t60_err", "t60")):
+        cell[name] = np.asarray([e[key] for e in errors], dtype=np.float64)
+    loss, stft, decay = per_sample_losses(out_k, tgt_spec)
+    cell["loss"] = loss.double().numpy()
+    cell["stft"] = stft.double().numpy()
+    cell["decay"] = decay.double().numpy()
+    cell["log_mse"] = _log_mse(out_k, tgt_spec).double().numpy()
+
+    # --- the raw measurements behind those errors -----------------------------------
+    raw_k = raw_measures(waves_k, evaluator, want_t60=want_t60, window=METRIC_WINDOW)
+    for name, key in (("edt_pred", "edt"), ("c50_pred", "c50"), ("t60_pred", "t60")):
+        cell[name] = raw_k[key]
+
+    # --- Metric 1: the shift of the prediction itself -------------------------------
+    cell.update(waveform_gap(waves_0, waves_k))
+    cell.update(spectrogram_gap(out_0, out_k))
+    cell.update(acoustic_gap(waves_0, waves_k, evaluator, want_t60=want_t60,
+                             window=METRIC_WINDOW))
+
+    # --- same-unit T60 supplements (seconds), from the raw measurements -------------
+    cell["t60_gap_abs"] = np.abs(raw_k["t60"] - raw_0["t60"])
+    cell["t60_err_abs"] = np.abs(raw_k["t60"] - raw_gt["t60"])
+    return cell
+
+
+def evaluate_batch(model, batch, ks, evaluator, gl_seed=0, batch_size=DEFAULT_BATCH_SIZE,
+                   device="cpu", controls=False, want_t60=True):
+    """Every per-query metric of one collated batch, at every angle in ``ks``.
+
+    The batch is padded to the canonical compute shape (``eval_yaw_rotation.pad_batch``),
+    moved to ``device`` once, and the ``k = 0`` alignment and prediction are computed
+    **once**: every angle reuses them, so all angles share one paired reference and the
+    result does not depend on the order of ``ks``.  The padded rows are dropped before any
+    metric is computed.
+
+    Controls (``--controls``) are **fresh** inferences under their own ids -- they
+    recompute the alignment and the forward pass and are stored separately, never
+    overwriting the angle they repeat: ``ctrl_zero_repeat`` (k = 0 again),
+    ``ctrl_k128_repeat`` (a nonzero angle again) and ``ctrl_full_turn`` (k = 512, the
+    identity path through ``rotate_scene_yaw``).  Each carries, on top of the usual
+    metrics, its per-query ``wave_max_abs_diff`` / ``logspec_max_abs_diff`` from the cell
+    it must reproduce.
+
+    Args:
+        model: an ``xRIR`` in ``eval()`` mode, already on ``device``.
+        batch: the ``ManifestDataset`` seven-tuple, collated.
+        ks: integer column rolls to evaluate; ``0`` must be among them (it is the paired
+            reference of every Metric-1 quantity).
+        evaluator: an ``eval_unseen.Evaluator``.
+        gl_seed: run-level Griffin-Lim seed.
+        batch_size: canonical compute shape, or ``None`` to leave the batch alone.
+        device: where the forward passes run (``"cpu"`` or ``"cuda"``).
+        controls: also run the three plumbing controls.
+        want_t60: measure T60 (descriptive, and the noisiest metric).
+
+    Returns:
+        ``{"keys", "n", "gt", "angles", "controls", "waveforms"}``: the ``n`` kept query
+        keys, the ground-truth raw measures, ``angles[k][metric] -> [n]`` float64,
+        ``controls[id][metric] -> [n]`` (plus the two deviation arrays) and
+        ``waveforms[k] -> [n, 9600]`` float32, the very arrays the metrics were computed
+        from.
+
+    Raises:
+        ValueError: if ``0`` is missing from ``ks``, ``ks`` repeats an angle, or a control
+            has no reference angle in ``ks``.
+    """
+    cols = [int(k) for k in ks]
+    if len(set(cols)) != len(cols):
+        raise ValueError("ks repeats an angle: {}".format(cols))
+    if 0 not in cols:
+        raise ValueError("k = 0 is the paired reference of every Metric-1 quantity; "
+                         "--ks must contain it, got {}".format(cols))
+    if controls:
+        missing = sorted({spec[2] for spec in CONTROL_SPECS} - set(cols))
+        if missing:
+            raise ValueError("the controls repeat angles {} which are not in ks {}".format(
+                missing, cols))
+
+    batch, n_real = pad_batch(batch, batch_size)
+    _, src_loc, depth_coord, tgt_wav, ref_irs, ref_locs, keys = batch
+    src_loc, depth_coord = src_loc.to(device), depth_coord.to(device)
+    tgt_wav, ref_irs = tgt_wav.to(device), ref_irs.to(device)
+    ref_locs = ref_locs.to(device)
+    keys = list(keys)[:n_real]
+
+    with patched_apply_delay():
+        with torch.no_grad():
+            aligned0 = model.shift_and_align(ref_irs, src_loc, ref_locs)
+            out_0, _ = model(depth_coord, ref_irs, src_loc, ref_locs, tgt_wav)
+        out_0 = out_0[:n_real]
+        waves_0 = invert(out_0, keys, gl_seed)
+        gt_waves = tgt_wav[:n_real, 0].cpu().numpy()
+        raw_0 = raw_measures(waves_0, evaluator, want_t60=want_t60, window=METRIC_WINDOW)
+        raw_gt = raw_measures(gt_waves, evaluator, want_t60=want_t60, window=METRIC_WINDOW)
+
+        angles, waveforms, outs = {}, {}, {}
+        for k in cols:
+            out_k, tgt_spec = angle_logspec(model, depth_coord, ref_irs, src_loc,
+                                            ref_locs, tgt_wav, k, aligned0)
+            out_k, tgt_spec = out_k[:n_real], tgt_spec[:n_real]
+            waves_k = invert(out_k, keys, gl_seed)
+            angles[k] = _angle_cell(out_k, out_0, tgt_spec, waves_k, waves_0, gt_waves,
+                                    raw_0, raw_gt, evaluator, want_t60)
+            waveforms[k], outs[k] = waves_k, out_k
+
+        control_cells = {}
+        for name, k, reference in (CONTROL_SPECS if controls else ()):
+            with torch.no_grad():
+                aligned_fresh = model.shift_and_align(ref_irs, src_loc, ref_locs)
+            out_c, tgt_spec = angle_logspec(model, depth_coord, ref_irs, src_loc,
+                                            ref_locs, tgt_wav, k, aligned_fresh)
+            out_c, tgt_spec = out_c[:n_real], tgt_spec[:n_real]
+            waves_c = invert(out_c, keys, gl_seed)
+            cell = _angle_cell(out_c, out_0, tgt_spec, waves_c, waves_0, gt_waves,
+                               raw_0, raw_gt, evaluator, want_t60)
+            cell["wave_max_abs_diff"] = np.abs(
+                waves_c.astype(np.float64) - waveforms[reference].astype(np.float64)
+            ).max(axis=1)
+            cell["logspec_max_abs_diff"] = (out_c - outs[reference]).abs().flatten(
+                1).max(dim=1).values.double().cpu().numpy()
+            control_cells[name] = cell
+
+    gt_block = {"edt_gt": raw_gt["edt"], "c50_gt": raw_gt["c50"], "t60_gt": raw_gt["t60"]}
+    return {"keys": keys, "n": int(n_real), "gt": gt_block, "angles": angles,
+            "controls": control_cells, "waveforms": waveforms}
