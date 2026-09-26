@@ -102,10 +102,9 @@ NEW_ROOT = 'ckpt/exp06/sim2real'
 EXP09_ROOT = 'ckpt/exp09/sim2real'
 EXP11_ROOT = 'ckpt/exp11/sim2real'
 CANONICAL = ('stats.json', 'summary.txt')            # exp_02's hash-bound record
+EXP04_AUG_ARMS = ('yawaug', 'yawaug_hf')   # the arms exp_04's approved checkpoint starts
 
 # The contrasts of section 7. H1 and H1b are decision bearing; the rest describe.
-EXP04_AUG_ARMS = ('yawaug', 'yawaug_hf')    # the arms exp_04's approved checkpoint starts
-
 H1 = ('cyl_or', 'control')
 H1B = ('cyl_or', 'cyl_hf')
 DESCRIPTIVE = (('cyl_or', 'control_hf'), ('control_hf', 'control'), ('cyl_hf', 'cyl'))
