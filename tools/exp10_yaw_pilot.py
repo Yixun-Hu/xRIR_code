@@ -321,6 +321,36 @@ def patched_apply_delay():
         model_xrir.apply_delay = original
 
 
+def _sync(device):
+    """Wait for the device's queued work, so a stage's elapsed time is its own.
+
+    CUDA launches are asynchronous: ``time.time()`` after a forward pass measures when the
+    kernels were *queued*, and the first ``.cpu()`` of the next stage then pays for them.
+    On the CPU there is nothing to wait for and nothing is called.
+    """
+    if str(device).startswith("cuda"):
+        torch.cuda.synchronize()
+
+
+@contextlib.contextmanager
+def _stage(timing, name, device):
+    """Time one stage of the pipeline, synchronising at both of its boundaries.
+
+    Args:
+        timing: the accumulator dict; ``timing[name]`` is incremented.
+        name: which stage (``"inference_s"`` / ``"inversion_s"`` / ``"metrics_s"`` /
+            ``"writing_s"``).
+        device: the run's device; only ``"cuda"`` needs the synchronisation.
+    """
+    _sync(device)
+    clock = time.time()
+    try:
+        yield
+    finally:
+        _sync(device)
+        timing[name] += time.time() - clock
+
+
 def angle_logspec(model, depth, refs, src, ref_locs, tgt, k, aligned0):
     """One batch's prediction at one yaw angle, under condition **P**.
 
@@ -485,7 +515,9 @@ def evaluate_batch(model, batch, ks, evaluator, gl_seed=0, batch_size=DEFAULT_BA
         kept query keys, the ground-truth raw measures, ``angles[k][metric] -> [n]``
         float64, ``controls[id][metric] -> [n]`` (plus the two deviation arrays),
         ``waveforms[k] -> [n, 9600]`` float32 (the very arrays the metrics were computed
-        from) and the batch's inference / inversion / metric seconds.
+        from) and the batch's inference / inversion / metric seconds -- each stage
+        synchronised at both boundaries on CUDA, so the breakdown is not an artefact of
+        asynchronous kernel launches.
 
     Raises:
         ValueError: if ``0`` is missing from ``ks``, ``ks`` repeats an angle, or a control
@@ -512,64 +544,57 @@ def evaluate_batch(model, batch, ks, evaluator, gl_seed=0, batch_size=DEFAULT_BA
 
     timing = {"inference_s": 0.0, "inversion_s": 0.0, "metrics_s": 0.0}
     with patched_apply_delay():
-        clock = time.time()
-        with torch.no_grad():
-            aligned0 = model.shift_and_align(ref_irs, src_loc, ref_locs)
-            out_0, _ = model(depth_coord, ref_irs, src_loc, ref_locs, tgt_wav)
-        out_0 = out_0[:n_real]
-        timing["inference_s"] += time.time() - clock
+        with _stage(timing, "inference_s", device):
+            with torch.no_grad():
+                aligned0 = model.shift_and_align(ref_irs, src_loc, ref_locs)
+                out_0, _ = model(depth_coord, ref_irs, src_loc, ref_locs, tgt_wav)
+            out_0 = out_0[:n_real]
 
-        clock = time.time()
-        waves_0 = invert(out_0, keys, gl_seed)
-        timing["inversion_s"] += time.time() - clock
+        with _stage(timing, "inversion_s", device):
+            waves_0 = invert(out_0, keys, gl_seed)
 
-        clock = time.time()
-        gt_waves = tgt_wav[:n_real, 0].cpu().numpy()
-        raw_0 = raw_measures(waves_0, evaluator, want_t60=want_t60, window=METRIC_WINDOW)
-        raw_gt = raw_measures(gt_waves, evaluator, want_t60=want_t60, window=METRIC_WINDOW)
-        timing["metrics_s"] += time.time() - clock
+        with _stage(timing, "metrics_s", device):
+            gt_waves = tgt_wav[:n_real, 0].cpu().numpy()
+            raw_0 = raw_measures(waves_0, evaluator, want_t60=want_t60,
+                                 window=METRIC_WINDOW)
+            raw_gt = raw_measures(gt_waves, evaluator, want_t60=want_t60,
+                                  window=METRIC_WINDOW)
 
         angles, waveforms, outs = {}, {}, {}
         for k in cols:
-            clock = time.time()
-            out_k, tgt_spec = angle_logspec(model, depth_coord, ref_irs, src_loc,
-                                            ref_locs, tgt_wav, k, aligned0)
-            out_k, tgt_spec = out_k[:n_real], tgt_spec[:n_real]
-            timing["inference_s"] += time.time() - clock
+            with _stage(timing, "inference_s", device):
+                out_k, tgt_spec = angle_logspec(model, depth_coord, ref_irs, src_loc,
+                                                ref_locs, tgt_wav, k, aligned0)
+                out_k, tgt_spec = out_k[:n_real], tgt_spec[:n_real]
 
-            clock = time.time()
-            waves_k = invert(out_k, keys, gl_seed)
-            timing["inversion_s"] += time.time() - clock
+            with _stage(timing, "inversion_s", device):
+                waves_k = invert(out_k, keys, gl_seed)
 
-            clock = time.time()
-            angles[k] = _angle_cell(out_k, out_0, tgt_spec, waves_k, waves_0, gt_waves,
-                                    raw_0, raw_gt, evaluator, want_t60)
-            timing["metrics_s"] += time.time() - clock
+            with _stage(timing, "metrics_s", device):
+                angles[k] = _angle_cell(out_k, out_0, tgt_spec, waves_k, waves_0,
+                                        gt_waves, raw_0, raw_gt, evaluator, want_t60)
             waveforms[k], outs[k] = waves_k, out_k
 
         control_cells = {}
         for name, k, reference in (CONTROL_SPECS if controls else ()):
-            clock = time.time()
-            with torch.no_grad():
-                aligned_fresh = model.shift_and_align(ref_irs, src_loc, ref_locs)
-            out_c, tgt_spec = angle_logspec(model, depth_coord, ref_irs, src_loc,
-                                            ref_locs, tgt_wav, k, aligned_fresh)
-            out_c, tgt_spec = out_c[:n_real], tgt_spec[:n_real]
-            timing["inference_s"] += time.time() - clock
+            with _stage(timing, "inference_s", device):
+                with torch.no_grad():
+                    aligned_fresh = model.shift_and_align(ref_irs, src_loc, ref_locs)
+                out_c, tgt_spec = angle_logspec(model, depth_coord, ref_irs, src_loc,
+                                                ref_locs, tgt_wav, k, aligned_fresh)
+                out_c, tgt_spec = out_c[:n_real], tgt_spec[:n_real]
 
-            clock = time.time()
-            waves_c = invert(out_c, keys, gl_seed)
-            timing["inversion_s"] += time.time() - clock
+            with _stage(timing, "inversion_s", device):
+                waves_c = invert(out_c, keys, gl_seed)
 
-            clock = time.time()
-            cell = _angle_cell(out_c, out_0, tgt_spec, waves_c, waves_0, gt_waves,
-                               raw_0, raw_gt, evaluator, want_t60)
-            cell["wave_max_abs_diff"] = np.abs(
-                waves_c.astype(np.float64) - waveforms[reference].astype(np.float64)
-            ).max(axis=1)
-            cell["logspec_max_abs_diff"] = (out_c - outs[reference]).abs().flatten(
-                1).max(dim=1).values.double().cpu().numpy()
-            timing["metrics_s"] += time.time() - clock
+            with _stage(timing, "metrics_s", device):
+                cell = _angle_cell(out_c, out_0, tgt_spec, waves_c, waves_0, gt_waves,
+                                   raw_0, raw_gt, evaluator, want_t60)
+                cell["wave_max_abs_diff"] = np.abs(
+                    waves_c.astype(np.float64) - waveforms[reference].astype(np.float64)
+                ).max(axis=1)
+                cell["logspec_max_abs_diff"] = (out_c - outs[reference]).abs().flatten(
+                    1).max(dim=1).values.double().cpu().numpy()
             control_cells[name] = cell
 
     gt_block = {"edt_gt": raw_gt["edt"], "c50_gt": raw_gt["c50"], "t60_gt": raw_gt["t60"]}
@@ -861,6 +886,7 @@ def run(args):
     if queries != [entry["query"] for entry in entries]:
         raise ValueError("the loader did not return the manifest's canonical order")
 
+    _sync(args.device)
     write_started = time.time()
     os.makedirs(args.out_dir, exist_ok=True)
     arrays = {}
@@ -936,6 +962,7 @@ def run(args):
     metrics_path = os.path.join(args.out_dir, "metrics.json")
     write_json(per_sample, per_sample_path)
     write_json(metrics_out, metrics_path)
+    _sync(args.device)
     timing["writing_s"] = time.time() - write_started
     timing["total_min"] = (time.time() - started) / 60.0
     meta = dict(meta_core)

@@ -762,3 +762,62 @@ def test_run_refuses_a_wrong_manifest_hash_or_shot_count(tmp_path):
 def test_run_refuses_an_out_of_range_batch_selection(tmp_path):
     with pytest.raises(ValueError):
         pilot.main(_run_argv(str(tmp_path / "bad_batch"), **{"--batches": "99999"}))
+
+
+# ------------- round 2, finding 10: the GPU stage breakdown needs synchronisation
+
+def test_sync_waits_for_the_device_only_when_it_is_cuda(monkeypatch):
+    calls = []
+    monkeypatch.setattr(pilot.torch.cuda, "synchronize", lambda: calls.append(1))
+
+    pilot._sync("cpu")
+    pilot._sync(torch.device("cpu"))
+    assert calls == []
+
+    pilot._sync("cuda")
+    assert len(calls) == 1
+    pilot._sync(torch.device("cuda:1"))
+    assert len(calls) == 2
+
+
+def test_a_timed_stage_synchronises_at_both_of_its_boundaries(monkeypatch):
+    seen = []
+    monkeypatch.setattr(pilot, "_sync", lambda device: seen.append(device))
+    timing = {"inference_s": 0.0}
+    with pilot._stage(timing, "inference_s", "cuda"):
+        pass
+    assert seen == ["cuda", "cuda"]
+    assert timing["inference_s"] > 0.0
+
+
+def test_a_timed_stage_closes_its_boundary_even_when_the_block_raises(monkeypatch):
+    seen = []
+    monkeypatch.setattr(pilot, "_sync", lambda device: seen.append(device))
+    timing = {"metrics_s": 0.0}
+    with pytest.raises(RuntimeError):
+        with pilot._stage(timing, "metrics_s", "cuda"):
+            raise RuntimeError("boom")
+    assert seen == ["cuda", "cuda"]
+
+
+def test_every_timed_stage_of_a_batch_synchronises_with_the_run_device(
+        monkeypatch, tiny_model, batch_of_three, evaluator):
+    # Without a synchronisation at each boundary the inversion's first .cpu() waits for
+    # the forward pass, and the GPU breakdown attributes inference to inversion.  The
+    # count is the contract: three stages up front plus three per angle, twice each.
+    seen = []
+    monkeypatch.setattr(pilot, "_sync", lambda device: seen.append(device))
+    pilot.evaluate_batch(tiny_model, batch_of_three, [0, 128], evaluator, gl_seed=0,
+                         batch_size=4, device="cpu")
+    stages = 3 + 3 * 2
+    assert seen == ["cpu"] * (2 * stages)
+
+
+def test_the_controls_are_timed_stages_too(monkeypatch, tiny_model, batch_of_three,
+                                           evaluator):
+    seen = []
+    monkeypatch.setattr(pilot, "_sync", lambda device: seen.append(device))
+    pilot.evaluate_batch(tiny_model, batch_of_three, [0, 128], evaluator, gl_seed=0,
+                         batch_size=4, device="cpu", controls=True)
+    stages = 3 + 3 * 2 + 3 * len(pilot.CONTROL_SPECS)
+    assert seen == ["cpu"] * (2 * stages)
