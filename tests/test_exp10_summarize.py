@@ -870,3 +870,68 @@ def test_the_figure_footer_states_the_pipeline_qualification(two_arm_summary, tm
         import matplotlib.pyplot as plt
 
         plt.close(figure)
+
+
+# ---------------- round 2, finding 7: an unavailable estimate is not a measured zero
+
+def _edt_axis(figure):
+    axes = [ax for ax in figure.axes if ax.get_title().startswith("EDT")]
+    assert axes, [ax.get_title() for ax in figure.axes]
+    return axes[0]
+
+
+def _bar_heights(ax):
+    """The heights of the bars actually drawn (the context band is a polygon, not a bar)."""
+    from matplotlib.container import BarContainer
+
+    return [patch.get_height() for container in ax.containers
+            if isinstance(container, BarContainer) for patch in container.patches]
+
+
+def test_a_figure_omits_an_unavailable_bar_instead_of_drawing_it_at_zero(tmp_path):
+    run_dir = _fixture_run(tmp_path, "unavailable", n=12, ks=(0, 128, 256))
+    summary = summarize.build_summary([run_dir], n_boot=100)
+    blank = summary["arms"][0]["angles"]["128"]["EDT"]
+    for scope in ("query", "room"):
+        blank[scope]["n"] = 0
+        for key in ("delta", "gap"):
+            blank[scope][key] = {"point": None, "lo": None, "hi": None}
+    # An estimate that really is zero must still be drawn.
+    summary["arms"][0]["angles"]["256"]["EDT"]["query"]["delta"]["point"] = 0.0
+
+    rows = [row for row in summarize.figure_data(summary) if row["metric"] == "EDT"]
+    assert [row["k"] for row in rows] == [128, 256]
+    assert rows[0]["degradation"] is None and rows[0]["shift"] is None
+    assert rows[1]["degradation"] == 0.0
+
+    figure = summarize.make_figure(summary, "fixture", str(tmp_path / "unavailable.png"))
+    try:
+        ax = _edt_axis(figure)
+        heights = _bar_heights(ax)
+        assert len(heights) == 2, heights        # only k = 256: its change and its shift
+        assert 0.0 in heights                    # the genuine zero survived
+        annotations = " ".join(text.get_text() for text in ax.texts)
+        assert "unavailable" in annotations
+        assert "n=0" in annotations.replace(" ", "")
+    finally:
+        import matplotlib.pyplot as plt
+
+        plt.close(figure)
+
+
+def test_a_figure_draws_a_bar_without_error_bars_when_only_the_interval_is_missing(
+        tmp_path):
+    run_dir = _fixture_run(tmp_path, "no_interval", n=12, ks=(0, 128))
+    summary = summarize.build_summary([run_dir], n_boot=100)
+    cell = summary["arms"][0]["angles"]["128"]["EDT"]["query"]
+    cell["delta"]["lo"] = cell["delta"]["hi"] = None
+
+    figure = summarize.make_figure(summary, "fixture", str(tmp_path / "no_interval.png"))
+    try:
+        ax = _edt_axis(figure)
+        heights = _bar_heights(ax)
+        assert len(heights) == 2                 # the change bar is still drawn
+    finally:
+        import matplotlib.pyplot as plt
+
+        plt.close(figure)

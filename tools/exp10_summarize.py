@@ -858,31 +858,54 @@ def _pyplot():
 
 
 def _panel(ax, rows, metric, band, annotate_n=True):
-    """One panel: signed change and shift per angle, with CIs and the context band."""
+    """One panel: signed change and shift per angle, with CIs and the context band.
+
+    A missing estimate is *missing*: it is never coerced to zero, because a zero-height
+    bar is a measurement ("the prediction did not move") and an unavailable cell is not
+    one.  Such an angle gets no bar and an "unavailable" annotation with its count
+    instead; a bar whose interval alone is unavailable is drawn without error bars; and an
+    estimate that genuinely is zero is drawn as a zero-height bar.
+    """
     selected = [row for row in rows if row["metric"] == metric]
     positions = list(range(len(selected)))
     width = 0.38
     handles = []
 
     def _bars(offset, value_key, color, label):
-        values = [row[value_key] or 0.0 for row in selected]
-        lo = [max(0.0, (row[value_key] or 0.0) - (row[value_key + "_lo"] or 0.0))
-              for row in selected]
-        hi = [max(0.0, (row[value_key + "_hi"] or 0.0) - (row[value_key] or 0.0))
-              for row in selected]
-        return ax.bar([p + offset for p in positions], values, width, color=color,
-                      label=label, yerr=[lo, hi], capsize=2,
-                      error_kw={"elinewidth": 0.8, "ecolor": "#3a3a3a"})
+        drawn, values, lo, hi = [], [], [], []
+        for position, row in zip(positions, selected):
+            value = row[value_key]
+            if value is None:
+                continue                      # omitted, not plotted as zero
+            low, high = row[value_key + "_lo"], row[value_key + "_hi"]
+            drawn.append(position + offset)
+            values.append(float(value))
+            lo.append(0.0 if low is None else max(0.0, float(value) - float(low)))
+            hi.append(0.0 if high is None else max(0.0, float(high) - float(value)))
+        if not values:
+            return None
+        return ax.bar(drawn, values, width, color=color, label=label, yerr=[lo, hi],
+                      capsize=2, error_kw={"elinewidth": 0.8, "ecolor": "#3a3a3a"})
 
     paired = any(row["degradation"] is not None for row in selected)
-    if paired:
-        handles.append(_bars(-width / 2, "degradation", COLOR_DEGRADATION,
-                             "accuracy change (vs GT)"))
-        handles.append(_bars(width / 2, "shift", COLOR_SHIFT,
-                             r"prediction shift (vs $P_0$)"))
-    else:
-        handles.append(_bars(0.0, "shift", COLOR_SHIFT,
-                             r"prediction shift (vs $P_0$)"))
+    series = [("degradation", -width / 2, COLOR_DEGRADATION, "accuracy change (vs GT)"),
+              ("shift", width / 2, COLOR_SHIFT, r"prediction shift (vs $P_0$)")]
+    if not paired:
+        series = [("shift", 0.0, COLOR_SHIFT, r"prediction shift (vs $P_0$)")]
+    for value_key, offset, color, label in series:
+        handle = _bars(offset, value_key, color, label)
+        if handle is not None:
+            handles.append(handle)
+
+    for position, row in zip(positions, selected):
+        absent = [value_key for value_key, _, _, _ in series if row[value_key] is None]
+        if not absent:
+            continue
+        what = "unavailable" if len(absent) == len(series) else \
+            "{} unavailable".format(" and ".join(absent))
+        ax.annotate("{}\n(n={})".format(what, row["n_mask"]), (position, 0.0),
+                    textcoords="offset points", xytext=(0, 6), ha="center", fontsize=6,
+                    color="#8a5a00", rotation=90 if len(absent) < len(series) else 0)
 
     if band:
         band_handle = ax.axhspan(-band, band, color="0.88", zorder=0, label=BAND_LABEL)
