@@ -49,6 +49,12 @@ All on branch `exp11-cue`, in order from the branch base `c491396`.
 | `9e2f421` | exp11: a child that installs no adapter heading may record no adapter_phi_deg | 1 file changed, 3 insertions(+) |
 | `e855bba` | exp11 bookkeeping: report the expected exp_06 approvals re-fill (record only) | 1 file changed, 23 insertions(+) |
 | `8d86d43` | exp11: pass exp11_approved by keyword; the arm registry test admits round 2's arms | 2 files changed, 6 insertions(+), 5 deletions(-) |
+| `bbd4690` | exp11 bookkeeping: Coder round-2 report, full commit table (record only) | 1 file changed, 47 insertions(+), 5 deletions(-) |
+| `80d9f4c` | exp11: the HAA queue also binds launch_sh and the four approved heading records | 2 files changed, 23 insertions(+), 8 deletions(-) |
+| `7b1a7af` | exp11: the diagnostic run types are disjoint from exp_06's too | 3 files changed, 13 insertions(+), 7 deletions(-) |
+| `badd58f` | exp11 bookkeeping: Coder round-2 report, final digests at 7b1a7af (record only) | 1 file changed, 15 insertions(+), 10 deletions(-) |
+| `7c88814` | exp11: symmetric frame/backbone guards in the finalizer; derive the arm tuples | 3 files changed, 30 insertions(+), 6 deletions(-) |
+| `272d5ca` | exp11 bookkeeping: Coder round-2 report, late refinements (record only) | 1 file changed, 25 insertions(+) |
 
 Two commits exceed the 200-changed-line guideline and are called out here rather than
 buried: `e978c2e` (+970) is almost entirely the ten **generated golden dry-run files**
@@ -395,32 +401,32 @@ the blob committed at the reviewed commit, and runs the producer matrix for that
 `bash -n` on both shells, `py_compile` on every new module and test, `git diff --check`:
 all clean; the tree is clean outside `worklog/`.
 
-**exp_06 code digests recomputed at this branch's HEAD (`7b1a7af`)** — exactly **one**
-key moved against the record re-filled at `9f98bbb`, as the round-2 scope allows:
+**exp_06 code digests recomputed at this branch's HEAD (`7c88814`)** — exactly **one** key moved against the record re-filled at `9f98bbb`, as the round-2 scope allows:
 
 | key | approved at 9f98bbb | now |
 |---|---|---|
-| `summarize_haa` | `645e74c03e20…` | `e10d7aa3c75d…` |
+| `summarize_haa` | `645e74c03e20…` | `393d01f0f0aa…` |
 
 The other nineteen exp_06 keys are unchanged.
 
-**exp_11 code digests at `7b1a7af`** (all eight keys present in this checkout):
+**exp_11 code digests at `7c88814`** (all eight keys present in this checkout):
 
 | key | digest |
 |---|---|
 | `train` | `d9cbb9de8eb0ec85ac85664d9e0da7afe156e5b169bbe89096953d863cf15571` |
-| `finalize` | `baea4d94ac72ae42497791b8ed72e59cbdb6a5bdb47adbf15f9e440ad0e8f99f` |
+| `finalize` | `0b9fb51a600bb24f5f5f0d7d0efb9a74811e983c0108eefd8c0e182e72447c3f` |
 | `haa_finetune` | `bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150` |
 | `haa_eval` | `f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20` |
 | `haa_pipeline_sh` | `163d1fda1bc5700c3faf7812d9f924972a76e172e335a90254c4fd4e7c08ee14` |
 | `launch_sh` | `5e950c224e212c6f932a2068ad2083be8ceb2792c09cca546e762154b5a6d9ab` |
 | `smoke` | `62133ba07a35d42026c19fd1484b37c6c06ace0ebedc1cdd8484690df323450e` |
-| `summarize_haa` | `e10d7aa3c75db2e2ea18cc4ba7ff91135232681ae865546f612a0b67811a9e86` |
+| `summarize_haa` | `393d01f0f0aa2ceb2ad4dfc3d180c4a0e9cb7eee92b18a175d3f8eb5cf327636` |
 
-(An earlier draft of this report listed the values at `505d5bf`; four keys moved again
-with the last three commits — the `launch_sh` binding of the HAA producer, the heading
-gate in the pipeline and the disjoint diagnostic run types — which is exactly why the
-re-fill belongs at the reviewed commit and not here.)
+Every digest here is taken at `7c88814`, the last commit that touches code; the commits after
+it are `worklog/` only, so the blobs these closures hash are unchanged and the values
+stand. They moved several times inside the round — each exp_11 module change moves
+`summarize_haa` too, since the summariser now imports `tools/exp11_finalize.py` — which is
+exactly why the re-fill belongs at the reviewed commit and not in this branch.
 
 These are the values a reviewer fills into
 `orientation_cue_fairness_results_assets/approved_digests.json` at the **second** reviewed
@@ -506,6 +512,30 @@ Four self-review findings, each committed on its own:
    commit; they will move again if the reviewer asks for changes.
 6. **No GPU work was done.** Every check in this round ran with `CUDA_VISIBLE_DEVICES=''`;
    the bounded card smokes of plan §5 rung 2 remain to be run before the first queue.
+
+## Full CPU suite
+
+`CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 python -m pytest tests -q -rf` on the frozen
+tree (`7c88814`, clean outside `worklog/`):
+
+```
+2 failed, 3614 passed, 55 skipped, 303 warnings in 4688.11s (1:18:08)
+FAILED tests/test_exp04_launcher.py::test_signals_abort_and_reap_sleeping_child[Signals.SIGTERM-eval_ignored]
+FAILED tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes
+```
+
+Neither failure is a regression from this round's code:
+
+* `test_exp06_profiles…digest…` is the **expected approvals re-fill** described in the
+  next section — the one exp_06 key this round is allowed to move.
+* `test_exp04_launcher…SIGTERM-eval_ignored` is a timing flake: it spawns a child, signals
+  it and waits for the reap, and the machine was at load average ≈ 33 (a peer session was
+  running two full suites concurrently). Re-run alone on the same tree immediately
+  afterwards: **12 passed** for the whole parametrised test. It exercises
+  `tools/exp04_launcher.py`, which this round does not touch.
+
+The 55 skips are the GPU-gated tests (`CUDA_VISIBLE_DEVICES=''`) and the exp_03 live
+acceptance record, which `tests/conftest.py` skips without two visible cards.
 
 ## Expected failure inside the branch: the exp_06 approvals re-fill
 
