@@ -284,18 +284,22 @@ registration_complete() {
 # scan_arm <arm root> [<attempt being resolved>]: 0 when every attempt of the arm is
 # finished and accounted for. SCAN_REASON names the first one that is not.
 scan_arm() {
-    local root="$1" resolving="${2:-}" attempt="" name=""
+    local root="$1" resolving="${2:-}" attempt="" name="" here=""
     SCAN_REASON=""
+    # The attempt being resolved is excluded by canonical identity, never by spelling:
+    # the caller's path and this glob's may name the same directory differently.
+    [ -z "$resolving" ] || resolving="$(realpath -- "$resolving" 2>/dev/null || printf '%s' "$resolving")"
     for attempt in "$root"/attempt_*; do
         [ -d "$attempt" ] || continue
         name="$(basename -- "$attempt")"
+        here="$(realpath -- "$attempt" 2>/dev/null || printf '%s' "$attempt")"
         if pid_alive "$attempt/launch.pid"; then
             SCAN_REASON="$name has a live launcher (launch.pid)"; return 1; fi
         if pid_alive "$attempt/child.pid"; then
             SCAN_REASON="$name has a live trainer (child.pid)"; return 1; fi
         if pid_alive "$attempt/train.pid"; then
             SCAN_REASON="$name has a live trainer (train.pid)"; return 1; fi
-        [ "$attempt" != "$resolving" ] || continue
+        [ "$here" != "$resolving" ] || continue
         if [ -f "$attempt/launching" ] && ! registration_complete "$attempt"; then
             SCAN_REASON="$name has an unresolved launch: a launching marker and no"\
 " complete child.pid, so a trainer of it may be running without having registered."\
@@ -335,8 +339,26 @@ clear_launching() {  # clear_launching <attempt>: only once the child really is 
 # explain any more. It can only ever abort: an attempt with no child.pid has no exit
 # receipt and can never be published.
 resolve_unregistered() {
-    local attempt="$1" now=0 stamp=0 age=0
-    [ -d "$attempt" ] || { echo "refusing: $attempt is not a directory" >&2; return 1; }
+    local attempt="" root="" name="" now=0 stamp=0 age=0
+    # Identity is the canonical directory, never the spelling: an operator's path may be
+    # absolute where the root is relative, or reach the arm through a symlink.
+    [ -d "$1" ] || { echo "refusing: $1 is not a directory" >&2; return 1; }
+    attempt="$(realpath -- "$1")" || return 1
+    root="$(realpath -- "$ARM_ROOT")" || return 1
+    name="$(basename -- "$attempt")"
+    # The lock and the scan are this arm's, so the resolution reaches no further.
+    if [ "$(dirname -- "$attempt")" != "$root" ]; then
+        echo "refusing: $attempt is not an attempt of the selected arm ($root); this" \
+             "invocation locked and scanned that arm and no other" >&2
+        return 1
+    fi
+    case "$name" in
+        attempt_*) case "${name#attempt_}" in ''|*[!0-9T]*)
+            echo "refusing: $name is not an attempt directory of this arm" >&2
+            return 1 ;; esac ;;
+        *) echo "refusing: $name is not an attempt directory of this arm" >&2
+           return 1 ;;
+    esac
     [ -f "$attempt/launching" ] || {
         echo "refusing: $attempt has no launching marker; nothing is unresolved" >&2
         return 1; }
