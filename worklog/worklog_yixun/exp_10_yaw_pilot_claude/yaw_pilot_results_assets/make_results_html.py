@@ -4,10 +4,22 @@
 usage: make_results_html.py --summary <yaw_pilot_summary.json> --out <page.html> --assets <dir>
        [--parity <arm>=<parity_exp03.json> ...] [--check-online <arm>=<check_online.json> ...]
 
-Copies the summariser's figures / CSV / JSON next to the page (relative links) and records
-every input's sha256 in the page footer. Statuses and wording rules follow plan v3.1 §1 / §12:
+Copies the summariser's tables / CSV / JSON next to the page, regenerates its figures there
+(see below), and records every input's sha256 in the page footer. Statuses and wording rules follow plan v3.1 §1 / §12:
 a multiple is printed only when the headline is `reportable`; otherwise the cell shows its
 status (denominator uncertain / improvement / undefined / unresolved Monte Carlo uncertainty).
+
+Nothing is rendered unbound (Codex tooling review, finding 4): the summary's own `inputs`
+hashes are re-verified against the live runs first (exactly one entry per rendered arm), and
+every `--parity` / `--check-online` / `--probe` input has to belong to the arm it is attached
+to *and* agree with the identity of the run its `run_dir` names.
+
+The figures are **regenerated** from the validated summary by the approved summariser's own
+`make_figure` / `make_combined_figure` (round-4 review, finding 3), never copied out of the
+summariser's output directory: filtering copied *names* bound nothing, so a PNG put there
+under the right name was published under "All arms" beside another run's tables. Only the
+tables, the CSV and the summary JSON are copied, and the provenance names both digests the
+figures are a function of.
 """
 import argparse
 import hashlib
@@ -15,6 +27,13 @@ import html
 import json
 import os
 import shutil
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import validate_runs as vr                                          # noqa: E402
+
+#: The summariser's output files that are *copied* (the figures are regenerated instead).
+TABLE_FILES = ("yaw_pilot_summary.json", "yaw_pilot_tables.md", "yaw_pilot_gaps.csv")
 
 METRICS = [("EDT", "EDT", "s", 1000.0, "ms"), ("C50", "C50", "dB", 1.0, "dB"), ("T60", "T60", "%", 1.0, "pp / %"),
            ("T60_abs", "T60 (absolute)", "s", 1000.0, "ms"), ("logspec_mad", "log-spec MAD (GL-free)", "", 1.0, ""),
@@ -29,6 +48,68 @@ def sha(path):
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def repo_root():
+    """The repository this record lives in (…/worklog/worklog_yixun/<record>/<assets>/…)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    return os.path.abspath(os.path.join(here, os.pardir, os.pardir, os.pardir, os.pardir))
+
+
+def summarizer():
+    """The approved summariser, imported unmodified for its figure drawing.
+
+    The module is `tools/exp10_summarize.py` of the repository this record belongs to — the
+    same file the canonical summary was produced with, and the one the provenance hashes.
+    """
+    root = repo_root()
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    import importlib
+
+    return importlib.import_module("tools.exp10_summarize")
+
+
+def summarizer_path():
+    return os.path.join(repo_root(), "tools", "exp10_summarize.py")
+
+
+def regenerate_figures(summary, assets_dir):
+    """Draw this summary's figures into ``assets_dir``; returns ``{basename: sha256}``.
+
+    Copying the summariser's PNG/PDF files bound nothing to this summary (round-4 review,
+    finding 3).  Regenerating is the binding: the bytes are a function of the validated
+    summary dict and of the approved summariser, and the provenance names both digests.
+    The figure set produced has to be exactly the set this summary names.
+    """
+    module = summarizer()
+    # matplotlib stamps a PDF with the time it was written unless SOURCE_DATE_EPOCH says
+    # otherwise; pinning it makes a second regeneration byte-identical (PNG already is).
+    os.environ.setdefault("SOURCE_DATE_EPOCH", "0")
+    import matplotlib
+
+    matplotlib.use("Agg")               # as the summariser's own _pyplot() does
+    import matplotlib.pyplot as plt
+
+    written = {}
+
+    def _save(figure, base):
+        figure.savefig(base + ".pdf", bbox_inches="tight")
+        plt.close(figure)
+        for ext in (".png", ".pdf"):
+            written[os.path.basename(base + ext)] = sha(base + ext)
+
+    for arm in summary.get("arms") or []:
+        base = os.path.join(assets_dir, "yaw_pilot_gaps_%s" % arm.get("arm"))
+        _save(module.make_figure(summary, arm.get("arm"), base + ".png"), base)
+    base = os.path.join(assets_dir, "yaw_pilot_gaps_all_arms")
+    _save(module.make_combined_figure(summary, base + ".png"), base)
+    expected = sorted(vr.figure_names(summary))
+    vr.assert_ok([] if sorted(written) == expected else
+                 ["regenerated %s, but this summary names %s"
+                  % (", ".join(sorted(written)), ", ".join(expected))],
+                 "refusing to render: the regenerated figure set is not this summary's")
+    return written
 
 
 def num(x, scale=1.0, digits=3):
@@ -59,19 +140,24 @@ def metric_rows(arm, key, scale):
         if not cell:
             continue
         q, r, h = cell["query"], cell.get("room", {}), cell.get("headline", {})
-        rows.append("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%s</td></tr>" % (
+        rows.append("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%s</td><td>%s</td></tr>" % (
             ANGLE_DEG.get(k, k), num(q.get("mean_0"), scale), num(q.get("mean_alpha"), scale), ci(q.get("delta"), scale),
             ci(r.get("delta"), scale) if r else "–", ci(q.get("gap"), scale), ci(r.get("gap"), scale) if r else "–",
-            q.get("n", 0), esc(q.get("ratio", {}).get("status", "–")), ratio_text(h, q, cell)))
+            q.get("n", 0), esc(q.get("ratio", {}).get("status", "–")),
+            esc(cell.get("room_status") or "–"), ratio_text(h, q, cell)))
     return "\n".join(rows)
 
 
 def ratio_text(h, q, cell):
+    """The multiple where the headline is reportable, otherwise its reason.
+
+    The room status has its own column (finding 6): it used to be appended here, which meant
+    a reportable cell -- the very cell whose multiple is quoted -- showed no room status at
+    all (control EDT at 90 degrees: 17.8x with the canonical "denominator uncertain" lost).
+    """
     if h.get("reportable"):
         return "<b>%s×</b> [%s, %s]" % (num(h["point"], 1, 3), num(h.get("lower_bound"), 1, 3), num(h.get("upper_bound"), 1, 3))
-    reason = h.get("reason") or q.get("ratio", {}).get("reason") or "–"
-    rs = cell.get("room_status")
-    return "%s%s" % (esc(reason), (" (room: %s)" % esc(rs)) if rs else "")
+    return esc(h.get("reason") or q.get("ratio", {}).get("reason") or "–")
 
 
 def arm_section(arm, parity, online, probe=None):
@@ -87,7 +173,7 @@ def arm_section(arm, parity, online, probe=None):
         if not rows:
             continue
         out.append("<h3>%s <span class='unit'>(%s)</span></h3>" % (esc(label), esc(shown or unit or "dimensionless")))
-        out.append("<div class='scroll'><table><thead><tr><th>angle</th><th>mean at 0°</th><th>mean at α</th><th>Δ (query CI)</th><th>Δ (room CI)</th><th>G (query CI)</th><th>G (room CI)</th><th>n</th><th>ratio status</th><th>multiple / reason</th></tr></thead><tbody>%s</tbody></table></div>" % rows)
+        out.append("<div class='scroll'><table><thead><tr><th>angle</th><th>mean at 0°</th><th>mean at α</th><th>Δ (query CI)</th><th>Δ (room CI)</th><th>G (query CI)</th><th>G (room CI)</th><th>n</th><th>status (query)</th><th>status (room)</th><th>multiple / reason</th></tr></thead><tbody>%s</tbody></table></div>" % rows)
     ctr = arm.get("controls", {})
     if probe:
         parm = [x for x in probe["arms"] if x["arm"] == arm["arm"]]
@@ -115,6 +201,40 @@ def arm_section(arm, parity, online, probe=None):
     return "\n".join(out)
 
 
+def note_blocks(summary):
+    """The canonical ``notes`` rendered as their *values* (finding 5).
+
+    ``notes`` is a dict whose keys are labels (``band``, ``gl_free``, ``pipeline``,
+    ``broader_population``); printing the keys, as this page used to, dropped every
+    qualification the plan requires the report to carry.
+    """
+    notes = summary.get("notes") or {}
+    items = (sorted(notes.items()) if isinstance(notes, dict)
+             else [(None, text) for text in notes])
+    return ["<div class='note'>%s%s</div>" % (("<b>%s:</b> " % esc(key)) if key else "",
+                                              esc(text)) for key, text in items]
+
+
+def qualification_table(summary):
+    """``metric_qualifications``: what Δ and G mean per metric, T60's denominators included."""
+    qualifications = summary.get("metric_qualifications") or {}
+    if not qualifications:
+        return []
+    rows = []
+    for metric, entry in sorted(qualifications.items()):
+        if isinstance(entry, dict):
+            rows.append("<tr><td>%s</td><td>%s</td><td>%s</td></tr>"
+                        % (esc(metric), esc(entry.get("delta", "–")), esc(entry.get("gap", "–"))))
+        else:
+            rows.append("<tr><td>%s</td><td>%s</td><td>–</td></tr>" % (esc(metric), esc(entry)))
+    return ["<h2>Metric qualifications</h2><p class='meta'>Canonical, from the summariser: "
+            "what a Δ and a G mean for each metric — T60's two denominators included.</p>"
+            "<div class='scroll'><table><thead><tr><th>metric</th>"
+            "<th>Δ (change in the error vs ground truth)</th>"
+            "<th>G (shift from the 0° prediction)</th></tr></thead><tbody>%s</tbody></table></div>"
+            % "".join(rows)]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--summary", required=True)
@@ -124,49 +244,115 @@ def main():
     ap.add_argument("--check-online", nargs="*", default=[])
     ap.add_argument("--probe", nargs="*", default=[], help="<arm>=<probe summary JSON>: controls are rendered from the probe run")
     ap.add_argument("--title", default="exp_10 yaw_pilot — results")
+    ap.add_argument("--assets-href", default=None,
+                    help="the published location of --assets, for the relative links (the "
+                         "finish script stages the assets and renames them into place)")
+    ap.add_argument("--backend-table", default=None,
+                    help="the GPU-vs-CPU backend-sensitivity Markdown, linked from the page")
+    ap.add_argument("--cpu-record", default=None,
+                    help="the CPU-protocol record (its tables), linked from the page")
     args = ap.parse_args()
+    vr.assert_ok(["%s: %s is missing" % (flag, path)
+                  for flag, path in (("--backend-table", args.backend_table),
+                                     ("--cpu-record", args.cpu_record))
+                  if path and not os.path.exists(path)],
+                 "refusing to link a supplementary file that is not there")
     s = json.load(open(args.summary))
+    vr.assert_ok(vr.verify_summary_inputs(s, label="the canonical summary (%s)" % args.summary),
+                 "refusing to render a summary that is not bound to the runs it came from")
+    parity_pairs = vr.parse_pairs(args.parity, "--parity")
+    online_pairs = vr.parse_pairs(args.check_online, "--check-online")
+    probe_pairs = vr.parse_pairs(args.probe, "--probe")
+    vr.assert_ok(vr.check_supplements(s, parity=parity_pairs, online=online_pairs,
+                                      probes=probe_pairs),
+                 "refusing to render supplemental reports that are not this arm's")
     os.makedirs(args.assets, exist_ok=True)
     sdir = os.path.dirname(os.path.abspath(args.summary))
-    copied = {}
-    for fn in sorted(os.listdir(sdir)):
-        if fn.startswith("yaw_pilot_gaps") or fn in ("yaw_pilot_summary.json", "yaw_pilot_tables.md"):
-            shutil.copy2(os.path.join(sdir, fn), os.path.join(args.assets, fn))
-            copied[fn] = sha(os.path.join(args.assets, fn))
-    parity = {kv.split("=", 1)[0]: json.load(open(kv.split("=", 1)[1])) for kv in args.parity}
-    online = {kv.split("=", 1)[0]: json.load(open(kv.split("=", 1)[1])) for kv in args.check_online}
-    probes = {kv.split("=", 1)[0]: json.load(open(kv.split("=", 1)[1])) for kv in args.probe}
-    input_shas = {os.path.abspath(args.summary): sha(args.summary)}
-    for kv in args.parity + args.check_online + args.probe:
-        p = kv.split("=", 1)[1]
-        input_shas[os.path.abspath(p)] = sha(p)
-    rel = os.path.relpath(args.assets, os.path.dirname(os.path.abspath(args.out)))
+    # The tables, the CSV and the summary JSON are copied; the figures are regenerated from
+    # the summary itself, so nothing in `sdir` decides what the page's plots show.
+    vr.assert_ok(["%s: the summariser's directory has no %s" % (sdir, n)
+                  for n in TABLE_FILES if not os.path.isfile(os.path.join(sdir, n))],
+                 "refusing to render: this summary's own outputs are incomplete")
+    assets = {}
+    for fn in TABLE_FILES:
+        shutil.copy2(os.path.join(sdir, fn), os.path.join(args.assets, fn))
+        assets[fn] = sha(os.path.join(args.assets, fn))
+    assets.update(regenerate_figures(s, args.assets))
+    left = [fn for fn in sorted(os.listdir(sdir))
+            if fn not in TABLE_FILES and os.path.isfile(os.path.join(sdir, fn))]
+    if left:
+        print("not copied (regenerated from the summary, or not named by it):",
+              ", ".join(left))
+    parity = {arm: json.load(open(path)) for arm, path in parity_pairs}
+    online = {arm: json.load(open(path)) for arm, path in online_pairs}
+    probes = {arm: json.load(open(path)) for arm, path in probe_pairs}
+    rel = args.assets_href or os.path.relpath(args.assets,
+                                              os.path.dirname(os.path.abspath(args.out)))
+
+    def href(path):
+        return vr.link_href(path, args.assets, rel, args.out)
+
+    def shown(path):
+        """An input inside the asset directory is named by its *published* location: the
+        finish script stages the assets under another name and renames them into place."""
+        target = os.path.abspath(path)
+        assets = os.path.abspath(args.assets)
+        return href(path) if target.startswith(assets + os.sep) else target
+
+    input_shas = {shown(args.summary): sha(args.summary)}
+    for _arm, p in parity_pairs + online_pairs + probe_pairs:
+        input_shas[shown(p)] = sha(p)
+    for p in (args.backend_table, args.cpu_record):
+        if p:
+            input_shas[shown(p)] = sha(p)
+
     parts = ["<!doctype html><html><head><meta charset='utf-8'><title>%s</title><style>body{font-family:system-ui,sans-serif;max-width:1400px;margin:2em auto;padding:0 1em;color:#222}table{border-collapse:collapse;font-size:13px}th,td{border:1px solid #ccc;padding:3px 7px;text-align:right}th{background:#f3f3f3}td:first-child,th:first-child{text-align:left}.meta{color:#555;font-size:13px}.unit{color:#777;font-weight:normal}.scroll{overflow-x:auto}.note{background:#fff8e1;border-left:4px solid #e69f00;padding:.6em 1em;margin:1em 0}img{max-width:100%%}code{font-size:12px}</style></head><body>" % esc(args.title)]
     parts.append("<h1>%s</h1>" % esc(args.title))
     parts.append("<p class='meta'>Descriptive pilot (plan v3.1): per arm and angle, Δ = paired mean change of the error vs ground truth (α minus 0°), G = mean shift of the prediction at α relative to the prediction at 0° (no ground truth), on the shared comparison mask; %d bootstrap replicates, seeds %s, %.0f %% intervals; query-level and room-cluster (17 rooms) intervals shown separately. Generated %s by %s.</p>" % (
         s.get("n_boot", 0), esc(s.get("seeds")), 100 * (1 - s.get("alpha", 0.05)), esc(s.get("generated_at")), esc(s.get("tool"))))
-    for n in s.get("notes", []):
-        parts.append("<div class='note'>%s</div>" % esc(n))
-    mq = s.get("metric_qualifications", {})
-    if mq:
-        parts.append("<ul class='meta'>%s</ul>" % "".join("<li><b>%s</b>: %s</li>" % (esc(k), esc(v)) for k, v in sorted(mq.items())))
-    if "yaw_pilot_gaps_all_arms.png" in copied:
+    parts.extend(note_blocks(s))
+    parts.extend(qualification_table(s))
+    links = []
+    for label, path in (("full tables (every angle, every metric, exclusions, broader-population G)",
+                         os.path.join(args.assets, "yaw_pilot_tables.md")),
+                        ("canonical summary JSON (the source of every number on this page)",
+                         os.path.join(args.assets, "yaw_pilot_summary.json")),
+                        ("figure data (CSV)", os.path.join(args.assets, "yaw_pilot_gaps.csv")),
+                        ("backend sensitivity: GPU (primary) vs CPU protocol", args.backend_table),
+                        ("CPU-protocol record", args.cpu_record)):
+        if path and os.path.exists(path):
+            links.append("<li><a href='%s'>%s</a></li>" % (esc(href(path)), esc(label)))
+    if links:
+        parts.append("<h2>Supplementary results and data</h2><ul class='meta'>%s</ul>"
+                     % "".join(links))
+    if "yaw_pilot_gaps_all_arms.png" in assets:
         parts.append("<h2>All arms</h2><img src='%s/yaw_pilot_gaps_all_arms.png' alt='all arms'>" % esc(rel))
     for arm in s["arms"]:
         parts.append(arm_section(arm, parity.get(arm["arm"]), online.get(arm["arm"]), probes.get(arm["arm"])))
         fig = "yaw_pilot_gaps_%s.png" % arm["arm"]
-        if fig in copied:
+        if fig in assets:
             parts.append("<img src='%s/%s' alt='%s'>" % (esc(rel), esc(fig), esc(arm["arm"])))
     parts.append("<h2>Provenance</h2><ul class='meta'>%s</ul><ul class='meta'>%s</ul>" % (
         "".join("<li><code>%s</code> sha256 <code>%s</code></li>" % (esc(p), esc(h)) for p, h in sorted(input_shas.items())),
-        "".join("<li>asset <code>%s</code> sha256 <code>%s</code></li>" % (esc(p), esc(h)) for p, h in sorted(copied.items()))))
+        "".join("<li>asset <code>%s</code> sha256 <code>%s</code></li>" % (esc(p), esc(h)) for p, h in sorted(assets.items()))))
+    parts.append("<ul class='meta'><li>Every figure on this page was <b>regenerated</b> from "
+                 "the canonical summary <code>%s</code> (sha256 <code>%s</code>) by "
+                 "<code>tools/exp10_summarize.py</code> (sha256 <code>%s</code>), through its "
+                 "own <code>make_figure</code> / <code>make_combined_figure</code>; no PNG or "
+                 "PDF was copied from the summariser's output directory.</li></ul>" % (
+                     esc(shown(args.summary)), esc(sha(args.summary)),
+                     esc(sha(summarizer_path()))))
     parts.append("<ul class='meta'>%s</ul>" % "".join("<li>%s: execution <code>%s</code>, per_sample sha256 <code>%s</code>, meta sha256 <code>%s</code></li>" % (
         esc(i["arm"]), esc(i["execution_id"]), esc(i["per_sample_sha256"]), esc(i["meta_sha256"])) for i in s.get("inputs", [])))
     parts.append("</body></html>")
     with open(args.out, "w") as f:
         f.write("\n".join(parts))
-    print("wrote", args.out, "assets", len(copied))
+    print("wrote", args.out, "assets", len(assets))
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (ValueError, vr.ValidationError) as exc:      # a refusal, not a crash
+        sys.stderr.write("REFUSED: %s\n" % exc)
+        sys.exit(2)
