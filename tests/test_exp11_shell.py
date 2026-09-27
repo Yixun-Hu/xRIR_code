@@ -508,6 +508,22 @@ def test_full_mode_takes_the_lock_once_and_never_refuses_itself(tmp_path):
     assert sum(1 for line in lines if line.startswith('LOCKED ')) == 1, out
 
 
+def test_taking_the_lock_does_not_write_to_the_file_it_locks(tmp_path):
+    """Acquisition is read-only with respect to the lock file.
+
+    Truncating a file another invocation holds locked is never something a lock needs to
+    do, and a launcher that did it would be writing inside someone else's critical
+    section.
+    """
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    lockfile = attempt.parent / LOCKFILE
+    lockfile.write_bytes(b'not the launcher\n')
+    status, out, err = recovery(attempt, 'H', tmp_path)
+    assert status == 0, err[-500:]
+    assert 'PROMOTE' in out
+    assert lockfile.read_bytes() == b'not the launcher\n'
+
+
 def test_the_kernel_releases_the_lock_when_the_holder_ends(tmp_path):
     """No cleanup code, no stale-lock concept: the lock vanishes with its holder."""
     attempt = attempt_with('xRIR_simpor_yawaug_8_shot', 'I', 'I_RECIPE', tmp_path)
