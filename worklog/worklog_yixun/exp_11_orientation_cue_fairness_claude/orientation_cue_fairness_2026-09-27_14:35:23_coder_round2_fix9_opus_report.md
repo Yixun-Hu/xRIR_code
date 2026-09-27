@@ -160,4 +160,9 @@ are untouched. exp_11's approvals record remains all-null and every producer ref
 * **Full CPU suite** — run detached at `616fb6a` (the same tree as the last code
   commit `b49d90b`) to
   `orientation_cue_fairness_2026-09-27_14:50_suite_full_cpu_616fb6a.log` in this record.
-  FIX9_SUITE_RESULT
+  **1 failed, 3741 passed, 55 skipped** in 3638 s (1:00:38). The one
+  failure is the standing, expected
+  `tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes`:
+  `code.summarize_haa` has moved and the record is re-filled at the reviewed merge, as
+  round 1 did with `9f98bbb`, not on this branch. Fix 8 was 3714 passed; the 27 new
+  passes are this cycle's regressions. Nothing else regressed.
