@@ -121,3 +121,40 @@ edited after it is written and those breaks are meaningful Markdown, so `1c4498e
 `.gitattributes` scoped to this record directory marking `*codex*review*.md` as
 `-whitespace`. `git diff --check c8acda2..HEAD` and the working-tree check are now both
 clean, and no reviewer's bytes were touched.
+
+## Tests
+
+* **Targeted set** — all `tests/test_exp11_*.py` plus `tests/test_exp06_summarize_haa.py`
+  and `tests/test_exp09_sim_eval_closures.py`: **339 passed** in 500 s. The pinned
+  exp_06/exp_09 and exp_11 phase-1 oracles still reproduce their payloads and rendered
+  summaries byte for byte, so blocker 1's tightened gate changed no published number.
+* `bash -n` on both shells, `py_compile` on every exp_11 module and test, and
+  `git diff --check` over `c8acda2..HEAD` **and** the working tree: clean.
+
+## Digests (last code commit `3119e22`)
+
+**exp_06** — exactly **one** key moved against the record re-filled at `9f98bbb`; the
+other nineteen are unchanged:
+
+| key | approved at 9f98bbb | now |
+|---|---|---|
+| `summarize_haa` | `645e74c03e20…` | `deff6d49d8e9…` |
+
+**exp_11** — all eight keys present in this checkout:
+
+| key | digest |
+|---|---|
+| `train` | `d9cbb9de8eb0ec85ac85664d9e0da7afe156e5b169bbe89096953d863cf15571` |
+| `finalize` | `3eb15b59b672d97ac257054e66f8bc835abd27b85e24f9a417a5a1aaa9e25b9e` |
+| `haa_finetune` | `bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150` |
+| `haa_eval` | `f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20` |
+| `haa_pipeline_sh` | `3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4` |
+| `launch_sh` | `737414cc75bd89e11c045c203f26be02a9c9f4fed7b923b565adce8ade4bcd17` |
+| `smoke` | `62133ba07a35d42026c19fd1484b37c6c06ace0ebedc1cdd8484690df323450e` |
+| `summarize_haa` | `deff6d49d8e903d7e0d5005c5d40199b53ca35cdedfd71a90938df9815d0004a` |
+
+Three keys moved against `2c64a2a`: `launch_sh` (blockers 2 and 3), `summarize_haa`
+(blocker 1) and nothing else; `finalize`, `train`, `haa_finetune`, `haa_eval`,
+`haa_pipeline_sh` and `smoke` are byte-for-byte what the close review recomputed. These
+are values for the **eventual reviewed merge**, not an authorisation to fill the approvals
+now: exp_11's record stays all-null and every exp_11 producer refuses today.
