@@ -1,6 +1,6 @@
 # exp_10 yaw_pilot — commits
 
-## main, first-parent, from the scaffold (`ac06bca`) to HEAD (exp_10 entries; interleaved commits of other experiments listed separately below)
+## main, first-parent, from the scaffold (`ac06bca`) to the approved record (exp_10 entries; interleaved commits of other experiments listed separately below)
 - ac06bca exp_10 yaw_pilot: scaffold, query, plan v1, Codex plan-review prompt
 - 885240c exp_10: worklog (plan review launched, worktree wt10)
 - 8ceec14 exp_10: plan v2 after Codex round-1 review; round-2 review at ultra launched
@@ -69,6 +69,10 @@
 - 9327a4d Merge exp10-yaw-pilot round 8: mc? figure annotation for unresolved MC cells; 'trained K = 8, evaluated K = 1' display label (Codex-approved)
 - f01116f exp_10: finish re-run launch record
 - 4785621 exp_10: record republished after round 8 (mc? annotation, K1 qualification; statistics unchanged)
+- a384c9f exp_10: commits index through the republished record; worklog
+- 0c1b20d exp_10: record-review round-2 corrections (ratio wording, summary hashes, command register, K1 EDT, HEAD roles); round-3 prompt
+- 6040bfc exp_10: record-review round-3 corrections (smoke commands spelled out; HEAD label residue); round-4 prompt
+- 7fc25a0 exp_10: record-review round-4 correction (executable smoke commands); round-5 prompt
 
 ## interleaved on main in the same span (other experiments / sessions, not part of exp_10)
 - 585804d exp_11 record opened: orientation-cue fairness ablation — plan v1→v3, Codex plan reviews (rounds 1–2), Coder round-1 prompt, params, query log (record only)

@@ -160,3 +160,7 @@
 
 ## 2026-09-27T09:10:00-04:00 — record review round 4: APPROVED WITH CORRECTIONS (1 should-fix) → applied → round 5
 - **Result** — `yaw_pilot_codex_record_review_round4.md`: numerical record and claims pass (250 cells, 38 bootstrap sets, all hashes/links/pins); HEAD nit closed; only residual: command entry 5's `SCRATCH/…` arguments were not executable. Fixed: an executable `EXP10_SMOKE_SCRATCH='…'` assignment in the entry's environment block, every path written as `"${EXP10_SMOKE_SCRATCH}"/…`, and round 2's evaluator command spelled out in full.
+
+## 2026-09-27T09:14:52-04:00 — RECORD APPROVED (Codex record review round 5) — exp_10 CLOSED
+- **Result** — `yaw_pilot_codex_record_review_round5.md`: record approved at `7fc25a0`; no open blockers, should-fixes or nits; canonical summaries identical to the first build apart from `generated_at`; 250 cells and 40 bootstrap sets reproduced with zero discrepancy; all checksums, links, pins and identities verified. Historical SOP exceptions stay disclosed (reconstructed commands; the running-queue edit; the unrecoverable first CPU-attempt output).
+- **Deliverables** — `yaw_pilot_results.md`, `yaw_pilot_01_results.html` + `yaw_pilot_results_assets/generated/` (46 assets, `SHA256SUMS`), `yaw_pilot_analysis.md` (§4 = the scoped pilot statement and the FLAC-comparability qualifications; §5 = must-not-claim), canonical `ckpt/exp10/summary/yaw_pilot_summary.json` (sha256 `826498f5…`).
