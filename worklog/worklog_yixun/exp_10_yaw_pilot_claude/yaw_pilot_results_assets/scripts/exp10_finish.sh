@@ -13,7 +13,10 @@
 #     is allowed in, SHA256SUMS is written and `sha256sum -c`-verified there, and only then does
 #     `generated/` get replaced by a rename. Any error at any point leaves `generated/` and the
 #     published Markdown / HTML exactly as they were — the rollback copies of all three are
-#     kept until every one of the three publications has succeeded (round-4 review, finding 2).
+#     kept until every one of the three publications has succeeded (round-4 review, finding 2),
+#     and a *signal* rolls them back just like an error does (round-5 review, finding 1: SIGTERM
+#     immediately before the final rename left new assets + new HTML + the old Markdown, and
+#     the EXIT cleanup deleted both backups because the destinations existed).
 #
 # Every validation report is bound by the run directory it names, with no exception: the
 # relocation alias this script used to pass for the CPU record accepted the GPU arm's
@@ -40,24 +43,86 @@ TMPOUT=$A/.finish_tmp.$$
 PREV=$A/generated.previous.$$          # the asset set this run replaces
 PREVR=$A/.finish_prev.$$               # the Markdown / HTML this run replaces
 REPORTS="yaw_pilot_01_results.html yaw_pilot_results.md"
+
+# ---- publication state, the rollback, and the traps that use them (round-5, finding 1) ------
+# Publishing replaces three artefacts and cannot be one atomic step, so the state is tracked
+# explicitly: `started` means the three may be a mixed generation and the backups are the only
+# copies of the previous publication; `committed` means all three are published and the backups
+# may go; `rolled_back` means restore() has already dealt with them. EVERY exit path — an
+# unguarded error, a failed rename, SIGTERM / SIGINT / SIGHUP — rolls all three back while the
+# state is `started`, and only `committed` lets the EXIT cleanup delete a backup that still
+# holds bytes. What was there *before* this run is recorded before the first mutation, so the
+# rollback can preserve original absence too (an artefact this run created is removed, not
+# "restored" from a backup that never existed).
+PUB_STATE=idle                         # idle | started | committed | rolled_back
+PRE_G=0                                # did the asset directory exist before this run?
+declare -A PRE_REPORT=()               # ... and each of the two reports?
+KEEP_BACKUPS=0                         # restoration failed: the backups are the last copies
+restore() {   # <what failed> — put all three artefacts back exactly as they were
+  local what=$1 restored="" kept="" pre f
+  PUB_STATE=rolled_back
+  if [ -d "$PREV" ]; then                        # the previous asset set was moved aside
+    rm -rf "$G" 2>/dev/null || true
+    if [ ! -e "$G" ] && mv "$PREV" "$G" 2>/dev/null; then restored="$restored $G"
+    else kept="$kept $PREV (the asset set this run replaced)"; fi
+  elif [ "$PRE_G" = 0 ] && [ -d "$G" ]; then     # there was none: this run created it
+    rm -rf "$G" 2>/dev/null || true
+    if [ ! -e "$G" ]; then restored="$restored $G (removed: this run created it)"
+    else kept="$kept $G (this run created it and it could not be removed)"; fi
+  fi
+  for f in $REPORTS; do
+    pre=${PRE_REPORT[$f]:-0}
+    if [ -f "$PREVR/$f" ]; then                  # a backup exists: put the original back
+      rm -f "$E/$f" 2>/dev/null || true
+      if [ ! -e "$E/$f" ] && mv "$PREVR/$f" "$E/$f" 2>/dev/null; then restored="$restored $E/$f"
+      else kept="$kept $PREVR/$f (the $f this run replaced)"; fi
+    elif [ "$pre" = 0 ] && [ -f "$E/$f" ]; then  # absent before this run: absent after it
+      rm -f "$E/$f" 2>/dev/null || true
+      if [ ! -e "$E/$f" ]; then restored="$restored $E/$f (removed: this run created it)"
+      else kept="$kept $E/$f (this run created it and it could not be removed)"; fi
+    fi
+  done
+  if [ -z "$kept" ]; then
+    rm -rf "$PREVR" 2>/dev/null || true
+    say "REFUSED: publishing $what failed; restored:$restored"
+  else
+    KEEP_BACKUPS=1
+    say "REFUSED: publishing $what failed; restored:$restored; NOT RESTORED — the backups are KEPT because they are the only copies left:$kept"
+  fi
+}
 cleanup() {
   rc=$?
-  if [ -d "$STAGE" ]; then rm -rf "$STAGE"; fi
-  if [ -d "$TMPOUT" ]; then rm -rf "$TMPOUT"; fi
-  # A death between the three publications (an unguarded error, a signal) must not leave a
-  # backup behind as the only copy of the previous publication.
-  if [ -d "$PREV" ]; then
-    if [ ! -d "$G" ]; then mv "$PREV" "$G"; else rm -rf "$PREV"; fi
-  fi
-  if [ -d "$PREVR" ]; then
-    for f in $REPORTS; do
-      if [ -f "$PREVR/$f" ] && [ ! -f "$E/$f" ]; then mv "$PREVR/$f" "$E/$f"; fi
+  trap - EXIT; trap '' HUP INT TERM              # no re-entry while things are put back
+  if [ -d "$STAGE" ]; then rm -rf "$STAGE" || true; fi
+  if [ -d "$TMPOUT" ]; then rm -rf "$TMPOUT" || true; fi
+  # A death between the three publications (an unguarded error, a signal) must roll all three
+  # back, and must never leave a backup behind as the only copy of the previous publication.
+  if [ "$PUB_STATE" = started ]; then restore "the publication (it was interrupted)"; fi
+  if [ "$PUB_STATE" = committed ]; then
+    rm -rf "$PREV" "$PREVR" 2>/dev/null || true  # all three are published: the copies may go
+  elif [ "$KEEP_BACKUPS" = 1 ]; then
+    say "KEPT: $PREV $PREVR — restoration failed; they hold the publication that was there before"
+  else
+    for d in "$PREV" "$PREVR"; do                # a successful rollback consumed these; only
+      if [ -d "$d" ]; then                       # an empty staging directory may be deleted
+        if [ -n "$(find "$d" -type f -print -quit 2>/dev/null)" ]; then
+          KEEP_BACKUPS=1
+          say "KEPT: $d still holds files, so it is not deleted"
+        else rm -rf "$d" 2>/dev/null || true; fi
+      fi
     done
-    rm -rf "$PREVR"
   fi
   if [ "$rc" -ne 0 ]; then say "FINISH FAILED rc=$rc — $G, the Markdown report and the HTML page are the publication that was there before"; fi
 }
+on_signal() {   # <name> <number> — roll back through the EXIT trap; never re-raise the signal
+  trap '' HUP INT TERM
+  say "FINISH INTERRUPTED: SIG$1 received; rolling the publication back"
+  exit $((128 + $2))
+}
 trap cleanup EXIT
+trap 'on_signal TERM 15' TERM
+trap 'on_signal INT 2' INT
+trap 'on_signal HUP 1' HUP
 mkdir -p "$STAGE" "$TMPOUT"
 say "HEAD $(git rev-parse HEAD 2>/dev/null || echo unknown); repo $REPO; expect n=$EXPECT_N"
 
@@ -146,26 +211,16 @@ say "staged $(wc -l < "$STAGE/SHA256SUMS") assets; SHA256SUMS verifies"
 # The previous assets used to be deleted as soon as the new ones were in place, before either
 # report was published, so a failing final rename left new assets + new HTML + old Markdown
 # (three generations mixed) while the cleanup claimed nothing had changed. Every backup is
-# now kept until all three publications have succeeded.
-restore() {   # <what failed> — put all three artefacts back exactly as they were
-  local what=$1 restored=""
-  if [ -d "$PREV" ]; then
-    rm -rf "$G"
-    if mv "$PREV" "$G"; then restored="$restored $G"; fi
-  elif [ -d "$G" ]; then
-    rm -rf "$G"; restored="$restored $G (removed: this run created it)"
-  fi
-  for f in $REPORTS; do
-    if [ -f "$PREVR/$f" ]; then
-      rm -f "$E/$f"
-      if mv "$PREVR/$f" "$E/$f"; then restored="$restored $E/$f"; fi
-    elif [ -f "$E/$f" ]; then
-      rm -f "$E/$f"; restored="$restored $E/$f (removed: this run created it)"
-    fi
-  done
-  rm -rf "$PREVR"
-  say "REFUSED: publishing $what failed; restored:$restored"
-}
+# now kept until all three publications have succeeded — and the same rollback runs when the
+# script is *terminated* here (round-5 review, finding 1), which is why the pre-run state is
+# recorded before the first mutation: restore() must be able to tell an artefact it has to put
+# back from one this run created, which has to be removed again.
+if [ -d "$G" ]; then PRE_G=1; fi
+for f in $REPORTS; do
+  PRE_REPORT[$f]=0
+  if [ -f "$E/$f" ]; then PRE_REPORT[$f]=1; fi
+done
+PUB_STATE=started                       # from here on, any death rolls all three back
 mkdir -p "$PREVR"
 for f in $REPORTS; do
   if [ -f "$E/$f" ]; then cp -p "$E/$f" "$PREVR/$f"; fi
@@ -179,6 +234,7 @@ if ! mv "$TMPOUT/yaw_pilot_results.md" "$E/yaw_pilot_results.md"; then
   restore "the Markdown report"; exit 9
 fi
 # All three are published: only now may the rollback copies go.
+PUB_STATE=committed
 if [ -d "$PREV" ]; then rm -rf "$PREV"; fi
 rm -rf "$PREVR"
 say "FINISH DONE: $(wc -l < "$G/SHA256SUMS") assets published in $G; report in $E"

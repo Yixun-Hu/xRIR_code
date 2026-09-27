@@ -12,6 +12,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 
@@ -1197,17 +1198,39 @@ def publication_snapshot(scratch):
     return snapshot
 
 
-def failing_mv(scratch, pattern):
-    """A ``mv`` on PATH that fails for one destination, as the round-4 review injected it."""
+def mv_shim(scratch, pattern, body):
+    """A ``mv`` on PATH that runs ``body`` instead of moving one source, as the reviews did.
+
+    ``pattern`` is a shell ``case`` pattern matched against the *source* of the rename, so a
+    test can pick exactly one of the finish script's three publications.
+    """
     bin_dir = os.path.join(scratch["root"], "test_bin")
     if not os.path.isdir(bin_dir):
         os.makedirs(bin_dir)
     path = os.path.join(bin_dir, "mv")
     with open(path, "w") as fout:
-        fout.write('#!/bin/bash\ncase "$1" in %s) echo "simulated mv I/O error on $1" >&2;'
-                   ' exit 43;; esac\nexec /usr/bin/mv "$@"\n' % pattern)
+        fout.write('#!/bin/bash\ncase "$1" in\n  %s)\n    %s\n    ;;\nesac\n'
+                   'exec /usr/bin/mv "$@"\n' % (pattern, body))
     os.chmod(path, 0o755)
     return {"PATH": bin_dir + os.pathsep + os.environ.get("PATH", "")}
+
+
+def failing_mv(scratch, pattern):
+    """A ``mv`` on PATH that fails for one destination, as the round-4 review injected it."""
+    return mv_shim(scratch, pattern,
+                   'echo "simulated mv I/O error on $1" >&2\n    exit 43')
+
+
+def terminating_mv(scratch, pattern, after="exit 43"):
+    """A ``mv`` that sends SIGTERM to the finish script immediately before one rename.
+
+    This is the round-5 review's own injection: ``kill -TERM "$PPID"`` from the shim, which
+    the finish script's shell only acts on once the shim has exited.  ``after`` decides
+    whether the rename itself then happens (``exec /usr/bin/mv "$@"``) or not.
+    """
+    return mv_shim(scratch, pattern,
+                   'echo "the test is terminating the script before $1" >&2\n'
+                   '    kill -TERM "$PPID"\n    %s' % after)
 
 
 @pytest.mark.parametrize("pattern,stage", [
@@ -1241,6 +1264,59 @@ def test_finish_removes_a_publication_it_created_when_the_next_one_fails(scratch
     for name in ("yaw_pilot_01_results.html", "yaw_pilot_results.md"):
         assert not os.path.exists(os.path.join(scratch["record"], name))
     assert staging_dirs(scratch) == []
+
+
+def test_finish_rolls_back_all_three_artefacts_when_it_is_terminated(scratch):
+    """Round-5 finding 1, the blocker: SIGTERM immediately before the final rename left new
+    assets, a new HTML page and the *old* Markdown -- and the EXIT cleanup then deleted both
+    backups, because it only restored what the destination no longer had.  The previous
+    publication was gone for good.  A terminated publication has to roll all three back."""
+    assert run_finish(scratch).returncode == 0          # a real published set to roll back to
+    before = publication_snapshot(scratch)
+    done = run_finish(scratch,
+                      env=terminating_mv(scratch, "*/.finish_tmp.*/yaw_pilot_results.md"))
+    assert done.returncode == 143, out(done)     # the TERM trap ran; the shell was not killed
+    assert "SIGTERM" in out(done)                # ... and it said so
+    assert "FINISH DONE" not in out(done)
+    assert publication_snapshot(scratch) == before
+    assert staging_dirs(scratch) == []
+
+
+def test_finish_keeps_an_artefacts_absence_when_it_is_terminated(scratch):
+    """The rollback has to preserve original *absence* too: a report that did not exist
+    before the run must not exist after a terminated one.  Here the shim lets the Markdown
+    rename through and terminates the script immediately afterwards, so the rollback has to
+    remove an artefact this run created rather than put an earlier one back."""
+    os.remove(os.path.join(scratch["record"], "yaw_pilot_results.md"))
+    before = publication_snapshot(scratch)
+    done = run_finish(scratch,
+                      env=terminating_mv(scratch, "*/.finish_tmp.*/yaw_pilot_results.md",
+                                         after='exec /usr/bin/mv "$@"'))
+    assert done.returncode == 143, out(done)
+    assert not os.path.exists(os.path.join(scratch["record"], "yaw_pilot_results.md"))
+    assert publication_snapshot(scratch) == before
+    assert staging_dirs(scratch) == []
+
+
+def test_finish_keeps_the_backups_when_the_rollback_itself_fails(scratch):
+    """If restoration cannot put an artefact back, the backup is the only copy of the
+    previous publication left: it is kept and named, never deleted by the EXIT cleanup."""
+    assert run_finish(scratch).returncode == 0
+    record = scratch["record"]
+    env = mv_shim(scratch, "*/.finish_tmp.*/yaw_pilot_results.md",
+                  'chmod a-w %s\n    echo "simulated mv I/O error on $1" >&2\n    exit 43'
+                  % shlex.quote(record))
+    try:
+        done = run_finish(scratch, env=env)
+        assert done.returncode != 0
+        assert "FINISH DONE" not in out(done)
+        kept = [n for n in staging_dirs(scratch) if n.startswith(".finish_prev")]
+        assert kept, (staging_dirs(scratch), out(done))
+        assert kept[0] in out(done)              # what remains is named
+        for name in ("yaw_pilot_01_results.html", "yaw_pilot_results.md"):
+            assert os.path.isfile(os.path.join(scratch["assets"], kept[0], name)), name
+    finally:
+        os.chmod(record, 0o755)
 
 
 def test_finish_leaves_the_published_assets_alone_when_a_stage_fails(scratch):
