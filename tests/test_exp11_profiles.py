@@ -66,9 +66,11 @@ def test_code_keys_are_exactly_the_eight_the_plan_registers():
     assert sorted(profiles.CODE_KEYS) == sorted(
         ('train', 'finalize', 'haa_finetune', 'haa_eval', 'haa_pipeline_sh', 'launch_sh',
          'smoke', 'summarize_haa'))
-    # The launcher sources the pinned exp_06 lifecycle library; both files are bound.
+    # The launcher sources the pinned exp_06 lifecycle library and starts the lock
+    # holder that owns the arm's publication lock; all three files are bound.
     assert profiles.CODE_SPECS['launch_sh'] == (
-        None, ('tools/exp11_launch.sh', 'tools/exp06_launch.sh'))
+        None, ('tools/exp11_launch.sh', 'tools/exp06_launch.sh',
+               'tools/exp11_lock_holder.py'))
     assert profiles.CODE_SPECS['haa_pipeline_sh'] == (None, ('tools/exp11_haa_pipeline.sh',))
     assert profiles.CODE_SPECS['summarize_haa'] == ('tools.exp06_summarize_haa', ())
 
