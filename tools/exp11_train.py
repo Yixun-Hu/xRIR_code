@@ -186,12 +186,26 @@ def provenance_fields(argv, run_type, identity=None, repo=REPO, approved=None,
                 command=list(argv))
 
 
-def registration_complete(attempt):
-    """``child.pid`` exists and its whole content is a pid (the launcher's own test)."""
+PID_RECORD = re.compile(rb'[0-9]{1,10}\n?')
+
+
+def pid_record(path):
+    """The pid a pid file holds, or None -- the launcher's grammar, byte for byte.
+
+    A valid record is the WHOLE file: ``^[0-9]{1,10}\n?$``. Not stripped, not split, not
+    scanned for a first field: two readers that disagree about the bytes disagree about
+    whether a trainer exists (close review 9, blocker 1).
+    """
     try:
-        return bool(re.fullmatch(r'[0-9]+', (attempt / 'child.pid').read_text().strip()))
+        data = Path(path).read_bytes()          # bytes: text mode would turn CRLF into LF
     except OSError:
-        return False
+        return None
+    return int(data.decode('ascii')) if PID_RECORD.fullmatch(data) else None
+
+
+def registration_complete(attempt):
+    """``child.pid`` holds one pid, by that grammar (the launcher's own test)."""
+    return pid_record(Path(attempt) / 'child.pid') is not None
 
 
 def refuse(reason):
@@ -235,7 +249,7 @@ def register_trainer(save_dir, no_save=False):
         refuse('{} carries no launch record -- no launching marker and no complete '
                'child.pid -- so no launch of it is in progress'.format(directory))
     path = directory / 'train.pid'
-    path.write_text('{} {}\n'.format(os.getpid(), time.time()))
+    path.write_text('{}\n'.format(os.getpid()))
     return path
 
 

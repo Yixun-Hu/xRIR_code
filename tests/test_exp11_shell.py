@@ -652,7 +652,7 @@ def live_stub(pidfile, seconds=30):
     """A process this test starts, registered the way the trainer registers itself."""
     stub = subprocess.Popen(['sleep', str(seconds)])
     pidfile.parent.mkdir(parents=True, exist_ok=True)
-    pidfile.write_text('{} {}\n'.format(stub.pid, time.time()))
+    pidfile.write_text('{}\n'.format(stub.pid))   # one pid, the grammar
     return stub
 
 
@@ -741,7 +741,7 @@ def unregistered_launch(root, tmp_path, gate, register_child=False):
     assert SINK_LINE in library and CHILD_LINE in library
     attempt = root / 'attempt_20260927T222222'
     stub = ('while [ ! -e "$2" ]; do sleep 0.05; done; '
-            'printf "%s %s\\n" $$ 1 > "$1/train.pid"; sleep 20')
+            'printf "%s\\n" $$ > "$1/train.pid"; sleep 20')
     script = ('ARM_ROOT={root}\nDRY=0\nARM=H\n'
               'hold_arm_lock full || exit 2\n'
               'attempt={attempt}\nmkdir -p -- "$attempt"\n'
@@ -1026,11 +1026,11 @@ def test_the_launcher_reads_one_pid_record_grammar(tmp_path, content, valid):
     """`pid_record` is the single definition both readers use."""
     pidfile = tmp_path / 'child.pid'
     pidfile.write_text(content)
-    result = lib('if pid_record {f}; then echo " VALID"; else echo INVALID; fi\n'
+    result = lib('if pid_record {f}; then echo " RECORD_OK"; else echo RECORD_BAD; fi\n'
                  'if registration_complete {d}; then echo COMPLETE; else echo PARTIAL; fi\n'
                  .format(f=pidfile, d=tmp_path))
     assert result.returncode == 0, result.stderr[-400:]
-    assert ('VALID' in result.stdout) is valid, (content, result.stdout)
+    assert ('RECORD_OK' in result.stdout) is valid, (content, result.stdout)
     assert ('COMPLETE' in result.stdout) is valid, (content, result.stdout)
     if valid:
         assert result.stdout.split()[0] == content.strip()

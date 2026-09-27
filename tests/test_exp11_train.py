@@ -129,8 +129,7 @@ def test_the_trainer_registers_its_pid_after_parsing_before_admission(tmp_path):
     (tmp_path / 'launching').write_text('launcher 1\n')
     path = exp11_train.register_trainer(str(tmp_path))
     assert path is not None and path.is_file()
-    pid, start = path.read_text().split()[:2]
-    assert int(pid) == os.getpid() and float(start) > 0
+    assert exp11_train.pid_record(path) == os.getpid()
 
 
 def test_registration_is_skipped_for_a_diagnostic_with_no_run_directory(tmp_path):

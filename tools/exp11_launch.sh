@@ -261,24 +261,38 @@ drop_arm_lock() {
 UNRESOLVED_GRACE_S="${EXP11_UNRESOLVED_GRACE_S:-120}"
 SCAN_REASON=""
 
-pid_alive() {  # pid_alive <file>: the first field of <file> names a living process
-    local pid=""
+# pid_record <file>: print the pid <file> holds, or return 1. The grammar is the WHOLE
+# file and it is written once, here: `^[0-9]{1,10}\n?$` -- digits, at most one trailing
+# newline, nothing else. No leading blank, no second record, no CR, no other bytes.
+# Both readers below use it, so "is a trainer registered" and "is that pid alive" can
+# never be answered from two different readings of the same bytes (close review 9).
+pid_record() {
+    local text="" size=0
     [ -f "$1" ] || return 1
-    read -r pid _ < "$1" 2>/dev/null || return 1
-    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+    size="$(wc -c < "$1" 2>/dev/null)" || return 1
+    case "$size" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$size" -ge 1 ] && [ "$size" -le 11 ] || return 1
+    text="$(cat -- "$1" 2>/dev/null)" || return 1   # $() strips trailing newlines
+    case "$text" in ''|*[!0-9]*) return 1 ;; esac   # digits only, so no CR and no blank
+    [ "${#text}" -le 10 ] || return 1
+    # Exactly the digits, or the digits and ONE newline; two trailing newlines are not
+    # a record, and `$()` would otherwise have hidden the second.
+    [ "${#text}" -eq "$size" ] || [ $(( ${#text} + 1 )) -eq "$size" ] || return 1
+    printf '%s' "$text"
+}
+
+pid_alive() {  # pid_alive <file>: the pid <file> records names a living process
+    local pid=""
+    pid="$(pid_record "$1")" || return 1
     kill -0 "$pid" 2>/dev/null
 }
 
-# registration_complete <attempt>: child.pid exists AND its whole content is a pid.
-# The shell creates that file by redirection before the pid reaches it, so existence
-# alone proves nothing; what makes a launch *registered* is a number to look for. Whether
-# that number is still alive is a separate question, asked by pid_alive.
+# registration_complete <attempt>: child.pid holds one pid, by the grammar above. The
+# shell creates that file by redirection before the pid reaches it, so existence alone
+# proves nothing; what makes a launch *registered* is a number to look for. Whether that
+# number is still alive is a separate question, asked by pid_alive of the same bytes.
 registration_complete() {
-    local text=""
-    [ -f "$1/child.pid" ] || return 1
-    text="$(tr -d '\n' < "$1/child.pid" 2>/dev/null || true)"
-    case "$text" in ''|*[!0-9]*) return 1 ;; esac
-    return 0
+    pid_record "$1/child.pid" >/dev/null
 }
 
 # scan_arm <arm root> [<attempt being resolved>]: 0 when every attempt of the arm is
