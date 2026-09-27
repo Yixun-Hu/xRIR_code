@@ -1,0 +1,199 @@
+{
+  "angles": {
+    "0": {
+      "c50_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "edt_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "t60_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_mad": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_rel_l2": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      }
+    },
+    "128": {
+      "c50_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "edt_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "t60_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_mad": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_rel_l2": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      }
+    },
+    "256": {
+      "c50_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "edt_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "t60_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_mad": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_rel_l2": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      }
+    },
+    "384": {
+      "c50_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "edt_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "t60_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_mad": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_rel_l2": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      }
+    },
+    "64": {
+      "c50_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "edt_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "t60_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_mad": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_rel_l2": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      }
+    }
+  },
+  "excluded_by_contract": {
+    "reason": "computed from the model's direct output; not recoverable from Griffin-Lim waveforms",
+    "spectral": [
+      "logspec_mad",
+      "mag_rel_l2"
+    ]
+  },
+  "ok": true,
+  "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/control_k8_all",
+  "tolerance": 1e-06
+}

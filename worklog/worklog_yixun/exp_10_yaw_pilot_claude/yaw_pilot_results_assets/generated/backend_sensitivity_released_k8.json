@@ -1,0 +1,957 @@
+{
+  "arm": "released_k8",
+  "cells": [
+    {
+      "delta_cpu": {
+        "hi": 0.0005935521754859427,
+        "lo": -0.0017633571970685072,
+        "point": -0.0005821334372473938
+      },
+      "delta_gpu": {
+        "hi": 0.0005901288083483354,
+        "lo": -0.0017674783342404334,
+        "point": -0.0005848386379958324
+      },
+      "gap_cpu": {
+        "hi": 0.027499397234039585,
+        "lo": 0.025023959275993813,
+        "point": 0.026244011254493906
+      },
+      "gap_gpu": {
+        "hi": 0.027504509204660247,
+        "lo": 0.025028633261731395,
+        "point": 0.026246974093408863
+      },
+      "k": 64,
+      "metric": "EDT",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "denominator uncertain",
+      "status_gpu": "denominator uncertain"
+    },
+    {
+      "delta_cpu": {
+        "hi": -0.0004710269779365116,
+        "lo": -0.0027092145363747503,
+        "point": -0.0015884681156666542
+      },
+      "delta_gpu": {
+        "hi": -0.0004720865148963152,
+        "lo": -0.0027127162684546756,
+        "point": -0.0015903574622211196
+      },
+      "gap_cpu": {
+        "hi": 0.026139892156957462,
+        "lo": 0.023678658649825716,
+        "point": 0.024885055805500357
+      },
+      "gap_gpu": {
+        "hi": 0.02614486242658654,
+        "lo": 0.023679453034172484,
+        "point": 0.02488857686044277
+      },
+      "k": 128,
+      "metric": "EDT",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "improvement",
+      "status_gpu": "improvement"
+    },
+    {
+      "delta_cpu": {
+        "hi": -5.818328593864492e-05,
+        "lo": -0.002366728607175866,
+        "point": -0.0012195302612128959
+      },
+      "delta_gpu": {
+        "hi": -6.364306808410561e-05,
+        "lo": -0.002369036615750922,
+        "point": -0.0012221925222669148
+      },
+      "gap_cpu": {
+        "hi": 0.02690886908653314,
+        "lo": 0.02431948528188299,
+        "point": 0.025580507096321245
+      },
+      "gap_gpu": {
+        "hi": 0.026907631349841497,
+        "lo": 0.024319532515546857,
+        "point": 0.025579476543655173
+      },
+      "k": 256,
+      "metric": "EDT",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "improvement",
+      "status_gpu": "improvement"
+    },
+    {
+      "delta_cpu": {
+        "hi": 8.936716551856844e-05,
+        "lo": -0.0019722330466035226,
+        "point": -0.0009372876497924393
+      },
+      "delta_gpu": {
+        "hi": 8.901828050140745e-05,
+        "lo": -0.001971933542234945,
+        "point": -0.0009372876497924394
+      },
+      "gap_cpu": {
+        "hi": 0.024927132412062195,
+        "lo": 0.022604684291264242,
+        "point": 0.023764630359008047
+      },
+      "gap_gpu": {
+        "hi": 0.024925359002682657,
+        "lo": 0.022603089081616554,
+        "point": 0.023763084530008943
+      },
+      "k": 384,
+      "metric": "EDT",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "denominator uncertain",
+      "status_gpu": "denominator uncertain"
+    },
+    {
+      "delta_cpu": {
+        "hi": 0.060286678906606585,
+        "lo": 0.005694996212739912,
+        "point": 0.03310657055840514
+      },
+      "delta_gpu": {
+        "hi": 0.06026875631604822,
+        "lo": 0.0056872234759483805,
+        "point": 0.03308965649815241
+      },
+      "gap_cpu": {
+        "hi": 0.6714845842591807,
+        "lo": 0.6183306927986649,
+        "point": 0.6439724516198994
+      },
+      "gap_gpu": {
+        "hi": 0.6715143837541387,
+        "lo": 0.6183519293792201,
+        "point": 0.6439919126047163
+      },
+      "k": 64,
+      "metric": "C50",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "defined",
+      "status_gpu": "defined"
+    },
+    {
+      "delta_cpu": {
+        "hi": 0.025218085212000987,
+        "lo": -0.030432651186319475,
+        "point": -0.0027632720815253422
+      },
+      "delta_gpu": {
+        "hi": 0.025208189905598394,
+        "lo": -0.03043729728718677,
+        "point": -0.002774738576350496
+      },
+      "gap_cpu": {
+        "hi": 0.635179088952956,
+        "lo": 0.5786272798272373,
+        "point": 0.6062776267485044
+      },
+      "gap_gpu": {
+        "hi": 0.6351872899622746,
+        "lo": 0.5786352062855902,
+        "point": 0.6062917503382693
+      },
+      "k": 128,
+      "metric": "C50",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "denominator uncertain",
+      "status_gpu": "denominator uncertain"
+    },
+    {
+      "delta_cpu": {
+        "hi": 0.03508223304544892,
+        "lo": -0.01915647967290692,
+        "point": 0.008456602523991755
+      },
+      "delta_gpu": {
+        "hi": 0.03506246999605514,
+        "lo": -0.01917520642733355,
+        "point": 0.00844678616943494
+      },
+      "gap_cpu": {
+        "hi": 0.6704314107203578,
+        "lo": 0.6142945495685944,
+        "point": 0.642582492922333
+      },
+      "gap_gpu": {
+        "hi": 0.6704385711549464,
+        "lo": 0.6143121619745892,
+        "point": 0.6425916736922115
+      },
+      "k": 256,
+      "metric": "C50",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "denominator uncertain",
+      "status_gpu": "denominator uncertain"
+    },
+    {
+      "delta_cpu": {
+        "hi": 0.046863654619885065,
+        "lo": -0.003377350998984418,
+        "point": 0.021671971856824974
+      },
+      "delta_gpu": {
+        "hi": 0.0468925577542497,
+        "lo": -0.00337804659546415,
+        "point": 0.021674044490296033
+      },
+      "gap_cpu": {
+        "hi": 0.6131269223092898,
+        "lo": 0.5595916253920208,
+        "point": 0.5860179194694999
+      },
+      "gap_gpu": {
+        "hi": 0.6131463051536074,
+        "lo": 0.5595986074901339,
+        "point": 0.5860391972866349
+      },
+      "k": 384,
+      "metric": "C50",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "denominator uncertain",
+      "status_gpu": "denominator uncertain"
+    },
+    {
+      "delta_cpu": {
+        "hi": 0.6202939985078711,
+        "lo": 0.3235893377277167,
+        "point": 0.4729034294821439
+      },
+      "delta_gpu": {
+        "hi": 0.6202219334370825,
+        "lo": 0.32355322722795743,
+        "point": 0.4728752945294517
+      },
+      "gap_cpu": {
+        "hi": 3.9086936631404368,
+        "lo": 3.6575484806050347,
+        "point": 3.7821579617125387
+      },
+      "gap_gpu": {
+        "hi": 3.908671859289147,
+        "lo": 3.6575556424161375,
+        "point": 3.7821348530176104
+      },
+      "k": 64,
+      "metric": "T60",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "defined",
+      "status_gpu": "defined"
+    },
+    {
+      "delta_cpu": {
+        "hi": 0.3830008078694559,
+        "lo": 0.1312501545829601,
+        "point": 0.2590120967483921
+      },
+      "delta_gpu": {
+        "hi": 0.38299480242581946,
+        "lo": 0.1312645554492096,
+        "point": 0.25906522596424
+      },
+      "gap_cpu": {
+        "hi": 3.2971595642010625,
+        "lo": 3.0773157458672498,
+        "point": 3.1860873533587415
+      },
+      "gap_gpu": {
+        "hi": 3.297132532245497,
+        "lo": 3.0773490640091796,
+        "point": 3.186120575722195
+      },
+      "k": 128,
+      "metric": "T60",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "defined",
+      "status_gpu": "defined"
+    },
+    {
+      "delta_cpu": {
+        "hi": -0.10837560405059406,
+        "lo": -0.3641398671858121,
+        "point": -0.23545997232040447
+      },
+      "delta_gpu": {
+        "hi": -0.10848220010385806,
+        "lo": -0.3641412153121294,
+        "point": -0.2355163985886835
+      },
+      "gap_cpu": {
+        "hi": 3.3944664858428646,
+        "lo": 3.1809958320534064,
+        "point": 3.289012331987545
+      },
+      "gap_gpu": {
+        "hi": 3.394420144820537,
+        "lo": 3.1809190988075122,
+        "point": 3.288927955346561
+      },
+      "k": 256,
+      "metric": "T60",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "improvement",
+      "status_gpu": "improvement"
+    },
+    {
+      "delta_cpu": {
+        "hi": 0.2919458913972111,
+        "lo": 0.04060943051023801,
+        "point": 0.16425188361005227
+      },
+      "delta_gpu": {
+        "hi": 0.29199768381286023,
+        "lo": 0.040640924820440794,
+        "point": 0.16425285449883614
+      },
+      "gap_cpu": {
+        "hi": 3.258849772489268,
+        "lo": 3.041581558567227,
+        "point": 3.1492031173926303
+      },
+      "gap_gpu": {
+        "hi": 3.2587954572803177,
+        "lo": 3.04155375606815,
+        "point": 3.1491270110296528
+      },
+      "k": 384,
+      "metric": "T60",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "defined",
+      "status_gpu": "defined"
+    },
+    {
+      "delta_cpu": {
+        "hi": 0.002991181797004739,
+        "lo": 0.0014636032415175308,
+        "point": 0.0022362563456817153
+      },
+      "delta_gpu": {
+        "hi": 0.002990715901320287,
+        "lo": 0.0014637288401237085,
+        "point": 0.0022362563456817153
+      },
+      "gap_cpu": {
+        "hi": 0.022420551367146196,
+        "lo": 0.020960991434604455,
+        "point": 0.021681411084238017
+      },
+      "gap_gpu": {
+        "hi": 0.022420674818767652,
+        "lo": 0.0209609656707878,
+        "point": 0.021681368144543595
+      },
+      "k": 64,
+      "metric": "T60_abs",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "defined",
+      "status_gpu": "defined"
+    },
+    {
+      "delta_cpu": {
+        "hi": 0.0017475505588064476,
+        "lo": 0.0004577119154431532,
+        "point": 0.0011076294175552492
+      },
+      "delta_gpu": {
+        "hi": 0.0017476128213633564,
+        "lo": 0.0004580167872735327,
+        "point": 0.001107801176332928
+      },
+      "gap_cpu": {
+        "hi": 0.018791885256548572,
+        "lo": 0.017541959595894534,
+        "point": 0.018156448629633327
+      },
+      "gap_gpu": {
+        "hi": 0.01879192658600445,
+        "lo": 0.01754214745705762,
+        "point": 0.018156620388411007
+      },
+      "k": 128,
+      "metric": "T60_abs",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "defined",
+      "status_gpu": "defined"
+    },
+    {
+      "delta_cpu": {
+        "hi": -0.0005626457936812109,
+        "lo": -0.0019084552552281777,
+        "point": -0.0012298572577208267
+      },
+      "delta_gpu": {
+        "hi": -0.0005629646209122754,
+        "lo": -0.0019087783764286854,
+        "point": -0.0012300719561929247
+      },
+      "gap_cpu": {
+        "hi": 0.01966103941971297,
+        "lo": 0.01836536205140096,
+        "point": 0.01901496341001289
+      },
+      "gap_gpu": {
+        "hi": 0.019660840823626277,
+        "lo": 0.018364684140975314,
+        "point": 0.0190145340130687
+      },
+      "k": 256,
+      "metric": "T60_abs",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "improvement",
+      "status_gpu": "improvement"
+    },
+    {
+      "delta_cpu": {
+        "hi": 0.0011110613726317397,
+        "lo": -0.00017795175510633605,
+        "point": 0.0004649080714817085
+      },
+      "delta_gpu": {
+        "hi": 0.001111093040656376,
+        "lo": -0.00017812136689929355,
+        "point": 0.0004648436619400792
+      },
+      "gap_cpu": {
+        "hi": 0.01862047053317145,
+        "lo": 0.01740615905506909,
+        "point": 0.01800607381977566
+      },
+      "gap_gpu": {
+        "hi": 0.018619955793584598,
+        "lo": 0.017405604596264893,
+        "point": 0.018005665892678675
+      },
+      "k": 384,
+      "metric": "T60_abs",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "denominator uncertain",
+      "status_gpu": "denominator uncertain"
+    },
+    {
+      "delta_cpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "delta_gpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "gap_cpu": {
+        "hi": 0.1832221650149458,
+        "lo": 0.17669849605705062,
+        "point": 0.17996493302494024
+      },
+      "gap_gpu": {
+        "hi": 0.18322135163648076,
+        "lo": 0.1766984448032616,
+        "point": 0.17996410915853273
+      },
+      "k": 64,
+      "metric": "logspec_mad",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "undefined",
+      "status_gpu": "undefined"
+    },
+    {
+      "delta_cpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "delta_gpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "gap_cpu": {
+        "hi": 0.1646619000793447,
+        "lo": 0.15785637333476157,
+        "point": 0.16119322524496624
+      },
+      "gap_gpu": {
+        "hi": 0.1646618936164155,
+        "lo": 0.1578567192439827,
+        "point": 0.16119341169688658
+      },
+      "k": 128,
+      "metric": "logspec_mad",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "undefined",
+      "status_gpu": "undefined"
+    },
+    {
+      "delta_cpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "delta_gpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "gap_cpu": {
+        "hi": 0.17381498195553774,
+        "lo": 0.16653365804094641,
+        "point": 0.17016136681408855
+      },
+      "gap_gpu": {
+        "hi": 0.1738134669386659,
+        "lo": 0.16653288666025526,
+        "point": 0.17016061866527046
+      },
+      "k": 256,
+      "metric": "logspec_mad",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "undefined",
+      "status_gpu": "undefined"
+    },
+    {
+      "delta_cpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "delta_gpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "gap_cpu": {
+        "hi": 0.15992345624250892,
+        "lo": 0.15345231970236922,
+        "point": 0.15672038558521237
+      },
+      "gap_gpu": {
+        "hi": 0.15992192678301667,
+        "lo": 0.1534503740176856,
+        "point": 0.15671884564194916
+      },
+      "k": 384,
+      "metric": "logspec_mad",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "undefined",
+      "status_gpu": "undefined"
+    },
+    {
+      "delta_cpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "delta_gpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "gap_cpu": {
+        "hi": 0.2387551508639443,
+        "lo": 0.2289888163575353,
+        "point": 0.23385462300442741
+      },
+      "gap_gpu": {
+        "hi": 0.23875575592081588,
+        "lo": 0.22898915036034956,
+        "point": 0.23385476012503068
+      },
+      "k": 64,
+      "metric": "mag_rel_l2",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "undefined",
+      "status_gpu": "undefined"
+    },
+    {
+      "delta_cpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "delta_gpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "gap_cpu": {
+        "hi": 0.21312819160854002,
+        "lo": 0.2024649181977869,
+        "point": 0.20765767455703996
+      },
+      "gap_gpu": {
+        "hi": 0.2131320769669621,
+        "lo": 0.20246593771020027,
+        "point": 0.20765971890047968
+      },
+      "k": 128,
+      "metric": "mag_rel_l2",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "undefined",
+      "status_gpu": "undefined"
+    },
+    {
+      "delta_cpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "delta_gpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "gap_cpu": {
+        "hi": 0.22555294402840326,
+        "lo": 0.21404453531556056,
+        "point": 0.21975929669172375
+      },
+      "gap_gpu": {
+        "hi": 0.22555445312363825,
+        "lo": 0.21404539842364628,
+        "point": 0.2197600188401325
+      },
+      "k": 256,
+      "metric": "mag_rel_l2",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "undefined",
+      "status_gpu": "undefined"
+    },
+    {
+      "delta_cpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "delta_gpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "gap_cpu": {
+        "hi": 0.20640001299565303,
+        "lo": 0.19610441470463694,
+        "point": 0.2011810515723871
+      },
+      "gap_gpu": {
+        "hi": 0.20639717059854407,
+        "lo": 0.19610056602922227,
+        "point": 0.20117717478199806
+      },
+      "k": 384,
+      "metric": "mag_rel_l2",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "undefined",
+      "status_gpu": "undefined"
+    },
+    {
+      "delta_cpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "delta_gpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "gap_cpu": {
+        "hi": 0.8838290999145685,
+        "lo": 0.8710065768150175,
+        "point": 0.8774594818939956
+      },
+      "gap_gpu": {
+        "hi": 0.8838333543686094,
+        "lo": 0.8710102047856055,
+        "point": 0.8774625923732969
+      },
+      "k": 64,
+      "metric": "wave_rel_l2",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "undefined",
+      "status_gpu": "undefined"
+    },
+    {
+      "delta_cpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "delta_gpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "gap_cpu": {
+        "hi": 0.8308163167925332,
+        "lo": 0.8167722132078086,
+        "point": 0.8236660557137685
+      },
+      "gap_gpu": {
+        "hi": 0.8308183218730627,
+        "lo": 0.8167720975778998,
+        "point": 0.8236698216249051
+      },
+      "k": 128,
+      "metric": "wave_rel_l2",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "undefined",
+      "status_gpu": "undefined"
+    },
+    {
+      "delta_cpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "delta_gpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "gap_cpu": {
+        "hi": 0.841810451793319,
+        "lo": 0.8267664695716611,
+        "point": 0.8342096096811448
+      },
+      "gap_gpu": {
+        "hi": 0.8418111722265514,
+        "lo": 0.8267655928075375,
+        "point": 0.8342092105142679
+      },
+      "k": 256,
+      "metric": "wave_rel_l2",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "undefined",
+      "status_gpu": "undefined"
+    },
+    {
+      "delta_cpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "delta_gpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "gap_cpu": {
+        "hi": 0.8231376392477181,
+        "lo": 0.808866232404295,
+        "point": 0.8159083684373037
+      },
+      "gap_gpu": {
+        "hi": 0.8231393064127179,
+        "lo": 0.8088641812379381,
+        "point": 0.8159048186421379
+      },
+      "k": 384,
+      "metric": "wave_rel_l2",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "undefined",
+      "status_gpu": "undefined"
+    },
+    {
+      "delta_cpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "delta_gpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "gap_cpu": {
+        "hi": 0.0009530774718294996,
+        "lo": 0.0009126571299325978,
+        "point": 0.0009327879378857989
+      },
+      "gap_gpu": {
+        "hi": 0.000953081986637992,
+        "lo": 0.0009126583126362154,
+        "point": 0.0009327896966874088
+      },
+      "k": 64,
+      "metric": "wave_mad",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "undefined",
+      "status_gpu": "undefined"
+    },
+    {
+      "delta_cpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "delta_gpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "gap_cpu": {
+        "hi": 0.0008711762194922939,
+        "lo": 0.0008350681051553434,
+        "point": 0.0008530413688827116
+      },
+      "gap_gpu": {
+        "hi": 0.0008711770621115143,
+        "lo": 0.0008350716164811808,
+        "point": 0.000853045996046147
+      },
+      "k": 128,
+      "metric": "wave_mad",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "undefined",
+      "status_gpu": "undefined"
+    },
+    {
+      "delta_cpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "delta_gpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "gap_cpu": {
+        "hi": 0.0008806693513209112,
+        "lo": 0.0008438977633674296,
+        "point": 0.0008622348953582791
+      },
+      "gap_gpu": {
+        "hi": 0.0008806703887829892,
+        "lo": 0.0008438993001034538,
+        "point": 0.0008622348513516219
+      },
+      "k": 256,
+      "metric": "wave_mad",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "undefined",
+      "status_gpu": "undefined"
+    },
+    {
+      "delta_cpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "delta_gpu": {
+        "hi": null,
+        "lo": null,
+        "point": null
+      },
+      "gap_cpu": {
+        "hi": 0.000867199399652351,
+        "lo": 0.0008306958622930354,
+        "point": 0.0008489513740521136
+      },
+      "gap_gpu": {
+        "hi": 0.0008672086264543493,
+        "lo": 0.0008307118459939773,
+        "point": 0.0008489588646522423
+      },
+      "k": 384,
+      "metric": "wave_mad",
+      "n_cpu": 6337,
+      "n_gpu": 6337,
+      "status_cpu": "undefined",
+      "status_gpu": "undefined"
+    }
+  ],
+  "cpu": {
+    "device": "cpu",
+    "execution_id": "20260927T004009003970Z-8796b160e3a84e97b43774e2d4aac00e",
+    "meta_path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/cpu_protocol/released_k8_all/meta.json",
+    "meta_sha256": "4697d7377fde8202bae05af248a34a99da6bfca246fcbe4990b856f25db41733",
+    "n": 6337,
+    "path": "ckpt/exp10/cpu_protocol/summary/yaw_pilot_summary.json",
+    "protocol_id": "06d5d3f72f5a566d7d87fd14d6bc0845ed44bfa9d98a5b532dfc7081e28b261a",
+    "sha256": "e77bf22f11d730ea9ee6ba16ccdc01561a05a4548b9a45065922dee91e327c9e"
+  },
+  "gpu": {
+    "device": "cuda",
+    "execution_id": "20260927T073313236199Z-45c485084fee44f6b795b4f2f5a71ff4",
+    "meta_path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/released_k8_all/meta.json",
+    "meta_sha256": "e9dcdb36ed608273ea4bab67bb9a00a541ab06f5931f217141f3ef2396fb35d7",
+    "n": 6337,
+    "path": "ckpt/exp10/summary/yaw_pilot_summary.json",
+    "protocol_id": "ece07c70be992c8bff8b27a862933ea19702b665fd47b46c0f1f4957fd04aaee",
+    "sha256": "8c11a043c34db4f55309f10a4011dad2af2e6ed788569c2e87f1ee53f0aa2353"
+  },
+  "verified": {
+    "alpha": 0.05,
+    "batch_canonical": true,
+    "batch_size": 16,
+    "checkpoint_sha256": "6cdb02767b4c11e1be78c3438e1b67bfb9351db4e07ee9c72125f68e337325c5",
+    "convergence_tolerance": 0.1,
+    "cudnn_allow_tf32": false,
+    "cudnn_deterministic": true,
+    "gl_seed": 0,
+    "ks": [
+      0,
+      64,
+      128,
+      256,
+      384
+    ],
+    "manifest_hash": "47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d",
+    "manifest_seed": 0,
+    "matmul_allow_tf32": false,
+    "metric_window": 8000,
+    "n_boot": 10000,
+    "n_queries": 6337,
+    "num_shot": 8,
+    "numpy_version": "1.23.5",
+    "padded_len": 9600,
+    "query_list_sha256": "a7e7b2e6131a871376a63591359da7df5531dfdeaac01ccde5b6c8f72fc2b4fe",
+    "sample_rate": 22050,
+    "seeds": [
+      0,
+      1
+    ],
+    "split": "unseen",
+    "tf32": false,
+    "tool_sha256": "e727cba016dcc2d78c7ba193fca85b75116c40f9e9d567be784970a2974c8823",
+    "torch_version": "2.0.1+cu117"
+  }
+}

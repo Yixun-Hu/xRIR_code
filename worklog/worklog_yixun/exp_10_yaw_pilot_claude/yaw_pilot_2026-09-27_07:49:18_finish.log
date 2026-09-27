@@ -1,3 +1,18 @@
 [07:49:18] HEAD 97ede1954cd10d9b93c5fc7d692eba8914de1c8b; repo /home/yixunhu/codespace/xRIR_code; expect n=6337
 validate_runs: 4 arms + the CPU record validated and bound under /home/yixunhu/codespace/xRIR_code/ckpt/exp10
 [07:49:19] preflight passed: four GPU arms + the CPU record validated and bound
+csv: ckpt/exp10/summary/yaw_pilot_gaps.csv
+figures: 10
+json: ckpt/exp10/summary/yaw_pilot_summary.json
+markdown: ckpt/exp10/summary/yaw_pilot_tables.md
+csv: ckpt/exp10/cpu_protocol/summary/yaw_pilot_gaps.csv
+figures: 4
+json: ckpt/exp10/cpu_protocol/summary/yaw_pilot_summary.json
+markdown: ckpt/exp10/cpu_protocol/summary/yaw_pilot_tables.md
+wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated.staging.493871/backend_sensitivity_released_k8.md worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated.staging.493871/backend_sensitivity_released_k8.json 32 rows
+not copied (regenerated from the summary, or not named by it): yaw_pilot_gaps_all_arms.pdf, yaw_pilot_gaps_all_arms.png, yaw_pilot_gaps_control_k8.pdf, yaw_pilot_gaps_control_k8.png, yaw_pilot_gaps_cyl_k8.pdf, yaw_pilot_gaps_cyl_k8.png, yaw_pilot_gaps_released_k1.pdf, yaw_pilot_gaps_released_k1.png, yaw_pilot_gaps_released_k8.pdf, yaw_pilot_gaps_released_k8.png
+wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/.finish_tmp.493871/yaw_pilot_01_results.html assets 13
+wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/.finish_tmp.493871/yaw_pilot_results.md
+[07:55:59] staged 46 assets; SHA256SUMS verifies
+[07:55:59] rollback copies of what this run replaces: complete, verified and marked; publishing now
+[07:55:59] FINISH DONE: 46 assets published in worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude
