@@ -24,7 +24,11 @@ export PYTHONPATH="$PWD"
 RECORD=worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude
 APPROVED_DEFAULT="$RECORD/orientation_cue_fairness_results_assets/approved_digests.json"
 SMOKE_DIR=ckpt/exp11/_smoke
-PRETRAIN_ROOT="${EXP11_PRETRAIN_ROOT:-ckpt/exp11/pretrain}"
+# The pretraining roots. EXP11_PRETRAIN_ROOT exists for the dry-run tests alone: it moves
+# the attempt roots AND the roots preflight scans for live pid files, so a real launch may
+# never take it. It is honoured only with EXP11_TEST_ROOTS=1 *and* --dry-run, and is
+# refused outright otherwise (see apply_root_override below).
+PRETRAIN_ROOT=ckpt/exp11/pretrain
 SIMPOR_ROOT="$PRETRAIN_ROOT/xRIR_simpor_8_shot"          # arm H
 SIMPOR_YAW_ROOT="$PRETRAIN_ROOT/xRIR_simpor_yawaug_8_shot"   # arm I
 HEADING_DIR="${EXP06_HEADING_DIR:-ckpt/exp06/heading}"
@@ -38,17 +42,36 @@ SMOKE_MAX_GB="${EXP11_SMOKE_MAX_GB:-6}"
 FULL_CEILING_MAX=129600
 FULL_CEILING_S="${EXP11_FULL_CEILING_S-$FULL_CEILING_MAX}"
 
+# The value is validated as a BOUNDED DECIMAL STRING before any arithmetic: bash's
+# integer comparisons error out above 2**63-1, which left the `if` false and the launch
+# running with an overflowing value handed to GNU timeout. Six digits is the whole
+# contract (129600 has six), so the numeric comparison below can never be out of range;
+# leading zeros are refused with everything else that is not a plain decimal.
 check_ceiling() {
+    local why="must be a plain decimal of at most 6 digits in (0, $FULL_CEILING_MAX]"
     case "$FULL_CEILING_S" in
-        ''|*[!0-9]*)
-            echo "refusing: EXP11_FULL_CEILING_S must be a positive whole number of" \
-                 "seconds, not '$FULL_CEILING_S'" >&2; return 1 ;;
+        ''|*[!0-9]*|0*|???????*)
+            echo "refusing: EXP11_FULL_CEILING_S '$FULL_CEILING_S' $why" >&2; return 1 ;;
     esac
     if [ "$FULL_CEILING_S" -le 0 ] || [ "$FULL_CEILING_S" -gt "$FULL_CEILING_MAX" ]; then
-        echo "refusing: EXP11_FULL_CEILING_S $FULL_CEILING_S is not in (0," \
-             "$FULL_CEILING_MAX]; an override may only tighten the 36 h ceiling" >&2
+        echo "refusing: EXP11_FULL_CEILING_S $FULL_CEILING_S $why;" \
+             "an override may only tighten the 36 h ceiling" >&2
         return 1
     fi
+}
+
+# apply_root_override: EXP11_PRETRAIN_ROOT is a dry-run test affordance and nothing else.
+apply_root_override() {
+    [ -n "${EXP11_PRETRAIN_ROOT:-}" ] || return 0
+    if [ "${EXP11_TEST_ROOTS:-0}" != 1 ] || [ "$DRY" -ne 1 ]; then
+        echo "refusing: EXP11_PRETRAIN_ROOT moves the attempt roots and the roots" \
+             "preflight scans, so it is honoured only with EXP11_TEST_ROOTS=1 and" \
+             "--dry-run" >&2
+        return 1
+    fi
+    PRETRAIN_ROOT="$EXP11_PRETRAIN_ROOT"
+    SIMPOR_ROOT="$PRETRAIN_ROOT/xRIR_simpor_8_shot"
+    SIMPOR_YAW_ROOT="$PRETRAIN_ROOT/xRIR_simpor_yawaug_8_shot"
 }
 
 # check_attempt <attempt> <root> <arm>: recovery may promote only this arm's own attempt.
@@ -62,10 +85,15 @@ from tools import exp11_recipe
 attempt, root, arm = sys.argv[1:4]
 expected = {"H": "H_RECIPE", "I": "I_RECIPE"}[arm]
 try:
+    # The path that is VALIDATED must be the path that is finalized and promoted, or an
+    # alias (an existing `final`, or a link from outside) would be validated here and
+    # promoted by its own basename - a self-referencing or dangling link under the root.
     directory, base = Path(attempt).resolve(), Path(root).resolve()
     if directory.parent != base:
         raise ValueError("attempt {} is not an attempt of the arm {} root {}".format(
             directory, arm, base))
+    if not directory.name.startswith("attempt_"):
+        raise ValueError("{} is not an attempt_<UTC> directory".format(directory))
     args = json.loads((directory / "args.json").read_text())
     profile = exp11_recipe.select_profile(args)
     if profile != expected:
@@ -74,11 +102,22 @@ try:
 except (OSError, ValueError, KeyError) as error:
     raise SystemExit("refusing: " + str(error))
 print("ATTEMPT ok {} arm={} profile={}".format(attempt, arm, expected))
+print("ATTEMPT canonical {}".format(directory))
 '
 
-check_attempt() {  # check_attempt <attempt>
+# check_attempt <attempt>: sets CANONICAL_ATTEMPT to the resolved directory, which is
+# what finalization and promotion then use.
+check_attempt() {
+    local output
     say "ATTEMPTCHECK $1 arm=$ARM root=$ARM_ROOT"
-    CUDA_VISIBLE_DEVICES="" "$PYTHON" -c "$CHECK_ATTEMPT_PY" "$1" "$ARM_ROOT" "$ARM"
+    output="$(CUDA_VISIBLE_DEVICES="" "$PYTHON" -c "$CHECK_ATTEMPT_PY" "$1" "$ARM_ROOT" \
+              "$ARM")" || return 1
+    printf '%s\n' "$output"
+    CANONICAL_ATTEMPT="${output##*ATTEMPT canonical }"
+    case "$CANONICAL_ATTEMPT" in
+        "$ARM_ROOT"/attempt_*|/*) ;;
+        *) echo "refusing: no canonical attempt was resolved for $1" >&2; return 1 ;;
+    esac
 }
 ARM=""
 ARM_BACKBONE=simple_oriented
@@ -179,6 +218,7 @@ APPROVED="${EXP11_APPROVED:-$APPROVED_DEFAULT}"
 COMMIT="${COMMIT:-}"
 EXPLORATORY="${EXPLORATORY:-0}"
 ARM_ROOT="${ARM_ROOT:-$SIMPOR_ROOT}"
+CANONICAL_ATTEMPT="${CANONICAL_ATTEMPT:-}"
 
 if [ "${EXP11_LAUNCH_LIB:-0}" = 1 ]; then return 0; fi
 
@@ -201,6 +241,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ -n "$GPU" ] && [ -n "$COMMIT" ] || usage
+apply_root_override || exit 2
 arm_of "$ARM" || exit 2
 check_ceiling || exit 2
 [ "$MODE" != finalize ] || { [ -n "$ATTEMPT" ] && [ -n "$LOG" ] && [ -n "$CHILD_EXIT" ]; } || usage
@@ -337,11 +378,12 @@ smoke)
 finalize)
     preflight   # recovery is gated by the same reviewed commit, clean tree and pid checks
     check_attempt "$ATTEMPT" || exit 2
-    [ "$DRY" -eq 0 ] || abort "$ATTEMPT" "$LOG" finalize_refused
-    if ! finalize "$ATTEMPT" "$LOG" "$CHILD_EXIT" exp11_train; then
-        abort "$ATTEMPT" "$LOG" finalize_refused
+    # Everything below uses the canonical directory, never the path as it was typed.
+    [ "$DRY" -eq 0 ] || abort "$CANONICAL_ATTEMPT" "$LOG" finalize_refused
+    if ! finalize "$CANONICAL_ATTEMPT" "$LOG" "$CHILD_EXIT" exp11_train; then
+        abort "$CANONICAL_ATTEMPT" "$LOG" finalize_refused
         exit 2
     fi
-    promote "$(basename -- "$ATTEMPT")"
+    promote "$(basename -- "$CANONICAL_ATTEMPT")"
     ;;
 esac
