@@ -124,23 +124,25 @@ def test_the_entry_module_imports_hermetically_and_its_closure_is_bounded():
 # trainer names itself, first thing, and says when it leaves.
 
 
-def test_the_trainer_registers_its_pid_before_anything_can_fail(tmp_path):
-    """First action after parsing: a launcher that dies now still leaves a trace."""
+def test_the_trainer_registers_its_pid_after_parsing_before_admission(tmp_path):
+    """A launcher that dies from here on still leaves a trace of this process."""
+    (tmp_path / 'launching').write_text('launcher 1\n')
     path = exp11_train.register_trainer(str(tmp_path))
     assert path is not None and path.is_file()
     pid, start = path.read_text().split()[:2]
     assert int(pid) == os.getpid() and float(start) > 0
 
 
-def test_registration_is_skipped_where_there_is_no_run_directory(tmp_path):
+def test_registration_is_skipped_for_a_diagnostic_with_no_run_directory(tmp_path):
     """A --no-save probe has nothing to register into, and must not create one."""
     missing = tmp_path / 'not-there'
-    assert exp11_train.register_trainer(str(missing)) is None
+    assert exp11_train.register_trainer(str(missing), no_save=True) is None
     assert not missing.exists()
 
 
 @pytest.mark.parametrize('code', [0, 3, 'exception'])
 def test_the_trainer_records_how_it_left(tmp_path, code):
+    (tmp_path / 'launching').write_text('launcher 1\n')
     path = exp11_train.register_trainer(str(tmp_path))
     exp11_train.record_trainer_exit(path, code)
     assert (tmp_path / 'train.exit').read_text().strip() == 'train.exit {}'.format(code)
@@ -155,6 +157,7 @@ def test_main_registers_first_and_records_an_exception(tmp_path, monkeypatch):
         raise RuntimeError('admission refused')
 
     monkeypatch.setattr(exp11_train, 'check_admission', explode)
+    (tmp_path / 'launching').write_text('launcher 1\n')
     argv = ['--backbone', 'simple_oriented', '--save-dir', str(tmp_path),
             '--run-type', 'smoke']
     with pytest.raises(RuntimeError):

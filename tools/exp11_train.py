@@ -22,6 +22,7 @@ It writes ``provenance.json`` once, before the epoch loop, and never writes
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import sys
 import time
@@ -41,6 +42,7 @@ from utils.lr_scheduler import ExponentialLR
 REPO = Path(__file__).resolve().parents[1]
 ENTRY_MODULE = 'tools.exp11_train'
 RUN_TYPES = ('full', 'smoke', 'probe')
+RESOLVED_EXIT = 3
 DIAGNOSTIC_RUN_TYPES = ('smoke', 'probe')
 ENV_KEYS = exp06_train.ENV_KEYS
 
@@ -184,21 +186,65 @@ def provenance_fields(argv, run_type, identity=None, repo=REPO, approved=None,
                 command=list(argv))
 
 
-def register_trainer(save_dir):
-    """Name this process in its own run directory, before anything else can fail.
+def registration_complete(attempt):
+    """``child.pid`` exists and its whole content is a pid (the launcher's own test)."""
+    try:
+        return bool(re.fullmatch(r'[0-9]+', (attempt / 'child.pid').read_text().strip()))
+    except OSError:
+        return False
+
+
+def refuse(reason):
+    print('refusing: ' + reason, file=sys.stderr, flush=True)
+    raise SystemExit(RESOLVED_EXIT)
+
+
+def register_trainer(save_dir, no_save=False):
+    """Name this process in its own run directory, after parsing and before admission.
 
     The launcher's ``child.pid`` is written by the frozen lifecycle only *after* it has
     forked this process, so a launcher that dies in between leaves a trainer nothing in
-    the arm can see (close review 7, blocker 2). This file is the trainer's own answer:
-    it exists from the first moment there is a process to name. The directory is never
-    created here -- a run with nothing to write into has nothing to register.
+    the arm can see (close review 7, blocker 2). This file is the trainer's own answer.
+
+    It is also where this trainer finds out whether its launch is still a launch. A
+    delayed trainer can wake long after an operator resolved the attempt as unregistered
+    -- the marker's age proved nothing about it -- so the answer has to be in the state
+    of the directory, and this process **fails closed** (close review 8, blocker 2):
+
+    * the save-dir is gone: the launcher creates it, the trainer never does, so its
+      absence means the launch it belongs to is over;
+    * a ``<attempt>.resolved`` tombstone stands beside it: that launch was answered and
+      retired, permanently;
+    * neither ``launching`` nor a complete ``child.pid`` is there: from the fork onward
+      an ordinary launch always carries one of them.
+
+    ``--no-save`` runs are diagnostics that no scan reads; they write no sidecars, and
+    only the tombstone can refuse them.
     """
     directory = Path(save_dir)
-    if not directory.is_dir():
+    tombstone = directory.parent / (directory.name + '.resolved')
+    if tombstone.is_file():
+        refuse('{} was resolved as an unregistered launch and retired; this trainer '
+               'has nothing to run in'.format(directory))
+    if no_save:
         return None
+    if not directory.is_dir():
+        refuse('{} does not exist; the launcher creates the attempt and this trainer '
+               'never does'.format(directory))
+    if not (directory / 'launching').is_file() and not registration_complete(directory):
+        refuse('{} carries no launch record -- no launching marker and no complete '
+               'child.pid -- so no launch of it is in progress'.format(directory))
     path = directory / 'train.pid'
     path.write_text('{} {}\n'.format(os.getpid(), time.time()))
     return path
+
+
+def exit_code(exit_request):
+    """``raise SystemExit`` carries None, which is status 0, not 1."""
+    code = exit_request.code
+    if code is None:
+        return 0
+    return code if isinstance(code, int) else 1
 
 
 def record_trainer_exit(path, code):
@@ -215,12 +261,12 @@ def record_trainer_exit(path, code):
 def main(argv=None):
     """Register, run, and record how it ended -- whatever ends it."""
     args = parse_args(argv)
-    registration = register_trainer(args.save_dir)
+    registration = register_trainer(args.save_dir, no_save=args.no_save)
     code = 0
     try:
         run(list(sys.argv[1:] if argv is None else argv), check_admission(args))
     except SystemExit as exit_request:
-        code = exit_request.code if isinstance(exit_request.code, int) else 1
+        code = exit_code(exit_request)
         raise
     except BaseException:
         code = 'exception'
@@ -267,13 +313,16 @@ def run(command, args):
     prepare_args(args, model, fields, destination)
     fields['effective_args'] = vars(args)
     if destination:
-        if not args.no_save:
-            os.makedirs(args.save_dir, exist_ok=True)
+        # The attempt directory is the launcher's, and it is this run's proof that a
+        # launch is in progress; recreating it would undo a resolution (close review 8).
+        if not args.no_save and not os.path.isdir(args.save_dir):
+            refuse('{} vanished while this trainer was starting'.format(args.save_dir))
         provenance.write_manifest(destination, fields)  # exclusive; an attempt writes once
     print('XRIR_RUNTIME_ARGS ' + json.dumps(vars(args), sort_keys=True, allow_nan=False),
           flush=True)
     if not args.no_save:
-        os.makedirs(args.save_dir, exist_ok=True)
+        if not os.path.isdir(args.save_dir):
+            refuse('{} vanished while this trainer was starting'.format(args.save_dir))
         with open(os.path.join(args.save_dir, 'args.json'), 'w') as stream:
             json.dump(vars(args), stream, indent=2)
 

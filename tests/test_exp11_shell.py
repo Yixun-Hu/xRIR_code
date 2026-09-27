@@ -915,6 +915,36 @@ def test_the_resolution_does_not_need_an_args_file(tmp_path):
     assert result.returncode == 0, result.stderr[-500:]
 
 
+# --- close review 8 blocker 2: the resolution leaves a permanent tombstone -----------
+
+
+def test_the_resolution_writes_a_tombstone_before_it_retires_the_attempt(tmp_path):
+    """The directory can be renamed; the answer must outlive the name.
+
+    A trainer that wakes after the resolution has to be able to find out that its
+    launch was retired, and a rename alone tells it nothing it can read.
+    """
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    attempt = unresolved_attempt(root)
+    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nUNRESOLVED_GRACE_S=0\n'
+                 'resolve_unregistered {target}\n'.format(root=root, target=attempt))
+    assert result.returncode == 0, result.stderr[-500:]
+    tombstone = root / (attempt.name + '.resolved')
+    assert tombstone.is_file(), 'the answer must survive the rename'
+    assert 'unregistered' in tombstone.read_text()
+    assert not attempt.exists()
+    assert (root / (attempt.name + '_ABORTED_unregistered')).is_dir()
+
+
+def test_the_scan_ignores_a_tombstone(tmp_path):
+    """It is a record, not a claim: an arm full of answered launches is still quiet."""
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    (old.parent / 'attempt_20260927T666666.resolved').write_text('launcher 1\n')
+    status, out, err = recovery(old, 'H', tmp_path)
+    assert status == 0, err[-500:]
+    assert 'PROMOTE' in out
+
+
 def pid_of(pidfile):
     """The pid in a registration file, if it still names a living process."""
     try:
