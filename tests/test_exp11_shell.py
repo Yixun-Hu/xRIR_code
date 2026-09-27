@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import time
 
 import pytest
 
@@ -662,3 +663,163 @@ def test_two_interleaved_breakers_leave_exactly_one_holder(tmp_path):
     acquired = ('FAST_ACQUIRED' in fast.stdout) + ('SLOW_ACQUIRED' in slow_out)
     assert acquired == 1, (fast.stdout, fast.stderr, slow_out, slow_err)
     assert (root / LOCK).is_dir(), 'the loser removed the winner\'s lock'
+
+
+# --- close review 4: the acquisition race and a cleanup path that bypasses the exit --
+
+GRACE = 30
+BREAKING = LOCK + '.breaking'
+
+
+def libp(script, env=None):
+    """Start a sourced-library snippet in the background and return the process."""
+    body = ('set -euo pipefail\n'
+            'EXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh\n' + script)
+    return subprocess.Popen(['bash', '-c', body], cwd=str(REPO), stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True,
+                            env=dict(os.environ, CUDA_VISIBLE_DEVICES='', **(env or {})))
+
+
+def holders(*outputs):
+    return sum('ACQUIRED' in text for text in outputs)
+
+
+def test_an_ownerless_lock_inside_the_grace_is_not_stale(tmp_path):
+    """``mkdir`` publishes the pathname before the owner file exists.
+
+    A breaker that accepts an empty generation retires a lock whose acquirer is still
+    initialising, and both end up holding it. A young owner-less lock is an acquisition
+    in progress, not a stale lock.
+    """
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    (root / LOCK).mkdir(parents=True)                      # no owner file yet
+    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nLOCK_DIR="$ARM_ROOT/{lock}"\n'
+                 'break_lock ""\n'.format(root=root, lock=LOCK))
+    assert result.returncode != 0, result.stdout[-400:]
+    assert 'acquisition in progress' in result.stderr
+    assert (root / LOCK).is_dir()
+
+
+def test_an_old_ownerless_lock_is_breakable(tmp_path):
+    """The grace is a grace, not an exemption: an abandoned empty lock is still stale."""
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    (root / LOCK).mkdir(parents=True)
+    os.utime(root / LOCK, (0, 0))
+    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nBREAK_LOCK=1\ntake_lock finalize\n'
+                 'echo ACQUIRED\nLOCK_HELD=0\n'.format(root=root))
+    assert result.returncode == 0, result.stderr[-400:]
+    assert 'ACQUIRED' in result.stdout and 'BREAKLOCK' in result.stdout
+
+
+def test_nobody_acquires_the_pathname_while_a_break_is_in_progress(tmp_path):
+    """The breaking meta-lock: the exposed pathname is not up for grabs mid-break."""
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
+    (root / BREAKING).mkdir()
+    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\necho ACQUIRED\n'.format(
+        root=root))
+    assert result.returncode != 0 and 'ACQUIRED' not in result.stdout
+    assert 'break' in result.stderr.lower()
+
+
+def test_a_second_breaker_refuses_on_the_meta_lock(tmp_path):
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    lock_with(root, nonce='stale')
+    (root / BREAKING).mkdir()
+    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nLOCK_DIR="$ARM_ROOT/{lock}"\n'
+                 'break_lock stale\n'.format(root=root, lock=LOCK))
+    assert result.returncode != 0 and 'break' in result.stderr.lower()
+    assert (root / LOCK).is_dir()
+
+
+def test_schedule_one_acquirer_paused_between_mkdir_and_owner(tmp_path):
+    """Reviewer schedule 1: exactly one holder, and the loser removes nothing."""
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
+    gate = tmp_path / 'gate'
+    acquirer = libp('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\n'
+                    'echo ACQUIRED\nsleep 2\n'.format(root=root),
+                    {'EXP11_ACQUIRE_BARRIER': str(gate)})
+    for _ in range(100):                                   # wait for the bare directory
+        if (root / LOCK).is_dir():
+            break
+        time.sleep(0.05)
+    breaker = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nBREAK_LOCK=1\ntake_lock finalize\n'
+                  'echo ACQUIRED\nLOCK_HELD=0\n'.format(root=root))
+    gate.write_text('go\n')
+    out, err = acquirer.communicate(timeout=60)
+    assert holders(out, breaker.stdout) == 1, (out, err, breaker.stdout, breaker.stderr)
+    third = lib('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\necho ACQUIRED\n'.format(
+        root=root))
+    if 'ACQUIRED' in out:                                  # the acquirer still holds it
+        assert 'ACQUIRED' not in third.stdout
+
+
+def test_schedule_two_breaker_observed_an_empty_generation(tmp_path):
+    """Reviewer schedule 2: B observed empty, A completed; B must refuse, A survives."""
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
+    holder = libp('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\n'
+                  'echo ACQUIRED\nsleep 2\n'.format(root=root))
+    for _ in range(100):
+        if (root / LOCK / 'owner').is_file():
+            break
+        time.sleep(0.05)
+    late = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nLOCK_DIR="$ARM_ROOT/{lock}"\n'
+               'break_lock ""\n'.format(root=root, lock=LOCK))
+    out, err = holder.communicate(timeout=60)
+    assert 'ACQUIRED' in out, (out, err)
+    assert late.returncode != 0, late.stdout[-300:]
+    assert 'UNRESTORED' not in late.stdout
+
+
+def test_acquisition_self_verifies_and_removes_nothing_when_it_lost(tmp_path):
+    """A lock retired under an acquirer must not be 'released' by it."""
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
+    gate = tmp_path / 'gate'
+    acquirer = libp('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\n'
+                    'echo ACQUIRED\n'.format(root=root),
+                    {'EXP11_ACQUIRE_BARRIER': str(gate)})
+    for _ in range(100):
+        if (root / LOCK).is_dir():
+            break
+        time.sleep(0.05)
+    (root / LOCK).rename(root / (LOCK + '.retired'))       # the pathname disappears
+    (root / LOCK).mkdir()
+    (root / LOCK / 'owner').write_text('pid 424242 nonce successor mode finalize arm H at x\n')
+    gate.write_text('go\n')
+    out, err = acquirer.communicate(timeout=60)
+    assert 'ACQUIRED' not in out, (out, err)
+    assert acquirer.returncode != 0
+    assert (root / LOCK).is_dir()
+    assert 'successor' in (root / LOCK / 'owner').read_text(), (
+        'the acquirer removed a lock it never owned')
+
+
+def test_the_handler_still_exits_when_the_owner_file_is_gone(tmp_path):
+    """``sed`` failing on a missing owner file must not pre-empt the handler's exit."""
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
+    script = ('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\n'
+              'rm -f -- "$LOCK_DIR/owner"\n'
+              'handler="$(trap -p TERM | sed -n "s/^trap -- \'\\(.*\\)\' SIGTERM$/\\1/p")"\n'
+              'eval "$handler"\necho CONTINUED\n').format(root=root)
+    result = lib(script)
+    assert result.returncode == 143, (result.returncode, result.stdout[-400:],
+                                      result.stderr[-400:])
+    assert 'SIGNAL TERM' in result.stdout
+    assert 'UNLOCK SKIPPED' in result.stdout and 'no owner' in result.stdout
+    assert 'CONTINUED' not in result.stdout
+    assert (root / LOCK).is_dir(), 'an owner-less lock is not this invocation to remove'
+
+
+def test_release_treats_a_missing_owner_as_non_ownership(tmp_path):
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
+    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\n'
+                 'rm -f -- "$LOCK_DIR/owner"\nrelease_lock\necho AFTER\n'.format(root=root))
+    assert result.returncode == 0, result.stderr[-300:]
+    assert 'AFTER' in result.stdout
+    assert 'UNLOCK SKIPPED' in result.stdout and 'no owner' in result.stdout
+    assert (root / LOCK).is_dir()
