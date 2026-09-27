@@ -1,0 +1,16 @@
+Reading additional input from stdin...
+OpenAI Codex v0.154.0
+--------
+workdir: /home/yixunhu/codespace/xRIR_code_wt
+model: gpt-6-astra
+provider: openai
+approval: on-request
+sandbox: read-only
+reasoning effort: ultra
+reasoning summaries: none
+session id: 01a0e2b8-d5a8-7953-b0e6-8407ce2511ce
+--------
+user
+You are the code REVIEWER (OpenAI Codex) for experiment exp_11 `orientation_cue_fairness` of the xRIR repository. CLOSE review 4 of ROUND 2, in the git worktree /home/yixunhu/codespace/xRIR_code_wt on branch `exp11-cue` (read-only; CPU ≤ 4 threads; CUDA_VISIBLE_DEVICES=''; never signal processes; pytest on selected files with `-p no:cacheprovider`, PYTHONPATH = the worktree, writes only under /tmp). Your close review 3 (`orientation_cue_fairness_codex_code_round2_close3_review.md`, worktree record) left two lock defects in `tools/exp11_launch.sh`: INT/TERM handlers released the lock without terminating; stale-lock breaking was not serialised and release trusted a local flag. The Coder added 5 commits on `48b7bd4` → `4f72ac2` (`git log --oneline 48b7bd4..4f72ac2`, `git diff 48b7bd4 4f72ac2`; report `orientation_cue_fairness_2026-09-27_06:52:49_coder_round2_fix4_opus_report.md`). The only production change is `tools/exp11_launch.sh` (`launch_sh` → 3cff85cc…).
+
+Verify by reading the code and replaying handler bodies / functions (no real signals): (1) `on_signal <NAME> <n>` sets `INTERRUPTED=1`, logs `SIGNAL`, releases ownership-safely and exits 128+n; INT/TERM registered to it; EXIT keeps the cleanup; `not_interrupted` guards finalization AND promotion in both `full` and `finalize`; the regression reads the registered body from `trap -p` and asserts no return (exit 143/130); (2) lock generations — owner file `pid … nonce …`; `release_lock` removes only while its nonce is recorded (`UNLOCK SKIPPED` otherwise); `break_lock(observed)` refuses a live pid, refuses a changed generation, atomically retires the observed lock by rename to `<lock>.broken.<observed>` (second breaker's rename fails), re-reads the retired owner and restores/refuses on mismatch (`UNRESTORED` logged); `take_lock` reads the generation once and hands it over; `EXP11_LOCK_BARRIER` is a path (file wait), never evaluated; your two-breaker interleaving and previous-owner-exit reproductions now leave exactly one holder with the lock present; (3) the recorded exceptions (c8b2ff0 524 lines; 16b1eff 224/−9) and the RED evidence of this cycle (replay one); (4) closure hygiene at `4f72ac2`: vs 9f98bbb only exp_06 `summarize_haa` moved (report it); the eight exp_11 keys (report all); sim-eval closures unchanged; frozen files untouched; `BACKBONES_EXP06` unchanged; `tests/test_exp09_sim_eval_closures.py` green; pinned oracles byte-identical; (5) anything new. State whether round 2 can be CLOSED and `4f72ac2` merged (verdict "approve", "approve with changes" listed with file:line, or "request changes" with blockers numbered), and give the exact fill manifest at the merge commit (exp_06 `code.summarize_haa`; the re-filled exp_06 record digest with only that key replaced; exp_11's eight `code.*`, `reused.*`; `artifacts.*` null). Identity header (model, reasoning effort as the invocation metadata states it, sandbox, tree, HEAD, date/time); print the review in full; save nothing.
