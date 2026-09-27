@@ -380,9 +380,21 @@ resolve_unregistered() {
     [ -f "$attempt/launching" ] || {
         echo "refusing: $attempt has no launching marker; nothing is unresolved" >&2
         return 1; }
-    if registration_complete "$attempt"; then
-        echo "refusing: $attempt recorded a child; it is a finished or running launch," \
-             "not an unresolved one" >&2
+    # NOT "child.pid is complete": that file holds the `timeout` wrapper's pid, and a
+    # wrapper that died with its trainer unregistered is precisely the state the scan
+    # now calls unresolved (close review 10, blocker 2). Refusing on it would leave the
+    # arm shut for good -- closed by the scan, unanswerable by the operator. What may
+    # never be retired this way is a run that actually finished: a completion receipt,
+    # or the published `final`. Everything else is decided by the quiet scan below --
+    # nothing of the arm alive -- and by the marker's age.
+    if [ -f "$attempt/completion.json" ]; then
+        echo "refusing: $attempt has a completion receipt; it is a finished run, not an" \
+             "unresolved launch" >&2
+        return 1
+    fi
+    if [ "$(published_target || true)" = "$attempt" ]; then
+        echo "refusing: $attempt is published as $ARM_ROOT/final; a published attempt is" \
+             "never retired as an unresolved launch" >&2
         return 1
     fi
     # The REGISTRATION lock, distinct from the publication lock this invocation already
@@ -635,7 +647,7 @@ full)
     export CUDA_VISIBLE_DEVICES="$GPU" PYTHONHASHSEED=0 OMP_NUM_THREADS=8
     mark_launching "$attempt"   # before the fork: the child may exist before child.pid
     run_child "$attempt" "$log" "${child[@]}"
-    clear_launching "$attempt"  # child.pid is written; the intent is accounted for
+    clear_launching "$attempt"  # only if the trainer left a train.exit
     close_child "$attempt" "$log"
     status="$CHILD_STATUS"
     if [ "$status" -ne 0 ]; then

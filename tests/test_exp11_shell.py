@@ -1447,13 +1447,26 @@ def test_an_unresolved_launch_is_resolved_only_once_nothing_is_alive(tmp_path):
 
 
 def test_resolving_refuses_an_attempt_that_is_not_unresolved(tmp_path):
+    """What may never be retired this way.
+
+    No longer "child.pid is complete": that is the `timeout` wrapper's pid, and a
+    wrapper lost while its trainer was unregistered is exactly the state the operator
+    has to be able to answer (close review 10, blocker 2). A run that really finished is
+    another matter -- a completion receipt, or the arm's published `final`.
+    """
     attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
     result = resolve(attempt)
     assert result.returncode != 0 and 'no launching marker' in result.stderr
     (attempt / 'launching').write_text('launcher 1\n')
     (attempt / 'child.pid').write_text('1\n')
+    (attempt / 'completion.json').write_text('{"run_type": "exp11_train"}')
     result = resolve(attempt)
-    assert result.returncode != 0 and 'recorded a child' in result.stderr
+    assert result.returncode != 0 and 'completion receipt' in result.stderr
+    assert attempt.is_dir()
+    (attempt / 'completion.json').unlink()
+    publish(attempt, completed=False)
+    result = resolve(attempt)
+    assert result.returncode != 0 and 'published as' in result.stderr
     assert attempt.is_dir()
 
 
