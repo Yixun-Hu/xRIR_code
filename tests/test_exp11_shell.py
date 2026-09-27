@@ -174,7 +174,8 @@ def attempt_with(root, arm, profile, tmp_path):
 def recovery(attempt, arm, tmp_path):
     return launch(['finalize', '--arm', arm, '--gpu', '1', '--reviewed-commit', COMMIT,
                    '--attempt', str(attempt), '--log', 'L.log', '--child-exit', '0',
-                   '--dry-run'], {'EXP11_PRETRAIN_ROOT': str(tmp_path)})
+                   '--dry-run'], {'EXP11_PRETRAIN_ROOT': str(tmp_path),
+                                  'EXP11_TEST_ROOTS': '1'})
 
 
 def test_recovery_refuses_an_attempt_of_another_arm(tmp_path):
@@ -239,3 +240,115 @@ def test_the_smoke_mode_carries_adapter_training_and_evaluation_commands():
     # Each rung that hands the next one a checkpoint is gated on its own completion.
     assert golden.count('passed --run-dir') == 2
     assert golden.index('haa_adapter_finetune') < golden.index('haa_adapter_eval')
+
+
+# --- close review blocker 2: the ceiling check must not fail open on overflow -------
+
+
+@pytest.mark.parametrize('value', ['9223372036854775808',          # 2**63
+                                   '9' * 39,                       # 39 digits
+                                   '0129600',                      # over six digits
+                                   '129600.0', '1e5', ' 3600'])
+def test_a_ceiling_outside_bashs_numeric_range_is_refused(value):
+    """Bash's -gt/-le error out above 2**63-1, leaving the `if` false and the launch on.
+
+    The contract is (0, 129600], so the check is a bounded decimal string first and a
+    numeric comparison only afterwards; anything that cannot be parsed refuses.
+    """
+    status, out, err = launch(['full', '--arm', 'H', '--gpu', '1', '--reviewed-commit',
+                               COMMIT, '--dry-run'], {'EXP11_FULL_CEILING_S': value})
+    assert status == 2, (value, out[-400:])
+    assert 'EXP11_FULL_CEILING_S' in err and 'refusing' in err
+    assert 'timeout --kill-after' not in out
+    assert 'integer expression expected' not in err
+
+
+def test_the_boundary_values_are_exactly_the_contract():
+    accepted, _, _ = launch(['full', '--arm', 'H', '--gpu', '1', '--reviewed-commit',
+                             COMMIT, '--dry-run'], {'EXP11_FULL_CEILING_S': str(CEILING)})
+    refused, _, _ = launch(['full', '--arm', 'H', '--gpu', '1', '--reviewed-commit',
+                            COMMIT, '--dry-run'],
+                           {'EXP11_FULL_CEILING_S': str(CEILING + 1)})
+    assert (accepted, refused) == (0, 2)
+
+
+# --- close review blocker 3: promotion follows the canonical attempt ----------------
+
+
+def alias(target, name, tmp_path):
+    link = tmp_path / name
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(target)
+    return link
+
+
+def test_an_existing_final_alias_promotes_the_canonical_attempt(tmp_path):
+    """``--attempt <root>/final`` must never promote ``final -> final``.
+
+    The resolved attempt is what was validated, so it is also what is finalized and
+    promoted: the link ends up pointing at the real ``attempt_*`` directory.
+    """
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    link = alias(attempt.name, 'xRIR_simpor_8_shot/final', tmp_path)
+    status, out, err = recovery(link, 'H', tmp_path)
+    assert status == 0, err[-600:]
+    assert 'PROMOTE {}/final -> {}'.format(attempt.parent, attempt.name) in out
+    assert 'PROMOTE {}/final -> final'.format(attempt.parent) not in out
+    assert '--run-dir {} '.format(attempt) in out          # finalization is canonical too
+
+
+def test_an_external_alias_promotes_the_canonical_attempt(tmp_path):
+    """An alias outside the arm root may not leave a dangling target under it."""
+    attempt = attempt_with('xRIR_simpor_yawaug_8_shot', 'I', 'I_RECIPE', tmp_path)
+    link = alias(attempt, 'elsewhere/attempt_alias', tmp_path)
+    status, out, err = recovery(link, 'I', tmp_path)
+    assert status == 0, err[-600:]
+    assert 'PROMOTE {}/final -> {}'.format(attempt.parent, attempt.name) in out
+    assert 'attempt_alias' not in out.split('PROMOTE')[-1]
+
+
+def test_an_attempt_that_does_not_resolve_into_the_arm_root_is_refused(tmp_path):
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    outside = tmp_path / 'outside' / 'attempt_x'
+    outside.mkdir(parents=True)
+    (outside / 'args.json').write_text((attempt / 'args.json').read_text())
+    status, out, err = recovery(outside, 'H', tmp_path)
+    assert status == 2 and 'PROMOTE' not in out
+
+
+def test_a_resolved_attempt_must_be_named_like_an_attempt(tmp_path):
+    """``final -> some_other_directory`` is not a recoverable attempt."""
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    other = attempt.parent / 'not_an_attempt'
+    other.mkdir()
+    (other / 'args.json').write_text((attempt / 'args.json').read_text())
+    status, out, err = recovery(other, 'H', tmp_path)
+    assert status == 2, out
+    assert 'attempt_' in err and 'PROMOTE' not in out
+
+
+# --- close review blocker 3b: the root override is a test-context override ----------
+
+
+def test_the_pretrain_root_override_needs_the_test_context(tmp_path):
+    """It must not silently move a real launch's roots or its preflight scan roots."""
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    status, out, err = launch(['finalize', '--arm', 'H', '--gpu', '1', '--reviewed-commit',
+                               COMMIT, '--attempt', str(attempt), '--log', 'L.log',
+                               '--child-exit', '0', '--dry-run'],
+                              {'EXP11_PRETRAIN_ROOT': str(tmp_path)})
+    assert status == 2, out
+    assert 'EXP11_PRETRAIN_ROOT' in err and 'refusing' in err
+    assert 'PROMOTE' not in out
+
+
+def test_the_override_is_honoured_only_alongside_a_dry_run(tmp_path):
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    args = ['finalize', '--arm', 'H', '--gpu', '1', '--reviewed-commit', COMMIT,
+            '--attempt', str(attempt), '--log', 'L.log', '--child-exit', '0']
+    env = {'EXP11_PRETRAIN_ROOT': str(tmp_path), 'EXP11_TEST_ROOTS': '1'}
+    status, out, err = launch(args, env)             # no --dry-run
+    assert status == 2 and 'EXP11_PRETRAIN_ROOT' in err
+    status, out, err = launch(args + ['--dry-run'], env)
+    assert status == 0, err[-600:]
+    assert str(tmp_path) in out
