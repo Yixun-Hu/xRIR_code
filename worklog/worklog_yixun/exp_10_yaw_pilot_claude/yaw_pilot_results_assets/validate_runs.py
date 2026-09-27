@@ -367,6 +367,21 @@ def check_probe_summary(path, arm, probe_meta, probe_dir=None, require_controls_
     return summary, problems, binding
 
 
+def link_href(path, assets_dir, assets_href, out_path):
+    """The relative href both renderers use for a copied asset (finding 12).
+
+    A file inside the assets directory is linked through ``assets_href`` (the *published*
+    location of that directory, which the finish script stages elsewhere and renames into
+    place); anything else is linked relative to the page itself.
+    """
+    target = os.path.abspath(str(path))
+    assets = os.path.abspath(str(assets_dir)) if assets_dir else None
+    if assets and (target == assets or target.startswith(assets + os.sep)):
+        inside = os.path.relpath(target, assets).replace(os.sep, "/")
+        return "%s/%s" % (str(assets_href).rstrip("/"), inside) if inside != "." else str(assets_href)
+    return os.path.relpath(target, os.path.dirname(os.path.abspath(str(out_path)))).replace(os.sep, "/")
+
+
 def parse_pairs(items, flag):
     """``["<arm>=<path>", ...]`` → ``[(arm, path), ...]``, refusing a malformed entry."""
     pairs, problems = [], []

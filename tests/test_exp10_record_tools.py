@@ -701,3 +701,102 @@ def test_md_keeps_both_statuses_in_its_status_column(render_case):
     page = rendered(render_case, "page.md")
     assert "status query / room" in page
     assert "defined / denominator uncertain" in page
+
+
+# --------------------------------------------------------------------------------------
+# Finding 11 -- the Markdown needs full sha256 provenance for every supplied input.
+# Finding 12 -- both outputs must link the copied tables, data, CPU record and backend table.
+# --------------------------------------------------------------------------------------
+
+def supplementary(case):
+    """The assembled asset directory: the summariser's copies, a backend table, a CPU record.
+
+    ``make_results_html.py`` assembles these in the record; the Markdown renderer links them
+    and refuses to promise a link to a file that is not there, so the fixture writes them.
+    """
+    os.makedirs(os.path.join(case["assets"], "cpu_protocol"), exist_ok=True)
+    for name in ("yaw_pilot_tables.md", "yaw_pilot_summary.json", "yaw_pilot_gaps.csv"):
+        import shutil
+        shutil.copy2(os.path.join(case["summary_dir"], name),
+                     os.path.join(case["assets"], name))
+    backend = os.path.join(case["assets"], "backend_sensitivity_released_k8.md")
+    with open(backend, "w") as fout:
+        fout.write("# Backend sensitivity\n")
+    cpu = os.path.join(case["assets"], "cpu_protocol", "yaw_pilot_tables.md")
+    with open(cpu, "w") as fout:
+        fout.write("# CPU protocol tables\n")
+    return ["--backend-table", backend, "--cpu-record", cpu]
+
+
+def test_md_records_full_sha256_for_every_supplied_input(render_case):
+    """Finding 11: probe/parity hashes were truncated and check-online had none."""
+    extra = supplementary(render_case)
+    done = render_md(render_case, extra=["--assets", render_case["assets"]] + extra)
+    assert done.returncode == 0, out(done)
+    page = rendered(render_case, "page.md")
+    inputs = [render_case["summary"], extra[1], extra[3]]
+    inputs += [p for _a, p in [kv.split("=", 1) for kv in
+                               render_case["parity"] + render_case["online"] + render_case["probe"]]]
+    for path in inputs:
+        assert fx.file_sha256(path) in page, path
+
+
+def test_md_and_html_provenance_hashes_agree(render_case):
+    extra = supplementary(render_case)
+    assert render_md(render_case, extra=["--assets", render_case["assets"]] + extra).returncode == 0
+    assert render_html(render_case, extra=extra).returncode == 0
+    md, page = rendered(render_case, "page.md"), rendered(render_case, "page.html")
+    md_hashes = set(re.findall(r"[0-9a-f]{64}", md))
+    html_hashes = set(re.findall(r"[0-9a-f]{64}", page))
+    inputs = [render_case["summary"], extra[1], extra[3]]
+    inputs += [p for _a, p in [kv.split("=", 1) for kv in
+                               render_case["parity"] + render_case["online"] + render_case["probe"]]]
+    for path in inputs:
+        digest = fx.file_sha256(path)
+        assert digest in md_hashes and digest in html_hashes, path
+
+
+@pytest.mark.parametrize("name,renderer", [("page.html", render_html), ("page.md", render_md)])
+def test_both_outputs_link_the_supplementary_files(render_case, name, renderer):
+    """Finding 12: copied tables / JSON / CSV were named but not linked, and the backend
+    comparison was absent from the page's navigation."""
+    extra = supplementary(render_case)
+    if renderer is render_md:
+        extra = ["--assets", render_case["assets"]] + extra
+    assert renderer(render_case, extra=extra).returncode == 0
+    page = rendered(render_case, name)
+    for target in ("generated/yaw_pilot_tables.md", "generated/yaw_pilot_summary.json",
+                   "generated/yaw_pilot_gaps.csv",
+                   "generated/backend_sensitivity_released_k8.md",
+                   "generated/cpu_protocol/yaw_pilot_tables.md"):
+        assert target in page, (target, name)
+
+
+@pytest.mark.parametrize("name,renderer", [("page.html", render_html), ("page.md", render_md)])
+def test_assets_href_overrides_the_computed_relative_path(render_case, name, renderer):
+    """The finish script stages the assets elsewhere and publishes them under generated/."""
+    extra = supplementary(render_case) + ["--assets-href", "yaw_pilot_results_assets/generated"]
+    if renderer is render_md:
+        extra = ["--assets", render_case["assets"]] + extra
+    assert renderer(render_case, extra=extra).returncode == 0
+    page = rendered(render_case, name)
+    assert "yaw_pilot_results_assets/generated/yaw_pilot_tables.md" in page
+    assert "yaw_pilot_results_assets/generated/backend_sensitivity_released_k8.md" in page
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_a_missing_supplementary_input_is_refused(render_case, renderer):
+    extra = ["--backend-table", os.path.join(render_case["assets"], "nope.md")]
+    if renderer is render_md:
+        extra = ["--assets", render_case["assets"]] + extra
+    done = renderer(render_case, extra=extra)
+    assert done.returncode != 0
+    assert "nope.md" in out(done)
+
+
+def test_md_refuses_to_link_assets_that_are_not_assembled(render_case):
+    """Finding 12: the links have to resolve -- the HTML renderer assembles the assets first."""
+    os.makedirs(render_case["assets"], exist_ok=True)
+    done = render_md(render_case, extra=["--assets", render_case["assets"]])
+    assert done.returncode != 0
+    assert "yaw_pilot_tables.md" in out(done)

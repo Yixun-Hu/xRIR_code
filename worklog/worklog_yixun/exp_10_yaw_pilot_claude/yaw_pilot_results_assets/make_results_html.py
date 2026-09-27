@@ -174,7 +174,19 @@ def main():
     ap.add_argument("--check-online", nargs="*", default=[])
     ap.add_argument("--probe", nargs="*", default=[], help="<arm>=<probe summary JSON>: controls are rendered from the probe run")
     ap.add_argument("--title", default="exp_10 yaw_pilot — results")
+    ap.add_argument("--assets-href", default=None,
+                    help="the published location of --assets, for the relative links (the "
+                         "finish script stages the assets and renames them into place)")
+    ap.add_argument("--backend-table", default=None,
+                    help="the GPU-vs-CPU backend-sensitivity Markdown, linked from the page")
+    ap.add_argument("--cpu-record", default=None,
+                    help="the CPU-protocol record (its tables), linked from the page")
     args = ap.parse_args()
+    vr.assert_ok(["%s: %s is missing" % (flag, path)
+                  for flag, path in (("--backend-table", args.backend_table),
+                                     ("--cpu-record", args.cpu_record))
+                  if path and not os.path.exists(path)],
+                 "refusing to link a supplementary file that is not there")
     s = json.load(open(args.summary))
     vr.assert_ok(vr.verify_summary_inputs(s, label="the canonical summary (%s)" % args.summary),
                  "refusing to render a summary that is not bound to the runs it came from")
@@ -210,13 +222,34 @@ def main():
     input_shas = {os.path.abspath(args.summary): sha(args.summary)}
     for _arm, p in parity_pairs + online_pairs + probe_pairs:
         input_shas[os.path.abspath(p)] = sha(p)
-    rel = os.path.relpath(args.assets, os.path.dirname(os.path.abspath(args.out)))
+    for p in (args.backend_table, args.cpu_record):
+        if p:
+            input_shas[os.path.abspath(p)] = sha(p)
+    rel = args.assets_href or os.path.relpath(args.assets,
+                                              os.path.dirname(os.path.abspath(args.out)))
+
+    def href(path):
+        return vr.link_href(path, args.assets, rel, args.out)
+
     parts = ["<!doctype html><html><head><meta charset='utf-8'><title>%s</title><style>body{font-family:system-ui,sans-serif;max-width:1400px;margin:2em auto;padding:0 1em;color:#222}table{border-collapse:collapse;font-size:13px}th,td{border:1px solid #ccc;padding:3px 7px;text-align:right}th{background:#f3f3f3}td:first-child,th:first-child{text-align:left}.meta{color:#555;font-size:13px}.unit{color:#777;font-weight:normal}.scroll{overflow-x:auto}.note{background:#fff8e1;border-left:4px solid #e69f00;padding:.6em 1em;margin:1em 0}img{max-width:100%%}code{font-size:12px}</style></head><body>" % esc(args.title)]
     parts.append("<h1>%s</h1>" % esc(args.title))
     parts.append("<p class='meta'>Descriptive pilot (plan v3.1): per arm and angle, Δ = paired mean change of the error vs ground truth (α minus 0°), G = mean shift of the prediction at α relative to the prediction at 0° (no ground truth), on the shared comparison mask; %d bootstrap replicates, seeds %s, %.0f %% intervals; query-level and room-cluster (17 rooms) intervals shown separately. Generated %s by %s.</p>" % (
         s.get("n_boot", 0), esc(s.get("seeds")), 100 * (1 - s.get("alpha", 0.05)), esc(s.get("generated_at")), esc(s.get("tool"))))
     parts.extend(note_blocks(s))
     parts.extend(qualification_table(s))
+    links = []
+    for label, path in (("full tables (every angle, every metric, exclusions, broader-population G)",
+                         os.path.join(args.assets, "yaw_pilot_tables.md")),
+                        ("canonical summary JSON (the source of every number on this page)",
+                         os.path.join(args.assets, "yaw_pilot_summary.json")),
+                        ("figure data (CSV)", os.path.join(args.assets, "yaw_pilot_gaps.csv")),
+                        ("backend sensitivity: GPU (primary) vs CPU protocol", args.backend_table),
+                        ("CPU-protocol record", args.cpu_record)):
+        if path and os.path.exists(path):
+            links.append("<li><a href='%s'>%s</a></li>" % (esc(href(path)), esc(label)))
+    if links:
+        parts.append("<h2>Supplementary results and data</h2><ul class='meta'>%s</ul>"
+                     % "".join(links))
     if "yaw_pilot_gaps_all_arms.png" in copied:
         parts.append("<h2>All arms</h2><img src='%s/yaw_pilot_gaps_all_arms.png' alt='all arms'>" % esc(rel))
     for arm in s["arms"]:

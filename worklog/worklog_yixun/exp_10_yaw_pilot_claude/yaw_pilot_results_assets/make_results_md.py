@@ -89,7 +89,29 @@ def main():
     ap.add_argument("--parity", nargs="*", default=[])
     ap.add_argument("--check-online", nargs="*", default=[])
     ap.add_argument("--probe", nargs="*", default=[], help="<arm>=<probe summary JSON>: controls are rendered from the probe run")
+    ap.add_argument("--assets", default=None,
+                    help="the directory the summariser's tables / JSON / CSV are copied to; "
+                         "the supplementary links point into it")
+    ap.add_argument("--assets-href", default=None,
+                    help="the published location of --assets, for the relative links")
+    ap.add_argument("--backend-table", default=None,
+                    help="the GPU-vs-CPU backend-sensitivity Markdown, linked and hashed here")
+    ap.add_argument("--cpu-record", default=None, help="the CPU-protocol record (its tables)")
     a = ap.parse_args()
+    vr.assert_ok(["%s: %s is missing" % (flag, path)
+                  for flag, path in (("--backend-table", a.backend_table),
+                                     ("--cpu-record", a.cpu_record))
+                  if path and not os.path.exists(path)],
+                 "refusing to link a supplementary file that is not there")
+    if a.assets:
+        # The links this report promises have to exist: make_results_html.py assembles the
+        # asset directory, so it runs first (a dangling link is worse than no link).
+        vr.assert_ok(["%s: the asset directory has no %s" % (a.assets, name)
+                      for name in ("yaw_pilot_tables.md", "yaw_pilot_summary.json",
+                                   "yaw_pilot_gaps.csv")
+                      if not os.path.isfile(os.path.join(a.assets, name))],
+                     "refusing to link assets that have not been assembled yet (run "
+                     "make_results_html.py --assets first)")
     s = json.load(open(a.summary))
     vr.assert_ok(vr.verify_summary_inputs(s, label="the canonical summary (%s)" % a.summary),
                  "refusing to write a results page from a summary that is not bound to the "
@@ -148,8 +170,40 @@ def main():
         if arm["arm"] in online:
             path, o = online[arm["arm"]]
             L += ["**check_online** (`%s`): ok = %s." % (path, o.get("ok")), ""]
-    L += ["## Provenance", ""] + ["- %s: execution `%s`, per_sample sha256 `%s`, meta sha256 `%s`, run dir `%s`" % (
-        i["arm"], i["execution_id"], i["per_sample_sha256"], i["meta_sha256"], i["run_dir"]) for i in s.get("inputs", [])] + [""]
+    rel = a.assets_href or (os.path.relpath(a.assets, os.path.dirname(os.path.abspath(a.out)))
+                            if a.assets else None)
+    links = []
+    for label, path in ((("full tables (every angle, every metric, exclusions, "
+                          "broader-population G)"),
+                         os.path.join(a.assets, "yaw_pilot_tables.md") if a.assets else None),
+                        ("canonical summary JSON (the source of every number here)",
+                         os.path.join(a.assets, "yaw_pilot_summary.json") if a.assets else None),
+                        ("figure data (CSV)",
+                         os.path.join(a.assets, "yaw_pilot_gaps.csv") if a.assets else None),
+                        ("backend sensitivity: GPU (primary) vs CPU protocol", a.backend_table),
+                        ("CPU-protocol record", a.cpu_record)):
+        if path and os.path.exists(path):
+            links.append("- [%s](%s)" % (label, vr.link_href(path, a.assets, rel, a.out)))
+    if links:
+        L += ["## Supplementary results and data", ""] + links + [""]
+    # Finding 11: the full sha256 of every input this report was built from, matching the
+    # HTML footer -- truncated hashes cannot be re-verified.
+    inputs = [("canonical summary", a.summary)]
+    inputs += [("%s probe summary" % arm, path) for arm, path in sorted(probe_pairs)]
+    inputs += [("%s parity_exp03" % arm, path) for arm, path in sorted(parity_pairs)]
+    inputs += [("%s check_online" % arm, path) for arm, path in sorted(online_pairs)]
+    if a.backend_table:
+        inputs.append(("backend sensitivity table", a.backend_table))
+    if a.cpu_record:
+        inputs.append(("CPU-protocol record", a.cpu_record))
+    L += ["## Provenance", "",
+          "Every input of this report, with its full sha256 (the HTML page's footer lists the "
+          "same values):", ""]
+    L += ["- %s: `%s` sha256 `%s`" % (label, path, sha(path)) for label, path in inputs] + [""]
+    L += ["Runs the canonical summary was computed from:", ""]
+    L += ["- %s: execution `%s`, per_sample sha256 `%s`, meta sha256 `%s`, run dir `%s`" % (
+        i["arm"], i["execution_id"], i["per_sample_sha256"], i["meta_sha256"], i["run_dir"])
+        for i in s.get("inputs", [])] + [""]
     with open(a.out, "w") as f:
         f.write("\n".join(L))
     print("wrote", a.out)
