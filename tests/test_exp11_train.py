@@ -243,3 +243,42 @@ def test_a_clean_exit_with_no_code_is_recorded_as_zero(tmp_path):
     path = exp11_train.register_trainer(str(attempt))
     exp11_train.record_trainer_exit(path, exp11_train.exit_code(SystemExit()))
     assert (attempt / 'train.exit').read_text().strip() == 'train.exit 0'
+
+
+# --- close review 9 blocker 1: the trainer reads the same grammar --------------------
+# The launcher's `pid_record` and this one must agree byte for byte, or "is a trainer
+# registered" gets two answers.
+
+PID_RECORDS = [
+    ('1457170', True),
+    ('1457170\n', True),
+    ('\n1457170\n', False),
+    ('99999991\n99999992\n', False),
+    (' 1457170\n', False),
+    ('1457170\r\n', False),
+    ('', False),
+    ('1457170\n\n', False),
+    ('12345678901\n', False),
+    ('1234567890\n', True),
+]
+
+
+@pytest.mark.parametrize('content,valid', PID_RECORDS)
+def test_the_trainer_reads_one_pid_record_grammar(tmp_path, content, valid):
+    pidfile = tmp_path / 'child.pid'
+    pidfile.write_text(content)
+    record = exp11_train.pid_record(pidfile)
+    assert (record is not None) is valid, (content, record)
+    if valid:
+        assert record == int(content.strip())
+
+
+@pytest.mark.parametrize('content,valid', PID_RECORDS)
+def test_registration_completeness_follows_that_grammar(tmp_path, content, valid):
+    (tmp_path / 'child.pid').write_text(content)
+    assert exp11_train.registration_complete(tmp_path) is valid
+
+
+def test_a_missing_pid_file_is_simply_not_a_record(tmp_path):
+    assert exp11_train.pid_record(tmp_path / 'nothing') is None
+    assert exp11_train.registration_complete(tmp_path) is False

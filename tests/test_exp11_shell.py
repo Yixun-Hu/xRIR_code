@@ -1001,6 +1001,65 @@ def test_a_trainer_that_wakes_after_the_resolution_trains_nothing(tmp_path):
     assert 'PROMOTE' in out
 
 
+# --- close review 9 blocker 1: one pid-record grammar, read the same way twice ------
+# A pid file says exactly one thing: ^[0-9]{1,10}\n?$. Two readers that disagree about
+# what the bytes mean disagree about whether a trainer exists -- which is how
+# `99999991\n99999992\n` could count as a registration while nothing in it was ever
+# probed for liveness.
+
+PID_RECORDS = [
+    ('1457170', True),                    # no trailing newline: a pid all the same
+    ('1457170\n', True),                  # the ordinary shape
+    ('\n1457170\n', False),               # a leading blank line is not a pid
+    ('99999991\n99999992\n', False),      # two records are not one
+    (' 1457170\n', False),                # leading space
+    ('1457170\r\n', False),               # CRLF is not our line ending
+    ('', False),
+    ('1457170\n\n', False),               # one trailing newline at most
+    ('12345678901\n', False),             # eleven digits is not a pid
+    ('1234567890\n', True),               # ten is the cap
+]
+
+
+@pytest.mark.parametrize('content,valid', PID_RECORDS)
+def test_the_launcher_reads_one_pid_record_grammar(tmp_path, content, valid):
+    """`pid_record` is the single definition both readers use."""
+    pidfile = tmp_path / 'child.pid'
+    pidfile.write_text(content)
+    result = lib('if pid_record {f}; then echo " VALID"; else echo INVALID; fi\n'
+                 'if registration_complete {d}; then echo COMPLETE; else echo PARTIAL; fi\n'
+                 .format(f=pidfile, d=tmp_path))
+    assert result.returncode == 0, result.stderr[-400:]
+    assert ('VALID' in result.stdout) is valid, (content, result.stdout)
+    assert ('COMPLETE' in result.stdout) is valid, (content, result.stdout)
+    if valid:
+        assert result.stdout.split()[0] == content.strip()
+
+
+def test_the_two_readers_never_disagree(tmp_path):
+    """Liveness and completeness are asked of the same bytes, by the same grammar."""
+    pidfile = tmp_path / 'child.pid'
+    pidfile.write_text('99999991\n99999992\n')     # two dead pids, one file
+    result = lib('if registration_complete {d}; then echo COMPLETE; else echo PARTIAL; fi\n'
+                 'if pid_alive {f}; then echo ALIVE; else echo GONE; fi\n'
+                 .format(d=tmp_path, f=pidfile))
+    assert 'PARTIAL' in result.stdout, (
+        'a file that is not one pid may not count as a registration')
+
+
+def test_junk_in_child_pid_keeps_the_marker(tmp_path):
+    """The arm-wide consequence: an unreadable child.pid is not a registration."""
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    stalled = old.parent / 'attempt_20260927T888888'
+    stalled.mkdir()
+    (stalled / 'launching').write_text('launcher 1\n')
+    (stalled / 'child.pid').write_text('99999991\n99999992\n')
+    status, out, err = recovery(old, 'H', tmp_path)
+    assert status == 2, out
+    assert 'unresolved' in err and stalled.name in err
+    assert (stalled / 'launching').is_file()
+
+
 def pid_of(pidfile):
     """The pid in a registration file, if it still names a living process."""
     try:
