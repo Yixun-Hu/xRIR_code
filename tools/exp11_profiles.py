@@ -48,7 +48,8 @@ CODE_SPECS = MP({
     'haa_pipeline_sh': (None, ('tools/exp11_haa_pipeline.sh',)),
     # The launcher sources the pinned exp_06 lifecycle library, so both files are
     # bound: what decides an exp_11 launch is the pair, not the new file alone.
-    'launch_sh': (None, ('tools/exp11_launch.sh', 'tools/exp06_launch.sh')),
+    'launch_sh': (None, ('tools/exp11_launch.sh', 'tools/exp06_launch.sh',
+                         'tools/exp11_lock_holder.py')),
     'smoke': ('tools.exp11_smoke', ()),
     # The summariser is the one shared producer; exp_11 pins the closure it runs itself.
     'summarize_haa': ('tools.exp06_summarize_haa', ()),
