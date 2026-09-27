@@ -148,8 +148,14 @@ all-null and every producer refuses today.
 
 * **Targeted set** — all fourteen `tests/test_exp11_*.py` plus
   `tests/test_exp06_summarize_haa.py` and `tests/test_exp09_sim_eval_closures.py`:
-  TARGETED_PLACEHOLDER
+  **452 passed** in 614 s
+  (`tests/test_exp11_shell.py` alone: **106**, `tests/test_exp11_train.py`: **49**,
+  `tests/test_exp11_lock_holder.py`: **7**). Fix 9 was 411; the 41 new passes are this
+  cycle's grammar table (twice over) and the registration-lock regressions.
 * `bash -n` on both shells, `py_compile` on every changed module and test, and
   `git diff --check 55dc3dc..HEAD`: clean. `tools/exp06_launch.sh` and
   `tools/exp06_finalize.py` are byte-identical to `55dc3dc`.
-* **Full CPU suite** — FULL_SUITE_PLACEHOLDER
+* **Full CPU suite** — run detached at `9f22647` (the same tree as the last code
+  commit `d7c9e62`) to
+  `orientation_cue_fairness_2026-09-27_16:30_suite_full_cpu_9f22647.log` in this record.
+  FIX10_SUITE_RESULT
