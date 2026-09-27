@@ -203,8 +203,8 @@ hold_arm_lock() {  # hold_arm_lock <mode>
     # where the tests exercise it and announced everywhere else.
     if [ "$DRY" -eq 1 ] && [ "${EXP11_TEST_ROOTS:-0}" != 1 ]; then return 0; fi
     mkdir -p -- "$ARM_ROOT" || return 1
-    : > "$LOCK_FILE" 2>/dev/null || [ -f "$LOCK_FILE" ] || {
-        echo "refusing: cannot create the arm lock file $LOCK_FILE" >&2; return 1; }
+    # `>>` creates the file if it is absent and never truncates it, so acquisition
+    # writes nothing -- not even to a file another invocation is holding.
     exec {LOCK_FD}>>"$LOCK_FILE" || {
         echo "refusing: cannot open the arm lock file $LOCK_FILE" >&2; return 1; }
     if ! flock -n "$LOCK_FD"; then
