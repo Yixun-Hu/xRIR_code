@@ -194,13 +194,39 @@ LOCK_HELD=0
 # file carries this nonce, and cleanup acts only where the nonce is still ours.
 LOCK_NONCE=""
 INTERRUPTED=0
+# A lock whose owner file has not landed yet is an acquisition in progress, not a stale
+# lock; only one older than this may be broken.
+LOCK_GRACE_S="${EXP11_LOCK_GRACE_S:-30}"
+BREAKING_DIR=""
+BREAKING_HELD=0
+LOCK_NONCE_CANDIDATE=""
 
+# Every reader of an owner file ends in `|| true`: an absent or unreadable owner is
+# explicit NON-ownership, and `sed`'s failure must never propagate under `set -e` --
+# that is what pre-empted the signal handler's own exit.
 lock_nonce_of() {  # the generation recorded in one lock directory, or nothing
-    sed -n 's/^pid [0-9][0-9]* nonce \([^ ][^ ]*\).*/\1/p' "$1/owner" 2>/dev/null
+    sed -n 's/^pid [0-9][0-9]* nonce \([^ ][^ ]*\).*/\1/p' "$1/owner" 2>/dev/null || true
 }
 
 lock_pid_of() {
-    sed -n 's/^pid \([0-9][0-9]*\).*/\1/p' "$1/owner" 2>/dev/null
+    sed -n 's/^pid \([0-9][0-9]*\).*/\1/p' "$1/owner" 2>/dev/null || true
+}
+
+lock_owner_line() {
+    cat -- "$1/owner" 2>/dev/null | tr -d '\n' || true
+}
+
+lock_inode_of() {
+    stat -c %i -- "$1" 2>/dev/null || true
+}
+
+# Older than the initialisation grace? `mkdir` publishes the pathname before the owner
+# file lands, so a lock without an owner is an acquisition in progress until it is old
+# enough to be an abandoned one.
+lock_older_than_grace() {
+    local age
+    age="$(( $(date +%s) - $(stat -c %Y -- "$1" 2>/dev/null || echo 0) ))"
+    [ "$age" -ge "$LOCK_GRACE_S" ]
 }
 
 lock_is_live() {  # a pid that is gone does not hold a lock; a live one is never overridden
@@ -211,17 +237,29 @@ lock_is_live() {  # a pid that is gone does not hold a lock; a live one is never
 
 # A test-only ordering hook: wait (bounded) for a file to appear. It takes a PATH, never
 # a command, so nothing here evaluates anything the environment supplies.
-lock_barrier() {
-    local file="${EXP11_LOCK_BARRIER:-}" waited=0
+lock_barrier() { lock_wait_for "${EXP11_LOCK_BARRIER:-}"; }
+
+# The same hook at the one point inside acquisition the schedules need to interleave at:
+# after the owner file has landed and before self-verification.
+lock_acquire_barrier() { lock_wait_for "${EXP11_ACQUIRE_BARRIER:-}"; }
+
+lock_wait_for() {
+    local file="$1" waited=0
     [ -n "$file" ] || return 0
     while [ ! -e "$file" ] && [ "$waited" -lt 100 ]; do sleep 0.1; waited=$((waited + 1)); done
 }
 
 release_lock() {
+    release_breaking
     [ "$LOCK_HELD" -eq 1 ] || return 0
     LOCK_HELD=0
-    local now
-    now="$(lock_nonce_of "$LOCK_DIR")"
+    local now=""
+    if [ -f "$LOCK_DIR/owner" ]; then
+        now="$(lock_nonce_of "$LOCK_DIR")"
+    else
+        say "UNLOCK SKIPPED $LOCK_DIR has no owner: this invocation owns nothing there"
+        return 0
+    fi
     if [ -n "$LOCK_NONCE" ] && [ "$now" != "$LOCK_NONCE" ]; then
         say "UNLOCK SKIPPED $LOCK_DIR holds the generation ${now:-none}, not $LOCK_NONCE"
         return 0
@@ -229,6 +267,35 @@ release_lock() {
     rm -f -- "$LOCK_DIR/owner"
     rmdir -- "$LOCK_DIR" 2>/dev/null || true
     say "UNLOCK $LOCK_DIR"
+}
+
+# The BREAKING META-LOCK. Retirement exposes the lock pathname for as long as it takes
+# to re-create it, and nothing may acquire it in that window -- which is what let a
+# breaker and an ordinary caller both end up holding. `take_lock` refuses while this
+# exists, and a second breaker refuses on it rather than racing the first.
+take_breaking() {
+    BREAKING_DIR="$LOCK_DIR.breaking"
+    if ! mkdir -- "$BREAKING_DIR" 2>/dev/null; then
+        echo "refusing: a break of $LOCK_DIR is already in progress" \
+             "($(lock_owner_line "$BREAKING_DIR"))" >&2
+        return 1
+    fi
+    BREAKING_HELD=1
+    printf 'pid %s nonce %s arm %s at %s\n' "$$" "$LOCK_NONCE_CANDIDATE" "$ARM" \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$BREAKING_DIR/owner"
+}
+
+release_breaking() {
+    [ "$BREAKING_HELD" -eq 1 ] || return 0
+    BREAKING_HELD=0
+    local now=""
+    [ ! -f "$BREAKING_DIR/owner" ] || now="$(lock_nonce_of "$BREAKING_DIR")"
+    if [ -n "$now" ] && [ "$now" != "$LOCK_NONCE_CANDIDATE" ]; then
+        say "UNBREAKING SKIPPED $BREAKING_DIR is not this invocation's"
+        return 0
+    fi
+    rm -f -- "$BREAKING_DIR/owner"
+    rmdir -- "$BREAKING_DIR" 2>/dev/null || true
 }
 
 # A signal handler must END this invocation. A cleanup-only handler returns, and bash
@@ -248,24 +315,37 @@ not_interrupted() {
     return 1
 }
 
-# break_lock <observed-nonce>: retire the SPECIFIC stale lock this invocation observed.
-# Two breakers that read the same stale owner must not both proceed, and a breaker whose
-# observation is out of date must not retire the generation that replaced it. The rename
-# is the serialisation point: it fails for the second breaker once the first has moved
-# the directory aside, and its target is named for the observed generation, so a repeat
-# of the same observation collides instead of succeeding twice.
+# break_lock <observed-nonce>: retire the SPECIFIC stale lock this invocation observed,
+# under the breaking meta-lock so nothing can acquire the exposed pathname meanwhile.
+#
+# The two schedules the close review demonstrated are closed as follows. (1) An acquirer
+# paused between `mkdir` and its owner write leaves an owner-less lock: that is an
+# acquisition in progress until it is older than the grace, so the breaker refuses rather
+# than retiring it. (2) A breaker whose observation is out of date fails the generation
+# comparison, and because the meta-lock is held for the whole break, no third caller can
+# slip into the exposed pathname even in the defensive restore branch.
 break_lock() {
-    local observed="$1" retired="$LOCK_DIR.broken.$1" now
+    local observed="$1" retired="$LOCK_DIR.broken.${1:-empty}" now
     [ -d "$LOCK_DIR" ] || return 0
+    take_breaking || return 1
     if lock_is_live "$LOCK_DIR"; then
         echo "refusing: --break-lock will not override the live owner of $LOCK_DIR" \
-             "($(cat -- "$LOCK_DIR/owner" 2>/dev/null | tr -d '\n'))" >&2
+             "($(lock_owner_line "$LOCK_DIR"))" >&2
         return 1
+    fi
+    if [ ! -f "$LOCK_DIR/owner" ]; then
+        if ! lock_older_than_grace "$LOCK_DIR"; then
+            echo "refusing: $LOCK_DIR has no owner file yet and is younger than the" \
+                 "${LOCK_GRACE_S}s grace: that is an acquisition in progress, not a" \
+                 "stale lock" >&2
+            return 1
+        fi
     fi
     now="$(lock_nonce_of "$LOCK_DIR")"
     if [ "$now" != "$observed" ]; then
         echo "refusing: $LOCK_DIR now holds the generation ${now:-none}, not the" \
-             "$observed this invocation observed; another publication has taken it" >&2
+             "${observed:-none} this invocation observed; another publication has" \
+             "taken it" >&2
         return 1
     fi
     lock_barrier
@@ -274,8 +354,8 @@ break_lock() {
              "another --break-lock reached it first" >&2
         return 1
     fi
-    # The rename is atomic but the observation preceded it: if what moved is not what was
-    # observed, put it back and refuse rather than publish over a live generation.
+    # Defensive: with the meta-lock held nothing else can have replaced the directory
+    # between the comparison and the rename, so this branch should be unreachable.
     now="$(lock_nonce_of "$retired")"
     if [ "$now" != "$observed" ]; then
         mv -T -- "$retired" "$LOCK_DIR" 2>/dev/null \
@@ -283,8 +363,7 @@ break_lock() {
         echo "refusing: the lock changed generation while it was being retired" >&2
         return 1
     fi
-    say "BREAKLOCK $LOCK_DIR retired as $retired owner=$(cat -- "$retired/owner" \
-        2>/dev/null | tr -d '\n')"
+    say "BREAKLOCK $LOCK_DIR retired as $retired owner=$(lock_owner_line "$retired")"
 }
 
 take_lock() {  # take_lock <mode>
@@ -294,25 +373,56 @@ take_lock() {  # take_lock <mode>
     # where the tests exercise it and announced everywhere else.
     if [ "$DRY" -eq 1 ] && [ "${EXP11_TEST_ROOTS:-0}" != 1 ]; then return 0; fi
     mkdir -p -- "$ARM_ROOT" || return 1
+    # The generation is chosen BEFORE anything is created, so the meta-lock and the lock
+    # itself carry the same invocation identity.
+    LOCK_NONCE_CANDIDATE="$$-$(date -u +%s%N)-${RANDOM}${RANDOM}"
     if [ "$BREAK_LOCK" -eq 1 ] && [ -d "$LOCK_DIR" ]; then
-        break_lock "$(lock_nonce_of "$LOCK_DIR")" || return 1
+        break_lock "$(lock_nonce_of "$LOCK_DIR")" || { release_breaking; return 1; }
+    fi
+    if [ -d "$LOCK_DIR.breaking" ] && [ "$BREAKING_HELD" -eq 0 ]; then
+        echo "refusing: a break of $LOCK_DIR is in progress; the lock pathname is not" \
+             "available while it is being retired" >&2
+        return 1
     fi
     if ! mkdir -- "$LOCK_DIR" 2>/dev/null; then
         local live=no
         lock_is_live "$LOCK_DIR" && live=yes
         echo "refusing: another publication holds the lock $LOCK_DIR (owner:" \
-             "$(cat -- "$LOCK_DIR/owner" 2>/dev/null | tr -d '\n'), live=$live)." \
+             "$(lock_owner_line "$LOCK_DIR"), live=$live)." \
              "Publishing one arm is serialised; a stale lock is cleared only with" \
              "--break-lock, never automatically" >&2
         return 1
     fi
-    LOCK_NONCE="$$-$(date -u +%s%N)-${RANDOM}${RANDOM}"
+    local inode
+    inode="$(lock_inode_of "$LOCK_DIR")"
+    LOCK_NONCE="$LOCK_NONCE_CANDIDATE"
     LOCK_HELD=1
     trap release_lock EXIT
     trap 'on_signal INT 2' INT
     trap 'on_signal TERM 15' TERM
-    printf 'pid %s nonce %s mode %s arm %s at %s\n' "$$" "$LOCK_NONCE" "$1" "$ARM" \
-        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK_DIR/owner"
+    # The owner file lands atomically inside the directory this invocation created: a
+    # write into a retired directory fails here rather than appearing in somebody else's.
+    if ! { printf 'pid %s nonce %s mode %s arm %s at %s\n' "$$" "$LOCK_NONCE" "$1" \
+               "$ARM" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK_DIR/.owner.$$" \
+           && mv -- "$LOCK_DIR/.owner.$$" "$LOCK_DIR/owner"; }; then
+        LOCK_HELD=0
+        echo "refusing: could not record ownership of $LOCK_DIR; it was retired while" \
+             "this invocation was acquiring it" >&2
+        return 1
+    fi
+    lock_acquire_barrier
+    # SELF-VERIFICATION. Between `mkdir` and now the directory may have been retired and
+    # re-created by somebody else; this invocation then owns nothing and must remove
+    # nothing. Same inode, our own generation, and no break in progress.
+    if [ "$(lock_inode_of "$LOCK_DIR")" != "$inode" ] \
+       || [ "$(lock_nonce_of "$LOCK_DIR")" != "$LOCK_NONCE" ] \
+       || { [ -d "$LOCK_DIR.breaking" ] && [ "$BREAKING_HELD" -eq 0 ]; }; then
+        LOCK_HELD=0
+        echo "refusing: $LOCK_DIR is no longer the lock this invocation created" \
+             "(inode or generation changed, or a break began); nothing was removed" >&2
+        return 1
+    fi
+    release_breaking
 }
 
 # published_target: what `final` resolves to under this arm root, or nothing.
@@ -402,6 +512,7 @@ ARM_ROOT="${ARM_ROOT:-$SIMPOR_ROOT}"
 CANONICAL_ATTEMPT="${CANONICAL_ATTEMPT:-}"
 BREAK_LOCK="${BREAK_LOCK:-0}"
 INTERRUPTED="${INTERRUPTED:-0}"
+LOCK_NONCE_CANDIDATE="${LOCK_NONCE_CANDIDATE:-}"
 REPLACE_FINAL="${REPLACE_FINAL:-0}"
 DRY="${DRY:-0}"
 ARM="${ARM:-H}"

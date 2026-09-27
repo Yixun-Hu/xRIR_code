@@ -653,7 +653,9 @@ def test_two_interleaved_breakers_leave_exactly_one_holder(tmp_path):
         ['bash', '-c',
          'set -euo pipefail\nEXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh\n'
          'ARM_ROOT={root}\nDRY=0\nARM=H\nBREAK_LOCK=1\ntake_lock finalize\n'
-         'echo SLOW_ACQUIRED\nsleep 3\n'.format(root=root)],
+         'echo SLOW_ACQUIRED\nsleep 1\n'
+         '[ "$(lock_nonce_of "$LOCK_DIR")" = "$LOCK_NONCE" ] && echo HELD_THROUGHOUT\n'
+         .format(root=root)],
         cwd=str(REPO), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         env=dict(os.environ, CUDA_VISIBLE_DEVICES='', EXP11_LOCK_BARRIER=str(gate)))
     fast = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nBREAK_LOCK=1\ntake_lock finalize\n'
@@ -662,7 +664,10 @@ def test_two_interleaved_breakers_leave_exactly_one_holder(tmp_path):
     slow_out, slow_err = slow.communicate(timeout=60)
     acquired = ('FAST_ACQUIRED' in fast.stdout) + ('SLOW_ACQUIRED' in slow_out)
     assert acquired == 1, (fast.stdout, fast.stderr, slow_out, slow_err)
-    assert (root / LOCK).is_dir(), 'the loser removed the winner\'s lock'
+    # The winner still held its own generation while the loser was running and refusing.
+    assert 'HELD_THROUGHOUT' in slow_out or 'FAST_ACQUIRED' in fast.stdout
+    if 'SLOW_ACQUIRED' in slow_out:
+        assert 'HELD_THROUGHOUT' in slow_out, (slow_out, fast.stdout, fast.stderr)
 
 
 # --- close review 4: the acquisition race and a cleanup path that bypasses the exit --
@@ -746,13 +751,15 @@ def test_schedule_one_acquirer_paused_between_mkdir_and_owner(tmp_path):
         time.sleep(0.05)
     breaker = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nBREAK_LOCK=1\ntake_lock finalize\n'
                   'echo ACQUIRED\nLOCK_HELD=0\n'.format(root=root))
+    # While the acquirer is still paused -- and therefore still holding whatever it got --
+    # an ordinary third caller must find the arm locked.
+    third = lib('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\necho ACQUIRED\n'.format(
+        root=root))
     gate.write_text('go\n')
     out, err = acquirer.communicate(timeout=60)
     assert holders(out, breaker.stdout) == 1, (out, err, breaker.stdout, breaker.stderr)
-    third = lib('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\necho ACQUIRED\n'.format(
-        root=root))
-    if 'ACQUIRED' in out:                                  # the acquirer still holds it
-        assert 'ACQUIRED' not in third.stdout
+    assert 'ACQUIRED' not in third.stdout, (third.stdout, third.stderr)
+    assert not (root / LOCK).exists(), 'the holder released it on exit, nobody else did'
 
 
 def test_schedule_two_breaker_observed_an_empty_generation(tmp_path):
