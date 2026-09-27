@@ -671,7 +671,7 @@ def load_job_spec(path, expect):
     _require(not spec.get(other), 'a {}-frame job spec declares no {}'.format(
         spec['frame'], other))
     if spec['frame'] == 'heading' or spec['backbone'] == ADAPTER_BACKBONE:
-        rolls = _mapping(spec.get(cue), 'job spec ' + cue)
+        rolls = _mapping(spec.get(cue) or {}, 'job spec ' + cue)
         absent = [room for room in spec['rooms'] if type(rolls.get(room)) is not int
                   or not 0 <= rolls[room] < WIDTH]
         _require(not absent, 'job spec records no {} roll in [0, {}) for {}'.format(
