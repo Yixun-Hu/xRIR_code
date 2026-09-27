@@ -801,6 +801,54 @@ def test_a_launch_that_recorded_its_child_blocks_the_arm_too(tmp_path):
         drain(attempt / 'child.pipe')
 
 
+# --- close review 8 blocker 1: a child.pid is a registration only when it has a pid ---
+
+
+@pytest.mark.parametrize('content', ['', 'SIGNAL TERM\n', '\n', 'not-a-pid\n'])
+def test_an_incomplete_child_pid_leaves_the_launch_unresolved(tmp_path, content):
+    """The file existing is not the registration; the pid in it is.
+
+    The shell creates ``child.pid`` by redirection before anything is written into it,
+    so a crash in that instant leaves a file with no pid -- no liveness to find, and,
+    if its mere existence counted, no marker either. The arm would read as quiet with a
+    trainer still running.
+    """
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    stalled = old.parent / 'attempt_20260927T333333'
+    stalled.mkdir()
+    (stalled / 'launching').write_text('launcher 1\nat 2026-09-27T00:00:00+00:00\n')
+    (stalled / 'child.pid').write_text(content)
+    status, out, err = recovery(old, 'H', tmp_path)
+    assert status == 2, out
+    assert 'PROMOTE' not in out
+    assert 'unresolved' in err and stalled.name in err
+    assert (stalled / 'launching').is_file(), 'the marker must survive'
+
+
+def test_a_complete_child_pid_of_a_dead_trainer_resolves_the_launch(tmp_path):
+    """The other side: a real pid that is simply gone is a finished launch."""
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    finished = old.parent / 'attempt_20260927T333333'
+    finished.mkdir()
+    (finished / 'child.pid').write_text('{}\n'.format(2 ** 22 - 1))   # long gone
+    status, out, err = recovery(old, 'H', tmp_path)
+    assert status == 0, err[-500:]
+    assert 'PROMOTE' in out
+
+
+@pytest.mark.parametrize('content,cleared', [('4321\n', True), ('', False),
+                                             ('SIGNAL TERM\n', False)])
+def test_the_marker_is_withdrawn_only_against_a_real_registration(tmp_path, content,
+                                                                  cleared):
+    attempt = tmp_path / 'xRIR_simpor_8_shot' / 'attempt_20260927T444444'
+    attempt.mkdir(parents=True)
+    (attempt / 'launching').write_text('launcher 1\n')
+    (attempt / 'child.pid').write_text(content)
+    result = lib('clear_launching {}\n'.format(attempt))
+    assert result.returncode == 0, result.stderr[-300:]
+    assert (attempt / 'launching').is_file() is not cleared
+
+
 def pid_of(pidfile):
     """The pid in a registration file, if it still names a living process."""
     try:
