@@ -166,7 +166,14 @@ try:
     if init == "control_adapter":
         pinned, source = exp04_profiles.CONTROL["sha256"], "the registered exp_01 control"
     elif init == "yawaug_adapter":
+        # Arm K starts from the approved exp_04 checkpoints.aug, so the record that
+        # resolves it must be the one exp_11 approved as reused.approved_digests_exp04 -
+        # checked here, before it is read, and not only through the exp_06 pin.
         from tools import exp06_finalize as finalizer
+        exp04_path = exp04_profiles.APPROVED_DIGESTS_PATH
+        if provenance.sha256_file(exp04_path) != approved["reused"]["approved_digests_exp04"]:
+            raise ValueError("exp_04 approvals " + str(exp04_path) + " are not the bytes "
+                             "exp_11 approved as reused.approved_digests_exp04")
         aug = finalizer.exp04_aug_checkpoint(exp06_approved)
         pinned, source = aug["checkpoint"]["sha256"], "exp_04\x27s approved checkpoints.aug"
     else:

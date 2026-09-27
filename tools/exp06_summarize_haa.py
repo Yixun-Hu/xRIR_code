@@ -39,6 +39,7 @@ from pathlib import Path
 import numpy as np
 
 from sim_to_real import summarize_haa as legacy
+from tools import exp04_profiles
 from tools.exp04_profiles import CONTROL as EXP01_CONTROL, CYL as EXP01_CYL
 from tools import exp06_approvals_api as approvals_api
 from tools import exp06_bootstrap as bootstrap
@@ -1411,6 +1412,63 @@ def _repo_path(path, repo=REPO):
     return Path(path) if Path(path).is_absolute() else Path(repo) / path
 
 
+def check_exp11_producer(exp11_approved, identity, exploratory=False):
+    """exp_11's own ``code.summarize_haa`` against the producer closure that is running.
+
+    The historical gate (``check_producer_identity``) compares exp_06's record and stays
+    exactly as it was; this is the same comparison for the record exp_11 publishes under,
+    so an exp_11 phase cannot be produced by a closure exp_11 never approved.
+    """
+    if exp11_approved is None:
+        return []
+    pinned = (exp11_approved.get('code') or {}).get('summarize_haa')
+    if identity['sha256'] == pinned:
+        return []
+    deviation = ('this producer ran the closure {}, not the approved exp_11 '
+                 'code.summarize_haa {}'.format(identity['sha256'], pinned))
+    _require(exploratory, deviation)
+    return [deviation]
+
+
+def check_exp11_reused(exp11_approved, receipt, receipt_path, repo=REPO, inputs=None):
+    """exp_11's three ``reused`` identities against the records this run consumed.
+
+    ``approved_digests_exp04`` names the record ``exp04_aug_checkpoint`` reads to resolve
+    the initialisation of arms E, G and K; ``approved_digests_exp06`` names the record
+    that supplies the heading artefacts and arm C's epoch; ``legacy_receipt`` names the
+    hash receipt the legacy branch was admitted through, by **path and digest**. A value
+    that is populated but wrong is exactly the case a null-field check cannot see, so
+    each is compared with the bytes actually read and bound into ``inputs``.
+    """
+    if exp11_approved is None:
+        return {}
+    reused = exp11_approved['reused']
+    bound = {}
+    for key, path in (('approved_digests_exp04', exp04_profiles.APPROVED_DIGESTS_PATH),
+                      ('approved_digests_exp06', approvals_api.approved_path_default())):
+        file = _repo_path(path, repo)
+        _require(file.is_file(), 'the record exp_11 pins as reused.{} is missing: '
+                 '{}'.format(key, file))
+        digest = provenance.sha256_file(file)
+        _require(digest == reused[key], 'the record {} consumed for reused.{} hashes to '
+                 '{}, not the approved {}'.format(file, key, digest, reused[key]))
+        bound[str(file.resolve())] = digest
+        if inputs is not None:
+            bind(inputs, file, digest)
+    pinned = reused['legacy_receipt']
+    declared = _repo_path(pinned['path'], repo)
+    _require(declared.is_file(), 'the receipt exp_11 pins as reused.legacy_receipt is '
+             'missing: {}'.format(declared))
+    _require(declared.resolve() == Path(receipt_path).resolve(),
+             'exp_11 approves the legacy receipt {}, but this run was admitted through '
+             '{}'.format(declared, receipt_path))
+    _require(receipt['sha256'] == pinned['sha256'], 'the legacy receipt consumed hashes '
+             'to {}, not the approved reused.legacy_receipt.sha256 {}'.format(
+                 receipt['sha256'], pinned['sha256']))
+    bound[str(declared.resolve())] = receipt['sha256']
+    return bound
+
+
 def exp11_approvals(exploratory, config, path=None, commit=None, repo=REPO):
     """exp_11's own approvals record, when this run publishes an arm exp_11 admitted.
 
@@ -2236,6 +2294,10 @@ def main(argv=None):
                                     args.gate_g1)
     exp11_approved, exp11_identity = exp11_approvals(
         args.exploratory, config, args.exp11_approved, args.approved_commit)
+    # Blocker 2: an approval value is evidence only where it is compared with what ran.
+    deviations = deviations + check_exp11_producer(exp11_approved, identity,
+                                                   args.exploratory)
+    check_exp11_reused(exp11_approved, receipt, args.legacy_receipt, REPO, extra)
     inits = ({} if args.exploratory
              else expected_inits(approved, new_arms, extra, exp11_approved))
     for arm in new_arms:
