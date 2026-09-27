@@ -84,7 +84,7 @@ import torch
 from model.xrir_exp11_registry import BACKBONES_EXP11, build_xrir_exp11
 from sim_to_real.haa_dataset import ROOMS
 from tools import exp06_finalize as base
-from tools import exp06_heading, exp11_profiles, exp11_recipe, provenance
+from tools import exp06_heading, exp11_profiles, exp11_recipe, exp11_smoke, provenance
 from tools.exp06_finalize import (_is_sha256, _load_torch, _mapping, _read_json, _require,
                                   _resolve, _state_dict, artifacts, closure_digest,
                                   closure_paths, confined)
@@ -99,7 +99,8 @@ PROVENANCE_RUN_TYPE = {'exp11_train': 'full', 'exp11_haa_finetune': 'exp11_haa_t
                        'exp11_haa_eval': 'exp11_haa_eval'}
 ENTRY_MODULES = {'exp11_train': 'tools.exp11_train',
                  'exp11_haa_finetune': 'tools.exp11_haa_finetune',
-                 'exp11_haa_eval': 'tools.exp11_haa_eval'}
+                 'exp11_haa_eval': 'tools.exp11_haa_eval',
+                 'exp11_smoke': exp11_smoke.RUNNER}
 HAA_CODE_KEY = {'exp11_haa_finetune': 'haa_finetune', 'exp11_haa_eval': 'haa_eval'}
 # The semantic role each serialized type plays in the protocol checks.
 ROLE_OF = {'exp11_haa_finetune': 'haa_train', 'exp11_haa_eval': 'haa_eval'}
@@ -755,3 +756,151 @@ def haa_job_completion(run_dir, children, expect, repo, job_spec, log, child_exi
                   admissible_arm=True)
     fields.update(haa_job_evidence(run_dir, children, expect, repo, job_spec))
     return base.write_completion(run_dir / 'completion.json', fields)
+
+
+SMOKE_ROOT = 'ckpt/exp11/_smoke'    # the disposable tree a finalised diagnostic may write in
+ARTIFACT_DIR = 'run'                # the launcher's --save-dir inside a diagnostic run dir
+DIAGNOSTIC_PROVENANCE = ('run_type', 'repo', 'reviewed_commit', 'source_closures',
+                         'git_state', 'environment', 'command', 'registry_sha256')
+DIAGNOSTIC_RECEIPT = ('runner', 'runner_closure_sha256', 'kind', 'entry', 'argv', 'run_type',
+                      'exit_status', 'outcome', 'exploratory', 'started_at', 'ended_at',
+                      'wall_s', 'peak_bytes', 'alarm_seconds', 'max_gb', 'admissible_arm')
+
+
+def smoke_run_dir(run_dir, repo):
+    """A finalised diagnostic lives in exp_11's disposable smoke tree and nowhere else."""
+    root = _resolve(SMOKE_ROOT, repo).resolve()
+    path = Path(run_dir).resolve()
+    _require(path != root and root in path.parents,
+             '{} is not inside the disposable smoke tree {}'.format(path, root))
+    return path
+
+
+def diagnostic_receipt(receipt):
+    """The runner's identity, the enumerated kind, its budgets, timing and memory."""
+    _require(receipt is not None, 'a diagnostic run needs its --receipt')
+    path = Path(receipt)
+    _require(path.is_file(), 'missing smoke receipt: {}'.format(receipt))
+    record = _read_json(path, 'smoke receipt')
+    _require(record.get('diagnostic') is True, 'the smoke receipt is not marked diagnostic')
+    _require(record.get('admissible_arm') is False,
+             'an exp_11 diagnostic is never an admissible arm; its receipt claims {!r}'.format(
+                 record.get('admissible_arm')))
+    missing = [key for key in DIAGNOSTIC_RECEIPT if key not in record]
+    _require(not missing, 'the smoke receipt is incomplete: missing ' + ', '.join(missing))
+    spec = exp11_smoke.kind_spec(record['kind'])
+    _require(record['runner'] == exp11_smoke.RUNNER,
+             'the smoke receipt records runner {!r}'.format(record['runner']))
+    _require(_is_sha256(record['runner_closure_sha256']),
+             'the smoke receipt records no runner closure digest')
+    _require(record['entry'] == spec['entry'] and record['run_type'] == spec['run_type'],
+             'the {} receipt must record the entry {!r} and run_type {!r}, not {!r}/{!r}'
+             .format(record['kind'], spec['entry'], spec['run_type'], record['entry'],
+                     record['run_type']))
+    _require(record['outcome'] in exp11_smoke.OUTCOMES,
+             'the smoke receipt records outcome {!r}'.format(record['outcome']))
+    _require(type(record['exit_status']) is int and type(record['exploratory']) is bool,
+             'the smoke receipt records a malformed exit_status/exploratory')
+    argv = record['argv']
+    _require(isinstance(argv, list) and all(isinstance(token, str) for token in argv),
+             'the smoke receipt argv {!r} is not a list of strings'.format(argv))
+    _require(record['kind'] != 'probe' or '--no-save' in argv,
+             'a probe must run with --no-save; its receipt records argv {!r}'.format(argv))
+    for key in ('wall_s', 'alarm_seconds', 'max_gb'):
+        _require(base._finite('the smoke receipt ' + key, record[key]) >= 0,
+                 'the smoke receipt {} is {!r}'.format(key, record[key]))
+    _require(base._positive('the smoke receipt alarm_seconds', record['alarm_seconds'])
+             <= spec['alarm_seconds'], 'the receipt claims a {} s alarm, above the {} the '
+             '{} kind registers'.format(record['alarm_seconds'], spec['alarm_seconds'],
+                                        record['kind']))
+    _require(base._positive('the smoke receipt max_gb', record['max_gb']) <= spec['max_gb'],
+             'the receipt claims a {} GiB ceiling, above the {} the {} kind registers'.format(
+                 record['max_gb'], spec['max_gb'], record['kind']))
+    _require(type(record['peak_bytes']) is int and record['peak_bytes'] >= 0,
+             'the smoke receipt peak_bytes is {!r}'.format(record['peak_bytes']))
+    ended = base._timestamp(record['ended_at'], 'ended_at')
+    _require(ended >= base._timestamp(record['started_at'], 'started_at'),
+             'the smoke receipt ended_at precedes its started_at')
+    return record, path, spec
+
+
+def check_receipt_consistency(fields, record, window):
+    """An outcome must agree with its own status, resources and the launcher's window."""
+    _require(record.get('command') == [fields['kind']] + fields['argv'],
+             'the smoke receipt argv is not the child command {!r} its provenance '
+             'recorded'.format(record.get('command')))
+    _require(record.get('kind') == fields['kind'] and record.get('entry') == fields['entry'],
+             'the smoke receipt and its provenance name different diagnostics')
+    _require(record.get('admissible_arm') is False,
+             'an exp_11 diagnostic provenance is never an admissible arm')
+    status, outcome = fields['exit_status'], fields['outcome']
+    if outcome == 'ok':
+        _require(status == 0, 'outcome ok with exit_status {}'.format(status))
+        _require(fields['peak_bytes'] <= fields['max_gb'] * base.GIB,
+                 'outcome ok with a peak of {} bytes over its {} GiB budget'.format(
+                     fields['peak_bytes'], fields['max_gb']))
+        _require(fields['wall_s'] <= fields['alarm_seconds'],
+                 'outcome ok after {} s over its {} s budget'.format(
+                     fields['wall_s'], fields['alarm_seconds']))
+    else:
+        _require(status != 0, 'outcome {!r} with exit_status 0'.format(outcome))
+    started = base._timestamp(fields['started_at'], 'started_at')
+    ended = base._timestamp(fields['ended_at'], 'ended_at')
+    _require(base._timestamp(window['started_at'], 'started_at') <= started,
+             'the receipt started before the child the launcher spawned')
+    _require(ended <= base._timestamp(window['ended_at'], 'ended_at')
+             + base.datetime.timedelta(seconds=1),
+             'the receipt ended after the child exited')
+    return status == 0 and outcome == 'ok'
+
+
+def diagnostic_artifacts(run_dir, spec, repo):
+    """The kind's artifact contract, inside the disposable tree and nowhere else."""
+    root = smoke_run_dir(run_dir, repo)
+    if spec['artifacts'] == ('provenance.json',):
+        return {}
+    directory = confined(root / ARTIFACT_DIR, root, 'artefact directory')
+    _require(directory.is_dir(), 'missing artefact directory {}'.format(directory))
+    confined(directory / 'args.json', root, 'artefact')
+    args = _read_json(directory / 'args.json', 'args.json')
+    _require(_resolve(args.get('save_dir') or '', repo).resolve() == directory,
+             'args.json records the save_dir {!r}, not the {} being finalized'.format(
+                 args.get('save_dir'), directory))
+    names = list(spec['artifacts'])
+    if spec['run_type'] == 'haa_smoke_eval':
+        rooms, tag = args.get('rooms'), args.get('tag', '')
+        _require(isinstance(rooms, list) and rooms and all(room in ROOMS for room in rooms),
+                 'args.json records the rooms {!r}'.format(rooms))
+        _require(isinstance(tag, str), 'args.json records the tag {!r}'.format(tag))
+        names.append('metrics_all{}.json'.format(tag))
+        for room in rooms:
+            names += ['metrics_{}{}.json'.format(room, tag),
+                      'per_sample_{}{}.json'.format(room, tag)]
+    unregistered = sorted(set(item.name for item in directory.iterdir()) - set(names))
+    _require(not unregistered, '{} holds unregistered artefacts: {}'.format(
+        directory, ', '.join(unregistered)))
+    return artifacts(directory, sorted(names), root=root)
+
+
+def diagnostic_evidence(run_dir, receipt, child_exit, repo, window):
+    """A diagnostic proves nothing about an arm, but must prove what it cost."""
+    fields, path, spec = diagnostic_receipt(receipt)
+    record = base.load_provenance(run_dir, spec['run_type'],
+                                  required=DIAGNOSTIC_PROVENANCE, identity=False)
+    verify_source_closure(record, 'exp11_smoke', repo)
+    admission = verify_approvals(record, repo, 'exp11_smoke')
+    passed = check_receipt_consistency(fields, record, window) and child_exit == 0
+    hashes = {}
+    if spec['run_type'] != 'probe':
+        _require(passed, 'a finalised HAA diagnostic must have succeeded: the receipt '
+                 'records outcome {!r} with exit_status {}, and the child exited {}'.format(
+                     fields['outcome'], fields['exit_status'], child_exit))
+        hashes = diagnostic_artifacts(run_dir, spec, repo)
+    return dict(artifacts=hashes, passed=passed, kind=fields['kind'], **admission,
+                receipt={'path': str(path.resolve()), 'sha256': provenance.sha256_file(path),
+                         'runner': fields['runner'], 'entry': fields['entry'],
+                         'kind': fields['kind'], 'exit_status': fields['exit_status'],
+                         'outcome': fields['outcome'], 'wall_s': fields['wall_s'],
+                         'peak_bytes': fields['peak_bytes'],
+                         'alarm_seconds': fields['alarm_seconds'],
+                         'max_gb': fields['max_gb']})
