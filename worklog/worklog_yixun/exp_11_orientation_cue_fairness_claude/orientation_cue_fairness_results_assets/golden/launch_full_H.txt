@@ -7,7 +7,6 @@ SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orienta
 PIDFILE ckpt/exp11/pretrain/xRIR_simpor_8_shot/attempt_<UTC>/launch.pid
 CEILING 129600s
 RUN nohup setsid timeout --kill-after=60 129600 <PYTHON> tools/exp11_train.py --backbone simple_oriented --save-dir ckpt/exp11/pretrain/xRIR_simpor_8_shot/attempt_<UTC> --num-shot 8 --max-len 9600 --lr 1e-3 --weight-decay 1e-4 --decay-epochs 3 --lr-gamma 0.1 --epochs 12 --batch-size 32 --accum-steps 2 --num-workers 12 --seed 0 --tf32 --log-interval 50 --save-every 500 --epoch-ckpt-every 1 --yaw-aug 0 --yaw-aug-seed 0 --yaw-aug-width 512 --run-type full --approved worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_results_assets/approved_digests.json --reviewed-commit cccccccccccccccccccccccccccccccccccccccc
-LOCK ckpt/exp11/pretrain/xRIR_simpor_8_shot/.publish.lock
 MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_<UTC>_train_full_H.log
 ABORT ckpt/exp11/pretrain/xRIR_simpor_8_shot/attempt_<UTC>_ABORTED_child_exit_<code>
 RUN <PYTHON> tools/exp11_finalize.py --run-dir ckpt/exp11/pretrain/xRIR_simpor_8_shot/attempt_<UTC> --run-type exp11_train --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_<UTC>_train_full_H.log --child-exit <code> --owner-pid <pid>

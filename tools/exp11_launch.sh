@@ -387,7 +387,6 @@ full)
            --epoch-ckpt-every 1 --yaw-aug "$ARM_YAW" --yaw-aug-seed 0 --yaw-aug-width 512
            --run-type full --approved "$APPROVED" --reviewed-commit "$COMMIT")
     say "RUN nohup setsid ${child[*]}"
-    hold_arm_lock full || exit 2   # publishing this arm is serialised with any recovery
     if [ "$DRY" -eq 1 ]; then
         say "MARKER EXP06_CHILD_EXIT <code> <iso> >> $log"
         abort "$attempt" "$log" 'child_exit_<code>'
