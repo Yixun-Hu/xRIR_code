@@ -59,39 +59,42 @@ PRE_G=0                                # did the asset directory exist before th
 declare -A PRE_REPORT=()               # ... and each of the two reports?
 KEEP_BACKUPS=0                         # restoration failed: the backups are the last copies
 restore() {   # <what failed> — put all three artefacts back exactly as they were
+  # Nothing here hides why an operation failed: whatever `rm` / `mv` print is the diagnosis
+  # for the KEPT list below, so it is left on stderr rather than discarded.
   local what=$1 restored="" kept="" pre f
   PUB_STATE=rolled_back
   if [ -d "$PREV" ]; then                        # the previous asset set was moved aside
-    rm -rf "$G" 2>/dev/null || true
-    if [ ! -e "$G" ] && mv "$PREV" "$G" 2>/dev/null; then restored="$restored $G"
+    rm -rf "$G" || true
+    if [ ! -e "$G" ] && mv "$PREV" "$G"; then restored="$restored $G"
     else kept="$kept $PREV (the asset set this run replaced)"; fi
   elif [ "$PRE_G" = 0 ] && [ -d "$G" ]; then     # there was none: this run created it
-    rm -rf "$G" 2>/dev/null || true
+    rm -rf "$G" || true
     if [ ! -e "$G" ]; then restored="$restored $G (removed: this run created it)"
     else kept="$kept $G (this run created it and it could not be removed)"; fi
   fi
   for f in $REPORTS; do
     pre=${PRE_REPORT[$f]:-0}
     if [ -f "$PREVR/$f" ]; then                  # a backup exists: put the original back
-      rm -f "$E/$f" 2>/dev/null || true
-      if [ ! -e "$E/$f" ] && mv "$PREVR/$f" "$E/$f" 2>/dev/null; then restored="$restored $E/$f"
+      rm -f "$E/$f" || true
+      if [ ! -e "$E/$f" ] && mv "$PREVR/$f" "$E/$f"; then restored="$restored $E/$f"
       else kept="$kept $PREVR/$f (the $f this run replaced)"; fi
     elif [ "$pre" = 0 ] && [ -f "$E/$f" ]; then  # absent before this run: absent after it
-      rm -f "$E/$f" 2>/dev/null || true
+      rm -f "$E/$f" || true
       if [ ! -e "$E/$f" ]; then restored="$restored $E/$f (removed: this run created it)"
       else kept="$kept $E/$f (this run created it and it could not be removed)"; fi
     fi
   done
   if [ -z "$kept" ]; then
-    rm -rf "$PREVR" 2>/dev/null || true
+    rm -rf "$PREVR" || true
     say "REFUSED: publishing $what failed; restored:$restored"
   else
     KEEP_BACKUPS=1
-    say "REFUSED: publishing $what failed; restored:$restored; NOT RESTORED — the backups are KEPT because they are the only copies left:$kept"
+    say "REFUSED: publishing $what failed; restored:$restored; NOT RESTORED — these are KEPT because they are the only copies left:$kept"
   fi
 }
 cleanup() {
   rc=$?
+  local left d
   trap - EXIT; trap '' HUP INT TERM              # no re-entry while things are put back
   if [ -d "$STAGE" ]; then rm -rf "$STAGE" || true; fi
   if [ -d "$TMPOUT" ]; then rm -rf "$TMPOUT" || true; fi
@@ -101,7 +104,13 @@ cleanup() {
   if [ "$PUB_STATE" = committed ]; then
     rm -rf "$PREV" "$PREVR" 2>/dev/null || true  # all three are published: the copies may go
   elif [ "$KEEP_BACKUPS" = 1 ]; then
-    say "KEPT: $PREV $PREVR — restoration failed; they hold the publication that was there before"
+    left=""
+    for d in "$PREV" "$PREVR"; do if [ -e "$d" ]; then left="$left $d"; fi; done
+    if [ -n "$left" ]; then
+      say "KEPT:$left — restoration failed; they hold the publication that was there before, so do not delete them by hand"
+    else
+      say "NOT RESTORED: the publication could not be put back; the REFUSED line above says what is where"
+    fi
   else
     for d in "$PREV" "$PREVR"; do                # a successful rollback consumed these; only
       if [ -d "$d" ]; then                       # an empty staging directory may be deleted
