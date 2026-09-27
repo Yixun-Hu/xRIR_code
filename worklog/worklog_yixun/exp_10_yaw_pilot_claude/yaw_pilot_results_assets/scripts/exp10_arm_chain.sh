@@ -7,7 +7,7 @@ set -uo pipefail
 ARM=$1; BB=$2; CK=$3; MAN=$4; HASH=$5; K=$6; DEV=$7; GPU=${8:-1}; EXP03=${9:-none}
 cd /home/yixunhu/codespace/xRIR_code
 source ~/miniconda3/etc/profile.d/conda.sh; conda activate xRIR
-export PYTHONPATH=$PYTHONPATH:$(pwd); export XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms
+export PYTHONPATH=${PYTHONPATH:-}:$(pwd); export XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms
 if [ "$DEV" = "cuda" ]; then export CUDA_VISIBLE_DEVICES=$GPU; else export CUDA_VISIBLE_DEVICES=""; fi
 E=worklog/worklog_yixun/exp_10_yaw_pilot_claude
 LOG=$E/yaw_pilot_$(date +%Y-%m-%d_%H:%M:%S)_${ARM}_chain_${DEV}.log
