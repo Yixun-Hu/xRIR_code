@@ -1257,9 +1257,23 @@ def zero_width(interval):
     return bool(math.isfinite(low) and math.isfinite(high) and low == high)
 
 
-# The frozen convergence helper's own refusal, quoted so an exp_11 cell that never
-# reached it records the same reason. A test raises it from the helper and compares.
-ZERO_WIDTH_REASON = 'a zero-width interval cannot carry a convergence verdict'
+def _zero_width_reason():
+    """The frozen helper's own zero-width refusal, taken from the helper itself.
+
+    ``tools/exp06_bootstrap.py`` is frozen and publishes this text only by raising it, so
+    it is provoked once here -- a degenerate interval function, no resampling at all --
+    rather than copied into this module, where a reworded helper would leave a stale
+    literal behind. It is the one refusal exp_11 may report as an ``unavailable``
+    statement, so it has to be the helper's own words and nobody else's.
+    """
+    try:
+        bootstrap.convergence_endpoints(lambda seed: (0.0, 0.0))
+    except ValueError as error:
+        return str(error)
+    raise ValueError('the frozen bootstrap no longer refuses a zero-width interval')
+
+
+ZERO_WIDTH_REASON = _zero_width_reason()
 
 
 def constant_difference(rows):
@@ -1286,8 +1300,9 @@ def exp11_convergence(rows, nominal, void, alpha, n_boot):
     ways -- constant finite differences *and* a computed interval of two finite, equal
     endpoints -- so a set whose arithmetic overflowed (constant, but non-finite once
     averaged) is not mistaken for it. A refusal that still occurs is swallowed only when
-    the interval really is finite and zero-width; anything else is a fault and
-    propagates.
+    the helper raised its own documented zero-width message *and* the seed-0 interval
+    really is finite and zero-width; every other failure -- a refusal raised for another
+    bootstrap seed, an unrelated error -- is a fault and propagates unchanged.
     """
     if void:
         return {'status': 'void', 'n_boot': None, 'interval': None, 'attempts': []}
@@ -1297,6 +1312,14 @@ def exp11_convergence(rows, nominal, void, alpha, n_boot):
     try:
         return converged_two_way(rows, alpha, n_boot)
     except ValueError as error:
+        # The helper validates every seed before it measures a width, so a refusal is
+        # the registered cancellation only when the helper says so in its own words.
+        # A recomputation of seed 0 alone cannot establish it: seed 0 can be a finite
+        # [x, x] while seed 1 overflowed, and an unrelated failure can occur over rows
+        # whose seed-0 interval happens to be degenerate. Both conditions are required,
+        # and every other failure is re-raised unchanged.
+        if str(error) != ZERO_WIDTH_REASON:
+            raise
         if not zero_width(intervals(rows, alpha, n_boot)['two_way']):
             raise
         return {'status': 'unavailable', 'n_boot': None, 'interval': None, 'attempts': [],

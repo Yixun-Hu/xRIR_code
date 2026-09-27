@@ -999,3 +999,56 @@ def test_the_interaction_refuses_an_arm_that_is_missing_a_seed(arms):
         subject.interaction_rows(four, QUAD, 'hallway', 'c50')
     with pytest.raises(ValueError, match='four distinct arms'):
         subject.interaction_rows(arms, (G, E, D, G), 'hallway', 'c50')
+
+
+# --- only the frozen helper's own zero-width refusal is an unavailable statement -------
+
+
+def seed_one_failure_rows():
+    """Seed 0 gives a finite [0.0, 0.0]; seed 1 overflows to [NaN, NaN].
+
+    The frozen helper validates both seeds, so it refuses this with its non-finite
+    message -- not with the zero-width refusal exp_11 may publish -- although a
+    recomputation of seed 0 alone looks like a clean cancellation.
+    """
+    return {'a': np.array([0., 0., 0., 0., 0., 1e308]), 'b': np.zeros(6),
+            'clusters': np.array([0, 1, 0, 1, 0, 1]),
+            'seeds': np.repeat(np.asarray(subject.SEEDS), 2),
+            'cohort': 2, 'n_test': 2, 'excluded': {}, 'per_seed_diff': {}}
+
+
+def test_a_refusal_raised_for_another_bootstrap_seed_is_not_unavailable():
+    """The reviewer's reproduction, with the real source and the unchanged bootstrap."""
+    rows = seed_one_failure_rows()
+    assert subject.constant_difference(rows) is False
+    assert subject.zero_width(subject.intervals(rows, subject.ALPHA, 1)['two_way']) is True
+    with pytest.raises(ValueError, match='seed 1 produced a non-finite or reversed'):
+        subject.exp11_cell(rows, [], {'name': 'N1i'}, M, ALL_FIELDS, n_boot=1)
+
+
+def test_an_unrelated_failure_with_finite_equal_seed_zero_endpoints_propagates(monkeypatch):
+    """A zero-width seed-0 interval does not license swallowing a different failure."""
+    rows = seed_one_failure_rows()
+    monkeypatch.setattr(subject, 'converged_two_way', _refuse('something else entirely'))
+    with pytest.raises(ValueError, match='something else entirely'):
+        subject.exp11_cell(rows, [], {'name': 'N1i'}, M, ALL_FIELDS, n_boot=1)
+
+
+def test_the_documented_refusal_is_still_reported_as_unavailable(monkeypatch):
+    """The one refusal exp_11 may publish, raised with the helper's own wording."""
+    rows = flat_rows()
+    monkeypatch.setattr(subject, 'constant_difference', lambda rows: False)
+    monkeypatch.setattr(subject, 'converged_two_way',
+                        _refuse(subject.ZERO_WIDTH_REASON))
+    cell = subject.exp11_cell(rows, [], {'name': 'N1i'}, M, ALL_FIELDS, n_boot=200)
+    assert cell['status'] == 'unavailable'
+    assert cell['convergence']['reason'] == subject.ZERO_WIDTH_REASON
+
+
+def test_the_refusal_text_comes_from_the_frozen_helper_and_is_not_copied():
+    """`ZERO_WIDTH_REASON` is taken from the helper itself, so it cannot drift from it."""
+    with pytest.raises(ValueError) as raised:
+        subject.bootstrap.convergence_endpoints(lambda seed: (0.5, 0.5))
+    assert str(raised.value) == subject.ZERO_WIDTH_REASON
+    source = Path(subject.__file__).read_text()
+    assert 'a zero-width interval cannot carry a convergence verdict' not in source
