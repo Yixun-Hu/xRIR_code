@@ -143,3 +143,77 @@ def test_the_pipeline_checks_exp11s_own_exp04_pin_before_resolving_K():
     assert 'approved_digests_exp06' in body
     # The exp_04 pin is checked before the record is read, not after.
     assert body.index('approved_digests_exp04') < body.index('exp04_aug_checkpoint')
+
+
+# --- close review blocker 1: the CONSUMED exp_06 record, not the default one --------
+
+
+def reused(approvals_value, receipt, receipt_path, exp06_receipt, **kwargs):
+    """Call the gate with the exp_06 record ``main()`` actually loaded from ``--approved``.
+
+    The gate hashed ``approved_path_default()`` instead, so exp_11's
+    ``reused.approved_digests_exp06`` pin could match the default file while the
+    summariser consumed a different committed record -- and every identity downstream
+    (arm C's epoch, the heading artefacts) came from the record nobody pinned.
+    """
+    import inspect
+    assert 'exp06_receipt' in inspect.signature(subject.check_exp11_reused).parameters, (
+        'check_exp11_reused must be given the exp_06 approvals record main() loaded from '
+        '--approved; it hashes approved_path_default() instead, so an alternate '
+        'committed record passes the pin of the default one')
+    return subject.check_exp11_reused(approvals_value, receipt, receipt_path,
+                                      exp06_receipt=exp06_receipt, **kwargs)
+
+
+def exp06_receipt_for(path):
+    """The identity shape ``approvals_api.load_approved_digests`` returns for a record."""
+    return {'path': str(path), 'sha256': sha(path)}
+
+
+def test_the_consumed_exp06_record_is_the_one_the_pin_is_compared_with():
+    paths = consumed()
+    receipt = {'sha256': sha(paths['receipt'])}
+    inputs = {}
+    reused(approvals(), receipt, str(paths['receipt']),
+           exp06_receipt_for(paths['exp06']), inputs=inputs)
+    assert inputs[str(Path(paths['exp06']).resolve())] == sha(paths['exp06'])
+
+
+def test_an_alternate_committed_exp06_record_is_refused(tmp_path):
+    """The reviewer's fixture: the pin matches the default file, the run consumed another.
+
+    The alternate record differs only in bytes -- a changed artefact digest is enough --
+    and the run that loaded it must be refused, whatever the default file happens to hash
+    to.
+    """
+    paths = consumed()
+    alternate = tmp_path / 'approved_digests.json'
+    value = json.loads(Path(paths['exp06']).read_text())
+    value['artifacts']['epoch_012']['sha256'] = WRONG
+    alternate.write_text(json.dumps(value, indent=2) + '\n')
+    assert sha(alternate) != sha(paths['exp06'])
+    receipt = {'sha256': sha(paths['receipt'])}
+    with pytest.raises(ValueError, match='approved_digests_exp06'):
+        reused(approvals(), receipt, str(paths['receipt']),
+               exp06_receipt_for(alternate))
+
+
+def test_the_matching_record_is_admitted_whichever_path_it_was_loaded_from(tmp_path):
+    """A copy of the approved bytes at another path is the approved record."""
+    paths = consumed()
+    copy = tmp_path / 'approved_digests.json'
+    copy.write_bytes(Path(paths['exp06']).read_bytes())
+    receipt = {'sha256': sha(paths['receipt'])}
+    bound = reused(approvals(), receipt, str(paths['receipt']), exp06_receipt_for(copy))
+    assert bound[str(copy.resolve())] == sha(paths['exp06'])
+
+
+def test_main_passes_the_loaded_receipt_to_the_gate():
+    """The call site must hand over the receipt, not let the gate re-resolve a path."""
+    import inspect
+    source = inspect.getsource(subject.main)
+    assert 'check_exp11_reused(' in source
+    call = source.split('check_exp11_reused(', 1)[1].split(')', 1)[0]
+    assert 'approvals_receipt' in call, (
+        'main() must pass the approvals receipt it loaded from --approved into '
+        'check_exp11_reused, so the pin is compared with the consumed record')
