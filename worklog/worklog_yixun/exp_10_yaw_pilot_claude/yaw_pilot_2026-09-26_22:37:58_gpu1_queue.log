@@ -6,3 +6,8 @@ ValueError: manifest ckpt/yaw_rotation/reference_manifest_k1.json hashes to f6d7
 [22:38:08] stage probe FAILED rc=1
 [22:38:08] === arm released_k1 exit 1
 [22:38:08] === arm control_k8
+wrote ckpt/exp10/control_k8_all/parity_exp03.json
+parity_exp03: 6337 rows, every compared cell replicates: True
+[01:04:34] ARM DONE
+[01:04:34] === arm control_k8 exit 0
+[01:04:34] === arm cyl_k8
