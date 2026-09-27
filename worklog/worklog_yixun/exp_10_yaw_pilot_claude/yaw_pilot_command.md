@@ -17,3 +17,12 @@ nohup setsid worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_ass
 ```
 Per-arm commands are those of `exp10_arm_chain.sh` with `cuda 1`; K = 1 manifest hash `f6d71f86d5d313f2a982fe6f8cb801116a20ea1c37b0a65d290c088934fd73e3`. Logs: `yaw_pilot_<ts>_gpu1_queue.log` + one `_<arm>_chain_cuda.log` per arm.
 - 22:39 re-queue of `released_k1` after the queue (v1 queue bug: empty K = 1 hash): `nohup setsid …/exp10_released_k1_after_queue.sh 1 <queue log> &` → runs the arm chain with `cuda 1` and the hard-coded K = 1 hash once the queue log says QUEUE DONE.
+
+## 2026-09-27T03:28:05-04:00 — released_k8 re-run on GPU 1 (primary backend); CPU run moved to `ckpt/exp10/cpu_protocol/released_k8_{probe,all}` (meta stores no path; identity is by hashes)
+Launched from main `b47ff59`.
+```bash
+nohup setsid worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/scripts/exp10_arm_chain.sh \
+  released_k8 simple checkpoints/xRIR_unseen.pth ckpt/yaw_rotation/reference_manifest.json \
+  47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d 8 cuda 1 \
+  ckpt/yaw_rotation/sweep_released/per_sample_yaw.json > /dev/null 2>&1 &
+```
