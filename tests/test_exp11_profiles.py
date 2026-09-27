@@ -8,6 +8,7 @@ null, H runs while I's pin is null, and only the final publication requires ever
 """
 import hashlib
 import json
+import re
 from pathlib import Path
 import subprocess
 
@@ -73,6 +74,32 @@ def test_code_keys_are_exactly_the_eight_the_plan_registers():
                'tools/exp11_lock_holder.py'))
     assert profiles.CODE_SPECS['haa_pipeline_sh'] == (None, ('tools/exp11_haa_pipeline.sh',))
     assert profiles.CODE_SPECS['summarize_haa'] == ('tools.exp06_summarize_haa', ())
+
+
+def test_the_launcher_binds_every_module_it_runs():
+    """A shell closure is only as honest as the list of files the shell actually runs.
+
+    The launcher has no imports for a closure walker to follow: what it runs, it runs as
+    a subprocess. Every ``tools/exp11_*`` module named in its text must therefore be in
+    ``launch_sh``'s spec, or a change to that module's behaviour -- the pid-record
+    grammar, say -- would leave the launcher's approved digest standing (close review
+    10, blocker 1).
+    """
+    text = (REPO / 'tools/exp11_launch.sh').read_text()
+    named = {'tools/{}.py'.format(module.replace('.', '/').split('/')[-1])
+             for module in re.findall(r'tools\.(exp11_[a-z_0-9]+)', text)}
+    named |= set(re.findall(r'tools/exp11_[a-z_0-9]+\.py', text))
+    bound = set()
+    for module, extra in profiles.CODE_SPECS.values():
+        if module:                      # a key of its own: bound through its closure
+            bound.add(module.replace('.', '/') + '.py')
+        bound.update(extra)
+    assert named, 'the launcher runs at least one module of its own'
+    assert named <= bound, 'no approval key covers: {}'.format(sorted(named - bound))
+    # The two helpers with no key of their own are the launcher's, and only
+    # `launch_sh` can bind them.
+    for helper in ('tools/exp11_lock_holder.py', 'tools/exp11_pidrecord.py'):
+        assert helper in profiles.CODE_SPECS['launch_sh'][1]
 
 
 def test_schema_refuses_unknown_keys_and_malformed_leaves(tmp_path):
