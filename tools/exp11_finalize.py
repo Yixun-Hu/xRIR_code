@@ -519,6 +519,9 @@ def haa_eval_evidence(run_dir, repo):
                      'per-sample meta {} differs from the one bound in args.json'.format(field))
         else:
             _require(not meta.get(field), 'this child records no {}'.format(field))
+            _require(field != 'adapter_heading' or meta.get('adapter_phi_deg') is None,
+                     'this child installs no adapter heading, but its meta records '
+                     '{!r}'.format(meta.get('adapter_phi_deg')))
     if adapter_heading:
         _require(exp11_recipe.strict_equal(meta['adapter_phi_deg'], args['adapter_phi_deg']),
                  'per-sample meta adapter_phi_deg differs from args.json')
