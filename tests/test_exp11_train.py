@@ -5,6 +5,7 @@ parser over ``BACKBONES_EXP11`` that accepts ``--yaw-aug 0|1`` under exp_04's
 constraints, its own ``registry_sha256`` and the ``exp11_*`` provenance class.
 """
 import json
+import os
 from pathlib import Path
 import subprocess
 
@@ -115,3 +116,48 @@ def test_the_entry_module_imports_hermetically_and_its_closure_is_bounded():
     assert 'model/simple_vit_oriented.py' in files
     records, digest = provenance.closure_record(list(files), head, REPO)
     assert len(digest) == 64 and len(records) == len(files)
+
+
+# --- close review 7 blocker 2: the trainer registers itself ------------------------
+# The launcher records `child.pid` only after the frozen lifecycle has already forked
+# this process. Between the fork and that write nothing names the trainer, so the
+# trainer names itself, first thing, and says when it leaves.
+
+
+def test_the_trainer_registers_its_pid_before_anything_can_fail(tmp_path):
+    """First action after parsing: a launcher that dies now still leaves a trace."""
+    path = exp11_train.register_trainer(str(tmp_path))
+    assert path is not None and path.is_file()
+    pid, start = path.read_text().split()[:2]
+    assert int(pid) == os.getpid() and float(start) > 0
+
+
+def test_registration_is_skipped_where_there_is_no_run_directory(tmp_path):
+    """A --no-save probe has nothing to register into, and must not create one."""
+    missing = tmp_path / 'not-there'
+    assert exp11_train.register_trainer(str(missing)) is None
+    assert not missing.exists()
+
+
+@pytest.mark.parametrize('code', [0, 3, 'exception'])
+def test_the_trainer_records_how_it_left(tmp_path, code):
+    path = exp11_train.register_trainer(str(tmp_path))
+    exp11_train.record_trainer_exit(path, code)
+    assert (tmp_path / 'train.exit').read_text().strip() == 'train.exit {}'.format(code)
+
+
+def test_main_registers_first_and_records_an_exception(tmp_path, monkeypatch):
+    """The registration surrounds the whole run, including the paths that raise."""
+    seen = {}
+
+    def explode(args):
+        seen['registered'] = (tmp_path / 'train.pid').is_file()
+        raise RuntimeError('admission refused')
+
+    monkeypatch.setattr(exp11_train, 'check_admission', explode)
+    argv = ['--backbone', 'simple_oriented', '--save-dir', str(tmp_path),
+            '--run-type', 'smoke']
+    with pytest.raises(RuntimeError):
+        exp11_train.main(argv)
+    assert seen['registered'], 'the pid file must exist before anything else runs'
+    assert (tmp_path / 'train.exit').read_text().strip() == 'train.exit exception'
