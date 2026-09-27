@@ -958,6 +958,14 @@ def decision_cell(arms, pair, room, metric, margin, n_boot=N_BOOT, alpha=ALPHA):
                 verdict=verdict_of(convergence, void, margin))
 
 
+def screen_cell_base(treatment, comparator, room, metric, alpha, adjusted_alpha, rows):
+    """The fields of one screen cell that exist before anything is resampled."""
+    return {'contrast': '{} - {}'.format(treatment, comparator), 'room': room,
+            'metric': metric, 'alpha': alpha, 'adjusted_alpha': adjusted_alpha,
+            'family': H2_FAMILY, 'cohort': rows['cohort'], 'n_test': rows['n_test'],
+            'excluded': rows['excluded'], 'per_seed_diff': rows['per_seed_diff']}
+
+
 def screen_cells(arms, pair, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, alpha=ALPHA):
     """H2: the eleven room x metric cells, nominal and Bonferroni adjusted."""
     treatment, comparator = pair
@@ -965,10 +973,8 @@ def screen_cells(arms, pair, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, alp
     cells = []
     for room, metric in CELLS:
         rows = cell_rows(arms, treatment, comparator, room, metric)
-        cell = {'contrast': '{} - {}'.format(treatment, comparator), 'room': room,
-                'metric': metric, 'alpha': alpha, 'adjusted_alpha': adjusted_alpha,
-                'family': H2_FAMILY, 'cohort': rows['cohort'], 'n_test': rows['n_test'],
-                'excluded': rows['excluded'], 'per_seed_diff': rows['per_seed_diff']}
+        cell = screen_cell_base(treatment, comparator, room, metric, alpha,
+                                adjusted_alpha, rows)
         nominal = intervals(rows, alpha, n_boot)
         if nominal is None:      # finding 8: nothing is resampled from an empty cohort
             cells.append(dict(cell, diff=None, nominal_two_way=None, query=None,
@@ -1251,6 +1257,52 @@ def zero_width(interval):
     return bool(math.isfinite(low) and math.isfinite(high) and low == high)
 
 
+# The frozen convergence helper's own refusal, quoted so an exp_11 cell that never
+# reached it records the same reason. A test raises it from the helper and compares.
+ZERO_WIDTH_REASON = 'a zero-width interval cannot carry a convergence verdict'
+
+
+def constant_difference(rows):
+    """True when every paired difference is the same finite number.
+
+    A resample of any size at any level then averages to that one value, so the interval
+    is degenerate whatever alpha it is taken at. Reading it off the rows costs nothing
+    and lets exp_11 decide *before* the frozen helper is called.
+    """
+    if not rows['cohort']:
+        return False
+    difference = np.asarray(rows['a'], dtype=float) - np.asarray(rows['b'], dtype=float)
+    return bool(difference.size and np.isfinite(difference).all()
+                and float(difference.max()) == float(difference.min()))
+
+
+def exp11_convergence(rows, nominal, void, alpha, n_boot):
+    """exp_11's convergence gate: invalidity first, the registered cancellation second,
+    the frozen helper last.
+
+    Neither an invalid cell nor an exactly cancelling one reaches ``converged_two_way``,
+    because that helper refuses a zero-width interval and one such cell must withhold
+    its label without aborting the phase summary. The cancellation is established two
+    ways -- constant finite differences *and* a computed interval of two finite, equal
+    endpoints -- so a set whose arithmetic overflowed (constant, but non-finite once
+    averaged) is not mistaken for it. A refusal that still occurs is swallowed only when
+    the interval really is finite and zero-width; anything else is a fault and
+    propagates.
+    """
+    if void:
+        return {'status': 'void', 'n_boot': None, 'interval': None, 'attempts': []}
+    if nominal is not None and constant_difference(rows) and zero_width(nominal['two_way']):
+        return {'status': 'unavailable', 'n_boot': None, 'interval': None, 'attempts': [],
+                'reason': ZERO_WIDTH_REASON}
+    try:
+        return converged_two_way(rows, alpha, n_boot)
+    except ValueError as error:
+        if not zero_width(intervals(rows, alpha, n_boot)['two_way']):
+            raise
+        return {'status': 'unavailable', 'n_boot': None, 'interval': None, 'attempts': [],
+                'reason': str(error)}
+
+
 def decision_interval(cell):
     """The one interval every field of an exp_11 cell reads, or nothing at all.
 
@@ -1286,25 +1338,14 @@ def exp11_cell(rows, void, base, margin, fields, n_boot=N_BOOT, alpha=ALPHA):
                                  'attempts': []})
         return dict(cell, **decision_fields(None, margin, fields))
     _require(rows['cohort'], 'an empty cohort is never bootstrapped: it is void')
-    try:
-        convergence = converged_two_way(rows, alpha, n_boot)
-    except ValueError as error:
-        nominal = intervals(rows, alpha, n_boot)
-        # Only the degenerate interval the plan registers is a defined cell: two finite,
-        # equal endpoints. A positive width, a non-finite endpoint, a reversed interval
-        # or an unrelated failure is a fault, and is raised rather than published as an
-        # unavailable statement.
-        if not zero_width(nominal['two_way']):
-            raise
-        cell.update(diff=nominal['diff'], query=nominal['query'],
-                    two_way=nominal['two_way'], status='unavailable',
-                    convergence={'status': 'unavailable', 'n_boot': None, 'interval': None,
-                                 'attempts': [], 'reason': str(error)})
-        return dict(cell, **decision_fields(None, margin, fields))
-    nominal = intervals(rows, alpha, convergence['n_boot'] or n_boot)
+    nominal = intervals(rows, alpha, n_boot)
+    convergence = exp11_convergence(rows, nominal, void, alpha, n_boot)
+    if convergence['status'] == 'converged':
+        nominal = intervals(rows, alpha, convergence['n_boot'] or n_boot)
     cell.update(diff=nominal['diff'], query=nominal['query'], two_way=nominal['two_way'],
-                convergence=convergence, status=('reported' if convergence['status']
-                                                 == 'converged' else 'not_converged'))
+                convergence=convergence,
+                status={'converged': 'reported'}.get(convergence['status'],
+                                                     convergence['status']))
     return dict(cell, **decision_fields(decision_interval(cell), margin, fields))
 
 
@@ -1409,17 +1450,35 @@ def exp11_screen_cells(arms, pair, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTE
 
     The historical screens label any cell with a non-empty cohort; exp_11 withholds the
     label of every cell the invalidity policy voids or the convergence check refuses, and
-    says why. The gate is exp_11's own: ``screen_cells`` -- what exp_06 and exp_09
-    publish -- is called here unchanged and is not modified.
+    says why. The gate is exp_11's own and it runs *first*: ``screen_cells`` resamples
+    every non-empty cohort before it reports anything, and the frozen convergence helper
+    refuses a zero-width interval, so a cell that exp_11 must withhold would abort the
+    whole phase summary there. This builds its own cells from the same helpers and the
+    same ``screen_cell_base``; ``screen_cells`` is untouched and keeps publishing exp_06's
+    and exp_09's screens exactly as it always has.
     """
     treatment, comparator = pair
+    adjusted_alpha = bootstrap.bonferroni_alpha(alpha, H2_FAMILY)
     cells = []
-    for cell in screen_cells(arms, pair, n_boot, adjusted_n_boot, alpha):
-        rows = cell_rows(arms, treatment, comparator, cell['room'], cell['metric'])
+    for room, metric in CELLS:
+        rows = cell_rows(arms, treatment, comparator, room, metric)
+        cell = screen_cell_base(treatment, comparator, room, metric, alpha,
+                                adjusted_alpha, rows)
         void = void_reasons(rows, treatment, comparator)
-        withheld = bool(void) or cell['adjusted_two_way'] is None
-        cells.append(dict(cell, void_reasons=void, withheld=withheld,
-                          label=None if withheld else cell['label']))
+        nominal = intervals(rows, alpha, n_boot)
+        if nominal is None:      # an empty cohort: nothing is resampled at all
+            cells.append(dict(cell, diff=None, nominal_two_way=None, query=None,
+                              adjusted_two_way=None, convergence=None, label=None,
+                              withheld=True, void_reasons=void))
+            continue
+        convergence = exp11_convergence(rows, nominal, void, adjusted_alpha,
+                                        adjusted_n_boot)
+        interval = convergence['interval']
+        withheld = bool(void) or interval is None
+        cells.append(dict(cell, diff=nominal['diff'], nominal_two_way=nominal['two_way'],
+                          query=nominal['query'], adjusted_two_way=interval,
+                          convergence=convergence, void_reasons=void, withheld=withheld,
+                          label=None if withheld else h2_label(interval)))
     return cells
 
 

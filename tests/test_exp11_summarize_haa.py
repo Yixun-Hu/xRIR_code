@@ -749,3 +749,87 @@ def test_an_empty_cohort_is_never_bootstrapped_even_without_a_void_reason():
     with pytest.raises(ValueError, match='empty cohort'):
         subject.exp11_cell(rows, [], {'name': 'N1', 'kind': 'contrast'}, M, ALL_FIELDS,
                            n_boot=200)
+
+
+# --- blocker 1: exp_11 suppression is decided before the frozen helper runs -------------
+
+
+def cancelling_hallway(arms, room='hallway', metric='c50'):
+    """G = D = arange(n) + 1 and E = A = arange(n): (G - E) - (D - A) cancels exactly,
+    G - D is identically zero and G - E is identically one."""
+    for arm, shift in ((A, 0.0), (E, 0.0), (D, 1.0), (G, 1.0)):
+        for job in subject.JOBS:
+            arms[arm]['per'][job][room][metric] = [float(i) + shift
+                                                   for i in range(SIZE[room])]
+    return arms
+
+
+def screen_of(result, family, room='hallway', metric='c50'):
+    return {(cell['room'], cell['metric']): cell
+            for cell in result['screens'][family]}[(room, metric)]
+
+
+def test_a_cancelling_hallway_withholds_cells_instead_of_aborting_the_phase(arms, sources):
+    """The whole analysis, not just the decision: a degenerate screen cell must not take
+    the phase summary down with it."""
+    cancelling_hallway(arms)
+    result = subject.analyse(arms, n_boot=200, adjusted_n_boot=200, experiment='exp11',
+                             historical_root=sources)
+    for name in ('N1', 'N1i', 'N3'):
+        assert result[name]['status'] == 'unavailable', name
+        assert result[name]['category'] is None
+    cell = screen_of(result, 'yawaug_hf - control_hf')
+    assert cell['withheld'] is True and cell['label'] is None
+    assert cell['convergence']['status'] == 'unavailable'
+    assert 'zero-width' in cell['convergence']['reason']
+    assert cell['adjusted_two_way'] is None and cell['nominal_two_way'] is not None
+    assert screen_of(result, 'yawaug_hf - control_hf', 'hallway', 'edt')['withheld'] is False
+    assert screen_of(result, 'yawaug_hf - yawaug')['withheld'] is True
+    assert screen_of(result, 'cyl_or - yawaug_hf')['withheld'] is False
+    assert 'not available' in subject.render(result)
+
+
+def test_a_void_cohort_of_constant_differences_withholds_without_any_convergence(arms,
+                                                                                 sources):
+    """Invalidity is evaluated first: a void cell records no convergence at all."""
+    cancelling_hallway(arms)
+    for job in subject.JOBS:
+        arms[G]['per'][job]['hallway']['c50'][0] = float('nan')
+    result = subject.analyse(arms, n_boot=200, adjusted_n_boot=200, experiment='exp11',
+                             historical_root=sources)
+    cell = screen_of(result, 'yawaug_hf - control_hf')
+    assert cell['cohort'] == SIZE['hallway'] - 1 and cell['void_reasons']
+    assert cell['withheld'] is True and cell['label'] is None
+    assert cell['convergence'] == {'status': 'void', 'n_boot': None, 'interval': None,
+                                   'attempts': []}
+    assert cell['adjusted_two_way'] is None
+    assert result['N1']['status'] == 'void' and result['N1']['category'] is None
+    subject.render(result)
+
+
+def test_the_convergence_gate_runs_the_frozen_helper_last(monkeypatch):
+    """Invalidity first, the registered cancellation second, the helper only then."""
+    rows = flat_rows()
+    nominal = subject.intervals(rows, subject.ALPHA, 200)
+    monkeypatch.setattr(subject, 'converged_two_way', _refuse('the helper must not run'))
+    assert subject.exp11_convergence(rows, nominal, ['a reason'], subject.ALPHA, 200) == {
+        'status': 'void', 'n_boot': None, 'interval': None, 'attempts': []}
+    degenerate = subject.exp11_convergence(rows, nominal, [], subject.ALPHA, 200)
+    assert degenerate['status'] == 'unavailable' and degenerate['interval'] is None
+    assert degenerate['reason'] == subject.ZERO_WIDTH_REASON
+
+
+def test_the_recorded_reason_is_the_frozen_helpers_own_wording():
+    """A pin: if the frozen helper ever reworded its refusal, this fails rather than
+    letting exp_11 publish a reason nothing raises."""
+    with pytest.raises(ValueError) as raised:
+        subject.bootstrap.convergence_endpoints(lambda seed: (0.5, 0.5))
+    assert subject.ZERO_WIDTH_REASON in str(raised.value)
+
+
+def test_the_historical_screen_still_raises_on_the_same_cells(arms):
+    """exp_11's gate is exp_11's: `screen_cells` keeps exactly the behaviour exp_06 and
+    exp_09 registered, degenerate cells included."""
+    cancelling_hallway(arms)
+    with pytest.raises(ValueError, match='zero-width'):
+        subject.screen_cells(arms, (G, D), n_boot=200, adjusted_n_boot=200)
