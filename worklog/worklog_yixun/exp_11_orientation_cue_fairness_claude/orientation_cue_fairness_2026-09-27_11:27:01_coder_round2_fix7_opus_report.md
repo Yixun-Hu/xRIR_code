@@ -19,6 +19,10 @@ sink by opening and closing its FIFO, which is what the reviewer did.
 | `cdd6379` | exp11 fix7 (RED): the lock holder belongs in the launcher's approved closure |
 | `eae0bec` | exp11 fix7 (GREEN): launch_sh binds the lock holder |
 | `3db254a` | exp11 fix7: restore the behaviour A1 still requires |
+| `4da8b55` | exp11 fix7 (RED): a holder that never started is not another invocation |
+| `e351fec` | exp11 fix7 (GREEN): only `refused` means another invocation holds the arm |
+| `091b3b9` | exp11 fix7 (RED): the launcher must signal nothing but its own holder |
+| `63c1bed` | exp11 fix7 (GREEN): release signals the holder only while it is still our child |
 
 ## Blocker 1 [P1] — the lock was inherited, so an orphan could keep an arm locked
 
@@ -114,9 +118,27 @@ could change without moving any approved digest.
 | `cdd6379` (RED) | — | +4 / −2 |
 | `eae0bec` (GREEN) | +2 / −1 = 3 changed | — |
 | `3db254a` | — | +92 |
-| range `94efbc2..HEAD` | +105 / −22 | +321 / −3 |
+| `4da8b55` (RED) | — | +17 |
+| `e351fec` (GREEN) | +7 / −1 | — |
+| `091b3b9` (RED) | — | +21 |
+| `63c1bed` (GREEN) | +9 / −3 | — |
+| range `94efbc2..HEAD` | +120 / −23 = **143 changed** | +357 / −3 |
 
 Every production commit is well under 200 changed lines.
+
+## Two more things this cycle's own re-reading caught
+
+* **A refusal has to name the real obstacle.** Every non-`acquired` verdict, EOF included,
+  was reported as "held by another invocation publishing this arm". A lock path that
+  cannot be opened at all is a different failure, and sending a reader to look for a
+  publication that is not happening is the kind of message that costs an afternoon. Only
+  `refused` now says that; anything else says the holder did not start and that nothing
+  was published.
+* **A recorded pid is not a licence to signal it.** `HOLDER_PID` comes out of the holder's
+  own announcement; if that holder has already died, the number belongs to whoever the
+  kernel gave it to next. `drop_arm_lock` now reads `/proc/<pid>/stat` and sends `SIGTERM`
+  only while the process is still this shell's child. The regression starts a bystander
+  and requires it to survive a release that names its pid — it did not, before the fix.
 
 ## Report corrections carried over (fix 6's table was wrong)
 
@@ -143,7 +165,7 @@ lines (under 200); `4f72ac2..519b48f` is +306/−27; `c8b2ff0`'s remaining 333 i
 
 ## Digests
 
-Taken at `3db254a`, the cycle's last commit.
+Taken at `63c1bed`, the cycle's last production commit.
 
 **exp_06** — exactly **one** key differs from the record re-filled at `9f98bbb`, the only
 one exp_11 is allowed to move:
@@ -165,7 +187,7 @@ same single allowed key.
 | `haa_finetune` | `bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150` | unchanged |
 | `haa_eval` | `f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20` | unchanged |
 | `haa_pipeline_sh` | `3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4` | unchanged |
-| `launch_sh` | `0a8ed5d35f4aea2d166230d75fa28e410c3e3e5dbc00e1375885b5a8bca87298` | **moved** |
+| `launch_sh` | `6dc160f805af0991371e754ffd400ac4a2235b310db76b1d7c6a3ef426f0868d` | **moved** |
 | `smoke` | `7dea6b3661f639c5ed86755b9119b7fa5310729fa54b8e84be338efc91292938` | **moved** |
 | `summarize_haa` | `2443b9312798e286f1dfa4dabd721040689bdbdf914c26a9112e9c9cb2d96bcc` | **moved** |
 
