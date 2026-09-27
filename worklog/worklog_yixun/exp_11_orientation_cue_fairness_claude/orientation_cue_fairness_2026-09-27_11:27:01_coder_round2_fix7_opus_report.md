@@ -78,6 +78,15 @@ launcher exits without releasing anything; the lock frees), `SIGTERM` from its p
 it writes no bytes into the file it locks, that the descriptor is close-on-exec, and that a
 malformed call is refused.
 
+### What the lock deliberately no longer outlives
+
+The lock now ends with the *launcher*, not with the trainer it detached. That is the
+behaviour the review asked for — an orphaned sink must never retain it — and it means a
+trainer whose launcher died no longer holds the arm. What still guards that case is the
+check that was always meant to: `preflight` refuses a launch while a live pid file exists
+under either arm root. The lock serialises **publication**; the pid file is what says a run
+is in progress.
+
 ## Blocker 2 [P2] — the behaviour A1 still requires is back
 
 Six behaviours went out with the hand-rolled lock's own tests although none of them is
@@ -177,8 +186,14 @@ values are for the eventual reviewed merge.
 
 * **Targeted set** — all fourteen `tests/test_exp11_*.py` (the new
   `tests/test_exp11_lock_holder.py` included) plus `tests/test_exp06_summarize_haa.py` and
-  `tests/test_exp09_sim_eval_closures.py`: TARGETED_PLACEHOLDER
+  `tests/test_exp09_sim_eval_closures.py`: **369 passed** in 502 s
+  (`tests/test_exp11_shell.py` alone: **63**, `tests/test_exp11_lock_holder.py`: **7**).
+  Fix 6 ended at 353; the restored behaviours and the new lifecycle and holder tests
+  account for the 16.
 * `bash -n` on both shells, `py_compile` on every changed module and test, and
   `git diff --check 94efbc2..HEAD`: clean. `tools/exp06_launch.sh` is byte-identical to
   `94efbc2`, as are every other frozen file.
-* **Full CPU suite** — FULL_SUITE_PLACEHOLDER
+* **Full CPU suite** — run detached at `ad50998` (same tree as the last code commit
+  `3db254a`) to
+  `orientation_cue_fairness_2026-09-27_11:45_suite_full_cpu_ad50998.log` in this record.
+  FIX7_SUITE_RESULT
