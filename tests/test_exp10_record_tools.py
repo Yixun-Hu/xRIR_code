@@ -1133,3 +1133,19 @@ def test_after_queue_wrapper_preserves_the_chain_status(queue):
                      env={"EXP10_STUB_RC_released_k1": "5"})
     assert bad.returncode == 5
     assert "RELEASED_K1_EXIT=5" in open(qlog).read()
+
+
+@pytest.mark.parametrize("name,renderer", [("page.html", render_html), ("page.md", render_md)])
+def test_provenance_names_the_published_location_of_a_staged_asset(render_case, name, renderer):
+    """The finish script stages the assets under another name: provenance must not record a
+    path that stops existing when the staging directory is renamed into place."""
+    extra = supplementary(render_case) + ["--assets-href", "yaw_pilot_results_assets/generated"]
+    if renderer is render_md:
+        extra = ["--assets", render_case["assets"]] + extra
+    assert renderer(render_case, extra=extra).returncode == 0
+    page = rendered(render_case, name)
+    digest = fx.file_sha256(os.path.join(render_case["assets"],
+                                         "backend_sensitivity_released_k8.md"))
+    assert digest in page
+    assert render_case["assets"] not in page.split("Provenance")[-1]
+    assert "yaw_pilot_results_assets/generated/backend_sensitivity_released_k8.md" in page

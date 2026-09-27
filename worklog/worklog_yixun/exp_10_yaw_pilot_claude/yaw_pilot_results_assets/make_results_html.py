@@ -219,17 +219,25 @@ def main():
     parity = {arm: json.load(open(path)) for arm, path in parity_pairs}
     online = {arm: json.load(open(path)) for arm, path in online_pairs}
     probes = {arm: json.load(open(path)) for arm, path in probe_pairs}
-    input_shas = {os.path.abspath(args.summary): sha(args.summary)}
-    for _arm, p in parity_pairs + online_pairs + probe_pairs:
-        input_shas[os.path.abspath(p)] = sha(p)
-    for p in (args.backend_table, args.cpu_record):
-        if p:
-            input_shas[os.path.abspath(p)] = sha(p)
     rel = args.assets_href or os.path.relpath(args.assets,
                                               os.path.dirname(os.path.abspath(args.out)))
 
     def href(path):
         return vr.link_href(path, args.assets, rel, args.out)
+
+    def shown(path):
+        """An input inside the asset directory is named by its *published* location: the
+        finish script stages the assets under another name and renames them into place."""
+        target = os.path.abspath(path)
+        assets = os.path.abspath(args.assets)
+        return href(path) if target.startswith(assets + os.sep) else target
+
+    input_shas = {shown(args.summary): sha(args.summary)}
+    for _arm, p in parity_pairs + online_pairs + probe_pairs:
+        input_shas[shown(p)] = sha(p)
+    for p in (args.backend_table, args.cpu_record):
+        if p:
+            input_shas[shown(p)] = sha(p)
 
     parts = ["<!doctype html><html><head><meta charset='utf-8'><title>%s</title><style>body{font-family:system-ui,sans-serif;max-width:1400px;margin:2em auto;padding:0 1em;color:#222}table{border-collapse:collapse;font-size:13px}th,td{border:1px solid #ccc;padding:3px 7px;text-align:right}th{background:#f3f3f3}td:first-child,th:first-child{text-align:left}.meta{color:#555;font-size:13px}.unit{color:#777;font-weight:normal}.scroll{overflow-x:auto}.note{background:#fff8e1;border-left:4px solid #e69f00;padding:.6em 1em;margin:1em 0}img{max-width:100%%}code{font-size:12px}</style></head><body>" % esc(args.title)]
     parts.append("<h1>%s</h1>" % esc(args.title))

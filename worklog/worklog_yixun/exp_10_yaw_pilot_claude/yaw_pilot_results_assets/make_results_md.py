@@ -172,6 +172,14 @@ def main():
             L += ["**check_online** (`%s`): ok = %s." % (path, o.get("ok")), ""]
     rel = a.assets_href or (os.path.relpath(a.assets, os.path.dirname(os.path.abspath(a.out)))
                             if a.assets else None)
+
+    def shown(path):
+        """An input inside the asset directory is named by its *published* location (the
+        finish script stages the assets under another name and renames them into place)."""
+        target = os.path.abspath(path)
+        if a.assets and target.startswith(os.path.abspath(a.assets) + os.sep):
+            return vr.link_href(path, a.assets, rel, a.out)
+        return path
     links = []
     for label, path in ((("full tables (every angle, every metric, exclusions, "
                           "broader-population G)"),
@@ -199,7 +207,8 @@ def main():
     L += ["## Provenance", "",
           "Every input of this report, with its full sha256 (the HTML page's footer lists the "
           "same values):", ""]
-    L += ["- %s: `%s` sha256 `%s`" % (label, path, sha(path)) for label, path in inputs] + [""]
+    L += ["- %s: `%s` sha256 `%s`" % (label, shown(path), sha(path))
+          for label, path in inputs] + [""]
     L += ["Runs the canonical summary was computed from:", ""]
     L += ["- %s: execution `%s`, per_sample sha256 `%s`, meta sha256 `%s`, run dir `%s`" % (
         i["arm"], i["execution_id"], i["per_sample_sha256"], i["meta_sha256"], i["run_dir"])
