@@ -106,17 +106,19 @@ in that report (`652c463`).
 
 | commit | production | tests |
 |---|---:|---:|
-| `ff610ff` (RED) | — | +40 |
-| `3c32cb2` (GREEN) | `exp11_launch.sh` +16/−5 | — |
+| `ff610ff` (RED) | — | +48 |
+| `3c32cb2` (GREEN) | `exp11_launch.sh` +19/−5 | — |
 | `d268f58` (RED) | — | +66 |
 | `bc4ad3d` (GREEN) | `exp11_launch.sh` +26/−4 | — |
-| `c530e32` (RED) | — | +86/−4 |
-| `e4bd6a3` (GREEN) | `exp11_train.py` +60/−11 | +8 tombstone tests |
-| `71ac3c9` (GREEN) | `exp11_launch.sh` +10 | — |
-| `b49d90b` | — | +48 |
+| `c530e32` (RED) | — | +79 |
+| `e4bd6a3` (GREEN) | `exp11_train.py` +60/−11 | +37/−4 |
+| `71ac3c9` (GREEN) | `exp11_launch.sh` +7 | — |
+| `b49d90b` | — | +56 |
 | range `7abeb4d..HEAD` | **+112 / −20 = 132 changed** | +286/−4 |
 
 Every commit is well under 200 changed lines; no exception this cycle.
+(Counts corrected in fix 10 from close review 9; `71ac3c9` was the last
+production commit of the cycle.)
 
 ## Digests
 
