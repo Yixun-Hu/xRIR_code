@@ -357,6 +357,8 @@ page's figures by calling this module's ``make_figure`` / ``make_combined_figure
 come from the real summariser, copied into the scratch repository as
 ``exp10_summarize_approved.py``.  A stub that drew its own figures could not tell a
 regenerated figure from a copied one, which is the very thing the test has to distinguish.
+The same holds for ``display_label``: both renderers import the arm display names from the
+summariser, so the delegation has to cover every name they import.
 """
 import os
 import sys
@@ -379,6 +381,7 @@ if __name__ != "__main__":
     figure_data = _real.figure_data
     make_figure = _real.make_figure
     make_combined_figure = _real.make_combined_figure
+    display_label = _real.display_label
 else:
     import argparse
     import time

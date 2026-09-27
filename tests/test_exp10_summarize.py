@@ -1260,3 +1260,181 @@ def test_an_arm_without_a_context_band_says_nothing_about_one(tmp_path):
         import matplotlib.pyplot as plt
 
         plt.close(figure)
+
+
+# ------ round 8 (record review, finding 2): in the figures too, the Monte Carlo
+#        qualification outranks the substantive wording of the ratio status
+
+
+def test_status_annotation_prefers_the_unresolved_monte_carlo_qualification():
+    """A3's precedence rule, applied to the abbreviation printed under an angle.
+
+    ``headline_multiple`` already withholds a multiple whose bounds did not converge, or
+    whose two seeds disagree about the denominator: which substantive statement the pilot
+    would have made is then itself unresolved, so the figure may not annotate the angle
+    with that statement either.
+    """
+    assert summarize.status_annotation({"ratio_status": "improvement",
+                                        "headline_reason": None}) == "impr"
+    assert summarize.status_annotation(
+        {"ratio_status": "improvement",
+         "headline_reason": summarize.MC_UNRESOLVED_REASON}) == summarize.MC_STATUS_CODE
+    assert summarize.MC_STATUS_CODE == "mc?"
+    for status, code in summarize.STATUS_CODES.items():
+        assert summarize.status_annotation({"ratio_status": status,
+                                            "headline_reason": None}) == code
+        assert summarize.status_annotation(
+            {"ratio_status": status,
+             "headline_reason": summarize.MC_UNRESOLVED_REASON}) == "mc?"
+
+
+def test_the_figure_mc_code_uses_the_reason_the_statistics_produce():
+    """The figure's precedence test and ``headline_multiple``'s wording may not drift."""
+    cell = {"ratio": {"status": "improvement", "point": 2.0, "lo": 1.0, "hi": 3.0}}
+    report = {"converged": False, "status_agrees": True,
+              "status_seed_0": "improvement", "status_seed_1": "improvement"}
+    headline = summarize.headline_multiple(cell, report)
+    assert headline["reportable"] is False
+    assert headline["reason"] == summarize.MC_UNRESOLVED_REASON
+    assert summarize.status_annotation(
+        {"ratio_status": cell["ratio"]["status"],
+         "headline_reason": headline["reason"]}) == "mc?"
+
+
+def _t60_axis(figure):
+    axes = [ax for ax in figure.axes if ax.get_title() == "T60"]
+    assert axes, [ax.get_title() for ax in figure.axes]
+    return axes[0]
+
+
+def _footer_text(figure):
+    return " ".join(" ".join(text.get_text().split()) for text in figure.texts)
+
+
+def test_a_figure_annotates_an_unresolved_cell_mc_and_not_its_ratio_status(tmp_path):
+    """Finding 2: ``cyl_k8`` T60 at 270 degrees -- ratio-bound movement 0.109 > 0.1, so
+    the headline was withheld as unresolved -- was annotated ``impr``, "net error
+    improves", which is exactly the statement the summariser had refused to make."""
+    run_dir = _fixture_run(tmp_path, "unresolved", n=12, ks=(0, 384))
+    summary = summarize.build_summary([run_dir], n_boot=100)
+    cell = summary["arms"][0]["angles"]["384"]["T60"]
+    cell["query"]["ratio"]["status"] = "improvement"
+    cell["convergence"]["converged"] = False
+    cell["headline"].update({"reportable": False, "point": None, "lower_bound": None,
+                             "upper_bound": None,
+                             "reason": summarize.MC_UNRESOLVED_REASON})
+    row = next(row for row in summarize.figure_data(summary) if row["metric"] == "T60")
+    assert row["ratio_status"] == "improvement"          # the JSON is not rewritten ...
+    assert row["headline_reason"] == summarize.MC_UNRESOLVED_REASON
+
+    figure = summarize.make_figure(summary, "fixture", str(tmp_path / "unresolved.png"))
+    try:
+        labels = [text.get_text() for text in _t60_axis(figure).get_xticklabels()]
+        assert any("mc?" in label for label in labels), labels
+        assert not any("impr" in label for label in labels), labels
+        assert ("mc? = unresolved Monte Carlo uncertainty (convergence or seed-status "
+                "disagreement)") in _footer_text(figure)
+    finally:
+        import matplotlib.pyplot as plt
+
+        plt.close(figure)
+
+
+def test_a_resolved_cell_keeps_the_abbreviation_of_its_ratio_status(tmp_path):
+    """The precedence changes nothing where the Monte Carlo question is settled."""
+    run_dir = _fixture_run(tmp_path, "resolved", n=12, ks=(0, 384))
+    summary = summarize.build_summary([run_dir], n_boot=100)
+    cell = summary["arms"][0]["angles"]["384"]["T60"]
+    cell["query"]["ratio"]["status"] = "improvement"
+    cell["headline"].update({"reportable": False,
+                             "reason": "predictions shift while net error improves"})
+    figure = summarize.make_figure(summary, "fixture", str(tmp_path / "resolved.png"))
+    try:
+        labels = [text.get_text() for text in _t60_axis(figure).get_xticklabels()]
+        assert any("impr" in label for label in labels), labels
+        assert not any("mc?" in label for label in labels), labels
+    finally:
+        import matplotlib.pyplot as plt
+
+        plt.close(figure)
+
+
+# ------ round 8 (record review, finding 5): the K = 1 arm is the K = 8 checkpoint
+#        evaluated at K = 1, and every standalone presentation has to say so
+
+
+def test_display_label_qualifies_released_k1_and_leaves_the_other_arms_alone():
+    """The label is a *display* name: the arm key it qualifies never changes."""
+    assert summarize.ARM_DISPLAY["released_k1"] == \
+        "released_k1 (trained K = 8, evaluated K = 1)"
+    assert summarize.display_label("released_k1") == \
+        summarize.ARM_DISPLAY["released_k1"]
+    for arm in ("released_k8", "control_k8", "cyl_k8", "some_other_arm"):
+        assert summarize.display_label(arm) == arm
+
+
+def _k1_and_k8_summary(tmp_path, n_boot=50):
+    """One K = 1 arm (the released checkpoint) beside a K = 8 one."""
+    k1 = _fixture_run(tmp_path, "released_k1", n=8, ks=(0, 128),
+                      protocol_overrides={"num_shot": 1},
+                      meta_overrides={"arm": "released_k1", "num_shot": 1})
+    k8 = _fixture_run(tmp_path, "control_k8", n=8, ks=(0, 128),
+                      protocol_overrides={"checkpoint_sha256": "d" * 64},
+                      meta_overrides={"arm": "control_k8"})
+    return summarize.build_summary([k1, k8], n_boot=n_boot)
+
+
+def test_the_per_arm_figure_title_says_trained_k8_evaluated_k1(tmp_path):
+    """Finding 5: the figure of the K = 1 arm was titled ``released_k1`` and nothing
+    else, so read on its own it looks like a model trained at K = 1."""
+    summary = _k1_and_k8_summary(tmp_path)
+    import matplotlib.pyplot as plt
+
+    k1 = summarize.make_figure(summary, "released_k1", str(tmp_path / "k1.png"))
+    try:
+        assert "exp_10 yaw pilot -- released_k1 (trained K = 8, evaluated K = 1)" in \
+            _footer_text(k1)
+    finally:
+        plt.close(k1)
+    k8 = summarize.make_figure(summary, "control_k8", str(tmp_path / "k8.png"))
+    try:
+        title = _footer_text(k8)
+        assert "exp_10 yaw pilot -- control_k8" in title
+        assert "trained K = 8, evaluated K = 1" not in title
+    finally:
+        plt.close(k8)
+
+
+def test_the_combined_figure_row_label_says_trained_k8_evaluated_k1(tmp_path):
+    summary = _k1_and_k8_summary(tmp_path)
+    figure = summarize.make_combined_figure(summary, str(tmp_path / "all.png"))
+    try:
+        rows = [ax.get_ylabel() for ax in figure.axes if ax.get_ylabel()]
+        k1_row = next(label for label in rows if label.startswith("released_k1"))
+        assert k1_row.splitlines()[0] == "released_k1 (trained K = 8, evaluated K = 1)"
+        k8_row = next(label for label in rows if label.startswith("control_k8"))
+        assert k8_row.splitlines()[0] == "control_k8"
+    finally:
+        import matplotlib.pyplot as plt
+
+        plt.close(figure)
+
+
+def test_the_display_label_never_reaches_the_json_the_csv_or_a_file_name(tmp_path):
+    """Only the presentation is qualified: the arm *key* stays ``released_k1``."""
+    import csv
+
+    summary = _k1_and_k8_summary(tmp_path)
+    out_dir = str(tmp_path / "outputs")
+    summarize.write_outputs(summary, out_dir)
+    for name in ("yaw_pilot_gaps_released_k1.png", "yaw_pilot_gaps_released_k1.pdf"):
+        assert os.path.isfile(os.path.join(out_dir, name)), name
+    with open(os.path.join(out_dir, "yaw_pilot_summary.json")) as fin:
+        canonical = json.load(fin)
+    assert [arm["arm"] for arm in canonical["arms"]] == ["released_k1", "control_k8"]
+    assert [entry["arm"] for entry in canonical["inputs"]] == \
+        ["released_k1", "control_k8"]
+    with open(os.path.join(out_dir, "yaw_pilot_gaps.csv")) as fin:
+        arms = {row["arm"] for row in csv.DictReader(fin)}
+    assert arms == {"released_k1", "control_k8"}
+    assert {row["arm"] for row in summarize.figure_data(summary)} == arms

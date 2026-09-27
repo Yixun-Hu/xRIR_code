@@ -1923,3 +1923,71 @@ def test_provenance_names_the_published_location_of_a_staged_asset(render_case, 
     assert digest in page
     assert render_case["assets"] not in page.split("Provenance")[-1]
     assert "yaw_pilot_results_assets/generated/backend_sensitivity_released_k8.md" in page
+
+
+# --------------------------------------------------------------------------------------
+# Record review, finding 5 -- the K = 1 arm is the K = 8 checkpoint evaluated at K = 1,
+# and a section header carrying the bare key does not say so.
+# --------------------------------------------------------------------------------------
+
+K1_ARMS = ("control_k8", "released_k1")
+
+
+@pytest.fixture
+def render_case_k1(tmp_path):
+    """A two-arm summary that includes ``released_k1`` (which has, and needs, no parity)."""
+    root = str(tmp_path / "exp10k1")
+    tree = fx.write_record_tree(root, arms=K1_ARMS, n_queries=32, cpu=False)
+    runs = [tree[arm]["all"] for arm in K1_ARMS]
+    summary_dir = os.path.join(root, "summary")
+    summary_path, _summary = fx.write_summary_dir(summary_dir, runs)
+    case = {"root": root, "tree": tree, "summary": summary_path,
+            "summary_dir": summary_dir, "out_dir": str(tmp_path / "page"),
+            "assets": str(tmp_path / "page" / "generated")}
+    os.makedirs(case["out_dir"])
+    case["parity"] = ["control_k8=%s" % os.path.join(tree["control_k8"]["all"][0],
+                                                     "parity_exp03.json")]
+    case["online"] = ["%s=%s" % (arm, os.path.join(tree[arm]["all"][0],
+                                                   "check_online.json"))
+                      for arm in K1_ARMS]
+    case["probe"] = ["%s=%s" % (arm, os.path.join(tree[arm]["probe"][0], "summary",
+                                                  "yaw_pilot_summary.json"))
+                     for arm in K1_ARMS]
+    return case
+
+
+def test_both_reports_qualify_the_k1_arm_and_keep_its_key(render_case_k1):
+    """Finding 5: read on its own, a section headed ``released_k1`` looks like a model
+    trained at K = 1; the arm *key* it is filed under must not change with the wording."""
+    done = render_md(render_case_k1)
+    assert done.returncode == 0, out(done)
+    done = render_html(render_case_k1)
+    assert done.returncode == 0, out(done)
+    markdown = rendered(render_case_k1, "page.md")
+    page = rendered(render_case_k1, "page.html")
+
+    assert "## released_k1 (trained K = 8, evaluated K = 1)" in markdown
+    assert "## control_k8\n" in markdown
+    assert "## control_k8 (" not in markdown
+    assert "<h2 id='released_k1'>released_k1 (trained K = 8, evaluated K = 1)</h2>" in page
+    assert "<h2 id='control_k8'>control_k8</h2>" in page
+    assert "alt='released_k1 (trained K = 8, evaluated K = 1)'" in page
+
+    # The keys the evidence is bound by, and the file names, are untouched.
+    assert "- released_k1: execution `" in markdown
+    assert "yaw_pilot_gaps_released_k1.png" in page
+    assert os.path.isfile(os.path.join(render_case_k1["assets"],
+                                       "yaw_pilot_gaps_released_k1.png"))
+    copied = fx.read_json(os.path.join(render_case_k1["assets"], "yaw_pilot_summary.json"))
+    assert [arm["arm"] for arm in copied["arms"]] == list(K1_ARMS)
+
+
+def test_the_renderers_take_the_arm_label_from_the_summariser():
+    """One home for the wording: both renderers import the summariser's mapping."""
+    from tools import exp10_summarize as summarize
+
+    for name in ("make_results_md", "make_results_html"):
+        module = load_tool(name)
+        assert module.display_label is summarize.display_label, name
+    assert summarize.display_label("released_k1") == \
+        "released_k1 (trained K = 8, evaluated K = 1)"

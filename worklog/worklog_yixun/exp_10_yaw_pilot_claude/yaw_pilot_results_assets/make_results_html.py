@@ -56,6 +56,14 @@ def repo_root():
     return os.path.abspath(os.path.join(here, os.pardir, os.pardir, os.pardir, os.pardir))
 
 
+if repo_root() not in sys.path:
+    sys.path.insert(0, repo_root())
+#: The arm display names, from the approved summariser (one home for the wording):
+#: `released_k1` is the K = 8 checkpoint evaluated at K = 1, and a heading carrying the
+#: bare key does not say so (record review, finding 5).
+from tools.exp10_summarize import display_label                     # noqa: E402
+
+
 def summarizer():
     """The approved summariser, imported unmodified for its figure drawing.
 
@@ -161,7 +169,8 @@ def ratio_text(h, q, cell):
 
 
 def arm_section(arm, parity, online, probe=None):
-    out = ["<h2 id='%s'>%s</h2>" % (esc(arm["arm"]), esc(arm["arm"]))]
+    out = ["<h2 id='%s'>%s</h2>" % (esc(arm["arm"]),
+                                    esc(display_label(arm["arm"])))]
     m = arm["meta"]
     out.append("<p class='meta'>checkpoint <code>%s</code> (sha256 <code>%s…</code>), backbone %s, K = %s, device %s, %d queries, batches %s, manifest <code>%s…</code>, gl_seed %s, execution <code>%s</code>, protocol <code>%s…</code>.</p>" % (
         esc(m.get("checkpoint")), esc(str(m.get("checkpoint_sha256"))[:12]), esc(m.get("backbone")), esc(m.get("num_shot")), esc(m.get("device")),
@@ -331,7 +340,8 @@ def main():
         parts.append(arm_section(arm, parity.get(arm["arm"]), online.get(arm["arm"]), probes.get(arm["arm"])))
         fig = "yaw_pilot_gaps_%s.png" % arm["arm"]
         if fig in assets:
-            parts.append("<img src='%s/%s' alt='%s'>" % (esc(rel), esc(fig), esc(arm["arm"])))
+            parts.append("<img src='%s/%s' alt='%s'>"
+                         % (esc(rel), esc(fig), esc(display_label(arm["arm"]))))
     parts.append("<h2>Provenance</h2><ul class='meta'>%s</ul><ul class='meta'>%s</ul>" % (
         "".join("<li><code>%s</code> sha256 <code>%s</code></li>" % (esc(p), esc(h)) for p, h in sorted(input_shas.items())),
         "".join("<li>asset <code>%s</code> sha256 <code>%s</code></li>" % (esc(p), esc(h)) for p, h in sorted(assets.items()))))
