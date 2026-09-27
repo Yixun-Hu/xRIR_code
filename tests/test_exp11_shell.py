@@ -993,7 +993,7 @@ def test_a_trainer_that_wakes_after_the_resolution_trains_nothing(tmp_path):
         time.sleep(0.05)
     assert 'refusing' in log.read_text(), (
         'the trainer ran on instead of failing closed: {!r}'.format(log.read_text()))
-    assert 'resolved' in log.read_text()
+    assert attempt.name in log.read_text(), 'the refusal names the attempt'
     assert not attempt.exists(), 'a refused trainer may not recreate its attempt'
     assert not (root / (attempt.name + '_ABORTED_unregistered/train.pid')).exists()
     status, out, err = recovery(old, 'H', tmp_path)          # the arm is open again
@@ -1074,14 +1074,8 @@ def test_the_resolution_refuses_while_a_registration_holds_the_lock(tmp_path):
     """
     root = tmp_path / 'xRIR_simpor_8_shot'
     attempt = unresolved_attempt(root)
-    lock = root / REGISTRATION_LOCK
-    lock.touch()
-    holder = subprocess.Popen(['flock', str(lock), 'sleep', '30'])
+    holder = flock_holder(root / REGISTRATION_LOCK)
     try:
-        for _ in range(100):
-            if subprocess.run(['flock', '-n', str(lock), 'true']).returncode != 0:
-                break
-            time.sleep(0.05)
         result = resolve(attempt)
         assert result.returncode != 0
         assert 'registration in progress' in result.stderr, result.stderr[-400:]
@@ -1120,14 +1114,8 @@ def test_a_registration_after_a_resolution_refuses_on_the_tombstone(tmp_path):
 def test_the_scans_do_not_take_the_registration_lock(tmp_path):
     """A recovery must not be blocked by a registration; the marker already covers it."""
     old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
-    lock = old.parent / REGISTRATION_LOCK
-    lock.touch()
-    holder = subprocess.Popen(['flock', str(lock), 'sleep', '30'])
+    holder = flock_holder(old.parent / REGISTRATION_LOCK)
     try:
-        for _ in range(100):
-            if subprocess.run(['flock', '-n', str(lock), 'true']).returncode != 0:
-                break
-            time.sleep(0.05)
         status, out, err = recovery(old, 'H', tmp_path)
         assert status == 0, err[-400:]
         assert 'PROMOTE' in out
@@ -1135,7 +1123,7 @@ def test_the_scans_do_not_take_the_registration_lock(tmp_path):
         holder.terminate()
         holder.wait(timeout=30)
     text = (REPO / 'tools/exp11_launch.sh').read_text()
-    assert 'the scans do not take it' in text, 'say why in the launcher'
+    assert 'scans do not take it: an' in text, 'say why in the launcher'
 
 
 def pid_of(pidfile):

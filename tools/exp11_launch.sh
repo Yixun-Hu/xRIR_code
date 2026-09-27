@@ -381,12 +381,33 @@ resolve_unregistered() {
              "not an unresolved one" >&2
         return 1
     fi
+    # The REGISTRATION lock, distinct from the publication lock this invocation already
+    # holds: a full-mode launcher holds the publication lock for its child's whole run,
+    # so a trainer could never take that one. This one is held only across a
+    # registration and across this resolution -- exactly the pair that must not
+    # interleave, because the trainer's checks and its write straddle the rename below
+    # (close review 9, blocker 2). The recovery and full-mode scans do not take it: an
+    # in-flight registration is already covered there by the launching marker or by a
+    # complete live child.pid, and a recovery that had to queue behind every trainer
+    # would be a new way to stall an arm.
+    local registration="$root/.registration.lock" reg_fd=""
+    : >> "$registration" 2>/dev/null || true
+    exec {reg_fd}>>"$registration" || {
+        echo "refusing: cannot open the registration lock $registration" >&2; return 1; }
+    if ! flock -n "$reg_fd"; then
+        exec {reg_fd}>&-
+        echo "refusing: a registration in progress holds $registration; a trainer is" \
+             "between its checks and its write, so nothing of this arm may be retired" >&2
+        return 1
+    fi
     scan_arm "$ARM_ROOT" "$attempt" || {
+        exec {reg_fd}>&-
         echo "refusing: $SCAN_REASON" >&2; return 1; }
     now="$(date -u +%s)"
     stamp="$(date -u -r "$attempt/launching" +%s 2>/dev/null || printf '%s' "$now")"
     age=$((now - stamp))
     if [ "$age" -lt "$UNRESOLVED_GRACE_S" ]; then
+        exec {reg_fd}>&-
         echo "refusing: $attempt/launching is ${age}s old and a trainer that has not" \
              "registered yet is still possible; wait until it is ${UNRESOLVED_GRACE_S}s" >&2
         return 1
@@ -405,6 +426,7 @@ resolve_unregistered() {
         # the scan reads every attempt_* directory, retired ones included.
         rm -f -- "${attempt}_ABORTED_unregistered/launching"
     fi
+    exec {reg_fd}>&-   # the whole critical section is done: scan, tombstone, rename
     say "RESOLVED $attempt registered no child and nothing of it is alive;" \
         "it can never be published"
 }

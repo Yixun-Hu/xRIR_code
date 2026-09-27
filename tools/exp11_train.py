@@ -21,6 +21,8 @@ It writes ``provenance.json`` once, before the epoch loop, and never writes
 """
 import argparse
 import json
+import contextlib
+import fcntl
 import os
 import re
 from pathlib import Path
@@ -208,12 +210,54 @@ def registration_complete(attempt):
     return pid_record(Path(attempt) / 'child.pid') is not None
 
 
+REGISTRATION_LOCK = '.registration.lock'
+REGISTRATION_WAIT_S = 60
+
+
+def registration_lock_path(save_dir):
+    """The arm root's registration lock -- one per arm, beside its attempts."""
+    return Path(save_dir).parent / REGISTRATION_LOCK
+
+
+@contextlib.contextmanager
+def registration_lock(save_dir, wait_seconds=REGISTRATION_WAIT_S):
+    """Hold the arm's REGISTRATION lock, or give up after ``wait_seconds``.
+
+    This is not the publication lock: a full-mode launcher holds that one for its
+    child's whole run, so a trainer could never take it. This one is held only across a
+    registration and across a resolution, which is exactly the pair that must not
+    interleave (close review 9, blocker 2). The wait is blocking but bounded, because a
+    resolution is short and a trainer that waits forever is a trainer nothing can end.
+    """
+    path = registration_lock_path(save_dir)
+    try:
+        handle = open(str(path), 'a')
+    except OSError as error:
+        refuse('cannot open the registration lock {}: {}'.format(path, error))
+    try:
+        deadline = time.time() + wait_seconds
+        while True:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.time() >= deadline:
+                    refuse('the registration lock {} was held for more than {}s; '
+                           'another registration or a resolution is in progress'
+                           .format(path, wait_seconds))
+                time.sleep(0.05)
+        yield
+    finally:
+        handle.close()          # closing the descriptor releases the lock
+
+
 def refuse(reason):
     print('refusing: ' + reason, file=sys.stderr, flush=True)
     raise SystemExit(RESOLVED_EXIT)
 
 
-def register_trainer(save_dir, no_save=False):
+def register_trainer(save_dir, no_save=False, arm_root=None,
+                     wait_seconds=REGISTRATION_WAIT_S):
     """Name this process in its own run directory, after parsing and before admission.
 
     The launcher's ``child.pid`` is written by the frozen lifecycle only *after* it has
@@ -232,24 +276,42 @@ def register_trainer(save_dir, no_save=False):
     * neither ``launching`` nor a complete ``child.pid`` is there: from the fork onward
       an ordinary launch always carries one of them.
 
-    ``--no-save`` runs are diagnostics that no scan reads; they write no sidecars, and
-    only the tombstone can refuse them.
+    All of that, and the write itself, happen under the arm's REGISTRATION lock, so a
+    resolution cannot rename the directory between the checks and the write (close
+    review 9, blocker 2); the write is a temp file and one ``os.replace``, so no reader
+    ever sees half a pid.
+
+    ``--no-save`` runs are diagnostics that no scan reads; they write no sidecars, take
+    no lock, and only the tombstone can refuse them.
     """
     directory = Path(save_dir)
     tombstone = directory.parent / (directory.name + '.resolved')
-    if tombstone.is_file():
-        refuse('{} was resolved as an unregistered launch and retired; this trainer '
-               'has nothing to run in'.format(directory))
-    if no_save:
+    if no_save:                       # a diagnostic no scan reads: only a tombstone speaks
+        if tombstone.is_file():
+            refuse('{} was resolved as an unregistered launch and retired; this trainer '
+                   'has nothing to run in'.format(directory))
         return None
-    if not directory.is_dir():
-        refuse('{} does not exist; the launcher creates the attempt and this trainer '
-               'never does'.format(directory))
-    if not (directory / 'launching').is_file() and not registration_complete(directory):
-        refuse('{} carries no launch record -- no launching marker and no complete '
-               'child.pid -- so no launch of it is in progress'.format(directory))
-    path = directory / 'train.pid'
-    path.write_text('{}\n'.format(os.getpid()))
+    root = Path(arm_root) if arm_root is not None else directory.parent
+    with registration_lock(directory, wait_seconds):
+        # Everything below happens under the lock, so a resolution cannot rename this
+        # directory between the checks and the write.
+        if not directory.is_dir():
+            refuse('{} does not exist; the launcher creates the attempt and this trainer '
+                   'never does'.format(directory))
+        if directory.resolve().parent != root.resolve():
+            refuse('{} is not an attempt of {}; this trainer registers only in the arm '
+                   'whose lock it holds'.format(directory, root))
+        if tombstone.is_file():
+            refuse('{} was resolved as an unregistered launch and retired; this trainer '
+                   'has nothing to run in'.format(directory))
+        if not (directory / 'launching').is_file() and not registration_complete(directory):
+            refuse('{} carries no launch record -- no launching marker and no complete '
+                   'child.pid -- so no launch of it is in progress'.format(directory))
+        path = directory / 'train.pid'
+        # Atomic: a reader sees the old file or the whole new one, never a partial pid.
+        temporary = directory / ('train.pid.{}.tmp'.format(os.getpid()))
+        temporary.write_text('{}\n'.format(os.getpid()))
+        os.replace(str(temporary), str(path))
     return path
 
 
