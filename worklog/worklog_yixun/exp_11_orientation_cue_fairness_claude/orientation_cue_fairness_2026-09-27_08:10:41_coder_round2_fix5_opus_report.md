@@ -98,3 +98,33 @@ This cycle's GREEN commit is **306 insertions / −27** across `tools/exp11_laun
 exception: the meta-lock, the grace, the atomic owner write and the self-verification are
 one interlocking mechanism, and any split would leave a state in which the lock is
 partly protected.
+
+## Digests
+
+Taken at `b3de57f`; the last commit that touches production code is `519b48f` (the commit
+after it is this record), so these values stand for the cycle.
+
+**exp_06** — exactly **one** key moved against the record re-filled at `9f98bbb`; the
+other nineteen are unchanged:
+
+| key | approved at 9f98bbb | now |
+|---|---|---|
+| `summarize_haa` | `645e74c03e20…` | `deff6d49d8e9…` |
+
+**exp_11** — all eight keys:
+
+| key | digest |
+|---|---|
+| `train` | `d9cbb9de8eb0ec85ac85664d9e0da7afe156e5b169bbe89096953d863cf15571` |
+| `finalize` | `3eb15b59b672d97ac257054e66f8bc835abd27b85e24f9a417a5a1aaa9e25b9e` |
+| `haa_finetune` | `bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150` |
+| `haa_eval` | `f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20` |
+| `haa_pipeline_sh` | `3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4` |
+| `launch_sh` | `fbc012454f0d7962d1c58fd778baa670d1340e56cab71131ba769e95f214d4c8` |
+| `smoke` | `62133ba07a35d42026c19fd1484b37c6c06ace0ebedc1cdd8484690df323450e` |
+| `summarize_haa` | `deff6d49d8e903d7e0d5005c5d40199b53ca35cdedfd71a90938df9815d0004a` |
+
+**Exactly one key moved against the fix-4 tip `4f72ac2`: `launch_sh`**
+(`3cff85cc…` → `fbc01245…`), which is the whole of this cycle's production change; the
+other seven are unchanged. Values for the eventual reviewed merge — exp_11's record stays
+all-null and every exp_11 producer refuses today.
