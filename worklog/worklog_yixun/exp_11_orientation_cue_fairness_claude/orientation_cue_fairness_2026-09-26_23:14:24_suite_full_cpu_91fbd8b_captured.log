@@ -1,0 +1,2665 @@
+train samples: 1  test samples: 1
+EXP06_GEOMETRY_REHASH 5 files in 0.0 s
+EXP06_GEOMETRY_REHASH 5 files in 0.0 s
+EXP06_GEOMETRY_REHASH 5 files in 0.0 s
+EXP06_GEOMETRY_REHASH 5 files in 0.0 s
+EXP06_GEOMETRY_REHASH 5 files in 0.0 s
+EXP06_GEOMETRY_REHASH 5 files in 0.0 s
+JOBSPEC /tmp/pytest-of-yixunhu/pytest-3387/seed0/seed0/job_spec.json init=pretrain_epoch_012 checkpoint=/tmp/pytest-of-yixunhu/pytest-3387/seed0/pretrain_epoch_012.pth seed=0 expect=finetune backbone=cylindrical_oriented frame=heading heading=/tmp/pytest-of-yixunhu/pytest-3387/haa1/heading
+EXP06_CHILD_EXIT_OK /tmp/pytest-of-yixunhu/pytest-3387/seed0/seed0/stage1/child_exit.json
+EXP06_CHILD_EXIT_OK /tmp/pytest-of-yixunhu/pytest-3387/seed0/seed0/stage2_class_room/child_exit.json
+EXP06_CHILD_EXIT_OK /tmp/pytest-of-yixunhu/pytest-3387/seed0/seed0/eval/class_room/child_exit.json
+EXP06_CHILD_EXIT_OK /tmp/pytest-of-yixunhu/pytest-3387/seed0/seed0/stage2_dampened_room/child_exit.json
+EXP06_CHILD_EXIT_OK /tmp/pytest-of-yixunhu/pytest-3387/seed0/seed0/eval/dampened_room/child_exit.json
+EXP06_CHILD_EXIT_OK /tmp/pytest-of-yixunhu/pytest-3387/seed0/seed0/stage2_hallway/child_exit.json
+EXP06_CHILD_EXIT_OK /tmp/pytest-of-yixunhu/pytest-3387/seed0/seed0/eval/hallway/child_exit.json
+EXP06_CHILD_EXIT_OK /tmp/pytest-of-yixunhu/pytest-3387/seed0/seed0/stage2_complex_room/child_exit.json
+EXP06_CHILD_EXIT_OK /tmp/pytest-of-yixunhu/pytest-3387/seed0/seed0/eval/complex_room/child_exit.json
+{"outcome": "pass", "out": "/tmp/pytest-of-yixunhu/pytest-3387/test_the_record_binds_every_in0/gate_g1.json", "sha256": "177520d939a9c61ef031d8eedbaa2d9252554182346af0528b86955c4cd27d0f", "legacy_reproduced": true, "admissibility": "confirmatory", "approval_deviations": [], "reasons": []}
+JOBSPEC /tmp/pytest-of-yixunhu/pytest-3387/seed1/seed0/job_spec.json init=pretrain_epoch_012 checkpoint=/tmp/pytest-of-yixunhu/pytest-3387/seed1/pretrain_epoch_012.pth seed=0 expect=finetune backbone=cylindrical_oriented frame=heading heading=/tmp/pytest-of-yixunhu/pytest-3387/haa2/heading
+EXP06_CHILD_EXIT_OK /tmp/pytest-of-yixunhu/pytest-3387/seed1/seed0/stage1/child_exit.json
+EXP06_CHILD_EXIT_OK /tmp/pytest-of-yixunhu/pytest-3387/seed1/seed0/stage2_class_room/child_exit.json
+EXP06_CHILD_EXIT_OK /tmp/pytest-of-yixunhu/pytest-3387/seed1/seed0/eval/class_room/child_exit.json
+EXP06_CHILD_EXIT_OK /tmp/pytest-of-yixunhu/pytest-3387/seed1/seed0/stage2_dampened_room/child_exit.json
+EXP06_CHILD_EXIT_OK /tmp/pytest-of-yixunhu/pytest-3387/seed1/seed0/eval/dampened_room/child_exit.json
+EXP06_CHILD_EXIT_OK /tmp/pytest-of-yixunhu/pytest-3387/seed1/seed0/stage2_hallway/child_exit.json
+EXP06_CHILD_EXIT_OK /tmp/pytest-of-yixunhu/pytest-3387/seed1/seed0/eval/hallway/child_exit.json
+EXP06_CHILD_EXIT_OK /tmp/pytest-of-yixunhu/pytest-3387/seed1/seed0/stage2_complex_room/child_exit.json
+EXP06_CHILD_EXIT_OK /tmp/pytest-of-yixunhu/pytest-3387/seed1/seed0/eval/complex_room/child_exit.json
+{"receipt": "/tmp/pytest-of-yixunhu/pytest-3387/test_the_cli_writes_a_draft_an0/legacy_receipt.json", "sha256": "01cb91d9d8f5198468b4c67c19083f3dcd31bdd5218d55dea739d6a893c63404", "files": 126, "label": "reconstructed"}
+WARNING: dirty_outside_worklog
+Hashing training data identity...
+Revalidating training inputs after log close...
+6217 296454
+6217 296454
+exp_03 yaw rotation: 300 queries in 5 rooms, manifest 47637a55ccc5
+runs: control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth), cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth), released (simple, checkpoints/xRIR_unseen.pth)
+roles: primary=control cyl=cyl released=released
+bootstrap: n_boot=200 seed=0 family=18 tests -> adjusted level 0.00278; the query-level and
+   room-cluster intervals on r_k and D_k are both two-sided 99.72% (section 3's k=0 table
+   is nominal 95%, unadjusted)
+
+1. Spectral metrics per angle (condition P = pinned k=0 alignment, E = end to end).
+   consistency = mean|log-spec(k) - log-spec(0)|; its k=0 baseline is 0, so its ratio does not exist.
+
+   control | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   control | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   cyl | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   cyl | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   released | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   released | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+2. Acoustic metrics per angle (Griffin-Lim; EDT s, C50 dB, T60 %). T60 is descriptive only.
+   query CI = this fixed split; adj. room CI = the 17 held-out rooms; both are at the
+   adjusted level; newinv = fraction of usable baselines the angle broke.
+
+   control | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+3. Paired cylindrical - control at k = 0 (nominal 95% CIs, unadjusted).
+   Same references and same Griffin-Lim phases for both models: this supersedes exp_01's epoch-12 comparison.
+       metric        cyl    control       diff    rel %              query CI               room CI      n
+          edt     1.0260     1.0260    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+          c50     1.0283     1.0283    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+          t60     1.1053     1.1053    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+      log_mse     1.0167     1.0167    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+         loss     1.0519     1.0519    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+
+3b. k=0 parity gate against exp_01, band rule v3 (2026-09-06 per-model amendment).
+    exp_01's means differ from these by more than the reference draw: its Griffin-Lim
+    phases were unseeded and its forwards ran at batch 1 with TF32, so the band is
+    2 x (S_ref + S_phase + S_tf32 + S_shape) + 1e-6, each term a mean shift of the model itself.
+    S_ref from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/noise_seed1 and /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_noise_cyl_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_noise_cyl_seed2; S_phase / S_tf32 from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_phase_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_tf32; S_shape from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_shape_b1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_shape_cyl_b1.
+          run   metric     mean k=0    reference       S_ref     S_phase      S_tf32     S_shape       |diff|         band   pass  source
+      control      edt      1.02601      1.02704    0.002052    0.001026    0.000513    0.000513     0.001026     0.008209    yes  exp_01 per-sample
+      control      c50      1.02833      1.02936    0.002057    0.001028    0.000514    0.000514     0.001028     0.008228    yes  exp_01 per-sample
+      control      t60      1.10534      1.10644    0.002211    0.001105    0.000553    0.000553     0.001105     0.008844    yes  exp_01 per-sample
+      control     loss      1.05194      1.05299    0.002104    0.001052    0.000526    0.000526     0.001052     0.008417    yes  exp_01 per-sample
+          cyl      edt      1.02601      1.02704    0.003078    0.001026    0.000513    0.001026     0.001026     0.011287    yes  exp_01 per-sample
+          cyl      c50      1.02833      1.02936    0.003085    0.001028    0.000514    0.001028     0.001028     0.011313    yes  exp_01 per-sample
+          cyl      t60      1.10534      1.10644    0.003316    0.001105    0.000553    0.001105     0.001105     0.012160    yes  exp_01 per-sample
+          cyl     loss      1.05194      1.05299    0.003156    0.001052    0.000526    0.001052     0.001052     0.011572    yes  exp_01 per-sample
+     released      edt      1.02601      1.02601    0.002052    0.001026    0.000513    0.000513     0.000000     0.008209    yes  exp_01 baseline reproduction
+     released      c50      1.02833      1.02833    0.002057    0.001028    0.000514    0.000514     0.000000     0.008228    yes  exp_01 baseline reproduction
+     released      t60      1.10534      1.10534    0.002211    0.001105    0.000553    0.000553     0.000000     0.008844    yes  exp_01 baseline reproduction
+     released     loss      1.05194            -    0.002104    0.001052    0.000526    0.000526            -     0.008417      -  exp_01 baseline reproduction
+   gate_pass: False
+      - expected exactly 2 --noise-runs (manifest seeds 1 and 2), got 1
+      - expected exactly 2 --noise-runs (manifest seeds 1 and 2), got 1
+
+4. H1 (joint yaw rotation substantially degrades the model): supported if the adjusted
+   lower bound of r exceeds +10% for EDT or C50 at any angle k != 0, condition P.
+   not evaluated: a pre-registered verdict needs the full design (--mode full)
+   primary (control): +10% of the k=0 error is 0.1026 s EDT and 0.103 dB C50
+   released (released): +10% of the k=0 error is 0.1026 s EDT and 0.103 dB C50
+
+5. H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, paired on the
+   same resamples; TOST equivalence of r_cyl to zero within +-2% at the adjusted level
+   (query / room) at the patch-aligned angles.
+
+   metric edt
+        k     deg     r_cyl    r_ctrl       D_k              query CI          adj. room CI         equivalent (query / room)
+        0     0.0   +0.0000   +0.0000   +0.0000 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]                             - / -
+
+   metric c50
+        k     deg     r_cyl    r_ctrl       D_k              query CI          adj. room CI         equivalent (query / room)
+        0     0.0   +0.0000   +0.0000   +0.0000 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]                             - / -
+
+   H2 verdict: not evaluated (k0-gate mode) (0 of 0 H1-passing cells)
+
+6. Delay-flip audit: (query, reference) pairs whose integer direct-path delay moves
+   under the rotation -- the numerical noise condition P excludes.
+          run       0
+      control       0
+          cyl       0
+     released       0
+
+7. Decomposition of a patch-aligned yaw (cylindrical only): relative change of each stage.
+   Scope: receiver-view tokens and pooling plus the query-source coordinate embedding;
+   reference-coordinate features not decomposed.
+   cyl at k=32 over 1 batch(es): tokens 3.200e-07  pooled 1.600e-02  coord 6.800e-01  log-spec 2.000e-03
+
+8. Bootstrap convergence: every decision-driving bound recomputed with a second seed,
+   as a fraction of its own interval width (limit 0.10).
+   0 bounds recomputed with seed 0 -> 1; max movement 0.0000 (pass: True)
+   no confirmatory bound in this mode
+wrote /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/one_noise.json
+exp_03 yaw rotation: 300 queries in 5 rooms, manifest 47637a55ccc5
+runs: control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth), cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth)
+roles: primary=control cyl=cyl released=None
+bootstrap: n_boot=200 seed=0 family=18 tests -> adjusted level 0.00278; the query-level and
+   room-cluster intervals on r_k and D_k are both two-sided 99.72% (section 3's k=0 table
+   is nominal 95%, unadjusted)
+
+1. Spectral metrics per angle (condition P = pinned k=0 alignment, E = end to end).
+   consistency = mean|log-spec(k) - log-spec(0)|; its k=0 baseline is 0, so its ratio does not exist.
+
+   control | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   control | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   cyl | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   cyl | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+2. Acoustic metrics per angle (Griffin-Lim; EDT s, C50 dB, T60 %). T60 is descriptive only.
+   query CI = this fixed split; adj. room CI = the 17 held-out rooms; both are at the
+   adjusted level; newinv = fraction of usable baselines the angle broke.
+
+   control | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+3. Paired cylindrical - control at k = 0 (nominal 95% CIs, unadjusted).
+   Same references and same Griffin-Lim phases for both models: this supersedes exp_01's epoch-12 comparison.
+       metric        cyl    control       diff    rel %              query CI               room CI      n
+          edt     1.0260     1.0260    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+          c50     1.0283     1.0283    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+          t60     1.1053     1.1053    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+      log_mse     1.0167     1.0167    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+         loss     1.0519     1.0519    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+
+3b. k=0 parity gate against exp_01, band rule v3 (2026-09-06 per-model amendment).
+    exp_01's means differ from these by more than the reference draw: its Griffin-Lim
+    phases were unseeded and its forwards ran at batch 1 with TF32, so the band is
+    2 x (S_ref + S_phase + S_tf32 + S_shape) + 1e-6, each term a mean shift of the model itself.
+    S_ref from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/noise_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/noise_seed2 and /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_noise_cyl_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_noise_cyl_seed2; S_phase / S_tf32 from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_phase_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_tf32; S_shape from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_shape_b1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_shape_cyl_b1.
+          run   metric     mean k=0    reference       S_ref     S_phase      S_tf32     S_shape       |diff|         band   pass  source
+      control      edt      1.02601      1.02704    0.002052    0.001026    0.000513    0.000513     0.001026     0.008209    yes  exp_01 per-sample
+      control      c50      1.02833      1.02936    0.002057    0.001028    0.000514    0.000514     0.001028     0.008228    yes  exp_01 per-sample
+      control      t60      1.10534      1.10644    0.002211    0.001105    0.000553    0.000553     0.001105     0.008844    yes  exp_01 per-sample
+      control     loss      1.05194      1.05299    0.002104    0.001052    0.000526    0.000526     0.001052     0.008417    yes  exp_01 per-sample
+          cyl      edt      1.02601      1.02704    0.003078    0.001026    0.000513    0.001026     0.001026     0.011287    yes  exp_01 per-sample
+          cyl      c50      1.02833      1.02936    0.003085    0.001028    0.000514    0.001028     0.001028     0.011313    yes  exp_01 per-sample
+          cyl      t60      1.10534      1.10644    0.003316    0.001105    0.000553    0.001105     0.001105     0.012160    yes  exp_01 per-sample
+          cyl     loss      1.05194      1.05299    0.003156    0.001052    0.000526    0.001052     0.001052     0.011572    yes  exp_01 per-sample
+   gate_pass: False
+      - no released run
+
+4. H1 (joint yaw rotation substantially degrades the model): supported if the adjusted
+   lower bound of r exceeds +10% for EDT or C50 at any angle k != 0, condition P.
+   not evaluated: a pre-registered verdict needs the full design (--mode full)
+   primary (control): +10% of the k=0 error is 0.1026 s EDT and 0.103 dB C50
+
+5. H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, paired on the
+   same resamples; TOST equivalence of r_cyl to zero within +-2% at the adjusted level
+   (query / room) at the patch-aligned angles.
+
+   metric edt
+        k     deg     r_cyl    r_ctrl       D_k              query CI          adj. room CI         equivalent (query / room)
+        0     0.0   +0.0000   +0.0000   +0.0000 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]                             - / -
+
+   metric c50
+        k     deg     r_cyl    r_ctrl       D_k              query CI          adj. room CI         equivalent (query / room)
+        0     0.0   +0.0000   +0.0000   +0.0000 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]                             - / -
+
+   H2 verdict: not evaluated (k0-gate mode) (0 of 0 H1-passing cells)
+
+6. Delay-flip audit: (query, reference) pairs whose integer direct-path delay moves
+   under the rotation -- the numerical noise condition P excludes.
+          run       0
+      control       0
+          cyl       0
+
+7. Decomposition of a patch-aligned yaw (cylindrical only): relative change of each stage.
+   Scope: receiver-view tokens and pooling plus the query-source coordinate embedding;
+   reference-coordinate features not decomposed.
+   cyl at k=32 over 1 batch(es): tokens 3.200e-07  pooled 1.600e-02  coord 6.800e-01  log-spec 2.000e-03
+
+8. Bootstrap convergence: every decision-driving bound recomputed with a second seed,
+   as a fraction of its own interval width (limit 0.10).
+   0 bounds recomputed with seed 0 -> 1; max movement 0.0000 (pass: True)
+   no confirmatory bound in this mode
+wrote /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/no_released.json
+exp_03 yaw rotation: 300 queries in 5 rooms, manifest 47637a55ccc5
+runs: control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth), cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth), released (simple, checkpoints/xRIR_unseen.pth)
+roles: primary=control cyl=cyl released=released
+bootstrap: n_boot=200 seed=0 family=18 tests -> adjusted level 0.00278; the query-level and
+   room-cluster intervals on r_k and D_k are both two-sided 99.72% (section 3's k=0 table
+   is nominal 95%, unadjusted)
+
+1. Spectral metrics per angle (condition P = pinned k=0 alignment, E = end to end).
+   consistency = mean|log-spec(k) - log-spec(0)|; its k=0 baseline is 0, so its ratio does not exist.
+
+   control | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   control | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   cyl | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   cyl | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   released | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   released | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+2. Acoustic metrics per angle (Griffin-Lim; EDT s, C50 dB, T60 %). T60 is descriptive only.
+   query CI = this fixed split; adj. room CI = the 17 held-out rooms; both are at the
+   adjusted level; newinv = fraction of usable baselines the angle broke.
+
+   control | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+3. Paired cylindrical - control at k = 0 (nominal 95% CIs, unadjusted).
+   Same references and same Griffin-Lim phases for both models: this supersedes exp_01's epoch-12 comparison.
+       metric        cyl    control       diff    rel %              query CI               room CI      n
+          edt     1.0260     1.0260    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+          c50     1.0283     1.0283    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+          t60     1.1053     1.1053    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+      log_mse     1.0167     1.0167    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+         loss     1.0519     1.0519    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+
+3b. k=0 parity gate against exp_01, band rule v3 (2026-09-06 per-model amendment).
+    exp_01's means differ from these by more than the reference draw: its Griffin-Lim
+    phases were unseeded and its forwards ran at batch 1 with TF32, so the band is
+    2 x (S_ref + S_phase + S_tf32 + S_shape) + 1e-6, each term a mean shift of the model itself.
+    S_ref from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/noise_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/noise_seed2 and /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_noise_cyl_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_noise_cyl_seed2; S_phase / S_tf32 from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_phase_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_tf32; S_shape from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_shape_b1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_shape_cyl_b1.
+          run   metric     mean k=0    reference       S_ref     S_phase      S_tf32     S_shape       |diff|         band   pass  source
+      control      edt      1.02601      1.02704    0.002052    0.001026    0.000513    0.000513     0.001026     0.008209    yes  exp_01 per-sample
+      control      c50      1.02833      1.02936    0.002057    0.001028    0.000514    0.000514     0.001028     0.008228    yes  exp_01 per-sample
+      control      t60      1.10534      1.10644    0.002211    0.001105    0.000553    0.000553     0.001105     0.008844    yes  exp_01 per-sample
+      control     loss      1.05194      1.05299    0.002104    0.001052    0.000526    0.000526     0.001052     0.008417    yes  exp_01 per-sample
+          cyl      edt      1.02601            -    0.003078    0.001026    0.000513    0.001026            -     0.011287      -  exp_01 per-sample
+          cyl      c50      1.02833            -    0.003085    0.001028    0.000514    0.001028            -     0.011313      -  exp_01 per-sample
+          cyl      t60      1.10534            -    0.003316    0.001105    0.000553    0.001105            -     0.012160      -  exp_01 per-sample
+          cyl     loss      1.05194            -    0.003156    0.001052    0.000526    0.001052            -     0.011572      -  exp_01 per-sample
+     released      edt      1.02601      1.02601    0.002052    0.001026    0.000513    0.000513     0.000000     0.008209    yes  exp_01 baseline reproduction
+     released      c50      1.02833      1.02833    0.002057    0.001028    0.000514    0.000514     0.000000     0.008228    yes  exp_01 baseline reproduction
+     released      t60      1.10534      1.10534    0.002211    0.001105    0.000553    0.000553     0.000000     0.008844    yes  exp_01 baseline reproduction
+     released     loss      1.05194            -    0.002104    0.001052    0.000526    0.000526            -     0.008417      -  exp_01 baseline reproduction
+   gate_pass: False
+      - cyl: no exp_01 per-sample file (--exp01-per-sample cyl=...)
+      - cyl: no exp_01 per-sample file given
+
+4. H1 (joint yaw rotation substantially degrades the model): supported if the adjusted
+   lower bound of r exceeds +10% for EDT or C50 at any angle k != 0, condition P.
+   not evaluated: a pre-registered verdict needs the full design (--mode full)
+   primary (control): +10% of the k=0 error is 0.1026 s EDT and 0.103 dB C50
+   released (released): +10% of the k=0 error is 0.1026 s EDT and 0.103 dB C50
+
+5. H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, paired on the
+   same resamples; TOST equivalence of r_cyl to zero within +-2% at the adjusted level
+   (query / room) at the patch-aligned angles.
+
+   metric edt
+        k     deg     r_cyl    r_ctrl       D_k              query CI          adj. room CI         equivalent (query / room)
+        0     0.0   +0.0000   +0.0000   +0.0000 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]                             - / -
+
+   metric c50
+        k     deg     r_cyl    r_ctrl       D_k              query CI          adj. room CI         equivalent (query / room)
+        0     0.0   +0.0000   +0.0000   +0.0000 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]                             - / -
+
+   H2 verdict: not evaluated (k0-gate mode) (0 of 0 H1-passing cells)
+
+6. Delay-flip audit: (query, reference) pairs whose integer direct-path delay moves
+   under the rotation -- the numerical noise condition P excludes.
+          run       0
+      control       0
+          cyl       0
+     released       0
+
+7. Decomposition of a patch-aligned yaw (cylindrical only): relative change of each stage.
+   Scope: receiver-view tokens and pooling plus the query-source coordinate embedding;
+   reference-coordinate features not decomposed.
+   cyl at k=32 over 1 batch(es): tokens 3.200e-07  pooled 1.600e-02  coord 6.800e-01  log-spec 2.000e-03
+
+8. Bootstrap convergence: every decision-driving bound recomputed with a second seed,
+   as a fraction of its own interval width (limit 0.10).
+   0 bounds recomputed with seed 0 -> 1; max movement 0.0000 (pass: True)
+   no confirmatory bound in this mode
+wrote /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/no_exp01.json
+exp_03 yaw rotation: 300 queries in 5 rooms, manifest 47637a55ccc5
+runs: control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth), cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth), released (simple, checkpoints/xRIR_unseen.pth)
+roles: primary=control cyl=cyl released=released
+bootstrap: n_boot=200 seed=0 family=18 tests -> adjusted level 0.00278; the query-level and
+   room-cluster intervals on r_k and D_k are both two-sided 99.72% (section 3's k=0 table
+   is nominal 95%, unadjusted)
+
+1. Spectral metrics per angle (condition P = pinned k=0 alignment, E = end to end).
+   consistency = mean|log-spec(k) - log-spec(0)|; its k=0 baseline is 0, so its ratio does not exist.
+
+   control | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   control | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   cyl | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   cyl | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   released | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   released | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+2. Acoustic metrics per angle (Griffin-Lim; EDT s, C50 dB, T60 %). T60 is descriptive only.
+   query CI = this fixed split; adj. room CI = the 17 held-out rooms; both are at the
+   adjusted level; newinv = fraction of usable baselines the angle broke.
+
+   control | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+3. Paired cylindrical - control at k = 0 (nominal 95% CIs, unadjusted).
+   Same references and same Griffin-Lim phases for both models: this supersedes exp_01's epoch-12 comparison.
+       metric        cyl    control       diff    rel %              query CI               room CI      n
+          edt     1.0260     1.0260    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+          c50     1.0283     1.0283    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+          t60     1.1053     1.1053    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+      log_mse     1.0167     1.0167    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+         loss     1.0519     1.0519    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+
+3b. k=0 parity gate against exp_01, band rule v3 (2026-09-06 per-model amendment).
+    exp_01's means differ from these by more than the reference draw: its Griffin-Lim
+    phases were unseeded and its forwards ran at batch 1 with TF32, so the band is
+    2 x (S_ref + S_phase + S_tf32 + S_shape) + 1e-6, each term a mean shift of the model itself.
+    S_ref from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/noise_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/noise_seed2 and /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_noise_cyl_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_noise_cyl_seed2; S_phase / S_tf32 from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_phase_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_tf32; S_shape from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_shape_b1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/gate_shape_cyl_b1.
+          run   metric     mean k=0    reference       S_ref     S_phase      S_tf32     S_shape       |diff|         band   pass  source
+      control      edt      1.02601      1.02704    0.002052    0.001026    0.000513    0.000513     0.001026     0.008209    yes  exp_01 per-sample
+      control      c50      1.02833      1.02936    0.002057    0.001028    0.000514    0.000514     0.001028     0.008228    yes  exp_01 per-sample
+      control      t60      1.10534      1.10644    0.002211    0.001105    0.000553    0.000553     0.001105     0.008844    yes  exp_01 per-sample
+      control     loss      1.05194      1.05299    0.002104    0.001052    0.000526    0.000526     0.001052     0.008417    yes  exp_01 per-sample
+          cyl      edt      1.02601      1.02704    0.003078    0.001026    0.000513    0.001026     0.001026     0.011287    yes  exp_01 per-sample
+          cyl      c50      1.02833      1.02936    0.003085    0.001028    0.000514    0.001028     0.001028     0.011313    yes  exp_01 per-sample
+          cyl      t60      1.10534      1.10644    0.003316    0.001105    0.000553    0.001105     0.001105     0.012160    yes  exp_01 per-sample
+          cyl     loss      1.05194      1.05299    0.003156    0.001052    0.000526    0.001052     0.001052     0.011572    yes  exp_01 per-sample
+     released      edt      1.02601      1.02601    0.002052    0.001026    0.000513    0.000513     0.000000     0.008209    yes  exp_01 baseline reproduction
+     released      c50      1.02833      1.02833    0.002057    0.001028    0.000514    0.000514     0.000000     0.008228    yes  exp_01 baseline reproduction
+     released      t60      1.10534      1.10534    0.002211    0.001105    0.000553    0.000553     0.000000     0.008844    yes  exp_01 baseline reproduction
+     released     loss      1.05194            -    0.002104    0.001052    0.000526    0.000526            -     0.008417      -  exp_01 baseline reproduction
+   gate_pass: False
+      - --noise-runs noise_seed1: checkpoint 'ckpt/xRIR_cyl_8_shot/epoch_12.pth', expected 'ckpt/xRIR_simple_8_shot/epoch_12.pth'
+
+4. H1 (joint yaw rotation substantially degrades the model): supported if the adjusted
+   lower bound of r exceeds +10% for EDT or C50 at any angle k != 0, condition P.
+   not evaluated: a pre-registered verdict needs the full design (--mode full)
+   primary (control): +10% of the k=0 error is 0.1026 s EDT and 0.103 dB C50
+   released (released): +10% of the k=0 error is 0.1026 s EDT and 0.103 dB C50
+
+5. H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, paired on the
+   same resamples; TOST equivalence of r_cyl to zero within +-2% at the adjusted level
+   (query / room) at the patch-aligned angles.
+
+   metric edt
+        k     deg     r_cyl    r_ctrl       D_k              query CI          adj. room CI         equivalent (query / room)
+        0     0.0   +0.0000   +0.0000   +0.0000 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]                             - / -
+
+   metric c50
+        k     deg     r_cyl    r_ctrl       D_k              query CI          adj. room CI         equivalent (query / room)
+        0     0.0   +0.0000   +0.0000   +0.0000 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]                             - / -
+
+   H2 verdict: not evaluated (k0-gate mode) (0 of 0 H1-passing cells)
+
+6. Delay-flip audit: (query, reference) pairs whose integer direct-path delay moves
+   under the rotation -- the numerical noise condition P excludes.
+          run       0
+      control       0
+          cyl       0
+     released       0
+
+7. Decomposition of a patch-aligned yaw (cylindrical only): relative change of each stage.
+   Scope: receiver-view tokens and pooling plus the query-source coordinate embedding;
+   reference-coordinate features not decomposed.
+   cyl at k=32 over 1 batch(es): tokens 3.200e-07  pooled 1.600e-02  coord 6.800e-01  log-spec 2.000e-03
+
+8. Bootstrap convergence: every decision-driving bound recomputed with a second seed,
+   as a fraction of its own interval width (limit 0.10).
+   0 bounds recomputed with seed 0 -> 1; max movement 0.0000 (pass: True)
+   no confirmatory bound in this mode
+wrote /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_0/wrong_ckpt.json
+exp_03 yaw rotation: 300 queries in 5 rooms, manifest 47637a55ccc5
+runs: control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth), cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth), released (simple, checkpoints/xRIR_unseen.pth)
+roles: primary=control cyl=cyl released=released
+bootstrap: n_boot=200 seed=0 family=18 tests -> adjusted level 0.00278; the query-level and
+   room-cluster intervals on r_k and D_k are both two-sided 99.72% (section 3's k=0 table
+   is nominal 95%, unadjusted)
+
+1. Spectral metrics per angle (condition P = pinned k=0 alignment, E = end to end).
+   consistency = mean|log-spec(k) - log-spec(0)|; its k=0 baseline is 0, so its ratio does not exist.
+
+   control | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   control | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   cyl | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   cyl | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   released | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   released | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+2. Acoustic metrics per angle (Griffin-Lim; EDT s, C50 dB, T60 %). T60 is descriptive only.
+   query CI = this fixed split; adj. room CI = the 17 held-out rooms; both are at the
+   adjusted level; newinv = fraction of usable baselines the angle broke.
+
+   control | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+3. Paired cylindrical - control at k = 0 (nominal 95% CIs, unadjusted).
+   Same references and same Griffin-Lim phases for both models: this supersedes exp_01's epoch-12 comparison.
+       metric        cyl    control       diff    rel %              query CI               room CI      n
+          edt     1.0260     1.0260    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+          c50     1.0283     1.0283    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+          t60     1.1053     1.1053    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+      log_mse     1.0167     1.0167    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+         loss     1.0519     1.0519    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+
+3b. k=0 parity gate against exp_01, band rule v3 (2026-09-06 per-model amendment).
+    exp_01's means differ from these by more than the reference draw: its Griffin-Lim
+    phases were unseeded and its forwards ran at batch 1 with TF32, so the band is
+    2 x (S_ref + S_phase + S_tf32 + S_shape) + 1e-6, each term a mean shift of the model itself.
+    S_ref from /tmp/pytest-of-yixunhu/pytest-3387/test_the_shape_term_is_measure0/noise_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_shape_term_is_measure0/noise_seed2 and /tmp/pytest-of-yixunhu/pytest-3387/test_the_shape_term_is_measure0/gate_noise_cyl_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_shape_term_is_measure0/gate_noise_cyl_seed2; S_phase / S_tf32 from /tmp/pytest-of-yixunhu/pytest-3387/test_the_shape_term_is_measure0/gate_phase_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_shape_term_is_measure0/gate_tf32; S_shape from /tmp/pytest-of-yixunhu/pytest-3387/test_the_shape_term_is_measure0/gate_shape_b1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_shape_term_is_measure0/gate_shape_cyl_b1.
+          run   metric     mean k=0    reference       S_ref     S_phase      S_tf32     S_shape       |diff|         band   pass  source
+      control      edt      1.02601      1.02704    0.002052    0.001026    0.000513    0.000513     0.001026     0.008209    yes  exp_01 per-sample
+      control      c50      1.02833      1.02936    0.002057    0.001028    0.000514    0.000514     0.001028     0.008228    yes  exp_01 per-sample
+      control      t60      1.10534      1.10644    0.002211    0.001105    0.000553    0.000553     0.001105     0.008844    yes  exp_01 per-sample
+      control     loss      1.05194      1.05299    0.002104    0.001052    0.000526    0.000526     0.001052     0.008417    yes  exp_01 per-sample
+          cyl      edt      1.02601      1.02704    0.003078    0.001026    0.000513    0.001026     0.001026     0.011287    yes  exp_01 per-sample
+          cyl      c50      1.02833      1.02936    0.003085    0.001028    0.000514    0.001028     0.001028     0.011313    yes  exp_01 per-sample
+          cyl      t60      1.10534      1.10644    0.003316    0.001105    0.000553    0.001105     0.001105     0.012160    yes  exp_01 per-sample
+          cyl     loss      1.05194      1.05299    0.003156    0.001052    0.000526    0.001052     0.001052     0.011572    yes  exp_01 per-sample
+     released      edt      1.02601      1.02601    0.002052    0.001026    0.000513    0.000513     0.000000     0.008209    yes  exp_01 baseline reproduction
+     released      c50      1.02833      1.02833    0.002057    0.001028    0.000514    0.000514     0.000000     0.008228    yes  exp_01 baseline reproduction
+     released      t60      1.10534      1.10534    0.002211    0.001105    0.000553    0.000553     0.000000     0.008844    yes  exp_01 baseline reproduction
+     released     loss      1.05194            -    0.002104    0.001052    0.000526    0.000526            -     0.008417      -  exp_01 baseline reproduction
+   gate_pass: True
+
+4. H1 (joint yaw rotation substantially degrades the model): supported if the adjusted
+   lower bound of r exceeds +10% for EDT or C50 at any angle k != 0, condition P.
+   not evaluated: a pre-registered verdict needs the full design (--mode full)
+   primary (control): +10% of the k=0 error is 0.1026 s EDT and 0.103 dB C50
+   released (released): +10% of the k=0 error is 0.1026 s EDT and 0.103 dB C50
+
+5. H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, paired on the
+   same resamples; TOST equivalence of r_cyl to zero within +-2% at the adjusted level
+   (query / room) at the patch-aligned angles.
+
+   metric edt
+        k     deg     r_cyl    r_ctrl       D_k              query CI          adj. room CI         equivalent (query / room)
+        0     0.0   +0.0000   +0.0000   +0.0000 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]                             - / -
+
+   metric c50
+        k     deg     r_cyl    r_ctrl       D_k              query CI          adj. room CI         equivalent (query / room)
+        0     0.0   +0.0000   +0.0000   +0.0000 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]                             - / -
+
+   H2 verdict: not evaluated (k0-gate mode) (0 of 0 H1-passing cells)
+
+6. Delay-flip audit: (query, reference) pairs whose integer direct-path delay moves
+   under the rotation -- the numerical noise condition P excludes.
+          run       0
+      control       0
+          cyl       0
+     released       0
+
+7. Decomposition of a patch-aligned yaw (cylindrical only): relative change of each stage.
+   Scope: receiver-view tokens and pooling plus the query-source coordinate embedding;
+   reference-coordinate features not decomposed.
+   cyl at k=32 over 1 batch(es): tokens 3.200e-07  pooled 1.600e-02  coord 6.800e-01  log-spec 2.000e-03
+
+8. Bootstrap convergence: every decision-driving bound recomputed with a second seed,
+   as a fraction of its own interval width (limit 0.10).
+   0 bounds recomputed with seed 0 -> 1; max movement 0.0000 (pass: True)
+   no confirmatory bound in this mode
+e-03
+
+8. Bootstrap convergence: every decision-driving bound recomputed with a second seed,
+   as a fraction of its own interval width (limit 0.10).
+   0 bounds recomputed with seed 0 -> 1; max movement 0.0000 (pass: True)
+   no confirmatory bound in this mode
+wrote /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/three_shape.json
+exp_03 yaw rotation: 300 queries in 5 rooms, manifest 47637a55ccc5
+runs: control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth), cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth), released (simple, checkpoints/xRIR_unseen.pth)
+roles: primary=control cyl=cyl released=released
+bootstrap: n_boot=200 seed=0 family=18 tests -> adjusted level 0.00278; the query-level and
+   room-cluster intervals on r_k and D_k are both two-sided 99.72% (section 3's k=0 table
+   is nominal 95%, unadjusted)
+
+1. Spectral metrics per angle (condition P = pinned k=0 alignment, E = end to end).
+   consistency = mean|log-spec(k) - log-spec(0)|; its k=0 baseline is 0, so its ratio does not exist.
+
+   control | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   control | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   cyl | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   cyl | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   released | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   released | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+2. Acoustic metrics per angle (Griffin-Lim; EDT s, C50 dB, T60 %). T60 is descriptive only.
+   query CI = this fixed split; adj. room CI = the 17 held-out rooms; both are at the
+   adjusted level; newinv = fraction of usable baselines the angle broke.
+
+   control | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+3. Paired cylindrical - control at k = 0 (nominal 95% CIs, unadjusted).
+   Same references and same Griffin-Lim phases for both models: this supersedes exp_01's epoch-12 comparison.
+       metric        cyl    control       diff    rel %              query CI               room CI      n
+          edt     1.0260     1.0260    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+          c50     1.0283     1.0283    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+          t60     1.1053     1.1053    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+      log_mse     1.0167     1.0167    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+         loss     1.0519     1.0519    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+
+3b. k=0 parity gate against exp_01, band rule v3 (2026-09-06 per-model amendment).
+    exp_01's means differ from these by more than the reference draw: its Griffin-Lim
+    phases were unseeded and its forwards ran at batch 1 with TF32, so the band is
+    2 x (S_ref + S_phase + S_tf32 + S_shape) + 1e-6, each term a mean shift of the model itself.
+    S_ref from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/noise_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/noise_seed2 and /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/gate_noise_cyl_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/gate_noise_cyl_seed2; S_phase / S_tf32 from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/gate_phase_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/gate_tf32; S_shape from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/gate_shape_b1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/gate_shape_cyl_b1.
+          run   metric     mean k=0    reference       S_ref     S_phase      S_tf32     S_shape       |diff|         band   pass  source
+      control      edt      1.02601      1.02704    0.002052    0.001026    0.000513    0.000513     0.001026     0.008209    yes  exp_01 per-sample
+      control      c50      1.02833      1.02936    0.002057    0.001028    0.000514    0.000514     0.001028     0.008228    yes  exp_01 per-sample
+      control      t60      1.10534      1.10644    0.002211    0.001105    0.000553    0.000553     0.001105     0.008844    yes  exp_01 per-sample
+      control     loss      1.05194      1.05299    0.002104    0.001052    0.000526    0.000526     0.001052     0.008417    yes  exp_01 per-sample
+          cyl      edt      1.02601      1.02704    0.003078    0.001026    0.000513    0.001026     0.001026     0.011287    yes  exp_01 per-sample
+          cyl      c50      1.02833      1.02936    0.003085    0.001028    0.000514    0.001028     0.001028     0.011313    yes  exp_01 per-sample
+          cyl      t60      1.10534      1.10644    0.003316    0.001105    0.000553    0.001105     0.001105     0.012160    yes  exp_01 per-sample
+          cyl     loss      1.05194      1.05299    0.003156    0.001052    0.000526    0.001052     0.001052     0.011572    yes  exp_01 per-sample
+     released      edt      1.02601      1.02601    0.002052    0.001026    0.000513    0.000513     0.000000     0.008209    yes  exp_01 baseline reproduction
+     released      c50      1.02833      1.02833    0.002057    0.001028    0.000514    0.000514     0.000000     0.008228    yes  exp_01 baseline reproduction
+     released      t60      1.10534      1.10534    0.002211    0.001105    0.000553    0.000553     0.000000     0.008844    yes  exp_01 baseline reproduction
+     released     loss      1.05194            -    0.002104    0.001052    0.000526    0.000526            -     0.008417      -  exp_01 baseline reproduction
+   gate_pass: False
+      - --shape-runs gate_shape_cyl_b1: meta.batch_size is 16, expected 1
+
+4. H1 (joint yaw rotation substantially degrades the model): supported if the adjusted
+   lower bound of r exceeds +10% for EDT or C50 at any angle k != 0, condition P.
+   not evaluated: a pre-registered verdict needs the full design (--mode full)
+   primary (control): +10% of the k=0 error is 0.1026 s EDT and 0.103 dB C50
+   released (released): +10% of the k=0 error is 0.1026 s EDT and 0.103 dB C50
+
+5. H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, paired on the
+   same resamples; TOST equivalence of r_cyl to zero within +-2% at the adjusted level
+   (query / room) at the patch-aligned angles.
+
+   metric edt
+        k     deg     r_cyl    r_ctrl       D_k              query CI          adj. room CI         equivalent (query / room)
+        0     0.0   +0.0000   +0.0000   +0.0000 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]                             - / -
+
+   metric c50
+        k     deg     r_cyl    r_ctrl       D_k              query CI          adj. room CI         equivalent (query / room)
+        0     0.0   +0.0000   +0.0000   +0.0000 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]                             - / -
+
+   H2 verdict: not evaluated (k0-gate mode) (0 of 0 H1-passing cells)
+
+6. Delay-flip audit: (query, reference) pairs whose integer direct-path delay moves
+   under the rotation -- the numerical noise condition P excludes.
+          run       0
+      control       0
+          cyl       0
+     released       0
+
+7. Decomposition of a patch-aligned yaw (cylindrical only): relative change of each stage.
+   Scope: receiver-view tokens and pooling plus the query-source coordinate embedding;
+   reference-coordinate features not decomposed.
+   cyl at k=32 over 1 batch(es): tokens 3.200e-07  pooled 1.600e-02  coord 6.800e-01  log-spec 2.000e-03
+
+8. Bootstrap convergence: every decision-driving bound recomputed with a second seed,
+   as a fraction of its own interval width (limit 0.10).
+   0 bounds recomputed with seed 0 -> 1; max movement 0.0000 (pass: True)
+   no confirmatory bound in this mode
+wrote /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/shape_batch.json
+exp_03 yaw rotation: 300 queries in 5 rooms, manifest 47637a55ccc5
+runs: control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth), cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth), released (simple, checkpoints/xRIR_unseen.pth)
+roles: primary=control cyl=cyl released=released
+bootstrap: n_boot=200 seed=0 family=18 tests -> adjusted level 0.00278; the query-level and
+   room-cluster intervals on r_k and D_k are both two-sided 99.72% (section 3's k=0 table
+   is nominal 95%, unadjusted)
+
+1. Spectral metrics per angle (condition P = pinned k=0 alignment, E = end to end).
+   consistency = mean|log-spec(k) - log-spec(0)|; its k=0 baseline is 0, so its ratio does not exist.
+
+   control | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   control | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   cyl | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   cyl | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   released | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   released | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+2. Acoustic metrics per angle (Griffin-Lim; EDT s, C50 dB, T60 %). T60 is descriptive only.
+   query CI = this fixed split; adj. room CI = the 17 held-out rooms; both are at the
+   adjusted level; newinv = fraction of usable baselines the angle broke.
+
+   control | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+3. Paired cylindrical - control at k = 0 (nominal 95% CIs, unadjusted).
+   Same references and same Griffin-Lim phases for both models: this supersedes exp_01's epoch-12 comparison.
+       metric        cyl    control       diff    rel %              query CI               room CI      n
+          edt     1.0260     1.0260    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+          c50     1.0283     1.0283    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+          t60     1.1053     1.1053    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+      log_mse     1.0167     1.0167    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+         loss     1.0519     1.0519    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+
+3b. k=0 parity gate against exp_01, band rule v3 (2026-09-06 per-model amendment).
+    exp_01's means differ from these by more than the reference draw: its Griffin-Lim
+    phases were unseeded and its forwards ran at batch 1 with TF32, so the band is
+    2 x (S_ref + S_phase + S_tf32 + S_shape) + 1e-6, each term a mean shift of the model itself.
+    S_ref from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/noise_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/noise_seed2 and /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/gate_noise_cyl_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/gate_noise_cyl_seed2; S_phase / S_tf32 from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/gate_phase_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/gate_tf32; S_shape from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/gate_shape_b1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/gate_shape_cyl_b1.
+          run   metric     mean k=0    reference       S_ref     S_phase      S_tf32     S_shape       |diff|         band   pass  source
+      control      edt      1.02601      1.02704    0.002052    0.001026    0.000513    0.000513     0.001026     0.008209    yes  exp_01 per-sample
+      control      c50      1.02833      1.02936    0.002057    0.001028    0.000514    0.000514     0.001028     0.008228    yes  exp_01 per-sample
+      control      t60      1.10534      1.10644    0.002211    0.001105    0.000553    0.000553     0.001105     0.008844    yes  exp_01 per-sample
+      control     loss      1.05194      1.05299    0.002104    0.001052    0.000526    0.000526     0.001052     0.008417    yes  exp_01 per-sample
+          cyl      edt      1.02601      1.02704    0.003078    0.001026    0.000513    0.001026     0.001026     0.011287    yes  exp_01 per-sample
+          cyl      c50      1.02833      1.02936    0.003085    0.001028    0.000514    0.001028     0.001028     0.011313    yes  exp_01 per-sample
+          cyl      t60      1.10534      1.10644    0.003316    0.001105    0.000553    0.001105     0.001105     0.012160    yes  exp_01 per-sample
+          cyl     loss      1.05194      1.05299    0.003156    0.001052    0.000526    0.001052     0.001052     0.011572    yes  exp_01 per-sample
+     released      edt      1.02601      1.02601    0.002052    0.001026    0.000513    0.000513     0.000000     0.008209    yes  exp_01 baseline reproduction
+     released      c50      1.02833      1.02833    0.002057    0.001028    0.000514    0.000514     0.000000     0.008228    yes  exp_01 baseline reproduction
+     released      t60      1.10534      1.10534    0.002211    0.001105    0.000553    0.000553     0.000000     0.008844    yes  exp_01 baseline reproduction
+     released     loss      1.05194            -    0.002104    0.001052    0.000526    0.000526            -     0.008417      -  exp_01 baseline reproduction
+   gate_pass: False
+      - --shape-runs gate_shape_cyl_b1: manifest_hash 6ca8164e5727d5f4db84569d5effa840b2cb6e6f77819a69bbb37bb30c6ab11e, expected 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d
+
+4. H1 (joint yaw rotation substantially degrades the model): supported if the adjusted
+   lower bound of r exceeds +10% for EDT or C50 at any angle k != 0, condition P.
+   not evaluated: a pre-registered verdict needs the full design (--mode full)
+   primary (control): +10% of the k=0 error is 0.1026 s EDT and 0.103 dB C50
+   released (released): +10% of the k=0 error is 0.1026 s EDT and 0.103 dB C50
+
+5. H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, paired on the
+   same resamples; TOST equivalence of r_cyl to zero within +-2% at the adjusted level
+   (query / room) at the patch-aligned angles.
+
+   metric edt
+        k     deg     r_cyl    r_ctrl       D_k              query CI          adj. room CI         equivalent (query / room)
+        0     0.0   +0.0000   +0.0000   +0.0000 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]                             - / -
+
+   metric c50
+        k     deg     r_cyl    r_ctrl       D_k              query CI          adj. room CI         equivalent (query / room)
+        0     0.0   +0.0000   +0.0000   +0.0000 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]                             - / -
+
+   H2 verdict: not evaluated (k0-gate mode) (0 of 0 H1-passing cells)
+
+6. Delay-flip audit: (query, reference) pairs whose integer direct-path delay moves
+   under the rotation -- the numerical noise condition P excludes.
+          run       0
+      control       0
+          cyl       0
+     released       0
+
+7. Decomposition of a patch-aligned yaw (cylindrical only): relative change of each stage.
+   Scope: receiver-view tokens and pooling plus the query-source coordinate embedding;
+   reference-coordinate features not decomposed.
+   cyl at k=32 over 1 batch(es): tokens 3.200e-07  pooled 1.600e-02  coord 6.800e-01  log-spec 2.000e-03
+
+8. Bootstrap convergence: every decision-driving bound recomputed with a second seed,
+   as a fraction of its own interval width (limit 0.10).
+   0 bounds recomputed with seed 0 -> 1; max movement 0.0000 (pass: True)
+   no confirmatory bound in this mode
+wrote /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/shape_manifest.json
+exp_03 yaw rotation: 300 queries in 5 rooms, manifest 47637a55ccc5
+runs: control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth), cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth), released (simple, checkpoints/xRIR_unseen.pth)
+roles: primary=control cyl=cyl released=released
+bootstrap: n_boot=200 seed=0 family=18 tests -> adjusted level 0.00278; the query-level and
+   room-cluster intervals on r_k and D_k are both two-sided 99.72% (section 3's k=0 table
+   is nominal 95%, unadjusted)
+
+1. Spectral metrics per angle (condition P = pinned k=0 alignment, E = end to end).
+   consistency = mean|log-spec(k) - log-spec(0)|; its k=0 baseline is 0, so its ratio does not exist.
+
+   control | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   control | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   cyl | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   cyl | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   released | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   released | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+2. Acoustic metrics per angle (Griffin-Lim; EDT s, C50 dB, T60 %). T60 is descriptive only.
+   query CI = this fixed split; adj. room CI = the 17 held-out rooms; both are at the
+   adjusted level; newinv = fraction of usable baselines the angle broke.
+
+   control | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   cyl | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0260      1.0260   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0283      1.0283   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+   released | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1053      1.1053   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    300   0.0000
+
+3. Paired cylindrical - control at k = 0 (nominal 95% CIs, unadjusted).
+   Same references and same Griffin-Lim phases for both models: this supersedes exp_01's epoch-12 comparison.
+       metric        cyl    control       diff    rel %              query CI               room CI      n
+          edt     1.0260     1.0260    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+          c50     1.0283     1.0283    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+          t60     1.1053     1.1053    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+      log_mse     1.0167     1.0167    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+         loss     1.0519     1.0519    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+
+3b. k=0 parity gate against exp_01, band rule v3 (2026-09-06 per-model amendment).
+    exp_01's means differ from these by more than the reference draw: its Griffin-Lim
+    phases were unseeded and its forwards ran at batch 1 with TF32, so the band is
+    2 x (S_ref + S_phase + S_tf32 + S_shape) + 1e-6, each term a mean shift of the model itself.
+    S_ref from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/noise_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/noise_seed2 and /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/gate_noise_cyl_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/gate_noise_cyl_seed2; S_phase / S_tf32 from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/gate_phase_seed1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/gate_tf32; S_shape from /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/gate_shape_b1, /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/gate_shape_cyl_b1.
+          run   metric     mean k=0    reference       S_ref     S_phase      S_tf32     S_shape       |diff|         band   pass  source
+      control      edt      1.02601      1.02704    0.002052    0.001026    0.000513    0.000513     0.001026     0.008209    yes  exp_01 per-sample
+      control      c50      1.02833      1.02936    0.002057    0.001028    0.000514    0.000514     0.001028     0.008228    yes  exp_01 per-sample
+      control      t60      1.10534      1.10644    0.002211    0.001105    0.000553    0.000553     0.001105     0.008844    yes  exp_01 per-sample
+      control     loss      1.05194      1.05299    0.002104    0.001052    0.000526    0.000526     0.001052     0.008417    yes  exp_01 per-sample
+          cyl      edt      1.02601      1.02704    0.003078    0.001026    0.000513           -     0.001026     0.009235    yes  exp_01 per-sample
+          cyl      c50      1.02833      1.02936    0.003085    0.001028    0.000514           -     0.001028     0.009256    yes  exp_01 per-sample
+          cyl      t60      1.10534      1.10644    0.003316    0.001105    0.000553           -     0.001105     0.009949    yes  exp_01 per-sample
+          cyl     loss      1.05194      1.05299    0.003156    0.001052    0.000526           -     0.001052     0.009468    yes  exp_01 per-sample
+     released      edt      1.02601      1.02601    0.002052    0.001026    0.000513    0.000513     0.000000     0.008209    yes  exp_01 baseline reproduction
+     released      c50      1.02833      1.02833    0.002057    0.001028    0.000514    0.000514     0.000000     0.008228    yes  exp_01 baseline reproduction
+     released      t60      1.10534      1.10534    0.002211    0.001105    0.000553    0.000553     0.000000     0.008844    yes  exp_01 baseline reproduction
+     released     loss      1.05194            -    0.002104    0.001052    0.000526    0.000526            -     0.008417      -  exp_01 baseline reproduction
+   S_shape not measured for cyl (no --shape-runs entry); counted as 0.
+   gate_pass: False
+      - --shape-runs gate_shape_cyl_b1: checkpoint 'checkpoints/xRIR_unseen.pth' is neither the control's nor the cylindrical model's
+
+4. H1 (joint yaw rotation substantially degrades the model): supported if the adjusted
+   lower bound of r exceeds +10% for EDT or C50 at any angle k != 0, condition P.
+   not evaluated: a pre-registered verdict needs the full design (--mode full)
+   primary (control): +10% of the k=0 error is 0.1026 s EDT and 0.103 dB C50
+   released (released): +10% of the k=0 error is 0.1026 s EDT and 0.103 dB C50
+
+5. H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, paired on the
+   same resamples; TOST equivalence of r_cyl to zero within +-2% at the adjusted level
+   (query / room) at the patch-aligned angles.
+
+   metric edt
+        k     deg     r_cyl    r_ctrl       D_k              query CI          adj. room CI         equivalent (query / room)
+        0     0.0   +0.0000   +0.0000   +0.0000 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]                             - / -
+
+   metric c50
+        k     deg     r_cyl    r_ctrl       D_k              query CI          adj. room CI         equivalent (query / room)
+        0     0.0   +0.0000   +0.0000   +0.0000 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]                             - / -
+
+   H2 verdict: not evaluated (k0-gate mode) (0 of 0 H1-passing cells)
+
+6. Delay-flip audit: (query, reference) pairs whose integer direct-path delay moves
+   under the rotation -- the numerical noise condition P excludes.
+          run       0
+      control       0
+          cyl       0
+     released       0
+
+7. Decomposition of a patch-aligned yaw (cylindrical only): relative change of each stage.
+   Scope: receiver-view tokens and pooling plus the query-source coordinate embedding;
+   reference-coordinate features not decomposed.
+   cyl at k=32 over 1 batch(es): tokens 3.200e-07  pooled 1.600e-02  coord 6.800e-01  log-spec 2.000e-03
+
+8. Bootstrap convergence: every decision-driving bound recomputed with a second seed,
+   as a fraction of its own interval width (limit 0.10).
+   0 bounds recomputed with seed 0 -> 1; max movement 0.0000 (pass: True)
+   no confirmatory bound in this mode
+wrote /tmp/pytest-of-yixunhu/pytest-3387/test_the_gate_fails_closed_on_3/shape_unknown.json
+exp_03 yaw rotation: 300 queries in 5 rooms, manifest 47637a55ccc5
+runs: control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth), cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth), released (simple, checkpoints/xRIR_unseen.pth)
+roles: primary=control cyl=cyl released=released
+bootstrap: n_boot=200 seed=0 family=18 tests -> adjusted level 0.00278; the query-level and
+   room-cluster intervals on r_k and D_k are both two-sided 99.72% (section 3's k=0 table
+   is nominal 95%, unadjusted)
+
+1. Spectral metrics per angle (condition P = pinned k=0 alignment, E = end to end).
+   consistency = mean|log-spec(k) - log-spec(0)|; its k=0 baseline is 0, so its ratio does not exist.
+
+   control | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+
+   control | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+
+   control | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+mode: full -- valid_for_confirmatory: True
+exp_03 yaw rotation: 300 queries in 5 rooms, manifest 47637a55ccc5
+runs: control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth), cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth), released (simple, checkpoints/xRIR_unseen.pth)
+roles: primary=control cyl=cyl released=released
+bootstrap: n_boot=4000 seed=0 family=18 tests -> adjusted level 0.00278; the query-level and
+   room-cluster intervals on r_k and D_k are both two-sided 99.72% (section 3's k=0 table
+   is nominal 95%, unadjusted)
+
+1. Spectral metrics per angle (condition P = pinned k=0 alignment, E = end to end).
+   consistency = mean|log-spec(k) - log-spec(0)|; its k=0 baseline is 0, so its ratio does not exist.
+
+   control | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.05194     1.20863   +0.1490 [ +0.1454,  +0.1529]    300   0.0000
+    64    45.0     1.05194     1.36877   +0.3012 [ +0.2978,  +0.3047]    300   0.0000
+
+   control | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.01669     1.16841   +0.1492 [ +0.1455,  +0.1531]    300   0.0000
+    64    45.0     1.01669     1.32228   +0.3006 [ +0.2970,  +0.3038]    300   0.0000
+
+   control | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+    32    22.5     0.00000     0.10000         - [       -,        -]    300   0.0000
+    64    45.0     0.00000     0.10000         - [       -,        -]    300   0.0000
+
+   control | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.05194     1.24134   +0.1800 [ +0.1764,  +0.1838]    300   0.0000
+    64    45.0     1.05194     1.40967   +0.3401 [ +0.3361,  +0.3440]    300   0.0000
+
+   control | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.01669     1.20021   +0.1805 [ +0.1773,  +0.1840]    300   0.0000
+    64    45.0     1.01669     1.36322   +0.3409 [ +0.3369,  +0.3447]    300   0.0000
+
+   control | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+    32    22.5     0.00000     0.10000         - [       -,        -]    300   0.0000
+    64    45.0     0.00000     0.10000         - [       -,        -]    300   0.0000
+
+   cyl | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.05194     1.05039   -0.0015 [ -0.0051,  +0.0024]    300   0.0000
+    64    45.0     1.05194     1.10467   +0.0501 [ +0.0464,  +0.0542]    300   0.0000
+
+   cyl | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.01669     1.01473   -0.0019 [ -0.0058,  +0.0020]    300   0.0000
+    64    45.0     1.01669     1.06907   +0.0515 [ +0.0475,  +0.0554]    300   0.0000
+
+   cyl | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+    32    22.5     0.00000     0.10000         - [       -,        -]    300   0.0000
+    64    45.0     0.00000     0.10000         - [       -,        -]    300   0.0000
+
+   cyl | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.05194     1.06438   +0.0118 [ +0.0077,  +0.0160]    300   0.0000
+    64    45.0     1.05194     1.11674   +0.0616 [ +0.0582,  +0.0653]    300   0.0000
+
+   cyl | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.01669     1.02725   +0.0104 [ +0.0066,  +0.0144]    300   0.0000
+    64    45.0     1.01669     1.08009   +0.0624 [ +0.0588,  +0.0663]    300   0.0000
+
+   cyl | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+    32    22.5     0.00000     0.10000         - [       -,        -]    300   0.0000
+    64    45.0     0.00000     0.10000         - [       -,        -]    300   0.0000
+
+   released | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.05194     1.17855   +0.1204 [ +0.1167,  +0.1241]    300   0.0000
+    64    45.0     1.05194     1.32450   +0.2591 [ +0.2547,  +0.2627]    300   0.0000
+
+   released | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.01669     1.13962   +0.1209 [ +0.1176,  +0.1243]    300   0.0000
+    64    45.0     1.01669     1.28081   +0.2598 [ +0.2558,  +0.2637]    300   0.0000
+
+   released | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+    32    22.5     0.00000     0.10000         - [       -,        -]    300   0.0000
+    64    45.0     0.00000     0.10000         - [       -,        -]    300   0.0000
+
+   released | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.05194     1.20024   +0.1410 [ +0.1376,  +0.1440]    300   0.0000
+    64    45.0     1.05194     1.35949   +0.2924 [ +0.2886,  +0.2962]    300   0.0000
+
+   released | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.01669     1.15881   +0.1398 [ +0.1362,  +0.1433]    300   0.0000
+    64    45.0     1.01669     1.30925   +0.2878 [ +0.2842,  +0.2915]    300   0.0000
+
+   released | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+    32    22.5     0.00000     0.10000         - [       -,        -]    300   0.0000
+    64    45.0     0.00000     0.10000         - [       -,        -]    300   0.0000
+
+2. Acoustic metrics per angle (Griffin-Lim; EDT s, C50 dB, T60 %). T60 is descriptive only.
+   query CI = this fixed split; adj. room CI = the 17 held-out rooms; both are at the
+   adjusted level; newinv = fraction of usable baselines the angle broke.
+
+   control | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0271      1.0271   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0269      1.1794   +0.1485 [ +0.1448,  +0.1520] [ +0.1458,  +0.1504]    296   0.0100
+    64    45.0      1.0269      1.3368   +0.3018 [ +0.2976,  +0.3057] [ +0.2991,  +0.3053]    296   0.0100
+
+   control | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0292      1.0292   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0293      1.1838   +0.1501 [ +0.1463,  +0.1538] [ +0.1476,  +0.1527]    296   0.0100
+    64    45.0      1.0293      1.3409   +0.3027 [ +0.2993,  +0.3061] [ +0.3003,  +0.3055]    296   0.0100
+
+   control | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1077      1.1077   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.1093      1.2729   +0.1475 [ +0.1435,  +0.1512] [ +0.1458,  +0.1493]    296   0.0100
+    64    45.0      1.1093      1.4411   +0.2991 [ +0.2951,  +0.3031] [ +0.2947,  +0.3028]    296   0.0100
+
+   control | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0271      1.0271   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0269      1.2124   +0.1806 [ +0.1769,  +0.1844] [ +0.1766,  +0.1856]    296   0.0100
+    64    45.0      1.0269      1.3755   +0.3394 [ +0.3358,  +0.3429] [ +0.3384,  +0.3407]    296   0.0100
+
+   control | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0292      1.0292   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0293      1.2126   +0.1780 [ +0.1744,  +0.1820] [ +0.1756,  +0.1807]    296   0.0100
+    64    45.0      1.0293      1.3758   +0.3366 [ +0.3327,  +0.3405] [ +0.3319,  +0.3411]    296   0.0100
+
+   control | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1077      1.1077   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.1093      1.3091   +0.1802 [ +0.1763,  +0.1842] [ +0.1764,  +0.1819]    296   0.0100
+    64    45.0      1.1093      1.4867   +0.3402 [ +0.3366,  +0.3441] [ +0.3393,  +0.3415]    296   0.0100
+
+   cyl | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0271      1.0271   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0269      1.0251   -0.0018 [ -0.0051,  +0.0018] [ -0.0042,  +0.0012]    296   0.0100
+    64    45.0      1.0269      1.0778   +0.0495 [ +0.0455,  +0.0533] [ +0.0464,  +0.0522]    296   0.0100
+
+   cyl | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0292      1.0292   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0293      1.0266   -0.0027 [ -0.0061,  +0.0009] [ -0.0035,  -0.0017]    296   0.0100
+    64    45.0      1.0293      1.0813   +0.0505 [ +0.0465,  +0.0542] [ +0.0487,  +0.0527]    296   0.0100
+
+   cyl | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1077      1.1077   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.1093      1.1098   +0.0005 [ -0.0032,  +0.0041] [ -0.0030,  +0.0078]    296   0.0100
+    64    45.0      1.1093      1.1628   +0.0482 [ +0.0447,  +0.0519] [ +0.0458,  +0.0528]    296   0.0100
+
+   cyl | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0271      1.0271   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0269      1.0387   +0.0114 [ +0.0075,  +0.0153] [ +0.0072,  +0.0146]    296   0.0100
+    64    45.0      1.0269      1.0892   +0.0606 [ +0.0567,  +0.0642] [ +0.0561,  +0.0646]    296   0.0100
+
+   cyl | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0292      1.0292   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0293      1.0408   +0.0111 [ +0.0071,  +0.0153] [ +0.0103,  +0.0127]    296   0.0100
+    64    45.0      1.0293      1.0934   +0.0622 [ +0.0588,  +0.0658] [ +0.0587,  +0.0646]    296   0.0100
+
+   cyl | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1077      1.1077   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.1093      1.1201   +0.0097 [ +0.0057,  +0.0133] [ +0.0073,  +0.0118]    296   0.0100
+    64    45.0      1.1093      1.1765   +0.0606 [ +0.0563,  +0.0649] [ +0.0590,  +0.0629]    296   0.0100
+
+   released | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0271      1.0271   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0269      1.1513   +0.1211 [ +0.1171,  +0.1250] [ +0.1189,  +0.1237]    296   0.0100
+    64    45.0      1.0269      1.2955   +0.2615 [ +0.2577,  +0.2654] [ +0.2593,  +0.2651]    296   0.0100
+
+   released | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0292      1.0292   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0293      1.1548   +0.1219 [ +0.1183,  +0.1253] [ +0.1198,  +0.1250]    296   0.0100
+    64    45.0      1.0293      1.2965   +0.2595 [ +0.2560,  +0.2633] [ +0.2547,  +0.2651]    296   0.0100
+
+   released | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1077      1.1077   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.1093      1.2425   +0.1201 [ +0.1164,  +0.1237] [ +0.1187,  +0.1216]    296   0.0100
+    64    45.0      1.1093      1.3985   +0.2608 [ +0.2564,  +0.2650] [ +0.2587,  +0.2629]    296   0.0100
+
+   released | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0271      1.0271   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0269      1.1708   +0.1401 [ +0.1364,  +0.1440] [ +0.1381,  +0.1423]    296   0.0100
+    64    45.0      1.0269      1.3246   +0.2899 [ +0.2854,  +0.2943] [ +0.2874,  +0.2944]    296   0.0100
+
+   released | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0292      1.0292   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0293      1.1726   +0.1392 [ +0.1356,  +0.1432] [ +0.1389,  +0.1398]    296   0.0100
+    64    45.0      1.0293      1.3280   +0.2901 [ +0.2867,  +0.2937] [ +0.2876,  +0.2931]    296   0.0100
+
+   released | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1077      1.1077   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.1093      1.2628   +0.1384 [ +0.1345,  +0.1421] [ +0.1363,  +0.1404]    296   0.0100
+    64    45.0      1.1093      1.4307   +0.2898 [ +0.2861,  +0.2935] [ +0.2863,  +0.2929]    296   0.0100
+
+3. Paired cylindrical - control at k = 0 (nominal 95% CIs, unadjusted).
+   Same references and same Griffin-Lim phases for both models: this supersedes exp_01's epoch-12 comparison.
+exp_03 yaw rotation: 300 queries in 5 rooms, manifest 47637a55ccc5
+runs: control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth), cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth)
+roles: primary=control cyl=cyl released=None
+bootstrap: n_boot=200 seed=0 family=18 tests -> adjusted level 0.00278; the query-level and
+   room-cluster intervals on r_k and D_k are both two-sided 99.72% (section 3's k=0 table
+   is nominal 95%, unadjusted)
+
+1. Spectral metrics per angle (condition P = pinned k=0 alignment, E = end to end).
+   consistency = mean|log-spec(k) - log-spec(0)|; its k=0 baseline is 0, so its ratio does not exist.
+
+   control | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.05194     1.20863   +0.1490 [ +0.1456,  +0.1527]    300   0.0000
+    64    45.0     1.05194     1.36877   +0.3012 [ +0.2982,  +0.3041]    300   0.0000
+
+   control | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.01669     1.16841   +0.1492 [ +0.1460,  +0.1525]    300   0.0000
+    64    45.0     1.01669     1.32228   +0.3006 [ +0.2971,  +0.3042]    300   0.0000
+
+   control | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+    32    22.5     0.00000     0.10000         - [       -,        -]    300   0.0000
+    64    45.0     0.00000     0.10000         - [       -,        -]    300   0.0000
+
+   control | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.05194     1.24134   +0.1800 [ +0.1763,  +0.1833]    300   0.0000
+    64    45.0     1.05194     1.40967   +0.3401 [ +0.3364,  +0.3442]    300   0.0000
+
+   control | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.01669     1.20021   +0.1805 [ +0.1774,  +0.1838]    300   0.0000
+    64    45.0     1.01669     1.36322   +0.3409 [ +0.3377,  +0.3443]    300   0.0000
+
+   control | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+    32    22.5     0.00000     0.10000         - [       -,        -]    300   0.0000
+    64    45.0     0.00000     0.10000         - [       -,        -]    300   0.0000
+
+   cyl | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.05194     1.05039   -0.0015 [ -0.0052,  +0.0016]    300   0.0000
+    64    45.0     1.05194     1.10467   +0.0501 [ +0.0472,  +0.0541]    300   0.0000
+
+   cyl | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.01669     1.01473   -0.0019 [ -0.0050,  +0.0018]    300   0.0000
+    64    45.0     1.01669     1.06907   +0.0515 [ +0.0472,  +0.0545]    300   0.0000
+
+   cyl | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+    32    22.5     0.00000     0.10000         - [       -,        -]    300   0.0000
+    64    45.0     0.00000     0.10000         - [       -,        -]    300   0.0000
+
+   cyl | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.05194     1.06438   +0.0118 [ +0.0080,  +0.0164]    300   0.0000
+    64    45.0     1.05194     1.11674   +0.0616 [ +0.0587,  +0.0650]    300   0.0000
+
+   cyl | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.01669     1.02725   +0.0104 [ +0.0068,  +0.0151]    300   0.0000
+    64    45.0     1.01669     1.08009   +0.0624 [ +0.0589,  +0.0663]    300   0.0000
+
+   cyl | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+    32    22.5     0.00000     0.10000         - [       -,        -]    300   0.0000
+    64    45.0     0.00000     0.10000         - [       -,        -]    300   0.0000
+
+2. Acoustic metrics per angle (Griffin-Lim; EDT s, C50 dB, T60 %). T60 is descriptive only.
+   query CI = this fixed split; adj. room CI = the 17 held-out rooms; both are at the
+   adjusted level; newinv = fraction of usable baselines the angle broke.
+
+   control | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0271      1.0271   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0269      1.1794   +0.1485 [ +0.1448,  +0.1519] [ +0.1458,  +0.1504]    296   0.0100
+    64    45.0      1.0269      1.3368   +0.3018 [ +0.2980,  +0.3058] [ +0.2992,  +0.3053]    296   0.0100
+
+   control | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0292      1.0292   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0293      1.1838   +0.1501 [ +0.1469,  +0.1528] [ +0.1476,  +0.1527]    296   0.0100
+    64    45.0      1.0293      1.3409   +0.3027 [ +0.2998,  +0.3057] [ +0.3007,  +0.3050]    296   0.0100
+
+   control | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1077      1.1077   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.1093      1.2729   +0.1475 [ +0.1443,  +0.1507] [ +0.1459,  +0.1493]    296   0.0100
+    64    45.0      1.1093      1.4411   +0.2991 [ +0.2955,  +0.3028] [ +0.2949,  +0.3028]    296   0.0100
+
+   control | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0271      1.0271   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0269      1.2124   +0.1806 [ +0.1775,  +0.1845] [ +0.1769,  +0.1849]    296   0.0100
+    64    45.0      1.0269      1.3755   +0.3394 [ +0.3362,  +0.3435] [ +0.3384,  +0.3407]    296   0.0100
+
+   control | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0292      1.0292   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0293      1.2126   +0.1780 [ +0.1753,  +0.1820] [ +0.1760,  +0.1807]    296   0.0100
+    64    45.0      1.0293      1.3758   +0.3366 [ +0.3331,  +0.3403] [ +0.3321,  +0.3411]    296   0.0100
+
+   control | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1077      1.1077   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.1093      1.3091   +0.1802 [ +0.1766,  +0.1841] [ +0.1765,  +0.1819]    296   0.0100
+    64    45.0      1.1093      1.4867   +0.3402 [ +0.3374,  +0.3438] [ +0.3393,  +0.3413]    296   0.0100
+
+   cyl | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0271      1.0271   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0269      1.0251   -0.0018 [ -0.0049,  +0.0016] [ -0.0038,  +0.0006]    296   0.0100
+    64    45.0      1.0269      1.0778   +0.0495 [ +0.0464,  +0.0530] [ +0.0464,  +0.0524]    296   0.0100
+
+   cyl | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0292      1.0292   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0293      1.0266   -0.0027 [ -0.0057,  +0.0002] [ -0.0035,  -0.0017]    296   0.0100
+    64    45.0      1.0293      1.0813   +0.0505 [ +0.0462,  +0.0541] [ +0.0487,  +0.0524]    296   0.0100
+
+   cyl | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1077      1.1077   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.1093      1.1098   +0.0005 [ -0.0022,  +0.0035] [ -0.0030,  +0.0078]    296   0.0100
+    64    45.0      1.1093      1.1628   +0.0482 [ +0.0450,  +0.0519] [ +0.0458,  +0.0518]    296   0.0100
+
+   cyl | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0271      1.0271   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0269      1.0387   +0.0114 [ +0.0079,  +0.0152] [ +0.0073,  +0.0144]    296   0.0100
+    64    45.0      1.0269      1.0892   +0.0606 [ +0.0576,  +0.0637] [ +0.0561,  +0.0642]    296   0.0100
+
+   cyl | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0292      1.0292   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0293      1.0408   +0.0111 [ +0.0074,  +0.0144] [ +0.0103,  +0.0125]    296   0.0100
+    64    45.0      1.0293      1.0934   +0.0622 [ +0.0592,  +0.0656] [ +0.0594,  +0.0645]    296   0.0100
+
+   cyl | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1077      1.1077   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.1093      1.1201   +0.0097 [ +0.0063,  +0.0131] [ +0.0074,  +0.0117]    296   0.0100
+    64    45.0      1.1093      1.1765   +0.0606 [ +0.0558,  +0.0635] [ +0.0590,  +0.0624]    296   0.0100
+
+3. Paired cylindrical - control at k = 0 (nominal 95% CIs, unadjusted).
+   Same references and same Griffin-Lim phases for both models: this supersedes exp_01's epoch-12 comparison.
+       metric        cyl    control       diff    rel %              query CI               room CI      n
+          edt     1.0271     1.0271    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    299
+          c50     1.0292     1.0292    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    299
+          t60     1.1077     1.1077    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    299
+      log_mse     1.0167     1.0167    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+         loss     1.0519     1.0519    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+
+4. H1 (joint yaw rotation substantially degrades the model): supported if the adjusted
+   lower bound of r exceeds +10% for EDT or C50 at any angle k != 0, condition P.
+   not evaluated: a pre-registered verdict needs the full design (--mode full)
+   primary (control): +10% of the k=0 error is 0.1027 s EDT and 0.103 dB C50
+   distance to the +10% margin (all runs, condition P, k != 0):
+      largest adjusted query-level upper bound: +0.3058 (control, edt, 45.0 deg)
+      room-cluster cells with an adjusted upper bound above +10%: control c50 22.5 deg (+0.1527), control c50 45.0 deg (+0.3050), control edt 22.5 deg (+0.1504), control edt 45.0 deg (+0.3053)
+
+5. H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, paired on the
+   same resamples; TOST equivalence of r_cyl to zero within +-2% at the adjusted level
+   (query / room) at the patch-aligned angles.
+
+   metric edt
+        k     deg     r_cyl    r_ctrl       D_k              query CI          adj. room CI         equivalent (query / room)
+        0     0.0   +0.0000   +0.0000   +0.0000 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]                             - / -
+       32    22.5   -0.0018   +0.1485   -0.1503 [  -0.1542,   -0.1459] [  -0.1526,   -0.1481]           equivalent / equivalent
+       64    45.0   +0.0495   +0.3018   -0.2523 [  -0.2556,   -0.2460] [  -0.2589,   -0.2467] not established / not established
+
+   metric c50
+        k     deg     r_cyl    r_ctrl       D_k              query CI          adj. room CI         equivalent (query / room)
+        0     0.0   +0.0000   +0.0000   +0.0000 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]                             - / -
+       32    22.5   -0.0027   +0.1501   -0.1527 [  -0.1572,   -0.1487] [  -0.1561,   -0.1505]           equivalent / equivalent
+       64    45.0   +0.0505   +0.3027   -0.2522 [  -0.2573,   -0.2475] [  -0.2550,   -0.2499] not established / not established
+
+   H2 verdict: not evaluated (exploratory mode) (0 of 0 H1-passing cells)
+
+6. Delay-flip audit: (query, reference) pairs whose integer direct-path delay moves
+   under the rotation -- the numerical noise condition P excludes.
+          run       0      32      64
+      control       0     224     448
+          cyl       0     224     448
+
+7. Decomposition of a patch-aligned yaw (cylindrical only): relative change of each stage.
+   Scope: receiver-view tokens and pooling plus the query-source coordinate embedding;
+   reference-coordinate features not decomposed.
+   cyl at k=32 over 1 batch(es): tokens 3.200e-07  pooled 1.600e-02  coord 6.800e-01  log-spec 2.000e-03
+
+8. Bootstrap convergence: every decision-driving bound recomputed with a second seed,
+   as a fraction of its own interval width (limit 0.10).
+   0 bounds recomputed with seed 0 -> 1; max movement 0.0000 (pass: True)
+   no confirmatory bound in this mode
+wrote /tmp/pytest-of-yixunhu/pytest-3387/test_delay_flips_max_is_the_nu0/shot.json
+exp_03 yaw rotation: 300 queries in 5 rooms, manifest 47637a55ccc5
+runs: control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth), cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth)
+roles: primary=control cyl=cyl released=None
+bootstrap: n_boot=200 seed=0 family=18 tests -> adjusted level 0.00278; the query-level and
+   room-cluster intervals on r_k and D_k are both two-sided 99.72% (section 3's k=0 table
+   is nominal 95%, unadjusted)
+
+1. Spectral metrics per angle (condition P = pinned k=0 alignment, E = end to end).
+   consistency = mean|log-spec(k) - log-spec(0)|; its k=0 baseline is 0, so its ratio does not exist.
+
+   control | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.05194     1.20863   +0.1490 [ +0.1456,  +0.1527]    300   0.0000
+    64    45.0     1.05194     1.36877   +0.3012 [ +0.2982,  +0.3041]    300   0.0000
+
+   control | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.01669     1.16841   +0.1492 [ +0.1460,  +0.1525]    300   0.0000
+    64    45.0     1.01669     1.32228   +0.3006 [ +0.2971,  +0.3042]    300   0.0000
+
+   control | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+    32    22.5     0.00000     0.10000         - [       -,        -]    300   0.0000
+    64    45.0     0.00000     0.10000         - [       -,        -]    300   0.0000
+
+   control | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.05194     1.24134   +0.1800 [ +0.1763,  +0.1833]    300   0.0000
+    64    45.0     1.05194     1.40967   +0.3401 [ +0.3364,  +0.3442]    300   0.0000
+
+   control | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.01669     1.20021   +0.1805 [ +0.1774,  +0.1838]    300   0.0000
+    64    45.0     1.01669     1.36322   +0.3409 [ +0.3377,  +0.3443]    300   0.0000
+
+   control | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+    32    22.5     0.00000     0.10000         - [       -,        -]    300   0.0000
+    64    45.0     0.00000     0.10000         - [       -,        -]    300   0.0000
+
+   cyl | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.05194     1.05039   -0.0015 [ -0.0052,  +0.0016]    300   0.0000
+    64    45.0     1.05194     1.10467   +0.0501 [ +0.0472,  +0.0541]    300   0.0000
+
+   cyl | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.01669     1.01473   -0.0019 [ -0.0050,  +0.0018]    300   0.0000
+    64    45.0     1.01669     1.06907   +0.0515 [ +0.0472,  +0.0545]    300   0.0000
+
+   cyl | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+    32    22.5     0.00000     0.10000         - [       -,        -]    300   0.0000
+    64    45.0     0.00000     0.10000         - [       -,        -]    300   0.0000
+
+   cyl | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.05194     1.06438   +0.0118 [ +0.0080,  +0.0164]    300   0.0000
+    64    45.0     1.05194     1.11674   +0.0616 [ +0.0587,  +0.0650]    300   0.0000
+
+   cyl | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.01669     1.02725   +0.0104 [ +0.0068,  +0.0151]    300   0.0000
+    64    45.0     1.01669     1.08009   +0.0624 [ +0.0589,  +0.0663]    300   0.0000
+
+   cyl | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+    32    22.5     0.00000     0.10000         - [       -,        -]    300   0.0000
+    64    45.0     0.00000     0.10000         - [       -,        -]    300   0.0000
+
+2. Acoustic metrics per angle (Griffin-Lim; EDT s, C50 dB, T60 %). T60 is descriptive only.
+   query CI = this fixed split; adj. room CI = the 17 held-out rooms; both are at the
+   adjusted level; newinv = fraction of usable baselines the angle broke.
+
+   control | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0271      1.0271   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0269      1.1794   +0.1485 [ +0.1448,  +0.1519] [ +0.1458,  +0.1504]    296   0.0100
+    64    45.0      1.0269      1.3368   +0.3018 [ +0.2980,  +0.3058] [ +0.2992,  +0.3053]    296   0.0100
+
+   control | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0292      1.0292   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0293      1.1838   +0.1501 [ +0.1469,  +0.1528] [ +0.1476,  +0.1527]    296   0.0100
+    64    45.0      1.0293      1.3409   +0.3027 [ +0.2998,  +0.3057] [ +0.3007,  +0.3050]    296   0.0100
+
+   control | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1077      1.1077   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.1093      1.2729   +0.1475 [ +0.1443,  +0.1507] [ +0.1459,  +0.1493]    296   0.0100
+    64    45.0      1.1093      1.4411   +0.2991 [ +0.2955,  +0.3028] [ +0.2949,  +0.3028]    296   0.0100
+
+   control | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0271      1.0271   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0269      1.2124   +0.1806 [ +0.1775,  +0.1845] [ +0.1769,  +0.1849]    296   0.0100
+    64    45.0      1.0269      1.3755   +0.3394 [ +0.3362,  +0.3435] [ +0.3384,  +0.3407]    296   0.0100
+mode: full -- valid_for_confirmatory: True
+exp_03 yaw rotation: 300 queries in 5 rooms, manifest 47637a55ccc5
+runs: control (simple, ckpt/xRIR_simple_8_shot/epoch_12.pth), cyl (cylindrical, ckpt/xRIR_cyl_8_shot/epoch_12.pth), released (simple, checkpoints/xRIR_unseen.pth)
+roles: primary=control cyl=cyl released=released
+bootstrap: n_boot=4000 seed=0 family=18 tests -> adjusted level 0.00278; the query-level and
+   room-cluster intervals on r_k and D_k are both two-sided 99.72% (section 3's k=0 table
+   is nominal 95%, unadjusted)
+
+1. Spectral metrics per angle (condition P = pinned k=0 alignment, E = end to end).
+   consistency = mean|log-spec(k) - log-spec(0)|; its k=0 baseline is 0, so its ratio does not exist.
+
+   control | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.05194     1.20863   +0.1490 [ +0.1454,  +0.1529]    300   0.0000
+    64    45.0     1.05194     1.36877   +0.3012 [ +0.2978,  +0.3047]    300   0.0000
+
+   control | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.01669     1.16841   +0.1492 [ +0.1455,  +0.1531]    300   0.0000
+    64    45.0     1.01669     1.32228   +0.3006 [ +0.2970,  +0.3038]    300   0.0000
+
+   control | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+    32    22.5     0.00000     0.10000         - [       -,        -]    300   0.0000
+    64    45.0     0.00000     0.10000         - [       -,        -]    300   0.0000
+
+   control | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.05194     1.24134   +0.1800 [ +0.1764,  +0.1838]    300   0.0000
+    64    45.0     1.05194     1.40967   +0.3401 [ +0.3361,  +0.3440]    300   0.0000
+
+   control | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.01669     1.20021   +0.1805 [ +0.1773,  +0.1840]    300   0.0000
+    64    45.0     1.01669     1.36322   +0.3409 [ +0.3369,  +0.3447]    300   0.0000
+
+   control | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+    32    22.5     0.00000     0.10000         - [       -,        -]    300   0.0000
+    64    45.0     0.00000     0.10000         - [       -,        -]    300   0.0000
+
+   cyl | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.05194     1.05039   -0.0015 [ -0.0051,  +0.0024]    300   0.0000
+    64    45.0     1.05194     1.10467   +0.0501 [ +0.0464,  +0.0542]    300   0.0000
+
+   cyl | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.01669     1.01473   -0.0019 [ -0.0058,  +0.0020]    300   0.0000
+    64    45.0     1.01669     1.06907   +0.0515 [ +0.0475,  +0.0554]    300   0.0000
+
+   cyl | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+    32    22.5     0.00000     0.10000         - [       -,        -]    300   0.0000
+    64    45.0     0.00000     0.10000         - [       -,        -]    300   0.0000
+
+   cyl | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.05194     1.06438   +0.0118 [ +0.0077,  +0.0160]    300   0.0000
+    64    45.0     1.05194     1.11674   +0.0616 [ +0.0582,  +0.0653]    300   0.0000
+
+   cyl | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.01669     1.02725   +0.0104 [ +0.0066,  +0.0144]    300   0.0000
+    64    45.0     1.01669     1.08009   +0.0624 [ +0.0588,  +0.0663]    300   0.0000
+
+   cyl | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+    32    22.5     0.00000     0.10000         - [       -,        -]    300   0.0000
+    64    45.0     0.00000     0.10000         - [       -,        -]    300   0.0000
+
+   released | condition P | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.05194     1.17855   +0.1204 [ +0.1167,  +0.1241]    300   0.0000
+    64    45.0     1.05194     1.32450   +0.2591 [ +0.2547,  +0.2627]    300   0.0000
+
+   released | condition P | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.01669     1.13962   +0.1209 [ +0.1176,  +0.1243]    300   0.0000
+    64    45.0     1.01669     1.28081   +0.2598 [ +0.2558,  +0.2637]    300   0.0000
+
+   released | condition P | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+    32    22.5     0.00000     0.10000         - [       -,        -]    300   0.0000
+    64    45.0     0.00000     0.10000         - [       -,        -]    300   0.0000
+
+   released | condition E | loss
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.05194     1.05194   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.05194     1.20024   +0.1410 [ +0.1376,  +0.1440]    300   0.0000
+    64    45.0     1.05194     1.35949   +0.2924 [ +0.2886,  +0.2962]    300   0.0000
+
+   released | condition E | log_mse
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     1.01669     1.01669   +0.0000 [ +0.0000,  +0.0000]    300   0.0000
+    32    22.5     1.01669     1.15881   +0.1398 [ +0.1362,  +0.1433]    300   0.0000
+    64    45.0     1.01669     1.30925   +0.2878 [ +0.2842,  +0.2915]    300   0.0000
+
+   released | condition E | consistency
+     k     deg       mean0      mean_k         r             query CI      n   newinv
+     0     0.0     0.00000     0.00000         - [       -,        -]    300   0.0000
+    32    22.5     0.00000     0.10000         - [       -,        -]    300   0.0000
+    64    45.0     0.00000     0.10000         - [       -,        -]    300   0.0000
+
+2. Acoustic metrics per angle (Griffin-Lim; EDT s, C50 dB, T60 %). T60 is descriptive only.
+   query CI = this fixed split; adj. room CI = the 17 held-out rooms; both are at the
+   adjusted level; newinv = fraction of usable baselines the angle broke.
+
+   control | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0271      1.0271   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0269      1.1794   +0.1485 [ +0.1448,  +0.1520] [ +0.1458,  +0.1504]    296   0.0100
+    64    45.0      1.0269      1.3368   +0.3018 [ +0.2976,  +0.3057] [ +0.2991,  +0.3053]    296   0.0100
+
+   control | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0292      1.0292   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0293      1.1838   +0.1501 [ +0.1463,  +0.1538] [ +0.1476,  +0.1527]    296   0.0100
+    64    45.0      1.0293      1.3409   +0.3027 [ +0.2993,  +0.3061] [ +0.3003,  +0.3055]    296   0.0100
+
+   control | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1077      1.1077   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.1093      1.2729   +0.1475 [ +0.1435,  +0.1512] [ +0.1458,  +0.1493]    296   0.0100
+    64    45.0      1.1093      1.4411   +0.2991 [ +0.2951,  +0.3031] [ +0.2947,  +0.3028]    296   0.0100
+
+   control | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0271      1.0271   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0269      1.2124   +0.1806 [ +0.1769,  +0.1844] [ +0.1766,  +0.1856]    296   0.0100
+    64    45.0      1.0269      1.3755   +0.3394 [ +0.3358,  +0.3429] [ +0.3384,  +0.3407]    296   0.0100
+
+   control | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0292      1.0292   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0293      1.2126   +0.1780 [ +0.1744,  +0.1820] [ +0.1756,  +0.1807]    296   0.0100
+    64    45.0      1.0293      1.3758   +0.3366 [ +0.3327,  +0.3405] [ +0.3319,  +0.3411]    296   0.0100
+
+   control | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1077      1.1077   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.1093      1.3091   +0.1802 [ +0.1763,  +0.1842] [ +0.1764,  +0.1819]    296   0.0100
+    64    45.0      1.1093      1.4867   +0.3402 [ +0.3366,  +0.3441] [ +0.3393,  +0.3415]    296   0.0100
+
+   cyl | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0271      1.0271   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0269      1.0251   -0.0018 [ -0.0051,  +0.0018] [ -0.0042,  +0.0012]    296   0.0100
+    64    45.0      1.0269      1.0778   +0.0495 [ +0.0455,  +0.0533] [ +0.0464,  +0.0522]    296   0.0100
+
+   cyl | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0292      1.0292   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0293      1.0266   -0.0027 [ -0.0061,  +0.0009] [ -0.0035,  -0.0017]    296   0.0100
+    64    45.0      1.0293      1.0813   +0.0505 [ +0.0465,  +0.0542] [ +0.0487,  +0.0527]    296   0.0100
+
+   cyl | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1077      1.1077   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.1093      1.1098   +0.0005 [ -0.0032,  +0.0041] [ -0.0030,  +0.0078]    296   0.0100
+    64    45.0      1.1093      1.1628   +0.0482 [ +0.0447,  +0.0519] [ +0.0458,  +0.0528]    296   0.0100
+
+   cyl | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0271      1.0271   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0269      1.0387   +0.0114 [ +0.0075,  +0.0153] [ +0.0072,  +0.0146]    296   0.0100
+    64    45.0      1.0269      1.0892   +0.0606 [ +0.0567,  +0.0642] [ +0.0561,  +0.0646]    296   0.0100
+
+   cyl | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0292      1.0292   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0293      1.0408   +0.0111 [ +0.0071,  +0.0153] [ +0.0103,  +0.0127]    296   0.0100
+    64    45.0      1.0293      1.0934   +0.0622 [ +0.0588,  +0.0658] [ +0.0587,  +0.0646]    296   0.0100
+
+   cyl | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1077      1.1077   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.1093      1.1201   +0.0097 [ +0.0057,  +0.0133] [ +0.0073,  +0.0118]    296   0.0100
+    64    45.0      1.1093      1.1765   +0.0606 [ +0.0563,  +0.0649] [ +0.0590,  +0.0629]    296   0.0100
+
+   released | condition P | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0271      1.0271   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0269      1.1513   +0.1211 [ +0.1171,  +0.1250] [ +0.1189,  +0.1237]    296   0.0100
+    64    45.0      1.0269      1.2955   +0.2615 [ +0.2577,  +0.2654] [ +0.2593,  +0.2651]    296   0.0100
+
+   released | condition P | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0292      1.0292   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0293      1.1548   +0.1219 [ +0.1183,  +0.1253] [ +0.1198,  +0.1250]    296   0.0100
+    64    45.0      1.0293      1.2965   +0.2595 [ +0.2560,  +0.2633] [ +0.2547,  +0.2651]    296   0.0100
+
+   released | condition P | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1077      1.1077   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.1093      1.2425   +0.1201 [ +0.1164,  +0.1237] [ +0.1187,  +0.1216]    296   0.0100
+    64    45.0      1.1093      1.3985   +0.2608 [ +0.2564,  +0.2650] [ +0.2587,  +0.2629]    296   0.0100
+
+   released | condition E | edt
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0271      1.0271   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0269      1.1708   +0.1401 [ +0.1364,  +0.1440] [ +0.1381,  +0.1423]    296   0.0100
+    64    45.0      1.0269      1.3246   +0.2899 [ +0.2854,  +0.2943] [ +0.2874,  +0.2944]    296   0.0100
+
+   released | condition E | c50
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.0292      1.0292   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.0293      1.1726   +0.1392 [ +0.1356,  +0.1432] [ +0.1389,  +0.1398]    296   0.0100
+    64    45.0      1.0293      1.3280   +0.2901 [ +0.2867,  +0.2937] [ +0.2876,  +0.2931]    296   0.0100
+
+   released | condition E | t60
+     k     deg       mean0      mean_k         r             query CI         adj. room CI      n   newinv
+     0     0.0      1.1077      1.1077   +0.0000 [ +0.0000,  +0.0000] [ +0.0000,  +0.0000]    299   0.0000
+    32    22.5      1.1093      1.2628   +0.1384 [ +0.1345,  +0.1421] [ +0.1363,  +0.1404]    296   0.0100
+    64    45.0      1.1093      1.4307   +0.2898 [ +0.2861,  +0.2935] [ +0.2863,  +0.2929]    296   0.0100
+
+3. Paired cylindrical - control at k = 0 (nominal 95% CIs, unadjusted).
+   Same references and same Griffin-Lim phases for both models: this supersedes exp_01's epoch-12 comparison.
+       metric        cyl    control       diff    rel %              query CI               room CI      n
+          edt     1.0271     1.0271    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    299
+          c50     1.0292     1.0292    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    299
+          t60     1.1077     1.1077    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    299
+      log_mse     1.0167     1.0167    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+         loss     1.0519     1.0519    +0.0000     +0.0 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]    300
+
+4. H1 (joint yaw rotation substantially degrades the model): supported if the adjusted
+   lower bound of r exceeds +10% for EDT or C50 at any angle k != 0, condition P.
+   primary (control): PASSES
+       c50 k=  32 (  22.5 deg)  r=+0.1501  adjusted CI [+0.1463, +0.1538]
+       c50 k=  64 (  45.0 deg)  r=+0.3027  adjusted CI [+0.2993, +0.3061]
+       edt k=  32 (  22.5 deg)  r=+0.1485  adjusted CI [+0.1448, +0.1520]
+       edt k=  64 (  45.0 deg)  r=+0.3018  adjusted CI [+0.2976, +0.3057]
+   released (released): PASSES
+       c50 k=  32 (  22.5 deg)  r=+0.1219  adjusted CI [+0.1183, +0.1253]
+       c50 k=  64 (  45.0 deg)  r=+0.2595  adjusted CI [+0.2560, +0.2633]
+       edt k=  32 (  22.5 deg)  r=+0.1211  adjusted CI [+0.1171, +0.1250]
+       edt k=  64 (  45.0 deg)  r=+0.2615  adjusted CI [+0.2577, +0.2654]
+   verdict: supported and replicated
+   primary (control): +10% of the k=0 error is 0.1027 s EDT and 0.103 dB C50
+   released (released): +10% of the k=0 error is 0.1027 s EDT and 0.103 dB C50
+   distance to the +10% margin (all runs, condition P, k != 0):
+      largest adjusted query-level upper bound: +0.3061 (control, c50, 45.0 deg)
+      room-cluster cells with an adjusted upper bound above +10%: control c50 22.5 deg (+0.1527), control c50 45.0 deg (+0.3055), control edt 22.5 deg (+0.1504), control edt 45.0 deg (+0.3053), released c50 22.5 deg (+0.1250), released c50 45.0 deg (+0.2651), released edt 22.5 deg (+0.1237), released edt 45.0 deg (+0.2651)
+
+5. H2 (the cylindrical backbone degrades less): D_k = r_cyl - r_control, paired on the
+   same resamples; TOST equivalence of r_cyl to zero within +-2% at the adjusted level
+   (query / room) at the patch-aligned angles.
+
+   metric edt
+        k     deg     r_cyl    r_ctrl       D_k              query CI          adj. room CI         equivalent (query / room)
+        0     0.0   +0.0000   +0.0000   +0.0000 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]                             - / -
+       32    22.5   -0.0018   +0.1485   -0.1503 [  -0.1550,   -0.1457] [  -0.1526,   -0.1478]           equivalent / equivalent
+       64    45.0   +0.0495   +0.3018   -0.2523 [  -0.2579,   -0.2465] [  -0.2589,   -0.2469] not established / not established
+
+   metric c50
+        k     deg     r_cyl    r_ctrl       D_k              query CI          adj. room CI         equivalent (query / room)
+        0     0.0   +0.0000   +0.0000   +0.0000 [  +0.0000,   +0.0000] [  +0.0000,   +0.0000]                             - / -
+       32    22.5   -0.0027   +0.1501   -0.1527 [  -0.1579,   -0.1473] [  -0.1557,   -0.1505]           equivalent / equivalent
+       64    45.0   +0.0505   +0.3027   -0.2522 [  -0.2575,   -0.2473] [  -0.2561,   -0.2494] not established / not established
+
+   H2 verdict: supported (4 of 4 H1-passing cells)
+      passing: c50@32, c50@64, edt@32, edt@64
+      failing: none
+
+6. Delay-flip audit: (query, reference) pairs whose integer direct-path delay moves
+   under the rotation -- the numerical noise condition P excludes.
+          run       0      32      64
+      control       0     224     448
+          cyl       0     224     448
+     released       0     224     448
+
+7. Decomposition of a patch-aligned yaw (cylindrical only): relative change of each stage.
+   Scope: receiver-view tokens and pooling plus the query-source coordinate embedding;
+   reference-coordinate features not decomposed.
+   cyl at k=32 over 1 batch(es): tokens 3.200e-07  pooled 1.600e-02  coord 6.800e-01  log-spec 2.000e-03
+
+8. Bootstrap convergence: every decision-driving bound recomputed with a second seed,
+   as a fraction of its own interval width (limit 0.10).

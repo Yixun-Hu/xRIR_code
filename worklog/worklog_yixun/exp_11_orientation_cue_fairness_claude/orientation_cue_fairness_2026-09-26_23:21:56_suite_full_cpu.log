@@ -1,4 +1,361 @@
 .ss.........ss.ssss..ssss.........................s..................... [  2%]
 .............................................s.......................... [  4%]
 ........................................................................ [  6%]
-...................................F......
+...................................F.................................... [  8%]
+........................................................................ [ 10%]
+........................................................................ [ 12%]
+..............ssssss.................s.................................. [ 14%]
+........................................................................ [ 16%]
+........................................................................ [ 18%]
+........................................................................ [ 20%]
+.............................................................ssssss..... [ 22%]
+........................................................................ [ 24%]
+........................................................................ [ 26%]
+........................................................................ [ 28%]
+........................................................................ [ 30%]
+...............................sss...................................... [ 32%]
+........................................................................ [ 34%]
+........................................................................ [ 36%]
+........................................................................ [ 38%]
+........................................................................ [ 40%]
+........................................................................ [ 42%]
+........................................................................ [ 44%]
+........................................................................ [ 46%]
+...........F............................................................ [ 48%]
+.................................................s...................... [ 50%]
+.....F.............s.F...............................s.................. [ 52%]
+........................................................................ [ 54%]
+........................................................................ [ 56%]
+........................................................................ [ 58%]
+........................................................................ [ 60%]
+..............................................................sssss..... [ 62%]
+........................................................................ [ 64%]
+........................................................................ [ 66%]
+........................................................................ [ 68%]
+........................................................................ [ 70%]
+........................................................................ [ 72%]
+........................................................................ [ 74%]
+...........ssss......................................................... [ 76%]
+........................................................................ [ 78%]
+........................................................................ [ 80%]
+........................................................................ [ 82%]
+........................................................................ [ 84%]
+........................................................................ [ 87%]
+........................................................................ [ 89%]
+........................................................................ [ 91%]
+...................................
+[T9c] 6337 queries, manifest built in 4.46s; queries with < 8 distinct candidates: 520 (8.2058%); manifest_hash = 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d
+..................................... [ 93%]
+........................................................................ [ 95%]
+........................................................................ [ 97%]
+.....................ss..ss............................................. [ 99%]
+.....................s..s.s...                                           [100%]
+=================================== FAILURES ===================================
+___ test_signals_abort_and_reap_sleeping_child[Signals.SIGTERM-eval_ignored] ___
+
+tmp_path = PosixPath('/tmp/pytest-of-yixunhu/pytest-3388/test_signals_abort_and_reap_sl3')
+mode = 'eval_ignored', signum = <Signals.SIGHUP: 1>
+
+    @pytest.mark.parametrize('mode', ['smoke', 'probe', 'eval', 'eval_ignored'])
+    @pytest.mark.parametrize('signum', [launch.signal.SIGTERM, launch.signal.SIGHUP, launch.signal.SIGINT])
+    def test_signals_abort_and_reap_sleeping_child(tmp_path, mode, signum):
+        import sys
+        import time
+        attempt, pidfile = tmp_path / 'attempt_t', tmp_path / 'child.pid'
+        expected = dict(yaw_aug=0, train_batches_per_epoch=1)
+        child = ('import os, time; from pathlib import Path; '
+                 'print(%r, flush=True); print("yaw_aug DISABLED", flush=True); '
+                 'print("Train Epoch: 1 [0/1] loss 1", flush=True); '
+                 'Path(%r).write_text(str(os.getpid())); time.sleep(60)' %
+                 ('XRIR_RUNTIME_ARGS ' + json.dumps(expected), str(pidfile)))
+        fields = dict(effective_args=expected, command=[sys.executable, '-c', child])
+        ready = tmp_path / 'guard.ready'
+        code = ('from tools import exp04_launcher as l; from pathlib import Path; '
+                'l.resource_gate=lambda *a: {}; import time; '
+                '[l.signal.signal(s, l.signal.SIG_DFL) for s in (l.signal.SIGTERM, l.signal.SIGHUP, l.signal.SIGINT)]; '
+                'abort=l.abort_log; l.abort_log=lambda *a: (Path(%r).touch(), time.sleep(.2), abort(*a))[-1]; ' % str(tmp_path / 'aborting') +
+                'poll=l.LogGuard.poll; l.LogGuard.poll=lambda self, path: '
+                '(poll(self, path), Path(%r).touch() if self.steps else None); ' % str(ready) +
+                'l.execute_attempt(%r, %r, "1", %r, lambda: %r)' %
+                (str(attempt), mode, str(tmp_path / 'train.log'), fields))
+        if mode.startswith('eval'):
+            code = ('from tools import exp04_eval_launch as l; from pathlib import Path; '
+                    'from types import SimpleNamespace; import time; '
+                    'rename=Path.rename; Path.rename=lambda self, dst: '
+                    '(Path(%r).touch(), time.sleep(.2), rename(self, dst))[-1]; ' % str(tmp_path / 'aborting') +
+                    'l.execute_run(SimpleNamespace(out_dir=%r, log_dir=%r, run_label="eval", '
+                    'data_root=%r, gpu="1"), %r, lambda: {}, %r)' %
+                    (str(attempt), str(tmp_path / 'logs'), str(tmp_path), fields['command'], str(tmp_path)))
+            ready = pidfile
+        ignored = signum if mode == 'eval_ignored' else None
+        def dispositions():
+            for sig in (launch.signal.SIGTERM, launch.signal.SIGHUP, launch.signal.SIGINT):
+                launch.signal.signal(sig, launch.signal.SIG_IGN if sig == ignored else launch.signal.SIG_DFL)
+        process = launch.subprocess.Popen([sys.executable, '-c', code], cwd=launch.REPO, preexec_fn=dispositions)
+        child_pid = None
+        try:
+            deadline = time.monotonic() + 10
+            while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.02)
+            assert pidfile.exists() and ready.exists()
+            child_pid = int(pidfile.read_text())
+            assert os.getpgid(child_pid) == child_pid
+            if ignored:
+                process.send_signal(ignored)
+                time.sleep(.1)
+                assert process.poll() is None and attempt.is_dir()
+                signum = launch.signal.SIGHUP if ignored == launch.signal.SIGTERM else launch.signal.SIGTERM
+            process.send_signal(signum)
+            while not (tmp_path / 'aborting').exists() and process.poll() is None and time.monotonic() < deadline:
+                time.sleep(.01)
+>           assert (tmp_path / 'aborting').exists()
+E           AssertionError: assert False
+E            +  where False = exists()
+E            +    where exists = (PosixPath('/tmp/pytest-of-yixunhu/pytest-3388/test_signals_abort_and_reap_sl3') / 'aborting').exists
+
+tests/test_exp04_launcher.py:492: AssertionError
+----------------------------- Captured stderr call -----------------------------
+XRIR_RUNTIME_ARGS {"yaw_aug": 0, "train_batches_per_epoch": 1}
+yaw_aug DISABLED
+Train Epoch: 1 [0/1] loss 1
+___________________ test_source_closure_carries_git_identity ___________________
+
+heading_cache = PosixPath('/tmp/pytest-of-yixunhu/pytest-3388/test_source_closure_carries_gi0/synthetic')
+
+    def test_source_closure_carries_git_identity(heading_cache):
+        record = estimate_room_heading(heading_cache)
+        repo = Path(__file__).resolve().parents[1]
+        state = git_state(repo)
+        source = record['source_closure']
+>       assert source['git'] == {key: state[key] for key in
+                                 ['HEAD', 'dirty', 'dirty_outside_worklog', 'diff_sha256']}
+E       AssertionError: assert {'HEAD': '0a2...rklog': False} == {'HEAD': '0a2...rklog': False}
+E         
+E         Omitting 3 identical items, use -vv to show
+E         Differing items:
+E         {'diff_sha256': 'b9ba914874a2aa4f848adb113e0ecd3091024bd49daa45000940c78357ddcb57'} != {'diff_sha256': 'c90023bfea3849b787f72229533f2d1d618db43caf94e3d944423fd092205cda'}
+E         Use -v to get more diff
+
+tests/test_exp06_heading.py:351: AssertionError
+__________ test_the_record_binds_every_input_and_refuses_to_overwrite __________
+
+probe_cache = {'base': PosixPath('/tmp/pytest-of-yixunhu/pytest-3388/probe0'), 'checkpoints': {'control': '/tmp/pytest-of-yixunhu/py...'/tmp/pytest-of-yixunhu/pytest-3388/probe0/hallway.json', 'root': '/tmp/pytest-of-yixunhu/pytest-3388/probe0/HAA_xrir'}
+tmp_path = PosixPath('/tmp/pytest-of-yixunhu/pytest-3388/test_the_record_binds_every_in0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7184b80dc220>
+
+    def test_the_record_binds_every_input_and_refuses_to_overwrite(probe_cache, tmp_path,
+                                                                   monkeypatch):
+        canned(monkeypatch)
+        out = tmp_path / 'gate_g1.json'
+>       assert subject.main(cli(probe_cache, out)) == 0
+
+tests/test_exp06_mirror_probe.py:465: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/exp06_mirror_probe.py:664: in main
+    record = build_record(args, approvals=approvals)
+tools/exp06_mirror_probe.py:650: in build_record
+    revalidate_inputs(captured)   # no record stands on inputs that moved under it
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+captured = {'cache_sha256': {'depth.npy': '001acc5632f69008c85048a38388bbee57c893e98f5c77e93a3066d869903b6b', 'meta.json': 'd7175...9aa760f0bd54b69c7f8044c10a538e258115855654e7fb20f"\n  },\n  "timestamp": "2026-09-27T04:26:41.289104+00:00"\n}\n', ...}
+
+    def revalidate_inputs(captured):
+        """Re-hash every captured identity; publication is refused if one of them moved.
+    
+        The source closure is re-checked by re-hashing the files it names and re-reading the
+        git identity - exactly what `_source_record` binds, without a second hermetic import.
+        """
+        room = Path(captured['room_dir'])
+        changed = [path for path, digest in sorted(captured['checkpoint_sha256'].items())
+                   if _digest(path) != digest]
+        if _digest(captured['heading_path']) != captured['heading_sha256']:
+            changed.append(captured['heading_path'])
+        changed += [str(room / name) for name, digest in sorted(captured['cache_sha256'].items())
+                    if _digest(room / name) != digest]
+        source = captured['source_closure']
+        changed += [item['path'] for item in source['files']
+                    if _digest(REPO / item['path']) != item['sha256']]
+        state = git_state(REPO)
+        if {key: state[key] for key in GIT_FIELDS} != source['git']:
+            changed.append('the git identity of ' + str(REPO))
+        if changed:
+>           raise SystemExit('refusing: these inputs changed while the probe ran: '
+                             + ', '.join(sorted(set(changed))))
+E           SystemExit: refusing: these inputs changed while the probe ran: the git identity of /home/yixunhu/codespace/xRIR_code
+
+tools/exp06_mirror_probe.py:579: SystemExit
+_________ test_the_output_parent_exists_before_the_record_is_assembled _________
+
+probe_cache = {'base': PosixPath('/tmp/pytest-of-yixunhu/pytest-3388/probe0'), 'checkpoints': {'control': '/tmp/pytest-of-yixunhu/py...'/tmp/pytest-of-yixunhu/pytest-3388/probe0/hallway.json', 'root': '/tmp/pytest-of-yixunhu/pytest-3388/probe0/HAA_xrir'}
+tmp_path = PosixPath('/tmp/pytest-of-yixunhu/pytest-3388/test_the_output_parent_exists_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7184d4beeb50>
+
+    def test_the_output_parent_exists_before_the_record_is_assembled(probe_cache, tmp_path,
+                                                                     monkeypatch):
+        """Nit 5: the directory preparation that followed the last check now precedes it."""
+        cache = mutable_cache(probe_cache, tmp_path)
+        canned(monkeypatch)
+        out = tmp_path / 'nested' / 'deeper' / 'gate.json'
+        seen = []
+        real = subject.revalidate_inputs
+        def watching(captured):
+            seen.append(out.parent.is_dir())
+            return real(captured)
+        monkeypatch.setattr(subject, 'revalidate_inputs', watching)
+>       assert subject.main(cli(cache, out)) == 0
+
+tests/test_exp06_mirror_probe.py:703: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/exp06_mirror_probe.py:664: in main
+    record = build_record(args, approvals=approvals)
+tools/exp06_mirror_probe.py:650: in build_record
+    revalidate_inputs(captured)   # no record stands on inputs that moved under it
+tests/test_exp06_mirror_probe.py:701: in watching
+    return real(captured)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+captured = {'cache_sha256': {'depth.npy': '001acc5632f69008c85048a38388bbee57c893e98f5c77e93a3066d869903b6b', 'meta.json': 'd7175...9aa760f0bd54b69c7f8044c10a538e258115855654e7fb20f"\n  },\n  "timestamp": "2026-09-27T04:26:41.289104+00:00"\n}\n', ...}
+
+    def revalidate_inputs(captured):
+        """Re-hash every captured identity; publication is refused if one of them moved.
+    
+        The source closure is re-checked by re-hashing the files it names and re-reading the
+        git identity - exactly what `_source_record` binds, without a second hermetic import.
+        """
+        room = Path(captured['room_dir'])
+        changed = [path for path, digest in sorted(captured['checkpoint_sha256'].items())
+                   if _digest(path) != digest]
+        if _digest(captured['heading_path']) != captured['heading_sha256']:
+            changed.append(captured['heading_path'])
+        changed += [str(room / name) for name, digest in sorted(captured['cache_sha256'].items())
+                    if _digest(room / name) != digest]
+        source = captured['source_closure']
+        changed += [item['path'] for item in source['files']
+                    if _digest(REPO / item['path']) != item['sha256']]
+        state = git_state(REPO)
+        if {key: state[key] for key in GIT_FIELDS} != source['git']:
+            changed.append('the git identity of ' + str(REPO))
+        if changed:
+>           raise SystemExit('refusing: these inputs changed while the probe ran: '
+                             + ', '.join(sorted(set(changed))))
+E           SystemExit: refusing: these inputs changed while the probe ran: the git identity of /home/yixunhu/codespace/xRIR_code
+
+tools/exp06_mirror_probe.py:579: SystemExit
+=============================== warnings summary ===============================
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+    from pkg_resources import resource_filename
+
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154: DeprecationWarning: Deprecated call to `pkg_resources.declare_namespace('mpl_toolkits')`.
+  Implementing implicit namespace packages (as specified in PEP 420) is preferred to `pkg_resources.declare_namespace`. See https://setuptools.pypa.io/en/latest/references/keywords.html#keyword-namespace-packages
+    declare_namespace(pkg)
+
+tests/test_exp04_launcher.py: 1 warning
+tests/test_exp05_eval.py: 17 warnings
+tests/test_exp05_eval_launch.py: 11 warnings
+tests/test_exp05_full.py: 4 warnings
+tests/test_exp05_params.py: 10 warnings
+tests/test_exp05_profiles.py: 6 warnings
+tests/test_exp05_record_tools.py: 2 warnings
+tests/test_exp05_trainer.py: 5 warnings
+tests/test_exp06_eval.py: 3 warnings
+tests/test_exp06_factory.py: 4 warnings
+tests/test_exp06_finalize.py: 6 warnings
+tests/test_exp06_haa.py: 18 warnings
+tests/test_exp06_haa_pipeline.py: 9 warnings
+tests/test_exp06_mirror_probe.py: 5 warnings
+tests/test_exp06_recipe.py: 3 warnings
+tests/test_exp06_smoke.py: 3 warnings
+tests/test_exp06_summarize_haa.py: 9 warnings
+tests/test_exp06_train.py: 1 warning
+tests/test_exp07_launcher.py: 1 warning
+tests/test_exp10_yaw_pilot.py: 5 warnings
+tests/test_train_yaw_aug.py: 1 warning
+tests/test_yaw_rotation.py: 1 warning
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+    warnings.warn(
+
+tests/test_exp04_launcher.py: 1 warning
+tests/test_exp05_eval.py: 17 warnings
+tests/test_exp05_eval_launch.py: 11 warnings
+tests/test_exp05_full.py: 4 warnings
+tests/test_exp05_params.py: 10 warnings
+tests/test_exp05_profiles.py: 6 warnings
+tests/test_exp05_record_tools.py: 2 warnings
+tests/test_exp05_trainer.py: 5 warnings
+tests/test_exp06_eval.py: 3 warnings
+tests/test_exp06_factory.py: 4 warnings
+tests/test_exp06_finalize.py: 6 warnings
+tests/test_exp06_haa.py: 18 warnings
+tests/test_exp06_haa_pipeline.py: 9 warnings
+tests/test_exp06_mirror_probe.py: 5 warnings
+tests/test_exp06_recipe.py: 3 warnings
+tests/test_exp06_smoke.py: 3 warnings
+tests/test_exp06_summarize_haa.py: 9 warnings
+tests/test_exp06_train.py: 1 warning
+tests/test_exp07_launcher.py: 1 warning
+tests/test_exp10_yaw_pilot.py: 5 warnings
+tests/test_train_yaw_aug.py: 1 warning
+tests/test_yaw_rotation.py: 1 warning
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+    warnings.warn(msg)
+
+tests/test_exp06_encoder.py::test_shape_buffers_camera_and_signature
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+    return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+
+tests/test_exp06_mirror_probe.py::test_the_recomposed_forward_mixes_the_reference_log_spectrograms
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:641: UserWarning: stft with return_complex=False is deprecated. In a future pytorch release, stft will return complex tensors for all inputs, and return_complex=False will raise an error.
+  Note: you can still call torch.view_as_real on the complex output to recover the old return format. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:862.)
+    return _VF.stft(input, n_fft, hop_length, win_length, window,  # type: ignore[attr-defined]
+
+tests/test_exp11_summarize_haa.py::test_a_numerically_broken_interval_is_not_an_unavailable_statement
+tests/test_exp11_summarize_haa.py::test_a_refusal_raised_for_another_bootstrap_seed_is_not_unavailable
+tests/test_exp11_summarize_haa.py::test_an_unrelated_failure_with_finite_equal_seed_zero_endpoints_propagates
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/numpy/lib/function_base.py:550: RuntimeWarning: overflow encountered in multiply
+    avg = np.multiply(a, wgt,
+
+tests/test_exp11_summarize_haa.py::test_a_numerically_broken_interval_is_not_an_unavailable_statement
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/numpy/core/_methods.py:48: RuntimeWarning: overflow encountered in reduce
+    return umr_sum(a, axis, dtype, out, keepdims, initial, where)
+
+tests/test_exp11_summarize_haa.py::test_a_numerically_broken_interval_is_not_an_unavailable_statement
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/numpy/core/_methods.py:180: RuntimeWarning: overflow encountered in reduce
+    ret = umr_sum(arr, axis, dtype, out, keepdims, where=where)
+
+tests/test_exp11_summarize_haa.py::test_a_numerically_broken_interval_is_not_an_unavailable_statement
+tests/test_exp11_summarize_haa.py::test_a_refusal_raised_for_another_bootstrap_seed_is_not_unavailable
+tests/test_exp11_summarize_haa.py::test_an_unrelated_failure_with_finite_equal_seed_zero_endpoints_propagates
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/numpy/lib/function_base.py:4527: RuntimeWarning: invalid value encountered in subtract
+    diff_b_a = subtract(b, a)
+
+tests/test_exp11_summarize_haa.py::test_a_numerically_broken_interval_is_not_an_unavailable_statement
+tests/test_exp11_summarize_haa.py::test_a_refusal_raised_for_another_bootstrap_seed_is_not_unavailable
+tests/test_exp11_summarize_haa.py::test_an_unrelated_failure_with_finite_equal_seed_zero_endpoints_propagates
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/numpy/lib/nanfunctions.py:1740: RuntimeWarning: invalid value encountered in subtract
+    np.subtract(arr, avg, out=arr, casting='unsafe', where=where)
+
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[paired_compare-RuntimeError]
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[paired_compare-KeyError]
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/runpy.py:127: RuntimeWarning: 'tools.paired_compare' found in sys.modules after import of package 'tools', but prior to execution of 'tools.paired_compare'; this may result in unpredictable behaviour
+    warn(RuntimeWarning(msg))
+
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[results_table-RuntimeError]
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[results_table-KeyError]
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/runpy.py:127: RuntimeWarning: 'tools.results_table' found in sys.modules after import of package 'tools', but prior to execution of 'tools.results_table'; this may result in unpredictable behaviour
+    warn(RuntimeWarning(msg))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================= slowest 5 durations ==============================
+173.57s call     tests/test_exp07_provenance.py::test_train_data_identity_counts_the_real_protocol_splits
+154.74s setup    tests/test_exp06_summarize_haa.py::test_the_job_completion_schema_is_the_merged_finalizers
+115.76s call     tests/test_exp06_finalize.py::test_cli_reports_refusals_with_status_two
+100.14s setup    tests/test_exp06_profiles.py::test_every_present_key_gets_a_digest_and_absent_modules_are_noted
+98.02s setup    tests/test_exp06_haa_pipeline.py::test_a_complete_seed_is_an_admissible_arm
+=========================== short test summary info ============================
+FAILED tests/test_exp04_launcher.py::test_signals_abort_and_reap_sleeping_child[Signals.SIGTERM-eval_ignored]
+FAILED tests/test_exp06_heading.py::test_source_closure_carries_git_identity
+FAILED tests/test_exp06_mirror_probe.py::test_the_record_binds_every_input_and_refuses_to_overwrite
+FAILED tests/test_exp06_mirror_probe.py::test_the_output_parent_exists_before_the_record_is_assembled
+4 failed, 3505 passed, 49 skipped, 269 warnings in 6265.84s (1:44:25)

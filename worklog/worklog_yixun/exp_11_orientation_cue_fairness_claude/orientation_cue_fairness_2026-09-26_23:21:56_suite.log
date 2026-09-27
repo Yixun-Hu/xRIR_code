@@ -1,1 +1,6 @@
 23:21:56 SUITE 2026-09-26_23:21:56 HEAD=9f98bbbe2269885cc3c950ce36af1b59800db0ce
+4 failed, 3505 passed, 49 skipped, 269 warnings in 6265.84s (1:44:25)
+FAILED tests/test_exp04_launcher.py::test_signals_abort_and_reap_sleeping_child[Signals.SIGTERM-eval_ignored]
+FAILED tests/test_exp06_heading.py::test_source_closure_carries_git_identity
+FAILED tests/test_exp06_mirror_probe.py::test_the_record_binds_every_input_and_refuses_to_overwrite
+FAILED tests/test_exp06_mirror_probe.py::test_the_output_parent_exists_before_the_record_is_assembled

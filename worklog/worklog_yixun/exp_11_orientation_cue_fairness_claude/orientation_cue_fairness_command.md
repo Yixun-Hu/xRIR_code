@@ -12,3 +12,5 @@
 - 2026-09-26 23:21 Re-fill: EXP06_REFILL_EXPECT=haa_pipeline_sh:f33d4ffe,summarize_haa:645e74c0 bash exp11_runbook.sh refill → **9f98bbb** (…_refill.log).
 - 2026-09-26 23:21 Post-merge CPU suite: nohup bash exp11_runbook.sh suite (pytest pid 3679333) → …_suite_full_cpu.log; launcher orientation_cue_fairness_2026-09-26_23:21:56_suite_launcher.log.
 - 2026-09-26 23:21 Worktree: git -C xRIR_code_wt merge --ff-only main → exp11-cue at 9f98bbb (round 2 starts here).
+- 2026-09-26 23:24 Coder round 2: Agent tool, model opus, prompt coder_prompts/round2_opus_prompt.md, worktree xRIR_code_wt branch exp11-cue at c491396.
+- 2026-09-27 01:09 Isolated re-run of the four post-merge failures on main 032b7c6: CUDA_VISIBLE_DEVICES='' pytest -q -p no:cacheprovider <the four test ids> → 15 passed in 94 s.
