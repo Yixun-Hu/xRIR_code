@@ -1543,6 +1543,46 @@ def test_finish_keeps_the_publication_when_it_is_terminated_while_backing_it_up(
     assert_generated_untouched(scratch)
 
 
+BACKUP_MARKER = ".backup_complete"   # exp10_finish.sh writes it beside a *verified* copy
+
+
+def test_finish_never_installs_a_rollback_copy_that_lost_its_marker(scratch):
+    """Round-6 finding 1, the other half: a copy is installed only while it is *known* whole.
+
+    The HTML page has already been published when its rollback copy is truncated behind the
+    script's back and its completion marker removed, so the rollback may not put those bytes
+    anywhere: it leaves the published page as it is, keeps the copy, names it as INCOMPLETE
+    and says the publication could not be put back in full -- while the two artefacts whose
+    copies are still marked complete do go back.
+    """
+    before = publication_snapshot(scratch)
+    env = shim(scratch, "mv", '"$1"', [
+        ("*/.finish_tmp.*/yaw_pilot_results.md",
+         'A=$(dirname "$(dirname "$1")")\n'
+         '    for b in "$A"/.finish_prev.*/yaw_pilot_01_results.html; do\n'
+         '      /usr/bin/head -c 4 "$b" > "$b.part"; /usr/bin/mv "$b.part" "$b"\n'
+         '      /usr/bin/rm -f "$b%s"\n'
+         '    done\n'
+         '    echo "the test truncated the HTML rollback copy and unmarked it" >&2\n'
+         '    exit 43' % BACKUP_MARKER)])
+    done = run_finish(scratch, env=env)
+    assert done.returncode == 9, out(done)
+    assert "INCOMPLETE" in out(done), out(done)
+    kept = [n for n in staging_dirs(scratch) if n.startswith(".finish_prev")]
+    assert kept and kept[0] in out(done), (staging_dirs(scratch), out(done))
+    corrupt = os.path.join(scratch["assets"], kept[0], "yaw_pilot_01_results.html")
+    assert os.path.getsize(corrupt) == 4            # the copy it refused to install is kept
+    page = open(os.path.join(scratch["record"], "yaw_pilot_01_results.html")).read()
+    assert page != "PREVIOUS PAGE\n" and len(page) > 4   # ... and never written over the page
+    closing = [line for line in out(done).splitlines() if "FINISH FAILED" in line]
+    assert closing and "could NOT be put back" in closing[-1], closing
+    # the Markdown report and the asset set, whose copies are marked complete, are back
+    assert open(os.path.join(scratch["record"], "yaw_pilot_results.md")).read() == \
+        "PREVIOUS MARKDOWN\n"
+    assert publication_snapshot(scratch)["generated/stale_summary_interim.json"] == \
+        before["generated/stale_summary_interim.json"]
+
+
 def test_finish_completes_the_rollback_when_it_is_terminated_during_it(scratch):
     """Round-6 finding 2: the explicit rollback marked itself ``rolled_back`` before it had put
     anything back and left TERM / INT / HUP armed, so SIGTERM during the asset restoration
