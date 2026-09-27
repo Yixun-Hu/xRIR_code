@@ -81,6 +81,7 @@ import sys
 
 import torch
 
+from model.xRIR_simple_adapter import ADAPTER_KEYS
 from model.xrir_exp11_registry import BACKBONES_EXP11, build_xrir_exp11
 from sim_to_real.haa_dataset import ROOMS
 from tools import exp06_finalize as base
@@ -140,6 +141,52 @@ def _checkpoint_keys(path, label, backbone, num_shot):
     _require(frozenset(state) == expected, '{}: {} parameters are not the {} of '
              'build_xrir_exp11({!r}, {})'.format(label, len(state), len(expected),
                                                  backbone, num_shot))
+
+
+# The pinned model an adapter arm's ZERO-SHOT evaluation actually loads: arms J and K
+# evaluate the historical A/E checkpoint before any fine-tuning, and ``load_base_checkpoint``
+# reads it as the base xRIR. Admission applies the same contract, or those jobs -- which
+# Phase 1b and the final publication require -- could never complete.
+BASE_BACKBONE = 'simple'
+
+
+def checkpoint_contract(args, digest):
+    """``'base'`` for an adapter zero-shot evaluation, ``'adapter'`` for everything else.
+
+    The zero-shot child is the one that evaluates the very initialisation its job spec
+    declared at launch, so ``checkpoint_sha256 == job_init_sha256`` identifies it -- the
+    same equality ``job_lineage`` requires of every child of a ``zeroshot`` job, and the
+    one ``check_job_identity`` ties to the spec. Anything else, including a fine-tuned
+    evaluation whose checkpoint lost its adapter, stays on the strict adapter path.
+    """
+    if args.get('backbone') != ADAPTER_BACKBONE:
+        return 'adapter'                       # the arm's own model, whatever it is
+    declared = args.get('job_init_sha256')
+    return 'base' if _is_sha256(declared) and declared == digest else 'adapter'
+
+
+def verify_evaluation_checkpoint(path, label, args, digest):
+    """Validate one evaluation checkpoint under the contract its context selects.
+
+    Base mode requires **exactly** the pinned ``xRIR`` parameter set and no adapter state
+    at all; adapter mode requires the complete state of the arm's own model. Returns the
+    contract that was applied, which the completion records.
+    """
+    mode = checkpoint_contract(args, digest)
+    num_shot = args['num_shot']
+    if mode == 'base':
+        state = _state_dict(_load_torch(path, label), label)
+        expected = expected_state_keys(BASE_BACKBONE, num_shot)
+        _require(frozenset(state) == expected, '{}: {} parameters are not the {} of '
+                 'build_xrir_exp11({!r}, {}), the base checkpoint an adapter zero-shot '
+                 'evaluation loads'.format(label, len(state), len(expected),
+                                           BASE_BACKBONE, num_shot))
+        carried = sorted(key for key in ADAPTER_KEYS if key in state)
+        _require(not carried, '{}: a base checkpoint carries no adapter state, but this '
+                 'one records {}'.format(label, ', '.join(carried)))
+    else:
+        _checkpoint_keys(path, label, args['backbone'], num_shot)
+    return mode
 
 
 def load_provenance(run_dir, run_type, identity=True):
@@ -537,8 +584,8 @@ def haa_eval_evidence(run_dir, repo):
     _require(isinstance(checkpoint, str) and checkpoint, 'args.json records no checkpoint path')
     resolved = _resolve(checkpoint, repo)
     _require(resolved.is_file(), 'missing evaluation checkpoint: {}'.format(resolved))
-    _checkpoint_keys(resolved, 'checkpoint ' + checkpoint, args['backbone'], args['num_shot'])
     digest = provenance.sha256_file(resolved)
+    mode = verify_evaluation_checkpoint(resolved, 'checkpoint ' + checkpoint, args, digest)
     _require(meta['checkpoint_sha256'] == digest, 'per-sample meta checkpoint_sha256 {} is '
              'not the hash {} of {}'.format(meta['checkpoint_sha256'], digest, resolved))
     index, side = per_sample.get('index'), per_sample.get('side_label')
@@ -560,14 +607,16 @@ def haa_eval_evidence(run_dir, repo):
     return dict(base.child_identity(record), artifacts=hashes, room=room, frame=frame,
                 heading=heading, adapter_heading=adapter_heading,
                 adapter_phi_deg=adapter_phi, seed=args['seed'], backbone=args['backbone'],
-                checkpoint_sha256=digest, samples=len(index), **admission)
+                checkpoint_sha256=digest, checkpoint_mode=mode, samples=len(index),
+                **admission)
 
 
 CHILD_COMPLETION = ('schema_version', 'run_type', 'run_dir', 'child_exit', 'child_exit_time',
                     'log', 'child_exit_receipt', 'diagnostic', 'admissible_arm', 'artifacts',
                     'backbone', 'frame', 'heading', 'adapter_heading', 'adapter_phi_deg')
 CHILD_EXTRA = {'exp11_haa_finetune': ('rooms', 'init_sha256', 'best_epoch', 'seed'),
-               'exp11_haa_eval': ('room', 'checkpoint_sha256', 'samples', 'seed')}
+               'exp11_haa_eval': ('room', 'checkpoint_sha256', 'checkpoint_mode',
+                                  'samples', 'seed')}
 JOB_SPEC = ('init', 'backbone', 'frame', 'init_sha256', 'seed', 'rooms', 'expect')
 EVIDENCE_OF = {'exp11_haa_finetune': haa_train_evidence, 'exp11_haa_eval': haa_eval_evidence}
 

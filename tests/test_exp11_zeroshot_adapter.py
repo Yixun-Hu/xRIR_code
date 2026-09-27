@@ -16,27 +16,29 @@ The contract admission must enforce:
 * every later adapter stage or evaluation checkpoint requires the complete adapter state
   strictly, so a fine-tuned J/K evaluation whose checkpoint lost its adapter is refused.
 """
-import json
-from pathlib import Path
-
 import pytest
 import torch
 
 from model.xRIR_simple_adapter import ADAPTER_KEYS
-from model.xrir_exp11_registry import build_xrir_exp11
 from tools import exp11_finalize as final
 from tools import provenance
 
-SMALL = dict(dim=32, depth=1, heads=2, mlp_dim=32, intermediate_ch=32,
-             image_size=(32, 512), patch_size=(16, 32))
 NUM_SHOT = 2
+_SALT = [0]
 
 
 def checkpoint(tmp_path, backbone, name):
+    """A checkpoint carrying exactly one model's parameter names.
+
+    The contract reads the parameter *set*, so the tensors are placeholders; the salt
+    only makes two checkpoints of the same model hash differently, as a real stage-2
+    checkpoint differs from the initialisation it started from. The names come from the
+    factory at the production tier, which is what ``expected_state_keys`` builds.
+    """
+    _SALT[0] += 1
     path = tmp_path / name
-    with torch.random.fork_rng(devices=[]):
-        torch.manual_seed(11)
-        torch.save(build_xrir_exp11(backbone, NUM_SHOT, **SMALL).state_dict(), str(path))
+    keys = sorted(final.expected_state_keys(backbone, NUM_SHOT))
+    torch.save({key: torch.full((1,), float(_SALT[0])) for key in keys}, str(path))
     return path, provenance.sha256_file(path)
 
 
@@ -91,16 +93,23 @@ def test_a_base_mode_checkpoint_that_carries_adapter_state_is_refused(tmp_path):
 
 
 def test_the_contract_is_the_adapter_arms_only(tmp_path):
-    """A non-adapter arm evaluating its own initialisation stays on the strict path."""
+    """A non-adapter arm evaluating its own initialisation stays on the strict path.
+
+    Arms H and I have a zero-shot job too, but they load their own five-channel model
+    both times, so nothing about the base-mode branch may apply to them. (The pinned
+    ``_checkpoint_keys`` compares parameter *names*, and ``SimpleViTOriented`` differs
+    from ``SimpleViT`` only in tensor shapes, so the case that must be refused here is
+    an adapter checkpoint offered to an oriented arm.)
+    """
     path, digest = checkpoint(tmp_path, 'simple_oriented', 'epoch_012.pth')
     args = args_for(path, digest, backbone='simple_oriented')
     assert final.checkpoint_contract(args, digest) == 'adapter'   # i.e. the arm's own model
     final.verify_evaluation_checkpoint(path, 'checkpoint', args, digest)
-    base, base_digest = checkpoint(tmp_path, 'simple', 'other.pth')
+    other, other_digest = checkpoint(tmp_path, 'simple_adapter', 'other.pth')
     with pytest.raises(ValueError, match='build_xrir_exp11'):
-        final.verify_evaluation_checkpoint(base, 'checkpoint',
-                                           args_for(base, base_digest, 'simple_oriented'),
-                                           base_digest)
+        final.verify_evaluation_checkpoint(other, 'checkpoint',
+                                           args_for(other, other_digest, 'simple_oriented'),
+                                           other_digest)
 
 
 def test_a_child_that_declares_no_job_initialisation_stays_strict(tmp_path):
