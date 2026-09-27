@@ -107,14 +107,17 @@ Fix 9's per-commit table is corrected to close review 9's counts (`ff610ff` +48,
 
 | commit | production | tests |
 |---|---:|---:|
-| `ea92e3b` (RED) | — | +90 |
-| `64b0484` (GREEN) | `exp11_launch.sh` +27/−13, `exp11_train.py` +19/−5 | +5/−6 |
-| `56e67b0` (RED) | — | +57 |
-| `d0f9b95` (RED) | — | +73 |
-| `d7c9e62` (GREEN) | `exp11_launch.sh` +22, `exp11_train.py` +77/−15 | +5/−16 |
+| `ea92e3b` (RED) | — | +98 |
+| `64b0484` (GREEN) | +46/−18 | +5/−6 |
+| `56e67b0` (RED) | — | +55 |
+| `d0f9b95` (RED) | — | +78 |
+| `d7c9e62` (GREEN) | +99/−15 | +5/−16 |
 | range `55dc3dc..HEAD` | **+144 / −32 = 176 changed** | +224/−5 |
 
-Every commit is under 200 changed lines; no exception this cycle.
+Corrected on 2026-09-27 to close review 10's counts (the four per-commit figures above;
+the aggregate was right). Every **production/test** commit is under 200 changed lines;
+no exception this cycle. The record-only commits `5046ca4` and `51e34b1` are larger, as
+bookkeeping commits are.
 
 ## Digests
 
