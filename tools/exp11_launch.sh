@@ -14,11 +14,12 @@
 # script overrides is everything that names an experiment: the finalizer it calls
 # (tools/exp11_finalize.py), the approvals, the attempt roots, the record and the arms.
 #
-# Publishing one arm is serialised by an `flock` on a per-arm lock FILE, held on a
-# descriptor this process owns: **a lock vanishes with its holder**. The kernel drops it
-# when the launcher exits or dies, on every path including a signal, so there is no
-# cleanup code, no owner record and no stale-lock concept -- nothing to clear by hand
-# and nothing to get wrong (plan section 11 amendment A1).
+# Publishing one arm is serialised by an `flock` on a per-arm lock FILE. The lock is held
+# by a holder process leased to this launcher's life, never on a descriptor of the
+# launcher's own: **it vanishes within ~1 s of the launcher's exit or death and is never
+# inherited by the trainer or the log sink**. There is no cleanup code, no owner record
+# and no stale-lock concept -- nothing to clear by hand and nothing to get wrong (plan
+# section 11 amendment A1, close review 6).
 #
 # EXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh defines the functions and returns, so
 # the pipeline can reuse them without a mode.
@@ -185,16 +186,20 @@ promote() {  # promote <attempt basename>: atomic, so `final` never points at no
 }
 
 # --- publishing one arm is serialised, by the kernel --------------------------------
-# Plan section 11 amendment A1. Publishing one arm admits exactly one invocation at a
-# time: recovery from alias resolution through promotion, and a full run from before it
-# launches its child through promotion, so a recovery is refused while a training run
-# still owns the arm. The lock is an `flock` on a per-arm FILE held on a descriptor this
-# process opens, which means **a lock vanishes with its holder**: the kernel drops it
-# when the process exits or dies, on every path including a signal, so there is no
-# cleanup code, no owner record and no stale-lock concept to get wrong. `-n` refuses
-# immediately rather than waiting.
+# Plan section 11 amendment A1, close review 6. Publishing one arm admits exactly one
+# invocation at a time: recovery from alias resolution through promotion, and a full run
+# from before it launches its child through promotion, so a recovery is refused while a
+# training run still owns the arm.
+#
+# The lock is an `flock` on a per-arm FILE, and it is NOT held by this shell: every
+# descriptor this shell has open is inherited by the background log sink and by the
+# detached training child, and an orphaned sink would keep an arm locked for good. It is
+# held by a HOLDER PROCESS whose life is leased to this launcher's -- it exits as soon as
+# its parent changes -- so **the lock vanishes within a second of this launcher's exit or
+# death**, on every path including a signal and SIGKILL, and is never inherited by the
+# trainer or the log sink. `-n` refuses immediately rather than waiting.
 LOCK_FILE=""
-LOCK_FD=""
+HOLDER_PID=""
 
 hold_arm_lock() {  # hold_arm_lock <mode>
     LOCK_FILE="$ARM_ROOT/.publish.lock"
@@ -203,24 +208,40 @@ hold_arm_lock() {  # hold_arm_lock <mode>
     # where the tests exercise it and announced everywhere else.
     if [ "$DRY" -eq 1 ] && [ "${EXP11_TEST_ROOTS:-0}" != 1 ]; then return 0; fi
     mkdir -p -- "$ARM_ROOT" || return 1
-    # `>>` creates the file if it is absent and never truncates it, so acquisition
-    # writes nothing -- not even to a file another invocation is holding.
-    exec {LOCK_FD}>>"$LOCK_FILE" || {
-        echo "refusing: cannot open the arm lock file $LOCK_FILE" >&2; return 1; }
-    if ! flock -n "$LOCK_FD"; then
+    local verdict="" pid="" out=""
+    # `exec` inside the substitution makes the holder a direct child of this shell, so
+    # its lease is this shell's pid. The read end is closed the moment the verdict is in,
+    # so no descriptor of ours reaches the sink or the child either.
+    exec {out}< <(exec "$PYTHON" tools/exp11_lock_holder.py "$LOCK_FILE" $$)
+    read -r -t 30 verdict pid <&"$out" || true
+    exec {out}<&-
+    if [ "$verdict" != acquired ] || [ -z "$pid" ]; then
         echo "refusing: $LOCK_FILE is held by another invocation publishing this arm;" \
-             "one publication per arm at a time. The kernel releases it when that" \
-             "process ends, so there is nothing to clear by hand" >&2
+             "one publication per arm at a time. Its holder ends with that invocation," \
+             "so there is nothing to clear by hand" >&2
         return 1
     fi
+    HOLDER_PID="$pid"
     trap 'on_signal INT 2' INT
     trap 'on_signal TERM 15' TERM
+    trap 'drop_arm_lock' EXIT
     say "LOCKED $LOCK_FILE mode=$1"
+}
+
+# drop_arm_lock: end our own holder, so the ordinary path releases at once instead of
+# waiting out the lease. Every other path -- a signal, a crash, a kill -9 -- is covered
+# by the lease itself, which is why this needs no error handling of its own.
+drop_arm_lock() {
+    [ -n "$HOLDER_PID" ] || return 0
+    kill -TERM "$HOLDER_PID" 2>/dev/null || true
+    wait "$HOLDER_PID" 2>/dev/null || true
+    HOLDER_PID=""
 }
 
 # A signal handler must END this invocation. A cleanup-only handler returns, and bash
 # resumes -- which would let finalization and promotion continue after the interruption.
-# The lock needs no releasing here: the kernel drops it when this process exits.
+# The lock needs no releasing here: the EXIT trap ends the holder, and if anything went
+# wrong with that the lease ends it within a second anyway.
 on_signal() {  # on_signal <NAME> <number>
     INTERRUPTED=1
     say "SIGNAL $1"

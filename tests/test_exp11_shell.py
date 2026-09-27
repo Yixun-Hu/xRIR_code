@@ -646,7 +646,12 @@ def test_the_lock_file_is_a_file_and_the_launcher_knows_no_stale_lock():
                  'EXP11_ACQUIRE_BARRIER', 'LOCK_GRACE', '.breaking', 'BREAKLOCK',
                  'LOCK_NONCE', 'take_lock'):
         assert gone not in text, '{} survived the replacement'.format(gone)
-    assert 'flock' in text and 'a lock vanishes with its holder' in text
+    assert 'LOCK_FD' not in text, (
+        'the launcher must not hold the lock on a descriptor of its own: the sink and '
+        'the child inherit every one of them')
+    assert 'exp11_lock_holder.py' in text
+    assert 'flock' in (REPO / 'tools/exp11_lock_holder.py').read_text()
+    assert 'inherited by the trainer or the log sink' in text
     usage = subprocess.run(['bash', 'tools/exp11_launch.sh'], cwd=str(REPO),
                            capture_output=True, text=True,
                            env=dict(os.environ, CUDA_VISIBLE_DEVICES=''))
