@@ -1371,3 +1371,4 @@ arm released_k8  backbone simple  device cuda  queries 6337  batches 397  angles
   warnings.warn(msg)
 [80/6337] 1.31 samples/s, eta 79.4 min
 [160/6337] 1.44 samples/s, eta 71.7 min
+[240/6337] 1.49 samples/s, eta 68.4 min
