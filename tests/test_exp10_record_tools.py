@@ -22,7 +22,6 @@ from tests import exp10_record_fixture as fx
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS = os.path.join(REPO, "worklog", "worklog_yixun", "exp_10_yaw_pilot_claude",
                       "yaw_pilot_results_assets")
-SCRIPTS = os.path.join(ASSETS, "scripts")
 
 
 def load_tool(name):
