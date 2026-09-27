@@ -16,3 +16,4 @@ parity_exp03: 6337 rows, every compared cell replicates: True
 [02:24:43] ARM DONE
 [02:24:43] === arm cyl_k8 exit 0
 [02:24:43] QUEUE DONE
+RELEASED_K1_EXIT=0

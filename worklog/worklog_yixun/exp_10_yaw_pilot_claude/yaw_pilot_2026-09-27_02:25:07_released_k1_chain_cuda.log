@@ -6,3 +6,533 @@ arm released_k1  backbone simple  device cuda  queries 272  batches 17  angles [
 /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
   warnings.warn(msg)
 [80/272] 1.25 samples/s, eta 2.6 min
+[160/272] 1.39 samples/s, eta 1.3 min
+[240/272] 1.45 samples/s, eta 0.4 min
+[272/272] 1.46 samples/s, eta 0.0 min
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+done: 272 queries x 5 angles in 3.12 min (ckpt/exp10/released_k1_probe)
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:641: UserWarning: stft with return_complex=False is deprecated. In a future pytorch release, stft will return complex tensors for all inputs, and return_complex=False will raise an error.
+Note: you can still call torch.view_as_real on the complex output to recover the old return format. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:862.)
+  return _VF.stft(input, n_fft, hop_length, win_length, window,  # type: ignore[attr-defined]
+{
+  "angles": {
+    "0": {
+      "c50_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "edt_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "t60_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_mad": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_rel_l2": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      }
+    },
+    "128": {
+      "c50_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "edt_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "t60_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_mad": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_rel_l2": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      }
+    },
+    "256": {
+      "c50_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "edt_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "t60_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_mad": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_rel_l2": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      }
+    },
+    "384": {
+      "c50_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "edt_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "t60_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_mad": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_rel_l2": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      }
+    },
+    "64": {
+      "c50_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "edt_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "t60_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_mad": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_rel_l2": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 272,
+        "ok": true,
+        "validity_mismatches": 0
+      }
+    }
+  },
+  "excluded_by_contract": {
+    "reason": "computed from the model's direct output; not recoverable from Griffin-Lim waveforms",
+    "spectral": [
+      "logspec_mad",
+      "mag_rel_l2"
+    ]
+  },
+  "ok": true,
+  "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/released_k1_probe",
+  "tolerance": 1e-06
+}
+wrote ckpt/exp10/released_k1_probe/check_online.json
+check_online: OK
+csv: ckpt/exp10/released_k1_probe/summary/yaw_pilot_gaps.csv
+figures: 4
+json: ckpt/exp10/released_k1_probe/summary/yaw_pilot_summary.json
+markdown: ckpt/exp10/released_k1_probe/summary/yaw_pilot_tables.md
+[02:28:36] GATE: controls_ok=True parity_ok=n/a
+[02:28:36] GATE PASSED — launching full run
+[02:28:36] stage all → ckpt/exp10/released_k1_all
+arm released_k1  backbone simple  device cuda  queries 6337  batches 397  angles [0, 64, 128, 256, 384]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+[80/6337] 1.84 samples/s, eta 56.7 min
+[160/6337] 2.09 samples/s, eta 49.3 min
+[240/6337] 2.17 samples/s, eta 46.7 min
+[320/6337] 2.21 samples/s, eta 45.3 min
+[400/6337] 2.24 samples/s, eta 44.1 min
+[480/6337] 2.27 samples/s, eta 43.1 min
+[560/6337] 2.28 samples/s, eta 42.1 min
+[640/6337] 2.29 samples/s, eta 41.4 min
+[720/6337] 2.29 samples/s, eta 40.8 min
+[800/6337] 2.31 samples/s, eta 40.0 min
+[880/6337] 2.31 samples/s, eta 39.3 min
+[960/6337] 2.32 samples/s, eta 38.7 min
+[1040/6337] 2.33 samples/s, eta 37.9 min
+[1120/6337] 2.32 samples/s, eta 37.4 min
+[1200/6337] 2.32 samples/s, eta 36.8 min
+[1280/6337] 2.31 samples/s, eta 36.4 min
+[1360/6337] 2.32 samples/s, eta 35.8 min
+[1440/6337] 2.31 samples/s, eta 35.3 min
+[1520/6337] 2.32 samples/s, eta 34.7 min
+[1600/6337] 2.31 samples/s, eta 34.1 min
+[1680/6337] 2.31 samples/s, eta 33.5 min
+[1760/6337] 2.31 samples/s, eta 33.0 min
+[1840/6337] 2.32 samples/s, eta 32.4 min
+[1920/6337] 2.32 samples/s, eta 31.8 min
+[2000/6337] 2.32 samples/s, eta 31.2 min
+[2080/6337] 2.32 samples/s, eta 30.6 min
+[2160/6337] 2.32 samples/s, eta 30.0 min
+[2240/6337] 2.32 samples/s, eta 29.4 min
+[2320/6337] 2.32 samples/s, eta 28.8 min
+[2400/6337] 2.33 samples/s, eta 28.2 min
+[2480/6337] 2.33 samples/s, eta 27.6 min
+[2560/6337] 2.33 samples/s, eta 27.0 min
+[2640/6337] 2.33 samples/s, eta 26.4 min
+[2720/6337] 2.33 samples/s, eta 25.9 min
+[2800/6337] 2.33 samples/s, eta 25.3 min
+[2880/6337] 2.33 samples/s, eta 24.7 min
+[2960/6337] 2.33 samples/s, eta 24.1 min
+[3040/6337] 2.33 samples/s, eta 23.6 min
+[3120/6337] 2.33 samples/s, eta 23.0 min
+[3200/6337] 2.33 samples/s, eta 22.4 min
+[3280/6337] 2.33 samples/s, eta 21.8 min
+[3360/6337] 2.33 samples/s, eta 21.3 min
+[3440/6337] 2.34 samples/s, eta 20.7 min
+[3520/6337] 2.34 samples/s, eta 20.1 min
+[3600/6337] 2.34 samples/s, eta 19.5 min
+[3680/6337] 2.34 samples/s, eta 18.9 min
+[3760/6337] 2.34 samples/s, eta 18.4 min
+[3840/6337] 2.34 samples/s, eta 17.8 min
+[3920/6337] 2.34 samples/s, eta 17.2 min
+[4000/6337] 2.34 samples/s, eta 16.6 min
+[4080/6337] 2.34 samples/s, eta 16.1 min
+[4160/6337] 2.34 samples/s, eta 15.5 min
+[4240/6337] 2.34 samples/s, eta 14.9 min
+[4320/6337] 2.34 samples/s, eta 14.4 min
+[4400/6337] 2.34 samples/s, eta 13.8 min
+[4480/6337] 2.34 samples/s, eta 13.2 min
+[4560/6337] 2.35 samples/s, eta 12.6 min
+[4640/6337] 2.35 samples/s, eta 12.0 min
+[4720/6337] 2.35 samples/s, eta 11.5 min
+[4800/6337] 2.34 samples/s, eta 10.9 min
+[4880/6337] 2.34 samples/s, eta 10.4 min
+[4960/6337] 2.34 samples/s, eta 9.8 min
+[5040/6337] 2.35 samples/s, eta 9.2 min
+[5120/6337] 2.34 samples/s, eta 8.7 min
+[5200/6337] 2.35 samples/s, eta 8.1 min
+[5280/6337] 2.35 samples/s, eta 7.5 min
+[5360/6337] 2.35 samples/s, eta 6.9 min
+[5440/6337] 2.35 samples/s, eta 6.4 min
+[5520/6337] 2.35 samples/s, eta 5.8 min
+[5600/6337] 2.35 samples/s, eta 5.2 min
+[5680/6337] 2.35 samples/s, eta 4.7 min
+[5760/6337] 2.35 samples/s, eta 4.1 min
+[5840/6337] 2.35 samples/s, eta 3.5 min
+[5920/6337] 2.35 samples/s, eta 3.0 min
+[6000/6337] 2.35 samples/s, eta 2.4 min
+[6080/6337] 2.35 samples/s, eta 1.8 min
+[6160/6337] 2.35 samples/s, eta 1.3 min
+[6240/6337] 2.35 samples/s, eta 0.7 min
+[6320/6337] 2.35 samples/s, eta 0.1 min
+[6337/6337] 2.35 samples/s, eta 0.0 min
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+done: 6337 queries x 5 angles in 45.08 min (ckpt/exp10/released_k1_all)
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:641: UserWarning: stft with return_complex=False is deprecated. In a future pytorch release, stft will return complex tensors for all inputs, and return_complex=False will raise an error.
+Note: you can still call torch.view_as_real on the complex output to recover the old return format. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:862.)
+  return _VF.stft(input, n_fft, hop_length, win_length, window,  # type: ignore[attr-defined]
+{
+  "angles": {
+    "0": {
+      "c50_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "edt_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "t60_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_mad": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_rel_l2": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      }
+    },
+    "128": {
+      "c50_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "edt_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "t60_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_mad": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_rel_l2": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      }
+    },
+    "256": {
+      "c50_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "edt_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "t60_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_mad": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_rel_l2": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      }
+    },
+    "384": {
+      "c50_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "edt_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "t60_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_mad": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_rel_l2": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      }
+    },
+    "64": {
+      "c50_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "edt_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "t60_gap": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_mad": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      },
+      "wave_rel_l2": {
+        "max_abs_diff": 0.0,
+        "mean_abs_diff": 0.0,
+        "n": 6337,
+        "ok": true,
+        "validity_mismatches": 0
+      }
+    }
+  },
+  "excluded_by_contract": {
+    "reason": "computed from the model's direct output; not recoverable from Griffin-Lim waveforms",
+    "spectral": [
+      "logspec_mad",
+      "mag_rel_l2"
+    ]
+  },
+  "ok": true,
+  "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/released_k1_all",
+  "tolerance": 1e-06
+}
+wrote ckpt/exp10/released_k1_all/check_online.json
+check_online: OK
+[03:14:16] ARM DONE
