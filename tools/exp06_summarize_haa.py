@@ -43,6 +43,8 @@ from tools.exp04_profiles import CONTROL as EXP01_CONTROL, CYL as EXP01_CYL
 from tools import exp06_approvals_api as approvals_api
 from tools import exp06_bootstrap as bootstrap
 from tools import exp06_finalize as finalizer
+from tools import exp11_finalize as exp11_finalizer
+from tools import exp11_profiles
 from tools import provenance
 
 ENTRY_MODULE = 'tools.exp06_summarize_haa'
@@ -94,7 +96,32 @@ ARMS = OrderedDict([
     # is resolved by expected_inits exactly as E's, never by a literal here.
     ('yawaug_hf', {'label': 'G', 'branch': 'new', 'root': 'ckpt/exp11/sim2real/yawaug_hf',
                    'backbone': 'simple', 'frame': 'heading', 'experiment': 'exp11',
-                   'init_sha256': None})])
+                   'init_sha256': None}),
+    # exp_11 phase 2 -- the literal explicit-cue SimpleViT arms. They are pretrained by
+    # exp_11 with the two azimuth planes and fine-tuned in the HEADING frame through the
+    # exp_11 pipeline, so their children are admitted by exp_11's own validators.
+    ('simple_or', {'label': 'H', 'branch': 'new', 'root': 'ckpt/exp11/sim2real/simple_or',
+                   'backbone': 'simple_oriented', 'frame': 'heading', 'experiment': 'exp11',
+                   'admission': 'exp11', 'cue': 'planes', 'init_sha256': None}),
+    ('simple_or_yaw', {'label': 'I', 'branch': 'new',
+                       'root': 'ckpt/exp11/sim2real/simple_or_yaw',
+                       'backbone': 'simple_oriented', 'frame': 'heading',
+                       'experiment': 'exp11', 'admission': 'exp11', 'cue': 'planes',
+                       'init_sha256': None}),
+    # exp_11 phase 1b -- the adapter arms. They run in the ROOM frame with the shared
+    # loudspeaker heading installed in the model, so they bind an ``adapter_heading`` and
+    # never a frame heading; the historical room-frame rejection of heading records is
+    # preserved for A, B and E by keying that permission on ``cue``.
+    ('control_adapter', {'label': 'J', 'branch': 'new',
+                         'root': 'ckpt/exp11/sim2real/control_adapter',
+                         'backbone': 'simple_adapter', 'frame': 'room',
+                         'experiment': 'exp11', 'admission': 'exp11', 'cue': 'adapter',
+                         'init_sha256': EXP01_CONTROL['sha256']}),
+    ('yawaug_adapter', {'label': 'K', 'branch': 'new',
+                        'root': 'ckpt/exp11/sim2real/yawaug_adapter',
+                        'backbone': 'simple_adapter', 'frame': 'room',
+                        'experiment': 'exp11', 'admission': 'exp11', 'cue': 'adapter',
+                        'init_sha256': None})])
 LEGACY_ARMS = tuple(name for name, arm in ARMS.items() if arm['branch'] == 'legacy')
 NEW_ARMS = tuple(name for name, arm in ARMS.items() if arm['branch'] == 'new')
 LEGACY_ROOT = 'ckpt/sim2real'
@@ -102,7 +129,13 @@ NEW_ROOT = 'ckpt/exp06/sim2real'
 EXP09_ROOT = 'ckpt/exp09/sim2real'
 EXP11_ROOT = 'ckpt/exp11/sim2real'
 CANONICAL = ('stats.json', 'summary.txt')            # exp_02's hash-bound record
-EXP04_AUG_ARMS = ('yawaug', 'yawaug_hf')   # the arms exp_04's approved checkpoint starts
+# The arms exp_04's approved checkpoint starts: exp_09's E, exp_11's G and exp_11's K.
+EXP04_AUG_ARMS = ('yawaug', 'yawaug_hf', 'yawaug_adapter')
+# exp_11's own pretraining arms, and the approvals artifact key each one starts from.
+EXP11_NEW_ARMS = ('simple_or', 'simple_or_yaw', 'control_adapter', 'yawaug_adapter')
+EXP11_ARTIFACT_KEY = {'simple_or': 'simpor_epoch_012',
+                      'simple_or_yaw': 'simpor_yaw_epoch_012'}
+ADAPTER_ARMS = tuple(name for name, arm in ARMS.items() if arm.get('cue') == 'adapter')
 
 # The contrasts of section 7. H1 and H1b are decision bearing; the rest describe.
 H1 = ('cyl_or', 'control')
@@ -165,6 +198,79 @@ EXP11_DECISIONS = (
      'reading': 'the prediction G = E is the equivalence statement, not the category'})
 EXP11_SCREENS = (N1, N2, N3)        # three declared families; no claim across them
 
+# exp_11 phase 1b (the adapter arms J and K) and phase 2 (the literal arms H and I).
+# Every cell publishes exactly the statements plan section 3 registers for it, in the
+# direction of its own contrast string, and nothing else.
+Q1 = ('control_adapter', 'control')
+Q2 = ('cyl_or', 'control_adapter')
+Q3 = ('yawaug_adapter', 'yawaug')
+Q4 = ('cyl_or', 'yawaug_adapter')
+P1 = ('simple_or', 'control_hf')
+P2 = ('simple_or_yaw', 'yawaug_hf')
+P3 = ('cyl_or', 'simple_or')
+P3_PRIME = ('cyl_or', 'simple_or_yaw')
+P4 = ('simple_or', 'control')
+P4_PRIME = ('simple_or_yaw', 'yawaug')
+ADAPTER_READING = ('with one heading for all four rooms the cue is absorbable into the '
+                   'learned projection, so this tests an added learnable circular '
+                   'positional representation during fine-tuning, not measured heading '
+                   'information')
+EXP11_PHASE1B_DECISIONS = (
+    {'name': 'Q1', 'kind': 'contrast', 'pair': Q1, 'room': H1_ROOM, 'metric': H1_METRIC,
+     'margin': H1_MARGIN_DB, 'fields': ('category', 'equivalent_at_margin'),
+     'reading': 'does the explicit adapter change the vanilla xRIR? ' + ADAPTER_READING},
+    {'name': 'Q2', 'kind': 'contrast', 'pair': Q2, 'room': H1_ROOM, 'metric': H1_METRIC,
+     'margin': H1_MARGIN_DB,
+     'fields': ('category', 'y_non_inferior_at_margin', 'x_margin_advantage'),
+     'reading': "J's non-inferiority to C and C's margin-sized advantage are separate "
+                'statements; failing to establish one is not evidence of its negation'},
+    {'name': 'Q3', 'kind': 'contrast', 'pair': Q3, 'room': H1_ROOM, 'metric': H1_METRIC,
+     'margin': H1_MARGIN_DB, 'fields': ('category', 'equivalent_at_margin'),
+     'reading': 'does the explicit adapter change the yaw-augmented xRIR? '
+                + ADAPTER_READING},
+    {'name': 'Q4', 'kind': 'contrast', 'pair': Q4, 'room': H1_ROOM, 'metric': H1_METRIC,
+     'margin': H1_MARGIN_DB, 'fields': ('category', 'y_non_inferior_at_margin'),
+     'reading': "K's non-inferiority to C, reported separately from any advantage of C"})
+EXP11_PHASE2_DECISIONS = (
+    {'name': 'P3', 'kind': 'contrast', 'pair': P3, 'room': H1_ROOM, 'metric': H1_METRIC,
+     'margin': H1_MARGIN_DB,
+     'fields': ('category', 'y_non_inferior_at_margin', 'x_margin_advantage'),
+     'reading': 'the primary literal comparison and the ONLY contrast that can establish '
+                "the headline claim: CERPA's advantage persists iff C - H is a detected "
+                'improvement for C'},
+    {'name': "P3'", 'kind': 'contrast', 'pair': P3_PRIME, 'room': H1_ROOM,
+     'metric': H1_METRIC, 'margin': H1_MARGIN_DB,
+     'fields': ('category', 'y_non_inferior_at_margin', 'x_margin_advantage'),
+     'reading': 'secondary; reported, and cannot establish the headline alone'},
+    {'name': 'P1', 'kind': 'contrast', 'pair': P1, 'room': H1_ROOM, 'metric': H1_METRIC,
+     'margin': H1_MARGIN_DB, 'fields': ('category', 'equivalent_at_margin'),
+     'reading': 'the better-matched channel-family comparison (the HAA frame is held '
+                'fixed); it still includes the added parameters and a different '
+                'pretrained realisation'},
+    {'name': 'P2', 'kind': 'contrast', 'pair': P2, 'room': H1_ROOM, 'metric': H1_METRIC,
+     'margin': H1_MARGIN_DB, 'fields': ('category', 'equivalent_at_margin'),
+     'reading': 'the same channel-family comparison after yaw-augmented pretraining'},
+    {'name': 'P4', 'kind': 'contrast', 'pair': P4, 'room': H1_ROOM, 'metric': H1_METRIC,
+     'margin': H1_MARGIN_DB, 'fields': ('category', 'equivalent_at_margin'),
+     'reading': 'bundles the five-channel pretraining with the room-to-heading frame '
+                "change: the requested pipeline-level difference, not the channel's "
+                'isolated effect'},
+    {'name': "P4'", 'kind': 'contrast', 'pair': P4_PRIME, 'room': H1_ROOM,
+     'metric': H1_METRIC, 'margin': H1_MARGIN_DB,
+     'fields': ('category', 'equivalent_at_margin'),
+     'reading': 'the same bundled difference after yaw-augmented pretraining'})
+EXP11_PHASE1B_SCREENS = (Q1, Q2, Q3, Q4)
+EXP11_PHASE2_SCREENS = (P3, P3_PRIME, P1, P2, P4, P4_PRIME)
+EXP11_PHASE1B_ARMS = EXP11_ARMS + ('control_adapter', 'yawaug_adapter')
+EXP11_FINAL_ARMS = EXP11_PHASE1B_ARMS + ('simple_or', 'simple_or_yaw')
+
+# --- A': the external reference row (plan section 2.2, risk 4) ---------------------
+EXP02_STATS = 'ckpt/sim2real/stats.json'
+EXTERNAL_ROWS = (
+    {'name': "A'", 'label': "A'", 'arm': 'released', 'job_kind': 'fine-tuned',
+     'source': EXP02_STATS,
+     'description': "xRIR, the authors' released checkpoint, fine-tuned in exp_02"},)
+
 # One frozen configuration per experiment: which arms are loaded, which contrasts are
 # computed under which names, which of them carry exp_09's two-sided classification, and
 # the canonical outputs no other experiment's run may write. Nothing here is mutated at
@@ -186,7 +292,32 @@ EXPERIMENTS = OrderedDict([
                'exp11_decisions': EXP11_DECISIONS, 'screens': EXP11_SCREENS,
                'historical': EXP11_HISTORICAL,
                'outputs': ('ckpt/exp11/phase1/stats.json',
-                           'ckpt/exp11/phase1/summary.txt')})])
+                           'ckpt/exp11/phase1/summary.txt')}),
+    # exp_11 phase 1b: the adapter arms J and K, with Q1-Q4 and their four screen
+    # families. Phase 1's own output is untouched; this one is an interim record.
+    ('exp11_phase1b', {'arms': EXP11_PHASE1B_ARMS, 'phase': 'phase1b', 'decisions': (),
+                       'classified': (), 'exp11_decisions': EXP11_PHASE1B_DECISIONS,
+                       'screens': EXP11_PHASE1B_SCREENS, 'historical': EXP11_HISTORICAL,
+                       'external': EXTERNAL_ROWS,
+                       'outputs': ('ckpt/exp11/phase1b/stats.json',
+                                   'ckpt/exp11/phase1b/summary.txt')}),
+    # The final canonical record: every planned arm and every registered statement, run
+    # once when all of them are complete. ``write_outputs`` never overwrites, so the
+    # phase files stay as the interim records they are.
+    ('exp11_final', {'arms': EXP11_FINAL_ARMS, 'phase': 'final', 'decisions': (),
+                     'classified': (),
+                     'exp11_decisions': (EXP11_DECISIONS + EXP11_PHASE1B_DECISIONS
+                                         + EXP11_PHASE2_DECISIONS),
+                     'screens': (EXP11_SCREENS + EXP11_PHASE1B_SCREENS
+                                 + EXP11_PHASE2_SCREENS),
+                     'historical': EXP11_HISTORICAL, 'external': EXTERNAL_ROWS,
+                     'outputs': ('ckpt/exp11/stats.json', 'ckpt/exp11/summary.txt')})])
+
+# The experiments a run may name, and the phase that selects one of exp_11's three
+# frozen configurations. ``--phase`` applies to exp_11 alone.
+PUBLISHED_EXPERIMENTS = ('exp06', 'exp09', 'exp11')
+PHASES = OrderedDict([('phase1', 'exp11'), ('phase1b', 'exp11_phase1b'),
+                      ('final', 'exp11_final')])
 
 
 def _require(ok, cause):
@@ -397,6 +528,28 @@ def _is_sha256(value):
         character in '0123456789abcdef' for character in value)
 
 
+# Codex round-2 change 4: per-arm code-key mapping is necessary but not sufficient -- job
+# admission also invokes a specification loader, a child verifier, a role resolver and a
+# lineage function. Each arm names the validator family its children were finalised by;
+# the historical arms keep exp_06's, and H/I/J/K use exp_11's. The *serialized* run types
+# differ (``haa_job`` vs ``exp11_haa_job``); the *semantic* roles used by the protocol
+# checks below are the path-derived ``haa_train``/``haa_eval`` of both families.
+ADMISSION = {
+    'exp06': {'name': 'exp06', 'finalizer': finalizer, 'job_run_type': 'haa_job',
+              'extra_job_fields': ()},
+    'exp11': {'name': 'exp11', 'finalizer': exp11_finalizer,
+              'job_run_type': 'exp11_haa_job',
+              'extra_job_fields': ('adapter_heading', 'adapter_phi_deg')},
+}
+
+
+def arm_admission(arm):
+    """The validator family one arm's children were finalised by; exp_06's by default."""
+    name = ARMS[arm].get('admission', 'exp06')
+    _require(name in ADMISSION, 'arm {} names the unknown admission {!r}'.format(arm, name))
+    return ADMISSION[name]
+
+
 def job_completion(job_dir, expect, arm, inputs=None):
     """One job's A3 record: no receipt, a bound job spec, an owner and its children."""
     job_dir = Path(job_dir)
@@ -408,12 +561,16 @@ def job_completion(job_dir, expect, arm, inputs=None):
     present = [key for key in FORBIDDEN_JOB_FIELDS if key in record]
     _require(not present,
              'amendment A3: a job completion carries no ' + ', '.join(present))
-    missing = [key for key in JOB_FIELDS if key not in record]
+    admission = arm_admission(arm)
+    missing = [key for key in JOB_FIELDS + admission['extra_job_fields']
+               if key not in record]
     _require(not missing, 'job {} completion is incomplete: missing {}'.format(
         job_dir, ', '.join(missing)))
-    _require(record['schema_version'] == 1 and record['run_type'] == 'haa_job',
-             'job {} records {!r}/{!r}'.format(job_dir, record['schema_version'],
-                                               record['run_type']))
+    _require(record['schema_version'] == 1
+             and record['run_type'] == admission['job_run_type'],
+             'job {} records {!r}/{!r}, not the {!r} of arm {}'.format(
+                 job_dir, record['schema_version'], record['run_type'],
+                 admission['job_run_type'], arm))
     _require(Path(record['run_dir']).resolve() == job_dir.resolve(),
              'job {} claims the run_dir {}'.format(job_dir, record['run_dir']))
     _require(record['expect'] == expect,
@@ -533,16 +690,54 @@ def arm_headings(children):
     return headings
 
 
-def check_arm_identities(arm, closures, headings, approved):
-    """Finding 3: what really ran, against what section 6.4 approved -- not merely null."""
+def arm_adapter_headings(children):
+    """{room: heading json sha256} of the cue an adapter arm installed, across every seed.
+
+    The record has the shape of a frame heading and the same per-room identity, but it is
+    bound under ``adapter_heading`` in the ROOM frame, and every child of the arm must
+    have installed the SAME ``adapter_phi_deg`` -- the adapter conditions on one cue for
+    all four rooms (plan section 2.3).
+    """
+    headings, installed = {}, set()
+    for name in sorted(children):
+        for room, binding in sorted((children[name].get('adapter_heading') or {}).items()):
+            _require(isinstance(binding, dict) and binding.get('k') == HEADING_K,
+                     'child {} rolls the {} adapter cue by {!r}, not the registered '
+                     '{}'.format(name, room, (binding or {}).get('k'), HEADING_K))
+            _require(_is_sha256(binding.get('sha256')) and binding.get('path'),
+                     'child {} records no json identity for the {} adapter cue'.format(
+                         name, room))
+            recorded = headings.setdefault(room, binding['sha256'])
+            _require(recorded == binding['sha256'], 'the arm binds two adapter cue records '
+                     'for {}: {} and {}'.format(room, recorded, binding['sha256']))
+        if children[name].get('adapter_heading'):
+            installed.add(children[name].get('adapter_phi_deg'))
+    _require(len(installed) <= 1, 'the arm installs the adapter headings {}, but the cue '
+             'is one heading for every room'.format(sorted(map(repr, installed))))
+    return headings
+
+
+def check_arm_identities(arm, closures, headings, approved, exp11_approved=None):
+    """Finding 3: what really ran, against what the arm's OWN experiment approved.
+
+    Codex round-2 change 4: the historical arms are checked against exp_06's ``code``
+    keys, exactly as they always were, and exp_11's arms against exp_11's own approvals
+    record. No historical key is replaced or disabled, and an exp_11 arm whose approvals
+    were not supplied is checked for headings only, never against exp_06's digests.
+    """
+    admission = arm_admission(arm)
+    code = (exp11_approved or {}).get('code') if admission['name'] == 'exp11' else (
+        (approved or {}).get('code'))
+    if code is not None:
+        for role in sorted(closures):
+            key = ROLE_CODE_KEY[role]
+            _require(code.get(key) == closures[role], 'the {} children of {} ran the closure '
+                     '{}, not the approved code.{} {}'.format(role, arm, closures[role], key,
+                                                              code.get(key)))
     if approved is None:
         return
-    code = approved['code']
-    for role in sorted(closures):
-        key = ROLE_CODE_KEY[role]
-        _require(code.get(key) == closures[role], 'the {} children of {} ran the closure {}, '
-                 'not the approved code.{} {}'.format(role, arm, closures[role], key,
-                                                      code.get(key)))
+    # The heading records are exp_06's approved artefacts whichever experiment reads them,
+    # so every arm that binds one -- frame heading or adapter cue -- is checked against them.
     pinned = approved['artifacts']['heading']
     for room in sorted(headings):
         _require(pinned.get(room) == headings[room], 'the arm {} read the {} heading record '
@@ -608,7 +803,7 @@ def check_test_indices(name, room, index):
              'in order'.format(name, len(index), room, len(expected)))
 
 
-def expected_inits(approved, arms=NEW_ARMS, inputs=None):
+def expected_inits(approved, arms=NEW_ARMS, inputs=None, exp11_approved=None):
     """What each new arm must have started from: exp_01's weights, exp_06's approved
     epoch, or -- for arms E and G -- exp_04's approved ``checkpoints.aug``.
 
@@ -625,12 +820,16 @@ def expected_inits(approved, arms=NEW_ARMS, inputs=None):
     if 'cyl_or' in inits:
         inits['cyl_or'] = approved.get('artifacts', {}).get('epoch_012', {}).get('sha256')
     augmented = [arm for arm in EXP04_AUG_ARMS if arm in inits]
-    if augmented:      # exp_09's E and exp_11's G start from the one approved checkpoint
+    if augmented:   # exp_09's E and exp_11's G and K start from the one approved checkpoint
         record = finalizer.exp04_aug_checkpoint(approved)
         for arm in augmented:
             inits[arm] = record['checkpoint']['sha256']
         if inputs is not None:
             bind(inputs, record['path'], record['sha256'])
+    if exp11_approved is not None:   # exp_11's own pretraining checkpoints, from its record
+        for arm, key in sorted(EXP11_ARTIFACT_KEY.items()):
+            if arm in inits:
+                inits[arm] = exp11_approved['artifacts'][key]['sha256']
     return inits
 
 
@@ -651,6 +850,25 @@ def child_per_sample(job_dir, name, record, arm, inputs=None):
     else:      # a room-frame arm reads no heading, and the writer records that null
         _require(not meta['heading'],
                  'child {} per-sample meta records a heading in the room frame'.format(name))
+    # Codex round-2 change 4: an adapter cue has its own admission field, permitted ONLY
+    # for the arms registered with one. The historical room-frame arms keep the rejection
+    # above and are additionally refused a cue they never installed.
+    if ARMS[arm].get('cue') == 'adapter':
+        _require('adapter_heading' in meta and 'adapter_phi_deg' in meta,
+                 'child {} per-sample meta records no adapter cue'.format(name))
+        _heading_rolls(meta['adapter_heading'],
+                       'child {} per-sample adapter cue'.format(name))
+        phi = meta['adapter_phi_deg']
+        _require(type(phi) in (int, float) and not isinstance(phi, bool)
+                 and math.isfinite(phi),
+                 'child {} installs the adapter heading {!r}'.format(name, phi))
+        declared = sorted({entry['phi_deg'] for entry in meta['adapter_heading'].values()})
+        _require(declared == [phi], 'child {} installs {!r}, not the {} its bound records '
+                 'declare'.format(name, phi, declared))
+    else:
+        _require(not meta.get('adapter_heading') and meta.get('adapter_phi_deg') is None,
+                 'child {} per-sample meta records an adapter cue, which arm {} does not '
+                 'install'.format(name, arm))
     side = per.get('side_label')
     _require(isinstance(side, list) and len(side) == len(per.get('index', [])),
              'child {} per-sample records no room-frame side_label'.format(name))
@@ -727,6 +945,8 @@ def verify_job(job_dir, job, arm, repo=REPO, sensitivity=False, inputs=None):
     checked on top, because the finalizer knows nothing about exp_02's protocol.
     """
     job_dir, expect = Path(job_dir), EXPECT_OF[job]
+    admission = arm_admission(arm)
+    validators = admission['finalizer']
     record = job_completion(job_dir, expect, arm, inputs)
     owner = job_owner(job_dir, record, inputs)
     recipe = []
@@ -739,7 +959,7 @@ def verify_job(job_dir, job, arm, repo=REPO, sensitivity=False, inputs=None):
              'the job spec {} is not the bytes job {} bound'.format(spec_path, job_dir))
     if inputs is not None:      # bound before the loader runs, never after it
         bind(inputs, spec_path, declared)
-    spec = finalizer.load_job_spec(str(spec_path), expect)
+    spec = validators.load_job_spec(str(spec_path), expect)
     # Finding 2b: the loader hashes what it read; that digest must still be the one the
     # job certified, so a spec edited while it was being loaded is refused here.
     _require(spec['job_spec_sha256'] == declared,
@@ -755,7 +975,7 @@ def verify_job(job_dir, job, arm, repo=REPO, sensitivity=False, inputs=None):
                  'job {} child {} is not the completion it bound'.format(job_dir, name))
         if inputs is not None:      # bound before the child validator is delegated to
             bind(inputs, completion, certified)
-        evidence = dict(finalizer.verify_child(path, name, repo, spec), role=role)
+        evidence = dict(validators.verify_child(path, name, repo, spec), role=role)
         bound = _read_json(completion, name + '/completion.json', inputs, certified)
         _require(bound.get('admissible_arm') is True,
                  'child {} is not an admissible arm'.format(name))
@@ -772,7 +992,7 @@ def verify_job(job_dir, job, arm, repo=REPO, sensitivity=False, inputs=None):
                      'bound'.format(name))
             rooms[evidence['room']] = per
         children[name] = evidence
-    lineage = finalizer.job_lineage(children, expect, spec)
+    lineage = validators.job_lineage(children, expect, spec)
     for field in sorted(lineage):
         _require(finalizer.exp06_recipe.strict_equal(record.get(field), lineage[field]),
                  'job {} records {} {!r}, not the {!r} the re-run derived'.format(
@@ -798,7 +1018,7 @@ def arm_directory(arm, roots):
 
 
 def load_new_arm(roots, arm, init_sha256=None, repo=REPO, approved=None,
-                 sensitivity=False):
+                 sensitivity=False, exp11_approved=None):
     """One exp_06 or exp_09 arm: four verified jobs, one closure per role, one heading
     per room in the heading frame and none at all in the room frame."""
     base = arm_directory(arm, roots)
@@ -823,10 +1043,13 @@ def load_new_arm(roots, arm, init_sha256=None, repo=REPO, approved=None,
     _require(bool(headings) == (ARMS[arm]['frame'] == 'heading'),
              'the {}-frame arm {} binds {} heading records'.format(
                  ARMS[arm]['frame'], arm, len(headings)))
-    check_arm_identities(arm, closures, headings, approved)
+    adapter = arm_adapter_headings(children)
+    _require(bool(adapter) == (ARMS[arm].get('cue') == 'adapter'),
+             'the arm {} binds {} adapter cue records'.format(arm, len(adapter)))
+    check_arm_identities(arm, closures, dict(headings, **adapter), approved, exp11_approved)
     return {'arm': arm, 'branch': 'new', 'per': jobs, 'closure': closures, 'jobs': records,
-            'heading': headings, 'root': str(base), 'inputs': inputs,
-            'recipe_deviations': recipe}
+            'heading': headings, 'adapter_heading': adapter, 'root': str(base),
+            'inputs': inputs, 'recipe_deviations': recipe}
 
 
 # --- pairing, the finite cohort and the invalidity policy of section 7 -------------------
@@ -1174,6 +1397,38 @@ def approvals(exploratory, path=None, producer='summarize_haa', commit=None, rep
         return None, None, [str(error)]
     return approved, receipt, approvals_api.require_producer(approved, producer,
                                                              exploratory)
+
+
+# Which exp_11 producer each phase is. Phase 1 publishes no exp_11-admitted arm, so it
+# reads exp_11's approvals not at all; phase 1b and the final publication do, and the
+# requirement matrix decides which pins each of them needs (plan section 4.7).
+EXP11_PRODUCER = {'phase1b': 'summarize_phase1b', 'final': 'summarize_final'}
+
+
+def _repo_path(path, repo=REPO):
+    return Path(path) if Path(path).is_absolute() else Path(repo) / path
+
+
+def exp11_approvals(exploratory, config, path=None, commit=None, repo=REPO):
+    """exp_11's own approvals record, when this run publishes an arm exp_11 admitted.
+
+    Its ``code`` keys identify the entry points H/I/J/K's children ran and its
+    ``artifacts`` pin the two pretraining checkpoints those arms start from, so it is
+    read only where such an arm is in the configuration: exp_06, exp_09 and exp_11's own
+    phase 1 depend on nothing further. The bytes must be the blob committed at the
+    reviewed commit, exactly as exp_06's producer gate requires of its own record.
+    """
+    needed = [arm for arm in config['arms'] if ARMS[arm].get('admission') == 'exp11']
+    if exploratory or not needed:
+        return None, None
+    producer = EXP11_PRODUCER[config['phase']]
+    commit = provenance.git_state(repo)['HEAD'] if commit is None else commit
+    file = _repo_path(exp11_profiles.APPROVED_DIGESTS_PATH if path is None else path, repo)
+    value, identity = exp11_profiles.load_approved_digests(file, repo=repo, commit=commit)
+    exp11_profiles.require_producer(value, producer)
+    return value, {'path': identity['path'], 'sha256': identity['sha256'],
+                   'committed_at': identity.get('committed_at'), 'producer': producer,
+                   'arms': sorted(needed)}
 
 
 def classify_cell(cell):
@@ -1594,6 +1849,34 @@ def historical_rows(specs=EXP11_HISTORICAL, repo=REPO, room=H1_ROOM, metric=H1_M
     return rows
 
 
+def external_rows(specs=EXTERNAL_ROWS, repo=REPO, inputs=None):
+    """A': exp_02's released fine-tuned means and sd, copied from its canonical record.
+
+    Arm A' is not in exp_02's legacy receipt, so it can never be admitted as an arm and
+    never enters paired inference: it is copied here as a labelled external reference
+    row, with the source path, that file's sha256 and the selector each cell was found
+    by. ``paired`` is false and nothing in the decisions or screens reads it.
+    """
+    rows = []
+    for spec in specs:
+        record, digest = historical_source(Path(repo) / spec['source'],
+                                           'external ' + spec['source'], inputs)
+        cells = {}
+        for room, key in CELLS:
+            selector = '{}|{}|{}|{}'.format(spec['arm'], spec['job_kind'], room, key)
+            row = (record.get('rows') or {}).get(selector)
+            _require(isinstance(row, dict) and 'mean' in row and 'std' in row,
+                     'the external source records no {}'.format(selector))
+            cells['{}|{}'.format(room, key)] = {
+                'mean': row['mean'], 'std': row['std'],
+                'per_run': list(row.get('per_run') or ()), 'selector': selector}
+        rows.append({'name': spec['name'], 'label': spec['label'], 'arm': spec['arm'],
+                     'job_kind': spec['job_kind'], 'description': spec['description'],
+                     'source': spec['source'], 'source_sha256': digest, 'paired': False,
+                     'inference': 'none (external reference row)', 'cells': cells})
+    return rows
+
+
 def exp11_tables(result, arms, config, n_boot=N_BOOT,
                  adjusted_n_boot=N_BOOT_ADJUSTED, exploratory=False, sensitivity=False,
                  historical_root=REPO):
@@ -1618,7 +1901,20 @@ def exp11_tables(result, arms, config, n_boot=N_BOOT,
     result['screens'] = exp11_screens(arms, config['screens'], n_boot, adjusted_n_boot)
     result['historical'] = historical_rows(config['historical'], historical_root,
                                            inputs=result['inputs'])
+    if config.get('external'):   # phase 1's payload carries no such key at all
+        result['external'] = external_rows(config['external'], historical_root,
+                                           inputs=result['inputs'])
     return result
+
+
+def experiment_key(experiment, phase='phase1'):
+    """The frozen configuration one ``--experiment``/``--phase`` pair selects."""
+    if experiment != 'exp11':
+        _require(phase == 'phase1',
+                 '--phase applies to exp_11, not to {}'.format(experiment))
+        return experiment
+    _require(phase in PHASES, 'unknown exp_11 phase: {!r}'.format(phase))
+    return PHASES[phase]
 
 
 def check_output_paths(experiment, json_path, summary_path):
@@ -1636,7 +1932,8 @@ def check_output_paths(experiment, json_path, summary_path):
 def analyse(arms, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, cache_root=None,
             exploratory=False, receipt=None, receipt_path=None, approved=None,
             deviations=(), approvals_receipt=None, producer=None, extra_inputs=(),
-            sensitivity=False, experiment='exp06', historical_root=REPO):
+            sensitivity=False, experiment='exp06', historical_root=REPO,
+            exp11_approvals=None):
     """Every displayed number, and the evidence each rests on."""
     config = EXPERIMENTS[experiment]
     # The frozen configuration decides what is published, not what the caller happens to
@@ -1670,6 +1967,9 @@ def analyse(arms, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, cache_root=Non
     result['inputs'] = arm_inputs(arms, receipt, receipt_path)
     for path, digest in sorted(dict(cache_inputs, **dict(extra_inputs)).items()):
         bind(result['inputs'], path, digest)
+    if exp11_approvals is not None:   # absent for exp_06 and exp_09, whose payloads stand
+        result['exp11_approved_digests'] = exp11_approvals
+        bind(result['inputs'], exp11_approvals['path'], exp11_approvals['sha256'])
     producer_inputs(result['inputs'], producer, approvals_receipt)
     if 'phase' in config:   # exp_11 publishes section 3's statements, not margin verdicts
         return exp11_tables(result, arms, config, n_boot, adjusted_n_boot, exploratory,
@@ -1781,6 +2081,15 @@ def render_exp11(result):
                 UNAVAILABLE if cell['adjusted_two_way'] is None
                 else cell['adjusted_two_way'],
                 UNAVAILABLE if cell['label'] is None else cell['label']))
+    for row in result.get('external', ()):
+        lines.append('\n{} external reference row: {} (never paired)'.format(
+            row['name'], row['description']))
+        lines.append('  source {} ({})'.format(row['source'], row['source_sha256'][:12]))
+        for key in sorted(row['cells']):
+            cell = row['cells'][key]
+            lines.append('  {:24s} mean {} sd {}'.format(
+                key, _number(cell['mean']),
+                UNAVAILABLE if cell['std'] is None else '{:.4f}'.format(cell['std'])))
     lines.append('\nR1 historical rows (copied; no new inference)')
     for row in result['historical']:
         lines.append('  {:8s} {:22s} {:4s} diff {} two-way {} nominal {} -> {}'.format(
@@ -1868,8 +2177,10 @@ def write_outputs(result, json_path, summary_path):
 
 def build_parser():
     parser = argparse.ArgumentParser(description='Summarise exp_06 and exp_02 HAA arms.')
-    parser.add_argument('--experiment', choices=tuple(EXPERIMENTS), default='exp06',
+    parser.add_argument('--experiment', choices=PUBLISHED_EXPERIMENTS, default='exp06',
                         help='which frozen set of arms, contrasts and outputs to publish')
+    parser.add_argument('--phase', choices=tuple(PHASES), default='phase1',
+                        help="exp_11's frozen configuration: phase1, phase1b or final")
     parser.add_argument('--legacy-root', default=LEGACY_ROOT)
     parser.add_argument('--new-root', default=NEW_ROOT)
     parser.add_argument('--exp09-root', default=EXP09_ROOT)
@@ -1877,6 +2188,8 @@ def build_parser():
     parser.add_argument('--legacy-receipt', default='ckpt/exp06/legacy_receipt.json')
     parser.add_argument('--write-legacy-receipt')
     parser.add_argument('--approved')
+    parser.add_argument('--exp11-approved',
+                        help="exp_11's own approvals record (default: its record asset)")
     parser.add_argument('--approved-commit',
                         help='the reviewed commit the approvals must be committed at')
     parser.add_argument('--cache-root')
@@ -1907,8 +2220,9 @@ def main(argv=None):
                           'files': len(record['files']), 'label': record['label']}))
         return 0
     _require(args.json and args.summary, 'both --json and --summary are required')
-    check_output_paths(args.experiment, args.json, args.summary)
-    config = EXPERIMENTS[args.experiment]
+    key = experiment_key(args.experiment, args.phase)
+    check_output_paths(key, args.json, args.summary)
+    config = EXPERIMENTS[key]
     roots = {'exp06': args.new_root, 'exp09': args.exp09_root,
              'exp11': args.exp11_root}
     new_arms = tuple(arm for arm in config['arms'] if ARMS[arm]['branch'] == 'new')
@@ -1918,21 +2232,25 @@ def main(argv=None):
     arms, receipt = load_legacy(args.legacy_root, args.legacy_receipt, binding)
     extra = check_reused_identities(None if args.exploratory else approved, receipt,
                                     args.gate_g1)
+    exp11_approved, exp11_identity = exp11_approvals(
+        args.exploratory, config, args.exp11_approved, args.approved_commit)
     inits = ({} if args.exploratory
-             else expected_inits(approved, new_arms, extra))
+             else expected_inits(approved, new_arms, extra, exp11_approved))
     for arm in new_arms:
         arms[arm] = load_new_arm(roots, arm, inits.get(arm), REPO,
-                                 None if args.exploratory else approved, args.sensitivity)
+                                 None if args.exploratory else approved, args.sensitivity,
+                                 exp11_approved)
         deviations = deviations + list(arms[arm].get('recipe_deviations') or ())
     result = analyse(arms, args.n_boot, args.n_boot_adjusted, args.cache_root,
                      args.exploratory, receipt, args.legacy_receipt, approved, deviations,
-                     approvals_receipt, identity, extra, args.sensitivity, args.experiment)
+                     approvals_receipt, identity, extra, args.sensitivity, key,
+                     exp11_approvals=exp11_identity)
     record, digest, text = write_outputs(result, args.json, args.summary)
     print(text)
     published = {'json': args.json, 'sha256': digest,
                  'summary_sha256': record['summary_sha256']}
-    if args.experiment != 'exp06':     # exp_06 prints the keys it has always printed
-        published['experiment'] = args.experiment
+    if key != 'exp06':                 # exp_06 prints the keys it has always printed
+        published['experiment'] = key
     if 'phase' in config:      # exp_11 reports a status per registered statement
         published['phase'] = config['phase']
         published.update({name: record[name]['status'] for name in record['decisions']})
