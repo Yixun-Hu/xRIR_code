@@ -1,6 +1,6 @@
 # exp_10 yaw_pilot — commits
 
-## main, first-parent, from the scaffold (`ac06bca`) to HEAD (exp_10 entries; interleaved commits of other experiments are listed separately below)
+## main, first-parent, from the scaffold (`ac06bca`) to HEAD (exp_10 entries; interleaved commits of other experiments listed separately below)
 - ac06bca exp_10 yaw_pilot: scaffold, query, plan v1, Codex plan-review prompt
 - 885240c exp_10: worklog (plan review launched, worktree wt10)
 - 8ceec14 exp_10: plan v2 after Codex round-1 review; round-2 review at ultra launched
@@ -62,6 +62,13 @@
 - 8009347 exp_10: results (Markdown + HTML + generated assets, SHA256SUMS) and analysis
 - 37d4750 exp_10: worklog (finish done; record review)
 - ad0302e exp_10: worklog (record review log)
+- d97a924 exp_10: record-review round-1 corrections (analysis, must-not-claim, params, command register, aborted-log rename, commits index); round-8 close prompt
+- 13f4942 exp_10: record-review round-2 prompt
+- 24715b2 exp_10: round-8 delivery logged; close review launched
+- e6211a3 exp_10: Codex round-8 close review (approved)
+- 9327a4d Merge exp10-yaw-pilot round 8: mc? figure annotation for unresolved MC cells; 'trained K = 8, evaluated K = 1' display label (Codex-approved)
+- f01116f exp_10: finish re-run launch record
+- 4785621 exp_10: record republished after round 8 (mc? annotation, K1 qualification; statistics unchanged)
 
 ## interleaved on main in the same span (other experiments / sessions, not part of exp_10)
 - 585804d exp_11 record opened: orientation-cue fairness ablation — plan v1→v3, Codex plan reviews (rounds 1–2), Coder round-1 prompt, params, query log (record only)
@@ -89,7 +96,7 @@
 - c0999d4 exp_11 bookkeeping: Coder round-2 fix-4 report, close-review-4 prompt/launch (record only)
 - 0c57d45 exp_11 bookkeeping: Codex close review 4 of round 2 (2 lock defects), fix-cycle-5 prompt (record only)
 
-## exp10-yaw-pilot branch (Coder, Claude Opus 5; rounds 1–7; merges of main excluded)
+## exp10-yaw-pilot branch (Coder, Claude Opus 5; rounds 1–8; merges of main excluded)
 - 52a5d5f exp_10 round 1: Metric-1 waveform and spectrogram gaps
 - df8b39b exp_10 round 1: acoustic gaps and raw EDT/C50/T60 measures
 - bcc2bbe exp_10 round 1: device-agnostic apply_delay and its patch point
@@ -149,3 +156,6 @@
 - 2122f66 exp_10 round 7: verify and mark every rollback copy before anything is published (finding 1)
 - be6a192 exp_10 round 7: a rollback, once entered, deals with all three artefacts (finding 2)
 - 3b0f28c exp_10 round 7: pin what restore() does with a copy it cannot vouch for (finding 1)
+- 24eb1a6 exp_10 round 8: an unresolved Monte Carlo cell is annotated mc?, not "impr" (finding 2)
+- ec77491 exp_10 round 8: the figures name released_k1 for what it is (finding 5)
+- 209bc25 exp_10 round 8: the two renderers name released_k1 for what it is too (finding 5)

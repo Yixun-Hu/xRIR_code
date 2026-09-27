@@ -144,3 +144,7 @@
 ## 2026-09-27T08:42:21-04:00 — round 8 APPROVED → merged `9327a4d` → finish re-run (republish figures/pages; statistics unchanged)
 - **Acceptance criteria** — preflight as before; canonical summary numbers identical to the round-1 build (JSON equal apart from `generated_at`/`tool` fields); 46 assets, `SHA256SUMS` verifies; figures show `mc?` for cyl_k8 T60 270° and the K1 qualification; both reports carry the qualified K1 header.
 - **Command** — `nohup setsid …/scripts/exp10_finish.sh > /dev/null 2>&1 &` (HEAD `9327a4d`).
+
+## 2026-09-27T08:49:55-04:00 — FINISH DONE (re-run) → record republished → record review round 2 launched
+- **Result** — finish 08:42–08:49: preflight bound all runs; canonical summary numbers identical to the round-1 build (JSON equal apart from `generated_at` / `tool`); 46 assets, `SHA256SUMS` verifies; both reports carry "released_k1 (trained K = 8, evaluated K = 1)"; figures carry the `mc?` legend. Republished record committed; commits index regenerated through this commit.
+- **Command / Validation** — record review round 2 (Codex, ultra): `review_prompts/record_review_round2_prompt.md`.
