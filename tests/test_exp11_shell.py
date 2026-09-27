@@ -553,6 +553,98 @@ def test_a_refusal_on_the_lock_changes_nothing(tmp_path):
         holder.wait(timeout=30)
 
 
+# --- close review 6: the behaviour A1 still requires, restored -----------------------
+# These went out with the hand-rolled lock's own tests, but none of them is about the
+# lock mechanism: they are what recovery and the signal handlers must do, whoever holds
+# the lock. The fixtures below take the real lock through the real holder.
+
+
+def test_recovery_of_an_unpublished_incomplete_attempt_still_aborts(tmp_path):
+    """The ownership rule narrows the abort path; it does not remove it."""
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    status, out, _ = recovery(attempt, 'H', tmp_path, log='/nonexistent/L.log')
+    assert '_ABORTED_finalize_refused' in out and 'PRESERVED' not in out
+
+
+def test_same_target_recovery_is_idempotent(tmp_path):
+    """``final`` already resolves to this attempt and it is complete: nothing to do."""
+    attempt = attempt_with('xRIR_simpor_yawaug_8_shot', 'I', 'I_RECIPE', tmp_path)
+    publish(attempt)
+    status, out, err = recovery(attempt, 'I', tmp_path)
+    assert status == 0, err[-500:]
+    assert 'already published' in out.lower()
+    assert 'PROMOTE' not in out and 'EXP11_FINALIZE' not in out
+
+
+def test_a_different_existing_final_is_a_conflict(tmp_path):
+    """Silent replacement is not a recovery policy; it must be asked for."""
+    published = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    other = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path,
+                         name='attempt_20260927T111111')
+    publish(published)
+    status, out, err = recovery(other, 'H', tmp_path)
+    assert status == 2, out
+    assert '--replace-final' in err and 'PROMOTE' not in out
+    status, out, err = recovery(other, 'H', tmp_path, extra=['--replace-final'])
+    assert status == 0, err[-500:]
+    assert 'REPLACING' in out and published.name in out
+    assert 'PROMOTE {}/final -> {}'.format(other.parent, other.name) in out
+
+
+def handler_replay(root, signal_name):
+    """Take the real lock, then replay the registered handler body. No signal is sent."""
+    return ('ARM_ROOT={root}\nDRY=0\nARM=H\nhold_arm_lock finalize\n'
+            'handler="$(trap -p {sig} | sed -n "s/^trap -- \'\\(.*\\)\' SIG{sig}$/\\1/p")"\n'
+            '[ -n "$handler" ] || {{ echo NO_{sig}_TRAP; exit 9; }}\n'
+            'eval "$handler"\necho CONTINUED_AFTER_HANDLER\n'
+            'promote attempt_X\n').format(root=root, sig=signal_name)
+
+
+def test_the_term_handler_terminates_instead_of_resuming(tmp_path):
+    """A handler that only cleans up lets the protected work continue.
+
+    The registered body is replayed directly -- no signal is ever sent -- and execution
+    must not return to the caller: it says so and exits 128+n.
+    """
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
+    result = lib(handler_replay(root, 'TERM'), {'EXP11_TEST_ROOTS': '1'})
+    assert 'CONTINUED_AFTER_HANDLER' not in result.stdout, (
+        'the TERM handler returned and execution resumed')
+    assert 'PROMOTE' not in result.stdout
+    assert result.returncode == 143, result.stdout[-400:]
+    assert 'SIGNAL TERM' in result.stdout
+
+
+def test_the_int_handler_terminates_too(tmp_path):
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
+    result = lib(handler_replay(root, 'INT'), {'EXP11_TEST_ROOTS': '1'})
+    assert 'CONTINUED_AFTER_HANDLER' not in result.stdout
+    assert result.returncode == 130, result.stdout[-400:]
+
+
+def test_the_handler_releases_the_arm_it_was_publishing(tmp_path):
+    """Whatever the handler does, the arm must be free once the launcher is gone."""
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
+    result = lib(handler_replay(root, 'TERM'), {'EXP11_TEST_ROOTS': '1'})
+    assert result.returncode == 143
+    assert free(root / LOCKFILE)
+
+
+def test_the_protected_steps_refuse_once_a_handler_has_fired():
+    """A guard, not only an exit: nothing downstream may run after an interruption."""
+    text = (REPO / 'tools/exp11_launch.sh').read_text()
+    assert 'INTERRUPTED' in text, (
+        'the launcher needs a guard the protected steps check, so finalization and '
+        'promotion can never run after a signal handler fired')
+    result = lib('INTERRUPTED=1\nif not_interrupted; then echo REACHED; else echo REFUSED; fi\n')
+    assert 'REFUSED' in result.stdout and 'REACHED' not in result.stdout
+    ok = lib('INTERRUPTED=0\nif not_interrupted; then echo REACHED; fi\n')
+    assert 'REACHED' in ok.stdout
+
+
 # --- close review 6: the lock may never reach the log sink or the training child ----
 
 SINK_LINE = 'cat >> "$log" < "$pipe" &'
