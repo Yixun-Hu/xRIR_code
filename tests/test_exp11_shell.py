@@ -645,6 +645,84 @@ def test_the_protected_steps_refuse_once_a_handler_has_fired():
     assert 'REACHED' in ok.stdout
 
 
+# --- close review 7 blocker 1: the liveness scan belongs UNDER the lock --------------
+
+
+def live_stub(pidfile, seconds=30):
+    """A process this test starts, registered the way the trainer registers itself."""
+    stub = subprocess.Popen(['sleep', str(seconds)])
+    pidfile.parent.mkdir(parents=True, exist_ok=True)
+    pidfile.write_text('{} {}\n'.format(stub.pid, time.time()))
+    return stub
+
+
+def test_recovery_refuses_while_any_attempt_of_the_arm_is_live(tmp_path):
+    """Publication is an arm-wide decision, not a directory-wide one.
+
+    Promoting an older attempt while a trainer of the same arm is still running leaves
+    ``final`` pointing at one run while another writes the next. The check that used to
+    guard this looked only at the directory being recovered.
+    """
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    running = old.parent / 'attempt_20260927T111111'
+    stub = live_stub(running / 'train.pid')
+    try:
+        status, out, err = recovery(old, 'H', tmp_path)
+        assert status == 2, out
+        assert 'PROMOTE' not in out and 'EXP11_FINALIZE' not in out
+        assert 'refusing' in err and running.name in err
+    finally:
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+def test_the_scan_happens_under_the_lock_not_before_it(tmp_path):
+    """Close review 7's interleaving: a scan that ran before the lock can go stale.
+
+    A recovery is paused at a barrier before it takes the lock. While it waits, a
+    trainer of another attempt appears and the launcher that started it dies. When the
+    recovery resumes it must take the lock, scan the arm **under** it, and refuse --
+    a scan taken before the pause would have seen a quiet arm.
+    """
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    barrier = tmp_path / 'barrier'
+    barrier.write_text('wait\n')
+    env = {'EXP11_PRETRAIN_ROOT': str(tmp_path), 'EXP11_TEST_ROOTS': '1',
+           'EXP11_SCAN_BARRIER': str(barrier)}
+    out_file, err_file = tmp_path / 'r.out', tmp_path / 'r.err'
+    with open(out_file, 'w') as o, open(err_file, 'w') as e:
+        proc = subprocess.Popen(
+            ['bash', 'tools/exp11_launch.sh', 'finalize', '--arm', 'H', '--gpu', '1',
+             '--reviewed-commit', COMMIT, '--attempt', str(old), '--log', 'L.log',
+             '--child-exit', '0', '--dry-run'],
+            cwd=str(REPO), stdout=o, stderr=e,
+            env=dict(os.environ, CUDA_VISIBLE_DEVICES='', **env))
+        stub = None
+        try:
+            for _ in range(200):                  # the launcher tells us it is waiting
+                if (tmp_path / 'barrier.at').exists():
+                    break
+                time.sleep(0.05)
+            else:
+                proc.wait(timeout=30)
+                pytest.fail('the launcher never reached a scan barrier, so the '
+                            'interleaving cannot be forced open: {}'.format(
+                                out_file.read_text()[-400:]))
+            running = old.parent / 'attempt_20260927T111111'
+            stub = live_stub(running / 'train.pid')   # its launcher is already gone
+            barrier.unlink()
+            assert proc.wait(timeout=60) == 2, out_file.read_text()[-400:]
+            assert 'PROMOTE' not in out_file.read_text()
+            assert 'refusing' in err_file.read_text()
+        finally:
+            if stub is not None:
+                stub.terminate()
+                stub.wait(timeout=30)
+            if proc.poll() is None:
+                barrier.unlink(missing_ok=True)
+                proc.wait(timeout=60)
+
+
 # --- close review 6: the lock may never reach the log sink or the training child ----
 
 SINK_LINE = 'cat >> "$log" < "$pipe" &'
