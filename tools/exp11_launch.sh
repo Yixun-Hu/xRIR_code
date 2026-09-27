@@ -67,6 +67,22 @@ check_ceiling() {
     fi
 }
 
+# apply_reader_override: EXP11_PYTHON lets a regression break the pid reader the way a
+# broken environment would -- a missing interpreter, an unimportable module -- so the
+# fail-closed paths can be exercised against this file rather than a copy of it. Like
+# EXP11_PRETRAIN_ROOT it is a dry-run test affordance and is refused outright otherwise:
+# a real launch decides liveness with the interpreter the pinned library names, and no
+# invocation may swap the interpreter that also finalizes, publishes and trains.
+apply_reader_override() {
+    [ -n "${EXP11_PYTHON:-}" ] || return 0
+    if [ "${EXP11_TEST_ROOTS:-0}" != 1 ] || [ "$DRY" -ne 1 ]; then
+        echo "refusing: EXP11_PYTHON replaces the interpreter that reads every pid file," \
+             "so it is honoured only with EXP11_TEST_ROOTS=1 and --dry-run" >&2
+        return 1
+    fi
+    PYTHON="$EXP11_PYTHON"
+}
+
 # apply_root_override: EXP11_PRETRAIN_ROOT is a dry-run test affordance and nothing else.
 apply_root_override() {
     [ -n "${EXP11_PRETRAIN_ROOT:-}" ] || return 0
@@ -306,8 +322,49 @@ registration_complete() {
     pid_record "$1/child.pid" >/dev/null
 }
 
+# check_pid_reader: ask the reader two questions whose answers are known, before any
+# decision is taken. A reader stuck on one verdict never fails -- "record 1" for
+# everything makes every pid file a registration, "norecord" for everything makes every
+# trainer dead -- so only a probe catches it. The probes go through the same $PYTHON and
+# the same invocation as every real read.
+check_pid_reader() {
+    local dir="" one="" empty="" failed='(the reader failed)'
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/exp11_pidreader.XXXXXX")" || {
+        echo "refusing: cannot create a probe directory for the pid reader" >&2
+        return 1; }
+    printf '1\n' > "$dir/one"
+    : > "$dir/empty"
+    one="$("$PYTHON" -m tools.exp11_pidrecord "$dir/one" 2>/dev/null)" || one="$failed"
+    empty="$("$PYTHON" -m tools.exp11_pidrecord "$dir/empty" 2>/dev/null)" || empty="$failed"
+    rm -rf -- "$dir"
+    [ "$one" = "record 1" ] && [ "$empty" = "norecord" ] && return 0
+    echo "refusing: pid reader unhealthy: $PYTHON -m tools.exp11_pidrecord answered" \
+         "'$one' for a file holding 1 and '$empty' for an empty file, not 'record 1'" \
+         "and 'norecord'. Nothing of this arm can be decided by a reader that cannot" \
+         "say what a pid file holds" >&2
+    return 1
+}
+
+# probe_live <pid file> <what is alive>: 0 nothing found, 1 alive, 2 unknown. The last
+# two set SCAN_REASON and must be propagated unchanged -- an unknown liveness is not a
+# quiet arm, it is no answer at all.
+probe_live() {
+    local status=0
+    pid_alive "$1" || status=$?
+    case "$status" in
+        0) SCAN_REASON="$2"; return 1 ;;
+        "$READER_UNKNOWN")
+            SCAN_REASON="liveness unknown: pid reader failed on $1. Nothing is scanned,"\
+" retired or published on an answer nobody gave"
+            return "$READER_UNKNOWN" ;;
+    esac
+    return 0
+}
+
 # scan_arm <arm root> [<attempt being resolved>]: 0 when every attempt of the arm is
-# finished and accounted for. SCAN_REASON names the first one that is not.
+# finished and accounted for, 1 when one is not (SCAN_REASON says which), 2 when the
+# reader failed and no answer exists. A broken reader closes the arm to every automated
+# decision; it never opens it (close review 11).
 scan_arm() {
     local root="$1" resolving="${2:-}" attempt="" name="" here=""
     SCAN_REASON=""
@@ -318,12 +375,9 @@ scan_arm() {
         [ -d "$attempt" ] || continue
         name="$(basename -- "$attempt")"
         here="$(realpath -- "$attempt" 2>/dev/null || printf '%s' "$attempt")"
-        if pid_alive "$attempt/launch.pid"; then
-            SCAN_REASON="$name has a live launcher (launch.pid)"; return 1; fi
-        if pid_alive "$attempt/child.pid"; then
-            SCAN_REASON="$name has a live trainer (child.pid)"; return 1; fi
-        if pid_alive "$attempt/train.pid"; then
-            SCAN_REASON="$name has a live trainer (train.pid)"; return 1; fi
+        probe_live "$attempt/launch.pid" "$name has a live launcher (launch.pid)" || return $?
+        probe_live "$attempt/child.pid" "$name has a live trainer (child.pid)" || return $?
+        probe_live "$attempt/train.pid" "$name has a live trainer (train.pid)" || return $?
         [ "$here" != "$resolving" ] || continue
         # `child.pid` is the WRAPPER's (GNU timeout), not the trainer's, so a complete
         # and dead one accounts for nothing: only train.pid names the trainer and only
@@ -342,11 +396,14 @@ scan_arm() {
 }
 
 require_quiet_arm() {  # require_quiet_arm [<attempt being resolved>]
+    local status=0
     say "SCAN $ARM_ROOT"
     if [ "$DRY" -eq 1 ] && [ "${EXP11_TEST_ROOTS:-0}" != 1 ]; then return 0; fi
-    scan_arm "$ARM_ROOT" "${1:-}" && return 0
+    check_pid_reader || return "$READER_UNKNOWN"   # before anything is looked at
+    scan_arm "$ARM_ROOT" "${1:-}" || status=$?
+    [ "$status" -eq 0 ] && return 0
     echo "refusing: $SCAN_REASON" >&2
-    return 1
+    return "$status"
 }
 
 # --- the intent marker: the half-second the frozen lifecycle cannot cover -----------
@@ -368,6 +425,8 @@ clear_launching() {  # clear_launching <attempt>: only once the TRAINER is accou
     # child.pid proves the wrapper was recorded; train.exit proves the trainer itself
     # finished. A trainer that crashed before registering leaves the marker standing and
     # the attempt unresolved -- fail closed, by design: the operator answers it.
+    # `|| return 0` covers BOTH "no complete child.pid" and "the reader could not say":
+    # a marker is withdrawn on an answer, never on the absence of one (close review 11).
     registration_complete "$1" || return 0
     [ -f "$1/train.exit" ] || return 0
     rm -f -- "$1/launching"
@@ -378,6 +437,11 @@ clear_launching() {  # clear_launching <attempt>: only once the TRAINER is accou
 # receipt and can never be published.
 resolve_unregistered() {
     local attempt="" root="" name="" now=0 stamp=0 age=0
+    # This is the one decision that deliberately ignores its own target's marker -- the
+    # tombstone is what makes that safe -- so the liveness answers are all that stand
+    # between a running trainer and a retired directory. Ask the reader for them only
+    # once it has proved it can answer (close review 11).
+    check_pid_reader || return "$READER_UNKNOWN"
     # Identity is the canonical directory, never the spelling: an operator's path may be
     # absolute where the root is relative, or reach the arm through a symlink.
     [ -d "$1" ] || { echo "refusing: $1 is not a directory" >&2; return 1; }
@@ -436,9 +500,13 @@ resolve_unregistered() {
              "between its checks and its write, so nothing of this arm may be retired" >&2
         return 1
     fi
-    scan_arm "$ARM_ROOT" "$attempt" || {
+    local scanned=0
+    scan_arm "$ARM_ROOT" "$attempt" || scanned=$?
+    if [ "$scanned" -ne 0 ]; then
         exec {reg_fd}>&-
-        echo "refusing: $SCAN_REASON" >&2; return 1; }
+        echo "refusing: $SCAN_REASON" >&2
+        return "$scanned"          # 2 = the reader failed: this resolution decides nothing
+    fi
     now="$(date -u +%s)"
     stamp="$(date -u -r "$attempt/launching" +%s 2>/dev/null || printf '%s' "$now")"
     age=$((now - stamp))
@@ -455,16 +523,23 @@ resolve_unregistered() {
         # wakes after this can no longer find its directory, and if it somehow can, this
         # is what tells it the launch was answered. The scan ignores it -- it is a
         # record, not a claim (close review 8, blocker 2).
-        printf 'resolved-by %s\nat %s\nreason unregistered launch: no complete child.pid\n' \
-            "$$" "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" > "$root/$name.resolved"
+        printf 'resolved-by %s\nat %s\nreason %s\n' "$$" \
+            "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" \
+            'unresolved launch: a launching marker with no finished trainer (no train.exit), and no recorded pid of this arm alive. A trainer that never registered may still exist; this tombstone is what refuses it.' \
+            > "$root/$name.resolved"
         mv -- "$attempt" "${attempt}_ABORTED_unregistered"
         # The marker has been answered; leaving it would close the arm for good, since
         # the scan reads every attempt_* directory, retired ones included.
         rm -f -- "${attempt}_ABORTED_unregistered/launching"
     fi
     exec {reg_fd}>&-   # the whole critical section is done: scan, tombstone, rename
-    say "RESOLVED $attempt registered no child and nothing of it is alive;" \
-        "it can never be published"
+    # Precisely what was established: no *recorded* pid of the arm answered a liveness
+    # probe and this attempt's trainer never said it finished. A trainer that never
+    # registered cannot be seen at all -- that is why the tombstone above is written
+    # first and never removed (close review 11, wording).
+    say "RESOLVED $attempt has no finished trainer and no recorded pid of this arm was" \
+        "alive; it can never be published, and the tombstone refuses any trainer of it" \
+        "that is still to come"
 }
 
 # A deterministic pause, so a regression can hold this invocation open between two
@@ -610,6 +685,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$GPU" ] && [ -n "$COMMIT" ] || usage
 apply_root_override || exit 2
+apply_reader_override || exit 2
 arm_of "$ARM" || exit 2
 check_ceiling || exit 2
 [ "$MODE" != finalize ] || [ -n "$RESOLVE_UNREGISTERED" ] \
