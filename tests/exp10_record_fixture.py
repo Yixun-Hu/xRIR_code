@@ -342,3 +342,87 @@ def write_record_tree(root, arms=ARMS, n_queries=6337, padded_len=16, cpu=True):
         write_summary_dir(os.path.join(cpu_root, "summary"), [(cpu_dir, cpu_meta)])
         tree["cpu"] = {"all": (cpu_dir, cpu_meta)}
     return tree
+
+
+STUB_SUMMARIZE = '''#!/usr/bin/env python3
+"""Stand-in for tools/exp10_summarize.py in the finish-script tests.
+
+The real summariser needs the runs' waveforms, 10 000 bootstrap replicates and matplotlib;
+what the finish script needs from it is a canonical summary directory.  This writes one from
+the fixture builders, and honours a few environment flags so a test can make one stage fail.
+"""
+import argparse
+import json
+import os
+import sys
+
+sys.path.insert(0, os.environ["EXP10_FIXTURE_DIR"])
+import exp10_record_fixture as fx
+
+ap = argparse.ArgumentParser()
+ap.add_argument("--runs", nargs="+", required=True)
+ap.add_argument("--out", required=True)
+ap.add_argument("--n-boot", type=int, default=0)
+args = ap.parse_args()
+if os.environ.get("STUB_FAIL_ON_CPU") and any("cpu_protocol" in r for r in args.runs):
+    sys.stderr.write("stub summariser: refusing the CPU run (test)\\n")
+    sys.exit(9)
+runs = [(r, fx.read_json(os.path.join(r, "meta.json"))) for r in args.runs]
+path, summary = fx.write_summary_dir(args.out, runs)
+if os.environ.get("STUB_BREAK_BINDING"):
+    broken = fx.read_json(path)
+    broken["inputs"][0]["per_sample_sha256"] = "0" * 64
+    fx.write_json(path, broken)
+if os.environ.get("STUB_DROP_CSV"):
+    os.remove(os.path.join(args.out, "yaw_pilot_gaps.csv"))
+if os.environ.get("STUB_FOREIGN_FIGURE"):
+    with open(os.path.join(args.out, "yaw_pilot_gaps_someone_else.png"), "wb") as fout:
+        fout.write(b"\\x89PNG\\r\\nforeign")
+print("wrote", path, len(summary["arms"]), "arms")
+'''
+
+
+def make_scratch_repo(root, assets_src, arms=ARMS, n_queries=32, drop=(), cpu=True):
+    """Assemble a scratch repository the launch scripts can run in.
+
+    The real record tooling is *copied* in (the tests exercise the real generators), the
+    expensive summariser is replaced by ``STUB_SUMMARIZE``, and ``ckpt/exp10`` holds a
+    synthetic evidence tree.
+
+    Args:
+        root: the scratch repository root.
+        assets_src: the real ``yaw_pilot_results_assets`` directory to copy the tools from.
+        arms: the arms to build.
+        n_queries: the full runs' query count.
+        drop: paths (relative to ``ckpt/exp10``) to delete after building, so a test can
+            withhold one piece of evidence.
+        cpu: also build the CPU-protocol record.
+
+    Returns:
+        ``{"root", "assets", "scripts", "exp10", "tree", "record"}``.
+    """
+    import shutil
+
+    record = os.path.join(root, "worklog", "worklog_yixun", "exp_10_yaw_pilot_claude")
+    assets = os.path.join(record, "yaw_pilot_results_assets")
+    scripts = os.path.join(assets, "scripts")
+    os.makedirs(scripts)
+    os.makedirs(os.path.join(root, "tools"))
+    for name in ("validate_runs.py", "make_results_md.py", "make_results_html.py",
+                 "make_backend_table.py"):
+        shutil.copy2(os.path.join(assets_src, name), os.path.join(assets, name))
+    for name in sorted(os.listdir(os.path.join(assets_src, "scripts"))):
+        shutil.copy2(os.path.join(assets_src, "scripts", name), os.path.join(scripts, name))
+    with open(os.path.join(root, "tools", "exp10_summarize.py"), "w") as fout:
+        fout.write(STUB_SUMMARIZE)
+    exp10 = os.path.join(root, "ckpt", "exp10")
+    os.makedirs(exp10)
+    tree = write_record_tree(exp10, arms=arms, n_queries=n_queries, cpu=cpu)
+    for rel in drop:
+        target = os.path.join(exp10, rel)
+        if os.path.isdir(target):
+            shutil.rmtree(target)
+        elif os.path.isfile(target):
+            os.remove(target)
+    return {"root": root, "assets": assets, "scripts": scripts, "exp10": exp10,
+            "tree": tree, "record": record}

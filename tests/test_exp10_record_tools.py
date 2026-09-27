@@ -382,3 +382,111 @@ def test_a_declaration_does_not_admit_another_runs_report(validate, tree):
     report = validate_tree(validate, root, cpu_recorded_run_dir=other)
     assert report["ok"] is False
     assert any("run_dir" in p for p in report["problems"])
+
+
+# --------------------------------------------------------------------------------------
+# Finding 3 -- the backend comparison must enforce matching protocols and populations.
+# --------------------------------------------------------------------------------------
+
+@pytest.fixture
+def backend_pair(tmp_path):
+    """A GPU and a CPU full run of released_k8 with identical protocol and query population."""
+    root = str(tmp_path / "exp10")
+    gpu_dir = os.path.join(root, "released_k8_all")
+    cpu_dir = os.path.join(root, "cpu_protocol", "released_k8_all")
+    gpu_meta = fx.write_run(gpu_dir, arm="released_k8", device="cuda", n_queries=32)
+    cpu_meta = fx.write_run(cpu_dir, arm="released_k8", device="cpu", n_queries=32)
+    gpu_summary, _ = fx.write_summary_dir(os.path.join(root, "summary"), [(gpu_dir, gpu_meta)])
+    cpu_summary, _ = fx.write_summary_dir(os.path.join(root, "cpu_protocol", "summary"),
+                                          [(cpu_dir, cpu_meta)])
+    return {"root": root, "gpu": (gpu_dir, gpu_meta, gpu_summary),
+            "cpu": (cpu_dir, cpu_meta, cpu_summary)}
+
+
+def backend_table(pair, tmp_path, gpu=None, cpu=None):
+    return run_python(os.path.join(ASSETS, "make_backend_table.py"),
+                      "--gpu", gpu or pair["gpu"][2], "--cpu", cpu or pair["cpu"][2],
+                      "--arm", "released_k8",
+                      "--out-md", str(tmp_path / "backend.md"),
+                      "--out-json", str(tmp_path / "backend.json"))
+
+
+def test_backend_table_accepts_a_matched_gpu_cpu_pair(backend_pair, tmp_path):
+    done = backend_table(backend_pair, tmp_path)
+    assert done.returncode == 0, out(done)
+    record = json.load(open(str(tmp_path / "backend.json")))
+    assert record["gpu"]["device"] == "cuda" and record["cpu"]["device"] == "cpu"
+    assert record["gpu"]["execution_id"] != record["cpu"]["execution_id"]
+    assert record["verified"]["query_list_sha256"] == backend_pair["gpu"][1]["query_list_sha256"]
+    assert "GPU (primary) vs CPU protocol" in open(str(tmp_path / "backend.md")).read()
+
+
+def test_backend_table_refuses_the_same_execution_twice(backend_pair, tmp_path):
+    """Finding 3: supplying the same CPU execution twice was accepted."""
+    done = backend_table(backend_pair, tmp_path, gpu=backend_pair["cpu"][2])
+    assert done.returncode != 0
+    assert "device" in out(done) or "execution" in out(done)
+
+
+def test_backend_table_refuses_a_probe_against_a_full_run(backend_pair, tmp_path):
+    """Finding 3: a 272-query probe was compared against a 6337-query full run."""
+    root = backend_pair["root"]
+    probe_dir = os.path.join(root, "released_k8_probe")
+    probe_meta = fx.write_run(probe_dir, arm="released_k8", device="cuda", n_queries=8,
+                              batches_arg="probe")
+    probe_summary, _ = fx.write_summary_dir(os.path.join(probe_dir, "summary"),
+                                            [(probe_dir, probe_meta)])
+    done = backend_table(backend_pair, tmp_path, gpu=probe_summary)
+    assert done.returncode != 0
+    assert "n_queries" in out(done) or "query" in out(done)
+
+
+def test_backend_table_refuses_a_batch_size_mismatch(backend_pair, tmp_path):
+    cpu_dir, cpu_meta, cpu_summary = backend_pair["cpu"]
+    summary = fx.read_json(cpu_summary)
+    summary["arms"][0]["meta"]["batch_size"] = 8
+    fx.write_json(cpu_summary, summary)
+    done = backend_table(backend_pair, tmp_path)
+    assert done.returncode != 0
+    assert "batch_size" in out(done)
+
+
+def test_backend_table_refuses_a_different_implementation(backend_pair, tmp_path):
+    cpu_dir, cpu_meta, cpu_summary = backend_pair["cpu"]
+    summary = fx.read_json(cpu_summary)
+    summary["arms"][0]["meta"]["tool_sha256"] = "f" * 64
+    fx.write_json(cpu_summary, summary)
+    done = backend_table(backend_pair, tmp_path)
+    assert done.returncode != 0
+    assert "tool_sha256" in out(done)
+
+
+def test_backend_table_refuses_a_different_query_population(backend_pair, tmp_path):
+    cpu_dir, cpu_meta, cpu_summary = backend_pair["cpu"]
+    summary = fx.read_json(cpu_summary)
+    summary["arms"][0]["meta"]["query_list_sha256"] = "a" * 64
+    fx.write_json(cpu_summary, summary)
+    done = backend_table(backend_pair, tmp_path)
+    assert done.returncode != 0
+    assert "query_list_sha256" in out(done)
+
+
+def test_backend_table_refuses_an_unbound_summary(backend_pair, tmp_path):
+    """Finding 3: each summary's inputs[].per_sample_sha256 must match the live run."""
+    cpu_dir = backend_pair["cpu"][0]
+    with open(os.path.join(cpu_dir, "per_sample.json"), "a") as fout:
+        fout.write("\n")
+    done = backend_table(backend_pair, tmp_path)
+    assert done.returncode != 0
+    assert "per_sample.json" in out(done)
+
+
+def test_backend_table_refuses_an_embedded_meta_that_is_not_the_runs(backend_pair, tmp_path):
+    """The summary's embedded meta is compared to the live meta.json of the run it names."""
+    cpu_summary = backend_pair["cpu"][2]
+    summary = fx.read_json(cpu_summary)
+    summary["arms"][0]["meta"]["gl_seed"] = 7
+    fx.write_json(cpu_summary, summary)
+    done = backend_table(backend_pair, tmp_path)
+    assert done.returncode != 0
+    assert "gl_seed" in out(done)
