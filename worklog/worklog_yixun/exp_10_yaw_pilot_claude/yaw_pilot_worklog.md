@@ -65,3 +65,7 @@
 
 ## 2026-09-26T20:40:35-04:00 — released_k8 probe PASSED the gate on CPU → full run launched (CPU)
 - **Result** — probe 272 queries × 5 angles in 18.3 min; controls ok (all three deviations exactly 0); `check_online` ok; `parity_exp03` vs `sweep_released` (GPU, exp_03): every compared cell replicates (272 rows, no missing required cell, validity masks identical, largest per-query |Δ| over all metrics/angles 7.4e-4 — the C50 tail, within (b)); the chain's gate = controls ok ∧ parity ok → **PASSED**; full run started 20:40 into `ckpt/exp10/released_k8_all` (6 337 queries, 397 batches, CPU, expected ≈ 3.8 h → ≈ 00:30). Per plan §3/§7, CPU is therefore a validated backend for this arm (not a "separate CPU protocol").
+
+## 2026-09-26T22:37:57-04:00 — GPU 1 released (cylindrical-dinov3 ping 21:4x) → GPU queue launched
+- **Acceptance criteria** — per arm as for released_k8 (§7): probe controls ok; for control_k8 / cyl_k8 parity ok vs `sweep_control` / `sweep_cyl` (GPU vs GPU: expected exact or float-noise level); released_k1: controls only (no exp_03 predecessor). Full runs: 6 337 queries, every angle, `meta.complete`, `check_online` ok. Expected ≈ 35–40 min per arm at the co-tenancy slowdown; GPU 0 untouched.
+- **Command / Validation** — see `yaw_pilot_command.md` (same timestamp); the CPU `released_k8` full run continues in parallel (16 + 16 threads of 48 cores).
