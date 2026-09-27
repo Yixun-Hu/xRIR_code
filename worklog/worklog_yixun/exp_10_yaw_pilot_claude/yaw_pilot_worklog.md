@@ -48,3 +48,7 @@
 
 ## 2026-09-26T19:49:36-04:00 — Codex close review of round 2: one figure-layout blocker left → Coder round 3
 - **Result** — `yaw_pilot_codex_code_round2_close_review.md`: 11 of 12 round-1 findings closed and independently verified (integrity, parity coverage, controls, A3, broader G, strict JSON, Markdown, CUDA sync, nits, cylindrical band); remaining blocker = figure footers overlap (round-1 finding 6 residual); 2 nits (error-bar caps with null bounds; combined-figure band legend). Smoke re-verified (parity EDT/T60 exact, C50 4.6e-5, logspec 6.3e-6; CPU forward 5.98 s / batch-16, inversion 45 ms); merge rehearsal onto `9c7dd1c` clean (seven files). Per the SOP no run launches while a round is open; round 3 (figure code only) launched.
+
+## 2026-09-26T20:11:56-04:00 — Coder round 3 delivered → Codex close review launched
+- **Result** — 3 commits `128f0d8, c2b6817, 1ebb87d` (figure code + tests only): measured footer band (drawn-canvas extents test over four per-arm figures + combined), error bars only with both bounds (lo/hi/both parametrised), generic band legend + per-row model band label; 162 exp_10 tests; CSV/Markdown byte-identical before/after. Planner inspected the four-arm combined PNG: legend, status footnote and qualification caption are separate legible blocks.
+- **Command / Validation** — Codex close review at ultra: log `yaw_pilot_2026-09-26_20:11:54_codex_code_round3_close.log`.

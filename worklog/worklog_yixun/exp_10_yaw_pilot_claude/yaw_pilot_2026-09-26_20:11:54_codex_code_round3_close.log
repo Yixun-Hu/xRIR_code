@@ -1,0 +1,14 @@
+Reading additional input from stdin...
+OpenAI Codex v0.154.0
+--------
+workdir: /home/yixunhu/codespace/xRIR_code_wt10
+model: gpt-6-astra
+provider: openai
+approval: on-request
+sandbox: read-only
+reasoning effort: ultra
+reasoning summaries: none
+session id: 01a0e034-3c11-74e2-8b2a-6cb37d28ad64
+--------
+user
+Follow the briefing in /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/code_review_briefing.md (record on the MAIN tree; code in this worktree /home/yixunhu/codespace/xRIR_code_wt10, branch `exp10-yaw-pilot`). CLOSE review of Coder round 3 = commits `128f0d8, c2b6817, 1ebb87d` (after merge `ea24dd1`), per the MAIN-tree `coder_prompts/round3_prompt.md`, closing your round-2 close review's remaining finding 1 (blocking figure footer overlap) and nits 2–3 (null-bound error bars; combined-figure band legend). Only `tools/exp10_summarize.py` (figure code) and `tests/test_exp10_summarize.py` changed. Coder claims: summariser tests 76 passed, all exp_10 tests 162 passed, exp_03 record suite 31/1, py_compile OK, `git diff --check` clean on the permitted files, scope vs `ea24dd1` exactly the two files; non-figure outputs byte-identical before/after (CSV, Markdown; JSON identical apart from `generated_at`); new overlap test uses drawn-canvas `get_window_extent` of every figure-level text, legend and panel tight bbox on four per-arm figures and the combined one; error bars now a separate artist over bars with both bounds (parametrised lo/hi/both missing cases); combined legend generic band label, per-row "band: <model>" in the leftmost ylabel; declared deviations 1–6 (Planner accepts). Verify actively (read-only on tracked files; write only under `.review-round3/`; no GPU; Python 3.8; `CUDA_VISIBLE_DEVICES=""`): (a) re-run your round-2 renderer audit on the round-2 smoke run and on a synthetic four-arm summary with all four statuses — measure the extents yourself and confirm no overlap in PNG and PDF; (b) a finite point with null/half bounds draws no error-bar artist, a full interval still does; (c) the combined figure's legend has no model-specific band text and each row names its own band; an arm with no band borrows none; (d) statistics/tables/JSON/CSV unchanged (byte compare against a round-2 render of the same run at the same n_boot); (e) scope, Python 3.8, `git diff --check` on the two files, the full exp_10 suites and the exp_03/exp_04 record suites; (f) dry-run `--no-ff` merge onto main (`9188028` or later) in a clone (delete it after): only the seven exp_10 files added. Report: numbered findings with severity, file:line, minimal fix; "Verified"; the round-3 verdict and the merge verdict ("approved for merge" / "not approved") with the exact blocking list. Your final message is the review.
