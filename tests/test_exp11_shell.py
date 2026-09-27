@@ -723,6 +723,84 @@ def test_the_scan_happens_under_the_lock_not_before_it(tmp_path):
                 proc.wait(timeout=60)
 
 
+# --- close review 7 blocker 2: the window the frozen lifecycle cannot close ----------
+# run_child forks the detached trainer and writes child.pid afterwards. A launcher that
+# dies in between leaves a dead launch.pid, no child.pid and a live trainer that no scan
+# could see. exp_11 closes that window from both sides without touching the frozen file:
+# an intent marker the launcher writes before the fork, and the trainer's own pid file.
+
+
+def unregistered_launch(root, tmp_path, gate, register_child=False):
+    """Replay run_child's prologue and die before child.pid.
+
+    The stub stands in for the trainer and registers itself the way the trainer does --
+    but only once ``gate`` appears, so the test can look at the arm during the window
+    where the trainer is alive and nothing at all records it yet.
+    """
+    library = (REPO / 'tools/exp06_launch.sh').read_text()
+    assert SINK_LINE in library and CHILD_LINE in library
+    attempt = root / 'attempt_20260927T222222'
+    stub = ('while [ ! -e "$2" ]; do sleep 0.05; done; '
+            'printf "%s %s\\n" $$ 1 > "$1/train.pid"; sleep 20')
+    script = ('ARM_ROOT={root}\nDRY=0\nARM=H\n'
+              'hold_arm_lock full || exit 2\n'
+              'attempt={attempt}\nmkdir -p -- "$attempt"\n'
+              'own_launch "$attempt"\n'
+              # defensive: the marker is what this regression is asking for
+              'type mark_launching >/dev/null 2>&1 && mark_launching "$attempt" || true\n'
+              'log="$attempt/child.log"\n: > "$log"\n'
+              'pipe="$attempt/child.pipe"\nmkfifo -m 600 -- "$pipe"\n'
+              'cat >> "$log" < "$pipe" &\nsink=$!\n'
+              'nohup setsid bash -c \'{stub}\' _ "$attempt" "{gate}" > "$pipe" 2>&1 &\n'
+              'child=$!\n{child_pid}'
+              'handler="$(trap -p TERM | sed -n "s/^trap -- \'\\(.*\\)\' SIGTERM$/\\1/p")"\n'
+              'eval "$handler"\necho CONTINUED\n').format(
+                  root=root, attempt=attempt, stub=stub, gate=gate,
+                  child_pid=('printf %s\\n "$child" > "$attempt/child.pid"\n'
+                             if register_child else ''))
+    status, out, err = detached_lib(script, tmp_path, {'EXP11_TEST_ROOTS': '1'})
+    assert status == 143, out[-400:] + err[-400:]
+    return attempt
+
+
+def test_a_launch_that_died_before_anything_recorded_it_blocks_the_arm(tmp_path):
+    """Close review 7's boundary, at its narrowest.
+
+    The trainer is running, the launcher is gone, ``child.pid`` was never written and
+    the trainer has not yet written its own pid file. Nothing in the arm names the live
+    process -- which is why the launcher must declare the *intent* to launch before the
+    fork, and why that declaration must block recovery of the whole arm.
+    """
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    gate = tmp_path / 'let-the-stub-register'
+    attempt = unregistered_launch(old.parent, tmp_path, gate)
+    try:
+        assert not (attempt / 'child.pid').exists()
+        assert not (attempt / 'train.pid').exists(), 'the window must still be open'
+        status, out, err = recovery(old, 'H', tmp_path)
+        assert status == 2, out
+        assert 'PROMOTE' not in out and 'refusing' in err
+        assert attempt.name in err and 'unresolved' in err
+    finally:
+        gate.touch()
+        drain(attempt / 'child.pipe')
+
+
+def test_a_launch_that_recorded_its_child_blocks_the_arm_too(tmp_path):
+    """The other side of the boundary: child.pid written, the trainer still running."""
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    gate = tmp_path / 'let-the-stub-register'
+    gate.touch()                                   # this stub registers immediately
+    attempt = unregistered_launch(old.parent, tmp_path, gate, register_child=True)
+    try:
+        assert (attempt / 'child.pid').is_file()
+        status, out, err = recovery(old, 'H', tmp_path)
+        assert status == 2, out
+        assert 'PROMOTE' not in out and 'live trainer' in err
+    finally:
+        drain(attempt / 'child.pipe')
+
+
 # --- close review 6: the lock may never reach the log sink or the training child ----
 
 SINK_LINE = 'cat >> "$log" < "$pipe" &'
