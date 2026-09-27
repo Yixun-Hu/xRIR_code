@@ -898,6 +898,12 @@ def _panel(ax, rows, metric, band, annotate_n=True, band_label=BAND_LABEL):
     one.  Such an angle gets no bar and an "unavailable" annotation with its count
     instead; a bar whose interval alone is unavailable is drawn without error bars; and an
     estimate that genuinely is zero is drawn as a zero-height bar.
+
+    The same rule applies to the interval itself: the error bars are a separate artist
+    drawn only over the bars that have **both** bounds, so a bar with a missing (or
+    half-missing) interval carries no error-bar artist at all.  A zero-length cap at the
+    point estimate would read as "the interval is this point", which is the one thing that
+    cell does not say.
     """
     selected = [row for row in rows if row["metric"] == metric]
     positions = list(range(len(selected)))
@@ -905,20 +911,29 @@ def _panel(ax, rows, metric, band, annotate_n=True, band_label=BAND_LABEL):
     handles = []
 
     def _bars(offset, value_key, color, label):
-        drawn, values, lo, hi = [], [], [], []
+        drawn, values = [], []
+        error_x, error_y, lo, hi = [], [], [], []
         for position, row in zip(positions, selected):
             value = row[value_key]
             if value is None:
                 continue                      # omitted, not plotted as zero
-            low, high = row[value_key + "_lo"], row[value_key + "_hi"]
-            drawn.append(position + offset)
+            x = position + offset
+            drawn.append(x)
             values.append(float(value))
-            lo.append(0.0 if low is None else max(0.0, float(value) - float(low)))
-            hi.append(0.0 if high is None else max(0.0, float(high) - float(value)))
+            low, high = row[value_key + "_lo"], row[value_key + "_hi"]
+            if low is None or high is None:
+                continue                      # no interval: draw no interval
+            error_x.append(x)
+            error_y.append(float(value))
+            lo.append(max(0.0, float(value) - float(low)))
+            hi.append(max(0.0, float(high) - float(value)))
         if not values:
             return None
-        return ax.bar(drawn, values, width, color=color, label=label, yerr=[lo, hi],
-                      capsize=2, error_kw={"elinewidth": 0.8, "ecolor": "#3a3a3a"})
+        container = ax.bar(drawn, values, width, color=color, label=label)
+        if error_x:
+            ax.errorbar(error_x, error_y, yerr=[lo, hi], fmt="none", capsize=2,
+                        elinewidth=0.8, ecolor="#3a3a3a", label="_nolegend_", zorder=3)
+        return container
 
     paired = any(row["degradation"] is not None for row in selected)
     series = [("degradation", -width / 2, COLOR_DEGRADATION, "accuracy change (vs GT)"),

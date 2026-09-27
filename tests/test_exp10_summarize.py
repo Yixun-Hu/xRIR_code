@@ -893,6 +893,33 @@ def _bar_heights(ax):
             if isinstance(container, BarContainer) for patch in container.patches]
 
 
+def _bar_x(ax):
+    """The centre of every bar actually drawn, in the order the series were drawn."""
+    from matplotlib.container import BarContainer
+
+    return [patch.get_x() + patch.get_width() / 2.0 for container in ax.containers
+            if isinstance(container, BarContainer) for patch in container.patches]
+
+
+def _errorbar_x(ax):
+    """The x positions an error-bar artist actually stands at.
+
+    An interval is drawn as its own ``errorbar`` container, so "no interval" means *no
+    artist* rather than a zero-length one: this returns the x of every vertical bar line
+    that exists, and an empty list is the proof that none was drawn.
+    """
+    from matplotlib.container import ErrorbarContainer
+
+    positions = []
+    for container in ax.containers:
+        if not isinstance(container, ErrorbarContainer):
+            continue
+        for collection in container.lines[2]:
+            for segment in collection.get_segments():
+                positions.append(float(segment[0][0]))
+    return sorted(positions)
+
+
 def test_a_figure_omits_an_unavailable_bar_instead_of_drawing_it_at_zero(tmp_path):
     run_dir = _fixture_run(tmp_path, "unavailable", n=12, ks=(0, 128, 256))
     summary = summarize.build_summary([run_dir], n_boot=100)
@@ -936,6 +963,38 @@ def test_a_figure_draws_a_bar_without_error_bars_when_only_the_interval_is_missi
         ax = _edt_axis(figure)
         heights = _bar_heights(ax)
         assert len(heights) == 2                 # the change bar is still drawn
+        # ... and nothing stands at its x: a zero-length cap at the bar's own height
+        # would read as "the interval is this point", which is not what is known.
+        change_x, shift_x = _bar_x(ax)
+        drawn = _errorbar_x(ax)
+        assert len(drawn) == 1, drawn
+        assert drawn[0] == pytest.approx(shift_x)
+        assert drawn[0] != pytest.approx(change_x)
+    finally:
+        import matplotlib.pyplot as plt
+
+        plt.close(figure)
+
+
+@pytest.mark.parametrize("missing", [("lo", "hi"), ("lo",), ("hi",)])
+def test_a_bar_with_an_incomplete_interval_draws_no_error_bar_artist(tmp_path, missing):
+    """One bound is not an interval: half an interval may not be drawn as a whole one."""
+    from matplotlib.container import ErrorbarContainer
+
+    run_dir = _fixture_run(tmp_path, "no_bounds_" + "_".join(missing), n=12, ks=(0, 128))
+    summary = summarize.build_summary([run_dir], n_boot=100)
+    cell = summary["arms"][0]["angles"]["128"]["EDT"]["query"]
+    for key in ("delta", "gap"):
+        for bound in missing:
+            cell[key][bound] = None
+
+    figure = summarize.make_figure(summary, "fixture", str(tmp_path / "no_bounds.png"))
+    try:
+        ax = _edt_axis(figure)
+        assert len(_bar_heights(ax)) == 2        # both points are known, both are drawn
+        assert _errorbar_x(ax) == []
+        assert [container for container in ax.containers
+                if isinstance(container, ErrorbarContainer)] == []
     finally:
         import matplotlib.pyplot as plt
 
