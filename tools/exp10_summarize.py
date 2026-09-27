@@ -706,6 +706,13 @@ BAND_LABEL = ("historical baseline evaluation variability "
 #: cannot name a model: the legend says what the grey band is and each row says which
 #: model its own band came from (see :func:`make_combined_figure`).
 BAND_LEGEND_LABEL = "historical baseline evaluation variability, context only"
+#: How an arm is *named* where the figure or a standalone report shows it.  ``released_k1``
+#: is the released K = 8 checkpoint evaluated with one reference, not a model trained at
+#: K = 1: a figure or a section header carrying the bare key reads as the latter (record
+#: review, finding 5).  The mapping is presentation only -- the arm **keys** in the
+#: canonical JSON, the CSV and every file name stay as they are -- and the record's two
+#: renderers import :func:`display_label` from here so the wording has one home.
+ARM_DISPLAY = {"released_k1": "released_k1 (trained K = 8, evaluated K = 1)"}
 COLOR_DEGRADATION = "#0072B2"   # Okabe-Ito blue
 COLOR_SHIFT = "#E69F00"         # Okabe-Ito orange
 #: Short codes for the R2 status, printed under each angle so a bar is never read as a
@@ -741,6 +748,11 @@ FOOTER_LEGEND_FONTSIZE = 6.5
 FOOTER_LINESPACING = 1.35
 FOOTER_GAP_PT = 6.0            # between two footer blocks, and above the topmost one
 FOOTER_PAD_PT = 6.0            # under the bottom block
+
+
+def display_label(arm_name):
+    """The name to show for ``arm_name`` (:data:`ARM_DISPLAY`, else the name itself)."""
+    return ARM_DISPLAY.get(arm_name, arm_name)
 
 
 def _sanitize(payload):
@@ -1068,7 +1080,8 @@ def make_figure(summary, arm_name, path):
         band = next((row["band"] for row in rows if row["metric"] == metric), None)
         drawn = _panel(ax, rows, metric, band, band_label=label)
         handles = _legend_handles(handles, drawn)
-    figure.suptitle("exp_10 yaw pilot -- {}".format(arm_name), fontsize=10)
+    figure.suptitle("exp_10 yaw pilot -- {}".format(display_label(arm_name)),
+                    fontsize=10)
     _figure_legend(figure, handles)
     figure.savefig(path, dpi=300, bbox_inches="tight")
     return figure
@@ -1159,7 +1172,7 @@ def make_combined_figure(summary, path):
             drawn = _panel(ax, arm_rows, metric, band, band_label=BAND_LEGEND_LABEL)
             handles = _legend_handles(handles, drawn)
             if column == 0:
-                parts = [arm, ax.get_ylabel()]
+                parts = [display_label(arm), ax.get_ylabel()]
                 if source is not None:
                     parts.append("band: {}".format(source))
                 ax.set_ylabel("\n".join(parts), fontsize=7)

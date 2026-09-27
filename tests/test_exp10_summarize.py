@@ -1357,3 +1357,84 @@ def test_a_resolved_cell_keeps_the_abbreviation_of_its_ratio_status(tmp_path):
         import matplotlib.pyplot as plt
 
         plt.close(figure)
+
+
+# ------ round 8 (record review, finding 5): the K = 1 arm is the K = 8 checkpoint
+#        evaluated at K = 1, and every standalone presentation has to say so
+
+
+def test_display_label_qualifies_released_k1_and_leaves_the_other_arms_alone():
+    """The label is a *display* name: the arm key it qualifies never changes."""
+    assert summarize.ARM_DISPLAY["released_k1"] == \
+        "released_k1 (trained K = 8, evaluated K = 1)"
+    assert summarize.display_label("released_k1") == \
+        summarize.ARM_DISPLAY["released_k1"]
+    for arm in ("released_k8", "control_k8", "cyl_k8", "some_other_arm"):
+        assert summarize.display_label(arm) == arm
+
+
+def _k1_and_k8_summary(tmp_path, n_boot=50):
+    """One K = 1 arm (the released checkpoint) beside a K = 8 one."""
+    k1 = _fixture_run(tmp_path, "released_k1", n=8, ks=(0, 128),
+                      protocol_overrides={"num_shot": 1},
+                      meta_overrides={"arm": "released_k1", "num_shot": 1})
+    k8 = _fixture_run(tmp_path, "control_k8", n=8, ks=(0, 128),
+                      protocol_overrides={"checkpoint_sha256": "d" * 64},
+                      meta_overrides={"arm": "control_k8"})
+    return summarize.build_summary([k1, k8], n_boot=n_boot)
+
+
+def test_the_per_arm_figure_title_says_trained_k8_evaluated_k1(tmp_path):
+    """Finding 5: the figure of the K = 1 arm was titled ``released_k1`` and nothing
+    else, so read on its own it looks like a model trained at K = 1."""
+    summary = _k1_and_k8_summary(tmp_path)
+    import matplotlib.pyplot as plt
+
+    k1 = summarize.make_figure(summary, "released_k1", str(tmp_path / "k1.png"))
+    try:
+        assert "exp_10 yaw pilot -- released_k1 (trained K = 8, evaluated K = 1)" in \
+            _footer_text(k1)
+    finally:
+        plt.close(k1)
+    k8 = summarize.make_figure(summary, "control_k8", str(tmp_path / "k8.png"))
+    try:
+        title = _footer_text(k8)
+        assert "exp_10 yaw pilot -- control_k8" in title
+        assert "trained K = 8, evaluated K = 1" not in title
+    finally:
+        plt.close(k8)
+
+
+def test_the_combined_figure_row_label_says_trained_k8_evaluated_k1(tmp_path):
+    summary = _k1_and_k8_summary(tmp_path)
+    figure = summarize.make_combined_figure(summary, str(tmp_path / "all.png"))
+    try:
+        rows = [ax.get_ylabel() for ax in figure.axes if ax.get_ylabel()]
+        k1_row = next(label for label in rows if label.startswith("released_k1"))
+        assert k1_row.splitlines()[0] == "released_k1 (trained K = 8, evaluated K = 1)"
+        k8_row = next(label for label in rows if label.startswith("control_k8"))
+        assert k8_row.splitlines()[0] == "control_k8"
+    finally:
+        import matplotlib.pyplot as plt
+
+        plt.close(figure)
+
+
+def test_the_display_label_never_reaches_the_json_the_csv_or_a_file_name(tmp_path):
+    """Only the presentation is qualified: the arm *key* stays ``released_k1``."""
+    import csv
+
+    summary = _k1_and_k8_summary(tmp_path)
+    out_dir = str(tmp_path / "outputs")
+    summarize.write_outputs(summary, out_dir)
+    for name in ("yaw_pilot_gaps_released_k1.png", "yaw_pilot_gaps_released_k1.pdf"):
+        assert os.path.isfile(os.path.join(out_dir, name)), name
+    with open(os.path.join(out_dir, "yaw_pilot_summary.json")) as fin:
+        canonical = json.load(fin)
+    assert [arm["arm"] for arm in canonical["arms"]] == ["released_k1", "control_k8"]
+    assert [entry["arm"] for entry in canonical["inputs"]] == \
+        ["released_k1", "control_k8"]
+    with open(os.path.join(out_dir, "yaw_pilot_gaps.csv")) as fin:
+        arms = {row["arm"] for row in csv.DictReader(fin)}
+    assert arms == {"released_k1", "control_k8"}
+    assert {row["arm"] for row in summarize.figure_data(summary)} == arms
