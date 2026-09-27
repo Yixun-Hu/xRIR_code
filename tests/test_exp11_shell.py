@@ -491,6 +491,23 @@ def test_full_mode_takes_the_same_lock(tmp_path):
         holder.wait(timeout=30)
 
 
+def test_full_mode_takes_the_lock_once_and_never_refuses_itself(tmp_path):
+    """One protected section, one descriptor.
+
+    flock(2) treats two descriptors on the same file as independent even inside a single
+    process, so acquiring the arm lock twice would refuse the launcher its own lock.
+    """
+    status, out, err = launch(['full', '--arm', 'H', '--gpu', '1', '--reviewed-commit',
+                               COMMIT, '--dry-run'],
+                              {'EXP11_PRETRAIN_ROOT': str(tmp_path),
+                               'EXP11_TEST_ROOTS': '1'})
+    assert status == 0, err[-600:]
+    assert 'another invocation' not in err, 'the launcher refused its own lock'
+    lines = out.splitlines()
+    assert sum(1 for line in lines if line.startswith('LOCK ')) == 1, out
+    assert sum(1 for line in lines if line.startswith('LOCKED ')) == 1, out
+
+
 def test_the_kernel_releases_the_lock_when_the_holder_ends(tmp_path):
     """No cleanup code, no stale-lock concept: the lock vanishes with its holder."""
     attempt = attempt_with('xRIR_simpor_yawaug_8_shot', 'I', 'I_RECIPE', tmp_path)
