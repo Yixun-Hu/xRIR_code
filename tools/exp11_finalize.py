@@ -344,3 +344,206 @@ def full_evidence(run_dir, repo):
                 git_head=record.get('git_state', {}).get('HEAD'),
                 checkpoint={'path': EPOCH_CHECKPOINT, 'sha256': hashes[EPOCH_CHECKPOINT],
                             'epoch': exp11_recipe.NUMERICAL['epochs']})
+
+
+ADAPTER_BACKBONE = 'simple_adapter'
+HEADING_DECISIONS = base.HEADING_DECISIONS
+EVAL_PROTOCOL = base.EVAL_PROTOCOL
+
+
+def heading_records(args, field, rooms, repo):
+    """Every room's binding under ``field``, re-read against the cache the run recorded.
+
+    This is exp_06's ``_heading_binding`` body with the record's field name as a
+    parameter, because exp_11's room-frame adapter arms bind their cue under
+    ``adapter_heading`` while the heading-frame arms bind it under ``heading``. The
+    record is re-read against ``haa_root/<room>``, so ``read_heading_json`` rehashes the
+    four cache inputs the estimate was derived from and only a ``confirmatory`` record
+    may bind a child.
+    """
+    heading = args.get(field)
+    rooms = sorted(set(rooms) | set(base._validation_rooms(args, rooms)))
+    _require(isinstance(heading, dict) and set(rooms) <= set(heading),
+             'the {} requires a record for every room the child trains or validates on: '
+             '{}'.format(field, ', '.join(sorted(set(rooms) - set(heading or ())))))
+    root = args.get('haa_root')
+    _require(isinstance(root, str) and root, 'the {} requires the resolved haa_root the '
+             'run read, not {!r}'.format(field, root))
+    cache = _resolve(root, repo)
+    _require(cache.is_dir(), 'missing HAA cache root {} (args.json haa_root)'.format(cache))
+    bound = {}
+    for room in rooms:
+        entry = heading[room]
+        _require(isinstance(entry, dict), '{} for {} is not a record'.format(field, room))
+        phi = base._finite('{} for {}: phi_deg'.format(field, room), entry.get('phi_deg'))
+        k = entry.get('k')
+        _require(type(k) is int and 0 <= k < WIDTH,
+                 '{} for {}: k {!r} is not a column in [0, {})'.format(field, room, k, WIDTH))
+        _require(k == exp06_heading.heading_roll_k(phi),
+                 '{} for {}: k {} is not the roll of {} degrees'.format(field, room, k, phi))
+        _require(entry.get('decision') in HEADING_DECISIONS,
+                 '{} for {} must be estimated or override, not {!r}'.format(
+                     field, room, entry.get('decision')))
+        _require(_is_sha256(entry.get('sha256')),
+                 '{} for {} records no sha256'.format(field, room))
+        path = entry.get('path')
+        _require(isinstance(path, str) and path,
+                 '{} for {} records no json path'.format(field, room))
+        resolved = _resolve(path, repo)
+        _require(resolved.is_file(), 'missing heading json for {}: {}'.format(room, resolved))
+        _require(provenance.sha256_file(resolved) == entry['sha256'],
+                 'heading json for {} does not hash to the recorded sha256'.format(room))
+        try:
+            record = exp06_heading.read_heading_json(str(resolved), room_dir=str(cache / room))
+        except (OSError, ValueError) as error:
+            raise ValueError('invalid heading json for {}: {}'.format(room, error)) from error
+        _require(record['admissibility'] == 'confirmatory', 'heading json for {} is {}, not '
+                 'the confirmatory record a child may bind'.format(room, record['admissibility']))
+        _require(record['room'] == room and record['k'] == k and record['phi_deg'] == phi
+                 and record['decision'] == entry['decision'],
+                 'heading json for {} disagrees with the recorded binding'.format(room))
+        bound[room] = dict(entry)
+    return bound
+
+
+def frame_binding(args, rooms, frame, repo):
+    """The cue this child ran under: a heading frame, or the room frame with an adapter.
+
+    Plan v3 section 2.3: the adapter installs **one** cue for every room, so every bound
+    record must declare the same heading and ``adapter_phi_deg`` must be that heading.
+    A mixed heading is refused rather than silently reduced to one of them.
+    """
+    if frame == 'heading':
+        _require(not args.get('adapter_heading'),
+                 'a heading-frame child conditions on the frame, not on an adapter')
+        _require(args.get('adapter_phi_deg') is None,
+                 'a heading-frame child installs no adapter heading')
+        return heading_records(args, 'heading', rooms, repo), None, None
+    _require(not args.get('heading'), 'the room frame must not record a heading')
+    if args.get('backbone') != ADAPTER_BACKBONE:
+        _require(not args.get('adapter_heading') and args.get('adapter_phi_deg') is None,
+                 'only the {} backbone conditions on an adapter heading'.format(
+                     ADAPTER_BACKBONE))
+        return None, None, None
+    bound = heading_records(args, 'adapter_heading', rooms, repo)
+    declared = sorted({entry['phi_deg'] for entry in bound.values()})
+    _require(len(declared) == 1, 'the adapter installs one cue for every room, but the '
+             'bound records declare the headings {}'.format(declared))
+    phi = base._finite('args.json adapter_phi_deg', args.get('adapter_phi_deg'))
+    _require(phi == declared[0], 'args.json installs the adapter heading {}, not the {} '
+             'every bound record declares'.format(phi, declared[0]))
+    return None, bound, float(phi)
+
+
+def haa_child_arguments(run_dir, run_type, repo):
+    """Provenance, closure, approvals and argument agreement, shared by both child types."""
+    record = load_provenance(run_dir, run_type)
+    _, closure = verify_source_closure(record, run_type, repo)
+    admission = haa_approvals(closure, run_type, record['reviewed_commit'], repo)
+    base.revalidate_inputs(record, repo, required=('source_closures',))
+    args = _read_json(Path(run_dir) / 'args.json', 'args.json')
+    disagreements = exp11_recipe.compare_sources(
+        {'args.json': args, 'provenance.effective_args': record['effective_args']})
+    _require(not disagreements, 'recorded arguments disagree: ' + '; '.join(disagreements))
+    backbone = args.get('backbone')
+    _require(backbone in BACKBONES_EXP11, 'args.json records backbone {!r}'.format(backbone))
+    _require(type(args.get('num_shot')) is int and args['num_shot'] > 0,
+             'args.json records no positive integer num_shot')
+    _require(type(args.get('seed')) is int, 'args.json records no integer seed')
+    registry = registry_sha256()
+    _require(record['registry_sha256'] == registry, 'provenance registry_sha256 {!r} is not '
+             'the {} of BACKBONES_EXP11 at finalisation'.format(
+                 record['registry_sha256'], registry))
+    return record, args, admission
+
+
+def haa_train_evidence(run_dir, repo):
+    """One exp_11 fine-tuning child: validation-based selection and the frame binding."""
+    hashes = artifacts(run_dir, HAA_TRAIN_ARTIFACTS)
+    record, args, admission = haa_child_arguments(run_dir, 'exp11_haa_finetune', repo)
+    rooms, frame = base._rooms_and_frame(args)
+    heading, adapter_heading, adapter_phi = frame_binding(args, rooms, frame, repo)
+    epochs, summary = base.haa_history(run_dir, args)
+    for name in ('best.pth', 'last.pth'):
+        _checkpoint_keys(Path(run_dir) / name, name, args['backbone'], args['num_shot'])
+    _require(_is_sha256(args.get('init_sha256')),
+             'fine-tuning must record init_sha256 of its initialisation')
+    init = args.get('init')
+    _require(isinstance(init, str) and init, 'args.json records no init checkpoint path')
+    resolved = _resolve(init, repo)
+    _require(resolved.is_file(), 'missing init checkpoint: {}'.format(resolved))
+    _require(provenance.sha256_file(resolved) == args['init_sha256'],
+             'init checkpoint {} does not hash to the recorded init_sha256'.format(resolved))
+    return dict(base.child_identity(record), artifacts=hashes, rooms=rooms, frame=frame,
+                heading=heading, adapter_heading=adapter_heading,
+                adapter_phi_deg=adapter_phi, backbone=args['backbone'],
+                init_sha256=args['init_sha256'], seed=args['seed'],
+                best_epoch=summary['best_epoch'], epochs=epochs, **admission)
+
+
+def haa_eval_evidence(run_dir, repo):
+    """One exp_11 evaluation child: exactly one room, bound to the checkpoint it ran."""
+    record, args, admission = haa_child_arguments(run_dir, 'exp11_haa_eval', repo)
+    rooms, frame = base._rooms_and_frame(args)
+    _require(len(rooms) == 1, 'an evaluation child covers exactly one room, not {}'.format(rooms))
+    room, tag = rooms[0], args.get('tag', '')
+    _require(Path(run_dir).resolve().name == room, 'an evaluation child of {} may not claim '
+             'the room {!r}'.format(Path(run_dir).resolve().name, room))
+    names = ('provenance.json', 'args.json', 'metrics_{}{}.json'.format(room, tag),
+             'per_sample_{}{}.json'.format(room, tag))
+    hashes = artifacts(run_dir, names)
+    heading, adapter_heading, adapter_phi = frame_binding(args, rooms, frame, repo)
+    per_sample = _read_json(Path(run_dir) / names[3], names[3])
+    meta = _mapping(per_sample.get('meta'), 'per-sample meta')
+    required = (('backbone', 'checkpoint_sha256', 'frame') + EVAL_PROTOCOL
+                + (('heading',) if heading else ())
+                + (('adapter_heading', 'adapter_phi_deg') if adapter_heading else ()))
+    missing = [key for key in required if key not in meta]
+    _require(not missing, 'per-sample meta must record ' + ', '.join(missing))
+    _require(meta['frame'] == frame and frame in FRAMES,
+             'per-sample meta frame {!r} is not the {!r} of args.json'.format(meta['frame'], frame))
+    _require(meta['backbone'] == args['backbone'],
+             'per-sample meta backbone {!r} differs from args.json'.format(meta['backbone']))
+    for field in EVAL_PROTOCOL:
+        _require(exp11_recipe.strict_equal(meta[field], args.get(field)),
+                 'per-sample meta {} {!r} is not the {!r} of args.json'.format(
+                     field, meta[field], args.get(field)))
+    _require(meta.get('room', room) == room, 'per-sample meta room {!r} is not the {!r} this '
+             'child evaluated'.format(meta.get('room'), room))
+    for field, bound in (('heading', heading), ('adapter_heading', adapter_heading)):
+        if bound:
+            _require(exp11_recipe.strict_equal(meta[field], args[field]),
+                     'per-sample meta {} differs from the one bound in args.json'.format(field))
+        else:
+            _require(not meta.get(field), 'this child records no {}'.format(field))
+    if adapter_heading:
+        _require(exp11_recipe.strict_equal(meta['adapter_phi_deg'], args['adapter_phi_deg']),
+                 'per-sample meta adapter_phi_deg differs from args.json')
+    checkpoint = args.get('checkpoint')
+    _require(isinstance(checkpoint, str) and checkpoint, 'args.json records no checkpoint path')
+    resolved = _resolve(checkpoint, repo)
+    _require(resolved.is_file(), 'missing evaluation checkpoint: {}'.format(resolved))
+    _checkpoint_keys(resolved, 'checkpoint ' + checkpoint, args['backbone'], args['num_shot'])
+    digest = provenance.sha256_file(resolved)
+    _require(meta['checkpoint_sha256'] == digest, 'per-sample meta checkpoint_sha256 {} is '
+             'not the hash {} of {}'.format(meta['checkpoint_sha256'], digest, resolved))
+    index, side = per_sample.get('index'), per_sample.get('side_label')
+    _require(isinstance(index, list) and index, 'the per-sample file records no index')
+    bad = [value for value in index if type(value) is not int or value < 0]
+    _require(not bad, 'per-sample index entries must be non-negative integers, not {}'.format(
+        sorted(map(repr, bad))[:4]))
+    paths = per_sample.get('ir_path')
+    _require(isinstance(paths, list) and len(paths) == len(index),
+             'per-sample ir_path must record one <room>/<index> path per index')
+    wrong = [path for path, value in zip(paths, index) if path != '{}/{}'.format(room, value)]
+    _require(not wrong, 'per-sample ir_path entries are not the {}/<index> this child '
+             'evaluated: {}'.format(room, sorted(map(repr, wrong))[:4]))
+    _require(isinstance(side, list) and len(side) == len(index),
+             'side_label must carry one room-frame label per index')
+    bad = [value for value in side if isinstance(value, bool) or value not in (-1, 1)]
+    _require(not bad, 'side_label values must be -1 or 1, not {}'.format(sorted(set(map(repr, bad)))))
+    base.haa_metrics(run_dir, names[2], room, args, per_sample)
+    return dict(base.child_identity(record), artifacts=hashes, room=room, frame=frame,
+                heading=heading, adapter_heading=adapter_heading,
+                adapter_phi_deg=adapter_phi, seed=args['seed'], backbone=args['backbone'],
+                checkpoint_sha256=digest, samples=len(index), **admission)
