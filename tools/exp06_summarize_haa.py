@@ -1235,6 +1235,22 @@ def decision_fields(interval, margin, fields):
     return values
 
 
+def zero_width(interval):
+    """True only for a genuinely degenerate interval: two finite, equal endpoints.
+
+    This is the one refusal of the frozen convergence helper exp_11 may publish as a
+    defined ``unavailable`` statement. A non-finite endpoint (an overflowed mean gives
+    ``inf``/``nan``) or a reversed interval is a numerical failure, not the cancellation
+    the plan registers, and must propagate.
+    """
+    if not isinstance(interval, dict):
+        return False
+    low, high = interval.get('lo'), interval.get('hi')
+    if not (isinstance(low, float) and isinstance(high, float)):
+        return False
+    return bool(math.isfinite(low) and math.isfinite(high) and low == high)
+
+
 def decision_interval(cell):
     """The one interval every field of an exp_11 cell reads, or nothing at all.
 
@@ -1256,8 +1272,9 @@ def exp11_cell(rows, void, base, margin, fields, n_boot=N_BOOT, alpha=ALPHA):
     A degenerate (zero-width) interval -- reachable by cancellation in an interaction --
     is a defined ``unavailable`` result: the frozen convergence helper refuses it, and
     that refusal is caught here rather than aborting the summary or being worked around
-    in the helper. Only that case is caught: a refusal on an interval of positive width
-    is a fault and is re-raised.
+    in the helper. Only that case is caught -- ``zero_width`` requires two finite, equal
+    endpoints -- so a positive width, a non-finite or reversed interval and any unrelated
+    failure are faults and are re-raised.
     """
     cell = dict(base, margin=margin, alpha=alpha, fields=list(fields),
                 cohort=rows['cohort'], n_test=rows['n_test'], excluded=rows['excluded'],
@@ -1273,10 +1290,11 @@ def exp11_cell(rows, void, base, margin, fields, n_boot=N_BOOT, alpha=ALPHA):
         convergence = converged_two_way(rows, alpha, n_boot)
     except ValueError as error:
         nominal = intervals(rows, alpha, n_boot)
-        # Only the degenerate interval the plan registers is a defined cell. Any other
-        # refusal of the frozen helper is a fault, and is raised rather than published as
-        # an unavailable statement.
-        if nominal['two_way']['hi'] > nominal['two_way']['lo']:
+        # Only the degenerate interval the plan registers is a defined cell: two finite,
+        # equal endpoints. A positive width, a non-finite endpoint, a reversed interval
+        # or an unrelated failure is a fault, and is raised rather than published as an
+        # unavailable statement.
+        if not zero_width(nominal['two_way']):
             raise
         cell.update(diff=nominal['diff'], query=nominal['query'],
                     two_way=nominal['two_way'], status='unavailable',

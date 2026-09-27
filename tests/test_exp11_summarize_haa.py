@@ -704,6 +704,44 @@ def test_a_convergence_refusal_that_is_not_degenerate_still_aborts(arms, monkeyp
         contrast_cell(arms, G, D)
 
 
+def test_the_zero_width_predicate_is_finite_and_equal_endpoints():
+    """The registered cancellation is two finite, equal endpoints -- nothing else."""
+    assert subject.zero_width({'lo': 1.0, 'hi': 1.0}) is True
+    assert subject.zero_width({'lo': 0.0, 'hi': 0.0}) is True
+    assert subject.zero_width({'lo': -1.0, 'hi': 1.0}) is False
+    assert subject.zero_width({'lo': 1.0, 'hi': -1.0}) is False          # reversed
+    assert subject.zero_width({'lo': float('nan'), 'hi': float('nan')}) is False
+    assert subject.zero_width({'lo': float('inf'), 'hi': float('inf')}) is False
+    assert subject.zero_width({'lo': float('-inf'), 'hi': float('inf')}) is False
+    assert subject.zero_width(None) is False
+
+
+def test_a_numerically_broken_interval_is_not_an_unavailable_statement():
+    """Six finite values of 1e308 against zero: the mean overflows, the frozen helper
+    refuses a non-finite interval, and that is a fault -- not the cancellation the plan
+    registers. It must never be published as diff inf with a NaN interval."""
+    rows = flat_rows(difference=1e308)
+    with pytest.raises(ValueError, match='non-finite or reversed'):
+        subject.exp11_cell(rows, [], {'name': 'N1i', 'kind': 'interaction'}, M,
+                           ALL_FIELDS, n_boot=200)
+
+
+def test_a_reversed_interval_is_not_an_unavailable_statement(monkeypatch):
+    real = subject.intervals
+    monkeypatch.setattr(subject, 'intervals', lambda rows, alpha, n_boot, seed=0: dict(
+        real(rows, alpha, n_boot, seed), two_way={'lo': 1.0, 'hi': -1.0}))
+    monkeypatch.setattr(subject, 'converged_two_way', _refuse(
+        'seed 0 produced a non-finite or reversed interval'))
+    with pytest.raises(ValueError, match='non-finite or reversed'):
+        subject.exp11_cell(flat_rows(), [], {'name': 'N1i'}, M, ALL_FIELDS, n_boot=200)
+
+
+def _refuse(message):
+    def refuse(rows, alpha, n_boot):
+        raise ValueError(message)
+    return refuse
+
+
 def test_an_empty_cohort_is_never_bootstrapped_even_without_a_void_reason():
     rows = flat_rows()
     rows.update(cohort=0, a=rows['a'][:0], b=rows['b'][:0], clusters=rows['clusters'][:0],
