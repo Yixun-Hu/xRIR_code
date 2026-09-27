@@ -21,7 +21,8 @@ EXP04_ARGS = REPO / 'ckpt/xRIR_simple_yawaug_8_shot/final/args.json'
 def args_of(profile, **overrides):
     """A complete, admissible args.json for one profile."""
     name = recipe.PROFILES[profile]
-    value = dict(name['recipe'], **dict(name['production']))
+    value = dict(name['recipe'], yaw_aug_seed=0, yaw_aug_width=512)
+    value.update(name['production'])
     value.update(backbone=name['backbone'], save_dir='ckpt/exp11/pretrain/x/attempt_1',
                  num_workers=12, log_interval=50, save_every=name['save_every'],
                  epoch_ckpt_every=name['epoch_ckpt_every'],
