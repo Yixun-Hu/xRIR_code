@@ -131,8 +131,9 @@ EXP11_ROOT = 'ckpt/exp11/sim2real'
 CANONICAL = ('stats.json', 'summary.txt')            # exp_02's hash-bound record
 # The arms exp_04's approved checkpoint starts: exp_09's E, exp_11's G and exp_11's K.
 EXP04_AUG_ARMS = ('yawaug', 'yawaug_hf', 'yawaug_adapter')
-# exp_11's own pretraining arms, and the approvals artifact key each one starts from.
-EXP11_NEW_ARMS = ('simple_or', 'simple_or_yaw', 'control_adapter', 'yawaug_adapter')
+# The four arms exp_11 round 2 adds, and the approvals artifact key H and I start from.
+EXP11_NEW_ARMS = tuple(name for name, arm in ARMS.items()
+                       if arm.get('admission') == 'exp11')
 EXP11_ARTIFACT_KEY = {'simple_or': 'simpor_epoch_012',
                       'simple_or_yaw': 'simpor_yaw_epoch_012'}
 ADAPTER_ARMS = tuple(name for name, arm in ARMS.items() if arm.get('cue') == 'adapter')
@@ -261,8 +262,8 @@ EXP11_PHASE2_DECISIONS = (
      'reading': 'the same bundled difference after yaw-augmented pretraining'})
 EXP11_PHASE1B_SCREENS = (Q1, Q2, Q3, Q4)
 EXP11_PHASE2_SCREENS = (P3, P3_PRIME, P1, P2, P4, P4_PRIME)
-EXP11_PHASE1B_ARMS = EXP11_ARMS + ('control_adapter', 'yawaug_adapter')
-EXP11_FINAL_ARMS = EXP11_PHASE1B_ARMS + ('simple_or', 'simple_or_yaw')
+EXP11_PHASE1B_ARMS = EXP11_ARMS + ADAPTER_ARMS
+EXP11_FINAL_ARMS = EXP11_ARMS + EXP11_NEW_ARMS
 
 # --- A': the external reference row (plan section 2.2, risk 4) ---------------------
 EXP02_STATS = 'ckpt/sim2real/stats.json'
@@ -805,7 +806,8 @@ def check_test_indices(name, room, index):
 
 def expected_inits(approved, arms=NEW_ARMS, inputs=None, exp11_approved=None):
     """What each new arm must have started from: exp_01's weights, exp_06's approved
-    epoch, or -- for arms E and G -- exp_04's approved ``checkpoints.aug``.
+    epoch, exp_04's approved ``checkpoints.aug`` (arms E, G and K), or -- for exp_11's own
+    pretraining arms H and I -- the artifact keys of exp_11's approvals record.
 
     Their identity is resolved through 6.4's ``reused`` exp_04 pin rather than a literal,
     so only the approvals a reviewer committed can name it; the record it was read from is

@@ -264,3 +264,17 @@ def test_neither_family_certifies_the_others_child(tmp_path):
     (tmp_path / 'completion.json').write_text(json.dumps(body))
     with pytest.raises(ValueError, match='missing adapter_heading'):
         final.child_completion(tmp_path, 'stage1', 'exp11_haa_finetune')
+
+
+def test_a_backbone_may_not_be_admitted_in_the_frame_it_does_not_read():
+    """The finalizer refuses from the other side what the entry point refuses at launch."""
+    args = heading_args('heading', 'simple_adapter')
+    with pytest.raises(ValueError, match='conditions on its adapter'):
+        final.frame_binding(args, args['rooms'], 'heading', REPO)
+    plain = dict(heading_args('heading', 'simple_oriented'), heading=None)
+    with pytest.raises(ValueError, match='reads the heading frame'):
+        final.frame_binding(plain, plain['rooms'], 'room', REPO)
+    assert final.HEADING_BACKBONES == ('cylindrical_oriented', 'simple_oriented')
+    from tools import exp11_haa_finetune as entry
+    assert entry.HEADING_BACKBONES == final.HEADING_BACKBONES
+    assert entry.ADAPTER_BACKBONE == final.ADAPTER_BACKBONE

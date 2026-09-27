@@ -350,6 +350,9 @@ def full_evidence(run_dir, repo):
 
 
 ADAPTER_BACKBONE = 'simple_adapter'
+# The backbones whose cue is the frame itself; the entry point refuses them without a
+# heading directory, and the finalizer refuses the same pairings from the other side.
+HEADING_BACKBONES = ('cylindrical_oriented', 'simple_oriented')
 HEADING_DECISIONS = base.HEADING_DECISIONS
 EVAL_PROTOCOL = base.EVAL_PROTOCOL
 
@@ -416,14 +419,19 @@ def frame_binding(args, rooms, frame, repo):
     record must declare the same heading and ``adapter_phi_deg`` must be that heading.
     A mixed heading is refused rather than silently reduced to one of them.
     """
+    backbone = args.get('backbone')
     if frame == 'heading':
+        _require(backbone != ADAPTER_BACKBONE, 'the {} backbone conditions on its adapter, '
+                 'never on the frame'.format(ADAPTER_BACKBONE))
         _require(not args.get('adapter_heading'),
                  'a heading-frame child conditions on the frame, not on an adapter')
         _require(args.get('adapter_phi_deg') is None,
                  'a heading-frame child installs no adapter heading')
         return heading_records(args, 'heading', rooms, repo), None, None
     _require(not args.get('heading'), 'the room frame must not record a heading')
-    if args.get('backbone') != ADAPTER_BACKBONE:
+    _require(backbone not in HEADING_BACKBONES, 'the {} backbone reads the heading frame; '
+             'a room-frame child of it delivers no cue at all'.format(backbone))
+    if backbone != ADAPTER_BACKBONE:
         _require(not args.get('adapter_heading') and args.get('adapter_phi_deg') is None,
                  'only the {} backbone conditions on an adapter heading'.format(
                      ADAPTER_BACKBONE))
