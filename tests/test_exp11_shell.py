@@ -731,6 +731,22 @@ def test_no_orphan_of_the_launcher_keeps_the_arm_locked(tmp_path, launch_child):
         drain(pipe)
 
 
+def test_a_holder_that_never_started_is_not_reported_as_someone_else(tmp_path):
+    """A refusal has to name the real obstacle.
+
+    "held by another invocation" sends a reader looking for a publication that is not
+    happening. A holder that could not start at all -- an unwritable root, a lock path
+    that is a directory, a missing interpreter -- is a different failure and says so.
+    """
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    (root / LOCKFILE).mkdir(parents=True)     # a directory where the lock file belongs
+    result = lib('ARM_ROOT={}\nDRY=0\nARM=H\nhold_arm_lock finalize\n'.format(root),
+                 {'EXP11_TEST_ROOTS': '1'})
+    assert result.returncode != 0
+    assert 'another invocation' not in result.stderr, result.stderr[-400:]
+    assert 'holder' in result.stderr.lower() and 'refusing' in result.stderr
+
+
 def test_the_lock_file_is_a_file_and_the_launcher_knows_no_stale_lock():
     text = (REPO / 'tools/exp11_launch.sh').read_text()
     for gone in ('break_lock', 'take_lock', 'release_lock', 'release_breaking',
