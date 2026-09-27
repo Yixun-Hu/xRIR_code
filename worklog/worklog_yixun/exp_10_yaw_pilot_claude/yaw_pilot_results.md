@@ -1,6 +1,6 @@
 # Results — exp_10 yaw_pilot
 
-Descriptive pilot (plan v3.1). Per arm and angle: Δ = paired mean change of the error vs ground truth (α − 0°); G = mean shift of the prediction at α relative to the prediction at 0° (no ground truth); both on the shared comparison mask, 10000 bootstrap replicates (seeds [0, 1]), 95 % percentile intervals; query-level CI first, room-cluster CI (17 rooms) second. A multiple G/Δ is printed only where the headline is reportable (Δ interval excludes 0, convergence passed, seed statuses agree); otherwise the cell shows its status. Canonical JSON: `ckpt/exp10/summary/yaw_pilot_summary.json` (sha256 `8c11a043c34db4f55309f10a4011dad2af2e6ed788569c2e87f1ee53f0aa2353`).
+Descriptive pilot (plan v3.1). Per arm and angle: Δ = paired mean change of the error vs ground truth (α − 0°); G = mean shift of the prediction at α relative to the prediction at 0° (no ground truth); both on the shared comparison mask, 10000 bootstrap replicates (seeds [0, 1]), 95 % percentile intervals; query-level CI first, room-cluster CI (17 rooms) second. A multiple G/Δ is printed only where the headline is reportable (Δ interval excludes 0, convergence passed, seed statuses agree); otherwise the cell shows its status. Canonical JSON: `ckpt/exp10/summary/yaw_pilot_summary.json` (sha256 `826498f58780dfe42a4e6228075b0fcb2be845a18a0986d0e835302faee85b32`).
 
 > **band:** historical baseline evaluation variability (references and phases redrawn), context only
 > **broader_population:** every query with a finite g_alpha (not the paired mask)
@@ -73,7 +73,7 @@ Probe run: `ckpt/exp10/released_k8_probe` (272 queries, execution `20260927T0728
 
 **check_online** (`ckpt/exp10/released_k8_all/check_online.json`): ok = True.
 
-## released_k1
+## released_k1 (trained K = 8, evaluated K = 1)
 
 `checkpoints/xRIR_unseen.pth` (sha256 `6cdb02767b4c…`), backbone simple, K = 1, device cuda, 6337 queries (batches `all`), manifest `f6d71f86d5d3…`, gl_seed 0, execution `20260927T062839218781Z-93fc61b3802c4e01bb2aa2d55e76c591`.
 
@@ -254,7 +254,7 @@ Probe run: `ckpt/exp10/cyl_k8_probe` (272 queries, execution `20260927T050438791
 
 Every input of this report, with its full sha256 (the HTML page's footer lists the same values):
 
-- canonical summary: `ckpt/exp10/summary/yaw_pilot_summary.json` sha256 `8c11a043c34db4f55309f10a4011dad2af2e6ed788569c2e87f1ee53f0aa2353`
+- canonical summary: `ckpt/exp10/summary/yaw_pilot_summary.json` sha256 `826498f58780dfe42a4e6228075b0fcb2be845a18a0986d0e835302faee85b32`
 - control_k8 probe summary: `ckpt/exp10/control_k8_probe/summary/yaw_pilot_summary.json` sha256 `0341ff9a206e2c3feb1d8bdf096e3f2e0af8722988f6b2086f478d13992ee06c`
 - cyl_k8 probe summary: `ckpt/exp10/cyl_k8_probe/summary/yaw_pilot_summary.json` sha256 `f77d3c884366514cf1646ef3dcafc81e6cba6072b0e7217b5a3e46fba8b29858`
 - released_k1 probe summary: `ckpt/exp10/released_k1_probe/summary/yaw_pilot_summary.json` sha256 `dcd366910c112dcb1bd064323829282ac550261a38860b1815745500338e9071`
@@ -266,7 +266,7 @@ Every input of this report, with its full sha256 (the HTML page's footer lists t
 - cyl_k8 check_online: `ckpt/exp10/cyl_k8_all/check_online.json` sha256 `5bd4ebcbb9575fa84f741c07959feb4d42eae324a9f67308914b3e9c8986fa7f`
 - released_k1 check_online: `ckpt/exp10/released_k1_all/check_online.json` sha256 `a3fe176ff0dec96d22b9a1b3f174f643bc3c65243a399805fea916df0a80af32`
 - released_k8 check_online: `ckpt/exp10/released_k8_all/check_online.json` sha256 `dcf17eecb2029bacc1f3c54bbeb029e89d630f287a546c008deca7b5ec167dfd`
-- backend sensitivity table: `yaw_pilot_results_assets/generated/backend_sensitivity_released_k8.md` sha256 `becc927d2ab9d2a290169288d472c1e862f8ad8b496c0208e23331b39db67346`
+- backend sensitivity table: `yaw_pilot_results_assets/generated/backend_sensitivity_released_k8.md` sha256 `94d806b138fa33f63d4f6a34d45ecce218b10ee5ffee0a625a3344d2055afdee`
 - CPU-protocol record: `yaw_pilot_results_assets/generated/cpu_protocol/yaw_pilot_tables.md` sha256 `541d890fe33afd88433f423c3b6462563770e97f6e8e6aa03cae3a37f6fe890c`
 
 Runs the canonical summary was computed from:

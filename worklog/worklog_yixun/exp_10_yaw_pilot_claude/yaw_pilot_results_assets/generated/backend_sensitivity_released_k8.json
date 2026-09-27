@@ -906,7 +906,7 @@
     "n": 6337,
     "path": "ckpt/exp10/cpu_protocol/summary/yaw_pilot_summary.json",
     "protocol_id": "06d5d3f72f5a566d7d87fd14d6bc0845ed44bfa9d98a5b532dfc7081e28b261a",
-    "sha256": "e77bf22f11d730ea9ee6ba16ccdc01561a05a4548b9a45065922dee91e327c9e"
+    "sha256": "3526094b796a9c1f8bd4d8bae82f8373a7df063ff68cfec6fecdc601f1b8ced1"
   },
   "gpu": {
     "device": "cuda",
@@ -916,7 +916,7 @@
     "n": 6337,
     "path": "ckpt/exp10/summary/yaw_pilot_summary.json",
     "protocol_id": "ece07c70be992c8bff8b27a862933ea19702b665fd47b46c0f1f4957fd04aaee",
-    "sha256": "8c11a043c34db4f55309f10a4011dad2af2e6ed788569c2e87f1ee53f0aa2353"
+    "sha256": "826498f58780dfe42a4e6228075b0fcb2be845a18a0986d0e835302faee85b32"
   },
   "verified": {
     "alpha": 0.05,

@@ -10008,7 +10008,7 @@
  ],
  "band_label": "historical baseline evaluation variability (references and phases redrawn), context only",
  "convergence_tolerance": 0.1,
- "generated_at": "2026-09-27T11:55:44.416872Z",
+ "generated_at": "2026-09-27T12:48:51.826965Z",
  "inputs": [
   {
    "arm": "released_k8",
