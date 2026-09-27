@@ -251,3 +251,22 @@ def test_the_external_row_is_never_an_arm_and_never_paired():
 def test_a_missing_or_changed_external_source_is_refused(tmp_path):
     with pytest.raises(ValueError, match='missing historical source'):
         subject.external_rows(repo=tmp_path)
+
+
+def test_a_phase_never_overwrites_a_published_record(tmp_path):
+    """``write_outputs`` publishes both files or neither, and never replaces one."""
+    result = {'schema_version': 1, 'experiment': 'exp11_final', 'exploratory': False,
+              'mode': 'primary', 'deviations': [], 'arms': {}, 'rows': {},
+              'decisions': [], 'screens': {}, 'historical': [], 'external': [],
+              'inputs': {}, 'side_split': {'job': 'zeroshot', 'cells': {}}}
+    stats, summary = tmp_path / 'stats.json', tmp_path / 'summary.txt'
+    record, digest, text = subject.write_outputs(result, stats, summary)
+    assert stats.is_file() and summary.is_file() and len(digest) == 64
+    assert record['summary_path'] == str(summary.resolve())
+    with pytest.raises(FileExistsError):
+        subject.write_outputs(result, stats, summary)
+    with pytest.raises(FileExistsError):      # one existing file is enough to refuse
+        subject.write_outputs(result, tmp_path / 'other.json', summary)
+    assert not (tmp_path / 'other.json').exists()
+    with pytest.raises(FileExistsError):      # and the two paths must be distinct
+        subject.write_outputs(result, tmp_path / 'same.txt', tmp_path / 'same.txt')
