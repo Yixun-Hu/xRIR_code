@@ -1257,7 +1257,8 @@ def lifecycle_launch(attempt, tmp_path, gate, exit_gate, receipt=True, die=False
     return status, out, err
 
 
-def until(condition, seconds=20):
+def until(condition, seconds=90):
+    """Wait for a real process to get somewhere -- generously: the stub imports torch."""
     for _ in range(int(seconds / 0.05)):
         if condition():
             return True
