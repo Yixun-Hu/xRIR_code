@@ -302,6 +302,51 @@ require_quiet_arm() {  # require_quiet_arm [<attempt being resolved>]
     return 1
 }
 
+# --- the intent marker: the half-second the frozen lifecycle cannot cover -----------
+# `run_child` forks the detached trainer and writes child.pid only afterwards, and the
+# trainer needs a moment to write its own. A launcher that dies inside that window would
+# leave a running trainer nothing names. So the intent to launch is declared BEFORE the
+# fork and withdrawn once child.pid exists; a marker left behind means "a trainer of this
+# attempt may be running", and the arm stays closed until an operator resolves it.
+mark_launching() {  # mark_launching <attempt>
+    printf 'launcher %s\nat %s\narm %s\n' \
+        "$$" "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" "$ARM" > "$1/launching"
+}
+
+clear_launching() {  # clear_launching <attempt>: only once the child really is recorded
+    [ -f "$1/child.pid" ] || return 0
+    rm -f -- "$1/launching"
+}
+
+# resolve_unregistered <attempt>: an operator's explicit answer to a marker nothing can
+# explain any more. It can only ever abort: an attempt with no child.pid has no exit
+# receipt and can never be published.
+resolve_unregistered() {
+    local attempt="$1" now=0 stamp=0 age=0
+    [ -d "$attempt" ] || { echo "refusing: $attempt is not a directory" >&2; return 1; }
+    [ -f "$attempt/launching" ] || {
+        echo "refusing: $attempt has no launching marker; nothing is unresolved" >&2
+        return 1; }
+    [ ! -f "$attempt/child.pid" ] || {
+        echo "refusing: $attempt recorded a child; it is a finished or running launch," \
+             "not an unresolved one" >&2
+        return 1; }
+    scan_arm "$ARM_ROOT" "$attempt" || {
+        echo "refusing: $SCAN_REASON" >&2; return 1; }
+    now="$(date -u +%s)"
+    stamp="$(date -u -r "$attempt/launching" +%s 2>/dev/null || printf '%s' "$now")"
+    age=$((now - stamp))
+    if [ "$age" -lt "$UNRESOLVED_GRACE_S" ]; then
+        echo "refusing: $attempt/launching is ${age}s old and a trainer that has not" \
+             "registered yet is still possible; wait until it is ${UNRESOLVED_GRACE_S}s" >&2
+        return 1
+    fi
+    say "ABORT $attempt -> ${attempt}_ABORTED_unregistered"
+    [ "$DRY" -eq 1 ] || mv -- "$attempt" "${attempt}_ABORTED_unregistered"
+    say "RESOLVED $attempt registered no child and nothing of it is alive;" \
+        "it can never be published"
+}
+
 # A deterministic pause, so a regression can hold this invocation open between two
 # launchers. It exists only inside the test roots and costs a real launch nothing.
 scan_barrier() {
@@ -416,6 +461,7 @@ ARM_ROOT="${ARM_ROOT:-$SIMPOR_ROOT}"
 CANONICAL_ATTEMPT="${CANONICAL_ATTEMPT:-}"
 INTERRUPTED="${INTERRUPTED:-0}"
 REPLACE_FINAL="${REPLACE_FINAL:-0}"
+RESOLVE_UNREGISTERED="${RESOLVE_UNREGISTERED:-}"
 DRY="${DRY:-0}"
 ARM="${ARM:-H}"
 
@@ -425,6 +471,7 @@ MODE="${1:-}"
 shift || true
 case "$MODE" in smoke|probe|full|finalize) ;; *) usage ;; esac
 GPU=""; COMMIT=""; ATTEMPT=""; LOG=""; CHILD_EXIT=""; DRY=0; ARM=H
+RESOLVE_UNREGISTERED=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --arm) ARM="${2:-}"; shift 2 ;;
@@ -436,6 +483,7 @@ while [ $# -gt 0 ]; do
         --approved) APPROVED="${2:-}"; shift 2 ;;
         --exploratory) EXPLORATORY=1; shift ;;
         --replace-final) REPLACE_FINAL=1; shift ;;
+        --resolve-unregistered) RESOLVE_UNREGISTERED="${2:-}"; shift 2 ;;
         --dry-run) DRY=1; shift ;;
         *) usage ;;
     esac
@@ -444,7 +492,8 @@ done
 apply_root_override || exit 2
 arm_of "$ARM" || exit 2
 check_ceiling || exit 2
-[ "$MODE" != finalize ] || { [ -n "$ATTEMPT" ] && [ -n "$LOG" ] && [ -n "$CHILD_EXIT" ]; } || usage
+[ "$MODE" != finalize ] || [ -n "$RESOLVE_UNREGISTERED" ] \
+    || { [ -n "$ATTEMPT" ] && [ -n "$LOG" ] && [ -n "$CHILD_EXIT" ]; } || usage
 
 if [ "$DRY" -eq 1 ]; then STAMP='<UTC>'; else STAMP="$(date -u +%Y%m%dT%H%M%S)"; fi
 if [ "$MODE" = finalize ]; then OWNER=""        # recovery owns no live launch.pid
@@ -496,7 +545,9 @@ full)
     mkdir -p -- "$RECORD"
     : > "$log"
     export CUDA_VISIBLE_DEVICES="$GPU" PYTHONHASHSEED=0 OMP_NUM_THREADS=8
+    mark_launching "$attempt"   # before the fork: the child may exist before child.pid
     run_child "$attempt" "$log" "${child[@]}"
+    clear_launching "$attempt"  # child.pid is written; the intent is accounted for
     close_child "$attempt" "$log"
     status="$CHILD_STATUS"
     if [ "$status" -ne 0 ]; then
@@ -585,6 +636,10 @@ smoke)
 finalize)
     scan_barrier
     hold_arm_lock finalize || exit 2   # alias resolution, validation and publication
+    if [ -n "$RESOLVE_UNREGISTERED" ]; then
+        resolve_unregistered "$RESOLVE_UNREGISTERED" || exit 2
+        exit 0
+    fi
     require_quiet_arm || exit 2        # arm-wide, under the lock: nothing may be running
     preflight   # recovery is gated by the same reviewed commit, clean tree and pid checks
     check_attempt "$ATTEMPT" || exit 2
