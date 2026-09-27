@@ -140,3 +140,7 @@
 ## 2026-09-27T08:32:45-04:00 — Coder round 8 delivered → Codex close review launched
 - **Result** — 3 commits `24eb1a6, ec77491, 209bc25` (summariser figure code, both renderers, tests, + a 3-line stub re-export in `tests/exp10_record_fixture.py`): `mc?` annotation with legend for unresolved-MC headline cells (exactly 1 of 64 figure cells changes: cyl_k8 T60 270°); `display_label` → "released_k1 (trained K = 8, evaluated K = 1)" in figure titles/rows and both report headers, keys/CSV/file names unchanged. Summariser non-figure outputs byte-identical before/after; figures deterministic. 267 summariser + record-tool tests; regression 117/1.
 - **Command / Validation** — Codex close review at ultra: log `yaw_pilot_2026-09-27_08:32:43_codex_code_round8_close.log`. Next: merge → re-run `exp10_finish.sh` (statistics unchanged; figures/pages regenerated) → record review round 2.
+
+## 2026-09-27T08:42:21-04:00 — round 8 APPROVED → merged `9327a4d` → finish re-run (republish figures/pages; statistics unchanged)
+- **Acceptance criteria** — preflight as before; canonical summary numbers identical to the round-1 build (JSON equal apart from `generated_at`/`tool` fields); 46 assets, `SHA256SUMS` verifies; figures show `mc?` for cyl_k8 T60 270° and the K1 qualification; both reports carry the qualified K1 header.
+- **Command** — `nohup setsid …/scripts/exp10_finish.sh > /dev/null 2>&1 &` (HEAD `9327a4d`).
