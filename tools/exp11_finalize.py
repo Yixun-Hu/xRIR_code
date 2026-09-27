@@ -547,3 +547,211 @@ def haa_eval_evidence(run_dir, repo):
                 heading=heading, adapter_heading=adapter_heading,
                 adapter_phi_deg=adapter_phi, seed=args['seed'], backbone=args['backbone'],
                 checkpoint_sha256=digest, samples=len(index), **admission)
+
+
+CHILD_COMPLETION = ('schema_version', 'run_type', 'run_dir', 'child_exit', 'child_exit_time',
+                    'log', 'child_exit_receipt', 'diagnostic', 'admissible_arm', 'artifacts',
+                    'backbone', 'frame', 'heading', 'adapter_heading', 'adapter_phi_deg')
+CHILD_EXTRA = {'exp11_haa_finetune': ('rooms', 'init_sha256', 'best_epoch', 'seed'),
+               'exp11_haa_eval': ('room', 'checkpoint_sha256', 'samples', 'seed')}
+JOB_SPEC = ('init', 'backbone', 'frame', 'init_sha256', 'seed', 'rooms', 'expect')
+EVIDENCE_OF = {'exp11_haa_finetune': haa_train_evidence, 'exp11_haa_eval': haa_eval_evidence}
+
+
+def child_role(name):
+    """The exp_11 run type this finalizer requires at one child path of a pipeline seed."""
+    return {'haa_train': 'exp11_haa_finetune',
+            'haa_eval': 'exp11_haa_eval'}[base.child_role(name)]
+
+
+def child_completion(path, name, role):
+    """Schema and role of one child's record, never its own admission claim."""
+    completion = Path(path) / 'completion.json'
+    _require(completion.is_file(), 'child {} has no completion.json'.format(name))
+    record = _mapping(_read_json(completion, name + '/completion.json'),
+                      name + '/completion.json')
+    missing = [key for key in CHILD_COMPLETION + CHILD_EXTRA[role] if key not in record]
+    _require(not missing, 'child {} completion is incomplete: missing {}'.format(
+        name, ', '.join(missing)))
+    _require(record['schema_version'] == 1,
+             'child {} records schema_version {!r}'.format(name, record['schema_version']))
+    _require(record['run_type'] == role, 'child {} has run type {!r}, not the {!r} its path '
+             'requires'.format(name, record['run_type'], role))
+    _require(isinstance(record['run_dir'], str)
+             and Path(record['run_dir']).resolve() == Path(path).resolve(),
+             'child {} claims the run_dir {!r}'.format(name, record['run_dir']))
+    _require(record['diagnostic'] is False, 'child {} is a diagnostic run'.format(name))
+    _require(type(record['child_exit']) is int and record['child_exit'] == 0,
+             'child {} records child_exit {!r}'.format(name, record['child_exit']))
+    return record
+
+
+def check_job_spec(name, role, evidence, spec, args):
+    """Every child must have run the job the pipeline declared, not one of its own."""
+    for field in ('backbone', 'frame', 'seed'):
+        _require(evidence[field] == spec[field], 'child {} ran {} {!r}, not the {!r} of the '
+                 'job spec'.format(name, field, evidence[field], spec[field]))
+    rooms = evidence['rooms'] if role == 'exp11_haa_finetune' else [evidence['room']]
+    outside = sorted(set(rooms) - set(spec['rooms']))
+    _require(not outside, 'child {} covers rooms outside the job: {}'.format(name, outside))
+    room = name.split('/')[-1] if role == 'exp11_haa_eval' else name[len('stage2_'):]
+    _require(not name.startswith(('stage2_', 'eval/', 'zeroshot/')) or rooms == [room],
+             'child {} records rooms {}, not the {!r} of its path'.format(name, rooms, room))
+    field = 'heading' if spec['frame'] == 'heading' else 'adapter_heading'
+    declared = spec.get(field) or {}
+    if declared:
+        for bound, binding in sorted((evidence[field] or {}).items()):
+            _require(binding.get('k') == declared.get(bound),
+                     'child {} rolls the {} {} to {!r}, not the {!r} of the job spec'.format(
+                         name, bound, field, binding.get('k'), declared.get(bound)))
+        _require(exp11_recipe.strict_equal(evidence.get('adapter_phi_deg'),
+                                           spec.get('adapter_phi_deg')),
+                 'child {} installs the adapter heading {!r}, not the {!r} of the job '
+                 'spec'.format(name, evidence.get('adapter_phi_deg'),
+                               spec.get('adapter_phi_deg')))
+    else:
+        for other in HEADING_FIELDS:
+            _require(not evidence[other],
+                     'child {} records a {} the job spec does not declare'.format(name, other))
+    base.check_job_identity(name, args, spec)
+
+
+def verify_child(path, name, repo, spec):
+    """Re-run the child's own role validator and bind its record to that result."""
+    base.refuse_live_launch(path)
+    role = child_role(name)
+    evidence = EVIDENCE_OF[role](path, repo)
+    record = child_completion(path, name, role)
+    recorded = _mapping(record['artifacts'], 'child {} artifacts'.format(name))
+    fresh = evidence['artifacts']
+    _require(set(recorded) == set(fresh), 'child {} records the artefacts {}, not the {} the '
+             're-run hashed'.format(name, sorted(recorded), sorted(fresh)))
+    for artefact in sorted(fresh):
+        _require(exp11_recipe.strict_equal(recorded[artefact], fresh[artefact]),
+                 'child {} artefact {} is not the one the re-run hashed'.format(name, artefact))
+    for field in sorted(set(evidence) - {'artifacts'}):
+        _require(field in record, 'child {} completion records no {}'.format(name, field))
+        _require(exp11_recipe.strict_equal(record[field], evidence[field]),
+                 'child {} completion {} {!r} is not the {!r} of the re-run'.format(
+                     name, field, record[field], evidence[field]))
+    base.rehash_bound_evidence(record, name, path, repo)
+    check_job_spec(name, role, evidence, spec,
+                   _read_json(Path(path) / 'args.json', 'args.json'))
+    return evidence
+
+
+def load_job_spec(path, expect):
+    """The pipeline's declaration of one seed; every nested value is typed before use."""
+    _require(path, 'a job needs the pipeline --job-spec it was run from')
+    try:
+        data = Path(path).read_bytes()
+        value = json.loads(data.decode('utf-8'))
+    except (OSError, UnicodeDecodeError, ValueError) as error:
+        raise ValueError('unreadable job spec: {}'.format(error)) from error
+    spec = _mapping(value, 'job spec')
+    missing = [key for key in JOB_SPEC if key not in spec]
+    _require(not missing, 'job spec is incomplete: missing ' + ', '.join(missing))
+    _require(spec['expect'] == expect,
+             'job spec declares {!r}, not the --expect {!r}'.format(spec['expect'], expect))
+    _require(spec['backbone'] in BACKBONES_EXP11,
+             'job spec backbone {!r}'.format(spec['backbone']))
+    _require(spec['frame'] in FRAMES, 'job spec frame {!r}'.format(spec['frame']))
+    _require(_is_sha256(spec['init_sha256']),
+             'job spec init_sha256 {!r} is not a sha256'.format(spec['init_sha256']))
+    _require(type(spec['seed']) is int, 'job spec seed {!r} is not an integer'.format(spec['seed']))
+    _require(isinstance(spec['init'], str) and spec['init'],
+             'job spec init {!r} is not an initialisation name'.format(spec['init']))
+    _require(isinstance(spec['rooms'], list)
+             and all(isinstance(room, str) for room in spec['rooms'])
+             and sorted(spec['rooms']) == sorted(ROOMS),
+             'job spec rooms {!r} are not the pipeline rooms'.format(spec['rooms']))
+    cue = 'heading' if spec['frame'] == 'heading' else 'adapter_heading'
+    other = 'adapter_heading' if cue == 'heading' else 'heading'
+    _require(not spec.get(other), 'a {}-frame job spec declares no {}'.format(
+        spec['frame'], other))
+    if spec['frame'] == 'heading' or spec['backbone'] == ADAPTER_BACKBONE:
+        rolls = _mapping(spec.get(cue), 'job spec ' + cue)
+        absent = [room for room in spec['rooms'] if type(rolls.get(room)) is not int
+                  or not 0 <= rolls[room] < WIDTH]
+        _require(not absent, 'job spec records no {} roll in [0, {}) for {}'.format(
+            cue, WIDTH, ', '.join(absent)))
+    else:
+        _require(not spec.get(cue), 'a room-frame job spec without an adapter declares no cue')
+    if cue == 'adapter_heading' and spec.get(cue):
+        base._finite('job spec adapter_phi_deg', spec.get('adapter_phi_deg'))
+    else:
+        _require(spec.get('adapter_phi_deg') is None,
+                 'only an adapter job spec declares adapter_phi_deg')
+    spec['job_spec_sha256'] = hashlib.sha256(data).hexdigest()
+    _require(provenance.sha256_file(path) == spec['job_spec_sha256'],
+             'job spec {} changed while it was being validated'.format(path))
+    return spec
+
+
+def job_lineage(records, expect, spec):
+    """The init -> stage1 -> stage2 -> evaluation chain the job spec declares."""
+    fields = dict(backbone=spec['backbone'], frame=spec['frame'], seed=spec['seed'],
+                  heading=spec.get('heading') if spec['frame'] == 'heading' else None,
+                  adapter_heading=spec.get('adapter_heading'),
+                  adapter_phi_deg=spec.get('adapter_phi_deg'),
+                  init=spec['init'], init_sha256=spec['init_sha256'])
+    if expect == 'zeroshot':
+        for name, record in sorted(records.items()):
+            _require(record['checkpoint_sha256'] == spec['init_sha256'],
+                     'lineage: {} did not evaluate the job initialisation'.format(name))
+        return dict(fields, checkpoint_sha256=spec['init_sha256'])
+    _require(records['stage1']['init_sha256'] == spec['init_sha256'],
+             'lineage: stage1 did not start from the job initialisation')
+    stage1 = records['stage1']['artifacts']['best.pth']
+    for name, record in sorted(records.items()):
+        if name.startswith('stage2_'):
+            _require(record['init_sha256'] == stage1,
+                     'lineage: {} did not start from stage1/best.pth'.format(name))
+        elif name.startswith('eval/'):
+            room = name[len('eval/'):]
+            _require(record['checkpoint_sha256']
+                     == records['stage2_' + room]['artifacts']['best.pth'],
+                     'lineage: {} did not evaluate stage2_{}/best.pth'.format(name, room))
+    return fields
+
+
+def haa_job_evidence(run_dir, children, expect, repo, job_spec):
+    """Bind one seed: every expected child, re-validated in the role its path requires."""
+    expected, job = set(base.expected_children(expect)), Path(run_dir).resolve()
+    spec = load_job_spec(job_spec, expect)
+    seen, records = {}, {}
+    for child in children:
+        path = Path(child).resolve()
+        try:
+            name = path.relative_to(job).as_posix()
+        except ValueError as error:
+            raise ValueError('child {} lies outside the job directory'.format(child)) from error
+        if expect == 'zeroshot' and name.startswith('zeroshot/'):
+            name = name[len('zeroshot/'):]
+        _require(name in expected, 'unexpected child: ' + name)
+        records[name] = verify_child(path, name, repo, spec)
+        seen[name] = provenance.sha256_file(path / 'completion.json')
+    missing = sorted(expected - set(seen))
+    _require(not missing, 'job is missing children: ' + ', '.join(missing))
+    return dict(job_lineage(records, expect, spec), artifacts={}, children=seen, expect=expect,
+                job_spec={'path': str(Path(job_spec).resolve()),
+                          'sha256': spec['job_spec_sha256']})
+
+
+def haa_job_completion(run_dir, children, expect, repo, job_spec, log, child_exit, owner_pid):
+    """One pipeline job: no child of its own, hence no exit receipt and no closed log."""
+    _require(not (run_dir / 'child_exit.json').exists(),
+             'job roots carry no child exit receipt (A3)')
+    owner = base.refuse_live_launch(run_dir, owner_pid)
+    _require(owner is not None,
+             '{} records no launch.pid: a job binds the owner that ran it'.format(run_dir))
+    _require(owner_pid is None or owner == owner_pid,
+             'the job root holds launch.pid {}, not the declared owner {}'.format(
+                 owner, owner_pid))
+    _require(child_exit == 0, 'the job was declared with child status {}'.format(child_exit))
+    fields = dict(schema_version=1, run_type='exp11_haa_job', run_dir=str(run_dir.resolve()),
+                  repo=str(Path(repo).resolve()), child_exit=child_exit,
+                  log=base.job_log(log), owner_pid=owner, diagnostic=False,
+                  admissible_arm=True)
+    fields.update(haa_job_evidence(run_dir, children, expect, repo, job_spec))
+    return base.write_completion(run_dir / 'completion.json', fields)
