@@ -12,6 +12,13 @@ numpy versions. Both summaries' ``inputs`` bindings are re-verified against the 
 and each summary's embedded arm meta is compared with the live ``meta.json`` of the run it
 names, so the fields above are the run's own and not an edited copy.
 
+The *statistics* have to match too (round-4 review, finding 5): the two columns are only
+comparable when they were computed with the same ``alpha``, ``n_boot``, bootstrap ``seeds``
+and ``convergence_tolerance``. With alpha .05 on one side and .5 on the other, identical
+observations produced "denominator uncertain" and "defined" -- a difference in the statistical
+protocol printed as a difference between backends. All four are required equal and recorded
+among the verified fields.
+
 usage: make_backend_table.py --gpu <summary.json> --cpu <summary.json> --arm released_k8
                              --out-md <md> --out-json <json>
                              [--gpu-meta <meta.json>] [--cpu-meta <meta.json>]
@@ -49,6 +56,12 @@ PROTOCOL_FIELDS = [("query_list_sha256", "the query population"),
                    ("tool_sha256", "the evaluator implementation"),
                    ("torch_version", "the torch version"),
                    ("numpy_version", "the numpy version")]
+# The summariser's own settings: the same observations give different statuses under a
+# different alpha, so a backend comparison needs one statistical protocol, not two.
+SUMMARY_SETTINGS = [("alpha", "the bootstrap level"),
+                    ("n_boot", "the bootstrap replicates"),
+                    ("seeds", "the bootstrap seeds"),
+                    ("convergence_tolerance", "the convergence tolerance")]
 
 
 def sha(p):
@@ -135,6 +148,19 @@ def check_pair(gpu_arm, cpu_arm, gpu_summary, cpu_summary, gpu_meta_path, cpu_me
                             "device may differ" % (field, label, left, right))
         else:
             verified[field] = left
+    for field, label in SUMMARY_SETTINGS:
+        left, right = gpu_summary.get(field), cpu_summary.get(field)
+        if left is None and right is None:
+            problems.append("neither summary records %s (%s); the statuses in this table "
+                            "cannot be compared" % (field, label))
+            continue
+        if left != right:
+            problems.append("the summaries differ in %s (%s): %r vs %r; one statistical "
+                            "protocol has to produce both columns, or a difference in the "
+                            "statistics reads as a difference between backends"
+                            % (field, label, left, right))
+        else:
+            verified[field] = left
     if problems:
         raise ValueError("refusing to build the backend table for %s:\n  - %s"
                          % (arm, "\n  - ".join(problems)))
@@ -180,10 +206,14 @@ def main():
           "`%s`), Griffin-Lim seed, K, batch shape, precision flags, evaluator implementation "
           "(`tool_sha256` `%s`) and torch / numpy versions — every one of them verified equal; only "
           "the inference device differs (GPU run: %s, execution `%s`, n = %d; CPU run: %s, "
-          "execution `%s`, n = %d). Query-level bootstrap intervals; descriptive only." % (
+          "execution `%s`, n = %d). Both columns come from one statistical protocol, also "
+          "verified equal: alpha %s, %s bootstrap replicates, seeds %s, convergence tolerance "
+          "%s. Query-level bootstrap intervals; descriptive only." % (
               verified.get("query_list_sha256"), verified.get("manifest_hash"),
               verified.get("tool_sha256"), g["meta"]["device"], g["execution_id"],
-              g["n_queries"], c["meta"]["device"], c["execution_id"], c["n_queries"]), "",
+              g["n_queries"], c["meta"]["device"], c["execution_id"], c["n_queries"],
+              verified.get("alpha"), verified.get("n_boot"), verified.get("seeds"),
+              verified.get("convergence_tolerance")), "",
           "| metric | angle | Δ GPU | Δ CPU | G GPU | G CPU | status GPU / CPU |", "|---|---|---|---|---|---|---|"] + rows + ["",
           "Inputs: `%s` sha256 `%s`; `%s` sha256 `%s`; live metas `%s` sha256 `%s` and `%s` sha256 `%s`." % (
               a.gpu, rec["gpu"]["sha256"], a.cpu, rec["cpu"]["sha256"], gpu_meta_path,

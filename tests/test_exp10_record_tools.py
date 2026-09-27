@@ -487,6 +487,48 @@ def test_backend_table_refuses_an_unbound_summary(backend_pair, tmp_path):
     assert "per_sample.json" in out(done)
 
 
+@pytest.mark.parametrize("field,value", [("alpha", 0.5), ("n_boot", 200),
+                                         ("seeds", [0, 7]),
+                                         ("convergence_tolerance", 0.9)])
+def test_backend_table_refuses_different_statistical_settings(backend_pair, tmp_path,
+                                                              field, value):
+    """Round-4 finding 5: the runs' metadata was compared but the *summaries'* statistical
+    settings were not.  On identical observations the canonical summariser gave "denominator
+    uncertain" at alpha .05 and "defined" at alpha .5, and the table printed both while
+    claiming only the inference device differed."""
+    cpu_summary = backend_pair["cpu"][2]
+    summary = fx.read_json(cpu_summary)
+    summary[field] = value
+    fx.write_json(cpu_summary, summary)
+    done = backend_table(backend_pair, tmp_path)
+    assert done.returncode != 0
+    assert field in out(done)
+
+
+def test_backend_table_records_the_statistical_settings_it_verified(backend_pair, tmp_path):
+    """Finding 5: they are part of what the table certifies, so they are in the record."""
+    done = backend_table(backend_pair, tmp_path)
+    assert done.returncode == 0, out(done)
+    record = json.load(open(str(tmp_path / "backend.json")))
+    gpu = fx.read_json(backend_pair["gpu"][2])
+    for field in ("alpha", "n_boot", "seeds", "convergence_tolerance"):
+        assert record["verified"][field] == gpu[field], field
+    caption = open(str(tmp_path / "backend.md")).read()
+    assert "alpha %s" % gpu["alpha"] in caption
+    assert "convergence tolerance %s" % gpu["convergence_tolerance"] in caption
+
+
+def test_backend_table_refuses_summaries_that_record_no_statistics(backend_pair, tmp_path):
+    for role in ("gpu", "cpu"):
+        path = backend_pair[role][2]
+        summary = fx.read_json(path)
+        summary.pop("alpha")
+        fx.write_json(path, summary)
+    done = backend_table(backend_pair, tmp_path)
+    assert done.returncode != 0
+    assert "alpha" in out(done)
+
+
 def test_backend_table_refuses_an_embedded_meta_that_is_not_the_runs(backend_pair, tmp_path):
     """The summary's embedded meta is compared to the live meta.json of the run it names."""
     cpu_summary = backend_pair["cpu"][2]
