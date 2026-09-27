@@ -27,3 +27,8 @@ nohup setsid worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_ass
   ckpt/yaw_rotation/sweep_released/per_sample_yaw.json > /dev/null 2>&1 &
 ```
 - 04:38 CPU-protocol derived reports regenerated in place after the directory move (old files kept as `*_premove.json`): `python tools/exp10_compare.py check-online ckpt/exp10/cpu_protocol/released_k8_all --json …/check_online.json`; `python tools/exp10_compare.py parity-exp03 ckpt/exp10/cpu_protocol/released_k8_all ckpt/yaw_rotation/sweep_released/per_sample_yaw.json --json …/parity_exp03.json` (log `yaw_pilot_2026-09-27_04:38:18_cpu_protocol_reports_regen.log`).
+
+## 2026-09-27T07:49:17-04:00 — end-game (tooling merged at `415268d`)
+```bash
+nohup setsid worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/scripts/exp10_finish.sh > /dev/null 2>&1 &
+```
