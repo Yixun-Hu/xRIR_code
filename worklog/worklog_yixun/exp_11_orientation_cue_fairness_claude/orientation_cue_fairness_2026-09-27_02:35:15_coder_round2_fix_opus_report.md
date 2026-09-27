@@ -195,3 +195,30 @@ producer refuses today.
   new gates changed no published number.
 * `bash -n` on both shells, `py_compile` on every exp_11 module and test, and
   `git diff --check`: clean.
+
+## Full CPU suite
+
+`CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 python -m pytest tests -q -rf` on the frozen
+tree (clean outside `worklog/`):
+
+```
+1 failed, 3651 passed, 55 skipped, 307 warnings in 4019.81s (1:06:59)
+FAILED tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes
+```
+
+The single failure is the **expected exp_06 approvals re-fill**: `code.summarize_haa` has
+moved and the record is stale until a reviewer re-fills it at the reviewed merge, exactly
+as round 1 did with commit `9f98bbb`. It is not a regression — it is the mechanism that
+detects the one key this round is allowed to move.
+
+Round 2's other failure,
+`test_exp04_launcher.py::test_signals_abort_and_reap_sleeping_child[SIGTERM-eval_ignored]`,
+**did not recur**: it passed in this run, confirming it was the load-average timing flake
+reported then (it exercises `tools/exp04_launcher.py`, which neither round touches).
+
+Net: **+37 passing tests** against round 2's run (3 614 → 3 651) and one fewer failure.
+
+## Status
+
+All five blockers and the three process-record items are addressed. Ready for
+re-review at this tip.
