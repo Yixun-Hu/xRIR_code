@@ -223,13 +223,16 @@ def registration_lock(save_dir, wait_seconds=REGISTRATION_WAIT_S):
     except OSError as error:
         refuse('cannot open the registration lock {}: {}'.format(path, error))
     try:
-        deadline = time.time() + wait_seconds
+        # A duration belongs on the clock that only goes forward: NTP corrections and
+        # a resuming VM step time.time() in either direction, which would shorten this
+        # bound to nothing or stretch it past any trainer's patience.
+        deadline = time.monotonic() + wait_seconds
         while True:
             try:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
             except OSError:
-                if time.time() >= deadline:
+                if time.monotonic() >= deadline:
                     refuse('the registration lock {} was held for more than {}s; '
                            'another registration or a resolution is in progress'
                            .format(path, wait_seconds))
