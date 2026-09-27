@@ -426,6 +426,31 @@ These are the values a reviewer fills into
 `orientation_cue_fairness_results_assets/approved_digests.json` at the **second** reviewed
 commit; the committed record is still all-null, so every exp_11 producer refuses today.
 
+## Late refinements (after the item-by-item pass)
+
+Four self-review findings, each committed on its own:
+
+1. **`launch_sh` joins the HAA producer's code keys** (`7b1a7af`). The queue sources
+   `tools/exp11_launch.sh` (and through it the pinned exp_06 library) for the child
+   lifecycle, so the pair that decides an exp_11 child must be pinned by the producer that
+   starts it — otherwise the lifecycle code would be unbound at queue time.
+2. **The queue gates the four heading records** (same commit). It first checks that
+   exp_06's approvals file is the `reused.approved_digests_exp06` bytes exp_11 approved,
+   then that every room's heading JSON hashes to exp_06's approved `artifacts.heading` —
+   exactly what exp_06's own queue checks, and for both frames, so the room-frame adapter
+   jobs are gated on the same four approved records.
+3. **The diagnostic run types are disjoint too** (`8c…`, "the diagnostic run types are
+   disjoint"): `exp11_probe` / `exp11_haa_smoke_train` / `exp11_haa_smoke_eval`, so a
+   diagnostic record of one family can never be read as the other's. (The runner identity
+   and the enumerated `kind` already refused an exp_06 receipt; this makes the recorded
+   evidence self-describing as well.)
+4. **Symmetric frame/backbone guards in `frame_binding`** (`7c88814`). The finalizer now
+   refuses from the admission side exactly what the entry point refuses at launch: the
+   `simple_adapter` backbone may not be admitted in the heading frame, and a
+   heading-frame backbone (`simple_oriented`, `cylindrical_oriented`) may not be admitted
+   in the room frame, where it would deliver no cue at all. Both entry point and finalizer
+   read the same two constants, asserted equal in the test.
+
 ## Design decisions worth a reviewer's attention
 
 1. **The parity test compares two loops, not a loop against itself.** exp_06's fine-tuning
