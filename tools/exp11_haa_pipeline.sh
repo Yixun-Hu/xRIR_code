@@ -136,7 +136,8 @@ import sys
 from pathlib import Path
 from tools import exp04_profiles, provenance
 from tools import exp11_profiles as profiles
-init, checkpoint = sys.argv[1:3]
+init, checkpoint, heading_dir = sys.argv[1:4]
+rooms = ["class_room", "complex_room", "dampened_room", "hallway"]
 repo = str(Path(profiles.__file__).resolve().parents[1])
 producer = {"simple_or": "haa_simple_or", "simple_or_yaw": "haa_simple_or_yaw",
             "control_adapter": "haa_control_adapter",
@@ -147,16 +148,25 @@ try:
         profiles.APPROVED_DIGESTS_PATH, repo=repo, commit=head)
     profiles.require_producer(approved, producer)
     profiles.require(approved, profiles.PRODUCER_CODE_KEYS[producer], repo=repo, commit=head)
+    # The heading records are approved exp_06 artefacts whichever frame reads them, so
+    # every job is gated on all four, exactly as the exp_06 queue gates its own: they are
+    # cheap to hash and the completeness rule stays as reviewed.
+    from tools import exp06_approvals_api as api
+    exp06_path = api.approved_path_default()
+    if provenance.sha256_file(exp06_path) != approved["reused"]["approved_digests_exp06"]:
+        raise ValueError("exp_06 approvals " + str(exp06_path) + " are not the approved bytes")
+    exp06_approved, _ = api.load_approved_digests(exp06_path, repo=repo, commit=head)
+    for room in rooms:
+        pinned_heading = exp06_approved["artifacts"]["heading"][room]
+        actual = provenance.sha256_file(heading_dir + "/" + room + ".json")
+        if pinned_heading is None or actual != pinned_heading:
+            raise ValueError("the {} heading record hashes to {}, not the approved {}".format(
+                room, actual, pinned_heading))
     pinned = None
     if init == "control_adapter":
         pinned, source = exp04_profiles.CONTROL["sha256"], "the registered exp_01 control"
     elif init == "yawaug_adapter":
         from tools import exp06_finalize as finalizer
-        from tools import exp06_approvals_api as api
-        exp06 = api.approved_path_default()
-        if provenance.sha256_file(exp06) != approved["reused"]["approved_digests_exp06"]:
-            raise ValueError("exp_06 approvals " + str(exp06) + " are not the approved bytes")
-        exp06_approved, _ = api.load_approved_digests(exp06, repo=repo, commit=head)
         aug = finalizer.exp04_aug_checkpoint(exp06_approved)
         pinned, source = aug["checkpoint"]["sha256"], "exp_04\x27s approved checkpoints.aug"
     else:
@@ -175,7 +185,8 @@ print("APPROVALS ok producer={} commit={} keys={}".format(
 
 approvals_ok() {  # approvals_ok <init> <checkpoint>: on the CPU, before any acquisition
     say "APPROVALS $1 checkpoint=$2 heading=$HEADING_DIR"
-    [ "$DRY" -eq 1 ] || CUDA_VISIBLE_DEVICES="" "$PYTHON" -c "$APPROVALS_PY" "$1" "$2"
+    [ "$DRY" -eq 1 ] || CUDA_VISIBLE_DEVICES="" "$PYTHON" -c "$APPROVALS_PY" "$1" "$2" \
+        "$HEADING_DIR"
 }
 
 # An EXPLICIT exclusive-card census: the pipeline does not inherit the launcher's

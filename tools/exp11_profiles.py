@@ -58,7 +58,11 @@ REUSED_KEYS = ('approved_digests_exp04', 'approved_digests_exp06', 'legacy_recei
 ARTIFACT_KEYS = ('simpor_epoch_012', 'simpor_yaw_epoch_012')
 ARTIFACT_LEAVES = ('epoch', 'path', 'sha256')
 TRAINING_KEYS = ('train', 'finalize', 'launch_sh', 'smoke')
-HAA_KEYS = ('haa_finetune', 'haa_eval', 'haa_pipeline_sh', 'finalize', 'smoke')
+# The HAA queue runs the two entry points, the pipeline shell, the finalizer that decides
+# every child, the diagnostics -- and the launcher library the pipeline sources for the
+# child lifecycle, which is bound by ``launch_sh``.
+HAA_KEYS = ('haa_finetune', 'haa_eval', 'haa_pipeline_sh', 'launch_sh', 'finalize',
+            'smoke')
 ARM_ARTIFACT = MP({'simple_or': 'simpor_epoch_012', 'simple_or_yaw': 'simpor_yaw_epoch_012',
                    'control_adapter': None, 'yawaug_adapter': None})
 
