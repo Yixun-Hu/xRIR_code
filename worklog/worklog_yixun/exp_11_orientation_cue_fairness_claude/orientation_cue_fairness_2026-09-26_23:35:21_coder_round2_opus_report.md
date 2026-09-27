@@ -378,3 +378,59 @@ The other nineteen exp_06 keys are unchanged.
 These are the values a reviewer fills into
 `orientation_cue_fairness_results_assets/approved_digests.json` at the **second** reviewed
 commit; the committed record is still all-null, so every exp_11 producer refuses today.
+
+## Design decisions worth a reviewer's attention
+
+1. **The parity test compares two loops, not a loop against itself.** exp_06's fine-tuning
+   `main` cannot be called on CPU (it `.cuda()`s unconditionally) and its module globals
+   may not be monkeypatched, so the test carries a line-for-line transcription of that
+   loop and **pins the sha256 of `inspect.getsource(exp06_haa_finetune.main)`**
+   (`88973e01…`). If exp_06's loop ever changes, the guard fails and the transcription
+   must be re-derived; it cannot drift silently. A companion test asserts that exp_11's
+   loop defaults **are** the pinned helper objects, so nothing is substituted in production.
+2. **Admission adapter shape.** One `ADMISSION` table keyed by the arm's own
+   `'admission'` field, holding the validator module, the serialized job run type and the
+   extra job fields. `verify_job` takes `validators = admission['finalizer']` once and uses
+   it for the spec loader, the child verifier and the lineage; the *semantic* role stays
+   exp_06's path-derived `haa_train`/`haa_eval` everywhere the protocol and recipe checks
+   read it. Nothing historical is re-keyed or disabled.
+3. **Requirement matrix.** Expressed as explicit **leaf paths** (`code.train`,
+   `artifacts.simpor_epoch_012.sha256`, …) rather than section names, because the plan's
+   rule — "pretraining never requires its own output pin; H runs while I's is null" — is a
+   statement about leaves. A parametrised test asserts the disjointness of every
+   producer's requirements and its outputs.
+4. **Adapter heading routing.** The cue is one value for every room, so it travels three
+   ways and each is checked: the job spec declares `adapter_heading` + `adapter_phi_deg`;
+   the entry point validates the cohort's records agree and installs the shared value with
+   `model.set_heading(phi)`; `args.json` and the per-sample `meta` record both fields, and
+   the finalizer re-reads every record against the cache it was estimated from and refuses
+   a mixed heading. In the summariser the fields are admitted **only** for arms registered
+   with `cue == 'adapter'`, and the historical room-frame rejection of a frame `heading`
+   is untouched.
+5. **`launch_sh` binds two files.** exp_11's launcher sources the pinned
+   `tools/exp06_launch.sh` for the child lifecycle, so the approvals key binds the pair —
+   what decides an exp_11 launch is both files, not the new one alone.
+6. **`child-exit` is delegated, not forked.** exp_11's finalizer routes the `child-exit`
+   subcommand to `exp06_finalize.child_exit_main`, so the end marker text and the receipt
+   contract stay the bytes `closed_log` re-validates.
+
+## Open questions for the Planner and the reviewer
+
+1. **The `EXP06_CHILD_EXIT` marker is shared.** exp_11's logs carry exp_06's marker text
+   because the pinned closer writes it. That is deliberate (see 6 above) but it means a log
+   does not name its experiment; the run directory and the completion do.
+2. **`tools/exp11_train.py` is 275 lines in one commit** and `tools/exp11_finalize.py`
+   totals 1 072 across six commits. Both mirror exp_06 modules of comparable size whose
+   `main`/evidence functions are single units; splitting them further would have produced
+   states that do not import.
+3. **The smoke mode's training rung uses the `probe` kind with tightened budgets.** The
+   plan enumerates exactly three diagnostic kinds, and a bounded training smoke is a probe
+   with a smaller budget rather than a fourth kind. Say if a distinct `train_smoke` kind is
+   wanted.
+4. **`ckpt/exp11/_smoke` is exp_11's disposable tree**, mirroring `ckpt/exp06/_smoke`; the
+   finalizer refuses to certify a diagnostic outside it.
+5. **The exp_11 approvals record is all-null**, so every exp_11 producer refuses today.
+   The digests in the table above are what a reviewer fills in at the second reviewed
+   commit; they will move again if the reviewer asks for changes.
+6. **No GPU work was done.** Every check in this round ran with `CUDA_VISIBLE_DEVICES=''`;
+   the bounded card smokes of plan §5 rung 2 remain to be run before the first queue.
