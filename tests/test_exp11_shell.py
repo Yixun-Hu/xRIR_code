@@ -553,6 +553,92 @@ def test_a_refusal_on_the_lock_changes_nothing(tmp_path):
         holder.wait(timeout=30)
 
 
+# --- close review 6: the lock may never reach the log sink or the training child ----
+
+SINK_LINE = 'cat >> "$log" < "$pipe" &'
+CHILD_LINE = 'nohup setsid "$@" > "$pipe" 2>&1 &'
+
+
+def lifecycle(root, launch_child):
+    """Replay the frozen ``run_child`` prologue and then take the registered TERM body.
+
+    ``run_child`` waits for its child, so no launcher can be made to exit in the middle
+    of it without sending a real signal. The two lines that matter are asserted to be
+    exactly the library's, so this replay cannot drift from what production does.
+    """
+    library = (REPO / 'tools/exp06_launch.sh').read_text()
+    assert SINK_LINE in library and CHILD_LINE in library, (
+        'the frozen lifecycle changed; this replay no longer reproduces it')
+    child = ('nohup setsid sleep 8 > "$pipe" 2>&1 &\nchild=$!\n'
+             'printf %s\\n "$child" > "$attempt/child.pid"\n') if launch_child else ''
+    return ('ARM_ROOT={root}\nDRY=0\nARM=H\n'
+            'hold_arm_lock finalize || exit 2\n'
+            'attempt={root}/attempt_20260927T000000\nmkdir -p -- "$attempt"\n'
+            'log="$attempt/child.log"\n: > "$log"\n'
+            'pipe="$attempt/child.pipe"\nmkfifo -m 600 -- "$pipe"\n'
+            'cat >> "$log" < "$pipe" &\nsink=$!\n'
+            'sleep 0.3\n' + child +
+            'handler="$(trap -p TERM | sed -n "s/^trap -- \'\\(.*\\)\' SIGTERM$/\\1/p")"\n'
+            '[ -n "$handler" ] || {{ echo NO_TERM_TRAP; exit 9; }}\n'
+            'eval "$handler"\necho CONTINUED\n').format(root=root)
+
+
+def free(lockfile, seconds=5.0):
+    """True once an independent process can take the lock, within ``seconds``."""
+    deadline = time.time() + seconds
+    while True:
+        if subprocess.run(['flock', '-n', str(lockfile), 'true']).returncode == 0:
+            return True
+        if time.time() >= deadline:
+            return False
+        time.sleep(0.05)
+
+
+def drain(pipe):
+    """Let an orphaned sink see EOF: open the FIFO for writing and close it."""
+    if pipe.exists():
+        os.close(os.open(str(pipe), os.O_WRONLY | os.O_NONBLOCK))
+
+
+def detached_lib(script, where, env=None):
+    """``lib``, but with the output on files.
+
+    The sink and the detached child inherit the launcher's stderr, so a captured pipe
+    would only reach EOF once those orphans ended -- which is the very thing under test.
+    """
+    out, err = where / 'launcher.out', where / 'launcher.err'
+    body = ('set -euo pipefail\n'
+            'EXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh\n' + script)
+    with open(out, 'w') as o, open(err, 'w') as e:
+        status = subprocess.run(['bash', '-c', body], cwd=str(REPO), stdout=o, stderr=e,
+                                env=dict(os.environ, CUDA_VISIBLE_DEVICES='',
+                                         **(env or {}))).returncode
+    return status, out.read_text(), err.read_text()
+
+
+@pytest.mark.parametrize('launch_child', [False, True])
+def test_no_orphan_of_the_launcher_keeps_the_arm_locked(tmp_path, launch_child):
+    """Close review 6's boundary: the sink must not inherit the lock.
+
+    Interrupted after the sink started -- with the child not yet launched, and again
+    with it launched and detached -- the launcher exits 143 and the arm must be free
+    again at once. An orphaned sink waits on its FIFO for a writer that never comes, so
+    a lock it inherited would never be released at all.
+    """
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
+    status, out, err = detached_lib(lifecycle(root, launch_child), tmp_path,
+                                    {'EXP11_TEST_ROOTS': '1'})
+    assert status == 143, out[-400:] + err[-400:]
+    assert 'CONTINUED' not in out
+    pipe = root / 'attempt_20260927T000000/child.pipe'
+    try:
+        assert free(root / LOCKFILE), (
+            'an orphan of the launcher still holds the arm lock')
+    finally:
+        drain(pipe)
+
+
 def test_the_lock_file_is_a_file_and_the_launcher_knows_no_stale_lock():
     text = (REPO / 'tools/exp11_launch.sh').read_text()
     for gone in ('break_lock', 'take_lock', 'release_lock', 'release_breaking',
