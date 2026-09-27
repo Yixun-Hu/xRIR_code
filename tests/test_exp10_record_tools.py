@@ -943,6 +943,65 @@ def test_finish_publishes_a_verified_asset_set(scratch):
     assert "yaw_pilot_results_assets/generated/yaw_pilot_tables.md" in md
 
 
+def publication_snapshot(scratch):
+    """Every byte of the three published artefacts: the assets, the HTML and the Markdown."""
+    snapshot = {}
+    for root, _dirs, files in os.walk(scratch["generated"]):
+        for name in files:
+            path = os.path.join(root, name)
+            snapshot[os.path.relpath(path, scratch["assets"])] = fx.file_sha256(path)
+    for name in ("yaw_pilot_01_results.html", "yaw_pilot_results.md"):
+        path = os.path.join(scratch["record"], name)
+        snapshot[name] = fx.file_sha256(path) if os.path.isfile(path) else None
+    return snapshot
+
+
+def failing_mv(scratch, pattern):
+    """A ``mv`` on PATH that fails for one destination, as the round-4 review injected it."""
+    bin_dir = os.path.join(scratch["root"], "test_bin")
+    if not os.path.isdir(bin_dir):
+        os.makedirs(bin_dir)
+    path = os.path.join(bin_dir, "mv")
+    with open(path, "w") as fout:
+        fout.write('#!/bin/bash\ncase "$1" in %s) echo "simulated mv I/O error on $1" >&2;'
+                   ' exit 43;; esac\nexec /usr/bin/mv "$@"\n' % pattern)
+    os.chmod(path, 0o755)
+    return {"PATH": bin_dir + os.pathsep + os.environ.get("PATH", "")}
+
+
+@pytest.mark.parametrize("pattern,stage", [
+    ("*/.finish_tmp.*/yaw_pilot_results.md", "the Markdown report"),
+    ("*/.finish_tmp.*/yaw_pilot_01_results.html", "the HTML page")])
+def test_finish_restores_all_three_artefacts_when_a_publication_fails(scratch, pattern, stage):
+    """Round-4 finding 2: the previous asset set was deleted before both reports were
+    published, so a failing final rename left new assets, a new HTML page and the *old*
+    Markdown -- three generations mixed -- while the cleanup claimed nothing had changed."""
+    assert run_finish(scratch).returncode == 0          # a real published set to roll back to
+    before = publication_snapshot(scratch)
+    # regenerate from the same evidence: the publication must fail at `stage` this time
+    done = run_finish(scratch, env=failing_mv(scratch, pattern))
+    assert done.returncode != 0
+    assert "FINISH DONE" not in out(done)
+    assert "restored" in out(done)
+    assert publication_snapshot(scratch) == before, stage
+    assert staging_dirs(scratch) == []
+
+
+def test_finish_removes_a_publication_it_created_when_the_next_one_fails(scratch):
+    """The same rollback when there was nothing published before: the artefacts this run
+    created are removed, so no half-published generation is left certified."""
+    import shutil
+    shutil.rmtree(scratch["generated"])
+    for name in ("yaw_pilot_01_results.html", "yaw_pilot_results.md"):
+        os.remove(os.path.join(scratch["record"], name))
+    done = run_finish(scratch, env=failing_mv(scratch, "*/.finish_tmp.*/yaw_pilot_results.md"))
+    assert done.returncode != 0
+    assert not os.path.exists(scratch["generated"])
+    for name in ("yaw_pilot_01_results.html", "yaw_pilot_results.md"):
+        assert not os.path.exists(os.path.join(scratch["record"], name))
+    assert staging_dirs(scratch) == []
+
+
 def test_finish_leaves_the_published_assets_alone_when_a_stage_fails(scratch):
     """Finding 2: a failed stage used to leave stale destination contents certified."""
     done = run_finish(scratch, env={"STUB_FAIL_ON_CPU": "1"})

@@ -12,7 +12,8 @@
 #     globs of neighbouring files), every expected file is verified present, nothing unexpected
 #     is allowed in, SHA256SUMS is written and `sha256sum -c`-verified there, and only then does
 #     `generated/` get replaced by a rename. Any error at any point leaves `generated/` and the
-#     published Markdown / HTML exactly as they were.
+#     published Markdown / HTML exactly as they were — the rollback copies of all three are
+#     kept until every one of the three publications has succeeded (round-4 review, finding 2).
 #
 # Every validation report is bound by the run directory it names, with no exception: the
 # relocation alias this script used to pass for the CPU record accepted the GPU arm's
@@ -36,11 +37,25 @@ ARMS="released_k8 released_k1 control_k8 cyl_k8"
 CPU=ckpt/exp10/cpu_protocol
 STAGE=$A/generated.staging.$$
 TMPOUT=$A/.finish_tmp.$$
+PREV=$A/generated.previous.$$          # the asset set this run replaces
+PREVR=$A/.finish_prev.$$               # the Markdown / HTML this run replaces
+REPORTS="yaw_pilot_01_results.html yaw_pilot_results.md"
 cleanup() {
   rc=$?
   if [ -d "$STAGE" ]; then rm -rf "$STAGE"; fi
   if [ -d "$TMPOUT" ]; then rm -rf "$TMPOUT"; fi
-  if [ "$rc" -ne 0 ]; then say "FINISH FAILED rc=$rc — $G and the published report are unchanged"; fi
+  # A death between the three publications (an unguarded error, a signal) must not leave a
+  # backup behind as the only copy of the previous publication.
+  if [ -d "$PREV" ]; then
+    if [ ! -d "$G" ]; then mv "$PREV" "$G"; else rm -rf "$PREV"; fi
+  fi
+  if [ -d "$PREVR" ]; then
+    for f in $REPORTS; do
+      if [ -f "$PREVR/$f" ] && [ ! -f "$E/$f" ]; then mv "$PREVR/$f" "$E/$f"; fi
+    done
+    rm -rf "$PREVR"
+  fi
+  if [ "$rc" -ne 0 ]; then say "FINISH FAILED rc=$rc — $G, the Markdown report and the HTML page are the publication that was there before"; fi
 }
 trap cleanup EXIT
 mkdir -p "$STAGE" "$TMPOUT"
@@ -127,15 +142,43 @@ if [ -n "$EXTRA" ]; then say "REFUSED: unexpected files in the staged asset set:
 ( cd "$STAGE" && sha256sum -c --quiet SHA256SUMS ) 2>&1 | tee -a "$LOG"
 say "staged $(wc -l < "$STAGE/SHA256SUMS") assets; SHA256SUMS verifies"
 
-# ---- publish: rename the old set aside, move the new one in, then drop the old ------------
-PREV=$A/generated.previous.$$
+# ---- publish: all three artefacts, or none of them (finding 2) ----------------------------
+# The previous assets used to be deleted as soon as the new ones were in place, before either
+# report was published, so a failing final rename left new assets + new HTML + old Markdown
+# (three generations mixed) while the cleanup claimed nothing had changed. Every backup is
+# now kept until all three publications have succeeded.
+restore() {   # <what failed> — put all three artefacts back exactly as they were
+  local what=$1 restored=""
+  if [ -d "$PREV" ]; then
+    rm -rf "$G"
+    if mv "$PREV" "$G"; then restored="$restored $G"; fi
+  elif [ -d "$G" ]; then
+    rm -rf "$G"; restored="$restored $G (removed: this run created it)"
+  fi
+  for f in $REPORTS; do
+    if [ -f "$PREVR/$f" ]; then
+      rm -f "$E/$f"
+      if mv "$PREVR/$f" "$E/$f"; then restored="$restored $E/$f"; fi
+    elif [ -f "$E/$f" ]; then
+      rm -f "$E/$f"; restored="$restored $E/$f (removed: this run created it)"
+    fi
+  done
+  rm -rf "$PREVR"
+  say "REFUSED: publishing $what failed; restored:$restored"
+}
+mkdir -p "$PREVR"
+for f in $REPORTS; do
+  if [ -f "$E/$f" ]; then cp -p "$E/$f" "$PREVR/$f"; fi
+done
 if [ -d "$G" ]; then mv "$G" "$PREV"; fi
-if ! mv "$STAGE" "$G"; then
-  say "REFUSED: could not publish the staged assets"
-  if [ -d "$PREV" ]; then mv "$PREV" "$G"; fi
-  exit 9
+if ! mv "$STAGE" "$G"; then restore "the asset set"; exit 9; fi
+if ! mv "$TMPOUT/yaw_pilot_01_results.html" "$E/yaw_pilot_01_results.html"; then
+  restore "the HTML page"; exit 9
 fi
+if ! mv "$TMPOUT/yaw_pilot_results.md" "$E/yaw_pilot_results.md"; then
+  restore "the Markdown report"; exit 9
+fi
+# All three are published: only now may the rollback copies go.
 if [ -d "$PREV" ]; then rm -rf "$PREV"; fi
-mv "$TMPOUT/yaw_pilot_01_results.html" "$E/yaw_pilot_01_results.html"
-mv "$TMPOUT/yaw_pilot_results.md" "$E/yaw_pilot_results.md"
+rm -rf "$PREVR"
 say "FINISH DONE: $(wc -l < "$G/SHA256SUMS") assets published in $G; report in $E"
