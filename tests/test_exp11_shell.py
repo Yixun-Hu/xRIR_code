@@ -1060,6 +1060,84 @@ def test_junk_in_child_pid_keeps_the_marker(tmp_path):
     assert (stalled / 'launching').is_file()
 
 
+# --- close review 9 blocker 2: the resolver yields to a registration in flight ------
+
+REGISTRATION_LOCK = '.registration.lock'
+
+
+def test_the_resolution_refuses_while_a_registration_holds_the_lock(tmp_path):
+    """The reviewer's schedule: a registration is mid-flight, so nothing may be retired.
+
+    A trainer that has taken the registration lock is between its checks and its write.
+    If the resolver went ahead, the rename would land in that window and the write would
+    reach a directory the arm no longer knows.
+    """
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    attempt = unresolved_attempt(root)
+    lock = root / REGISTRATION_LOCK
+    lock.touch()
+    holder = subprocess.Popen(['flock', str(lock), 'sleep', '30'])
+    try:
+        for _ in range(100):
+            if subprocess.run(['flock', '-n', str(lock), 'true']).returncode != 0:
+                break
+            time.sleep(0.05)
+        result = resolve(attempt)
+        assert result.returncode != 0
+        assert 'registration in progress' in result.stderr, result.stderr[-400:]
+        assert attempt.is_dir() and (attempt / 'launching').is_file()
+        assert not (root / (attempt.name + '.resolved')).exists()
+    finally:
+        holder.terminate()
+        holder.wait(timeout=30)
+    result = resolve(attempt)                       # released: the resolution proceeds
+    assert result.returncode == 0, result.stderr[-400:]
+
+
+def test_a_registration_completes_in_its_own_directory(tmp_path):
+    """The other half of that schedule: the registration lands where it started."""
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    attempt = unresolved_attempt(root)
+    from tools import exp11_train
+    path = exp11_train.register_trainer(str(attempt))
+    assert path == attempt / 'train.pid'
+    assert exp11_train.pid_record(path) == os.getpid()
+    assert attempt.is_dir(), 'the directory it registered in is the one it checked'
+
+
+def test_a_registration_after_a_resolution_refuses_on_the_tombstone(tmp_path):
+    """The mirror schedule: the resolver went first, so the trainer finds the answer."""
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    attempt = unresolved_attempt(root)
+    assert resolve(attempt).returncode == 0
+    from tools import exp11_train
+    with pytest.raises(SystemExit) as exit_request:
+        exp11_train.register_trainer(str(attempt))
+    assert exit_request.value.code == 3
+    assert not (attempt.parent / (attempt.name + '_ABORTED_unregistered/train.pid')).exists()
+
+
+def test_the_scans_do_not_take_the_registration_lock(tmp_path):
+    """A recovery must not be blocked by a registration; the marker already covers it."""
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    lock = old.parent / REGISTRATION_LOCK
+    lock.touch()
+    holder = subprocess.Popen(['flock', str(lock), 'sleep', '30'])
+    try:
+        for _ in range(100):
+            if subprocess.run(['flock', '-n', str(lock), 'true']).returncode != 0:
+                break
+            time.sleep(0.05)
+        status, out, err = recovery(old, 'H', tmp_path)
+        assert status == 0, err[-400:]
+        assert 'PROMOTE' in out
+    finally:
+        holder.terminate()
+        holder.wait(timeout=30)
+    text = (REPO / 'tools/exp11_launch.sh').read_text()
+    assert 'the scans do not take it' in text, 'say why in the launcher'
+
+
 def pid_of(pidfile):
     """The pid in a registration file, if it still names a living process."""
     try:
