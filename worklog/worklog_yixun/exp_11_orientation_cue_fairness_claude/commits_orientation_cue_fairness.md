@@ -8,3 +8,4 @@
 | 08a1554 | main | bookkeeping: close reviews 1–2, fix prompts/reports, merge + re-fill logs |
 | bb1b59d | main | merge --no-ff 91fbd8b (exp11-cue round 1: init yawaug_hf, exp_11 phase-1 summariser) |
 | 9f98bbb | main | approvals re-fill: haa_pipeline_sh f33d4ffe…, summarize_haa 645e74c0… |
+| f8ca51d | main | Coder round-1 reports (final wording), fix-2 report, round-2 prompt |
