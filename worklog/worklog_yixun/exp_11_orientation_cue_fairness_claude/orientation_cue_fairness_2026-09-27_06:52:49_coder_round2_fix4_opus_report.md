@@ -121,3 +121,36 @@ other nineteen are unchanged:
 other seven, `summarize_haa` included, are unchanged. These are values for the eventual
 reviewed merge, not an authorisation to fill the approvals now: exp_11's record stays
 all-null and every exp_11 producer refuses today.
+
+## Tests
+
+* **Targeted set** — all `tests/test_exp11_*.py` plus `tests/test_exp06_summarize_haa.py`
+  and `tests/test_exp09_sim_eval_closures.py`: **360 passed** in 464 s
+  (`tests/test_exp11_shell.py` alone: 61). The pinned exp_06/exp_09 and exp_11 phase-1
+  oracles still reproduce their payloads and rendered summaries byte for byte.
+* `bash -n` on both shells, `py_compile` on every exp_11 module and test, and
+  `git diff --check` over `48b7bd4..HEAD`: clean.
+
+## Full CPU suite
+
+`CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 python -m pytest tests -q -rf` on the frozen
+tree (clean outside `worklog/`):
+
+```
+1 failed, 3690 passed, 55 skipped, 307 warnings in 3155.33s (0:52:35)
+FAILED tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes
+```
+
+The single failure is the **expected exp_06 approvals re-fill** — `code.summarize_haa`
+has moved and the record is stale until a reviewer re-fills it at the reviewed merge,
+exactly as round 1 did with `9f98bbb`. It is the mechanism that detects the one key this
+round is allowed to move, not a regression.
+
+Progression across this round's five runs: 3 614 → 3 651 → 3 669 → 3 683 → **3 690**
+passing, with 2 → 1 → 1 → 1 → 1 failures — all of them that same approvals-drift detector
+after the first run's load-average SIGTERM flake, which has not recurred.
+
+## Status
+
+Both lock defects are addressed and the commit-size record is corrected. Ready for
+re-review at this tip.
