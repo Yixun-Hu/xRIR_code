@@ -1119,3 +1119,74 @@ def test_the_markdown_names_each_arms_context_band(tmp_path):
     summary = summarize.build_summary([run_dir], n_boot=50)
     markdown = _markdown(summary, tmp_path, "band_md")
     assert summarize.band_label(summary["arms"][0]["meta"]) in markdown
+
+
+# ----- round 3, finding 1: the figure's footers must be readable, not stacked on top of
+#       each other -- the qualification the report has to carry is one of them
+
+def _four_arm_summary(tmp_path, n_boot=50):
+    """Four arms -- two SimpleViT, two CylindricalViT -- carrying all four ratio statuses.
+
+    This is the worst case the footer has to survive: the longest realistic footnote (the
+    status line has to explain every code that appears) under a figure with four rows.
+    """
+    specs = (("released_k8", "simple", "a"), ("control_k8", "simple", "b"),
+             ("cyl_k8", "cylindrical", "c"), ("cyl_control_k8", "cylindrical", "d"))
+    run_dirs = [_fixture_run(tmp_path, arm, n=8, ks=(0, 128, 256),
+                             protocol_overrides={"checkpoint_sha256": letter * 64},
+                             meta_overrides={"arm": arm, "backbone": backbone})
+                for arm, backbone, letter in specs]
+    summary = summarize.build_summary(run_dirs, n_boot=n_boot)
+    statuses = ["defined", "improvement", "denominator uncertain", "undefined"]
+    position = 0
+    for arm in summary["arms"]:
+        for k in sorted(arm["angles"], key=int):
+            if int(k) == 0:
+                continue
+            for label in ("T60", "C50", "EDT"):
+                cell = arm["angles"][k].get(label)
+                if cell is None:
+                    continue
+                cell["query"]["ratio"]["status"] = statuses[position % len(statuses)]
+                position += 1
+    return summary
+
+
+def _figure_text_boxes(figure):
+    """Every figure-level text block and legend, named, with its drawn window extent."""
+    figure.canvas.draw()
+    renderer = figure.canvas.get_renderer()
+    boxes = [(repr(text.get_text()[:40]), text.get_window_extent(renderer))
+             for text in figure.texts]
+    boxes += [("<legend>", legend.get_window_extent(renderer))
+              for legend in figure.legends]
+    return boxes
+
+
+def test_the_figure_footers_never_overlap_each_other_or_the_panels(tmp_path):
+    summary = _four_arm_summary(tmp_path)
+    figures = [summarize.make_figure(summary, arm["arm"],
+                                     str(tmp_path / "{}.png".format(arm["arm"])))
+               for arm in summary["arms"]]
+    figures.append(summarize.make_combined_figure(summary, str(tmp_path / "all.png")))
+    try:
+        for figure in figures:
+            boxes = _figure_text_boxes(figure)
+            # the status footnote, the pipeline/T60 qualification and the legend
+            assert len(boxes) >= 3, boxes
+            for index, (name, box) in enumerate(boxes):
+                for other_name, other in boxes[index + 1:]:
+                    assert not box.overlaps(other), (name, other_name)
+            renderer = figure.canvas.get_renderer()
+            panels = [ax.get_tightbbox(renderer) for ax in figure.axes]
+            for name, box in boxes:
+                for panel in panels:
+                    assert not box.overlaps(panel), name
+        # the qualifications the report has to carry are among those blocks
+        footer = " ".join(text.get_text() for text in figures[0].texts)
+        assert "Griffin-Lim" in footer and "den? = denominator uncertain" in footer
+    finally:
+        import matplotlib.pyplot as plt
+
+        for figure in figures:
+            plt.close(figure)

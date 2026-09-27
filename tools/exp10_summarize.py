@@ -717,6 +717,14 @@ ROOM_QUALIFICATION = (
 STATUS_FOOTNOTE = ("ratio status under each angle: def = defined, impr = net error "
                    "improves, den? = denominator uncertain (no ratio), und = undefined; "
                    "n = queries in the shared comparison mask")
+#: The footer band: the legend, the status footnote and the pipeline/T60 qualification.
+#: Their heights are measured, not guessed (see :func:`_figure_legend`); these are only
+#: the type sizes and the gaps, in points, that the measured blocks are stacked with.
+FOOTER_FONTSIZE = 6.0
+FOOTER_LEGEND_FONTSIZE = 6.5
+FOOTER_LINESPACING = 1.35
+FOOTER_GAP_PT = 6.0            # between two footer blocks, and above the topmost one
+FOOTER_PAD_PT = 6.0            # under the bottom block
 
 
 def _sanitize(payload):
@@ -1008,14 +1016,54 @@ def _wrap(text, width=150):
 
 
 def _figure_legend(figure, handles):
-    """One legend, the status codes and the pipeline qualification, for the whole figure."""
-    figure.legend(handles=handles, loc="lower center", ncol=len(handles), frameon=False,
-                  fontsize=6.5, bbox_to_anchor=(0.5, -0.09))
-    figure.text(0.5, -0.14, _wrap(STATUS_FOOTNOTE), ha="center", fontsize=6,
-                color="#555555")
-    figure.text(0.5, -0.20, _wrap("{}. {}. T60: delta = {}, G = {}.".format(
-        PIPELINE_NOTE, GL_FREE_NOTE, METRIC_QUALIFICATIONS["T60"]["delta"],
-        METRIC_QUALIFICATIONS["T60"]["gap"])), ha="center", fontsize=6, color="#555555")
+    """One legend, the status codes and the pipeline qualification, for the whole figure.
+
+    The three blocks used to sit at fixed negative figure fractions, which is a guess
+    about their heights: the status footnote wraps to two lines and the qualification to
+    four, so they landed on top of each other and the qualification the report is required
+    to carry was unreadable (round-2 review, finding 1).  They are instead *measured* on a
+    drawn canvas and stacked bottom-up -- qualification, status footnote, legend -- inside
+    a band the figure grows to hold.  Constrained layout is confined to the rest of the
+    canvas (``rect``), so a longer footnote pushes the panels up rather than colliding
+    with them, and the panels keep the height they were asked for.
+
+    Returns:
+        ``(legend, texts)`` -- the artists placed, bottom of the band first.
+    """
+    blocks = [_wrap(STATUS_FOOTNOTE),
+              _wrap("{}. {}. T60: delta = {}, G = {}.".format(
+                  PIPELINE_NOTE, GL_FREE_NOTE, METRIC_QUALIFICATIONS["T60"]["delta"],
+                  METRIC_QUALIFICATIONS["T60"]["gap"]))]
+    legend = figure.legend(handles=handles, loc="lower center",
+                           ncol=max(1, len(handles)), frameon=False,
+                           fontsize=FOOTER_LEGEND_FONTSIZE, bbox_to_anchor=(0.5, 0.0))
+    texts = [figure.text(0.5, 0.0, block, ha="center", va="bottom",
+                         fontsize=FOOTER_FONTSIZE, color="#555555",
+                         linespacing=FOOTER_LINESPACING) for block in blocks]
+
+    figure.canvas.draw()                     # window extents need a renderer behind them
+    renderer = figure.canvas.get_renderer()
+    # Bottom-up: the qualification caption, the status footnote, then the legend.  Point
+    # sizes do not depend on the figure size, so these heights survive the resize below.
+    stacked = list(reversed(texts)) + [legend]
+    heights = [artist.get_window_extent(renderer).height / figure.dpi
+               for artist in stacked]
+
+    gap, pad = FOOTER_GAP_PT / 72.0, FOOTER_PAD_PT / 72.0
+    band = pad + sum(heights) + gap * len(heights)     # the last gap separates the panels
+    figure.set_figheight(figure.get_figheight() + band)
+    reserved = band / figure.get_figheight()
+    figure.get_layout_engine().set(rect=(0.0, reserved, 1.0, 1.0 - reserved))
+
+    bottom = pad
+    for artist, height in zip(stacked, heights):
+        position = (0.5, bottom / figure.get_figheight())
+        if artist is legend:
+            legend.set_bbox_to_anchor(position)
+        else:
+            artist.set_position(position)
+        bottom += height + gap
+    return legend, texts
 
 
 def make_combined_figure(summary, path):
