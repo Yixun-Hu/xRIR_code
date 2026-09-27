@@ -311,6 +311,28 @@ smoke)
         --backbone "$ARM_BACKBONE" --checkpoint "$h1/run/best.pth" \
         --heading-json-dir "$HEADING_DIR" --rooms hallway --max-samples 4 \
         --save-dir "$h2/run" --seed 0
+    # (e)/(f) the ADAPTER route of arms J and K. The oriented rungs above prove nothing
+    # about it: a different backbone, the --adapter-heading-json-dir cue instead of the
+    # frame, and the contextual loading mode (base weights first, the trained adapter
+    # afterwards). Both rungs run here so J/K have a reviewed smoke before their queue.
+    a1="$SMOKE_DIR/haa_adapter_finetune_$STAMP"
+    diagnostic haa_train_smoke "$a1" \
+        "$RECORD/orientation_cue_fairness_${STAMP}_smoke_haa_adapter_finetune.log" \
+        "$SMOKE_DIR/receipt_haa_adapter_finetune_$STAMP.json" \
+        --alarm-seconds "$SMOKE_ALARM_S" --max-gb "$SMOKE_MAX_GB" -- \
+        --backbone simple_adapter --init "$SMOKE_DIR/fixture_simpadapter.pth" \
+        --rooms class_room --adapter-heading-json-dir "$HEADING_DIR" \
+        --save-dir "$a1/run" --epochs 2 --val-every 1 --batch-size 4 \
+        --val-batch-size 4 --seed 0
+    require_passed "$a1"
+    a2="$SMOKE_DIR/haa_adapter_eval_$STAMP"
+    diagnostic haa_eval_smoke "$a2" \
+        "$RECORD/orientation_cue_fairness_${STAMP}_smoke_haa_adapter_eval.log" \
+        "$SMOKE_DIR/receipt_haa_adapter_eval_$STAMP.json" \
+        --alarm-seconds "$SMOKE_ALARM_S" --max-gb "$SMOKE_MAX_GB" -- \
+        --backbone simple_adapter --checkpoint "$a1/run/best.pth" \
+        --adapter-heading-json-dir "$HEADING_DIR" --rooms hallway --max-samples 4 \
+        --save-dir "$a2/run" --seed 0
     ;;
 finalize)
     preflight   # recovery is gated by the same reviewed commit, clean tree and pid checks
