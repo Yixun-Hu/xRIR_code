@@ -109,7 +109,7 @@ def test_the_holder_writes_nothing_into_the_file_it_locks(tmp_path):
         holder.wait(timeout=30)
 
 
-def test_the_lock_descriptor_is_close_on_exec():
+def test_the_lock_descriptor_is_close_on_exec(tmp_path):
     """Nothing the holder could ever exec may inherit the lock."""
     text = (REPO / HOLDER).read_text()
     assert 'FD_CLOEXEC' in text and 'O_CLOEXEC' in text
@@ -119,12 +119,9 @@ def test_the_lock_descriptor_is_close_on_exec():
          'import exp11_lock_holder as h;\n'
          'fd = h.open_lock(sys.argv[1]);\n'
          'print(bool(fcntl.fcntl(fd, fcntl.F_GETFD) & fcntl.FD_CLOEXEC))',
-         str(REPO / 'tools' / '.cloexec_probe.lock')],
+         str(tmp_path / 'probe.lock')],           # never inside the repository
         cwd=str(REPO), capture_output=True, text=True)
-    try:
-        assert probe.stdout.strip() == 'True', probe.stderr[-400:]
-    finally:
-        (REPO / 'tools' / '.cloexec_probe.lock').unlink(missing_ok=True)
+    assert probe.stdout.strip() == 'True', probe.stderr[-400:]
 
 
 def test_the_holder_refuses_a_call_it_cannot_understand(tmp_path):

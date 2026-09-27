@@ -118,10 +118,12 @@ could change without moving any approved digest.
 | `cdd6379` (RED) | — | +4 / −2 |
 | `eae0bec` (GREEN) | +2 / −1 = 3 changed | — |
 | `3db254a` | — | +92 |
-| `4da8b55` (RED) | — | +17 |
+| `4da8b55` (RED) | — | +16 |
 | `e351fec` (GREEN) | +7 / −1 | — |
-| `091b3b9` (RED) | — | +21 |
-| `63c1bed` (GREEN) | +9 / −3 | — |
+| `091b3b9` (RED) | — | +20 |
+| `63c1bed` (GREEN) | +10 / −3 | — |
+(Corrected in fix 8 from close review 7: +16, +20, +10/−3.)
+
 | range `94efbc2..HEAD` | +120 / −23 = **143 changed** | +357 / −3 |
 
 Every production commit is well under 200 changed lines.

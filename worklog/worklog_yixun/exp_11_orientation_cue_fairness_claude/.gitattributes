@@ -3,3 +3,6 @@
 # from the whitespace check keeps `git diff --check` meaningful for the code this record
 # accompanies, without touching a reviewer's bytes.
 *codex*review*.md -whitespace
+# Captured pytest output is evidence, kept exactly as the tool produced it: the trailing
+# whitespace in a progress line is pytest's, not ours.
+*_suite_full_cpu*.log -whitespace
