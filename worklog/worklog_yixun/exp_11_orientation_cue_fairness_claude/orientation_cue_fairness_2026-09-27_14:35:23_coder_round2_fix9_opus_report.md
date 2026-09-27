@@ -150,8 +150,14 @@ are untouched. exp_11's approvals record remains all-null and every producer ref
 
 * **Targeted set** — all fourteen `tests/test_exp11_*.py` plus
   `tests/test_exp06_summarize_haa.py` and `tests/test_exp09_sim_eval_closures.py`:
-  TARGETED_PLACEHOLDER
+  **411 passed** in 561 s
+  (`tests/test_exp11_shell.py` alone: **90**, `tests/test_exp11_train.py`: **24**,
+  `tests/test_exp11_lock_holder.py`: **7**). Fix 8 was 384; the 27 new passes are this
+  cycle's regressions.
 * `bash -n` on both shells, `py_compile` on every changed module and test, and
   `git diff --check 7abeb4d..HEAD`: clean. `tools/exp06_launch.sh` and
   `tools/exp06_finalize.py` are byte-identical to `7abeb4d`.
-* **Full CPU suite** — FULL_SUITE_PLACEHOLDER
+* **Full CPU suite** — run detached at `616fb6a` (the same tree as the last code
+  commit `b49d90b`) to
+  `orientation_cue_fairness_2026-09-27_14:50_suite_full_cpu_616fb6a.log` in this record.
+  FIX9_SUITE_RESULT
