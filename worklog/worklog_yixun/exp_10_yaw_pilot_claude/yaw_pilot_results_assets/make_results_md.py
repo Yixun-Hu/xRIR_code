@@ -24,6 +24,16 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate_runs as vr                                          # noqa: E402
 
+#: The repository this record belongs to (…/worklog/worklog_yixun/<record>/<assets>/…), so
+#: the arm display names come from the approved summariser rather than being restated here:
+#: `released_k1` is the K = 8 checkpoint evaluated at K = 1, and a header carrying the bare
+#: key does not say so (record review, finding 5).
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                          os.pardir, os.pardir, os.pardir, os.pardir))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+from tools.exp10_summarize import display_label                     # noqa: E402
+
 HEAD = [("EDT", "EDT", 1000.0, "ms"), ("C50", "C50", 1.0, "dB"), ("T60", "T60", 1.0, "pp (Δ) / % (G)"),
         ("T60_abs", "T60 absolute", 1000.0, "ms"), ("logspec_mad", "log-spec MAD (GL-free)", 1.0, "")]
 DEG = {"0": "0°", "64": "45°", "128": "90°", "256": "180°", "384": "270°"}
@@ -152,7 +162,7 @@ def main():
     L += note_lines(s)
     for arm in s["arms"]:
         m = arm["meta"]
-        L += ["## %s" % arm["arm"], "",
+        L += ["## %s" % display_label(arm["arm"]), "",
               "`%s` (sha256 `%s…`), backbone %s, K = %s, device %s, %d queries (batches `%s`), manifest `%s…`, gl_seed %s, execution `%s`." % (
                   m.get("checkpoint"), str(m.get("checkpoint_sha256"))[:12], m.get("backbone"), m.get("num_shot"), m.get("device"),
                   arm.get("n_queries", 0), m.get("batches_arg"), str(m.get("manifest_hash"))[:12], m.get("gl_seed"), arm.get("execution_id")), ""]
