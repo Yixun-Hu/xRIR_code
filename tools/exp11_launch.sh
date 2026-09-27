@@ -215,10 +215,16 @@ hold_arm_lock() {  # hold_arm_lock <mode>
     exec {out}< <(exec "$PYTHON" tools/exp11_lock_holder.py "$LOCK_FILE" $$)
     read -r -t 30 verdict pid <&"$out" || true
     exec {out}<&-
-    if [ "$verdict" != acquired ] || [ -z "$pid" ]; then
+    if [ "$verdict" = refused ]; then
         echo "refusing: $LOCK_FILE is held by another invocation publishing this arm;" \
              "one publication per arm at a time. Its holder ends with that invocation," \
              "so there is nothing to clear by hand" >&2
+        return 1
+    fi
+    if [ "$verdict" != acquired ] || [ -z "$pid" ]; then
+        # Not someone else's lock: the holder never reported one. Say which it is.
+        echo "refusing: the lock holder for $LOCK_FILE did not start (no verdict);" \
+             "nothing was published" >&2
         return 1
     fi
     HOLDER_PID="$pid"
