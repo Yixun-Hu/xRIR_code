@@ -1,0 +1,1124 @@
+Reading additional input from stdin...
+OpenAI Codex v0.154.0
+--------
+workdir: /home/yixunhu/codespace/xRIR_code_wt
+model: gpt-6-astra
+provider: openai
+approval: on-request
+sandbox: read-only
+reasoning effort: ultra
+reasoning summaries: none
+session id: 01a0e17a-8bc8-7dd1-a88c-bd5642c44456
+--------
+user
+You are the code REVIEWER (OpenAI Codex) for experiment exp_11 `orientation_cue_fairness` of the xRIR repository. Review ROUND 2 (the exp_11-owned family) in the git worktree /home/yixunhu/codespace/xRIR_code_wt on branch `exp11-cue` (read-only; CPU ≤ 4 threads; CUDA_VISIBLE_DEVICES=''; never signal processes — other experiments run on both GPUs and on the CPU; you may run pytest on selected test files with `-p no:cacheprovider`, PYTHONPATH = the worktree, writing only under /tmp). Base `c491396` (main: round 1 merged at bb1b59d, exp_06 approvals re-filled at 9f98bbb), tip `c8acda2` (42 commits): `git log --oneline c491396..c8acda2`, `git diff c491396 c8acda2`.
+
+Read first: `worklog/experiment_SOP.md`; the plan v3 `worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/plan_orientation_cue_fairness.md` (§2.2 arms H/I/J/K, §2.3 models and the adapter contract, §3 Q1–Q4 / P1–P4′ / outputs, §4 items 6–14, §5); the two Codex plan reviews (round 2's changes 1, 4, 5 are the acceptance criteria for this round); the Coder's prompt `coder_prompts/round2_opus_prompt.md` and report `orientation_cue_fairness_2026-09-26_23:35:21_coder_round2_opus_report.md` (worktree record); the frozen code the new family composes: `model/simple_vit.py`, `model/cylindrical_vit_oriented.py`, `model/xRIR_cyl_oriented.py`, `tools/exp06_{train,recipe,launch.sh,smoke,haa_finetune,haa_eval,finalize,profiles,approvals_api}.py`, `tools/provenance.py`, `tools/yaw_aug.py`, `train_xRIR_backbone.py`, `tests/test_exp09_sim_eval_closures.py`, and exp_04's / exp_01's `args.json`.
+
+Review for: (1) **models** — `SimpleViTOriented` (planes = the frozen `azimuth_channels`, non-persistent, `channels 5`, forward cat → parent; parameter increment derived), `xRIR_SimpleOriented` pool guard, `SimpleViTAdapter` per plan §2.3 and plan-review change 1 (composition around the pinned SimpleViT; zero weight AND bias; `θ_j = 2π(j+½)/16 − π`; heading in radians from `phi_deg`; added after the patch embedding's final LayerNorm beside the positional code; bit-exact at init; the two STRICT loading modes with no `strict=False` path and no silent re-zeroing), `BACKBONES_EXP11`/`build_xrir_exp11` in a new module, `BACKBONES_EXP06` and `exp06_finalize.registry_sha256()` unchanged; (2) **`tools/exp11_profiles.py`** — code keys incl. `launch_sh` binding both shell files, artifact/reused keys, the requirement matrix (no producer requires its own output; phase 1b and both pretrainings admissible with H/I pins null; H with only its own pin; final publication requires every arm), the all-null approvals template, committed-blob binding; (3) **`tools/exp11_recipe.py`** — H_RECIPE and I_RECIPE exactly as plan §4.11 (compare with the two historical `args.json`; loader length 9 261; exp_04's saving/resume/counter constraints for I; type-strict, unknown fields refused, mixtures refused); (4) **`tools/exp11_train.py`, `tools/exp11_launch.sh`, `tools/exp11_smoke.py`** — the exp_06 loop on the new registry, `--yaw-aug` constraints, provenance, promotion, preflight (reviewed commit == HEAD, clean tree outside worklog/, live pid files, approvals gate, exclusive-card census for probe|full), 36 h ceiling, diagnostic kinds with budgets and permanent non-admissibility (the Coder used the `probe` kind with tightened budgets for the smoke's training rung — acceptable?); (5) **`tools/exp11_finalize.py`** — own run types and dispatch, the completion contract identical to exp_06's (check every listed item against `tools/exp06_finalize.py`), heading binding (heading frame for H/I; room frame + shared adapter heading for J/K, mixed headings refused), reuse of exp_06 helpers by import without monkeypatching, the delegated `child-exit` closer; (6) **`tools/exp11_haa_finetune.py` / `tools/exp11_haa_eval.py`** — the faithful orchestration loop: is the parity test's line-for-line transcription of `exp06_haa_finetune.main` (pinned by `sha256(inspect.getsource(...)) = 88973e01…`) a sound way to establish parity on CPU, and does the loop reproduce optimiser-step order, validation cadence, epoch-zero selection, strict-improvement selection and final-checkpoint bytes; the imported numerical helpers are the pinned objects; the evaluation path; `args.json`/metadata; (7) **`tools/exp11_haa_pipeline.sh`** — inits `simple_or`, `simple_or_yaw` (heading), `control_adapter`, `yawaug_adapter` (room + adapter heading), entry-point selection, identity gate, explicit exclusive-card census before every job, roots, golden dry-runs incl. a mixed queue; (8) **the summariser** (`tools/exp06_summarize_haa.py`, the only exp_06 file touched) — arms H/I/J/K, the `ADMISSION` per-arm dispatch (historical arms keep exp_06's spec loader / child verifier / role resolver / lineage; exp_11 arms use exp_11's; serialised run types vs semantic roles), `check_arm_identities` per-arm code-key mapping (historical keys neither replaced nor disabled), adapter-cue admission for J/K only with the historical room-frame rejection preserved for A/B/E, phases `phase1b`/`final` behind `--phase` with phase 1 unchanged, the decisions Q1–Q4 / P1–P4′ on the generic fields, the A′ external row (copied, sha256-bound, never paired), exp06/exp09/exp11-phase1 payloads unchanged under the pinned oracle; (9) **closure hygiene** — vs 9f98bbb only `summarize_haa` moved among the exp_06 keys (now 393d01f0…; note its closure now contains `tools/exp11_finalize.py`), the eight exp_11 keys present, the four sim-eval closures unchanged, no frozen file edited, `tests/test_exp09_sim_eval_closures.py` green; (10) **tests and process** — red-first evidence, coverage of plan §5, the two full-suite failures (the expected exp_06 drift guard; a SIGTERM launcher flake at load ≈ 33) and the four over-200-line commits; (11) anything that would make a Phase-1b/Phase-2 run inadmissible, non-comparable with exp_02/exp_06/exp_09, or unsafe on the shared machine. Verdict: "approve", "approve with changes" (listed with file:line), or "request changes" with blockers numbered; list the exact approvals keys/digests to fill at the merge commit (exp_06's `summarize_haa`; exp_11's record). Identity header (model, reasoning effort as the invocation metadata states it, sandbox, tree, HEAD, date/time); print the review in full; save nothing.
+codex
+I’ll read the SOP and acceptance criteria first, then review the changes and run selected CPU-only checks. I’ll keep the tree read-only and won’t signal processes.
+exec
+/bin/bash -lc 'pwd && git status --short && git rev-parse HEAD && git branch --show-current && cat worklog/experiment_SOP.md' in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+/home/yixunhu/codespace/xRIR_code_wt
+c8acda24137c6b14c7e9fb2dc14be770261de6bc
+exp11-cue
+# Experiment SOP (portable)
+
+A generalizable standard operating procedure for AI-assisted research experiments. Drop this file into any project and reference it from that project's `CLAUDE.md` (e.g. "Follow `worklog/experiment_SOP.md` for all experiment work"). Written for Claude Code, but the roles are model-agnostic.
+
+## Roles (three-model separation of duties)
+
+| Role | Who | Duty |
+|---|---|---|
+| **Planner / Analyst** | The main-session model (strongest reasoning tier; currently Claude Fable 5.1) | Writes plans, judges reliability, writes analyses. Does NOT write implementation code directly. |
+| **Coder** | The strongest coding model at its highest reasoning setting — **currently Claude Opus 5 at max effort, a separate subagent launched from the main session (Agent tool, model `opus`) working in a dedicated git worktree (per Yixun 2026-09-15; 2026-09-12 → 2026-09-15 it was OpenAI Codex `gpt-6-astra` at Ultra via `codex exec`; before that a Claude Opus 4.8 max-effort subagent)** | Implements exactly what the approved plan specifies. |
+| **Reviewer** | **The opposite model family from the Coder** (mandatory cross-model review; see reciprocity note below). | Reviews all newly written code; review is saved, not just read. If the reviewer is unavailable, say so — never silently substitute. |
+
+> **Reviewer reciprocity — no model reviews its own code.** The Reviewer is always the opposite model family from the **Coder**. With the current roles (Planner Claude Fable 5.1, Coder Claude Opus 5; per Yixun 2026-09-15), the code Reviewer is **OpenAI Codex `gpt-6-astra` at Ultra** (`codex exec -s read-only` in the worktree; its final message is saved as the review file with the identity header). When the Coder was Codex (2026-09-12 → 2026-09-15), the code Reviewer was a separate Claude Fable 5.1 subagent launched from the main session with the reviewer briefing, so the review context was independent of the Planner's. Plan reviews follow the same rule (the Planner is Claude, so plans are reviewed by Codex). The Coder and Reviewer must always be different model families, so review is genuinely independent.
+
+> **Reviewer briefing — load context before judging.** Every review prompt (plan or code) must direct the Reviewer to read, before reviewing: (1) this SOP and all `worklog/worklog_<username>/announcement/` directives; (2) the experiment's `plan_*.md` and `_worklog.md` notebook (what was decided and why, including plan amendments); (3) the results/analyses of the PRIOR experiments the work builds on (e.g. baseline numbers and noise floor); (4) a one-paragraph statement of what the current Coder round was tasked to do and what is explicitly out of scope for this round. A reviewer without this context produces generic reviews, flags out-of-scope "gaps", and misses violations of experiment-specific decisions.
+
+## Directory layout
+
+All experiment bookkeeping lives in `worklog/` at the repo root, **namespaced per user** (rule updated 2026-07-12):
+
+- `worklog/experiment_SOP.md` — **this file lives directly under `worklog/`, NOT inside any user namespace** (it is shared/portable across users).
+- `worklog/worklog_<username>/` — one namespace folder per user; ALL of that user's experiment logging goes inside it (in this project `<username>` = `yixun` → `worklog/worklog_yixun/`). Every logging path that previously sat directly under `worklog/` now sits under `worklog_<username>/`:
+  - `worklog/worklog_<username>/announcement/<NN>_<topic>.md` — standing directives from the user. **Read every announcement before planning or running anything.** New standing instructions get the next number.
+  - `worklog/worklog_<username>/exp_<NN>_<exp name>_claude/` — one folder per experiment, `<NN>` zero-padded and sequential.
+  - `worklog/worklog_<username>/archive_<reason>_<date>/` — archived/superseded code (see Development discipline).
+
+## Per-experiment artifacts (in lifecycle order)
+
+Inside `worklog/worklog_<username>/exp_<NN>_<exp name>_claude/`:
+
+1. `<exp name>_<username>_query.md` — the user's driving queries: each one verbatim, plus a summary, the user's assumption/hypothesis, and why the experiment needs to run. Started at scaffold time, appended as new queries arrive. (`<username>` is the same name as in the `worklog_<username>` namespace folder — here `yixun`, e.g. `<exp name>_yixun_query.md`.)
+2. `plan_<exp name>.md` — written by the Planner BEFORE any code: the English plan AND the planned code laid out per file (each existing file to edit, each new file to create). Surfaced for user approval before implementation.
+3. `<exp name>_<reviewer>_plan_review.md` — the Reviewer's review of the PLAN, before user approval and before any implementation: method soundness, hidden assumptions, missing tests/controls, run design. Same reviewer-naming and identity-header rules as the code review below. Planner addresses the findings (revising the plan) before the user signs off.
+4. *(the implementation itself)* — the code, written by the Coder subagent per the approved plan. No dedicated markdown artifact; this step is the source-code changes.
+5. `<exp name>_<reviewer>_code_<marker>_review.md` — **one small review per Coder round, not one big review at the end**: after EVERY round of Coder output (a TDD red→green cycle, a code snippet, or a coherent commit group), the Reviewer reviews that round's commits BEFORE the next round starts. `<reviewer>` names the reviewing model (`codex` / `opus`); `<marker>` identifies the round — the TDD-cycle or snippet name, or the short name of the main commit (e.g. `<exp name>_codex_code_cyl_pose_review.md`, `<exp name>_codex_code_dispatch_review.md`). **A round is CLOSED only when its full loop has run: code written → review returned → strengthening/fixes applied by the Coder for every blocking finding → fixes re-verified (tests green; re-review or Planner verification of the fix) → loop outcome logged in `_worklog.md` with the fix commit SHAs.** No new round starts, and no run launches, while any round is open. Nits may be batched into the next round; blocking findings may not. A final integrative review of the whole experiment diff (marker `full`) still runs before the first expensive launch. Record "N/A — no code written" for code-free experiments. Every review file MUST open with a header giving the reviewer's exact identity: model/product name and version, invocation method, and review date — e.g. `**Reviewer:** OpenAI Codex (codex-cli 0.144.1, \`codex exec\`, read-only sandbox) · **Date:** 2026-07-10`. **Reviews (plan and code) always use the Reviewer family's strongest available model at its highest reasoning setting** — currently `gpt-6-astra` at Ultra (`model = "gpt-6-astra"`, `model_reasoning_effort = "ultra"` in `~/.codex/config.toml`; per Yixun 2026-09-12; supersedes `gpt-5.6-sol`; requires codex-cli ≥ 0.154 — 0.144.1 rejects the model) for Codex, Claude Fable 5.1 for Claude (per Yixun 2026-09-12; previously Claude Opus 4.8 at max effort). Since 2026-09-15 the Coder is Claude Opus 5, so code reviews are Codex (`<exp name>_codex_code_<marker>_review.md`) and plan reviews stay Codex; a Coder change mid-experiment is logged in the notebook and rounds keep single authorship (an in-flight round of the previous Coder is archived, not mixed).
+6. `<exp name>_params_set_up.md` — full hyperparameters/configuration, written at launch.
+7. `<exp name>_command.md` — exact reproduction command(s). **Rule: EVERY experiment/run launched gets its command added to this file AT LAUNCH TIME, not retroactively** — including reruns, amended iterations, probes that produce run artifacts, and diagnostics; failed/superseded runs stay in the file (marked as such) because reproducing the failure is part of the record. The notebook records *why*, this file records *how to reproduce*.
+8. `<exp name>_worklog.md` — an append-only, timestamped **lab notebook: one entry per action**, not per run. Started at scaffold, appended continuously through implementation, debugging, and every launch. This is where the validation ladder, parity audit, and failure triage (below) get recorded as they happen. Entry format in **Worklog entry template** below. Complements `_results.md` (final numbers) and `_analysis.md` (final judgment) by capturing the decision/debug trail in between.
+9. `<exp name>_<YYYY-MM-DD_HH:MM:SS>.log` — ALL terminal output, one timestamped log per run (tee/redirect every training/eval command into the folder). Aborted runs keep their log, renamed with an `_ABORTED_<reason>` suffix.
+10. `<exp name>_results.md` — results, appended as runs finish.
+11. `<exp name>_analysis.md` — written by the Planner after results land: analyze all code + configuration + results; judge whether the result is reliable; state the outcome and the recommended next step.
+12. `commits_<exp name>.md` — SHA + one-line description of every commit belonging to this experiment.
+13. `<exp name>_<idx>_results.html` — **rich HTML results visualization, produced after the experiment finishes** (alongside, not replacing, `_results.md`): tables, equations (MathJax/KaTeX or clean HTML math), figures/plots, color-coded verdict blocks, run-trajectory charts — use the full expressive range of HTML/CSS to make the results maximally human-readable. `<idx>` is chosen by the author to separate distinct parts of the visualization when one page would overload (e.g. `..._01_results.html` for gate tables, `..._02_results.html` for mechanism decomposition); a single `_01_` page is fine for simple experiments. **All sourced assets (generated plot images, data extracts, JS/CSS) live in a corresponding folder inside the experiment directory** (e.g. `exp_<NN>_<exp name>_claude/<exp name>_results_assets/`) and are referenced relatively, so the HTML renders offline from a repo checkout. Charts follow the project's visualization standards (load the dataviz guidance before writing chart code). The HTML must be self-consistent with `_results.md` numbers — it is a presentation layer, never a place where numbers appear first.
+
+## Worklog entry template
+
+Each `_worklog.md` entry is one action, headed by an ISO-8601 timestamp in **local time with UTC offset** (same clock as the run-log filenames) and a short title, then these fields. Use the full set for substantive actions (code, launches, fixes); a lightweight **Goal / Result / Analysis / Next** is enough for routine monitoring checks.
+
+`## <YYYY-MM-DDThh:mm:ss±hh:mm> — <short title>`
+
+- **Goal** — what this action is for. *(every entry)*
+- **Hypothesis** — the belief being tested, stated *before* the evidence. *(only when testing something)*
+- **Change** — exact files/behavior touched. *(when code changed)*
+- **Version Control** — branch, `base_commit`, `implementation_commit`, push/pull, changed_files. Every SHA inline.
+- **Command / Validation** — exact commands (or static checks), job ids, run dirs, log + artifact paths.
+- **Acceptance criteria** — the exact conditions that count as success, written *before* a launch (see **Running & failure discipline**).
+- **Result** — status (`passed` / `partial` / `in_progress` / `launched` / `fix_ready`) + metrics/artifacts + key evidence.
+- **Analysis** — interpretation; in particular classify any failure as *infrastructure vs. real bug*.
+- **Next** — the immediate next step.
+
+## Development discipline
+
+- Develop **commit by commit, experiment by experiment** from a known-good base commit. No long-lived uncommitted state: an experiment concludes by committing its code and its worklog folder.
+- **Each commit generally < 200 changed lines of code.** Several small commits per experiment are preferred over one large one. Log every SHA in `commits_<exp name>.md`.
+- **Test-driven development (mandatory for all new functions)** — per [TDD](https://en.wikipedia.org/wiki/Test-driven_development): for each small function, write its test FIRST (pytest, in a dedicated `tests/` folder — **ask the user where to place it** the first time tests are added to a project; do not assume repo root), run it to confirm it fails (red), then implement the minimal function that passes (green), then refactor with tests green. Each red→green cycle maps naturally onto one small commit (tests may land in the same commit as the implementation or the commit immediately before it — never after). Tests are permanent regression assets: they stay in `tests/` and must keep passing in later experiments; run the relevant test subset as rung 1½ of the validation ladder.
+- **Universal review coverage (2026-07-06):** EVERY piece of code — Coder-written source, AND Planner-written one-off scripts (page/visual generators, probe drivers, analysis one-offs) — goes through the Reviewer loop before its round closes. Small scripts may be batched into one consolidated review round; nothing executable that informs a decision or artifact ships unreviewed.
+- Superseded or exploratory code is archived (patch + files) under `worklog/worklog_<username>/archive_<reason>_<date>/` before being removed from the working tree — never destroyed.
+
+## Validation ladder (cheapest-first)
+
+Never jump straight to the expensive run. Climb this ladder; advance only when the current rung passes, and record each rung in `_worklog.md`.
+
+1. **Static checks** — `python -m py_compile <changed .py>`, config parse (`yaml.safe_load`), `bash -n <changed .sh>`, `git diff --check` (whitespace). Seconds, no accelerator.
+2. **Tiny synthetic forward** — smallest module instantiation + one forward/step on a small/cheap device with synthetic tensors. Catches graph/mesh/shape/dtype/timestep errors without loading full weights or data.
+3. **Small real-data readback** — parse a few real records; assert shapes, byte lengths, and min/max/std match the schema. Catches data-pipeline mismatches.
+4. **Bounded data build** — if the experiment produces a dataset, build the val split (or a bounded slice) first and read it back before the full build.
+5. **Smoke run** — a few steps at the smallest batch on the target hardware, checkpointing/final-save **disabled** (storage-light), just to reach one completed optimizer step and produce logs.
+6. **Fit / batch-size probe** — find the max batch that fits, still storage-light (no checkpoints), before committing to the full run.
+7. **Full run** — only after 1–6 pass and the parity audit below is clean.
+
+## Parity audit before scaling
+
+Before spending real compute on a new method, audit the implementation **component by component against the reference** (paper code / upstream repo), and diff the *numbers*, not just the shapes:
+
+- **Numeric recipe defaults** — LayerNorm eps, weight decay, betas, LR schedule, loss type, sigma/noise schedule, CFG handling. Silent mismatches (e.g. eps `1e-6` vs `1e-5`, weight decay `0` vs `1e-2`) don't crash; they quietly corrupt results.
+- **Structural parity** — which params are trainable vs frozen, residual/injection points, stop-gradient boundaries, any pinning/masking.
+- **Data parity** — take one concrete source example and its processed/cached counterpart; confirm identical dtype, byte counts, and min/max/std.
+
+Record the audit in `_worklog.md`; launch the full-scale run only from the audited commit.
+
+## Running & failure discipline
+
+- **Pre-launch acceptance criteria.** Before every launch, write in `_worklog.md` the exact conditions that count as success: the commit SHA the worker must report, device/host count, per-device and global batch, parallelism axes, which params are trainable, and "reaches ≥1 optimizer step with no OOM / NaN / parse failure." Judge the run against these, not vibes.
+- **Infrastructure vs. real bug.** In every failure Analysis, classify the cause: *infrastructure* (spot preemption, host maintenance, download/network stall, launch-env/PATH, quota) vs. *real bug* (wrong shape/sharding, wrong objective, bad schedule). Only real bugs get a code fix; infra failures get retry/resume. Prevents thrashing on non-bugs.
+- **Commit + push before running remotely.** Any remote (TPU/cluster) run executes a *pushed* SHA; verify the SHA the worker actually checked out. Never run uncommitted code on a remote.
+- **Never edit a script while it is running.** Wait for a safe boundary, then patch; fix orchestration bugs separately from the data/model path.
+- **Resume from the last safe boundary.** On a mid-pipeline crash, find the last fully-committed unit (contiguous shard / checkpoint) and resume from the next; never duplicate or lose work, never reuse stale staging.
+- **Storage guardrail.** Long data/checkpoint jobs hold only a bounded working set (one batch/segment resident), clean up after each unit, and stay above an explicit free-space floor; contiguous coverage is the correctness check.
+- **Shared-resource etiquette.** Inspect a shared machine's processes before using it; don't interrupt others' jobs without approval; verify zero stale processes/watchers/queued-resources after a failed run before relaunching.
+
+## Evaluation integrity
+
+- Always compare against the baseline method on its **full published evaluation configuration** — the complete split files and dataset configs the baseline's paper used. Never invent new eval configurations (subsampled items, hand-picked examples, reduced splits) for comparisons; subsets are for debugging only and never appear in `_results.md`.
+- Reproduce the baseline's reported numbers (within its reported variance) **before** evaluating any new method, to calibrate the pipeline and establish the noise floor.
+- Match the baseline's aggregation convention (e.g. per-scene means) and its variance protocol (e.g. mean ± std over N generations/seeds).
+- If a run is launched and the code state then changes (revert, edit), kill and relaunch rather than mixing code states across a sweep; document the abort in `_params_set_up.md`.
+
+## Sequencing summary
+
+scaffold folder + `_yixun_query.md` + `_worklog.md` → `plan_*.md` (Planner, incl. per-function test list) → `_<reviewer>_plan_review.md` (Reviewer, strongest model at highest reasoning) → Planner revises → user approves → **TDD loop**, per round: (Coder: test first → red → implement → green, one small commit per cycle) → `_<reviewer>_code_<marker>_review.md` (Reviewer, per-round small review; blocking findings fixed before the next round) → next round … → **validation ladder** (static → tests → smoke → probe) → `_<reviewer>_code_full_review.md` (Reviewer, integrative) → **parity audit** vs reference → `_params_set_up.md` + `_command.md` + **acceptance criteria** → launch with teed timestamped logs, triaging *infra-vs-bug* on failure → `_results.md` → `_analysis.md` (Planner) → **`<exp name>_<idx>_results.html`** (+ assets folder) → commit(s) + `commits_*.md`. Log every action in `_worklog.md` as it happens.
+
+exec
+/bin/bash -lc "rg --files -g AGENTS.md -g '*plan_review*' -g '*round2*' -g '*args.json' worklog coder_prompts . | head -100 && rg --files worklog/worklog_yixun/announcement && git log --oneline c491396..c8acda2 && git diff --stat c491396 c8acda2" in /home/yixunhu/codespace/xRIR_code_wt
+ exited 2 in 0ms:
+rg: coder_prompts: No such file or directory (os error 2)
+worklog/worklog_yixun/exp_01_cylvit_vs_simplevit_claude/cylvit_vs_simplevit_codex_plan_review.md
+worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-20_02:39:10_codex_record_review_round2.log
+worklog/worklog_yixun/exp_07_seen_protocol_claude/coder_prompts/round2_prompt.md
+worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_record_review_round2.md
+worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-15_11:42:33_codex_code_round2.log
+worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-15_09:59:07_codex_plan_review.log
+worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-15_10:07:05_codex_plan_round2_review.log
+worklog/worklog_yixun/archive_codex_round2a_superseded_2026-09-15/codex_round2a_commits_a950605..edfacd3.patch
+worklog/worklog_yixun/archive_codex_round2a_superseded_2026-09-15/codex_round2a_commits.txt
+worklog/worklog_yixun/archive_codex_round2a_superseded_2026-09-15/codex_round2a_uncommitted.patch
+worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/record_review_round2_prompt.md
+worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/plan_round2_prompt.md
+worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_round2_prompt.md
+worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round2_review.md
+worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_plan_round2_review.md
+worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_plan_review.md
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_plan_review.md
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round2_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/coder_prompts/round2_opus_prompt_DRAFT.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:35:21_coder_round2_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_plan_round2_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_17:44:43_codex_plan_round2_review.log
+worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_2026-09-19_21:20:57_codex_plan_review.log
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/review_prompts/oneoffs_round2_prompt.md
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/review_prompts/code_round2_prompt.md
+./worklog/worklog_yixun/exp_01_cylvit_vs_simplevit_claude/cylvit_vs_simplevit_codex_plan_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/plan_round2_prompt.md
+worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_codex_plan_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_plan_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_17:31:52_codex_plan_review.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_code_round2_close_review.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/coder_prompts/round2_prompt.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_15:43:21_coder_round2.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_17:32:32_codex_plan_review_round2.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_plan_review_round3.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_17:24:59_codex_plan_review.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_17:37:52_codex_plan_review_round3.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_19:41:48_codex_code_round2_close.log
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/review_prompts/plan_round2_prompt.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_round2_closeout_full_suite.log
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round2_review.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round2_close_review.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/plan_round2_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/code_round2_close_prompt.md
+./worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/coder_prompts/round2_opus_prompt_DRAFT.md
+./worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:35:21_coder_round2_opus_report.md
+./worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_plan_round2_review.md
+./worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_17:44:43_codex_plan_round2_review.log
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_codex_plan_round2_review.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_round2_closeout_rung5.log
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_codex_plan_review.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_16:31:31_coder_round2fix.log
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/coder_prompts/round2_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_plan_review_round2.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/coder_prompts/round2_fix_prompt.md
+./worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/plan_round2_prompt.md
+./worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_plan_review.md
+./worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_17:31:52_codex_plan_review.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_plan_review.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_plan_review.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_00:57:18_coder_round2a_opus_report.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round2a_close2_review.md
+./worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_2026-09-19_21:20:57_codex_plan_review.log
+worklog/worklog_yixun/exp_02_sim2real_transfer_claude/sim2real_transfer_codex_plan_review.md
+./worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_codex_plan_review.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-14_20:27:02_codex_plan_review.log
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_plan_round2_review.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round2b_close_review.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_07:28:25_coder_round2b_fix_opus_report.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_05:07:00_coder_round2a_fix4_opus_report.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-14_20:51:46_codex_plan_review_round3.log
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_01:00:10_codex_code_round2a_review.log
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_06:28:41_codex_code_round2b_review.log
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round2a_close_review.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_07:29:24_coder_round2a_gate_fix_opus_report.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_02:14:34_codex_code_round2a_close_review.log
+./worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round2_review.md
+./worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round2_close_review.md
+./worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round2_review.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_08:12:00_coder_round2a_gate_fix2_opus_report.md
+./worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_round2_closeout_full_suite.log
+./worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/review_prompts/plan_round2_prompt.md
+worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_fable_code_round2_review.md
+./worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_plan_review.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/review_prompts/codex_code_round2b_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_05:09:41_codex_code_round2a_close4_review.log
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/review_prompts/codex_code_round2a_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_04:38:18_codex_code_round2a_close3_review.log
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/review_prompts/plan_round2_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_06:16:57_coder_round2b_opus_report.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/review_prompts/codex_code_round2a_close4_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/review_prompts/codex_code_round2a_close3_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/review_prompts/codex_code_round2a_close_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_00:04:38_coder_round2a.log
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/review_prompts/codex_code_round2a_close2_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/review_prompts/codex_code_round2b_close_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_04:35:51_coder_round2a_fix3_opus_report.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_03:38:50_coder_round2a_fix2_opus_report.md
+./worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_round2_closeout_rung5.log
+./worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_codex_plan_round2_review.md
+rg: worklog/worklog_yixun/announcement: IO error for operation on worklog/worklog_yixun/announcement: No such file or directory (os error 2)
+
+exec
+/bin/bash -lc 'cat worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/plan_orientation_cue_fairness.md' in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+# Plan — orientation_cue_fairness (exp_11): does CERPA's HAA advantage survive when the xRIR baselines receive the same loudspeaker-orientation cue?
+
+Version 3, 2026-09-26 (v1 superseded; §10 changelog; v2 → v3 folds the Codex round-2 'approve with changes'). Planner: Claude Fable 5.1. Requested by Yixun 2026-09-26 (query log #1): "Fine-tune and evaluate xRIR / xRIR + orientation cue / Yaw-Augmented xRIR + orientation cue / CylindricalViT + orientation cue under the same xRIR protocol; the key controlled comparison is xRIR + orientation cue vs. CylindricalViT + orientation cue." Experiment identifier exp_11 (exp_10 is the peer's `yaw_pilot`).
+
+## 1. Question
+
+In the paper's HAA table the oriented CylindricalViT (exp_06 arm C) is pretrained and fine-tuned with an explicit loudspeaker-facing cue while the vanilla xRIR baseline is not. Does CERPA's advantage persist when the SimpleViT baselines receive the same explicit cue, and does the explicit cue by itself change the SimpleViT baselines?
+
+## 2. Design
+
+### 2.1 The cue, mechanically (exp_06 `plan_oriented_cyl.md` §2; code survey and Codex plan review of 2026-09-26)
+
+1. **Heading frame (data level).** The whole scene (depth panorama, query and reference source coordinates) is rotated by `k = 128` so that the loudspeaker's inferred acoustic axis (−y in all four rooms, `ckpt/exp06/heading/*.json`, `confirmatory`) points along +x (`tools/exp06_heading.py::HeadingFrameDataset` → pinned `tools/yaw_rotation.py::rotate_scene_yaw`). This is **implicit orientation conditioning**: the heading is delivered by canonicalising the input frame. For a model pretrained at rotation 0 it is also a coordinate-frame change relative to pretraining.
+2. **Azimuth planes (model level, `CylindricalViTOriented`).** Two constant input planes `cos θ_c, sin θ_c` of the camera-frame column azimuth (a pure function of the column index; they vary across the 32 pixel columns of a patch) concatenated after the gauge alignment and projected by a LayerNorm → Linear → LayerNorm patch embedding over the 5-channel patch. This is **explicit orientation conditioning**; CERPA pretrains with it from scratch.
+
+For the SimpleViT the planes add no sample-dependent heading measurement (its fixed 2-D sinusoidal position code already fixes the token column), but they are **not** a function-preserving change: the first LayerNorm normalises geometry and azimuth jointly (the Codex review's CPU check: zero-initialising the added projection weights still moves the embeddings by up to 0.140), the projection, gradients and parameter count change (+526 336), and the physical circular azimuth differs from the token-index sinusoids. Therefore exp_06's arm D is reported as **"SimpleViT fine-tuned in the heading frame (implicit conditioning)"**, not as "xRIR + orientation cue", and the explicit-cue SimpleViT arms are built and pretrained literally (Phase 2), with a cheaper explicit-adapter control (Phase 1b) that keeps the pretrained checkpoint's function at initialisation.
+
+Yaw augmentation (exp_04/exp_09's E) trains the SimpleViT to be insensitive to the scene's roll relative to its pinned position code during *pretraining*; HAA fine-tuning applies no augmentation, so orientation dependence can be re-learned. "G ≈ E" is therefore a prospective hypothesis (N3), not a consequence of the code; G is described precisely as "the yaw-pretrained SimpleViT fine-tuned and evaluated in the heading frame".
+
+All four rooms share one inferred axis and one roll; the experiment compares pipelines on these fixed rooms and does not establish generalisation across loudspeaker headings.
+
+### 2.2 Arms (HAA protocol identical to exp_02/exp_06/exp_09: stage 1 class_room + hallway + complex_room 1000 epochs / val 10; stage 2 per room 200 / val 2; AdamW 1e-4, wd 1e-4, ×0.1 per 50 epochs; full batch; TF32; selection on the DiffRIR validation split; K = 8; `eval_seed` 0; unseeded Griffin-Lim; three fine-tuning seeds 0/1/2 + one zero-shot job per arm)
+
+| Arm | Role in the paper table | Model / init (pretraining) | HAA frame | Cue | Status / phase |
+|---|---|---|---|---|---|
+| A `control` | **xRIR** (matched baseline) | SimpleViT, exp_01 same-budget control `ckpt/xRIR_simple_8_shot/epoch_12.pth` | room | none | exists (exp_02) |
+| A′ `released` | xRIR, authors' checkpoint (external reference row) | released `checkpoints/xRIR_unseen.pth` fine-tuned in exp_02 | room | none | exists; **not in the legacy receipt** → copied as a labelled external row from exp_02's canonical `ckpt/sim2real/stats.json` (sha256 recorded); never paired |
+| B `cyl` | supplementary | CylindricalViT, exp_01 `ckpt/xRIR_cyl_8_shot/epoch_12.pth` | room | none | exists (exp_02) |
+| C `cyl_or` | **CylindricalViT + orientation cue** | `cylindrical_oriented`, exp_06 pretraining `…/xRIR_cylor_8_shot/final/epoch_012.pth` | heading | explicit planes (pretrained) + frame | exists (exp_06) |
+| D `control_hf` | frame-only control (implicit conditioning) | SimpleViT, A's checkpoint | heading | frame | exists (exp_06) |
+| E `yawaug` | supplementary | yaw-augmented SimpleViT, exp_04 `…/xRIR_simple_yawaug_8_shot/final/epoch_012.pth` | room | none | exists (exp_09) |
+| F `cyl_hf` | frame-only control | CylindricalViT, B's checkpoint | heading | frame | exists (exp_06) |
+| **G `yawaug_hf`** | frame-only control for the yaw-augmented model | E's checkpoint | heading | frame | **Phase 1** (round 1; ≈ 3 GPU-h) |
+| **J `control_adapter`** | xRIR + explicit cue (adapter; supplementary to H) | A's checkpoint + zero-initialised azimuth adapter (§2.3) | room | explicit adapter | **Phase 1b** (round 2; ≈ 3 GPU-h) |
+| **K `yawaug_adapter`** | Yaw-aug xRIR + explicit cue (adapter; supplementary to I) | E's checkpoint + adapter | room | explicit adapter | **Phase 1b** (≈ 3 GPU-h) |
+| **H `simple_or`** | **xRIR + orientation cue** (literal) | new `simple_oriented` (SimpleViT with the two planes, `channels = 5`), pretrained from scratch, profile H_RECIPE (= exp_01's; ≈ 28–31 h) | heading | explicit planes (pretrained) + frame | **Phase 2** (round 2) |
+| **I `simple_or_yaw`** | **Yaw-Augmented xRIR + orientation cue** (literal) | new `simple_oriented` pretrained with profile I_RECIPE (= exp_04's yaw-augmented recipe; ≈ 28 h) | heading | explicit planes (pretrained) + frame | **Phase 2** |
+
+G runs through the extended exp_06 pipeline (round 1); J, K, H, I run through the exp_11-owned pipeline (round 2); all new arms use `ckpt/exp11/sim2real/<init>/` roots and this record; each child is finalised with a completion contract identical to exp_06's (validation-based selection, init → stage 1 → stage 2 → evaluation lineage, heading binding, full test indices, job completeness). A, B, C, D, E, F are re-read from their existing completions (legacy receipt for A/B; child/job records with their original approval blobs for C/D/E/F), as exp_09 did.
+
+### 2.3 New models (all in new files; every existing `model/*.py` is frozen)
+
+- `SimpleViTOriented` (`model/simple_vit_oriented.py`): `SimpleViT(channels = 5)` with the two azimuth planes derived locally from the column grid (tested equal to `convert_equirect_to_camera_coord`'s horizontal look direction and to `CylindricalViTOriented.az_channels`); `forward = cat([img, az]) → SimpleViT.forward`; encoder parameter increment exactly 526 336 (asserted from the factory). `xRIR_SimpleOriented(xRIR)` in `model/xRIR_simple_oriented.py` with the 256-token pool guard.
+- `SimpleViTAdapter` (`model/xRIR_simple_adapter.py`): wraps the **pinned** SimpleViT unchanged; a `Linear(2 → dim)` with **zero weight and zero bias** (1 536 parameters at dim 512) of the heading-relative azimuth `(cos(θ_j − φ), sin(θ_j − φ))` of each of the 16 token columns, **token-angle convention `θ_j = 2π(j + ½)/16 − π`**, φ = the bound `phi_deg` converted to radians, is **added after the patch embedding's final LayerNorm**, next to the positional code (tokens of one column share the value). Heading routing: the unchanged dataset/loss interface carries no room identifier, so the exp_11 entry points validate that every participating room's bound heading record supplies the **same** heading (all four records: `phi_deg −90`, `k 128`, confirmatory), install that shared cue, and **refuse mixed headings**; per-room conditioning is out of scope. Two loading modes, both strict: (i) initialisation from A/E — every inherited key validated strictly, only the adapter weight/bias initialised to zero (function bit-exact to the base checkpoint, tested); (ii) later stage/evaluation checkpoints — the complete adapter state required strictly (never `strict=False`, never a silently re-zeroed adapter). **Interpretation (fixed):** with one heading for all rooms, `W·a_j(φ) + b = W·R(−φ)·a_j(0) + b`, so the heading is absorbable into the learned projection; J/K test *an added learnable circular positional representation during fine-tuning*, a fair supplementary explicit-conditioning control; Q1/Q3 cannot attribute a gain to measured heading information. Registered as a different design from CERPA's five-channel pretraining.
+- Simulated pretraining of `simple_oriented` (and of C) uses an **absolute azimuth anchor**; its loudspeaker-relative meaning arises only through the HAA heading transform.
+- Registry `BACKBONES_EXP11 = {**BACKBONES_EXP06, 'simple_oriented': …, 'simple_adapter': …}` and `build_xrir_exp11`; the inherited routes return the pinned classes (`is`), bit-identical outputs on a fixed batch; `BACKBONES_EXP06` is never mutated (its digest is part of every completed exp_06/exp_09 child).
+
+## 3. Pre-registered contrasts and decision rules
+
+Machinery: exp_06 §7 (`tools/exp06_bootstrap.py`; paired per-query differences over the three fine-tuning seeds and a room's DiffRIR test queries; point estimate = mean; primary interval = converged seed-0 **two-way** 95 % percentile interval, `n_boot` 10 000, one quadrupling on a failed 0.10 convergence check; query-cluster interval reported alongside; void rule 1 % / 99 %). **Every decision-bearing field (category, non-inferiority, superiority, equivalence, interaction) is withheld when its cell is void or unconverged; equality at a decision boundary establishes nothing.** Margins apply to hallway C50 only. Unless stated, the primary cell is hallway C50; all other room × metric cells are screened.
+
+Notation: for a contrast X − Y with interval [L, U]: **category** = detected harm for X if L > 0, detected improvement for X if U < 0, else no detected difference. **Y non-inferior to X at m** iff −L < m (equivalently the upper bound of Y − X is below m). **X's margin-sized advantage** iff U < −m. **Equivalence at m** iff L > −m and U < m ("95 % containment"; conservative relative to TOST at α = 0.05, which uses a 90 % interval; this is the rule). m = 0.23 dB (Yixun decision (d)).
+
+**Phase 1 (G).**
+- **N1** — G − D: category. Does roll-robust pretraining change what the SimpleViT does with the heading frame?
+- **N1i** — interaction (G − E) − (D − A): computed with the frozen bootstrap as `paired_intervals(g − e, d − a, query_clusters, seeds)` (jointly resampled; never a subtraction of two independently bootstrapped intervals) by an exp_11 **four-arm assembler** that checks query index, IR path, protocol metadata and seed alignment across A/D/E/G, uses one query mask finite across all four arms and all three seeds, reports each arm's original exclusions, requires the joint cohort to cover ≥ 99 % of the room's test queries, and keeps the component invalidity checks of G − E and D − A. Field: category, read as "a positive interaction = a larger heading-frame penalty after yaw pretraining" (not as harm by any single arm). A degenerate (zero-width) interval — possible by cancellation; the frozen convergence helper raises on it — yields a defined **unavailable** result in the exp_11 wrapper without aborting the summary and without touching the historical helper. Disclosure: D − A was observed in exp_06 (hallway C50 +0.63 dB) before this plan; G − E was not.
+- **N2** — C − G: category; G's non-inferiority to C at m; C's margin-sized advantage; reported separately.
+- **N3** — G − E: category **and** equivalence at m (the prediction G ≈ E is the equivalence statement).
+- **S1** — three descriptive screen families (G − D, C − G, G − E), each over the 11 room × metric cells with Bonferroni-11 adjusted two-way intervals (tails 0.05/22, `n_boot` 50 000), labels only; no experiment-wide claim across families. **exp_11 screens apply the universal void/unconverged suppression** (an exp_11-specific gate; the historical exp_06/exp_09 screen semantics are unchanged).
+
+**Phase 1b (J, K).**
+- **Q1** — J − A: category and equivalence at m (does the explicit adapter change the vanilla xRIR?). **Q2** — C − J: category, J's non-inferiority, C's advantage. **Q3** — K − E: category and equivalence. **Q4** — C − K: category, K's non-inferiority. Screens per contrast as in S1.
+
+**Phase 2 (H, I).**
+- **P3 (primary literal comparison)** — C − H: category, H's non-inferiority to C at m, C's margin-sized advantage; **the only contrast that can establish the headline claim**. **P3′** — C − I: the same fields, secondary (reported, cannot establish the headline alone; no multiplicity adjustment between P3 and P3′ because only P3 is decision-bearing).
+- **P1** — H − D and **P2** — I − G: category and equivalence at m — the better-matched channel-family comparisons (HAA frame held fixed; they still include the added parameters and a different pretrained realisation).
+- **P4** — H − A and **P4′** — I − E: category and equivalence; **P4 bundles the five-channel pretraining with the room-to-heading frame change** and is read as the requested pipeline-level difference, not as the channel's isolated effect.
+- Screens per contrast (families as in S1).
+
+**R1 — historical re-reports (no new inference), source-field map.** From exp_06's canonical `ckpt/exp06/stats.json`: C − D = the descriptive row `cyl_or − control_hf` / hallway / c50 (fields `diff`, `nominal_two_way`; no convergence, no label), D − A = the descriptive row `control_hf − control` / hallway / c50 (same fields), C − A = `H1` (`diff`, `two_way`, `convergence`, `verdict`), C − F = `H1b` (same structure); from exp_09's `ckpt/exp09/stats.json`: E − A = `E1` (`diff`, `two_way`, `convergence`, `verdict`, `category`, `non_inferior_at_margin`). Rows are selected by contrast/room/metric assertions (never by list position), extant fields are copied exactly with their original meaning and interval convention, absent fields are `null` ("not recorded"), and each row records the source path, its sha256 and the selector; nothing is recomputed, no convergence is manufactured, and no descriptive row is reclassified as a decision.
+
+**Overall reading (single, fixed in advance).** The fairness question is answered by **P3**: CERPA's advantage over an explicitly cue-equipped xRIR persists iff C − H is a detected improvement for C; whether H is non-inferior to C is a separate statement; a margin-sized advantage is a third. The reviewer's premise ("the improvement is due to the extra conditioning") is **assessed**, not refuted, by P4 and Q1 (does the explicit cue improve the vanilla xRIR at all?) together with P3; D and G are implicit-conditioning controls reported regardless of outcome, and D − A is not evidence about explicit conditioning. Equivalence failures (N3, P1, P2, Q1, Q3) mean insufficient precision or a real difference and are reported as such; no arm replaces another in the table on the basis of results. Absolute numbers remain non-comparable with the paper's Table 2 (exp_02).
+
+**Paper table (fixed in advance).** Rows: xRIR = A (A′ shown as an external reference row labelled "released checkpoint", never substituting for A); xRIR + orientation cue = H (J as "adapter" supplementary row); Yaw-Augmented xRIR + orientation cue = I (K supplementary); CylindricalViT + orientation cue = C; frame-only controls D, G, F and E, B in the supplementary block.
+
+**Outputs.** Separate phase outputs: `ckpt/exp11/phase1/{stats.json,summary.txt}` (arms A–G), `ckpt/exp11/phase1b/…` (+ J, K), and the final canonical `ckpt/exp11/{stats.json,summary.txt}` produced once every planned arm is complete (one run over all arms; `write_outputs` never overwrites; the phase files remain as interim records). The results page and analysis are rendered only from these files.
+
+## 4. Code (Coder = Claude Opus 5, worktree `/home/yixunhu/codespace/xRIR_code_wt` on branch `exp11-cue`; TDD red-first; commits ≤ 200 lines; Codex code review after every round at **ultra**; SOP closure rules)
+
+**Frozen (never edited).** Every *existing* `model/*.py`; `sim_to_real/haa_dataset.py`; `tools/exp06_heading.py`; `tools/yaw_rotation.py`; `tools/yaw_aug.py`; `tools/provenance.py`; `tools/exp04_profiles.py`; `tools/exp06_approvals_api.py`; `tools/exp06_profiles.py`; `tools/exp06_{eval,eval_launch,compare,mirror_probe,probe_align,bootstrap,haa_finetune,haa_eval,train,recipe,smoke}.py`; `tools/exp06_launch.sh`; `train_xRIR_backbone.py`; the exp_03-pinned evaluators and dataset module; and the complete dependency closures behind the `eval`/`eval_launch`/`compare`/`mirror_probe` keys (`tests/test_exp09_sim_eval_closures.py` stays green). New modules may be added freely. `BACKBONES_EXP06` is never mutated.
+
+**Round 1 (Phase 1, arm G; minimal).**
+1. `tools/exp06_haa_pipeline.sh`: init `yawaug_hf` (backbone `simple`, checkpoint `${EXP09_YAWAUG_CKPT}`, frame **heading**); the `exp04_aug_checkpoint` identity resolver applied to **both** `yawaug` and `yawaug_hf`; the frame reset on every init selection; bare `zeroshot` keeps its historical expansion; the approved heading records passed for G; log prefix for a record path containing `exp_11`.
+2. `tools/exp06_summarize_haa.py`: `ARMS['yawaug_hf']` (experiment `exp11`, root `ckpt/exp11/sim2real/yawaug_hf`, frame heading) **with `expected_inits` extended so G carries the exp_04 checkpoint identity check**; `EXPERIMENTS['exp11']` for Phase 1 (arms A–G; decisions N1, N1i, N2, N3; three screen families; R1 copied rows) — this requires extending the experiment schema to several screens, several decision kinds (category / non-inferiority direction / superiority / equivalence / interaction) and phase outputs **without changing exp06/exp09 semantics** (their statistical payloads and rendered summaries unchanged under the existing fixtures; their canonical files untouched); `--exp11-root`; `check_output_paths` for exp11.
+3. Tests: mixed queues; wrong checkpoint; wrong frame (room-frame G refused); missing heading; correct exp_04 approval binding; golden dry-run `yawaug_hf:0 yawaug_hf:zeroshot`; schema extension regression for exp06/exp09.
+4. Record: `orientation_cue_fairness_results_assets/make_results_{md,html}.py` (render only from the exp_11 JSONs), `planner_probes/exp11_runbook.sh` (merge | refill | suite | dryrun | smoke | launch | summarize | results; **the runbook enforces the exclusive-card condition with an explicit compute-app census before every HAA queue** — the pipeline does not inherit the launcher's preflight).
+5. Merge into `main` (peer-coordinated), re-fill of the moved exp_06 keys (`haa_pipeline_sh`, `summarize_haa`; `finalize` only if touched), CPU suite, bounded heading-frame smoke of G on the card, launch.
+
+**Round 2 (Phase 1b + Phase 2: the exp_11-owned family).**
+6. Models of §2.3 (`model/simple_vit_oriented.py`, `model/xRIR_simple_oriented.py`, `model/xRIR_simple_adapter.py`).
+7. `tools/exp11_profiles.py`: exp_11's code keys (`train`, `finalize`, `haa_finetune`, `haa_eval`, `haa_pipeline_sh`, `launch_sh` — shell launchers are outside Python import closures and get an explicit key checked at start-up and finalisation —, `smoke`, `summarize_haa`; the exp_11 modules and their closures), a **producer/arm requirement matrix** that consumes only available inputs (pretraining never requires its own output pin; J/K and Phase 1b work while both H/I pins are null; H works while I's pin is unavailable; final publication requires every planned arm), artifact keys (`simpor_epoch_012`, `simpor_yaw_epoch_012`), reused keys (exp_04's approvals record sha256 for E/G/K's init; exp_06's for C/D/F; the exp_02 legacy receipt), and the loader/validator of exp_11's own approvals record `orientation_cue_fairness_results_assets/approved_digests.json` (all-null until the reviewed commit; committed-blob binding at the child's reviewed commit as `haa_approvals` does). The exp_06 approvals API and profiles stay byte-identical.
+8. `tools/exp11_finalize.py`: an exp_11-owned finalizer/adapter with its own run types (`exp11_train`, `exp11_smoke`, `exp11_haa_finetune`, `exp11_haa_eval`, `exp11_haa_job`) and dispatch; registry selection, factory/state validation, entry-module identity, recipe selection by run type, job-spec validation, child roles and lineage checks, heading binding (heading frame for H/I; room frame **with** the room's heading recorded as the adapter's input for J/K), committed approvals; it **imports** exp_06's validation helpers where they fit and never monkeypatches old module globals; historical dispatch (`tools/exp06_finalize.py`) is not edited unless a one-line registration is unavoidable, in which case every affected dispatcher is enumerated and the old paths are shown to reconstruct identical evidence.
+9. `tools/exp11_haa_finetune.py` / `tools/exp11_haa_eval.py`: exp_11-owned parsers, preparation, provenance and metadata writers. The old fine-tuning `main` embeds optimiser construction, epoch iteration, validation selection and checkpoint writing, so exp_11 owns a **faithful orchestration loop** that imports the unchanged numerical helpers (loss, batch preparation, metrics) and is verified against the exp_06 loop for optimiser-step order, validation cadence, epoch-zero selection, strict-improvement selection and final-checkpoint behaviour (a CPU parity test on a tiny synthetic run compares the two loops' selection traces); the evaluation loop is imported. `--backbone` over `BACKBONES_EXP11`; adapter arms take `--adapter-heading-json-dir` (shared-heading validation, mixed headings refused).
+10. `tools/exp11_haa_pipeline.sh`: exp_11-owned queue (inits `simple_or`, `simple_or_yaw` in the heading frame; `control_adapter`, `yawaug_adapter` in the room frame with the heading passed to the adapter), entry-point selection per init, identity gate through `tools/exp11_profiles.py`, exclusive-card census, roots under `ckpt/exp11/sim2real/`.
+11. `tools/exp11_train.py` (the exp_06 loop on `BACKBONES_EXP11`; `--yaw-aug 0|1` with exp_04's constraints — `save_every 0`, `resume None`, `epochs × batches_per_epoch < 2**20`), `tools/exp11_recipe.py` with **two named profiles**: `H_RECIPE` = exp_01's numerical recipe (`num_shot 8, max_len 9600, lr 1e-3, weight_decay 1e-4, decay_epochs 3, lr_gamma 0.1, epochs 12, batch_size 32, accum_steps 2, seed 0, tf32 true`, M dims `512/12/8/512`, `yaw_aug 0`, loader length 9 261) with declared operational differences (`epoch_ckpt_every 1`, `save_every 500` as exp_06, exclusive attempt dir, recorded `env`/`param_counts`), `I_RECIPE` = exp_04's (`yaw_aug 1, yaw_aug_seed 0, yaw_aug_width 512, save_every 0, no_save false, resume None, epoch_ckpt_every 1`, same numerical recipe and loader length; counter constraints); parameter counts from the new factory (encoder increment 526 336); missing historical fields are documented normalisations. Completion contract carried over in full: agreeing startup/retained/checkpoint arguments, strict field types, no truncation or resume, epochs 1–12 exactly once with finite history, final epoch/batch metadata, `epoch_012.pth` tensors (keys, shapes, dtypes, values) equal to `last.pth["model"]`, input and closure revalidation, committed approvals, child exit 0, closed log and receipt, external completion before promotion.
+12. `tools/exp11_launch.sh` (smoke | probe | full | finalize; attempt roots `ckpt/exp11/pretrain/xRIR_simpor_8_shot`, `…/xRIR_simpor_yawaug_8_shot`; promotion `final → attempt_<UTC>`; exclusive-card census; 36 h ceiling) and an exp_11 smoke route (`tools/exp11_smoke.py`) with **enumerated diagnostic kinds** — launcher probe, HAA training smoke, HAA evaluation smoke — each with an explicit budget, artifact contract and permanent non-admissibility (`diagnostic: true`, `admissible_arm: false`).
+13. Summariser: arms H, I, J, K (experiment exp11) with a **per-arm admission adapter**: code-key/profile mapping in `check_arm_identities` *and* per-arm dispatch of the job-spec loader, child verifier, role resolver and lineage functions (historical arms keep exp_06's validators; H/I/J/K use exp_11's; serialised run types are distinguished from the semantic training/evaluation roles used by the protocol checks); adapter-heading admission fields for J/K (a room-frame arm *with* a bound adapter heading is permitted only for J/K; the historical room-frame rejection of heading records is preserved for A/B/E); Phase-1b/2 decisions (Q1–Q4, P1–P4′), the interaction cell, phase outputs; the A′ external row copied from exp_02's canonical JSON with its sha256. No registration in the old finalizer unless a demonstrated dependency requires it.
+14. Tests for every acceptance case in §5; full CPU suite green.
+
+**Explicitly deferred.** Simulated k = 0 evaluations of H/I (the frozen exp_06 route recognises only `BACKBONES_EXP06`; an exp_11 route would be a further round; Yixun decision (e)). Historical *pretraining* replay of arm C's record (Codex found pre-existing drift in the full-pretraining validator's current-bytes check; exp_11 preserves current HAA/sim admission only and does not rewrite or weaken anything).
+
+## 5. Validation ladder and acceptance
+
+1. Static + unit tests (`CUDA_VISIBLE_DEVICES=''`), per round. Round 1: the cases in §4.3. Round 2: encoder equalities and counts; adapter bit-exact at init and pinned state-dict loading; registry isolation (`BACKBONES_EXP06` and its digest unchanged; `tests/test_exp09_sim_eval_closures.py` green); recipe profiles accept exactly H and I and refuse mixtures; launcher golden argv; wrappers refuse exp_06 run types; per-arm identity mapping; phase-output refusal to overwrite.
+2. Bounded smokes on the card before each family's first queue (2 epochs class_room + 4-sample hallway eval, exploratory receipts): G through the exp_06 route; J/K, H, I through the exp_11 route.
+3. Fit/timing probe (10 min) before each pretraining; the `full` run on an exclusive card; the completion contract; approvals pin; then the HAA queue.
+4. Codex code review at ultra after every round → merge (peer-coordinated; clean tree outside `worklog/`) → approvals re-fill listed in advance → CPU suite → smoke → launch.
+5. Acceptance of a run = exp_06's contract (§2.2) with the arm's frame and cue recorded in `args.json` and bound by the finalizer.
+
+## 6. Deliverables
+
+`ckpt/exp11/{sim2real/**, pretrain/**, phase1/, phase1b/, stats.json, summary.txt}`; record `worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/` (plan, query log, worklog, command record, commit index, params set-up, Codex reviews, Coder reports, logs, `orientation_cue_fairness_results.md`, `orientation_cue_fairness_analysis.md`, `orientation_cue_fairness_01_results.html` + generators); a paper-ready LaTeX block with the fixed four rows and the supplementary block, sourced from the final canonical JSON; supporting descriptive analyses: fine-tuned side splits (−y / +y) from the retained per-query outputs for every arm, and, if Yixun wants them, within-checkpoint orientation-sensitivity diagnostics through a reviewed exp_11 driver around the frozen mirror-probe helpers (the frozen CLI hard-codes the room frame for its SimpleViT slot), labelled exploratory.
+
+## 7. Cost, schedule, risks
+
+**GPU cost (expected; reservation in brackets).** Phase 1 G ≈ 2.9 h; Phase 1b J + K ≈ 5.8 h; Phase 2 pretraining H ≈ 28–31 h [36 h] and I ≈ 28 h [36 h] (retained histories: exp_01 SimpleViT 28.2 h, exp_04 yaw-augmented 27.4 h, exp_06 oriented cylindrical 31.0 h), HAA for H and I ≈ 5.8 h [8 h]; probes and smokes ≈ 1 h. Total ≈ 75 GPU-h expected [≈ 95 h reserved].
+
+**Schedule (2026-09-26; owner's ETAs from session cylindrical-dinov3-0a).** Both cards are held by FLAC exp_13 tier-L trainings commissioned by Yixun to 40 k steps: the first card frees ≈ Sep 29 16:00 (40 k ≈ 12:30 + final watcher evaluations), the second ≈ Oct 3; only co-tenant work is queued behind them; the owner messages when a card frees. Rounds 1–2 (code + Codex reviews) Sep 27–29 — round 2 is a new approval/completion family, budgeted at two to three days. First card: G (≈ 3 h) → J, K (≈ 6 h) → H pretraining (→ ≈ Oct 1 08:00) → H's HAA queue (→ ≈ Oct 1 11:00). Second card (≈ Oct 3): I pretraining (→ ≈ Oct 4 07:00) → I's HAA queue (→ ≈ 10:00) → final summary. Sequential on one card if the second stays busy: I after H (→ ≈ Oct 2 16:00 + HAA). Buffered target for the final table: **Oct 4–5**. Merges into `main` only after messaging the peer session and only with a clean tree outside `worklog/`.
+
+**Risks.** (1) A reviewer may still regard H/I as insufficient (one pretraining realisation per arm; three fine-tuning seeds do not estimate pretraining variability) — disclosed. (2) J/K's cue is a per-column constant on this benchmark (one heading for all rooms); its role is an explicit conditioning input at fine-tuning time, stated as such. (3) GPU hand-over slips. (4) exp_02's legacy receipt admits only A and B; A′ is an external row. (5) Round-2 scope creep: the exp_11 family is bounded to the routes listed in §4.
+
+## 8. Decisions for Yixun (defaults in bold; the Planner proceeds with the defaults unless told otherwise)
+
+(a) Phase 2 literal arms H and I: **yes** (≈ 70 GPU-h; final table ≈ Oct 4–5). (b) Phase 1b adapter arms J and K: **yes** (≈ 6 GPU-h, supplementary rows). (c) Paper "xRIR" row: **A (same-budget control), with A′ as a labelled external reference row**. (d) Margin m: **+0.23 dB**. (e) Simulated k = 0 evaluations of H/I: **no**. (f) Reviewer effort: the Codex CLI accepts `model_reasoning_effort="ultra"` (verified 2026-09-26 with a probe; every review since exp_06 ran at `xhigh`, one tier below the SOP's setting) — **all exp_11 reviews run at ultra**; earlier records keep their `xhigh` headers. (g) Orientation-sensitivity diagnostics (exp_11 driver around the mirror-probe helpers): **no unless the results call for it**; fine-tuned side splits **yes** (cheap, descriptive).
+
+## 9. Namespace and coordination
+
+exp_11 identifier, `ckpt/exp11/`, `tools/exp11_*`, branch `exp11-cue`; the peer's exp_10 `yaw_pilot` and `tools/exp10_*` are untouched (peer informed 2026-09-26 17:5x). Shared files extended in round 1 (`tools/exp06_haa_pipeline.sh`, `tools/exp06_summarize_haa.py`) follow exp_09's pattern and are merged only in a peer-agreed window.
+
+## 10. Changelog
+
+- v3 (2026-09-26): responses to the Codex round-2 review (`orientation_cue_fairness_codex_plan_round2_review.md`, approve with changes): (1) adapter contract completed (zero weight and bias, 1 536 parameters; token-angle convention; shared-heading validation with mixed headings refused; two strict loading modes; interpretation restricted — the heading is absorbable into the projection, J/K test an added learnable circular positional representation; P1/P2 the better-matched channel comparisons; P4 bundles pretraining and frame change; 'absolute azimuth anchor' wording); (2) N1i via the frozen `paired_intervals` on `(g − e, d − a)` with a four-arm assembler, ≥ 99 % joint cohort, defined unavailable result for degenerate intervals, exp_11 screens under the universal suppression; (3) R1 replaced by a source-field map with selectors (no manufactured fields); (4) exp_11-owned faithful orchestration loop with a parity test, per-arm admission adapter in the summariser, adapter-heading admission fields, no old-finalizer registration, G noted as using the exp_06 route; (5) `launch_sh` key, producer/arm requirement matrix, enumerated diagnostic kinds with budgets and non-admissibility.
+- v2 (2026-09-26): responses to the Codex plan review (`orientation_cue_fairness_codex_plan_review.md`, request changes): (1) the redundancy claim withdrawn; D relabelled "SimpleViT in the heading frame (implicit conditioning)"; the literal channel arms H and I are the primary test (P3 = C − H) and the adapter arms J/K are added as the cheaper explicit control, registered as a different design; (2) G ≈ E is a hypothesis (N3 with an equivalence statement); the "refutation" reading removed; D − A no longer used as evidence about explicit conditioning; single fixed overall reading and fixed table rows; (3) decision rules corrected (non-inferiority direction, superiority separate, equivalence = 95 % containment, three declared screen families, interaction cell N1i, void/unconverged suppression, margin on C50 only, "replace D/G" removed, R1 copies named fields with source hashes); (4) Phase 2 re-designed as an exp_11-owned family (profiles, finalizer/adapter, entry points, pipeline, smoke route, per-arm identity mapping); historical pretraining replay explicitly out of scope; sim-eval routing deferred explicitly; (5) A′ as an external row (not in the legacy receipt), A as the matched baseline; separate phase outputs; "byte-identical" clarified; (6) two named recipe profiles with exp_04's saving constraints and the full completion contract; (7) cost/schedule updated (≈ 75 GPU-h; round-2 effort 2–3 days; runbook enforces the exclusive card); namespace moved to exp_11; reviews at ultra.
+- v1 (2026-09-26): initial version (superseded copy kept).
+
+exec
+/bin/bash -lc 'cat worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_plan_review.md worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_plan_round2_review.md' in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+**Reviewer:** OpenAI Codex `gpt-6-astra`, codex-cli 0.154.0  
+**Reasoning effort:** `xhigh` — confirmed by this invocation; the SOP specifies `ultra`.  
+**Sandbox/resources:** read-only; CUDA disabled; CPU computation capped at four threads; no process signals.  
+**Tree:** `/home/yixunhu/codespace/xRIR_code`, branch `main`, with existing worklog modifications and untracked files.  
+**HEAD:** started at `885240c52df2c4931c311582068b4733d6d8be4b`; last checked at `c52ee94ee10b38dcf9d600575e959e674b4cc5b4`. Intervening changes were peer worklog files; reviewed implementation files were unchanged.  
+**Date/time:** September 26, 2026, 17:31–17:36 EDT.
+
+**Verdict: request changes.**
+
+Phase 1 is a useful, inexpensive extension of exp_09. It does not establish the scientific conclusion currently claimed for it. The principal blockers are the equivalence argument, the causal interpretation, the decision rules, and incomplete Phase-2 provenance routing.
+
+1. **The positional-code argument establishes information availability, not architectural or experimental equivalence.**
+
+   [Plan §2.1](/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_orientation_cue_fairness_claude/plan_orientation_cue_fairness.md:17) is correct in a limited sense: on a fixed grid, the azimuth planes contain no additional sample-dependent heading measurement. Token column plus known patch offsets determines their values. SimpleViT already receives absolute token position.
+
+   The next step—therefore D faithfully substitutes for a literal channel-equipped SimpleViT—is unsupported by the actual [patch embedding](/home/yixunhu/codespace/xRIR_code/model/simple_vit.py:129).
+
+   Its computation is:
+
+   \[
+   z_j=\operatorname{LN}_{512}
+       \left(W\,\operatorname{LN}_{1536}(x_j)+b\right)+p_j.
+   \]
+
+   The proposed five-channel version instead computes:
+
+   \[
+   z'_j=\operatorname{LN}_{512}
+       \left(W'\,\operatorname{LN}_{2560}([x_j,a_j])+b'\right)+p_j.
+   \]
+
+   Here \(a_j\) is fixed for patch column \(j\), but the normalization of **both geometry and azimuth values depends jointly on the geometry and those fixed values**. The planes also vary across the 32 pixel columns within a patch; they are not spatially constant planes.
+
+   Consequently, the added channels change normalization, the learned projection, gradients, parameter count, and the accessibility of orientation information. They can supply a fixed reference against which geometry statistics are represented. The final LayerNorm does not generally undo this change. The physical circular azimuth code also differs from SimpleViT’s token-index sinusoidal frequencies and seam behavior.
+
+   I checked the normalization issue with a small CPU example using the actual patch-embedding modules. After copying the original projection weights and setting every added-channel projection weight to zero, the embeddings still differed by a maximum absolute value of approximately **0.140**. The parameter increase was **526,336**, as the plan states. This is an implementation counterexample to a function-preserving expansion, not a performance result.
+
+   **Required change:** call D “SimpleViT in the heading frame” or “implicit orientation conditioning.” A paper reviewer could accept D as an informative control, but should not accept the current argument as sufficient to omit an explicit-cue baseline.
+
+   H and I are sensible literal controls. They should be the planned direct test of the reviewer’s request, with **C − H the primary literal comparison**, rather than optional confirmation of an asserted equivalence. Their comparisons with D/G test practical performance equivalence for these trained models; they cannot prove architectural redundancy.
+
+   A cheaper alternative exists: preserve the pretrained three-channel embedding and add a small, zero-initialized projection of heading-relative azimuth **after** its normalization. Fine-tune this explicit adapter from A and E under the same HAA schedule. This preserves the initial checkpoint function and costs roughly two HAA queues instead of two pretraining runs. It is a useful additional-conditioning control, but must be registered as a different design: it does not replicate CERPA’s five-channel pretraining. Naively expanding the existing projection with zero weights does **not** preserve the checkpoint function because of LayerNorm.
+
+2. **The yaw argument and the proposed “refutation” overstate what the experiment can establish.**
+
+   The exact statement “an invariant predictor cannot change its output under a heading-frame rotation” is correct. The implemented experiment does not guarantee such a predictor.
+
+   `train_xRIR_backbone.compute_loss` applies yaw augmentation during simulated pretraining. In contrast, [HAA fine-tuning](/home/yixunhu/codespace/xRIR_code/tools/exp06_haa_finetune.py:259) optimizes the model’s parameters and calls `compute_loss(model, batch)` without augmentation. Orientation dependence can therefore be learned or recovered during fine-tuning. Output invariance also does not imply that every intermediate feature discards azimuth.
+
+   Thus **G ≈ E is a reasonable prospective hypothesis, not a consequence of the code**. Equal aggregate errors would not establish prediction-level invariance or absence of cue use.
+
+   G is fair when described precisely as “yaw-pretrained SimpleViT, fine-tuned and evaluated in the heading frame.” It is not established as the “strongest” or “best cue-equipped SimpleViT.” Exp_09 already found that E was worse than A on hallway C50, and the explicit-cue alternatives remain untested.
+
+   There is a further inconsistency: I’s proposed augmentation rotates geometry while its azimuth planes remain fixed. On omnidirectional simulated data, its training objective likewise encourages insensitivity to geometry rotation relative to that fixed anchor. Adding channels does not automatically resolve the alleged conflict. The oriented cylindrical result also does not prove that its architecture uniquely resolves it.
+
+   **Required change:** remove the claim that D − A showing no improvement, together with C outperforming G, refutes the additional-conditioning explanation. D − A mixes orientation canonicalization with a coordinate-frame change relative to pretraining. A harmful implementation of conditioning does not show that conditioning cannot help another implementation.
+
+   This qualification matters numerically: exp_06’s hallway C50 errors were **A 1.135, C 1.137, D 1.766 dB**. C’s advantage over D is real in those results, but C approximately matches A. It is not evidence of an overall advantage over the same-budget room-frame baseline.
+
+   All four rooms also use the same inferred axis and the same `k=128`. These experiments compare pipelines on fixed rooms; they do not independently establish generalization across varying loudspeaker headings.
+
+   Cheap supporting analyses include fine-tuned side-split summaries from retained per-query outputs and explicitly labelled within-checkpoint orientation-sensitivity diagnostics. The frozen mirror-probe CLI cannot simply supply the latter for G/D: its SimpleViT `control` slot is hard-coded to the room frame. Use a reviewed exp_10 driver around its helpers if those diagnostics remain planned.
+
+3. **The contrasts are mostly well defined, but the decision rules need correction and fixed publication choices.**
+
+   The paired estimand, historical bootstrap conventions, convergence check, and disclosed single pretraining realization are appropriate for conditional comparisons. Three fine-tuning seeds do not estimate pretraining variability.
+
+   The following corrections are necessary:
+
+   | Item | Assessment and required correction |
+   |---|---|
+   | **N1: G − D** | Valid comparison of these pretrained initializations under heading-frame fine-tuning. It does not alone establish better cue use. If the mechanism is central, preregister the interaction \((G-E)-(D-A)\), while disclosing that D − A was already observed. |
+   | **N2: C − G** | Specify direction explicitly in the implementation. For interval \([L,U]\) on C − G, G’s non-inferiority is **\(-L<0.23\)**. Applying existing `classify_cell` directly would instead assess C’s non-inferiority against G. |
+   | **N2 conclusion** | Failure to establish G’s non-inferiority is not evidence that G is worse by at least 0.23 dB. Report superiority and non-inferiority separately. A margin-sized advantage for C requires **\(U<-0.23\)** on C − G. |
+   | **N3: G − E** | “No detected difference” does not support the prediction G ≈ E. Add a preregistered equivalence statement if approximate equality is the prediction; retain the ordinary category separately. |
+   | **S1** | Bonferroni-11 gives protection within each contrast’s 11-cell family. It does not provide experiment-wide protection across three contrasts. Explicitly declare three descriptive families, or use a 33-cell family for an overall screen claim. |
+   | **R1** | Appropriate as historical re-reporting. C − D was already observed: −0.629 dB, nominal interval [−0.764, −0.500]. Preserve its descriptive status and original interval convention. |
+   | **P1/P2** | Define `equivalent_at_margin` as strict containment: \(L>-0.23\) and \(U<0.23\). A 95% interval-containment rule is conservative relative to conventional TOST at α=.05, which corresponds to a 90% interval. Choose and name the rule explicitly. |
+   | **P3** | Register C − H and C − I separately, including which is primary and how multiplicity is handled if either can establish the headline claim. Use the corrected reverse-direction non-inferiority calculation. |
+
+   Every decision-bearing output—category, non-inferiority, equivalence, and any combined conclusion—must be unavailable when the relevant cell is void or unconverged. Equality at a decision boundary should establish neither claim. The 0.23 dB margin applies to hallway C50; it cannot be carried into EDT or T60 screens.
+
+   **Required change:** remove “if either prediction fails, replace D/G.” Failure to establish equivalence can mean insufficient precision. It does not establish a difference. More importantly, the four-row presentation should not depend on which results materialize. If H/I run, report them consistently as the literal-cue arms, with D/G retained as frame-only controls.
+
+   Also reconcile §3’s two overall rules: N2 includes a failed non-inferiority condition, whereas the “Overall reading” drops it. Replace both with one prespecified, appropriately scoped interpretation.
+
+   R1 should copy named fields from hash-bound exp_06/exp_09 canonical JSON, recording source hashes and field paths. §4 currently describes reconstructing those rows from completions instead. Revalidation is welcome, but recomputation must not silently turn a historical descriptive interval into a new confirmatory decision. New G/H/I contrasts remain prospective on **previously examined test rooms**, not independent replication on untouched data.
+
+4. **Round 1 is feasible with minimal changes; Phase 2 needs explicit versioned routing rather than unspecified thin wrappers.**
+
+   The frozen-file policy and prohibition on mutating `BACKBONES_EXP06` are correct. Clarify that “every `model/*.py` file” means every **existing** file; adding new modules is allowed. Freeze the complete relevant dependency closures, not only the hand-written list.
+
+   **Round 1:** the proposed pipeline and summarizer extensions are sufficient in principle. No new finalizer run type is needed for G.
+
+   The pipeline must apply the `exp04_aug_checkpoint` identity resolver to both `yawaug` and `yawaug_hf`, reset the frame on every init selection, retain bare `zeroshot`’s historical expansion, and pass the approved heading records for G. In the summarizer, extend `expected_inits` explicitly: adding an `ARMS` entry with `init_sha256=None` alone would leave G without the intended checkpoint identity check.
+
+   Keep `exp06_profiles.py`, `exp06_approvals_api.py`, both numerical HAA entry points, and the sim-eval closures unchanged. Add tests for mixed queues, wrong checkpoint, wrong frame, missing heading, and correct exp_04 approval binding.
+
+   **Phase 2:** the proposed new model modules and detached `BACKBONES_EXP10` are sound. However, the old HAA entry points hard-code their parsers, factories, registry digest, provenance identity, and run types. Calling their `main` functions cannot implement the proposed new routes. Use exp_10-owned parsers, preparation/provenance code, and orchestration that compose the unchanged numerical helpers. Do not monkeypatch old module globals.
+
+   The least disruptive boundary is an **exp_10-owned finalizer/adapter**, with exp_10 training, smoke/probe, HAA-child, and job routes. It can reuse suitable validation helpers while leaving historical dispatch unchanged. If the implementation instead extends `exp06_finalize.py`, the plan must enumerate every affected dispatcher and prove that the old paths reconstruct identical evidence.
+
+   In either design, explicitly cover:
+
+   - Registry selection, factory/state validation, entry-module identity, and recipe selection by run type.
+   - Exp_10 approvals schema, committed-blob binding, and distinct H/I checkpoint artifact identities.
+   - HAA job-spec validation, child roles, lineage checks, and pipeline entry-point selection.
+   - Summarizer admission for old exp_06-family children alongside new exp_10 children.
+   - An exp_10 smoke route: the frozen exp_06 smoke runner does not automatically recognize new entries.
+
+   [The current `check_arm_identities`](/home/yixunhu/codespace/xRIR_code/tools/exp06_summarize_haa.py:468) compares all children against one approval mapping’s `haa_finetune`/`haa_eval` keys. Those keys cannot simultaneously identify different old and new entry-point closures. Add an explicit per-arm profile/code-key mapping; do not replace historical keys with exp_10 digests or disable the checks.
+
+   There is also an existing limitation to the requested “every historical completion” guarantee. The full-pretraining validator checks the current launcher/finalizer bytes and current approvals file. I found **pre-existing drift** for C’s pretraining record in `exp06_finalize.py`, `exp06_smoke.py`, `exp06_launch.sh`, and the approvals file. The HAA blob-at-commit fix does not cover that full-pretraining path. This is not an exp_10 regression, but the plan must distinguish preservation of current HAA/sim admission from historical pretraining replay. A broader guarantee needs an explicit verification route using the recorded code and approvals snapshots, without rewriting original records or weakening launch-time checks.
+
+   The optional future simulated evaluation of H/I also cannot use the frozen exp_06 route unchanged: its factory recognizes only `BACKBONES_EXP06`. Deferring that evaluation is reasonable; defer its new routing explicitly too.
+
+5. **Historical reuse is admissible for A/B/C/D/E/F, but A′ requires a different presentation path. Publication needs separate phase outputs.**
+
+   The current admission situation is:
+
+   | Arms | Admissible reuse |
+   |---|---|
+   | **A, B** | Existing reconstructed legacy receipt plus inherited exp_02 completeness/protocol checks. They do not have exp_06-style child completions. |
+   | **C, D, F, E** | Existing HAA child/job records, unchanged execution dependencies, original approval blobs, checkpoint identities, headings, and protocol checks. |
+   | **A′ released** | **Not covered by the existing per-query legacy receipt.** Available as a clearly labelled external row copied from exp_02’s approved canonical statistics. |
+
+   I inspected the actual receipt: it declares exactly `['control', 'cyl']`, contains **126 files**, and contains no released-arm artifact entries. All 126 hashes matched. Its inclusion of exp_02’s canonical `stats.json` permits a bound historical summary row for A′; it does not certify A′’s individual artifacts for new paired inference.
+
+   Do not add `released` to global `LEGACY_ARMS`: the existing receipt validator requires exact arm and file membership. If new per-query inference involving A′ is needed, create a separate, explicitly approved supplemental receipt and admission path.
+
+   For C/D/E/F, static checks found matching recorded source-file hashes and approval-blob hashes for **31 children per arm**. The shared registry digest remains `f9852f85…`. This supports the proposed reuse, provided those executable dependencies stay unchanged. Blob-at-commit approval reads permit approval refills; they do not permit arbitrary source changes.
+
+   For the scientific table, A is the matched baseline for D/H. If A′ remains the prominently named “xRIR” row, distinguish its released initialization and include A visibly enough that readers cannot interpret A′ → D/H as a cue-only intervention. A′ may remain an external reference row, but must not silently substitute for A in the ablation.
+
+   Two publication fixes are also required:
+
+   - Phase 1 and Phase 2 cannot both publish to the same already-existing `stats.json`/`summary.txt`; `write_outputs` deliberately refuses overwrites. Register separate phase outputs, or reserve the final canonical paths until all planned arms finish.
+   - “Byte-identical exp06/exp09 outputs” should mean unchanged statistical payloads and rendered summaries under controlled fixtures, plus untouched historical canonical files. A newly produced JSON necessarily has different producer/provenance fields after a code change.
+
+   The new summarizer configuration also needs multiple screens and distinct P3 decisions; the existing schema supports only one screen pair per experiment. Extend that structure without changing old experiment semantics.
+
+6. **Phase-2 recipe parity must include exp_04’s saving constraints and a fully specified completion contract.**
+
+   I compared the requested [exp_01 args](/home/yixunhu/codespace/xRIR_code/ckpt/xRIR_simple_8_shot/args.json) and [exp_04 args](/home/yixunhu/codespace/xRIR_code/ckpt/xRIR_simple_yawaug_8_shot/final/args.json). Their common numerical training recipe agrees. The relevant differences are:
+
+   | Field | exp_01 | exp_04 |
+   |---|---|---|
+   | `save_every` | **500** | **0** |
+   | `epoch_ckpt_every` | **5** | **1** |
+   | `yaw_aug` | Absent; historical unaugmented run | **1** |
+   | `yaw_aug_seed`, `yaw_aug_width` | Absent | **0, 512** |
+   | `vit_*` | Absent; historical M defaults | **512 / 12 / 8 / 512** |
+   | `no_save` | Absent | **false** |
+   | `train_batches_per_epoch`, `tier`, `param_counts`, `env` | Absent | Recorded |
+   | `save_dir` | Original run directory | Exclusive attempt directory |
+
+   **Required change:** define two named recipe profiles, rather than merely allowing `yaw_aug ∈ {0,1}`. In particular, I must require `save_every=0` and `resume=None`. The pinned trainer explicitly rejects yaw augmentation otherwise; copying exp_06’s `save_every=500` would violate this contract.
+
+   H may use `epoch_ckpt_every=1` instead of historical 5 as a declared operational difference to retain the native epoch-12 checkpoint. Missing historical fields must remain documented normalizations or unavailable metadata, not be presented as originally recorded facts.
+
+   Both profiles should fix the common 12-epoch recipe, batch 32 × accumulation 2, seed 0, M dimensions, optimizer/scheduler settings, TF32, full splits, and loader length **9,261**. I additionally fixes the augmentation seed/width and counter constraints. Derived parameter counts must come from the new factory; the encoder increment is exactly **526,336**.
+
+   Carry over the full completion contract explicitly: agreeing startup/retained/checkpoint arguments; strict field types; no truncation or forbidden resume; epochs 1–12 exactly once with finite history; final epoch/batch metadata; tensor keys, shapes, dtypes, and values matching between `epoch_012.pth` and `last.pth["model"]`; input and closure revalidation; committed approvals; zero child exit; closed log and receipt; and external completion before checkpoint promotion.
+
+   HAA completion must likewise preserve validation-based selection, initialization → stage 1 → stage 2 → evaluation lineage, heading binding, full test indices, and job completeness. The old contract is suitable; the new registry and approval routing must actually enforce it.
+
+**Cost and schedule assessment.** The GPU estimates are credible planning allowances. Retained histories give approximately **28.2 h** for exp_01 SimpleViT, **27.4 h** for exp_04 yaw augmentation, and **31.0 h** for exp_06 oriented cylindrical pretraining. Thus 31/28 h plus two HAA queues is a plausible ≈65 GPU-hour Phase-2 estimate, pending the new-model timing probes. Including Phase 1 gives approximately **68 GPU-hours expected**, rather than 65 for the whole experiment.
+
+Given the supplied owner ETAs, Phase 1 can plausibly finish September 29 after an actual exclusive handover. Sequential H/I work on the first card can finish around October 2 under expected timings; waiting for the second card pushes I into October 4. October 3–5 is a reasonable buffered target, not a reservation.
+
+The Phase-2 implementation/review estimate is optimistic because it includes a new approval and completion family, not just model wrappers. The HAA pipeline also does not invoke the standalone launcher’s GPU preflight merely by sourcing its shell helpers; the runbook must explicitly enforce the promised exclusive-card condition.
+
+Resolve the concurrent experiment namespace before implementation: the peer’s `exp_10_yaw_pilot_claude` plan also uses `ckpt/exp10/` and `tools/exp10_*`. Distinct subdirectories may avoid immediate collisions, but the shared experiment identifier and ownership need an explicit agreement.
+
+Finally, use the SOP’s **ultra** setting for subsequent review closure, or record an authorized exception. This review ran at **xhigh** and should not be labelled otherwise.
+
+**Verification limits:** I performed read-only source/record inspection, the bounded CPU embedding check, legacy-artifact hashing, historical HAA source/approval checks, and source-file hash checks across all ten completed simulated-evaluation manifests. Their recorded sim source files matched. I did not invoke finalizers, run the full suite, launch GPU work, signal processes, or save files.
+tokens used
+209,233
+**Reviewer:** OpenAI Codex `gpt-6-astra`, codex-cli 0.154.0  
+**Reasoning effort:** `xhigh` — confirmed by this invocation; the SOP specifies `ultra`.  
+**Sandbox/resources:** read-only; CUDA disabled; CPU computation capped at four threads; no process signals.  
+**Tree:** `/home/yixunhu/codespace/xRIR_code`, branch `main`, with existing worklog modifications and untracked files.  
+**HEAD:** started at `885240c52df2c4931c311582068b4733d6d8be4b`; last checked at `c52ee94ee10b38dcf9d600575e959e674b4cc5b4`. Intervening changes were peer worklog files; reviewed implementation files were unchanged.  
+**Date/time:** September 26, 2026, 17:31–17:36 EDT.
+
+**Verdict: request changes.**
+
+Phase 1 is a useful, inexpensive extension of exp_09. It does not establish the scientific conclusion currently claimed for it. The principal blockers are the equivalence argument, the causal interpretation, the decision rules, and incomplete Phase-2 provenance routing.
+
+1. **The positional-code argument establishes information availability, not architectural or experimental equivalence.**
+
+   [Plan §2.1](/home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_orientation_cue_fairness_claude/plan_orientation_cue_fairness.md:17) is correct in a limited sense: on a fixed grid, the azimuth planes contain no additional sample-dependent heading measurement. Token column plus known patch offsets determines their values. SimpleViT already receives absolute token position.
+
+   The next step—therefore D faithfully substitutes for a literal channel-equipped SimpleViT—is unsupported by the actual [patch embedding](/home/yixunhu/codespace/xRIR_code/model/simple_vit.py:129).
+
+   Its computation is:
+
+   \[
+   z_j=\operatorname{LN}_{512}
+       \left(W\,\operatorname{LN}_{1536}(x_j)+b\right)+p_j.
+   \]
+
+   The proposed five-channel version instead computes:
+
+   \[
+   z'_j=\operatorname{LN}_{512}
+       \left(W'\,\operatorname{LN}_{2560}([x_j,a_j])+b'\right)+p_j.
+   \]
+
+   Here \(a_j\) is fixed for patch column \(j\), but the normalization of **both geometry and azimuth values depends jointly on the geometry and those fixed values**. The planes also vary across the 32 pixel columns within a patch; they are not spatially constant planes.
+
+   Consequently, the added channels change normalization, the learned projection, gradients, parameter count, and the accessibility of orientation information. They can supply a fixed reference against which geometry statistics are represented. The final LayerNorm does not generally undo this change. The physical circular azimuth code also differs from SimpleViT’s token-index sinusoidal frequencies and seam behavior.
+
+   I checked the normalization issue with a small CPU example using the actual patch-embedding modules. After copying the original projection weights and setting every added-channel projection weight to zero, the embeddings still differed by a maximum absolute value of approximately **0.140**. The parameter increase was **526,336**, as the plan states. This is an implementation counterexample to a function-preserving expansion, not a performance result.
+
+   **Required change:** call D “SimpleViT in the heading frame” or “implicit orientation conditioning.” A paper reviewer could accept D as an informative control, but should not accept the current argument as sufficient to omit an explicit-cue baseline.
+
+   H and I are sensible literal controls. They should be the planned direct test of the reviewer’s request, with **C − H the primary literal comparison**, rather than optional confirmation of an asserted equivalence. Their comparisons with D/G test practical performance equivalence for these trained models; they cannot prove architectural redundancy.
+
+   A cheaper alternative exists: preserve the pretrained three-channel embedding and add a small, zero-initialized projection of heading-relative azimuth **after** its normalization. Fine-tune this explicit adapter from A and E under the same HAA schedule. This preserves the initial checkpoint function and costs roughly two HAA queues instead of two pretraining runs. It is a useful additional-conditioning control, but must be registered as a different design: it does not replicate CERPA’s five-channel pretraining. Naively expanding the existing projection with zero weights does **not** preserve the checkpoint function because of LayerNorm.
+
+2. **The yaw argument and the proposed “refutation” overstate what the experiment can establish.**
+
+   The exact statement “an invariant predictor cannot change its output under a heading-frame rotation” is correct. The implemented experiment does not guarantee such a predictor.
+
+   `train_xRIR_backbone.compute_loss` applies yaw augmentation during simulated pretraining. In contrast, [HAA fine-tuning](/home/yixunhu/codespace/xRIR_code/tools/exp06_haa_finetune.py:259) optimizes the model’s parameters and calls `compute_loss(model, batch)` without augmentation. Orientation dependence can therefore be learned or recovered during fine-tuning. Output invariance also does not imply that every intermediate feature discards azimuth.
+
+   Thus **G ≈ E is a reasonable prospective hypothesis, not a consequence of the code**. Equal aggregate errors would not establish prediction-level invariance or absence of cue use.
+
+   G is fair when described precisely as “yaw-pretrained SimpleViT, fine-tuned and evaluated in the heading frame.” It is not established as the “strongest” or “best cue-equipped SimpleViT.” Exp_09 already found that E was worse than A on hallway C50, and the explicit-cue alternatives remain untested.
+
+   There is a further inconsistency: I’s proposed augmentation rotates geometry while its azimuth planes remain fixed. On omnidirectional simulated data, its training objective likewise encourages insensitivity to geometry rotation relative to that fixed anchor. Adding channels does not automatically resolve the alleged conflict. The oriented cylindrical result also does not prove that its architecture uniquely resolves it.
+
+   **Required change:** remove the claim that D − A showing no improvement, together with C outperforming G, refutes the additional-conditioning explanation. D − A mixes orientation canonicalization with a coordinate-frame change relative to pretraining. A harmful implementation of conditioning does not show that conditioning cannot help another implementation.
+
+   This qualification matters numerically: exp_06’s hallway C50 errors were **A 1.135, C 1.137, D 1.766 dB**. C’s advantage over D is real in those results, but C approximately matches A. It is not evidence of an overall advantage over the same-budget room-frame baseline.
+
+   All four rooms also use the same inferred axis and the same `k=128`. These experiments compare pipelines on fixed rooms; they do not independently establish generalization across varying loudspeaker headings.
+
+   Cheap supporting analyses include fine-tuned side-split summaries from retained per-query outputs and explicitly labelled within-checkpoint orientation-sensitivity diagnostics. The frozen mirror-probe CLI cannot simply supply the latter for G/D: its SimpleViT `control` slot is hard-coded to the room frame. Use a reviewed exp_10 driver around its helpers if those diagnostics remain planned.
+
+3. **The contrasts are mostly well defined, but the decision rules need correction and fixed publication choices.**
+
+   The paired estimand, historical bootstrap conventions, convergence check, and disclosed single pretraining realization are appropriate for conditional comparisons. Three fine-tuning seeds do not estimate pretraining variability.
+
+   The following corrections are necessary:
+
+   | Item | Assessment and required correction |
+   |---|---|
+   | **N1: G − D** | Valid comparison of these pretrained initializations under heading-frame fine-tuning. It does not alone establish better cue use. If the mechanism is central, preregister the interaction \((G-E)-(D-A)\), while disclosing that D − A was already observed. |
+   | **N2: C − G** | Specify direction explicitly in the implementation. For interval \([L,U]\) on C − G, G’s non-inferiority is **\(-L<0.23\)**. Applying existing `classify_cell` directly would instead assess C’s non-inferiority against G. |
+   | **N2 conclusion** | Failure to establish G’s non-inferiority is not evidence that G is worse by at least 0.23 dB. Report superiority and non-inferiority separately. A margin-sized advantage for C requires **\(U<-0.23\)** on C − G. |
+   | **N3: G − E** | “No detected difference” does not support the prediction G ≈ E. Add a preregistered equivalence statement if approximate equality is the prediction; retain the ordinary category separately. |
+   | **S1** | Bonferroni-11 gives protection within each contrast’s 11-cell family. It does not provide experiment-wide protection across three contrasts. Explicitly declare three descriptive families, or use a 33-cell family for an overall screen claim. |
+   | **R1** | Appropriate as historical re-reporting. C − D was already observed: −0.629 dB, nominal interval [−0.764, −0.500]. Preserve its descriptive status and original interval convention. |
+   | **P1/P2** | Define `equivalent_at_margin` as strict containment: \(L>-0.23\) and \(U<0.23\). A 95% interval-containment rule is conservative relative to conventional TOST at α=.05, which corresponds to a 90% interval. Choose and name the rule explicitly. |
+   | **P3** | Register C − H and C − I separately, including which is primary and how multiplicity is handled if either can establish the headline claim. Use the corrected reverse-direction non-inferiority calculation. |
+
+   Every decision-bearing output—category, non-inferiority, equivalence, and any combined conclusion—must be unavailable when the relevant cell is void or unconverged. Equality at a decision boundary should establish neither claim. The 0.23 dB margin applies to hallway C50; it cannot be carried into EDT or T60 screens.
+
+   **Required change:** remove “if either prediction fails, replace D/G.” Failure to establish equivalence can mean insufficient precision. It does not establish a difference. More importantly, the four-row presentation should not depend on which results materialize. If H/I run, report them consistently as the literal-cue arms, with D/G retained as frame-only controls.
+
+   Also reconcile §3’s two overall rules: N2 includes a failed non-inferiority condition, whereas the “Overall reading” drops it. Replace both with one prespecified, appropriately scoped interpretation.
+
+   R1 should copy named fields from hash-bound exp_06/exp_09 canonical JSON, recording source hashes and field paths. §4 currently describes reconstructing those rows from completions instead. Revalidation is welcome, but recomputation must not silently turn a historical descriptive interval into a new confirmatory decision. New G/H/I contrasts remain prospective on **previously examined test rooms**, not independent replication on untouched data.
+
+4. **Round 1 is feasible with minimal changes; Phase 2 needs explicit versioned routing rather than unspecified thin wrappers.**
+
+   The frozen-file policy and prohibition on mutating `BACKBONES_EXP06` are correct. Clarify that “every `model/*.py` file” means every **existing** file; adding new modules is allowed. Freeze the complete relevant dependency closures, not only the hand-written list.
+
+   **Round 1:** the proposed pipeline and summarizer extensions are sufficient in principle. No new finalizer run type is needed for G.
+
+   The pipeline must apply the `exp04_aug_checkpoint` identity resolver to both `yawaug` and `yawaug_hf`, reset the frame on every init selection, retain bare `zeroshot`’s historical expansion, and pass the approved heading records for G. In the summarizer, extend `expected_inits` explicitly: adding an `ARMS` entry with `init_sha256=None` alone would leave G without the intended checkpoint identity check.
+
+   Keep `exp06_profiles.py`, `exp06_approvals_api.py`, both numerical HAA entry points, and the sim-eval closures unchanged. Add tests for mixed queues, wrong checkpoint, wrong frame, missing heading, and correct exp_04 approval binding.
+
+   **Phase 2:** the proposed new model modules and detached `BACKBONES_EXP10` are sound. However, the old HAA entry points hard-code their parsers, factories, registry digest, provenance identity, and run types. Calling their `main` functions cannot implement the proposed new routes. Use exp_10-owned parsers, preparation/provenance code, and orchestration that compose the unchanged numerical helpers. Do not monkeypatch old module globals.
+
+   The least disruptive boundary is an **exp_10-owned finalizer/adapter**, with exp_10 training, smoke/probe, HAA-child, and job routes. It can reuse suitable validation helpers while leaving historical dispatch unchanged. If the implementation instead extends `exp06_finalize.py`, the plan must enumerate every affected dispatcher and prove that the old paths reconstruct identical evidence.
+
+   In either design, explicitly cover:
+
+   - Registry selection, factory/state validation, entry-module identity, and recipe selection by run type.
+   - Exp_10 approvals schema, committed-blob binding, and distinct H/I checkpoint artifact identities.
+   - HAA job-spec validation, child roles, lineage checks, and pipeline entry-point selection.
+   - Summarizer admission for old exp_06-family children alongside new exp_10 children.
+   - An exp_10 smoke route: the frozen exp_06 smoke runner does not automatically recognize new entries.
+
+   [The current `check_arm_identities`](/home/yixunhu/codespace/xRIR_code/tools/exp06_summarize_haa.py:468) compares all children against one approval mapping’s `haa_finetune`/`haa_eval` keys. Those keys cannot simultaneously identify different old and new entry-point closures. Add an explicit per-arm profile/code-key mapping; do not replace historical keys with exp_10 digests or disable the checks.
+
+   There is also an existing limitation to the requested “every historical completion” guarantee. The full-pretraining validator checks the current launcher/finalizer bytes and current approvals file. I found **pre-existing drift** for C’s pretraining record in `exp06_finalize.py`, `exp06_smoke.py`, `exp06_launch.sh`, and the approvals file. The HAA blob-at-commit fix does not cover that full-pretraining path. This is not an exp_10 regression, but the plan must distinguish preservation of current HAA/sim admission from historical pretraining replay. A broader guarantee needs an explicit verification route using the recorded code and approvals snapshots, without rewriting original records or weakening launch-time checks.
+
+   The optional future simulated evaluation of H/I also cannot use the frozen exp_06 route unchanged: its factory recognizes only `BACKBONES_EXP06`. Deferring that evaluation is reasonable; defer its new routing explicitly too.
+
+5. **Historical reuse is admissible for A/B/C/D/E/F, but A′ requires a different presentation path. Publication needs separate phase outputs.**
+
+   The current admission situation is:
+
+   | Arms | Admissible reuse |
+   |---|---|
+   | **A, B** | Existing reconstructed legacy receipt plus inherited exp_02 completeness/protocol checks. They do not have exp_06-style child completions. |
+   | **C, D, F, E** | Existing HAA child/job records, unchanged execution dependencies, original approval blobs, checkpoint identities, headings, and protocol checks. |
+   | **A′ released** | **Not covered by the existing per-query legacy receipt.** Available as a clearly labelled external row copied from exp_02’s approved canonical statistics. |
+
+   I inspected the actual receipt: it declares exactly `['control', 'cyl']`, contains **126 files**, and contains no released-arm artifact entries. All 126 hashes matched. Its inclusion of exp_02’s canonical `stats.json` permits a bound historical summary row for A′; it does not certify A′’s individual artifacts for new paired inference.
+
+   Do not add `released` to global `LEGACY_ARMS`: the existing receipt validator requires exact arm and file membership. If new per-query inference involving A′ is needed, create a separate, explicitly approved supplemental receipt and admission path.
+
+   For C/D/E/F, static checks found matching recorded source-file hashes and approval-blob hashes for **31 children per arm**. The shared registry digest remains `f9852f85…`. This supports the proposed reuse, provided those executable dependencies stay unchanged. Blob-at-commit approval reads permit approval refills; they do not permit arbitrary source changes.
+
+   For the scientific table, A is the matched baseline for D/H. If A′ remains the prominently named “xRIR” row, distinguish its released initialization and include A visibly enough that readers cannot interpret A′ → D/H as a cue-only intervention. A′ may remain an external reference row, but must not silently substitute for A in the ablation.
+
+   Two publication fixes are also required:
+
+   - Phase 1 and Phase 2 cannot both publish to the same already-existing `stats.json`/`summary.txt`; `write_outputs` deliberately refuses overwrites. Register separate phase outputs, or reserve the final canonical paths until all planned arms finish.
+   - “Byte-identical exp06/exp09 outputs” should mean unchanged statistical payloads and rendered summaries under controlled fixtures, plus untouched historical canonical files. A newly produced JSON necessarily has different producer/provenance fields after a code change.
+
+   The new summarizer configuration also needs multiple screens and distinct P3 decisions; the existing schema supports only one screen pair per experiment. Extend that structure without changing old experiment semantics.
+
+6. **Phase-2 recipe parity must include exp_04’s saving constraints and a fully specified completion contract.**
+
+   I compared the requested [exp_01 args](/home/yixunhu/codespace/xRIR_code/ckpt/xRIR_simple_8_shot/args.json) and [exp_04 args](/home/yixunhu/codespace/xRIR_code/ckpt/xRIR_simple_yawaug_8_shot/final/args.json). Their common numerical training recipe agrees. The relevant differences are:
+
+   | Field | exp_01 | exp_04 |
+   |---|---|---|
+   | `save_every` | **500** | **0** |
+   | `epoch_ckpt_every` | **5** | **1** |
+   | `yaw_aug` | Absent; historical unaugmented run | **1** |
+   | `yaw_aug_seed`, `yaw_aug_width` | Absent | **0, 512** |
+   | `vit_*` | Absent; historical M defaults | **512 / 12 / 8 / 512** |
+   | `no_save` | Absent | **false** |
+   | `train_batches_per_epoch`, `tier`, `param_counts`, `env` | Absent | Recorded |
+   | `save_dir` | Original run directory | Exclusive attempt directory |
+
+   **Required change:** define two named recipe profiles, rather than merely allowing `yaw_aug ∈ {0,1}`. In particular, I must require `save_every=0` and `resume=None`. The pinned trainer explicitly rejects yaw augmentation otherwise; copying exp_06’s `save_every=500` would violate this contract.
+
+   H may use `epoch_ckpt_every=1` instead of historical 5 as a declared operational difference to retain the native epoch-12 checkpoint. Missing historical fields must remain documented normalizations or unavailable metadata, not be presented as originally recorded facts.
+
+   Both profiles should fix the common 12-epoch recipe, batch 32 × accumulation 2, seed 0, M dimensions, optimizer/scheduler settings, TF32, full splits, and loader length **9,261**. I additionally fixes the augmentation seed/width and counter constraints. Derived parameter counts must come from the new factory; the encoder increment is exactly **526,336**.
+
+   Carry over the full completion contract explicitly: agreeing startup/retained/checkpoint arguments; strict field types; no truncation or forbidden resume; epochs 1–12 exactly once with finite history; final epoch/batch metadata; tensor keys, shapes, dtypes, and values matching between `epoch_012.pth` and `last.pth["model"]`; input and closure revalidation; committed approvals; zero child exit; closed log and receipt; and external completion before checkpoint promotion.
+
+   HAA completion must likewise preserve validation-based selection, initialization → stage 1 → stage 2 → evaluation lineage, heading binding, full test indices, and job completeness. The old contract is suitable; the new registry and approval routing must actually enforce it.
+
+**Cost and schedule assessment.** The GPU estimates are credible planning allowances. Retained histories give approximately **28.2 h** for exp_01 SimpleViT, **27.4 h** for exp_04 yaw augmentation, and **31.0 h** for exp_06 oriented cylindrical pretraining. Thus 31/28 h plus two HAA queues is a plausible ≈65 GPU-hour Phase-2 estimate, pending the new-model timing probes. Including Phase 1 gives approximately **68 GPU-hours expected**, rather than 65 for the whole experiment.
+
+Given the supplied owner ETAs, Phase 1 can plausibly finish September 29 after an actual exclusive handover. Sequential H/I work on the first card can finish around October 2 under expected timings; waiting for the second card pushes I into October 4. October 3–5 is a reasonable buffered target, not a reservation.
+
+The Phase-2 implementation/review estimate is optimistic because it includes a new approval and completion family, not just model wrappers. The HAA pipeline also does not invoke the standalone launcher’s GPU preflight merely by sourcing its shell helpers; the runbook must explicitly enforce the promised exclusive-card condition.
+
+Resolve the concurrent experiment namespace before implementation: the peer’s `exp_10_yaw_pilot_claude` plan also uses `ckpt/exp10/` and `tools/exp10_*`. Distinct subdirectories may avoid immediate collisions, but the shared experiment identifier and ownership need an explicit agreement.
+
+Finally, use the SOP’s **ultra** setting for subsequent review closure, or record an authorized exception. This review ran at **xhigh** and should not be labelled otherwise.
+
+**Verification limits:** I performed read-only source/record inspection, the bounded CPU embedding check, legacy-artifact hashing, historical HAA source/approval checks, and source-file hash checks across all ten completed simulated-evaluation manifests. Their recorded sim source files matched. I did not invoke finalizers, run the full suite, launch GPU work, signal processes, or save files.
+
+**Reviewer:** OpenAI Codex `gpt-6-astra`, codex-cli 0.154.0, `codex exec`  
+**Reasoning effort:** `ultra`, confirmed by this invocation’s log  
+**Sandbox/resources:** read-only; CUDA disabled; CPU computations limited to one thread each; no process signals  
+**Tree:** `/home/yixunhu/codespace/xRIR_code`, branch `main`; existing worklog modifications and untracked records  
+**HEAD:** `c6233e370c0d355ad00e438e2db91092e76a132d`, unchanged during review  
+**Date/time:** September 26, 2026, approximately 17:44–17:48 EDT  
+
+**Verdict: approve with changes.**
+
+V2 resolves the substantive round-1 scientific objections and chooses the right boundary for the new implementation. The remaining changes below concern precise adapter contracts, statistical edge cases, and executable provenance routing. They do not require additional experimental arms or a redesign.
+
+I read the SOP, v2, superseded v1, round-1 review, query and notebook, relevant predecessor records, and implementation sources. The announcements directory is empty.
+
+| Round-1 item | Round-2 assessment |
+|---|---|
+| Positional-code redundancy claim; D’s label | **Resolved.** Information availability is distinguished from architectural equivalence; D is an implicit-conditioning control. |
+| H/I as literal tests; primary P3 = C − H | **Resolved.** H consistently occupies the requested explicit-cue baseline row; I is secondary. |
+| J/K adapter design | **Partially resolved.** Technically feasible and correctly registered as a different design; clarify loading, angle/routing, and interpretation as change 1. |
+| Yaw invariance argument; G ≈ E; “refutation” | **Resolved in substance.** Fine-tuning can recover orientation dependence; equivalence is a hypothesis; D − A no longer refutes explicit conditioning. Remaining causal wording is covered by change 1. |
+| Notation, N1, N2 direction, separate superiority | **Resolved.** The inequalities and separation of claims are correct. |
+| N1i interaction | **Partially resolved.** Correct estimand and historical disclosure; specify four-arm cohort construction and unavailable-cell handling. |
+| N3; P1/P2 equivalence | **Resolved.** Strict 95% containment is explicitly chosen and correctly distinguished from conventional TOST. |
+| Three S1 families; Q1–Q4; P3/P3′; P4/P4′ | **Resolved statistically.** Only P3 establishes the headline; other comparisons need the stated conditional interpretations. |
+| Void/unconverged suppression | **Resolved as policy; partially resolved in implementation specification.** Historical screen helpers do not implement the proposed universal suppression. |
+| R1 historical copying | **Partially resolved.** Correct sources and prohibition on recomputation, but some promised source fields do not exist. |
+| Single overall reading; fixed publication rows | **Resolved.** No result-dependent replacement of D/G or substitution of A′ for A. |
+| Round-1 pipeline, resolver, `expected_inits`, schema regression, census | **Resolved in design.** The proposed changes are minimal and appropriately tested. |
+| Exp_11-owned round-2 family | **Partially resolved.** Correct ownership boundary; remaining routing and helper-composition gaps are changes 4–5. |
+| Historical completion preservation | **Resolved for preserving current HAA/sim admission.** Unqualified replay of *every* historical completion remains **open and explicitly deferred**, because of pre-existing C-pretraining drift. |
+| A/B receipt; C/D/E/F completions; A′ external row | **Resolved.** These are the correct admission paths. |
+| Separate phase outputs; historical-output semantics | **Resolved.** Distinct paths avoid overwrite; regression expectations correctly exclude changing producer metadata. |
+| H_RECIPE/I_RECIPE and completion contract | **Resolved in specification.** Approval and diagnostic lifecycle details remain to be pinned. |
+| Cost, schedule, risks, namespace, reviewer effort | **Resolved.** Estimates are credible allowances; exp_11 avoids the peer’s namespace; this review uses `ultra`. |
+
+The required changes are:
+
+1. **Finish the adapter contract and restrict its scientific interpretation.**
+
+   The proposed insertion after the patch embedding’s final LayerNorm is sound. It avoids the joint geometry/azimuth normalization change identified in round 1. Zero **weight and bias** give 1,536 added parameters at dimension 512 and can preserve the initial function. A bounded CPU prototype using the actual SimpleViT components produced equal outputs; this establishes feasibility, not correctness of the future implementation. See the original [embedding and forward path](/home/yixunhu/codespace/xRIR_code/model/simple_vit.py:129).
+
+   Pin the token-angle convention. A natural choice for the 16 token columns is
+   \[
+   \theta_j=2\pi(j+\tfrac12)/16-\pi.
+   \]
+   Convert the bound `phi_deg` to radians. All four current records have `phi_deg=-90`, `k=128`, and confirmatory admissibility, so the continuous and quantized headings agree here.
+
+   Also specify how the heading reaches the adapter. The unchanged dataset/loss interface supplies no room identifier or heading to the model. For this experiment, the least-change route is to validate that every participating room’s bound record supplies the same heading, install that shared cue, and reject mixed headings. Generic per-room conditioning would require additional routing beyond the stated scope.
+
+   Distinguish two checkpoint-loading modes:
+
+   - A/E initialization: validate every inherited key strictly and initialize only the new adapter weight/bias to zero.
+   - Subsequent stage/evaluation checkpoints: require the complete adapter state strictly.
+
+   “Pinned state dict loads unchanged” must not become unrestricted `strict=False`, or silently zero a missing trained adapter.
+
+   With one fixed heading, the adapter cannot identify the benefit of heading information itself:
+   \[
+   W\,a_j(\phi)+b=W R(-\phi)a_j(0)+b.
+   \]
+   The heading is absorbable into the learned projection. J/K therefore test an added learnable circular positional representation during fine-tuning. They are fair and informative supplementary controls, but Q1/Q3 cannot establish that measured heading information caused a gain.
+
+   Similarly, P4 = H − A bundles new five-channel pretraining with the room-to-heading frame change. P1 = H − D holds the HAA frame fixed and is the better matched channel-family comparison, although it still includes added parameters and a different pretrained realization. Keep P3 as the requested pipeline comparison. Describe simulated pretraining as using an absolute azimuth anchor; its loudspeaker-relative meaning comes from the HAA heading transform.
+
+2. **Specify N1i’s common cohort and exp_11’s suppression behavior.**
+
+   The frozen bootstrap can implement the interaction directly:
+   ```text
+   paired_intervals(g - e, d - a, query_clusters, finetuning_seeds)
+   ```
+   This jointly resamples the interaction and preserves covariance. Do not subtract independently bootstrapped intervals.
+
+   The existing [cell assembler](/home/yixunhu/codespace/xRIR_code/tools/exp06_summarize_haa.py:776) handles only two arms. Register an exp_11 four-arm assembler that checks query indices, IR paths, protocol metadata, and seed alignment across A/D/E/G; uses one query mask finite across all four arms and all three seeds; and reports original per-arm exclusions. Require the joint cohort to cover at least 99% of the test queries, retaining the component invalidity checks for G − E and D − A.
+
+   Interpret a positive interaction as a larger heading-frame penalty after yaw pretraining, rather than automatically calling it harm by one individual arm.
+
+   Add a defined unavailable result for degenerate intervals. The frozen [convergence helper](/home/yixunhu/codespace/xRIR_code/tools/exp06_bootstrap.py:123) raises on zero width; cancellation in an interaction can produce this. Handle it in the new wrapper without aborting the entire summary or changing the historical helper.
+
+   Finally, explicitly include or exclude descriptive screen labels from the universal suppression rule. I recommend including them for exp_11. Existing [screen logic](/home/yixunhu/codespace/xRIR_code/tools/exp06_summarize_haa.py:890) suppresses empty cohorts but does not apply the full void rule—consistent with exp_09’s registered behavior. Any stronger gate must be exp_11-specific. Test four-arm missingness, cancellation, boundaries, unconverged cells, and unchanged historical screen semantics.
+
+3. **Replace R1’s generic field promise with a source-field map.**
+
+   The actual canonical structures differ:
+
+   | Historical contrast | Hallway C50 source | Fields available |
+   |---|---|---|
+   | C − D | exp_06 `D[6]` | `diff`, `nominal_two_way`; no convergence or label |
+   | D − A | exp_06 `D[17]` | `diff`, `nominal_two_way`; no convergence or label |
+   | C − A | exp_06 `H1` | `diff`, `two_way`, `convergence`, `verdict` |
+   | C − F | exp_06 `H1b` | Same relevant structure as H1 |
+   | E − A | exp_09 `E1` | Includes `category`, `verdict`, convergence, intervals, and non-inferiority |
+
+   These are in the actual [exp_06 canonical JSON](/home/yixunhu/codespace/xRIR_code/ckpt/exp06/stats.json) and [exp_09 canonical JSON](/home/yixunhu/codespace/xRIR_code/ckpt/exp09/stats.json).
+
+   Copy extant fields exactly, retain their original meaning and interval convention, and mark absent fields `null`/“not recorded.” Record source hashes and selectors, with contrast/room/metric assertions. Do not manufacture convergence or retrospectively classify descriptive rows as new decisions.
+
+4. **Make the round-2 composition and summarizer dispatch executable.**
+
+   The exp_11-owned family is the least disruptive design, but two concrete gaps remain.
+
+   First, §4.9 cannot literally import the old fine-tuning loop: optimizer construction, epoch iteration, validation selection, and checkpoint writing are embedded inside [the old `main`](/home/yixunhu/codespace/xRIR_code/tools/exp06_haa_finetune.py:250). Specify an exp_11-owned faithful orchestration loop importing the unchanged numerical helpers. Verify optimizer-step order, validation cadence, epoch-zero selection, strict improvement selection, and final checkpoint behavior. The evaluation loop is importable, but exp_11 must own its provenance and metadata writer. Keep the frozen files unchanged.
+
+   Second, per-arm code-key mapping is necessary but insufficient. The current summarizer requires `haa_job` and directly invokes exp_06’s specification loader, child verifier, role resolver, and lineage functions in [job admission](/home/yixunhu/codespace/xRIR_code/tools/exp06_summarize_haa.py:648).
+
+   Register a per-arm admission adapter covering those calls. Historical arms must retain their old validators; H/I/J/K must use exp_11 validators. Distinguish serialized run types from semantic training/evaluation roles used by protocol checks.
+
+   Adapter headings also need their own admission fields. Current [room-frame metadata validation](/home/yixunhu/codespace/xRIR_code/tools/exp06_summarize_haa.py:566) rejects heading records. Permit and bind adapter input headings specifically for J/K while preserving that rejection for historical room-frame arms.
+
+   No old-finalizer registration appears necessary. Prefer leaving it untouched; an exception should require a demonstrated dependency, not speculative convenience. Also correct §2.2’s statement that every new arm uses the exp_11 pipeline: G intentionally uses the extended exp_06 route.
+
+5. **Complete approval coverage and phase-specific lifecycle rules.**
+
+   The §4.7 code-key list omits `exp11_launch.sh`. Shell launchers are outside Python import closures, as the existing [profiles implementation](/home/yixunhu/codespace/xRIR_code/tools/exp06_profiles.py:15) explicitly documents. Add `launch_sh` or an explicit closure extra, checked at startup and finalization.
+
+   Register a producer/arm requirement matrix that consumes only available inputs:
+
+   - Pretraining cannot require its own output checkpoint pin.
+   - J/K and Phase 1b must work while both H/I checkpoint pins remain null.
+   - H must work while I’s checkpoint remains unavailable.
+   - Final publication requires all planned arms.
+
+   The broad historical approval requirements cannot simply be copied.
+
+   Finally, cover the launcher’s probe and the HAA training/evaluation smokes. Either enumerate distinct diagnostic run types or bind an explicit diagnostic kind and entry point within `exp11_smoke`. Their budgets, artifact contracts, and permanent non-admissibility must be explicit. These are acceptance details for the proposed family, not reasons to broaden it.
+
+The admission and publication design otherwise needs no change. A/B remain covered by the reconstructed receipt and inherited protocol checks; C/D/E/F retain their original child/job and approval-blob evidence; A′ remains a hash-bound external summary row and never enters paired inference. Phase 1, Phase 1b, and final canonical outputs are appropriately separated.
+
+H_RECIPE and I_RECIPE now contain the important distinctions: I’s saving/resume restrictions and augmentation counters; H’s declared retention change; the common numerical recipe and loader length; derived parameter counts; strict argument/history/checkpoint validation; and external completion before promotion. Preserve these exactly when implementing the new validators.
+
+The approximately **75 GPU-hour** estimate is consistent with the component estimates, and **95 hours reserved** is a reasonable allowance. Two to three days for round-2 implementation/review is more credible than the earlier thin-wrapper estimate. October 4–5 remains conditional on actual exclusive handover. Running I sequentially on the first available card may finish earlier than waiting for the second. The exp_11 namespace move resolves the collision.
+
+The final interpretation should remain conditional on these pretrained realizations, the previously examined rooms, and the primary hallway C50 cell. Three fine-tuning seeds do not estimate pretraining variability.
+
+**Verification:** All 126 legacy-receipt artifact hashes matched. Recorded source hashes matched for 31 children each of C/D/F/E and all ten simulated-evaluation manifests. These checks support preservation, but are not complete finalizer replay. The closure-test suite failed during dependency imports because required cache/temp writes were unavailable in the read-only sandbox; I do not report it as passing. No GPU work, process signalling, finalizer execution, or file saving was performed.
+tokens used
+91,599
+**Reviewer:** OpenAI Codex `gpt-6-astra`, codex-cli 0.154.0, `codex exec`  
+**Reasoning effort:** `ultra`, confirmed by this invocation’s log  
+**Sandbox/resources:** read-only; CUDA disabled; CPU computations limited to one thread each; no process signals  
+**Tree:** `/home/yixunhu/codespace/xRIR_code`, branch `main`; existing worklog modifications and untracked records  
+**HEAD:** `c6233e370c0d355ad00e438e2db91092e76a132d`, unchanged during review  
+**Date/time:** September 26, 2026, approximately 17:44–17:48 EDT  
+
+**Verdict: approve with changes.**
+
+V2 resolves the substantive round-1 scientific objections and chooses the right boundary for the new implementation. The remaining changes below concern precise adapter contracts, statistical edge cases, and executable provenance routing. They do not require additional experimental arms or a redesign.
+
+I read the SOP, v2, superseded v1, round-1 review, query and notebook, relevant predecessor records, and implementation sources. The announcements directory is empty.
+
+| Round-1 item | Round-2 assessment |
+|---|---|
+| Positional-code redundancy claim; D’s label | **Resolved.** Information availability is distinguished from architectural equivalence; D is an implicit-conditioning control. |
+| H/I as literal tests; primary P3 = C − H | **Resolved.** H consistently occupies the requested explicit-cue baseline row; I is secondary. |
+| J/K adapter design | **Partially resolved.** Technically feasible and correctly registered as a different design; clarify loading, angle/routing, and interpretation as change 1. |
+| Yaw invariance argument; G ≈ E; “refutation” | **Resolved in substance.** Fine-tuning can recover orientation dependence; equivalence is a hypothesis; D − A no longer refutes explicit conditioning. Remaining causal wording is covered by change 1. |
+| Notation, N1, N2 direction, separate superiority | **Resolved.** The inequalities and separation of claims are correct. |
+| N1i interaction | **Partially resolved.** Correct estimand and historical disclosure; specify four-arm cohort construction and unavailable-cell handling. |
+| N3; P1/P2 equivalence | **Resolved.** Strict 95% containment is explicitly chosen and correctly distinguished from conventional TOST. |
+| Three S1 families; Q1–Q4; P3/P3′; P4/P4′ | **Resolved statistically.** Only P3 establishes the headline; other comparisons need the stated conditional interpretations. |
+| Void/unconverged suppression | **Resolved as policy; partially resolved in implementation specification.** Historical screen helpers do not implement the proposed universal suppression. |
+| R1 historical copying | **Partially resolved.** Correct sources and prohibition on recomputation, but some promised source fields do not exist. |
+| Single overall reading; fixed publication rows | **Resolved.** No result-dependent replacement of D/G or substitution of A′ for A. |
+| Round-1 pipeline, resolver, `expected_inits`, schema regression, census | **Resolved in design.** The proposed changes are minimal and appropriately tested. |
+| Exp_11-owned round-2 family | **Partially resolved.** Correct ownership boundary; remaining routing and helper-composition gaps are changes 4–5. |
+| Historical completion preservation | **Resolved for preserving current HAA/sim admission.** Unqualified replay of *every* historical completion remains **open and explicitly deferred**, because of pre-existing C-pretraining drift. |
+| A/B receipt; C/D/E/F completions; A′ external row | **Resolved.** These are the correct admission paths. |
+| Separate phase outputs; historical-output semantics | **Resolved.** Distinct paths avoid overwrite; regression expectations correctly exclude changing producer metadata. |
+| H_RECIPE/I_RECIPE and completion contract | **Resolved in specification.** Approval and diagnostic lifecycle details remain to be pinned. |
+| Cost, schedule, risks, namespace, reviewer effort | **Resolved.** Estimates are credible allowances; exp_11 avoids the peer’s namespace; this review uses `ultra`. |
+
+The required changes are:
+
+1. **Finish the adapter contract and restrict its scientific interpretation.**
+
+   The proposed insertion after the patch embedding’s final LayerNorm is sound. It avoids the joint geometry/azimuth normalization change identified in round 1. Zero **weight and bias** give 1,536 added parameters at dimension 512 and can preserve the initial function. A bounded CPU prototype using the actual SimpleViT components produced equal outputs; this establishes feasibility, not correctness of the future implementation. See the original [embedding and forward path](/home/yixunhu/codespace/xRIR_code/model/simple_vit.py:129).
+
+   Pin the token-angle convention. A natural choice for the 16 token columns is
+   \[
+   \theta_j=2\pi(j+\tfrac12)/16-\pi.
+   \]
+   Convert the bound `phi_deg` to radians. All four current records have `phi_deg=-90`, `k=128`, and confirmatory admissibility, so the continuous and quantized headings agree here.
+
+   Also specify how the heading reaches the adapter. The unchanged dataset/loss interface supplies no room identifier or heading to the model. For this experiment, the least-change route is to validate that every participating room’s bound record supplies the same heading, install that shared cue, and reject mixed headings. Generic per-room conditioning would require additional routing beyond the stated scope.
+
+   Distinguish two checkpoint-loading modes:
+
+   - A/E initialization: validate every inherited key strictly and initialize only the new adapter weight/bias to zero.
+   - Subsequent stage/evaluation checkpoints: require the complete adapter state strictly.
+
+   “Pinned state dict loads unchanged” must not become unrestricted `strict=False`, or silently zero a missing trained adapter.
+
+   With one fixed heading, the adapter cannot identify the benefit of heading information itself:
+   \[
+   W\,a_j(\phi)+b=W R(-\phi)a_j(0)+b.
+   \]
+   The heading is absorbable into the learned projection. J/K therefore test an added learnable circular positional representation during fine-tuning. They are fair and informative supplementary controls, but Q1/Q3 cannot establish that measured heading information caused a gain.
+
+   Similarly, P4 = H − A bundles new five-channel pretraining with the room-to-heading frame change. P1 = H − D holds the HAA frame fixed and is the better matched channel-family comparison, although it still includes added parameters and a different pretrained realization. Keep P3 as the requested pipeline comparison. Describe simulated pretraining as using an absolute azimuth anchor; its loudspeaker-relative meaning comes from the HAA heading transform.
+
+2. **Specify N1i’s common cohort and exp_11’s suppression behavior.**
+
+   The frozen bootstrap can implement the interaction directly:
+   ```text
+   paired_intervals(g - e, d - a, query_clusters, finetuning_seeds)
+   ```
+   This jointly resamples the interaction and preserves covariance. Do not subtract independently bootstrapped intervals.
+
+   The existing [cell assembler](/home/yixunhu/codespace/xRIR_code/tools/exp06_summarize_haa.py:776) handles only two arms. Register an exp_11 four-arm assembler that checks query indices, IR paths, protocol metadata, and seed alignment across A/D/E/G; uses one query mask finite across all four arms and all three seeds; and reports original per-arm exclusions. Require the joint cohort to cover at least 99% of the test queries, retaining the component invalidity checks for G − E and D − A.
+
+   Interpret a positive interaction as a larger heading-frame penalty after yaw pretraining, rather than automatically calling it harm by one individual arm.
+
+   Add a defined unavailable result for degenerate intervals. The frozen [convergence helper](/home/yixunhu/codespace/xRIR_code/tools/exp06_bootstrap.py:123) raises on zero width; cancellation in an interaction can produce this. Handle it in the new wrapper without aborting the entire summary or changing the historical helper.
+
+   Finally, explicitly include or exclude descriptive screen labels from the universal suppression rule. I recommend including them for exp_11. Existing [screen logic](/home/yixunhu/codespace/xRIR_code/tools/exp06_summarize_haa.py:890) suppresses empty cohorts but does not apply the full void rule—consistent with exp_09’s registered behavior. Any stronger gate must be exp_11-specific. Test four-arm missingness, cancellation, boundaries, unconverged cells, and unchanged historical screen semantics.
+
+3. **Replace R1’s generic field promise with a source-field map.**
+
+   The actual canonical structures differ:
+
+   | Historical contrast | Hallway C50 source | Fields available |
+   |---|---|---|
+   | C − D | exp_06 `D[6]` | `diff`, `nominal_two_way`; no convergence or label |
+   | D − A | exp_06 `D[17]` | `diff`, `nominal_two_way`; no convergence or label |
+   | C − A | exp_06 `H1` | `diff`, `two_way`, `convergence`, `verdict` |
+   | C − F | exp_06 `H1b` | Same relevant structure as H1 |
+   | E − A | exp_09 `E1` | Includes `category`, `verdict`, convergence, intervals, and non-inferiority |
+
+   These are in the actual [exp_06 canonical JSON](/home/yixunhu/codespace/xRIR_code/ckpt/exp06/stats.json) and [exp_09 canonical JSON](/home/yixunhu/codespace/xRIR_code/ckpt/exp09/stats.json).
+
+   Copy extant fields exactly, retain their original meaning and interval convention, and mark absent fields `null`/“not recorded.” Record source hashes and selectors, with contrast/room/metric assertions. Do not manufacture convergence or retrospectively classify descriptive rows as new decisions.
+
+4. **Make the round-2 composition and summarizer dispatch executable.**
+
+   The exp_11-owned family is the least disruptive design, but two concrete gaps remain.
+
+   First, §4.9 cannot literally import the old fine-tuning loop: optimizer construction, epoch iteration, validation selection, and checkpoint writing are embedded inside [the old `main`](/home/yixunhu/codespace/xRIR_code/tools/exp06_haa_finetune.py:250). Specify an exp_11-owned faithful orchestration loop importing the unchanged numerical helpers. Verify optimizer-step order, validation cadence, epoch-zero selection, strict improvement selection, and final checkpoint behavior. The evaluation loop is importable, but exp_11 must own its provenance and metadata writer. Keep the frozen files unchanged.
+
+   Second, per-arm code-key mapping is necessary but insufficient. The current summarizer requires `haa_job` and directly invokes exp_06’s specification loader, child verifier, role resolver, and lineage functions in [job admission](/home/yixunhu/codespace/xRIR_code/tools/exp06_summarize_haa.py:648).
+
+   Register a per-arm admission adapter covering those calls. Historical arms must retain their old validators; H/I/J/K must use exp_11 validators. Distinguish serialized run types from semantic training/evaluation roles used by protocol checks.
+
+   Adapter headings also need their own admission fields. Current [room-frame metadata validation](/home/yixunhu/codespace/xRIR_code/tools/exp06_summarize_haa.py:566) rejects heading records. Permit and bind adapter input headings specifically for J/K while preserving that rejection for historical room-frame arms.
+
+   No old-finalizer registration appears necessary. Prefer leaving it untouched; an exception should require a demonstrated dependency, not speculative convenience. Also correct §2.2’s statement that every new arm uses the exp_11 pipeline: G intentionally uses the extended exp_06 route.
+
+5. **Complete approval coverage and phase-specific lifecycle rules.**
+
+   The §4.7 code-key list omits `exp11_launch.sh`. Shell launchers are outside Python import closures, as the existing [profiles implementation](/home/yixunhu/codespace/xRIR_code/tools/exp06_profiles.py:15) explicitly documents. Add `launch_sh` or an explicit closure extra, checked at startup and finalization.
+
+   Register a producer/arm requirement matrix that consumes only available inputs:
+
+   - Pretraining cannot require its own output checkpoint pin.
+   - J/K and Phase 1b must work while both H/I checkpoint pins remain null.
+   - H must work while I’s checkpoint remains unavailable.
+   - Final publication requires all planned arms.
+
+   The broad historical approval requirements cannot simply be copied.
+
+   Finally, cover the launcher’s probe and the HAA training/evaluation smokes. Either enumerate distinct diagnostic run types or bind an explicit diagnostic kind and entry point within `exp11_smoke`. Their budgets, artifact contracts, and permanent non-admissibility must be explicit. These are acceptance details for the proposed family, not reasons to broaden it.
+
+The admission and publication design otherwise needs no change. A/B remain covered by the reconstructed receipt and inherited protocol checks; C/D/E/F retain their original child/job and approval-blob evidence; A′ remains a hash-bound external summary row and never enters paired inference. Phase 1, Phase 1b, and final canonical outputs are appropriately separated.
+
+H_RECIPE and I_RECIPE now contain the important distinctions: I’s saving/resume restrictions and augmentation counters; H’s declared retention change; the common numerical recipe and loader length; derived parameter counts; strict argument/history/checkpoint validation; and external completion before promotion. Preserve these exactly when implementing the new validators.
+
+The approximately **75 GPU-hour** estimate is consistent with the component estimates, and **95 hours reserved** is a reasonable allowance. Two to three days for round-2 implementation/review is more credible than the earlier thin-wrapper estimate. October 4–5 remains conditional on actual exclusive handover. Running I sequentially on the first available card may finish earlier than waiting for the second. The exp_11 namespace move resolves the collision.
+
+The final interpretation should remain conditional on these pretrained realizations, the previously examined rooms, and the primary hallway C50 cell. Three fine-tuning seeds do not estimate pretraining variability.
+
+**Verification:** All 126 legacy-receipt artifact hashes matched. Recorded source hashes matched for 31 children each of C/D/F/E and all ten simulated-evaluation manifests. These checks support preservation, but are not complete finalizer replay. The closure-test suite failed during dependency imports because required cache/temp writes were unavailable in the read-only sandbox; I do not report it as passing. No GPU work, process signalling, finalizer execution, or file saving was performed.
+
+
+exec
+/bin/bash -lc "rg --files -g AGENTS.md -g '*announcement*' -g '*args.json' -g '*round2_opus_prompt*' -g '*results.md' -g '*analysis.md' -g '*worklog.md' | head -100; git log --oneline c491396..c8acda2; git diff --stat c491396 c8acda2" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+worklog/worklog_yixun/exp_01_cylvit_vs_simplevit_claude/cylvit_vs_simplevit_results.md
+worklog/worklog_yixun/exp_01_cylvit_vs_simplevit_claude/cylvit_vs_simplevit_worklog.md
+worklog/worklog_yixun/exp_01_cylvit_vs_simplevit_claude/cylvit_vs_simplevit_analysis.md
+worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_analysis.md
+worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_worklog.md
+worklog/worklog_yixun/exp_09_yawaug_haa_claude/yawaug_haa_results.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/coder_prompts/round2_opus_prompt_DRAFT.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_worklog.md
+worklog/worklog_yixun/exp_02_sim2real_transfer_claude/sim2real_transfer_analysis.md
+worklog/worklog_yixun/exp_02_sim2real_transfer_claude/sim2real_transfer_worklog.md
+worklog/worklog_yixun/exp_02_sim2real_transfer_claude/sim2real_transfer_results.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_worklog.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_worklog.md
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_results.md
+worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_worklog.md
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_worklog.md
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_analysis.md
+worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_worklog.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_analysis.md
+worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_analysis.md
+worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results.md
+worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_results.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_worklog.md
+worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_analysis.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_results.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_analysis.md
+c8acda2 exp11 bookkeeping: Coder round-2 report - full suite result and final digests
+272d5ca exp11 bookkeeping: Coder round-2 report, late refinements (record only)
+7c88814 exp11: symmetric frame/backbone guards in the finalizer; derive the arm tuples
+badd58f exp11 bookkeeping: Coder round-2 report, final digests at 7b1a7af (record only)
+7b1a7af exp11: the diagnostic run types are disjoint from exp_06's too
+80d9f4c exp11: the HAA queue also binds launch_sh and the four approved heading records
+bbd4690 exp11 bookkeeping: Coder round-2 report, full commit table (record only)
+8d86d43 exp11: pass exp11_approved by keyword; the arm registry test admits round 2's arms
+e855bba exp11 bookkeeping: report the expected exp_06 approvals re-fill (record only)
+9e2f421 exp11: a child that installs no adapter heading may record no adapter_phi_deg
+e215b5a exp11 bookkeeping: Coder round-2 report, design decisions and open questions (record only)
+77f19b9 exp11: plan section 5 acceptance - phase-1 oracle and the cross-family child wall
+cd356ae exp11: plan section 5 acceptance - a phase never overwrites a published record
+f795908 exp11: tidy - SERIALIZED_ROLE replaces the inline map, drop an unused import
+a6f51d6 exp11 bookkeeping: Coder round-2 report, items 10 and 12 (record only)
+505d5bf exp11: tests for the admission adapter, the phases and the external row
+e7cb7f4 exp11: summariser arms H/I/J/K, the admission adapter, the phases and A'
+7ca4e4e exp11 bookkeeping: Coder round-2 report, items 9 and 11 (record only)
+e978c2e exp11: tools/exp11_haa_pipeline.sh and golden dry-run tests
+8f5ff9a exp11: tools/exp11_launch.sh - smoke | probe | full | finalize, --arm H|I
+5614533 exp11 bookkeeping: Coder round-2 report, items 4-8 (record only)
+cf9081a exp11: CPU parity test for the fine-tuning orchestration loop
+c0b10a9 exp11: HAA entry points with the faithful orchestration loop and cue routing
+5b67c68 exp11: tests for the exp_11 finalizer
+13b815f exp11: finalizer part 6 - finalize(), preflight, passed and the CLI
+4845f36 exp11: finalizer part 5 - diagnostic evidence for the enumerated kinds
+c7b1d7b exp11: tools/exp11_smoke.py - enumerated diagnostic kinds with budgets
+216aef3 exp11: finalizer part 4 - job admission, spec, lineage and children
+b39b7d0 exp11: finalizer part 3 - HAA children and the adapter-heading binding
+9bcca27 exp11: finalizer part 2 - the twelve-epoch pretraining contract
+3458146 exp11: finalizer part 1 - run types, closures, orchestration and approvals
+b59e234 exp11: tools/exp11_train.py - the exp_06 loop on BACKBONES_EXP11
+68b1aaa exp11: tests for the exp_11 pretraining entry point (red)
+769a6ef exp11: tools/exp11_recipe.py - H_RECIPE and I_RECIPE
+0c449ff exp11: tests for the two named pretraining profiles (red)
+765c175 exp11: approvals closures and the producer/arm requirement matrix
+781cf83 exp11: exp_11 approvals record - keys, schema and committed-blob binding
+5c4c587 exp11: tests for the exp_11 approvals record (red)
+487bfe8 exp11 bookkeeping: Coder round-2 report, items 1-3 (record only)
+a6da0d9 exp11: BACKBONES_EXP11 registry and build_xrir_exp11
+4abb921 exp11: SimpleViTAdapter / xRIR_SimpleAdapter (arms J/K explicit cue)
+9951084 exp11: SimpleViTOriented and xRIR_SimpleOriented (arms H/I encoder)
+ model/simple_vit_oriented.py                       |   38 +
+ model/xRIR_simple_adapter.py                       |  146 +++
+ model/xRIR_simple_oriented.py                      |   32 +
+ model/xrir_exp11_registry.py                       |   35 +
+ tests/test_exp06_summarize_haa.py                  |   20 +-
+ tests/test_exp11_adapter.py                        |  155 +++
+ tests/test_exp11_admission.py                      |  316 ++++++
+ tests/test_exp11_finalize.py                       |  280 +++++
+ tests/test_exp11_haa_parity.py                     |  205 ++++
+ tests/test_exp11_models.py                         |   93 ++
+ tests/test_exp11_profiles.py                       |  176 ++++
+ tests/test_exp11_recipe.py                         |  151 +++
+ tests/test_exp11_registry.py                       |   60 ++
+ tests/test_exp11_shell.py                          |  117 +++
+ tests/test_exp11_summarize_haa.py                  |    2 +-
+ tests/test_exp11_train.py                          |  117 +++
+ tools/exp06_summarize_haa.py                       |  388 ++++++-
+ tools/exp11_approved_digests_template.json         |   33 +
+ tools/exp11_finalize.py                            | 1084 ++++++++++++++++++++
+ tools/exp11_haa_eval.py                            |  146 +++
+ tools/exp11_haa_finetune.py                        |  295 ++++++
+ tools/exp11_haa_pipeline.sh                        |  412 ++++++++
+ tools/exp11_launch.sh                              |  277 +++++
+ tools/exp11_profiles.py                            |  301 ++++++
+ tools/exp11_recipe.py                              |  214 ++++
+ tools/exp11_smoke.py                               |  238 +++++
+ tools/exp11_train.py                               |  275 +++++
+ ...2026-09-26_23:35:21_coder_round2_opus_report.md |  561 ++++++++++
+ .../approved_digests.json                          |   33 +
+ .../golden/launch_finalize_I.txt                   |    6 +
+ .../golden/launch_full_H.txt                       |   12 +
+ .../golden/launch_full_I.txt                       |   12 +
+ .../golden/launch_probe_H.txt                      |    9 +
+ .../golden/launch_smoke_H.txt                      |   24 +
+ .../golden/pipeline_control_adapter_seed2.txt      |   65 ++
+ .../golden/pipeline_mixed_queue.txt                |  159 +++
+ .../golden/pipeline_simple_or_seed0.txt            |   65 ++
+ .../golden/pipeline_simple_or_yaw_seed1.txt        |   65 ++
+ .../golden/pipeline_yawaug_adapter_zeroshot.txt    |   35 +
+ 39 files changed, 6610 insertions(+), 42 deletions(-)
+
