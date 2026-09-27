@@ -128,6 +128,7 @@ usage() {
     echo "usage: $0 <smoke|probe|full|finalize> --arm <H|I> --gpu <g> --reviewed-commit <sha40>" >&2
     echo "       [--attempt-root <dir>] [--approved <json>] [--exploratory]" >&2
     echo "       [--attempt <dir> --log <path> --child-exit <n>] [--dry-run]" >&2
+    echo "       finalize also takes [--replace-final] [--break-lock]" >&2
     exit 2
 }
 
@@ -177,6 +178,104 @@ promote() {  # promote <attempt basename>: atomic, so `final` never points at no
     fi
 }
 
+# --- publishing one arm is serialised -----------------------------------------------
+# Close review 2: recovery had no ownership at all, so two invocations could interleave
+# -- one finalising while the other renamed the shared attempt out from under it -- and
+# report success over a dangling `final`. Every path that validates, finalises or
+# promotes an attempt of an arm takes this lock first. `mkdir` is the atomic primitive:
+# it succeeds for exactly one caller. A held lock REFUSES immediately, it never waits,
+# and a stale one is evidence of an interrupted publication, so it is cleared only by an
+# explicit --break-lock and never on a timer.
+LOCK_DIR=""
+LOCK_HELD=0
+
+lock_is_live() {  # only for the message: a pid that is gone does not release a lock
+    local pid
+    pid="$(sed -n 's/^pid \([0-9][0-9]*\).*/\1/p' "$1/owner" 2>/dev/null || true)"
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+release_lock() {
+    [ "$LOCK_HELD" -eq 1 ] || return 0
+    LOCK_HELD=0
+    rm -f -- "$LOCK_DIR/owner"
+    rmdir -- "$LOCK_DIR" 2>/dev/null || true
+    say "UNLOCK $LOCK_DIR"
+}
+
+break_lock() {  # only ever from --break-lock, and it says so in the log
+    [ -d "$LOCK_DIR" ] || return 0
+    say "BREAKLOCK $LOCK_DIR owner=$(cat -- "$LOCK_DIR/owner" 2>/dev/null | tr -d '\n')"
+    rm -f -- "$LOCK_DIR/owner"
+    rmdir -- "$LOCK_DIR" 2>/dev/null || true
+}
+
+take_lock() {  # take_lock <mode>
+    LOCK_DIR="$ARM_ROOT/.publish.lock"
+    say "LOCK $LOCK_DIR"
+    # A dry run touches nothing outside the test roots, so the lock is real exactly
+    # where the tests exercise it and announced everywhere else.
+    if [ "$DRY" -eq 1 ] && [ "${EXP11_TEST_ROOTS:-0}" != 1 ]; then return 0; fi
+    mkdir -p -- "$ARM_ROOT" || return 1
+    [ "$BREAK_LOCK" -eq 0 ] || break_lock
+    if ! mkdir -- "$LOCK_DIR" 2>/dev/null; then
+        local live=no
+        lock_is_live "$LOCK_DIR" && live=yes
+        echo "refusing: another publication holds the lock $LOCK_DIR (owner:" \
+             "$(cat -- "$LOCK_DIR/owner" 2>/dev/null | tr -d '\n'), live=$live)." \
+             "Publishing one arm is serialised; a stale lock is cleared only with" \
+             "--break-lock, never automatically" >&2
+        return 1
+    fi
+    LOCK_HELD=1
+    trap release_lock EXIT INT TERM
+    printf 'pid %s mode %s arm %s at %s\n' "$$" "$1" "$ARM" \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK_DIR/owner"
+}
+
+# published_target: what `final` resolves to under this arm root, or nothing.
+published_target() {
+    [ -L "$ARM_ROOT/final" ] || return 1
+    readlink -f -- "$ARM_ROOT/final"
+}
+
+# already_published <canonical>: this attempt is the published one and it completed.
+already_published() {
+    local target
+    target="$(published_target)" || return 1
+    [ "$target" = "$1" ] && [ -f "$1/completion.json" ]
+}
+
+# check_final_conflict <canonical>: a DIFFERENT existing `final` is never replaced by a
+# recovery unless the operator asks for it, and the replaced target is logged first.
+check_final_conflict() {
+    local target
+    target="$(published_target)" || return 0
+    [ "$target" != "$1" ] || return 0
+    if [ "$REPLACE_FINAL" -eq 0 ]; then
+        echo "refusing: $ARM_ROOT/final already publishes $target, not $1; pass" \
+             "--replace-final to replace it" >&2
+        return 1
+    fi
+    say "REPLACING $ARM_ROOT/final -> $(basename -- "$target") with $(basename -- "$1")"
+}
+
+# abort_recovery <canonical> <log>: the abort path of a REFUSED recovery. A malformed
+# invocation does not establish that a finished run failed, so an attempt that is
+# already published or already completed is left exactly as it is -- directory,
+# completion and `final` untouched -- and the finalizer's own cause stands on stderr.
+# Full mode keeps aborting unconditionally: it launched the attempt it is aborting.
+abort_recovery() {
+    local canonical="$1" log="$2" why=""
+    [ -f "$canonical/completion.json" ] && why="it has completed"
+    [ "$(published_target || true)" != "$canonical" ] || why="it is published as final"
+    if [ -n "$why" ]; then
+        say "PRESERVED $canonical ($why); the refusal is this invocation's, not the run's"
+        return 0
+    fi
+    abort "$canonical" "$log" finalize_refused
+}
+
 # diagnostic <kind> <run dir> <log> <receipt> <entry argv...>: one enumerated diagnostic
 # kind through the same lifecycle as a confirmatory child, finalized as exp11_smoke and
 # never admissible as an arm.
@@ -219,6 +318,10 @@ COMMIT="${COMMIT:-}"
 EXPLORATORY="${EXPLORATORY:-0}"
 ARM_ROOT="${ARM_ROOT:-$SIMPOR_ROOT}"
 CANONICAL_ATTEMPT="${CANONICAL_ATTEMPT:-}"
+BREAK_LOCK="${BREAK_LOCK:-0}"
+REPLACE_FINAL="${REPLACE_FINAL:-0}"
+DRY="${DRY:-0}"
+ARM="${ARM:-H}"
 
 if [ "${EXP11_LAUNCH_LIB:-0}" = 1 ]; then return 0; fi
 
@@ -236,6 +339,8 @@ while [ $# -gt 0 ]; do
         --child-exit) CHILD_EXIT="${2:-}"; shift 2 ;;
         --approved) APPROVED="${2:-}"; shift 2 ;;
         --exploratory) EXPLORATORY=1; shift ;;
+        --break-lock) BREAK_LOCK=1; shift ;;
+        --replace-final) REPLACE_FINAL=1; shift ;;
         --dry-run) DRY=1; shift ;;
         *) usage ;;
     esac
@@ -278,11 +383,13 @@ full)
            --epoch-ckpt-every 1 --yaw-aug "$ARM_YAW" --yaw-aug-seed 0 --yaw-aug-width 512
            --run-type full --approved "$APPROVED" --reviewed-commit "$COMMIT")
     say "RUN nohup setsid ${child[*]}"
+    take_lock full || exit 2   # publishing this arm is serialised with any recovery
     if [ "$DRY" -eq 1 ]; then
         say "MARKER EXP06_CHILD_EXIT <code> <iso> >> $log"
         abort "$attempt" "$log" 'child_exit_<code>'
         finalize "$attempt" "$log" '<code>' exp11_train
         promote "attempt_$STAMP"
+        release_lock
         exit 0
     fi
     mkdir -p -- "$ARM_ROOT"
@@ -377,11 +484,18 @@ smoke)
     ;;
 finalize)
     preflight   # recovery is gated by the same reviewed commit, clean tree and pid checks
+    take_lock finalize || exit 2   # alias resolution, validation and publication
     check_attempt "$ATTEMPT" || exit 2
     # Everything below uses the canonical directory, never the path as it was typed.
-    [ "$DRY" -eq 0 ] || abort "$CANONICAL_ATTEMPT" "$LOG" finalize_refused
+    if already_published "$CANONICAL_ATTEMPT"; then
+        say "SKIP $CANONICAL_ATTEMPT is already published as final and has completed"
+        say "ALREADY PUBLISHED $ARM_ROOT/final -> $(basename -- "$CANONICAL_ATTEMPT")"
+        exit 0
+    fi
+    check_final_conflict "$CANONICAL_ATTEMPT" || exit 2
+    [ "$DRY" -eq 0 ] || abort_recovery "$CANONICAL_ATTEMPT" "$LOG"
     if ! finalize "$CANONICAL_ATTEMPT" "$LOG" "$CHILD_EXIT" exp11_train; then
-        abort "$CANONICAL_ATTEMPT" "$LOG" finalize_refused
+        abort_recovery "$CANONICAL_ATTEMPT" "$LOG"
         exit 2
     fi
     promote "$(basename -- "$CANONICAL_ATTEMPT")"

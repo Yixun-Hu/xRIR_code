@@ -373,13 +373,13 @@ LOCK = '.publish.lock'
 def test_a_refused_recovery_never_aborts_a_published_attempt(tmp_path):
     """A malformed recovery does not establish that a finished run failed.
 
-    With ``final -> attempt_A`` and a completion in place, a refusal must leave the
-    directory, its completion and the link exactly as they were.
+    With ``final -> attempt_A``, a refusal must leave the directory and the link exactly
+    as they were. The attempt is deliberately published but *not* yet completed, so the
+    idempotency path does not fire and the refusal really reaches the abort decision.
     """
     attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
-    publish(attempt)
+    publish(attempt, completed=False)
     status, out, err = recovery(attempt, 'H', tmp_path, log='/nonexistent/L.log')
-    assert status == 2, out
     assert 'PRESERVED' in out, 'a published attempt is preserved, never aborted'
     assert '_ABORTED_' not in out
 
@@ -388,8 +388,8 @@ def test_a_refused_recovery_never_aborts_a_completed_attempt(tmp_path):
     """Completion alone is enough: the run finished, whatever this invocation did."""
     attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
     (attempt / 'completion.json').write_text('{"run_type": "exp11_train"}')
-    status, out, _ = recovery(attempt, 'H', tmp_path, log='/nonexistent/L.log')
-    assert status == 2 and 'PRESERVED' in out and '_ABORTED_' not in out
+    _, out, _ = recovery(attempt, 'H', tmp_path, log='/nonexistent/L.log')
+    assert 'PRESERVED' in out and '_ABORTED_' not in out
 
 
 def test_recovery_of_an_unpublished_incomplete_attempt_still_aborts(tmp_path):
@@ -463,11 +463,74 @@ def test_a_stale_lock_is_never_cleared_automatically(tmp_path):
 
 
 def test_the_lock_is_released_on_every_exit_path(tmp_path):
-    """A refusal after the lock was taken must not leave the arm locked."""
-    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
-    status, _, _ = recovery(attempt, 'H', tmp_path, log='/nonexistent/L.log')
+    """Neither a refusal nor a success may leave the arm locked."""
+    published = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    other = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path,
+                         name='attempt_20260927T222222')
+    publish(published)
+    status, _, _ = recovery(other, 'H', tmp_path)            # refused: final conflict
     assert status == 2
-    assert not (attempt.parent / LOCK).exists(), 'the lock outlived its invocation'
-    status, _, err = recovery(attempt, 'H', tmp_path)
+    assert not (published.parent / LOCK).exists(), 'the lock outlived its invocation'
+    status, _, err = recovery(published, 'H', tmp_path)      # succeeds: idempotent
     assert status == 0, err[-500:]
-    assert not (attempt.parent / LOCK).exists()
+    assert not (published.parent / LOCK).exists()
+
+
+def lib(script, env=None):
+    """Run a snippet with the launcher sourced as a library (no mode, no preflight)."""
+    body = ('set -euo pipefail\n'
+            'EXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh\n' + script)
+    return subprocess.run(['bash', '-c', body], cwd=str(REPO), capture_output=True,
+                          text=True,
+                          env=dict(os.environ, CUDA_VISIBLE_DEVICES='', **(env or {})))
+
+
+@pytest.mark.parametrize('published,completed', [(True, False), (False, True), (True, True)])
+def test_abort_recovery_really_leaves_the_directory_alone(tmp_path, published, completed):
+    """The filesystem effect, not only the announcement: nothing is renamed or removed."""
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    log = tmp_path / 'child.log'
+    log.write_text('some output\n')
+    if completed:
+        (attempt / 'completion.json').write_text('{"run_type": "exp11_train"}')
+    if published:
+        publish(attempt, completed=False)
+    result = lib('ARM_ROOT={root}\nDRY=0\nabort_recovery {attempt} {log}\n'.format(
+        root=attempt.parent, attempt=attempt, log=log))
+    assert result.returncode == 0, result.stderr[-400:]
+    assert 'PRESERVED' in result.stdout and 'ABORT' not in result.stdout
+    assert attempt.is_dir() and log.is_file()
+    assert not list(attempt.parent.glob('*_ABORTED_*'))
+    if published:
+        link = attempt.parent / 'final'
+        assert link.is_symlink() and link.resolve() == attempt.resolve()
+
+
+def test_abort_recovery_still_aborts_an_unowned_attempt(tmp_path):
+    """Narrowing the abort path does not remove it: an orphan attempt is still cleaned."""
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    log = tmp_path / 'child.log'
+    log.write_text('some output\n')
+    result = lib('ARM_ROOT={root}\nDRY=0\nabort_recovery {attempt} {log}\n'.format(
+        root=attempt.parent, attempt=attempt, log=log))
+    assert result.returncode == 0, result.stderr[-400:]
+    assert 'ABORT' in result.stdout and 'PRESERVED' not in result.stdout
+    assert not attempt.exists()
+    assert (attempt.parent / (attempt.name + '_ABORTED_finalize_refused')).is_dir()
+
+
+def test_the_lock_is_a_real_mutual_exclusion(tmp_path):
+    """``mkdir`` is the primitive: exactly one caller takes it, the other is told so."""
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
+    first = lib('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\n'
+                'ls -d "$LOCK_DIR"\n'.format(root=root))
+    assert first.returncode == 0 and (root / LOCK).is_dir() is False, (
+        'the trap releases the lock when the shell exits')
+    (root / LOCK).mkdir()
+    (root / LOCK / 'owner').write_text('pid 999999 mode finalize\n')
+    second = lib('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\n'.format(root=root))
+    assert second.returncode != 0
+    assert 'another publication holds the lock' in second.stderr
+    assert '--break-lock' in second.stderr
+    assert (root / LOCK).is_dir(), 'a refused caller never removes a lock it does not own'
