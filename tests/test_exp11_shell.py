@@ -731,6 +731,26 @@ def test_no_orphan_of_the_launcher_keeps_the_arm_locked(tmp_path, launch_child):
         drain(pipe)
 
 
+def test_the_launcher_signals_nothing_that_is_not_its_own_holder(tmp_path):
+    """A recorded pid is not a licence to signal it.
+
+    ``HOLDER_PID`` comes out of the holder's own announcement; if that holder has since
+    died, the number can belong to anybody. Releasing the lock must therefore check that
+    the process is still this launcher's child before it sends anything. Here it is a
+    bystander this test started, and it has to survive.
+    """
+    bystander = subprocess.Popen(['sleep', '30'])
+    try:
+        result = lib('HOLDER_PID={}\ndrop_arm_lock\necho RELEASED\n'.format(bystander.pid))
+        assert 'RELEASED' in result.stdout, result.stderr[-400:]
+        time.sleep(0.5)
+        assert bystander.poll() is None, (
+            'the launcher signalled a process that was never its holder')
+    finally:
+        bystander.terminate()
+        bystander.wait(timeout=30)
+
+
 def test_a_holder_that_never_started_is_not_reported_as_someone_else(tmp_path):
     """A refusal has to name the real obstacle.
 
