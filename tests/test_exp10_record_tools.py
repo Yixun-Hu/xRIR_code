@@ -1234,7 +1234,8 @@ def chain(tmp_path):
     return fx.make_chain_repo(root, ASSETS)
 
 
-def run_chain(chain, arm="control_k8", args=None, env=None):
+def chain_command(chain, arm="control_k8", args=None, env=None):
+    """``(argv, env)`` for one arm-chain invocation in the scratch repository."""
     script = os.path.join(chain["scripts"], "exp10_arm_chain.sh")
     argv = ["bash", script] + list(args if args is not None else
                                   [arm, "simple", "ckpt/xRIR_simple_8_shot/epoch_12.pth",
@@ -1243,8 +1244,22 @@ def run_chain(chain, arm="control_k8", args=None, env=None):
     e = dict(os.environ)
     e.update({"EXP10_REPO_ROOT": chain["root"], "EXP10_FIXTURE_DIR": os.path.join(REPO, "tests")})
     e.update(env or {})
+    return argv, e
+
+
+def run_chain(chain, arm="control_k8", args=None, env=None):
+    argv, e = chain_command(chain, arm=arm, args=args, env=env)
     return subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=e,
                           cwd=chain["root"])
+
+
+def chain_commit(chain, message):
+    """Commit the scratch repository's tools, so the chain's clean-tree check passes."""
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+    subprocess.check_call(["git", "-C", chain["root"], "add", "-A", "tools"], env=env)
+    subprocess.check_call(["git", "-C", chain["root"], "commit", "-q", "-m", message],
+                          env=env)
 
 
 def run_path(chain, *parts):
@@ -1354,6 +1369,57 @@ def test_chain_refuses_when_a_tool_changes_between_the_probe_and_the_full_stage(
     assert "ARM DONE" not in out(done)
     assert not os.path.exists(run_path(chain, "control_k8_all"))
     assert "exp10_yaw_pilot.py" in out(done)
+
+
+def test_the_chains_source_pins_live_in_the_probe_it_reserved(chain):
+    """Round-4 finding 6: the pins were written to a shared per-arm filename *before* the
+    probe directory was reserved, which is what let a second chain replace them."""
+    done = run_chain(chain)
+    assert done.returncode == 0, out(done)
+    pins = run_path(chain, "control_k8_probe", "source_pins.sha256")
+    assert os.path.isfile(pins)
+    assert not os.path.exists(run_path(chain, "control_k8_source_pins.sha256"))
+    assert not (os.stat(pins).st_mode & 0o222)          # immutable for this invocation
+    assert "tools/exp10_yaw_pilot.py" in open(pins).read()
+
+
+def test_a_rejected_concurrent_chain_cannot_replace_an_active_chains_pins(chain):
+    """Round-4 finding 6: chain A paused after its probe; a committed evaluator change and
+    chain B for the same arm followed.  B overwrote the shared pin file and *then* refused
+    the existing probe directory with 2 -- so A accepted the replacement pins as its own
+    baseline and launched the full stage with a changed evaluator, finishing 0."""
+    import time
+
+    outside = os.path.dirname(chain["root"])            # never inside the repo: the chain's
+    release = os.path.join(outside, "release_probe_summary")   # clean-tree check would refuse
+    log_path = os.path.join(outside, "chain_a.log")
+    argv, env = chain_command(chain, env={"STUB_PAUSE_UNTIL": release})
+    with open(log_path, "wb") as log:
+        first = subprocess.Popen(argv, cwd=chain["root"], env=env, stdout=log,
+                                 stderr=subprocess.STDOUT)
+        deadline = time.time() + 60
+        while not os.path.exists(release + ".paused"):
+            assert first.poll() is None, open(log_path).read()
+            assert time.time() < deadline, "chain A never reached its probe summary"
+            time.sleep(0.1)
+        pins = run_path(chain, "control_k8_probe", "source_pins.sha256")
+        assert os.path.isfile(pins)
+        before = open(pins).read()
+        evaluator = os.path.join(chain["root"], "tools", "exp10_yaw_pilot.py")
+        with open(evaluator, "a") as fout:
+            fout.write("\n# a new evaluator implementation while the first chain waits\n")
+        chain_commit(chain, "new evaluator implementation")
+        second = run_chain(chain, env={"STUB_PAUSE_UNTIL": release})
+        assert second.returncode == 2, out(second)
+        assert "control_k8_probe" in out(second)
+        assert open(pins).read() == before          # chain A's baseline is untouched
+        with open(release, "w") as fout:
+            fout.write("go\n")
+        assert first.wait(timeout=120) != 0
+    log_text = open(log_path).read()
+    assert "exp10_yaw_pilot.py" in log_text
+    assert "ARM DONE" not in log_text
+    assert not os.path.exists(run_path(chain, "control_k8_all"))
 
 
 # --------------------------------------------------------------------------------------

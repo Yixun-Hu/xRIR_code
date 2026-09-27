@@ -10,7 +10,9 @@
 # check reached the full launch. Each stage's output directory must not exist and is reserved
 # with `mkdir` before the evaluator starts (finding 9). The clean-tree check exempts only
 # worklog narrative (`*.md`) and logs (`*.log`), and the three tools plus this script are hashed
-# at the probe stage and re-verified before the full stage (finding 10).
+# at the probe stage and re-verified before the full stage (finding 10). Those pins are this
+# invocation's own: they are written read-only into the probe directory it reserved, so a
+# concurrent chain that is refused cannot have replaced the baseline first (round-4 finding 6).
 #
 # env: EXP10_REPO_ROOT — repository root override for the tests (default: the repository path).
 set -uo pipefail
@@ -24,7 +26,7 @@ if [ "$DEV" = "cuda" ]; then export CUDA_VISIBLE_DEVICES=$GPU; else export CUDA_
 E=worklog/worklog_yixun/exp_10_yaw_pilot_claude
 LOG=$E/yaw_pilot_$(date +%Y-%m-%d_%H:%M:%S)_${ARM}_chain_${DEV}.log
 say() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; }
-PINS=ckpt/exp10/${ARM}_source_pins.sha256
+PINS=ckpt/exp10/${ARM}_probe/source_pins.sha256   # written inside the reserved probe dir
 SOURCES="tools/exp10_yaw_pilot.py tools/exp10_compare.py tools/exp10_summarize.py $SELF"
 
 # The tree may carry this experiment's narrative and its logs, nothing else: a dirty script or
@@ -58,6 +60,16 @@ run_stage() {  # <batches> <controls-flag>
   mkdir -p ckpt/exp10
   if ! mkdir "$OUT"; then say "REFUSED: could not reserve $OUT (a concurrent chain?)"; return 2; fi
   say "stage $B → $OUT (reserved)"
+  if [ "$B" = "probe" ]; then
+    # The source baseline belongs to THIS invocation, so it is written inside the directory
+    # this invocation just reserved and made read-only (finding 6). It used to be a shared
+    # per-arm file written before the reservation: a second chain replaced it and only then
+    # refused the existing probe, and the first chain accepted the replacement as its own
+    # baseline and ran the full stage with a changed evaluator.
+    sha256sum $SOURCES > "$PINS" || { say "REFUSED: could not pin the sources in $PINS"; return 3; }
+    chmod 0444 "$PINS"
+    say "source pins ($PINS): $(awk '{printf "%s %s; ", substr($1,1,12), $2}' "$PINS")"
+  fi
   python tools/exp10_yaw_pilot.py --arm "$ARM" --backbone "$BB" --checkpoint "$CK" --manifest "$MAN" --manifest-hash "$HASH" --num-shot "$K" \
     --ks 0,64,128,256,384 --batches "$B" $CF --device "$DEV" --threads 16 --out-dir "$OUT" 2>&1 | tee -a "$LOG"; local rc=${PIPESTATUS[0]}
   if [ $rc -ne 0 ]; then say "stage $B FAILED rc=$rc"; return $rc; fi
@@ -71,8 +83,6 @@ run_stage() {  # <batches> <controls-flag>
 }
 
 mkdir -p ckpt/exp10
-sha256sum $SOURCES > "$PINS" || { say "REFUSED: could not pin the sources"; exit 3; }
-say "source pins ($PINS): $(awk '{printf "%s %s; ", substr($1,1,12), $2}' "$PINS")"
 run_stage probe --controls || exit $?
 PROBE=ckpt/exp10/${ARM}_probe
 python tools/exp10_summarize.py --runs "$PROBE" --out "$PROBE/summary" --n-boot 2000 2>&1 | tee -a "$LOG" || { say "probe summary FAILED"; exit 6; }
@@ -80,7 +90,11 @@ CTRL_OK=$(python -c "import json,sys; s=json.load(open('$PROBE/summary/yaw_pilot
 if [ "$EXP03" != "none" ]; then PAR_OK=$(python -c "import json; print(json.load(open('$PROBE/parity_exp03.json'))['ok'])"); else PAR_OK=n/a; fi
 say "GATE: controls_ok=$CTRL_OK parity_ok=$PAR_OK"
 if [ "$CTRL_OK" != "True" ] || { [ "$EXP03" != "none" ] && [ "$PAR_OK" != "True" ]; }; then say "GATE FAILED — full run NOT launched"; exit 7; fi
-# finding 10: the full stage has to run the same program the probe validated.
+# finding 10: the full stage has to run the same program the probe validated, and finding 6:
+# the baseline it is checked against is the one this invocation wrote into its own probe dir.
+if [ ! -f "$PINS" ]; then
+  say "REFUSED: this invocation's source pins are missing ($PINS) — full run NOT launched"; exit 8
+fi
 if ! sha256sum -c --quiet "$PINS" 2>&1 | tee -a "$LOG"; then
   say "REFUSED: a pinned source changed since the probe (see $PINS) — full run NOT launched"; exit 8
 fi
