@@ -8,6 +8,7 @@ here. The refusals (unknown init, malformed job, unknown arm) are checked direct
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import time
 
@@ -1197,6 +1198,190 @@ def test_the_marker_is_withdrawn_only_when_the_trainer_finished(tmp_path, kwargs
     result = lib('clear_launching {}\n'.format(attempt))
     assert result.returncode == 0, result.stderr[-300:]
     assert (attempt / 'launching').is_file() is not cleared
+
+
+# --- close review 10 blocker 2: the wrapper is not the trainer -----------------------
+# The three schedules below run the real thing: the sourced library, the real FIFO sink,
+# a real GNU `timeout` wrapper, the real publication and registration locks, and a stub
+# trainer that registers through the real ``register_trainer``.
+
+STUB_TRAINER = """import os, sys, time
+sys.path.insert(0, {repo!r})
+from tools.exp11_train import record_trainer_exit, register_trainer
+
+attempt, gate, exit_gate, receipt = sys.argv[1:5]
+while not os.path.exists(gate):          # paused OUTSIDE the registration
+    time.sleep(0.05)
+path = register_trainer(attempt)         # the real one: locks, checks, atomic write
+while not os.path.exists(exit_gate):     # paused with train.pid naming a live process
+    time.sleep(0.05)
+if receipt == '1':
+    record_trainer_exit(path, 0)
+"""
+
+
+def stub_trainer(tmp_path):
+    path = tmp_path / 'stub_trainer.py'
+    path.write_text(STUB_TRAINER.format(repo=str(REPO)))
+    return path
+
+
+def lifecycle_launch(attempt, tmp_path, gate, exit_gate, receipt=True, die=False,
+                     where=None):
+    """``run_child``'s shape around a stub trainer, under a real `timeout` wrapper.
+
+    `die` replays the TERM handler immediately after ``child.pid`` -- the instant of the
+    reviewer's schedule, where the launcher is lost with its child still running.
+    Otherwise the launcher waits for the wrapper and withdraws the marker exactly where
+    full mode does, after ``run_child`` returns.
+    """
+    tail = ('handler="$(trap -p TERM | sed -n "s/^trap -- \'\\(.*\\)\' SIGTERM$/\\1/p")"\n'
+            'eval "$handler"\n' if die else
+            'wait "$child" || echo "CHILD_EXIT $?"\n'
+            'clear_launching "$attempt"\necho CONTINUED\n')
+    script = ('ARM_ROOT={root}\nDRY=0\nARM=H\n'
+              'hold_arm_lock full || exit 2\n'
+              'attempt={attempt}\nmkdir -p -- "$attempt"\n'
+              'own_launch "$attempt"\nmark_launching "$attempt"\n'
+              'log="$attempt/child.log"\n: > "$log"\n'
+              'pipe="$attempt/child.pipe"\nmkfifo -m 600 -- "$pipe"\n'
+              'cat >> "$log" < "$pipe" &\n'
+              'nohup setsid timeout 120 {python} {stub} "$attempt" {gate} {exit_gate}'
+              ' {receipt} > "$pipe" 2>&1 &\n'
+              'child=$!\nprintf "%s\\n" "$child" > "$attempt/child.pid"\n' + tail
+              ).format(root=attempt.parent, attempt=attempt, python=PYTHON,
+                       stub=stub_trainer(tmp_path), gate=gate, exit_gate=exit_gate,
+                       receipt=1 if receipt else 0)
+    status, out, err = detached_lib(script, where or tmp_path, {'EXP11_TEST_ROOTS': '1'})
+    assert status == (143 if die else 0), out[-400:] + err[-400:]
+    return status, out, err
+
+
+def until(condition, seconds=20):
+    for _ in range(int(seconds / 0.05)):
+        if condition():
+            return True
+        time.sleep(0.05)
+    return condition()
+
+
+def scan(root):
+    """The one scan both modes run, through the sourced library."""
+    return lib('ARM_ROOT={root}\nDRY=0\nARM=H\nrequire_quiet_arm\n'.format(root=root),
+               {'EXP11_TEST_ROOTS': '1'})
+
+
+def kill_our_wrapper(pidfile, stub):
+    """KILL the `timeout` this test started -- and nothing else.
+
+    KILL, not TERM: `timeout` forwards a TERM to the process it manages, and the point
+    of the schedule is the wrapper dying while the trainer lives on. The pid is checked
+    against the command line this test built before anything is sent to it.
+    """
+    pid = pid_of(pidfile)
+    assert pid is not None, 'the wrapper pid was recorded and is alive'
+    cmdline = Path('/proc/{}/cmdline'.format(pid)).read_bytes()
+    assert b'timeout' in cmdline and str(stub).encode() in cmdline, cmdline
+    os.kill(pid, signal.SIGKILL)
+    assert until(lambda: pid_of(pidfile) is None), 'the wrapper is gone'
+
+
+def test_the_wrapper_loss_schedule_end_to_end(tmp_path):
+    """The reviewer's schedule, end to end.
+
+    `child.pid` holds the WRAPPER's pid. Kill the wrapper and lose the launcher while
+    the trainer is still short of its registration, and the attempt used to read as a
+    finished launch: a complete, dead child.pid and no train.pid at all. It must read as
+    unresolved, and it must stay readable that way until the trainer itself is
+    accounted for.
+    """
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    root = old.parent
+    attempt = root / 'attempt_20260927T121212'
+    gate, exit_gate = tmp_path / 'register-now', tmp_path / 'exit-now'
+    lifecycle_launch(attempt, tmp_path, gate, exit_gate, die=True)
+    try:
+        kill_our_wrapper(attempt / 'child.pid', stub_trainer(tmp_path))
+        assert (attempt / 'child.pid').is_file() and not (attempt / 'train.pid').exists()
+
+        result = scan(root)                       # the scan both modes run
+        assert result.returncode == 1, result.stdout
+        assert 'unresolved' in result.stderr and attempt.name in result.stderr
+        status, out, err = recovery(old, 'H', tmp_path)      # and through finalize mode
+        assert status == 2 and 'unresolved' in err and 'PROMOTE' not in out
+
+        gate.touch()                              # the trainer registers and stays alive
+        assert until(lambda: (attempt / 'train.pid').is_file())
+        result = scan(root)
+        assert result.returncode == 1 and 'live trainer (train.pid)' in result.stderr
+
+        exit_gate.touch()                         # and now it finishes, saying so
+        assert until(lambda: (attempt / 'train.exit').is_file())
+        assert until(lambda: pid_of(attempt / 'train.pid') is None)
+        old_enough = time.time() - 10_000
+        os.utime(str(attempt / 'launching'), (old_enough, old_enough))
+        result = resolve(attempt, grace='3600')
+        assert result.returncode == 0, result.stderr[-600:]
+        assert (root / (attempt.name + '.resolved')).is_file()
+        assert (root / (attempt.name + '_ABORTED_unregistered')).is_dir()
+        status, out, err = recovery(old, 'H', tmp_path)      # the arm is open again
+        assert status == 0, err[-600:]
+        assert 'PROMOTE' in out
+    finally:
+        gate.touch()
+        exit_gate.touch()
+        for pipe in (attempt / 'child.pipe',
+                     root / (attempt.name + '_ABORTED_unregistered/child.pipe')):
+            try:
+                drain(pipe)
+            except OSError:          # already drained: the sink saw EOF and left
+                pass
+
+
+def test_an_ordinary_run_still_withdraws_its_marker(tmp_path):
+    """The other side: a trainer that registers and finishes leaves a quiet arm."""
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    attempt = old.parent / 'attempt_20260927T131313'
+    gate, exit_gate = tmp_path / 'register-now', tmp_path / 'exit-now'
+    gate.touch()
+    exit_gate.touch()
+    status, out, err = lifecycle_launch(attempt, tmp_path, gate, exit_gate)
+    assert 'CONTINUED' in out and 'CHILD_EXIT' not in out, out + err[-400:]
+    assert (attempt / 'train.pid').is_file() and (attempt / 'train.exit').is_file()
+    assert not (attempt / 'launching').exists(), 'the marker was withdrawn'
+    assert scan(old.parent).returncode == 0
+    status, out, err = recovery(old, 'H', tmp_path)
+    assert status == 0, err[-600:]
+
+
+def test_a_trainer_that_never_reported_its_exit_keeps_the_arm_shut(tmp_path):
+    """A trainer that dies without a receipt is exactly what the marker is for.
+
+    The launcher completed, so the wrapper's pid is recorded and dead; but nothing says
+    the trainer finished, so the attempt is unresolved and the next launch refuses until
+    an operator answers it.
+    """
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    root = old.parent
+    attempt = root / 'attempt_20260927T141414'
+    gate, exit_gate = tmp_path / 'register-now', tmp_path / 'exit-now'
+    gate.touch()
+    exit_gate.touch()
+    lifecycle_launch(attempt, tmp_path, gate, exit_gate, receipt=False)
+    assert (attempt / 'train.pid').is_file() and not (attempt / 'train.exit').exists()
+    assert (attempt / 'launching').is_file(), 'the marker stands'
+    result = scan(root)
+    assert result.returncode == 1 and 'unresolved' in result.stderr
+    status, out, err = recovery(old, 'H', tmp_path)
+    assert status == 2 and 'unresolved' in err
+
+    old_enough = time.time() - 10_000
+    os.utime(str(attempt / 'launching'), (old_enough, old_enough))
+    result = resolve(attempt, grace='3600')
+    assert result.returncode == 0, result.stderr[-600:]
+    assert scan(root).returncode == 0
+    status, out, err = recovery(old, 'H', tmp_path)
+    assert status == 0, err[-600:]
 
 
 def pid_of(pidfile):
