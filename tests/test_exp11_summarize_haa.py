@@ -930,3 +930,72 @@ def test_a_g_job_that_started_from_another_checkpoint_is_refused_by_admission(
                                          'initialisation'):
         subject.load_new_arm(roots, G, approved)
     subject.load_new_arm(roots, G, None)      # unpinned only in an exploratory run
+
+
+# --- the interaction's pairing and cohort, on four arms it assembles itself -------------
+
+
+def four_arm_rows(size=200, invalid=None, room='hallway', metric='c50'):
+    """A private four-arm fixture large enough to separate the component cohorts from the
+    joint one: the shared hallway has six queries, where any exclusion already voids a
+    component."""
+    invalid, arms = invalid or {}, {}
+    for offset, arm in enumerate(QUAD):
+        per = {}
+        for seed in subject.SEEDS:
+            values = [1.0 + 0.1 * index + 0.25 * offset for index in range(size)]
+            for index in invalid.get(arm, ()):
+                values[index] = float('nan')
+            per[seed] = {room: {'index': list(range(size)),
+                                'ir_path': ['{}/{}'.format(room, i) for i in range(size)],
+                                'meta': {'eval_seed': 0, 'num_shot': 8},
+                                metric: values}}
+        arms[arm] = {'per': per}
+    return arms
+
+
+def test_the_joint_cohort_can_fail_where_both_components_pass(arms):
+    """Two excluded queries per component keep each at 198/200, and the joint cohort at
+    196 -- below the 99 % rule, which is the interaction's own gate."""
+    four = four_arm_rows(invalid={G: (0, 1), D: (2, 3)})
+    rows = subject.interaction_rows(four, QUAD, 'hallway', 'c50')
+    assert rows['cohort'] == 196 and rows['n_test'] == 200
+    assert rows['excluded'][G]['queries'] == 2 and rows['excluded'][D]['queries'] == 2
+    assert rows['excluded'][E]['queries'] == 0 and rows['excluded'][A]['queries'] == 0
+    for pair in ((G, E), (D, A)):
+        component = subject.cell_rows(four, pair[0], pair[1], 'hallway', 'c50')
+        assert component['cohort'] == 198
+        assert subject.void_reasons(component, pair[0], pair[1]) == []
+    reasons = subject.interaction_void_reasons(four, QUAD, rows, 'hallway', 'c50')
+    assert len(reasons) == 1 and 'joint cohort' in reasons[0]
+
+
+def test_the_interaction_refuses_a_corrupted_ir_path_or_num_shot(arms):
+    four = four_arm_rows(size=8)
+    four[D]['per']['seed0']['hallway']['ir_path'][3] = 'hallway/elsewhere'
+    with pytest.raises(ValueError, match='ir_path'):
+        subject.interaction_rows(four, QUAD, 'hallway', 'c50')
+    four = four_arm_rows(size=8)
+    four[E]['per']['seed2']['hallway']['meta']['num_shot'] = 1
+    with pytest.raises(ValueError, match='num_shot'):
+        subject.interaction_rows(four, QUAD, 'hallway', 'c50')
+
+
+def test_the_interaction_refuses_seeds_that_measured_different_queries(arms):
+    """Every arm agrees inside seed 1, so pairing passes; the seeds still disagree."""
+    four = four_arm_rows(size=8)
+    for arm in QUAD:
+        per = four[arm]['per']['seed1']['hallway']
+        per['index'] = list(reversed(per['index']))
+        per['ir_path'] = list(reversed(per['ir_path']))
+    with pytest.raises(ValueError, match='do not share one query order'):
+        subject.interaction_rows(four, QUAD, 'hallway', 'c50')
+
+
+def test_the_interaction_refuses_an_arm_that_is_missing_a_seed(arms):
+    four = four_arm_rows(size=8)
+    del four[A]['per']['seed2']
+    with pytest.raises(ValueError, match='has no hallway of seed2'):
+        subject.interaction_rows(four, QUAD, 'hallway', 'c50')
+    with pytest.raises(ValueError, match='four distinct arms'):
+        subject.interaction_rows(arms, (G, E, D, G), 'hallway', 'c50')
