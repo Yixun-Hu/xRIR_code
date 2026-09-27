@@ -161,3 +161,82 @@ def test_main_registers_first_and_records_an_exception(tmp_path, monkeypatch):
         exp11_train.main(argv)
     assert seen['registered'], 'the pid file must exist before anything else runs'
     assert (tmp_path / 'train.exit').read_text().strip() == 'train.exit exception'
+
+
+# --- close review 8 blocker 2: the trainer fails closed after a resolution ---------
+# A marker's age proves nothing about a delayed trainer. What decides is the state of
+# the attempt directory when the trainer finally looks at it: gone, tombstoned, or
+# carrying no launch record at all means the launch it belongs to is over.
+
+
+def registered(tmp_path, launching=True, child_pid=None):
+    """An attempt directory as the launcher leaves it at the fork."""
+    attempt = tmp_path / 'attempt_20260927T000000'
+    attempt.mkdir()
+    if launching:
+        (attempt / 'launching').write_text('launcher 1\n')
+    if child_pid is not None:
+        (attempt / 'child.pid').write_text(child_pid)
+    return attempt
+
+
+def test_the_trainer_refuses_a_save_dir_that_is_gone(tmp_path):
+    """It never creates its own: the directory is the launcher's proof of a launch."""
+    missing = tmp_path / 'attempt_20260927T000000'
+    with pytest.raises(SystemExit) as exit_request:
+        exp11_train.register_trainer(str(missing))
+    assert exit_request.value.code == 3
+    assert not missing.exists(), 'a refusal may not recreate the attempt'
+
+
+def test_the_trainer_refuses_a_resolved_attempt(tmp_path):
+    """The tombstone is permanent: this attempt was answered and retired."""
+    attempt = registered(tmp_path)
+    (tmp_path / (attempt.name + '.resolved')).write_text('launcher 1\n')
+    with pytest.raises(SystemExit) as exit_request:
+        exp11_train.register_trainer(str(attempt))
+    assert exit_request.value.code == 3
+    assert not (attempt / 'train.pid').exists()
+
+
+def test_the_trainer_refuses_an_attempt_with_no_launch_record(tmp_path):
+    """From the fork onward one of the two always exists; neither means neither."""
+    attempt = registered(tmp_path, launching=False)
+    with pytest.raises(SystemExit) as exit_request:
+        exp11_train.register_trainer(str(attempt))
+    assert exit_request.value.code == 3
+    assert not (attempt / 'train.pid').exists()
+
+
+@pytest.mark.parametrize('child_pid', ['', 'SIGNAL TERM\n'])
+def test_an_incomplete_child_pid_is_not_a_launch_record(tmp_path, child_pid):
+    attempt = registered(tmp_path, launching=False, child_pid=child_pid)
+    with pytest.raises(SystemExit) as exit_request:
+        exp11_train.register_trainer(str(attempt))
+    assert exit_request.value.code == 3
+
+
+@pytest.mark.parametrize('kwargs', [dict(launching=True),
+                                    dict(launching=False, child_pid='4321\n')])
+def test_the_trainer_registers_against_either_launch_record(tmp_path, kwargs):
+    attempt = registered(tmp_path, **kwargs)
+    path = exp11_train.register_trainer(str(attempt))
+    assert path is not None and path.is_file()
+
+
+def test_a_no_save_run_writes_no_sidecars_but_still_honours_a_tombstone(tmp_path):
+    attempt = registered(tmp_path, launching=False)
+    assert exp11_train.register_trainer(str(attempt), no_save=True) is None
+    assert not (attempt / 'train.pid').exists()
+    (tmp_path / (attempt.name + '.resolved')).write_text('launcher 1\n')
+    with pytest.raises(SystemExit) as exit_request:
+        exp11_train.register_trainer(str(attempt), no_save=True)
+    assert exit_request.value.code == 3
+
+
+def test_a_clean_exit_with_no_code_is_recorded_as_zero(tmp_path):
+    """``raise SystemExit`` carries None, which is exit status 0, not 1."""
+    attempt = registered(tmp_path)
+    path = exp11_train.register_trainer(str(attempt))
+    exp11_train.record_trainer_exit(path, exp11_train.exit_code(SystemExit()))
+    assert (attempt / 'train.exit').read_text().strip() == 'train.exit 0'
