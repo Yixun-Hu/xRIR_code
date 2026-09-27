@@ -825,7 +825,8 @@ DIAGNOSTIC_PROVENANCE = ('run_type', 'repo', 'reviewed_commit', 'source_closures
                          'git_state', 'environment', 'command', 'registry_sha256')
 DIAGNOSTIC_RECEIPT = ('runner', 'runner_closure_sha256', 'kind', 'entry', 'argv', 'run_type',
                       'exit_status', 'outcome', 'exploratory', 'started_at', 'ended_at',
-                      'wall_s', 'peak_bytes', 'alarm_seconds', 'max_gb', 'admissible_arm')
+                      'wall_s', 'peak_bytes', 'alarm_seconds', 'max_gb', 'admissible_arm',
+                      'git_head')
 
 
 def smoke_run_dir(run_dir, repo):
@@ -883,6 +884,26 @@ def diagnostic_receipt(receipt):
     _require(ended >= base._timestamp(record['started_at'], 'started_at'),
              'the smoke receipt ended_at precedes its started_at')
     return record, path, spec
+
+
+def check_receipt_identity(fields, record):
+    """The three bindings the frozen exp_06 finalizer makes between receipt and provenance.
+
+    A receipt that is internally consistent still proves nothing unless it is the receipt
+    of *this* run: its runner closure must be the one the provenance recorded, it must
+    name the same HEAD, and the two must agree about whether the diagnostic was
+    exploratory -- an exploratory run is never admissible as an arm, so a receipt that
+    denies it while its provenance admits it (or the reverse) is not evidence at all.
+    """
+    closure = list(record['source_closures'].values())[0]
+    _require(fields['runner_closure_sha256'] == closure['sha256'],
+             'the smoke receipt runner closure {} is not the {} its provenance '
+             'recorded'.format(fields['runner_closure_sha256'], closure['sha256']))
+    head = record.get('git_state', {}).get('HEAD')
+    _require(fields['git_head'] == head, 'the smoke receipt git_head {!r} is not the {!r} '
+             'of its provenance'.format(fields['git_head'], head))
+    _require(fields['exploratory'] == bool(record.get('exploratory')),
+             'the smoke receipt and its provenance disagree about exploratory')
 
 
 def check_receipt_consistency(fields, record, window):
@@ -950,6 +971,7 @@ def diagnostic_evidence(run_dir, receipt, child_exit, repo, window):
                                   required=DIAGNOSTIC_PROVENANCE, identity=False)
     verify_source_closure(record, 'exp11_smoke', repo)
     admission = verify_approvals(record, repo, 'exp11_smoke')
+    check_receipt_identity(fields, record)
     passed = check_receipt_consistency(fields, record, window) and child_exit == 0
     hashes = {}
     if spec['run_type'] != 'exp11_probe':

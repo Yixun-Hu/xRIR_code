@@ -206,7 +206,8 @@ def test_the_diagnostic_receipt_contract_is_the_enumerated_kinds(tmp_path):
                 run_type='exp11_probe', exit_status=0, outcome='ok', exploratory=False,
                 argv=['--no-save'], started_at='2026-09-26T00:00:00+00:00',
                 ended_at='2026-09-26T00:01:00+00:00', wall_s=60.0, peak_bytes=0,
-                alarm_seconds=900.0, max_gb=40.0, runner_closure_sha256='a' * 64)
+                alarm_seconds=900.0, max_gb=40.0, runner_closure_sha256='a' * 64,
+                git_head='b' * 40)
     receipt.write_text(json.dumps(base))
     record, path, spec = final.diagnostic_receipt(str(receipt))
     assert record['kind'] == 'probe' and spec['entry'] == 'tools.exp11_train'
