@@ -317,6 +317,42 @@ def test_registration_takes_the_lock_before_it_looks_at_anything(tmp_path):
         holder.wait(timeout=30)
 
 
+def test_the_bounded_wait_is_measured_on_the_monotonic_clock(tmp_path, monkeypatch):
+    """A wall clock steps: NTP corrects it, a suspended VM resumes on a new one.
+
+    The bound is a duration, not a moment, so it belongs on the clock that only ever
+    goes forward. Here the monotonic clock jumps past the bound while the wall clock
+    stands still: the wait must end at once (close review 10, minor).
+    """
+    attempt = registered(tmp_path)
+    lock = exp11_train.registration_lock_path(attempt)
+    lock.touch()
+    holder = subprocess.Popen(['flock', str(lock), 'sleep', '30'])
+    try:
+        for _ in range(100):
+            if subprocess.run(['flock', '-n', str(lock), 'true']).returncode != 0:
+                break
+            time.sleep(0.05)
+        calls = []
+
+        def jumping():
+            calls.append(None)
+            return 0.0 if len(calls) < 3 else 1000.0
+
+        monkeypatch.setattr(exp11_train.time, 'monotonic', jumping)
+        started = time.time()
+        with pytest.raises(SystemExit) as exit_request:
+            exp11_train.register_trainer(str(attempt), wait_seconds=20)
+        elapsed = time.time() - started
+        monkeypatch.undo()                 # the real clock back, before anything waits
+        assert exit_request.value.code == 3
+        assert elapsed < 5, 'the wait is bounded on time.monotonic(), not time.time()'
+        assert not (attempt / 'train.pid').exists(), 'a timeout writes nothing'
+    finally:
+        holder.terminate()
+        holder.wait(timeout=30)
+
+
 def test_registration_writes_atomically(tmp_path):
     """No reader ever sees a half-written train.pid: a temp file, then one rename."""
     attempt = registered(tmp_path)
