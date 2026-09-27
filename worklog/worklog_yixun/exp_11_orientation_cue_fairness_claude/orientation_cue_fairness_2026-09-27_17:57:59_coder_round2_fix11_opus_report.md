@@ -25,6 +25,10 @@ is sent to it. `kill -0` remains a probe, never a signal.
 | `01ceecf` | exp11 fix11 (RED): the bounded registration wait is measured on the wall clock |
 | `b3872a2` | exp11 fix11 (GREEN): the registration wait runs on `time.monotonic()` |
 | `ddeeb82` | exp_11 bookkeeping: fix-10 report counts corrected; close review 10 and the fix-11 prompt (record only) |
+| `678d9df` | exp11 fix11 (RED): the launcher's new reader is bound by no approval key |
+| `275be24` | exp11 fix11 (GREEN): `launch_sh` binds the pid reader it runs |
+| `6d7363b` | exp11 fix11 (tests): a generous window for the real stub trainer |
+| `03ccee4` | exp_11 bookkeeping: this report (record only) |
 
 ## Blocker 1 [P1] — one pid-record *reader*, not two implementations of one grammar
 
@@ -168,7 +172,10 @@ Fix 10's per-commit table is corrected to close review 10's counts (`ea92e3b` te
 | `6e3a490` (GREEN) | `exp11_launch.sh` +16/−4 | +14/−1 |
 | `01ceecf` (RED) | — | +36 |
 | `b3872a2` (GREEN) | `exp11_train.py` +5/−2 | — |
-| range `51e34b1..HEAD` | **+100 / −44 = 144 changed** | +415/−1 |
+| `678d9df` (RED) | — | +27 |
+| `275be24` (GREEN) | `exp11_profiles.py` +5/−2 | +1/−1 |
+| `6d7363b` (tests) | — | +2/−1 |
+| range `51e34b1..HEAD` | **+105 / −46 = 151 changed** | +444/−2 |
 
 Every production/test commit is under 200 changed lines; no exception this cycle. The
 record-only `ddeeb82` is larger, as bookkeeping commits are.
@@ -177,14 +184,15 @@ record-only `ddeeb82` is larger, as bookkeeping commits are.
 
 `tools/exp06_launch.sh` and `tools/exp06_finalize.py` are byte-identical to `9f98bbb`
 (`git diff 9f98bbb..HEAD --` reports nothing for either). No `model/*.py`, no
-`tools/exp06_*` file except the digest of `tools/exp06_summarize_haa.py`'s closure (which
-moves only because `tools/exp11_train.py` is in it), no `tools/exp10_*`, no exp_03-pinned
-file was touched. `bash -n` passes on both shells, `py_compile` on every exp_11 module,
+`tools/exp06_*` file (the `summarize_haa` digest moves because that summariser imports
+`exp11_finalize` and `exp11_profiles`, not because its own bytes changed), no
+`tools/exp10_*`, no exp_03-pinned file was touched. `bash -n` passes on both shells, `py_compile` on every exp_11 module,
 and `git diff --check 51e34b1..HEAD` is silent.
 
 ## Digests
 
-Taken at `275be24`, the cycle's last production commit.
+Taken at `275be24`, the cycle's last production commit; the two commits after it
+(`6d7363b` tests, `03ccee4` record) touch no file in any closure.
 
 **exp_06** — exactly **one** key differs from the record re-filled at `9f98bbb`, and it is
 the only one allowed to move (`tools/exp06_summarize_haa.py` imports `exp11_finalize` and
@@ -259,8 +267,23 @@ Every run CPU-only (`CUDA_VISIBLE_DEVICES=''`), in the `xRIR` env.
 | `tests/test_exp11_shell.py`, `test_exp11_train.py`, `test_exp11_pidrecord.py`, `test_exp11_lock_holder.py` | **243 passed** (122 s) |
 | the other exp_11 files + `tests/test_exp06_summarize_haa.py` + `tests/test_exp09_sim_eval_closures.py` | **290 passed** (629 s) |
 | `tests/test_exp11_profiles.py` after the closure fix | **18 passed** |
-| full CPU suite at the tip, detached | _(see below)_ |
+| full CPU suite at the tip `6d7363b`, detached | **1 failed, 3864 passed, 55 skipped** (4200 s) |
 
 The three new shell regressions take about 20 s together: each starts a real `timeout`
 wrapper and a stub that imports the trainer (and so torch), and the waits on it are
 bounded at 90 s so a loaded machine cannot turn them into false failures.
+
+The full suite ran detached at the tip into
+`orientation_cue_fairness_2026-09-27_18:09_suite_full_cpu_6d7363b.log` in this record
+(70 minutes: the machine was carrying another session's FLAC evaluations and a second
+pytest for most of it). The **one** failure is the standing, expected one:
+
+```
+FAILED tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes
+  {'summarize_haa': '2f2f4383c94d…'} != {'summarize_haa': '645e74c03e20…'}
+```
+
+— exp_06's approvals record still holds the digest re-filled at `9f98bbb`, and
+`tools/exp06_summarize_haa.py`'s closure has moved with every exp_11 change since. The
+re-fill belongs at the reviewed merge, as round 1's `9f98bbb` did, not on this branch.
+Every other test in the repository passes.
