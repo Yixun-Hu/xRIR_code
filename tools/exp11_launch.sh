@@ -377,8 +377,15 @@ resolve_unregistered() {
              "registered yet is still possible; wait until it is ${UNRESOLVED_GRACE_S}s" >&2
         return 1
     fi
+    say "TOMBSTONE $root/$name.resolved"
     say "ABORT $attempt -> ${attempt}_ABORTED_unregistered"
     if [ "$DRY" -eq 0 ]; then
+        # Written BEFORE the rename, and never removed by anything here: a trainer that
+        # wakes after this can no longer find its directory, and if it somehow can, this
+        # is what tells it the launch was answered. The scan ignores it -- it is a
+        # record, not a claim (close review 8, blocker 2).
+        printf 'resolved-by %s\nat %s\nreason unregistered launch: no complete child.pid\n' \
+            "$$" "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" > "$root/$name.resolved"
         mv -- "$attempt" "${attempt}_ABORTED_unregistered"
         # The marker has been answered; leaving it would close the arm for good, since
         # the scan reads every attempt_* directory, retired ones included.
