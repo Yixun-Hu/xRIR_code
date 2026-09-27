@@ -158,4 +158,9 @@ all-null and every producer refuses today.
 * **Full CPU suite** — run detached at `9f22647` (the same tree as the last code
   commit `d7c9e62`) to
   `orientation_cue_fairness_2026-09-27_16:30_suite_full_cpu_9f22647.log` in this record.
-  FIX10_SUITE_RESULT
+  **1 failed, 3782 passed, 55 skipped** in 3249 s (54:08). The one
+  failure is the standing, expected
+  `tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes`:
+  `code.summarize_haa` has moved and the record is re-filled at the reviewed merge, as
+  round 1 did with `9f98bbb`, not on this branch. Fix 9 was 3741 passed; the 41 new
+  passes are this cycle's regressions. Nothing else regressed.
