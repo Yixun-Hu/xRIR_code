@@ -154,3 +154,31 @@ Unchanged. The only exp_06 module this round touches remains `tools/exp06_summar
 `tools/exp06_launch.sh`, `tools/exp06_smoke.py`, `tools/exp06_profiles.py`,
 `tools/exp06_approvals_api.py` and every other pinned file are imported or sourced, never
 edited.
+
+## Digests after the fix cycle (last code commit `58bd991`)
+
+**exp_06** — exactly **one** key moved against the record re-filled at `9f98bbb`, as the
+round-2 scope allows; the other nineteen are unchanged:
+
+| key | approved at 9f98bbb | now |
+|---|---|---|
+| `summarize_haa` | `645e74c03e20…` | `2868e66c1167…` |
+
+**exp_11** — all eight keys present in this checkout:
+
+| key | digest |
+|---|---|
+| `train` | `d9cbb9de8eb0ec85ac85664d9e0da7afe156e5b169bbe89096953d863cf15571` |
+| `finalize` | `3eb15b59b672d97ac257054e66f8bc835abd27b85e24f9a417a5a1aaa9e25b9e` |
+| `haa_finetune` | `bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150` |
+| `haa_eval` | `f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20` |
+| `haa_pipeline_sh` | `3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4` |
+| `launch_sh` | `0bdbb5d3d5c291bb2d0e10a9cb09d3ebd66c7078b28f56118e697c4eef4b44cd` |
+| `smoke` | `62133ba07a35d42026c19fd1484b37c6c06ace0ebedc1cdd8484690df323450e` |
+| `summarize_haa` | `2868e66c116752f205af1299408998b0c3fcebbfc61e26878a0f4a7ac1ff614f` |
+
+Four exp_11 keys moved against the reviewed tip `c8acda2` — `finalize`,
+`haa_pipeline_sh`, `launch_sh` and `summarize_haa` (which imports `tools/exp11_finalize.py`,
+so it moves with it). These are values for the **eventual reviewed merge**, not an
+authorisation to fill the approvals now: the record stays all-null and every exp_11
+producer refuses today.
