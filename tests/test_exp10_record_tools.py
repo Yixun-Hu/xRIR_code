@@ -1338,21 +1338,43 @@ def publication_snapshot(scratch):
     return snapshot
 
 
+def shim(scratch, command, subject, cases):
+    """A ``command`` on PATH that runs a body instead of acting, as the reviews injected it.
+
+    ``subject`` is the shell expansion every case is matched against (``"$1"`` for a rename's
+    source, ``"${@: -1}"`` for a copy's destination) and ``cases`` is a list of
+    ``(pattern, body)`` pairs, so one shim can intercept two different calls -- the round-6
+    review's rollback injection needs a failing rename *and* a signal from inside the
+    rollback that follows it.  A body that does not exit falls through to the real command.
+    """
+    bin_dir = os.path.join(scratch["root"], "test_bin")
+    if not os.path.isdir(bin_dir):
+        os.makedirs(bin_dir)
+    path = os.path.join(bin_dir, command)
+    arms = "".join("  %s)\n    %s\n    ;;\n" % (pattern, body) for pattern, body in cases)
+    with open(path, "w") as fout:
+        fout.write('#!/bin/bash\ncase %s in\n%sesac\nexec /usr/bin/%s "$@"\n'
+                   % (subject, arms, command))
+    os.chmod(path, 0o755)
+    return {"PATH": bin_dir + os.pathsep + os.environ.get("PATH", "")}
+
+
 def mv_shim(scratch, pattern, body):
     """A ``mv`` on PATH that runs ``body`` instead of moving one source, as the reviews did.
 
     ``pattern`` is a shell ``case`` pattern matched against the *source* of the rename, so a
     test can pick exactly one of the finish script's three publications.
     """
-    bin_dir = os.path.join(scratch["root"], "test_bin")
-    if not os.path.isdir(bin_dir):
-        os.makedirs(bin_dir)
-    path = os.path.join(bin_dir, "mv")
-    with open(path, "w") as fout:
-        fout.write('#!/bin/bash\ncase "$1" in\n  %s)\n    %s\n    ;;\nesac\n'
-                   'exec /usr/bin/mv "$@"\n' % (pattern, body))
-    os.chmod(path, 0o755)
-    return {"PATH": bin_dir + os.pathsep + os.environ.get("PATH", "")}
+    return shim(scratch, "mv", '"$1"', [(pattern, body)])
+
+
+def cp_shim(scratch, pattern, body):
+    """A ``cp`` on PATH that runs ``body`` instead of copying to one destination.
+
+    ``pattern`` is matched against the *destination* (the last argument), so a test can pick
+    exactly one of the rollback copies the finish script makes before it publishes anything.
+    """
+    return shim(scratch, "cp", '"${@: -1}"', [(pattern, body)])
 
 
 def failing_mv(scratch, pattern):
@@ -1371,6 +1393,22 @@ def terminating_mv(scratch, pattern, after="exit 43"):
     return mv_shim(scratch, pattern,
                    'echo "the test is terminating the script before $1" >&2\n'
                    '    kill -TERM "$PPID"\n    %s' % after)
+
+
+TRUNCATE_COPY = '/usr/bin/head -c 4 "${@: -2:1}" > "${@: -1}"'   # a *partial* rollback copy
+
+
+def truncating_cp(scratch, pattern, tail="exit 44"):
+    """A ``cp`` that leaves a partial rollback copy behind, as the round-6 review did.
+
+    The body writes the first four bytes of the source to the destination and then runs
+    ``tail``: the review's own injection failed afterwards (``exit 44``), and a copy that
+    truncates while *reporting success* is the same defect seen from the other side -- the
+    existence of a backup file is never proof that it holds the whole original.
+    """
+    return cp_shim(scratch, pattern,
+                   'echo "the test truncates the rollback copy ${@: -1}" >&2\n'
+                   '    %s\n    %s' % (TRUNCATE_COPY, tail))
 
 
 @pytest.mark.parametrize("pattern,stage", [
@@ -1460,6 +1498,49 @@ def test_finish_keeps_the_backups_when_the_rollback_itself_fails(scratch):
         assert closing and "could NOT be put back" in closing[-1], closing
     finally:
         os.chmod(record, 0o755)
+
+
+@pytest.mark.parametrize("tail,how", [
+    ("exit 44", "the copy fails after writing part of the file"),
+    ("exit 0", "the copy writes part of the file and reports success")])
+def test_finish_refuses_an_incomplete_rollback_copy(scratch, tail, how):
+    """Round-6 finding 1, the blocker: ``PUB_STATE=started`` preceded the report backups, so a
+    ``cp`` that failed half-way left a truncated backup -- and restore() took its existence
+    for proof of completeness, deleted the *intact* published HTML page and installed the
+    truncation (``OLD HTML`` became ``OLD ``), with no backup left anywhere afterwards.  The
+    backups are now made, verified and marked complete while nothing has been published yet."""
+    before = publication_snapshot(scratch)              # the publication to protect
+    done = run_finish(scratch, env=truncating_cp(
+        scratch, "*/.finish_prev.*/yaw_pilot_01_results.html", tail=tail))
+    assert done.returncode != 0, out(done)
+    assert "FINISH DONE" not in out(done)
+    assert "rollback copy" in out(done), out(done)      # ... and it names what it refused on
+    assert "could NOT be put back" not in out(done)     # nothing was published: nothing to put back
+    assert publication_snapshot(scratch) == before, how
+    assert_generated_untouched(scratch)                 # no partial backup is installed or kept
+
+
+@pytest.mark.parametrize("body,how", [
+    ('kill -TERM "$PPID"\n    ' + TRUNCATE_COPY + '\n    exit 44',
+     "the copy is cut in half, as the round-6 review injected it"),
+    ('kill -TERM "$PPID"\n    exec /usr/bin/cp "$@"',
+     "the copy itself completes and the signal ends the run")])
+def test_finish_keeps_the_publication_when_it_is_terminated_while_backing_it_up(scratch, body,
+                                                                               how):
+    """Round-6 finding 1, the interruption half: the same truncated backup was installed over
+    the intact HTML page when SIGTERM arrived during backup creation, because the publication
+    was already ``started``.  Every backup is now made while it is still ``idle``, so a signal
+    there can only end the run -- there is nothing published for it to leave half-replaced."""
+    before = publication_snapshot(scratch)
+    done = run_finish(scratch, env=cp_shim(
+        scratch, "*/.finish_prev.*/yaw_pilot_01_results.html",
+        'echo "the test is terminating the script while it copies ${@: -1}" >&2\n    ' + body))
+    assert done.returncode == 143, out(done)            # the TERM trap ran; nothing was killed
+    assert "SIGTERM" in out(done)
+    assert "FINISH DONE" not in out(done)
+    assert "could NOT be put back" not in out(done)
+    assert publication_snapshot(scratch) == before, how
+    assert_generated_untouched(scratch)
 
 
 def test_finish_leaves_the_published_assets_alone_when_a_stage_fails(scratch):

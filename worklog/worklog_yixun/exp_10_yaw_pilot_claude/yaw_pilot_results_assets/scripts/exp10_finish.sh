@@ -17,6 +17,11 @@
 #     and a *signal* rolls them back just like an error does (round-5 review, finding 1: SIGTERM
 #     immediately before the final rename left new assets + new HTML + the old Markdown, and
 #     the EXIT cleanup deleted both backups because the destinations existed).
+#   round-6 review — every rollback copy is now completed and verified *while nothing has been
+#     published yet* and marked complete only then, because `started` used to precede the
+#     report copies: a `cp` that failed half-way left a truncated backup whose existence
+#     restore() took for proof of completeness, so it deleted the intact published report and
+#     installed the truncation (finding 1).
 #
 # Every validation report is bound by the run directory it names, with no exception: the
 # relocation alias this script used to pass for the CPU record accepted the GPU arm's
@@ -40,8 +45,11 @@ ARMS="released_k8 released_k1 control_k8 cyl_k8"
 CPU=ckpt/exp10/cpu_protocol
 STAGE=$A/generated.staging.$$
 TMPOUT=$A/.finish_tmp.$$
-PREV=$A/generated.previous.$$          # the asset set this run replaces
-PREVR=$A/.finish_prev.$$               # the Markdown / HTML this run replaces
+PREV=$A/generated.previous.$$          # the verified copy of the asset set this run replaces
+PREVT=$A/.finish_prev_assets.$$        # ... where that copy is made and verified first
+PREVR=$A/.finish_prev.$$               # the verified copies of the Markdown / HTML it replaces
+PREVRT=$PREVR.tmp                      # ... where those copies are made and verified first
+DONE=.backup_complete                  # the marker that says one backup copy is whole
 REPORTS="yaw_pilot_01_results.html yaw_pilot_results.md"
 
 # ---- publication state, the rollback, and the traps that use them (round-5, finding 1) ------
@@ -50,10 +58,19 @@ REPORTS="yaw_pilot_01_results.html yaw_pilot_results.md"
 # copies of the previous publication; `committed` means all three are published and the backups
 # may go; `rolled_back` means restore() has already dealt with them. EVERY exit path — an
 # unguarded error, a failed rename, SIGTERM / SIGINT / SIGHUP — rolls all three back while the
-# state is `started`, and only `committed` lets the EXIT cleanup delete a backup that still
-# holds bytes. What was there *before* this run is recorded before the first mutation, so the
-# rollback can preserve original absence too (an artefact this run created is removed, not
-# "restored" from a backup that never existed).
+# state is `started`, and only `committed` — or `idle`, where nothing has been touched at all —
+# lets the EXIT cleanup delete a backup that still holds bytes. What was there *before* this
+# run is recorded before the first mutation, so the rollback can preserve original absence too
+# (an artefact this run created is removed, not "restored" from a backup that never existed).
+#
+# A backup is restored from only when it is *known whole*: it is copied under a temporary name
+# while the state is still `idle`, verified against the original (`cmp` for a report, a
+# recursive `diff` for the asset directory), renamed into its backup slot and only then marked
+# complete. restore() installs nothing that carries no marker, so a copy that failed half-way
+# can never overwrite the intact artefact it was copied from (round-6 review, finding 1: the
+# state went to `started` first, and the mere existence of a truncated backup was taken for
+# proof of completeness). The markers are files under `$PREVR`, never inside `$PREV`, whose
+# contents become the published asset set again the moment it is restored.
 PUB_STATE=idle                         # idle | started | committed | rolled_back
 PRE_G=0                                # did the asset directory exist before this run?
 declare -A PRE_REPORT=()               # ... and each of the two reports?
@@ -63,10 +80,12 @@ restore() {   # <what failed> — put all three artefacts back exactly as they w
   # for the KEPT list below, so it is left on stderr rather than discarded.
   local what=$1 restored="" kept="" pre f
   PUB_STATE=rolled_back
-  if [ -d "$PREV" ]; then                        # the previous asset set was moved aside
+  if [ -d "$PREV" ] && [ -f "$PREVR/generated$DONE" ]; then   # a whole copy of the old set
     rm -rf "$G" || true
     if [ ! -e "$G" ] && mv "$PREV" "$G"; then restored="$restored $G"
     else kept="$kept $PREV (the asset set this run replaced)"; fi
+  elif [ -d "$PREV" ]; then                      # ... an unverified one is never installed
+    kept="$kept $PREV (an INCOMPLETE copy of the asset set; $G was left exactly as it is)"
   elif [ "$PRE_G" = 0 ] && [ -d "$G" ]; then     # there was none: this run created it
     rm -rf "$G" || true
     if [ ! -e "$G" ]; then restored="$restored $G (removed: this run created it)"
@@ -74,10 +93,12 @@ restore() {   # <what failed> — put all three artefacts back exactly as they w
   fi
   for f in $REPORTS; do
     pre=${PRE_REPORT[$f]:-0}
-    if [ -f "$PREVR/$f" ]; then                  # a backup exists: put the original back
+    if [ -f "$PREVR/$f" ] && [ -f "$PREVR/$f$DONE" ]; then   # a whole copy: put it back
       rm -f "$E/$f" || true
       if [ ! -e "$E/$f" ] && mv "$PREVR/$f" "$E/$f"; then restored="$restored $E/$f"
       else kept="$kept $PREVR/$f (the $f this run replaced)"; fi
+    elif [ -f "$PREVR/$f" ]; then                # ... an unverified one is never installed
+      kept="$kept $PREVR/$f (an INCOMPLETE copy of $f; $E/$f was left exactly as it is)"
     elif [ "$pre" = 0 ] && [ -f "$E/$f" ]; then  # absent before this run: absent after it
       rm -f "$E/$f" || true
       if [ ! -e "$E/$f" ]; then restored="$restored $E/$f (removed: this run created it)"
@@ -89,7 +110,7 @@ restore() {   # <what failed> — put all three artefacts back exactly as they w
     say "REFUSED: publishing $what failed; restored:$restored"
   else
     KEEP_BACKUPS=1
-    say "REFUSED: publishing $what failed; restored:$restored; NOT RESTORED — these are KEPT because they are the only copies left:$kept"
+    say "REFUSED: publishing $what failed; restored:$restored; NOT RESTORED — these are KEPT for inspection by hand, each with what it holds:$kept"
   fi
 }
 cleanup() {
@@ -98,16 +119,20 @@ cleanup() {
   trap - EXIT; trap '' HUP INT TERM              # no re-entry while things are put back
   if [ -d "$STAGE" ]; then rm -rf "$STAGE" || true; fi
   if [ -d "$TMPOUT" ]; then rm -rf "$TMPOUT" || true; fi
+  # An unverified copy is never restored from, so it is never kept either (finding 1).
+  rm -rf "$PREVT" "$PREVRT" 2>/dev/null || true
   # A death between the three publications (an unguarded error, a signal) must roll all three
   # back, and must never leave a backup behind as the only copy of the previous publication.
   if [ "$PUB_STATE" = started ]; then restore "the publication (it was interrupted)"; fi
-  if [ "$PUB_STATE" = committed ]; then
-    rm -rf "$PREV" "$PREVR" 2>/dev/null || true  # all three are published: the copies may go
+  if [ "$PUB_STATE" = idle ] || [ "$PUB_STATE" = committed ]; then
+    # `idle`: nothing was published, so every backup is a copy of an untouched artefact.
+    # `committed`: all three are published. Either way the copies may go.
+    rm -rf "$PREV" "$PREVR" 2>/dev/null || true
   elif [ "$KEEP_BACKUPS" = 1 ]; then
     left=""
     for d in "$PREV" "$PREVR"; do if [ -e "$d" ]; then left="$left $d"; fi; done
     if [ -n "$left" ]; then
-      say "KEPT:$left — restoration failed; they hold the publication that was there before, so do not delete them by hand"
+      say "KEPT:$left — the rollback could not put everything back; the REFUSED line above says what each of these holds, so do not delete them by hand"
     else
       say "NOT RESTORED: the publication could not be put back; the REFUSED line above says what is where"
     fi
@@ -132,7 +157,12 @@ cleanup() {
 }
 on_signal() {   # <name> <number> — roll back through the EXIT trap; never re-raise the signal
   trap '' HUP INT TERM
-  say "FINISH INTERRUPTED: SIG$1 received; rolling the publication back"
+  case $PUB_STATE in                             # the message may only claim what is true
+    started) say "FINISH INTERRUPTED: SIG$1 received; rolling the publication back" ;;
+    committed) say "FINISH INTERRUPTED: SIG$1 received after the publication was complete" ;;
+    rolled_back) say "FINISH INTERRUPTED: SIG$1 received; the rollback has already run" ;;
+    *) say "FINISH INTERRUPTED: SIG$1 received; nothing has been published, so there is nothing to roll back" ;;
+  esac
   exit $((128 + $2))
 }
 trap cleanup EXIT
@@ -236,12 +266,47 @@ for f in $REPORTS; do
   PRE_REPORT[$f]=0
   if [ -f "$E/$f" ]; then PRE_REPORT[$f]=1; fi
 done
-PUB_STATE=started                       # from here on, any death rolls all three back
-mkdir -p "$PREVR"
+# The rollback copies, made and verified while the publication is still untouched (round-6
+# review, finding 1). Each is copied under a temporary name, compared with the original it was
+# copied from, renamed into its backup slot and only then marked complete — so a copy that
+# failed or was interrupted half-way is never a backup restore() can find, and the artefact it
+# was copied from has not been touched at all. Nothing below `PUB_STATE=started` has mutated
+# the publication, which is why an `idle` exit may simply drop every copy.
+mkdir -p "$PREVR" "$PREVRT"
 for f in $REPORTS; do
-  if [ -f "$E/$f" ]; then cp -p "$E/$f" "$PREVR/$f"; fi
+  if [ "${PRE_REPORT[$f]}" = 0 ]; then continue; fi
+  if ! cp -p "$E/$f" "$PREVRT/$f"; then
+    say "REFUSED: the rollback copy of $f could not be made; nothing has been published"
+    exit 12
+  fi
+  if ! cmp "$E/$f" "$PREVRT/$f" > "$TMPOUT/backup_check.txt" 2>&1; then
+    say "REFUSED: the rollback copy of $f is not byte-identical to $E/$f ($(tr '\n' ' ' < "$TMPOUT/backup_check.txt")); nothing has been published"
+    exit 12
+  fi
+  mv "$PREVRT/$f" "$PREVR/$f"
+  : > "$PREVR/$f$DONE"
 done
-if [ -d "$G" ]; then mv "$G" "$PREV"; fi
+if [ "$PRE_G" = 1 ]; then
+  rm -rf "$PREVT"
+  if ! cp -a "$G" "$PREVT"; then
+    say "REFUSED: the rollback copy of $G could not be made; nothing has been published"
+    exit 12
+  fi
+  if ! diff -rq "$G" "$PREVT" > "$TMPOUT/backup_check.txt" 2>&1; then
+    say "REFUSED: the rollback copy of $G does not match it file for file; nothing has been published"
+    sed -n '1,10p' "$TMPOUT/backup_check.txt" | tee -a "$LOG"
+    exit 12
+  fi
+  mv "$PREVT" "$PREV"
+  : > "$PREVR/generated$DONE"
+fi
+rm -rf "$PREVRT"
+say "rollback copies of what this run replaces: complete, verified and marked; publishing now"
+PUB_STATE=started                       # from here on, any death rolls all three back
+# `$G` is removed rather than renamed aside: a rename would itself be this run's first mutation
+# of the publication, and every backup has to be complete before that happens. What restore()
+# puts back is the verified copy in `$PREV`.
+if [ -d "$G" ] && ! rm -rf "$G"; then restore "the asset set"; exit 9; fi
 if ! mv "$STAGE" "$G"; then restore "the asset set"; exit 9; fi
 if ! mv "$TMPOUT/yaw_pilot_01_results.html" "$E/yaw_pilot_01_results.html"; then
   restore "the HTML page"; exit 9
@@ -251,6 +316,5 @@ if ! mv "$TMPOUT/yaw_pilot_results.md" "$E/yaw_pilot_results.md"; then
 fi
 # All three are published: only now may the rollback copies go.
 PUB_STATE=committed
-if [ -d "$PREV" ]; then rm -rf "$PREV"; fi
-rm -rf "$PREVR"
+rm -rf "$PREV" "$PREVR"
 say "FINISH DONE: $(wc -l < "$G/SHA256SUMS") assets published in $G; report in $E"
