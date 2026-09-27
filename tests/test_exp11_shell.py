@@ -209,3 +209,33 @@ def test_recovery_accepts_the_arms_own_attempt(tmp_path):
             '--child-exit 0'.format(attempt)) in out
     assert 'preflight --mode finalize' in out
     assert 'PROMOTE {}/final -> {}'.format(attempt.parent, attempt.name) in out
+
+
+# --- process item 6: the bundled smoke covers the adapter route too -----------------
+
+
+def test_the_smoke_mode_carries_adapter_training_and_evaluation_commands():
+    """J/K must have a reviewed smoke before their queue, not only a fixture.
+
+    The oriented route's smokes prove nothing about ``simple_adapter``: a different
+    backbone, a different cue flag, and the contextual loading mode the round-2 fix
+    added. Both adapter rungs are therefore in the bundled smoke, the evaluation one
+    gated on the fine-tuning one having passed.
+    """
+    golden = (GOLD / 'launch_smoke_H.txt').read_text()
+    assert '--make-fixture ckpt/exp11/_smoke/fixture_simpadapter.pth' in golden
+    assert golden.count('--kind haa_train_smoke') == 2      # oriented, then adapter
+    assert golden.count('--kind haa_eval_smoke') == 2
+    adapter_train = [line for line in golden.splitlines()
+                     if '--kind haa_train_smoke' in line and 'simple_adapter' in line]
+    adapter_eval = [line for line in golden.splitlines()
+                    if '--kind haa_eval_smoke' in line and 'simple_adapter' in line]
+    assert len(adapter_train) == len(adapter_eval) == 1
+    assert '--adapter-heading-json-dir ckpt/exp06/heading' in adapter_train[0]
+    assert '--init ckpt/exp11/_smoke/fixture_simpadapter.pth' in adapter_train[0]
+    assert '--adapter-heading-json-dir ckpt/exp06/heading' in adapter_eval[0]
+    assert '--heading-json-dir' not in adapter_train[0].replace(
+        '--adapter-heading-json-dir', '')
+    # Each rung that hands the next one a checkpoint is gated on its own completion.
+    assert golden.count('passed --run-dir') == 2
+    assert golden.index('haa_adapter_finetune') < golden.index('haa_adapter_eval')
