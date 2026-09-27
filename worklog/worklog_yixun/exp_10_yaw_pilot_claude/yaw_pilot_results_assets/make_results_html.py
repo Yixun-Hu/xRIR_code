@@ -70,19 +70,24 @@ def metric_rows(arm, key, scale):
         if not cell:
             continue
         q, r, h = cell["query"], cell.get("room", {}), cell.get("headline", {})
-        rows.append("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%s</td></tr>" % (
+        rows.append("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%s</td><td>%s</td></tr>" % (
             ANGLE_DEG.get(k, k), num(q.get("mean_0"), scale), num(q.get("mean_alpha"), scale), ci(q.get("delta"), scale),
             ci(r.get("delta"), scale) if r else "–", ci(q.get("gap"), scale), ci(r.get("gap"), scale) if r else "–",
-            q.get("n", 0), esc(q.get("ratio", {}).get("status", "–")), ratio_text(h, q, cell)))
+            q.get("n", 0), esc(q.get("ratio", {}).get("status", "–")),
+            esc(cell.get("room_status") or "–"), ratio_text(h, q, cell)))
     return "\n".join(rows)
 
 
 def ratio_text(h, q, cell):
+    """The multiple where the headline is reportable, otherwise its reason.
+
+    The room status has its own column (finding 6): it used to be appended here, which meant
+    a reportable cell -- the very cell whose multiple is quoted -- showed no room status at
+    all (control EDT at 90 degrees: 17.8x with the canonical "denominator uncertain" lost).
+    """
     if h.get("reportable"):
         return "<b>%s×</b> [%s, %s]" % (num(h["point"], 1, 3), num(h.get("lower_bound"), 1, 3), num(h.get("upper_bound"), 1, 3))
-    reason = h.get("reason") or q.get("ratio", {}).get("reason") or "–"
-    rs = cell.get("room_status")
-    return "%s%s" % (esc(reason), (" (room: %s)" % esc(rs)) if rs else "")
+    return esc(h.get("reason") or q.get("ratio", {}).get("reason") or "–")
 
 
 def arm_section(arm, parity, online, probe=None):
@@ -98,7 +103,7 @@ def arm_section(arm, parity, online, probe=None):
         if not rows:
             continue
         out.append("<h3>%s <span class='unit'>(%s)</span></h3>" % (esc(label), esc(shown or unit or "dimensionless")))
-        out.append("<div class='scroll'><table><thead><tr><th>angle</th><th>mean at 0°</th><th>mean at α</th><th>Δ (query CI)</th><th>Δ (room CI)</th><th>G (query CI)</th><th>G (room CI)</th><th>n</th><th>ratio status</th><th>multiple / reason</th></tr></thead><tbody>%s</tbody></table></div>" % rows)
+        out.append("<div class='scroll'><table><thead><tr><th>angle</th><th>mean at 0°</th><th>mean at α</th><th>Δ (query CI)</th><th>Δ (room CI)</th><th>G (query CI)</th><th>G (room CI)</th><th>n</th><th>status (query)</th><th>status (room)</th><th>multiple / reason</th></tr></thead><tbody>%s</tbody></table></div>" % rows)
     ctr = arm.get("controls", {})
     if probe:
         parm = [x for x in probe["arms"] if x["arm"] == arm["arm"]]
@@ -124,6 +129,40 @@ def arm_section(arm, parity, online, probe=None):
     if online is not None:
         out.append("<p class='meta'>check_online ok = %s</p>" % online.get("ok"))
     return "\n".join(out)
+
+
+def note_blocks(summary):
+    """The canonical ``notes`` rendered as their *values* (finding 5).
+
+    ``notes`` is a dict whose keys are labels (``band``, ``gl_free``, ``pipeline``,
+    ``broader_population``); printing the keys, as this page used to, dropped every
+    qualification the plan requires the report to carry.
+    """
+    notes = summary.get("notes") or {}
+    items = (sorted(notes.items()) if isinstance(notes, dict)
+             else [(None, text) for text in notes])
+    return ["<div class='note'>%s%s</div>" % (("<b>%s:</b> " % esc(key)) if key else "",
+                                              esc(text)) for key, text in items]
+
+
+def qualification_table(summary):
+    """``metric_qualifications``: what Δ and G mean per metric, T60's denominators included."""
+    qualifications = summary.get("metric_qualifications") or {}
+    if not qualifications:
+        return []
+    rows = []
+    for metric, entry in sorted(qualifications.items()):
+        if isinstance(entry, dict):
+            rows.append("<tr><td>%s</td><td>%s</td><td>%s</td></tr>"
+                        % (esc(metric), esc(entry.get("delta", "–")), esc(entry.get("gap", "–"))))
+        else:
+            rows.append("<tr><td>%s</td><td>%s</td><td>–</td></tr>" % (esc(metric), esc(entry)))
+    return ["<h2>Metric qualifications</h2><p class='meta'>Canonical, from the summariser: "
+            "what a Δ and a G mean for each metric — T60's two denominators included.</p>"
+            "<div class='scroll'><table><thead><tr><th>metric</th>"
+            "<th>Δ (change in the error vs ground truth)</th>"
+            "<th>G (shift from the 0° prediction)</th></tr></thead><tbody>%s</tbody></table></div>"
+            % "".join(rows)]
 
 
 def main():
@@ -176,11 +215,8 @@ def main():
     parts.append("<h1>%s</h1>" % esc(args.title))
     parts.append("<p class='meta'>Descriptive pilot (plan v3.1): per arm and angle, Δ = paired mean change of the error vs ground truth (α minus 0°), G = mean shift of the prediction at α relative to the prediction at 0° (no ground truth), on the shared comparison mask; %d bootstrap replicates, seeds %s, %.0f %% intervals; query-level and room-cluster (17 rooms) intervals shown separately. Generated %s by %s.</p>" % (
         s.get("n_boot", 0), esc(s.get("seeds")), 100 * (1 - s.get("alpha", 0.05)), esc(s.get("generated_at")), esc(s.get("tool"))))
-    for n in s.get("notes", []):
-        parts.append("<div class='note'>%s</div>" % esc(n))
-    mq = s.get("metric_qualifications", {})
-    if mq:
-        parts.append("<ul class='meta'>%s</ul>" % "".join("<li><b>%s</b>: %s</li>" % (esc(k), esc(v)) for k, v in sorted(mq.items())))
+    parts.extend(note_blocks(s))
+    parts.extend(qualification_table(s))
     if "yaw_pilot_gaps_all_arms.png" in copied:
         parts.append("<h2>All arms</h2><img src='%s/yaw_pilot_gaps_all_arms.png' alt='all arms'>" % esc(rel))
     for arm in s["arms"]:

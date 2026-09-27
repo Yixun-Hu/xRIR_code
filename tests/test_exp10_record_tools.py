@@ -632,3 +632,72 @@ def test_html_refuses_a_summary_whose_figures_are_missing(render_case):
     done = render_html(render_case)
     assert done.returncode != 0
     assert "yaw_pilot_gaps_cyl_k8.png" in out(done)
+
+
+# --------------------------------------------------------------------------------------
+# Finding 5 -- the canonical notes and metric qualifications must appear, as values.
+# Finding 6 -- the HTML page must always show query *and* room status.
+# --------------------------------------------------------------------------------------
+
+def rendered(case, name):
+    return open(os.path.join(case["out_dir"], name)).read()
+
+
+def test_md_renders_the_note_values_not_their_keys(render_case):
+    """Finding 5: the renderers iterated the notes dict and printed band / gl_free / pipeline."""
+    assert render_md(render_case).returncode == 0
+    page = rendered(render_case, "page.md")
+    for text in fx.NOTES.values():
+        assert text in page
+    assert "\n> band\n" not in page and "\n> pipeline\n" not in page
+
+
+def test_md_renders_the_metric_qualifications_with_both_t60_denominators(render_case):
+    assert render_md(render_case).returncode == 0
+    page = rendered(render_case, "page.md")
+    assert fx.METRIC_QUALIFICATIONS["T60"]["delta"] in page
+    assert fx.METRIC_QUALIFICATIONS["T60"]["gap"] in page
+    assert fx.METRIC_QUALIFICATIONS["T60_abs"]["gap"] in page
+    assert fx.METRIC_QUALIFICATIONS["EDT"]["delta"] in page
+
+
+def test_html_renders_the_note_values_and_qualifications(render_case):
+    assert render_html(render_case).returncode == 0
+    page = rendered(render_case, "page.html")
+    for text in fx.NOTES.values():
+        assert html_escaped(text) in page
+    assert html_escaped(fx.METRIC_QUALIFICATIONS["T60"]["delta"]) in page
+    assert html_escaped(fx.METRIC_QUALIFICATIONS["T60"]["gap"]) in page
+    assert "{'delta'" not in page and "&#x27;delta&#x27;" not in page
+
+
+def html_escaped(text):
+    import html as _html
+    return _html.escape(text)
+
+
+def test_html_shows_room_status_beside_a_reportable_multiple(render_case):
+    """Finding 6: control EDT at 90° showed 17.8x and dropped the room status entirely."""
+    assert render_html(render_case).returncode == 0
+    page = rendered(render_case, "page.html")
+    assert "status (query)" in page and "status (room)" in page
+    rows = [r for r in page.split("<tr>") if "17.8" in r]
+    assert rows, page[:2000]
+    for row in rows:
+        assert "denominator uncertain" in row, row
+        assert row.count("<td>") >= 11, row
+
+
+def test_html_shows_both_statuses_for_a_non_reportable_cell(render_case):
+    assert render_html(render_case).returncode == 0
+    page = rendered(render_case, "page.html")
+    body = page[page.index("log-spec MAD"):]
+    row = [r for r in body.split("<tr>") if "denominator uncertain" in r][0]
+    assert row.count("denominator uncertain") >= 2      # query status, room status (and reason)
+
+
+def test_md_keeps_both_statuses_in_its_status_column(render_case):
+    assert render_md(render_case).returncode == 0
+    page = rendered(render_case, "page.md")
+    assert "status query / room" in page
+    assert "defined / denominator uncertain" in page

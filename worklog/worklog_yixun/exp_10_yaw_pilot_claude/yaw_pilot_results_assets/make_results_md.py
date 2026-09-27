@@ -51,6 +51,37 @@ def multiple(cell):
     return h.get("reason") or cell["query"].get("ratio", {}).get("reason") or "–"
 
 
+def note_lines(summary):
+    """The canonical qualifications, rendered as their *values* (finding 5).
+
+    ``notes`` is a dict (``band`` / ``broader_population`` / ``gl_free`` / ``pipeline``): the
+    keys are labels, the values are the sentences the report has to carry.  The
+    ``metric_qualifications`` block says what a Δ and a G mean per metric -- including T60's
+    two different denominators -- and belongs in the Markdown as much as in the page.
+    """
+    lines = []
+    notes = summary.get("notes") or {}
+    items = (sorted(notes.items()) if isinstance(notes, dict)
+             else [(None, text) for text in notes])
+    for key, text in items:
+        lines.append("> **%s:** %s" % (key, text) if key else "> %s" % text)
+    lines.append("")
+    qualifications = summary.get("metric_qualifications") or {}
+    if qualifications:
+        lines += ["**Metric qualifications** (canonical, from the summariser): what a Δ and a "
+                  "G mean for each metric, including T60's two denominators.", "",
+                  "| metric | Δ (change in the error vs ground truth) | G (shift from the 0° prediction) |",
+                  "|---|---|---|"]
+        for metric, entry in sorted(qualifications.items()):
+            if isinstance(entry, dict):
+                lines.append("| %s | %s | %s |" % (metric, entry.get("delta", "–"),
+                                                   entry.get("gap", "–")))
+            else:
+                lines.append("| %s | %s | – |" % (metric, entry))
+        lines.append("")
+    return lines
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--summary", required=True)
@@ -75,9 +106,7 @@ def main():
     L = ["# Results — exp_10 yaw_pilot", "",
          "Descriptive pilot (plan v3.1). Per arm and angle: Δ = paired mean change of the error vs ground truth (α − 0°); G = mean shift of the prediction at α relative to the prediction at 0° (no ground truth); both on the shared comparison mask, %d bootstrap replicates (seeds %s), %.0f %% percentile intervals; query-level CI first, room-cluster CI (17 rooms) second. A multiple G/Δ is printed only where the headline is reportable (Δ interval excludes 0, convergence passed, seed statuses agree); otherwise the cell shows its status. Canonical JSON: `%s` (sha256 `%s`)." % (
              s.get("n_boot", 0), s.get("seeds"), 100 * (1 - s.get("alpha", 0.05)), a.summary, sha(a.summary)), ""]
-    for n in s.get("notes", []):
-        L.append("> " + n)
-    L.append("")
+    L += note_lines(s)
     for arm in s["arms"]:
         m = arm["meta"]
         L += ["## %s" % arm["arm"], "",
