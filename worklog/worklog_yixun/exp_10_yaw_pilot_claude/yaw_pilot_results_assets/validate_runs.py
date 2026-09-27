@@ -398,11 +398,17 @@ def parse_pairs(items, flag):
 
 
 def summary_run_dir(summary, arm):
-    """The run directory a summary names for ``arm`` (its arm entry, else its ``inputs``)."""
-    for entry in summary.get("arms") or []:
+    """The run directory a summary names for ``arm``.
+
+    The ``inputs`` binding is preferred because the summariser records it as an absolute
+    path, while an ``arms[]`` entry's ``run_dir`` is whatever was passed on the command line
+    (exp_10's probe summaries carry ``ckpt/exp10/<arm>_probe``, relative to the repository
+    root); the arm entry is the fallback when there is no inputs binding.
+    """
+    for entry in summary.get("inputs") or []:
         if entry.get("arm") == arm and entry.get("run_dir"):
             return entry["run_dir"]
-    for entry in summary.get("inputs") or []:
+    for entry in summary.get("arms") or []:
         if entry.get("arm") == arm and entry.get("run_dir"):
             return entry["run_dir"]
     return None
@@ -532,10 +538,12 @@ def check_supplements(summary, parity=(), online=(), probes=(), stage="_all"):
 
 
 def figure_names(summary):
-    """The figure basenames a summariser output directory may contribute to the page.
+    """The figure basenames this summary's own figures have.
 
-    Only the combined figure and one per arm *in this summary*: a figure named for another
-    arm in the same directory belongs to another run and is not copied (finding 4).
+    The combined figure and one per arm *in this summary*.  ``make_results_html.py``
+    regenerates exactly this set from the summary and refuses to publish any other
+    (round-4 review, finding 3); a file of another arm's name, wherever it sits, is not one
+    of them.
     """
     names = ["yaw_pilot_gaps_all_arms.png", "yaw_pilot_gaps_all_arms.pdf"]
     for arm in summary.get("arms") or []:
