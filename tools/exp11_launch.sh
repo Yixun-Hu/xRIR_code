@@ -21,6 +21,12 @@
 # and no stale-lock concept -- nothing to clear by hand and nothing to get wrong (plan
 # section 11 amendment A1, close review 6).
 #
+# Whether anything of an arm is RUNNING is decided from its pid files, and one module
+# reads those: tools/exp11_pidrecord.py, which answers `record <pid>` or `norecord` and
+# is checked against two known files before every scan and every resolution. Anything
+# else it says or does is "unknown", and unknown is not an answer: **a broken reader
+# closes the arm to every automated decision; it never opens it** (close review 11).
+#
 # EXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh defines the functions and returns, so
 # the pipeline can reuse them without a mode.
 set -euo pipefail
