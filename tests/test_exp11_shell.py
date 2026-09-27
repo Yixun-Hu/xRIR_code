@@ -1402,6 +1402,9 @@ READERS = {
     'cannot run': 'exit 1',
     # It answers, but the same way whatever it is asked: only the probes catch these.
     'always record': 'echo "record 1"; exit 0',
+    # A verdict line whose pid is not a pid: the shell must not hand `kill -0` a word
+    # and read the failure as "not alive".
+    'nonsense pid': 'echo "record not-a-pid"; exit 0',
     'always norecord': 'echo norecord; exit 0',
 }
 
@@ -1423,6 +1426,9 @@ def reader(tmp_path, kind, name='python_wrapper.sh'):
         body = 'cd "{}" && exec "{}" "$@"'.format(fake, PYTHON)
     elif kind == 'fails on the trainer':       # healthy on the probes, blind to train.pid
         body = 'case "$*" in *train.pid*) exit 1 ;; esac\n    exec "{}" "$@"'.format(PYTHON)
+    elif kind == 'nonsense on the trainer':    # healthy on the probes, a verdict of gibberish
+        body = ('case "$*" in *train.pid*) echo "record not-a-pid"; exit 0 ;; esac\n'
+                '    exec "{}" "$@"').format(PYTHON)
     else:
         body = READERS[kind]
     path.write_text('#!/bin/sh\ncase " $* " in\n  *" tools.exp11_pidrecord "*)\n'
@@ -1463,7 +1469,8 @@ def scan_with_reader(root, broken, mode='full'):
                {'EXP11_TEST_ROOTS': '1'})
 
 
-@pytest.mark.parametrize('kind', ['cannot run', 'import error', 'fails on the trainer'])
+@pytest.mark.parametrize('kind', ['cannot run', 'import error', 'fails on the trainer',
+                                  'nonsense pid', 'nonsense on the trainer'])
 def test_a_broken_reader_never_retires_a_live_trainers_attempt(tmp_path, kind):
     """The reviewer's schedule: registered, running, and the reader breaks under the lock.
 
