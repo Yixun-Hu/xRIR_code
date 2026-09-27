@@ -904,3 +904,169 @@ def diagnostic_evidence(run_dir, receipt, child_exit, repo, window):
                          'peak_bytes': fields['peak_bytes'],
                          'alarm_seconds': fields['alarm_seconds'],
                          'max_gb': fields['max_gb']})
+
+
+def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None, children=(),
+             expect=None, owner_pid=None, job_spec=None):
+    """Verify one child's evidence for its exp_11 run type and write completion.json."""
+    run_dir = Path(run_dir)
+    _require(run_type in RUN_TYPES, 'unknown run type: {!r}'.format(run_type))
+    _require(run_dir.is_dir(), 'run directory does not exist: {}'.format(run_dir))
+    _require(type(child_exit) is int, 'child status must be an integer')
+    if run_type == 'exp11_haa_job':   # A3: a job orchestrates children and is none itself
+        return haa_job_completion(run_dir, children, expect, repo, job_spec, log, child_exit,
+                                  owner_pid)
+    base.refuse_live_launch(run_dir, owner_pid)
+    log_record, child_exit_time, log_digest = base.closed_log(log, child_exit)
+    receipt_record = base.child_exit_receipt(run_dir, child_exit, log_digest, child_exit_time)
+    diagnostic = run_type in DIAGNOSTIC
+    if not diagnostic:
+        _require(child_exit == 0, 'child exited with status {}'.format(child_exit))
+    fields = dict(schema_version=1, run_type=run_type, run_dir=str(run_dir.resolve()),
+                  repo=str(Path(repo).resolve()), child_exit=child_exit,
+                  child_exit_time=child_exit_time, log=log_record,
+                  child_exit_receipt=receipt_record,
+                  diagnostic=diagnostic, admissible_arm=not diagnostic)
+    fields.update(diagnostic_evidence(run_dir, receipt, child_exit, repo, receipt_record)
+                  if diagnostic
+                  else full_evidence(run_dir, repo) if run_type == 'exp11_train'
+                  else haa_train_evidence(run_dir, repo) if run_type == 'exp11_haa_finetune'
+                  else haa_eval_evidence(run_dir, repo))
+    _require(provenance.sha256_file(log) == log_digest,
+             'stale log: {} changed while its completion was being validated'.format(log))
+    return base.write_completion(run_dir / 'completion.json', fields)
+
+
+def approval_gate(mode, reviewed_commit, approved, exploratory, repo):
+    """No confirmatory launch on code exp_11's approvals do not pin."""
+    _require(not (exploratory and mode == 'full'),
+             'an exploratory launch is a diagnostic; mode full must match the approvals')
+    bind = not (exploratory and mode in ('smoke', 'probe'))
+    path = _resolve(exp11_profiles.APPROVED_RELATIVE if approved is None else approved, repo)
+    _require(path.is_file(), 'missing approvals file: {}'.format(path))
+    value, identity = exp11_profiles.load_approved_digests(
+        path, repo=repo if bind else None, commit=reviewed_commit if bind else None)
+    deviations = exp11_profiles.require(value, exp11_profiles.TRAINING_KEYS, repo=repo,
+                                        commit=reviewed_commit, exploratory=exploratory)
+    return {'approved': identity, 'approval_deviations': deviations,
+            'exploratory': bool(exploratory)}
+
+
+def preflight(mode, gpu, reviewed_commit, attempt_root=None, repo=REPO, approved=None,
+              exploratory=False, min_free_gb=None):
+    """Gate a launch: reviewed commit, clean tree, no live launch, approvals, a free card."""
+    _require(mode in LAUNCH_MODES, 'unknown launch mode: {!r}'.format(mode))
+    state = provenance.checked_git_state(repo, confirmatory=True)
+    _require(state['HEAD'] == reviewed_commit,
+             'HEAD {} is not the reviewed commit {!r} (full 40-hex sha required)'.format(
+                 state['HEAD'], reviewed_commit))
+    running = base.live_launches(attempt_root)
+    _require(not running, 'another exp_11 launch is alive: {}'.format(running))
+    admission = approval_gate(mode, reviewed_commit, approved, exploratory, repo)
+    apps = base.gpu_compute_apps(gpu) if mode in EXCLUSIVE_GPU_MODES else None
+    _require(not apps, 'GPU {} is busy with compute apps {}'.format(gpu, apps))
+    free = None if min_free_gb is None else base.gpu_free_gib(gpu)
+    _require(free is None or free >= min_free_gb,
+             'GPU {} has {:.2f} GiB free, below the {} GiB this launch may allocate'.format(
+                 gpu, free or 0.0, min_free_gb))
+    return dict(mode=mode, gpu=gpu, reviewed_commit=reviewed_commit, git_state=state,
+                attempt_root=[str(root) for root in base.launch_roots(attempt_root)],
+                gpu_compute_apps=apps, live_launches=running, min_free_gb=min_free_gb,
+                gpu_free_gib=free, **admission)
+
+
+def preflight_main(argv):
+    """Exit 0 with the record on stdout, 2 with the named cause on stderr."""
+    parser = argparse.ArgumentParser(description='Gate one exp_11 launch.')
+    parser.add_argument('--mode', choices=LAUNCH_MODES, required=True)
+    parser.add_argument('--gpu', type=int, required=True)
+    parser.add_argument('--reviewed-commit', required=True)
+    parser.add_argument('--attempt-root', action='append', default=[])
+    parser.add_argument('--repo', default=str(REPO))
+    parser.add_argument('--approved', default=None)
+    parser.add_argument('--exploratory', action='store_true')
+    parser.add_argument('--min-free-gb', type=float, default=None)
+    args = parser.parse_args(argv)
+    try:
+        record = preflight(args.mode, args.gpu, args.reviewed_commit, args.attempt_root,
+                           args.repo, approved=args.approved, exploratory=args.exploratory,
+                           min_free_gb=args.min_free_gb)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print('EXP11_PREFLIGHT_REFUSED ' + str(error), file=sys.stderr, flush=True)
+        return 2
+    print('EXP11_PREFLIGHT_OK ' + json.dumps(record, sort_keys=True), flush=True)
+    return 0
+
+
+def passed_main(argv):
+    """Exit 0 only where a diagnostic's own completion certifies that it passed."""
+    parser = argparse.ArgumentParser(description='Gate the next rung on a diagnostic.')
+    parser.add_argument('--run-dir', required=True)
+    parser.add_argument('--run-type', choices=RUN_TYPES, required=True)
+    args = parser.parse_args(argv)
+    try:
+        fields = _read_json(Path(args.run_dir) / 'completion.json', 'completion.json')
+        _require(fields.get('run_type') == args.run_type,
+                 'completion.json records run_type {!r}, not {}'.format(
+                     fields.get('run_type'), args.run_type))
+        _require(fields.get('passed') is True,
+                 '{} did not pass: its completion records passed {!r}'.format(
+                     args.run_dir, fields.get('passed')))
+    except (OSError, ValueError) as error:
+        print('EXP11_PASSED_REFUSED ' + str(error), file=sys.stderr, flush=True)
+        return 2
+    print('EXP11_PASSED_OK ' + str(args.run_dir), flush=True)
+    return 0
+
+
+def build_parser():
+    """One finalization of one child or job; the launcher supplies the child's status."""
+    parser = argparse.ArgumentParser(description='Write exp_11 completion evidence.')
+    parser.add_argument('--run-dir', required=True)
+    parser.add_argument('--run-type', choices=RUN_TYPES, required=True)
+    parser.add_argument('--log', required=True)
+    parser.add_argument('--child-exit', type=int, required=True)
+    parser.add_argument('--repo', default=str(REPO))
+    parser.add_argument('--receipt', help='diagnostic receipt to bind')
+    parser.add_argument('--children', nargs='+', default=(),
+                        help='exp11_haa_job: the child directories')
+    parser.add_argument('--expect', choices=EXPECTATIONS,
+                        help='exp11_haa_job: which child set is required')
+    parser.add_argument('--job-spec', help='exp11_haa_job: the spec this seed was run from')
+    parser.add_argument('--owner-pid', type=int,
+                        help='the live launcher that owns this run dir (its launch.pid)')
+    return parser
+
+
+def main(argv=None):
+    """Exit 0 after writing completion.json, 2 on any refusal (nothing written).
+
+    ``child-exit`` is delegated to the pinned closer: the end marker and the receipt
+    contract are shared evidence, not an exp_11 decision, and re-implementing them would
+    fork the very bytes ``closed_log`` re-validates.
+    """
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ['preflight']:
+        return preflight_main(argv[1:])
+    if argv[:1] == ['child-exit']:
+        return base.child_exit_main(argv[1:])
+    if argv[:1] == ['passed']:
+        return passed_main(argv[1:])
+    if argv[:1] == ['finalize']:
+        argv = argv[1:]
+    args = build_parser().parse_args(argv)
+    try:
+        fields = finalize(args.run_dir, args.run_type, args.log, args.child_exit,
+                          repo=args.repo, receipt=args.receipt, children=args.children,
+                          expect=args.expect, owner_pid=args.owner_pid,
+                          job_spec=args.job_spec)
+    except (OSError, ValueError) as error:
+        print('EXP11_FINALIZE_REFUSED ' + str(error), file=sys.stderr, flush=True)
+        return 2
+    print('EXP11_FINALIZE_OK ' + json.dumps({key: fields[key] for key in
+        ('run_type', 'run_dir', 'child_exit', 'admissible_arm')}, sort_keys=True), flush=True)
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
