@@ -1,0 +1,7 @@
+[20:21:22] HEAD ee31cbc37f1ca0719f822123775c1a41816e919c arm=released_k8 backbone=simple ckpt=checkpoints/xRIR_unseen.pth manifest=ckpt/yaw_rotation/reference_manifest.json K=8 device=cpu gpu=1 exp03=ckpt/yaw_rotation/sweep_released/per_sample_yaw.json
+[20:21:22] stage probe → ckpt/exp10/released_k8_probe
+arm released_k8  backbone simple  device cpu  queries 272  batches 17  angles [0, 64, 128, 256, 384]
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)

@@ -61,3 +61,4 @@
 
 ## 2026-09-26T20:21:19-04:00 — first chain launch died silently (infrastructure) → script fixed, relaunched
 - **Result** — the chain exited before its first log line: `set -u` + `export PYTHONPATH=$PYTHONPATH:…` with PYTHONPATH unset in the detached shell (interactive shells had it set). No run artefact was created (`ckpt/exp10/` absent). **Infrastructure, not a bug in the tools.** Fix: `${PYTHONPATH:-}` in `exp10_arm_chain.sh` (v1.1); the command in `yaw_pilot_command.md` is unchanged.
+- **Validation on main after the merge** — `tests/test_exp10_*.py`: 162 passed (208 s, niced, alongside the probe). Probe running since 20:21 (`ckpt/exp10/released_k8_probe`, PID logged in the chain log).
