@@ -2,7 +2,7 @@
 
 | Item | Value |
 |---|---|
-| Tool | `tools/exp10_yaw_pilot.py` (new; reviewed commit filled at launch), comparator `tools/exp10_compare.py`, summariser `tools/exp10_summarize.py` |
+| Tool | `tools/exp10_yaw_pilot.py` (new; reviewed branch tip `1ebb87d`, merged as `2408fb9`), comparator `tools/exp10_compare.py`, summariser `tools/exp10_summarize.py` |
 | Split / references | AcousticRooms unseen test split, 6 337 queries / 17 rooms, canonical manifest order; K = 8 manifest `ckpt/yaw_rotation/reference_manifest.json` (sha256 `47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d`, seed 0); K = 1 manifest `ckpt/yaw_rotation/reference_manifest_k1.json` (`f6d71f86…`, seed 0) |
 | Arms | `released_k8` (`checkpoints/xRIR_unseen.pth`, simple, K = 8) → `released_k1` (same, K = 1, "trained K = 8, evaluated K = 1") → `control_k8` (`ckpt/xRIR_simple_8_shot/epoch_12.pth`) → `cyl_k8` (`ckpt/xRIR_cyl_8_shot/epoch_12.pth`, cylindrical) |
 | Angles | k ∈ {0, 64, 128, 256, 384} columns of W = 512 (0°, 45°, 90°, 180°, 270°), condition P (alignment pinned at k = 0) |

@@ -52,3 +52,9 @@
 ## 2026-09-26T20:11:56-04:00 — Coder round 3 delivered → Codex close review launched
 - **Result** — 3 commits `128f0d8, c2b6817, 1ebb87d` (figure code + tests only): measured footer band (drawn-canvas extents test over four per-arm figures + combined), error bars only with both bounds (lo/hi/both parametrised), generic band legend + per-row model band label; 162 exp_10 tests; CSV/Markdown byte-identical before/after. Planner inspected the four-arm combined PNG: legend, status footnote and qualification caption are separate legible blocks.
 - **Command / Validation** — Codex close review at ultra: log `yaw_pilot_2026-09-26_20:11:54_codex_code_round3_close.log`.
+
+## 2026-09-26T20:18:06-04:00 — round 3 APPROVED → merged `2408fb9` → released_k8 chain launched on CPU
+- **Goal** — probe + gate on the primary arm, then its full run, on CPU (GPU 1 not available before the ≈ 22:30 ping; plan §3 allows CPU when the §7 gate passes on it).
+- **Version Control** — merge `2408fb9` (seven exp_10 files, 5 794 lines; Codex round-3 close: approved, blocking list empty); main `fc644f5` clean outside worklog/; `verify-pins`: 12 files at `62c9107b…`.
+- **Acceptance criteria (probe)** — 272 queries (17 batches) in canonical order; controls table ok (three controls ≤ 1e-6 / 1e-9); `check_online` ok; `parity_exp03` ok = criteria (a) logspec ≤ 1e-5 every query, (b) ≥ 99.5 % within 1e-4 s / 1e-3 dB / 0.01 %, (c) paired Δ within max(5 %, floors) with the same sign at every angle × metric, A1 identical masks, no missing required cell. The chain launches the full run only if controls ok AND parity ok. **Acceptance (full)** — 6 337 queries, every angle, `meta.complete`, `check_online` ok, parity on the full results ok.
+- **Command / Validation** — see `yaw_pilot_command.md` (same timestamp); expected ≈ 18 min probe, ≈ 3.8 h full.
