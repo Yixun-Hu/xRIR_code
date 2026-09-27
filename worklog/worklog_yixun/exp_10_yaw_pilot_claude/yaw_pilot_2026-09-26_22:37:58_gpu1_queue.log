@@ -11,3 +11,8 @@ parity_exp03: 6337 rows, every compared cell replicates: True
 [01:04:34] ARM DONE
 [01:04:34] === arm control_k8 exit 0
 [01:04:34] === arm cyl_k8
+wrote ckpt/exp10/cyl_k8_all/parity_exp03.json
+parity_exp03: 6337 rows, every compared cell replicates: True
+[02:24:43] ARM DONE
+[02:24:43] === arm cyl_k8 exit 0
+[02:24:43] QUEUE DONE
