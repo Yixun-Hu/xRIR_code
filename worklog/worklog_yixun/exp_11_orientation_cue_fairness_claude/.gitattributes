@@ -1,0 +1,5 @@
+# The Codex reviews are copied into this record verbatim: their two-space line breaks are
+# meaningful Markdown, and a review is never edited after it is written. Exempting them
+# from the whitespace check keeps `git diff --check` meaningful for the code this record
+# accompanies, without touching a reviewer's bytes.
+*codex*review*.md -whitespace
