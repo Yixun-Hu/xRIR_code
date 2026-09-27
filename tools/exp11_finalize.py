@@ -258,3 +258,89 @@ def haa_approvals(closure, run_type, commit, repo, path=None):
     return {'approvals': {'path': str(path), 'sha256': identity['sha256'],
                           'committed_at': identity.get('committed_at')},
             'code_digests': {key: pinned}}
+
+
+def check_argument_sources(record, args, last, rows, meta, profile):
+    """The startup, retained and checkpoint arguments must all agree, type-strictly.
+
+    Each copy is validated on its own against exp_11's schema under the profile the
+    run's own arguments select, then compared field by field with
+    ``exp06_recipe.compare_sources``, which never conflates ``True`` with ``1``.
+    """
+    effective = record.get('effective_args')
+    _require(isinstance(effective, dict),
+             'provenance.json records no effective_args mapping (startup arguments)')
+    checkpoint = last.get('args')
+    _require(isinstance(checkpoint, dict), 'last.pth records no args mapping')
+    sources = {'args.json': args, 'last.pth[args]': checkpoint,
+               'provenance.effective_args': effective}
+    for name in sorted(sources):
+        deviations = exp11_recipe.check_all(sources[name], profile)
+        _require(not deviations, '{} schema deviations: {}'.format(name, '; '.join(deviations)))
+    budget = exp11_recipe.check_budget(rows, meta, epochs=exp11_recipe.NUMERICAL['epochs'])
+    _require(not budget, 'budget deviations: ' + '; '.join(budget))
+    disagreements = exp11_recipe.compare_sources(sources)
+    _require(not disagreements, 'recorded arguments disagree: ' + '; '.join(disagreements))
+    return sources
+
+
+def check_exp11_bindings(record, args, closure, run_dir, run_type, repo, profile):
+    """Every ``exp11_*`` field must equal the execution record it claims to bind."""
+    registry = registry_sha256()
+    _require(record.get('registry_sha256') == registry,
+             'provenance registry_sha256 {!r} is not the {} of BACKBONES_EXP11 at '
+             'finalisation'.format(record.get('registry_sha256'), registry))
+    expected = {'exp11_run_type': PROVENANCE_RUN_TYPE[run_type], 'exp11_profile': profile,
+                'exp11_git_head': record['git_state'].get('HEAD'),
+                'exp11_registry_sha256': registry,
+                'exp11_source_closure_sha256': closure['sha256']}
+    for field in sorted(expected):
+        _require(args.get(field) == expected[field], 'args {} is {!r}, not the {!r} of the '
+                 'execution record'.format(field, args.get(field), expected[field]))
+    path = args.get('exp11_provenance_path')
+    _require(isinstance(path, str) and path, 'args exp11_provenance_path is {!r}'.format(path))
+    _require(_resolve(path, repo).resolve() == (Path(run_dir) / 'provenance.json').resolve(),
+             'args exp11_provenance_path {} is not the validated {}'.format(
+                 path, Path(run_dir) / 'provenance.json'))
+
+
+def full_evidence(run_dir, repo):
+    """exp_11's twelve-epoch pretraining contract, under the profile the run selects."""
+    run_dir = Path(run_dir)
+    hashes = artifacts(run_dir, FULL_ARTIFACTS)   # every file exists before it is parsed
+    record = load_provenance(run_dir, 'exp11_train')
+    _, closure = verify_source_closure(record, 'exp11_train', repo)
+    admission = verify_approvals(record, repo, 'exp11_train')
+    base.verify_train_identity(record)
+    admission.update(base.verify_geometry_identity(record))
+    admission.update(base.verify_heldout_identity(record))
+    base.revalidate_inputs(record, repo)
+    args = _read_json(run_dir / 'args.json', 'args.json')
+    profile = exp11_recipe.select_profile(args)
+    rows = base._history_rows(run_dir / 'history.jsonl', 'history.jsonl')
+    last = _load_torch(run_dir / 'last.pth', 'last.pth')
+    meta = {key: last[key] for key in ('epoch', 'batch_idx') if key in last}
+    check_argument_sources(record, args, last, rows, meta, profile)
+    check_exp11_bindings(record, args, closure, run_dir, 'exp11_train', repo, profile)
+    _require('model' in last, 'last.pth records no "model" state dict')
+    state = _state_dict(_load_torch(run_dir / EPOCH_CHECKPOINT, EPOCH_CHECKPOINT),
+                        EPOCH_CHECKPOINT)
+    model = _state_dict(last['model'], 'last.pth["model"]')
+    _require(set(state) == set(model),
+             EPOCH_CHECKPOINT + ' has a different parameter set than last.pth')
+    for key in sorted(state):
+        _require(state[key].dtype == model[key].dtype and
+                 tuple(state[key].shape) == tuple(model[key].shape),
+                 '{} has {}{} at {}, not the {}{} of last.pth["model"]'.format(
+                     EPOCH_CHECKPOINT, state[key].dtype, tuple(state[key].shape), key,
+                     model[key].dtype, tuple(model[key].shape)))
+    _require(all(torch.equal(state[key], model[key]) for key in state),
+             EPOCH_CHECKPOINT + ' differs tensor-wise from last.pth["model"]')
+    _checkpoint_keys(run_dir / EPOCH_CHECKPOINT, EPOCH_CHECKPOINT, args['backbone'],
+                     args['num_shot'])
+    return dict(artifacts=hashes, epochs=len(rows), profile=profile, **admission,
+                backbone=args['backbone'], source_closure_sha256=closure['sha256'],
+                registry_sha256=record.get('registry_sha256'),
+                git_head=record.get('git_state', {}).get('HEAD'),
+                checkpoint={'path': EPOCH_CHECKPOINT, 'sha256': hashes[EPOCH_CHECKPOINT],
+                            'epoch': exp11_recipe.NUMERICAL['epochs']})
