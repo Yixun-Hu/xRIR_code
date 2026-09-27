@@ -158,3 +158,26 @@ Three keys moved against `2c64a2a`: `launch_sh` (blockers 2 and 3), `summarize_h
 `haa_pipeline_sh` and `smoke` are byte-for-byte what the close review recomputed. These
 are values for the **eventual reviewed merge**, not an authorisation to fill the approvals
 now: exp_11's record stays all-null and every exp_11 producer refuses today.
+
+## Full CPU suite
+
+`CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 python -m pytest tests -q -rf` on the frozen
+tree (clean outside `worklog/`):
+
+```
+1 failed, 3669 passed, 55 skipped, 307 warnings in 3415.61s (0:56:55)
+FAILED tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes
+```
+
+The single failure is the **expected exp_06 approvals re-fill**: `code.summarize_haa` has
+moved and the record is stale until a reviewer re-fills it at the reviewed merge, exactly
+as round 1 did with `9f98bbb`. It is the mechanism that detects the one key this round is
+allowed to move, not a regression.
+
+Progression across the three runs of this round: 3 614 → 3 651 → **3 669** passing, with
+2 → 1 → 1 failures (the round-2 SIGTERM load flake has not recurred in either fix cycle).
+
+## Status
+
+All three residual blockers and the process-record corrections are addressed. Ready for
+re-review at this tip.
