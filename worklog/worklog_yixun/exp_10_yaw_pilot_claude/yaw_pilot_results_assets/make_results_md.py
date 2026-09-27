@@ -5,11 +5,19 @@ usage: make_results_md.py --summary <yaw_pilot_summary.json> --out <yaw_pilot_re
        [--parity <arm>=<parity_exp03.json> ...] [--check-online <arm>=<check_online.json> ...]
 Only the headline metrics (EDT, C50, T60, T60_abs, logspec_mad) go into the compact tables; the
 summariser's own `yaw_pilot_tables.md` (copied into the assets) carries everything else.
+
+As in the HTML page, nothing is written unbound (Codex tooling review, finding 4): the
+summary's `inputs` hashes are re-verified against the live runs and every supplemental report
+has to belong to the arm it is attached to.
 """
 import argparse
 import hashlib
 import json
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import validate_runs as vr                                          # noqa: E402
 
 HEAD = [("EDT", "EDT", 1000.0, "ms"), ("C50", "C50", 1.0, "dB"), ("T60", "T60", 1.0, "pp (Δ) / % (G)"),
         ("T60_abs", "T60 absolute", 1000.0, "ms"), ("logspec_mad", "log-spec MAD (GL-free)", 1.0, "")]
@@ -52,9 +60,18 @@ def main():
     ap.add_argument("--probe", nargs="*", default=[], help="<arm>=<probe summary JSON>: controls are rendered from the probe run")
     a = ap.parse_args()
     s = json.load(open(a.summary))
-    parity = {kv.split("=", 1)[0]: (kv.split("=", 1)[1], json.load(open(kv.split("=", 1)[1]))) for kv in a.parity}
-    online = {kv.split("=", 1)[0]: (kv.split("=", 1)[1], json.load(open(kv.split("=", 1)[1]))) for kv in a.check_online}
-    probes = {kv.split("=", 1)[0]: (kv.split("=", 1)[1], json.load(open(kv.split("=", 1)[1]))) for kv in a.probe}
+    vr.assert_ok(vr.verify_summary_inputs(s, label="the canonical summary (%s)" % a.summary),
+                 "refusing to write a results page from a summary that is not bound to the "
+                 "runs it came from")
+    parity_pairs = vr.parse_pairs(a.parity, "--parity")
+    online_pairs = vr.parse_pairs(a.check_online, "--check-online")
+    probe_pairs = vr.parse_pairs(a.probe, "--probe")
+    vr.assert_ok(vr.check_supplements(s, parity=parity_pairs, online=online_pairs,
+                                      probes=probe_pairs),
+                 "refusing to render supplemental reports that are not this arm's")
+    parity = {arm: (path, json.load(open(path))) for arm, path in parity_pairs}
+    online = {arm: (path, json.load(open(path))) for arm, path in online_pairs}
+    probes = {arm: (path, json.load(open(path))) for arm, path in probe_pairs}
     L = ["# Results — exp_10 yaw_pilot", "",
          "Descriptive pilot (plan v3.1). Per arm and angle: Δ = paired mean change of the error vs ground truth (α − 0°); G = mean shift of the prediction at α relative to the prediction at 0° (no ground truth); both on the shared comparison mask, %d bootstrap replicates (seeds %s), %.0f %% percentile intervals; query-level CI first, room-cluster CI (17 rooms) second. A multiple G/Δ is printed only where the headline is reportable (Δ interval excludes 0, convergence passed, seed statuses agree); otherwise the cell shows its status. Canonical JSON: `%s` (sha256 `%s`)." % (
              s.get("n_boot", 0), s.get("seeds"), 100 * (1 - s.get("alpha", 0.05)), a.summary, sha(a.summary)), ""]
@@ -110,4 +127,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (ValueError, vr.ValidationError) as exc:      # a refusal, not a crash
+        sys.stderr.write("REFUSED: %s\n" % exc)
+        sys.exit(2)

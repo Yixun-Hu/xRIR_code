@@ -367,6 +367,74 @@ def check_probe_summary(path, arm, probe_meta, probe_dir=None, require_controls_
     return summary, problems, binding
 
 
+def parse_pairs(items, flag):
+    """``["<arm>=<path>", ...]`` → ``[(arm, path), ...]``, refusing a malformed entry."""
+    pairs, problems = [], []
+    for item in items or []:
+        if "=" not in item:
+            problems.append("%s %r is not <arm>=<path>" % (flag, item))
+            continue
+        arm, path = item.split("=", 1)
+        if not arm or not path:
+            problems.append("%s %r is not <arm>=<path>" % (flag, item))
+            continue
+        pairs.append((arm, path))
+    assert_ok(problems, "bad %s argument" % flag)
+    return pairs
+
+
+def check_supplements(summary, parity=(), online=(), probes=(), stage="_all"):
+    """Check that every supplemental report belongs to the arm it is attached to.
+
+    A report is accepted for ``arm`` only when the arm is in this summary, the report's
+    ``run_dir`` resolves to the very run directory the summary was built from for that arm,
+    and its last path component is that arm's stage directory.  A probe summary must cover
+    exactly that arm, have ``batches_arg == "probe"`` and bind its own inputs.  (Codex's
+    review attached the cylindrical parity report to the control arm and it was rendered.)
+    """
+    problems = []
+    arms = [a.get("arm") for a in summary.get("arms") or []]
+    run_dirs = {i.get("arm"): i.get("run_dir") for i in summary.get("inputs") or []}
+    for kind, items in (("parity_exp03", parity), ("check_online", online)):
+        for arm, path in items or []:
+            label = "%s %s (%s)" % (arm, kind, path)
+            if arm not in arms:
+                problems.append("%s: %r is not an arm of this summary (%s)"
+                                % (label, arm, ", ".join(str(a) for a in arms)))
+                continue
+            if not os.path.isfile(path):
+                problems.append("%s: the report is missing" % label)
+                continue
+            try:
+                report = read_json(path)
+            except ValueError as exc:
+                problems.append("%s: not readable JSON (%s)" % (label, exc))
+                continue
+            recorded = report.get("run_dir")
+            if recorded is None:
+                problems.append("%s: the report has no run_dir; it cannot be bound to an arm"
+                                % label)
+                continue
+            expected_name = "%s%s" % (arm, stage)
+            if os.path.basename(str(recorded).rstrip("/")) != expected_name:
+                problems.append("%s: the report was written for %r, not this arm's %s"
+                                % (label, recorded, expected_name))
+            if arm in run_dirs and not same_path(recorded, run_dirs[arm]):
+                problems.append("%s: the report's run %r is not the run this summary "
+                                "summarised for %s (%s)"
+                                % (label, recorded, arm, run_dirs[arm]))
+    for arm, path in probes or []:
+        label = "%s probe summary (%s)" % (arm, path)
+        if arm not in arms:
+            problems.append("%s: %r is not an arm of this summary (%s)"
+                            % (label, arm, ", ".join(str(a) for a in arms)))
+            continue
+        _summary, probs, _binding = check_probe_summary(path, arm, None,
+                                                       require_controls_ok=False)
+        problems.extend(probs)
+    return problems
+
+
 def figure_names(summary):
     """The figure basenames a summariser output directory may contribute to the page.
 

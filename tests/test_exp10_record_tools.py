@@ -490,3 +490,145 @@ def test_backend_table_refuses_an_embedded_meta_that_is_not_the_runs(backend_pai
     done = backend_table(backend_pair, tmp_path)
     assert done.returncode != 0
     assert "gl_seed" in out(done)
+
+
+# --------------------------------------------------------------------------------------
+# Finding 4 -- the renderers must bind their summary, supplements and figures.
+# --------------------------------------------------------------------------------------
+
+RENDER_ARMS = ("control_k8", "cyl_k8")
+
+
+@pytest.fixture
+def render_case(tmp_path):
+    """A two-arm canonical summary with each arm's probe summary, parity and online report."""
+    root = str(tmp_path / "exp10")
+    tree = fx.write_record_tree(root, arms=RENDER_ARMS, n_queries=32, cpu=False)
+    runs = [tree[arm]["all"] for arm in RENDER_ARMS]
+    summary_dir = os.path.join(root, "summary")
+    summary_path, summary = fx.write_summary_dir(summary_dir, runs)
+    case = {"root": root, "tree": tree, "summary": summary_path, "summary_dir": summary_dir,
+            "out_dir": str(tmp_path / "page"), "assets": str(tmp_path / "page" / "generated")}
+    os.makedirs(case["out_dir"])
+    case["parity"] = ["%s=%s" % (arm, os.path.join(tree[arm]["all"][0], "parity_exp03.json"))
+                      for arm in RENDER_ARMS]
+    case["online"] = ["%s=%s" % (arm, os.path.join(tree[arm]["all"][0], "check_online.json"))
+                      for arm in RENDER_ARMS]
+    case["probe"] = ["%s=%s" % (arm, os.path.join(tree[arm]["probe"][0], "summary",
+                                                  "yaw_pilot_summary.json"))
+                     for arm in RENDER_ARMS]
+    return case
+
+
+def render_html(case, parity=None, online=None, probe=None, extra=()):
+    args = ["--summary", case["summary"], "--out", os.path.join(case["out_dir"], "page.html"),
+            "--assets", case["assets"]]
+    for flag, values in (("--parity", parity if parity is not None else case["parity"]),
+                         ("--check-online", online if online is not None else case["online"]),
+                         ("--probe", probe if probe is not None else case["probe"])):
+        if values:
+            args += [flag] + list(values)
+    return run_python(os.path.join(ASSETS, "make_results_html.py"), *(args + list(extra)))
+
+
+def render_md(case, parity=None, online=None, probe=None, extra=()):
+    args = ["--summary", case["summary"], "--out", os.path.join(case["out_dir"], "page.md")]
+    for flag, values in (("--parity", parity if parity is not None else case["parity"]),
+                         ("--check-online", online if online is not None else case["online"]),
+                         ("--probe", probe if probe is not None else case["probe"])):
+        if values:
+            args += [flag] + list(values)
+    return run_python(os.path.join(ASSETS, "make_results_md.py"), *(args + list(extra)))
+
+
+def test_both_renderers_render_the_happy_path(render_case):
+    assert render_html(render_case).returncode == 0
+    assert render_md(render_case).returncode == 0
+    assert os.path.isfile(os.path.join(render_case["out_dir"], "page.html"))
+    assert os.path.isfile(os.path.join(render_case["out_dir"], "page.md"))
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_a_summary_whose_input_hash_fails_is_refused(render_case, renderer):
+    """Finding 4: both renderers accepted a deliberately incorrect summary input hash."""
+    summary = fx.read_json(render_case["summary"])
+    summary["inputs"][0]["per_sample_sha256"] = "0" * 64
+    fx.write_json(render_case["summary"], summary)
+    done = renderer(render_case)
+    assert done.returncode != 0
+    assert "per_sample.json" in out(done)
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_parity_attached_to_the_wrong_arm_is_refused(render_case, renderer):
+    """Finding 4: attaching the cylindrical parity report to the control arm succeeded."""
+    wrong = ["control_k8=%s" % os.path.join(render_case["tree"]["cyl_k8"]["all"][0],
+                                            "parity_exp03.json")]
+    done = renderer(render_case, parity=wrong)
+    assert done.returncode != 0
+    assert "parity" in out(done) and "control_k8" in out(done)
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_check_online_attached_to_the_wrong_arm_is_refused(render_case, renderer):
+    wrong = ["cyl_k8=%s" % os.path.join(render_case["tree"]["control_k8"]["all"][0],
+                                        "check_online.json")]
+    done = renderer(render_case, online=wrong)
+    assert done.returncode != 0
+    assert "check_online" in out(done)
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_a_supplement_for_an_arm_outside_the_summary_is_refused(render_case, renderer):
+    wrong = ["released_k8=%s" % os.path.join(render_case["tree"]["cyl_k8"]["all"][0],
+                                             "check_online.json")]
+    done = renderer(render_case, online=wrong)
+    assert done.returncode != 0
+    assert "released_k8" in out(done)
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_a_full_run_summary_passed_as_a_probe_is_refused(render_case, renderer):
+    """Finding 4: the probe controls must come from a probe run of that arm."""
+    done = renderer(render_case, probe=["control_k8=%s" % render_case["summary"]])
+    assert done.returncode != 0
+    assert "probe" in out(done)
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_another_arms_probe_summary_is_refused(render_case, renderer):
+    wrong = ["control_k8=%s" % os.path.join(render_case["tree"]["cyl_k8"]["probe"][0],
+                                            "summary", "yaw_pilot_summary.json")]
+    done = renderer(render_case, probe=wrong)
+    assert done.returncode != 0
+    assert "control_k8" in out(done)
+
+
+def test_html_does_not_copy_a_foreign_figure(render_case):
+    """Finding 4: neighbouring figures were copied without binding them to the summary.
+
+    A figure named for an arm that is not in this summary belongs to another run: replacing
+    the combined figure with the CPU one produced GPU tables under a CPU plot.
+    """
+    foreign = os.path.join(render_case["summary_dir"], "yaw_pilot_gaps_released_k8.png")
+    with open(foreign, "wb") as fout:
+        fout.write(b"\x89PNG\r\nforeign")
+    stale = os.path.join(render_case["summary_dir"], "stale_summary_interim.json")
+    with open(stale, "w") as fout:
+        fout.write("{}")
+    done = render_html(render_case)
+    assert done.returncode == 0, out(done)
+    copied = sorted(os.listdir(render_case["assets"]))
+    assert "yaw_pilot_gaps_released_k8.png" not in copied
+    assert "stale_summary_interim.json" not in copied
+    assert "yaw_pilot_gaps_control_k8.png" in copied
+    assert "yaw_pilot_gaps_all_arms.png" in copied
+    page = open(os.path.join(render_case["out_dir"], "page.html")).read()
+    assert "yaw_pilot_gaps_released_k8.png" not in page
+
+
+def test_html_refuses_a_summary_whose_figures_are_missing(render_case):
+    os.remove(os.path.join(render_case["summary_dir"], "yaw_pilot_gaps_cyl_k8.png"))
+    done = render_html(render_case)
+    assert done.returncode != 0
+    assert "yaw_pilot_gaps_cyl_k8.png" in out(done)

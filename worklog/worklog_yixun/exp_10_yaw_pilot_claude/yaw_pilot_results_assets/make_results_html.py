@@ -8,6 +8,13 @@ Copies the summariser's figures / CSV / JSON next to the page (relative links) a
 every input's sha256 in the page footer. Statuses and wording rules follow plan v3.1 §1 / §12:
 a multiple is printed only when the headline is `reportable`; otherwise the cell shows its
 status (denominator uncertain / improvement / undefined / unresolved Monte Carlo uncertainty).
+
+Nothing is rendered unbound (Codex tooling review, finding 4): the summary's own `inputs`
+hashes are re-verified against the live runs first, every `--parity` / `--check-online` /
+`--probe` input has to belong to the arm it is attached to, and the only files copied out of
+the summariser's directory are the ones *this* summary names — a figure for another arm, or
+any other neighbouring file, is left behind, because hashing arbitrary copied bytes does not
+make them this summary's figures.
 """
 import argparse
 import hashlib
@@ -15,6 +22,10 @@ import html
 import json
 import os
 import shutil
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import validate_runs as vr                                          # noqa: E402
 
 METRICS = [("EDT", "EDT", "s", 1000.0, "ms"), ("C50", "C50", "dB", 1.0, "dB"), ("T60", "T60", "%", 1.0, "pp / %"),
            ("T60_abs", "T60 (absolute)", "s", 1000.0, "ms"), ("logspec_mad", "log-spec MAD (GL-free)", "", 1.0, ""),
@@ -126,19 +137,39 @@ def main():
     ap.add_argument("--title", default="exp_10 yaw_pilot — results")
     args = ap.parse_args()
     s = json.load(open(args.summary))
+    vr.assert_ok(vr.verify_summary_inputs(s, label="the canonical summary (%s)" % args.summary),
+                 "refusing to render a summary that is not bound to the runs it came from")
+    parity_pairs = vr.parse_pairs(args.parity, "--parity")
+    online_pairs = vr.parse_pairs(args.check_online, "--check-online")
+    probe_pairs = vr.parse_pairs(args.probe, "--probe")
+    vr.assert_ok(vr.check_supplements(s, parity=parity_pairs, online=online_pairs,
+                                      probes=probe_pairs),
+                 "refusing to render supplemental reports that are not this arm's")
     os.makedirs(args.assets, exist_ok=True)
     sdir = os.path.dirname(os.path.abspath(args.summary))
+    # Only what this summary names: its own JSON, its tables, its CSV and its figures.
+    figures = vr.figure_names(s)
+    wanted = ["yaw_pilot_summary.json", "yaw_pilot_tables.md", "yaw_pilot_gaps.csv"] + figures
+    required = [n for n in wanted if not n.endswith(".pdf")]
+    vr.assert_ok(["%s: the summariser's directory has no %s" % (sdir, n)
+                  for n in required if not os.path.isfile(os.path.join(sdir, n))],
+                 "refusing to render: this summary's own outputs are incomplete")
     copied = {}
-    for fn in sorted(os.listdir(sdir)):
-        if fn.startswith("yaw_pilot_gaps") or fn in ("yaw_pilot_summary.json", "yaw_pilot_tables.md"):
-            shutil.copy2(os.path.join(sdir, fn), os.path.join(args.assets, fn))
-            copied[fn] = sha(os.path.join(args.assets, fn))
-    parity = {kv.split("=", 1)[0]: json.load(open(kv.split("=", 1)[1])) for kv in args.parity}
-    online = {kv.split("=", 1)[0]: json.load(open(kv.split("=", 1)[1])) for kv in args.check_online}
-    probes = {kv.split("=", 1)[0]: json.load(open(kv.split("=", 1)[1])) for kv in args.probe}
+    for fn in wanted:
+        src = os.path.join(sdir, fn)
+        if not os.path.isfile(src):
+            continue                       # the .pdf companions are optional
+        shutil.copy2(src, os.path.join(args.assets, fn))
+        copied[fn] = sha(os.path.join(args.assets, fn))
+    left = [fn for fn in sorted(os.listdir(sdir))
+            if fn not in wanted and os.path.isfile(os.path.join(sdir, fn))]
+    if left:
+        print("not copied (not named by this summary):", ", ".join(left))
+    parity = {arm: json.load(open(path)) for arm, path in parity_pairs}
+    online = {arm: json.load(open(path)) for arm, path in online_pairs}
+    probes = {arm: json.load(open(path)) for arm, path in probe_pairs}
     input_shas = {os.path.abspath(args.summary): sha(args.summary)}
-    for kv in args.parity + args.check_online + args.probe:
-        p = kv.split("=", 1)[1]
+    for _arm, p in parity_pairs + online_pairs + probe_pairs:
         input_shas[os.path.abspath(p)] = sha(p)
     rel = os.path.relpath(args.assets, os.path.dirname(os.path.abspath(args.out)))
     parts = ["<!doctype html><html><head><meta charset='utf-8'><title>%s</title><style>body{font-family:system-ui,sans-serif;max-width:1400px;margin:2em auto;padding:0 1em;color:#222}table{border-collapse:collapse;font-size:13px}th,td{border:1px solid #ccc;padding:3px 7px;text-align:right}th{background:#f3f3f3}td:first-child,th:first-child{text-align:left}.meta{color:#555;font-size:13px}.unit{color:#777;font-weight:normal}.scroll{overflow-x:auto}.note{background:#fff8e1;border-left:4px solid #e69f00;padding:.6em 1em;margin:1em 0}img{max-width:100%%}code{font-size:12px}</style></head><body>" % esc(args.title)]
@@ -169,4 +200,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (ValueError, vr.ValidationError) as exc:      # a refusal, not a crash
+        sys.stderr.write("REFUSED: %s\n" % exc)
+        sys.exit(2)
