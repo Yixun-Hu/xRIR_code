@@ -44,14 +44,16 @@ OUTCOMES = bounded.OUTCOMES
 # Every exp_11 diagnostic is one of these; each names its entry, its budgets and what it
 # must leave behind. They are never admissible arms.
 KINDS = {
-    'probe': {'entry': 'tools.exp11_train', 'run_type': 'probe',
+    'probe': {'entry': 'tools.exp11_train', 'run_type': 'exp11_probe',
               'alarm_seconds': 900.0, 'max_gb': 40.0,
               'artifacts': ('provenance.json',)},
-    'haa_train_smoke': {'entry': 'tools.exp11_haa_finetune', 'run_type': 'haa_smoke_train',
+    'haa_train_smoke': {'entry': 'tools.exp11_haa_finetune',
+                        'run_type': 'exp11_haa_smoke_train',
                         'alarm_seconds': 1800.0, 'max_gb': 40.0,
                         'artifacts': ('provenance.json', 'args.json', 'history.jsonl',
                                       'summary.json', 'best.pth', 'last.pth')},
-    'haa_eval_smoke': {'entry': 'tools.exp11_haa_eval', 'run_type': 'haa_smoke_eval',
+    'haa_eval_smoke': {'entry': 'tools.exp11_haa_eval',
+                       'run_type': 'exp11_haa_smoke_eval',
                        'alarm_seconds': 1800.0, 'max_gb': 40.0,
                        'artifacts': ('provenance.json', 'args.json')},
 }

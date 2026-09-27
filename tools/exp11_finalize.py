@@ -871,7 +871,7 @@ def diagnostic_artifacts(run_dir, spec, repo):
              'args.json records the save_dir {!r}, not the {} being finalized'.format(
                  args.get('save_dir'), directory))
     names = list(spec['artifacts'])
-    if spec['run_type'] == 'haa_smoke_eval':
+    if spec['run_type'] == 'exp11_haa_smoke_eval':
         rooms, tag = args.get('rooms'), args.get('tag', '')
         _require(isinstance(rooms, list) and rooms and all(room in ROOMS for room in rooms),
                  'args.json records the rooms {!r}'.format(rooms))
@@ -895,7 +895,7 @@ def diagnostic_evidence(run_dir, receipt, child_exit, repo, window):
     admission = verify_approvals(record, repo, 'exp11_smoke')
     passed = check_receipt_consistency(fields, record, window) and child_exit == 0
     hashes = {}
-    if spec['run_type'] != 'probe':
+    if spec['run_type'] != 'exp11_probe':
         _require(passed, 'a finalised HAA diagnostic must have succeeded: the receipt '
                  'records outcome {!r} with exit_status {}, and the child exited {}'.format(
                      fields['outcome'], fields['exit_status'], child_exit))

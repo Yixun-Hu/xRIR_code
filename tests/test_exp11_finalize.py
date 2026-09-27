@@ -203,19 +203,23 @@ def test_the_diagnostic_receipt_contract_is_the_enumerated_kinds(tmp_path):
     receipt = tmp_path / 'receipt.json'
     base = dict(schema_version=1, diagnostic=True, admissible_arm=False,
                 runner=exp11_smoke.RUNNER, kind='probe', entry='tools.exp11_train',
-                run_type='probe', exit_status=0, outcome='ok', exploratory=False,
+                run_type='exp11_probe', exit_status=0, outcome='ok', exploratory=False,
                 argv=['--no-save'], started_at='2026-09-26T00:00:00+00:00',
                 ended_at='2026-09-26T00:01:00+00:00', wall_s=60.0, peak_bytes=0,
                 alarm_seconds=900.0, max_gb=40.0, runner_closure_sha256='a' * 64)
     receipt.write_text(json.dumps(base))
     record, path, spec = final.diagnostic_receipt(str(receipt))
     assert record['kind'] == 'probe' and spec['entry'] == 'tools.exp11_train'
+    # exp_11's diagnostic run types are disjoint from exp_06's, so neither family's
+    # receipt can be read as the other's.
+    assert not set(exp11_smoke.RUN_TYPES) & {'smoke', 'probe', 'haa_smoke_train',
+                                             'haa_smoke_eval'}
     for mutate, match in ((dict(admissible_arm=True), 'never an admissible arm'),
                           (dict(kind='nonesuch'), 'unknown exp_11 diagnostic kind'),
                           (dict(alarm_seconds=1e6), 'above the 900'),
                           (dict(max_gb=80.0), 'above the 40'),
                           (dict(argv=[]), 'must run with --no-save'),
-                          (dict(run_type='smoke'), 'must record the entry'),
+                          (dict(run_type='probe'), 'must record the entry'),
                           (dict(outcome='great'), 'records outcome')):
         receipt.write_text(json.dumps(dict(base, **mutate)))
         with pytest.raises(ValueError, match=match):
