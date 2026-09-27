@@ -866,3 +866,67 @@ def test_the_historical_screen_still_raises_on_the_same_cells(arms):
     cancelling_hallway(arms)
     with pytest.raises(ValueError, match='zero-width'):
         subject.screen_cells(arms, (G, D), n_boot=200, adjusted_n_boot=200)
+
+
+# --- an unconverged cell, and G's initialisation at admission ---------------------------
+
+
+def unconverged(monkeypatch):
+    """The frozen helper's own attempts, with the verdict withheld."""
+    real = subject.converged_two_way
+    monkeypatch.setattr(subject, 'converged_two_way',
+                        lambda rows, alpha, n_boot: dict(real(rows, alpha, n_boot),
+                                                         status='not_converged',
+                                                         interval=None, n_boot=None))
+
+
+def test_an_unconverged_cell_withholds_every_requested_field(arms, monkeypatch):
+    """Not only the screens: an unconverged decision states nothing either, while its
+    descriptive numbers are still reported."""
+    unconverged(monkeypatch)
+    cell = contrast_cell(arms, G, D)
+    assert cell['status'] == 'not_converged'
+    assert cell['convergence']['status'] == 'not_converged'
+    assert all(cell[name] is None for name in ALL_FIELDS)
+    assert cell['diff'] is not None and cell['two_way'] is not None
+    for spec in subject.EXPERIMENTS['exp11']['exp11_decisions']:
+        statement = subject.exp11_decision(arms, spec, n_boot=200)
+        assert statement['status'] == 'not_converged', spec['name']
+        assert all(statement[name] is None for name in statement['fields']), spec['name']
+
+
+def fake_verified(seed, init_digest, per):
+    """What ``verify_job`` returns for one certified job, reduced to what admission reads."""
+    children = {'stage1': {'source_closure_sha256': 'c' * 64, 'role': 'haa_train',
+                           'heading': HEADING},
+                'eval/hallway': {'source_closure_sha256': 'd' * 64, 'role': 'haa_eval',
+                                 'heading': HEADING}}
+    return {'record': {'init_sha256': init_digest, 'seed': seed,
+                       'children': {name: 'e' * 64 for name in children}},
+            'per': per, 'children': children, 'recipe_deviations': []}
+
+
+def verifier(arms, digest):
+    def verify_job(job_dir, job, arm, repo=None, sensitivity=False, inputs=None):
+        seed = 0 if job == subject.ZEROSHOT else int(job[len('seed'):])
+        return fake_verified(seed, digest, arms[arm]['per'][job])
+    return verify_job
+
+
+def test_a_g_job_that_started_from_another_checkpoint_is_refused_by_admission(
+        arms, tmp_path, monkeypatch):
+    """The pipeline gate refuses a wrong initialisation at launch; admission refuses it
+    again from the job's own record, which is what a published summary rests on."""
+    approved = 'a' * 64
+    for job in subject.JOBS:
+        (tmp_path / 'yawaug_hf' / job).mkdir(parents=True)
+    roots = {'exp11': str(tmp_path)}
+    monkeypatch.setattr(subject, 'verify_job', verifier(arms, approved))
+    loaded = subject.load_new_arm(roots, G, approved)
+    assert loaded['arm'] == G and sorted(loaded['per']) == sorted(subject.JOBS)
+    assert loaded['heading'] == {room: 'b' * 64 for room in ROOMS}
+    monkeypatch.setattr(subject, 'verify_job', verifier(arms, 'f' * 64))
+    with pytest.raises(ValueError, match='did not start from the registered '
+                                         'initialisation'):
+        subject.load_new_arm(roots, G, approved)
+    subject.load_new_arm(roots, G, None)      # unpinned only in an exploratory run
