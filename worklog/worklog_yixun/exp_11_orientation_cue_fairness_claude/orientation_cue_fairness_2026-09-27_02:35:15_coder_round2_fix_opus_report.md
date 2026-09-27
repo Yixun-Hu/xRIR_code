@@ -182,3 +182,16 @@ Four exp_11 keys moved against the reviewed tip `c8acda2` — `finalize`,
 so it moves with it). These are values for the **eventual reviewed merge**, not an
 authorisation to fill the approvals now: the record stays all-null and every exp_11
 producer refuses today.
+
+## Tests
+
+* **Targeted set** (`tests/test_exp11_*.py` + `tests/test_exp09_sim_eval_closures.py`):
+  **152 passed** in 153 s. That includes the two new files
+  (`test_exp11_zeroshot_adapter.py`, `test_exp11_approval_enforcement.py`) and the new
+  cases in `test_exp11_finalize.py` and `test_exp11_shell.py`.
+* **Summariser suites** (`test_exp06_summarize_haa.py`, `test_exp11_summarize_haa.py`):
+  **169 passed** in 507 s — the pinned exp_06/exp_09 oracle and the exp_11 phase-1 oracle
+  still reproduce their payloads and rendered summaries byte for byte, so blocker 2's two
+  new gates changed no published number.
+* `bash -n` on both shells, `py_compile` on every exp_11 module and test, and
+  `git diff --check`: clean.
