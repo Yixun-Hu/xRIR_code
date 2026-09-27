@@ -840,9 +840,12 @@ def test_a_complete_child_pid_of_a_dead_trainer_resolves_the_launch(tmp_path):
                                              ('SIGNAL TERM\n', False)])
 def test_the_marker_is_withdrawn_only_against_a_real_registration(tmp_path, content,
                                                                   cleared):
+    """A complete child.pid is necessary; since close review 10 it is not sufficient,
+    so the finished trainer's train.exit stands beside it here."""
     attempt = tmp_path / 'xRIR_simpor_8_shot' / 'attempt_20260927T444444'
     attempt.mkdir(parents=True)
     (attempt / 'launching').write_text('launcher 1\n')
+    (attempt / 'train.exit').write_text('train.exit 0\n')
     (attempt / 'child.pid').write_text(content)
     result = lib('clear_launching {}\n'.format(attempt))
     assert result.returncode == 0, result.stderr[-300:]

@@ -305,9 +305,14 @@ scan_arm() {
         if pid_alive "$attempt/train.pid"; then
             SCAN_REASON="$name has a live trainer (train.pid)"; return 1; fi
         [ "$here" != "$resolving" ] || continue
-        if [ -f "$attempt/launching" ] && ! registration_complete "$attempt"; then
+        # `child.pid` is the WRAPPER's (GNU timeout), not the trainer's, so a complete
+        # and dead one accounts for nothing: only train.pid names the trainer and only
+        # train.exit says it finished (close review 10, blocker 2).
+        if [ -f "$attempt/launching" ] &&
+           { [ ! -f "$attempt/train.pid" ] || [ ! -f "$attempt/train.exit" ]; }; then
             SCAN_REASON="$name has an unresolved launch: a launching marker and no"\
-" complete child.pid, so a trainer of it may be running without having registered."\
+" finished trainer (train.pid and train.exit), so a trainer of it may be running or may"\
+" have died unrecorded -- child.pid names the timeout wrapper, not the trainer."\
 " Resolve it"\
 " with --resolve-unregistered $attempt once nothing of the arm is alive and the marker"\
 " is older than ${UNRESOLVED_GRACE_S}s"
@@ -328,15 +333,23 @@ require_quiet_arm() {  # require_quiet_arm [<attempt being resolved>]
 # `run_child` forks the detached trainer and writes child.pid only afterwards, and the
 # trainer needs a moment to write its own. A launcher that dies inside that window would
 # leave a running trainer nothing names. So the intent to launch is declared BEFORE the
-# fork and withdrawn once child.pid exists; a marker left behind means "a trainer of this
-# attempt may be running", and the arm stays closed until an operator resolves it.
+# fork and withdrawn only once the TRAINER is accounted for -- a complete child.pid and a
+# train.exit. `child.pid` holds the timeout wrapper's pid, so its death says nothing about
+# the trainer (close review 10). A marker left behind means "a trainer of this attempt may
+# be running, or died without saying so", and the arm stays closed until an operator
+# resolves it: a trainer that crashes before registering fails closed, by design.
 mark_launching() {  # mark_launching <attempt>
     printf 'launcher %s\nat %s\narm %s\n' \
         "$$" "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" "$ARM" > "$1/launching"
 }
 
-clear_launching() {  # clear_launching <attempt>: only once the child really is recorded
+clear_launching() {  # clear_launching <attempt>: only once the TRAINER is accounted for
+    # This runs after run_child returns, so the wrapper and the sink are gone. A complete
+    # child.pid proves the wrapper was recorded; train.exit proves the trainer itself
+    # finished. A trainer that crashed before registering leaves the marker standing and
+    # the attempt unresolved -- fail closed, by design: the operator answers it.
     registration_complete "$1" || return 0
+    [ -f "$1/train.exit" ] || return 0
     rm -f -- "$1/launching"
 }
 
