@@ -278,3 +278,64 @@ def test_a_backbone_may_not_be_admitted_in_the_frame_it_does_not_read():
     from tools import exp11_haa_finetune as entry
     assert entry.HEADING_BACKBONES == final.HEADING_BACKBONES
     assert entry.ADAPTER_BACKBONE == final.ADAPTER_BACKBONE
+
+
+# --- blocker 3: the diagnostic receipt is bound to its own provenance ----------------
+
+
+def diagnostic_pair(tmp_path, **receipt_changes):
+    """One receipt and the provenance record it must be bound to."""
+    closure = 'd' * 64
+    record = {'run_type': 'exp11_probe', 'repo': str(REPO), 'reviewed_commit': 'e' * 40,
+              'entry': 'tools.exp11_train', 'kind': 'probe', 'diagnostic': True,
+              'admissible_arm': False, 'exploratory': False,
+              'source_closures': {'diagnostic': {'entry_module': exp11_smoke.RUNNER,
+                                                 'files': [], 'sha256': closure}},
+              'git_state': {'HEAD': 'a' * 40}, 'environment': {},
+              'command': ['probe', '--no-save'], 'registry_sha256': 'b' * 64}
+    receipt = dict(schema_version=1, diagnostic=True, admissible_arm=False,
+                   runner=exp11_smoke.RUNNER, kind='probe', entry='tools.exp11_train',
+                   run_type='exp11_probe', exit_status=0, outcome='ok', exploratory=False,
+                   argv=['--no-save'], started_at='2026-09-26T00:00:00+00:00',
+                   ended_at='2026-09-26T00:01:00+00:00', wall_s=60.0, peak_bytes=0,
+                   alarm_seconds=900.0, max_gb=40.0, runner_closure_sha256=closure,
+                   git_head='a' * 40)
+    receipt.update(receipt_changes)
+    path = tmp_path / 'receipt.json'
+    path.write_text(json.dumps(receipt))
+    return str(path), record
+
+
+def test_a_diagnostic_receipt_is_bound_to_its_provenance(tmp_path):
+    path, record = diagnostic_pair(tmp_path)
+    fields, _, _ = final.diagnostic_receipt(path)
+    final.check_receipt_identity(fields, record)
+
+
+def test_a_receipt_whose_runner_closure_is_not_its_provenances_is_refused(tmp_path):
+    path, record = diagnostic_pair(tmp_path, runner_closure_sha256='9' * 64)
+    fields, _, _ = final.diagnostic_receipt(path)
+    with pytest.raises(ValueError, match='runner closure'):
+        final.check_receipt_identity(fields, record)
+
+
+def test_a_receipt_without_a_git_head_is_refused(tmp_path):
+    body = json.loads(Path(diagnostic_pair(tmp_path)[0]).read_text())
+    body.pop('git_head')
+    (tmp_path / 'receipt.json').write_text(json.dumps(body))
+    with pytest.raises(ValueError, match='missing git_head'):
+        final.diagnostic_receipt(str(tmp_path / 'receipt.json'))
+
+
+def test_a_receipt_whose_git_head_is_not_its_provenances_is_refused(tmp_path):
+    path, record = diagnostic_pair(tmp_path, git_head='c' * 40)
+    fields, _, _ = final.diagnostic_receipt(path)
+    with pytest.raises(ValueError, match='git_head'):
+        final.check_receipt_identity(fields, record)
+
+
+def test_a_receipt_that_contradicts_its_provenance_about_exploratory_is_refused(tmp_path):
+    path, record = diagnostic_pair(tmp_path, exploratory=True)
+    fields, _, _ = final.diagnostic_receipt(path)
+    with pytest.raises(ValueError, match='exploratory'):
+        final.check_receipt_identity(fields, record)
