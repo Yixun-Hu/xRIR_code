@@ -674,21 +674,54 @@ def test_the_cli_publishes_exp11s_phase_outputs_and_nothing_elses(legacy_root,
         subject.write_outputs(record, str(out), str(summary))
 
 
-def test_exp06_and_exp09_publish_exactly_what_main_publishes(arms, tmp_path):
-    """The schema extension changes no historical statistic and no historical summary."""
-    from test_exp06_summarize_haa import base_summariser
-    base = base_summariser(tmp_path)
-    settings = dict(n_boot=200, adjusted_n_boot=200, exploratory=True)
-    for experiment in ('exp06', 'exp09'):
-        selected = {name: arms[name] for name in base.EXPERIMENTS[experiment]['arms']}
-        named = {} if experiment == 'exp06' else {'experiment': experiment}
-        before = base.analyse(selected, **dict(settings, **named))
-        after = subject.analyse(selected, **dict(settings, **named))
-        assert list(after) == list(before), experiment
-        assert json.dumps(after, sort_keys=True) == json.dumps(before, sort_keys=True)
-        assert subject.render(after) == base.render(before), experiment
-        assert 'phase' not in after and 'screens' not in after
-        assert 'historical' not in after and 'decisions' not in after
+BASE_COMMIT = 'c6233e3'      # the tip this round branched from; it never moves
+
+
+@pytest.fixture(scope='module')
+def oracle(tmp_path_factory):
+    """The summariser as it stood BEFORE exp_11 touched it, pinned to a commit.
+
+    Loading the oracle from `main` would compare the implementation with itself once this
+    branch merges, so the comparison is pinned to the base commit instead.
+    """
+    import importlib.util
+    import subprocess
+    probe = subprocess.run(['git', 'show', BASE_COMMIT + ':tools/exp06_summarize_haa.py'],
+                           cwd=str(subject.REPO), capture_output=True)
+    if probe.returncode != 0:
+        pytest.skip('the base commit is not in this checkout')
+    path = tmp_path_factory.mktemp('oracle') / 'base_summarize_haa.py'
+    path.write_bytes(probe.stdout)
+    spec = importlib.util.spec_from_file_location('exp06_summarize_haa_base', str(path))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize('experiment', ['exp06', 'exp09'])
+@pytest.mark.parametrize('exploratory', [False, True])
+def test_exp06_and_exp09_publish_exactly_what_the_base_commit_published(
+        arms, oracle, experiment, exploratory):
+    """The schema extension changes no historical statistic and no historical summary,
+    in production as well as in draft mode."""
+    settings = dict(n_boot=200, adjusted_n_boot=200, exploratory=exploratory)
+    if experiment != 'exp06':
+        settings['experiment'] = experiment
+    selected = {name: arms[name] for name in oracle.EXPERIMENTS[experiment]['arms']}
+    before, after = oracle.analyse(selected, **settings), subject.analyse(selected,
+                                                                         **settings)
+    assert list(after) == list(before), experiment
+    assert json.dumps(after, sort_keys=True) == json.dumps(before, sort_keys=True)
+    assert subject.render(after) == oracle.render(before), experiment
+    assert 'phase' not in after and 'screens' not in after
+    assert 'historical' not in after and 'decisions' not in after
+
+
+def test_the_pinned_oracle_really_predates_this_round(oracle):
+    """It must be the module without arm G, or it is not an oracle at all."""
+    assert 'yawaug_hf' not in oracle.ARMS and 'exp11' not in oracle.EXPERIMENTS
+    assert not hasattr(oracle, 'decision_fields') and not hasattr(oracle, 'exp11_cell')
+    assert 'yawaug_hf' in subject.ARMS and 'exp11' in subject.EXPERIMENTS
 
 
 # --- the unavailable path is the degenerate interval, and nothing else ------------------
