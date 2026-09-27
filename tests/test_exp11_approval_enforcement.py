@@ -61,6 +61,28 @@ def approvals(**overrides):
     return value
 
 
+def reused(approvals_value, receipt, receipt_path, exp06_receipt, **kwargs):
+    """Call the gate with the exp_06 record ``main()`` actually loaded from ``--approved``.
+
+    The gate hashed ``approved_path_default()`` instead, so exp_11's
+    ``reused.approved_digests_exp06`` pin could match the default file while the
+    summariser consumed a different committed record -- and every identity downstream
+    (arm C's epoch, the heading artefacts) came from the record nobody pinned.
+    """
+    import inspect
+    assert 'exp06_receipt' in inspect.signature(subject.check_exp11_reused).parameters, (
+        'check_exp11_reused must be given the exp_06 approvals record main() loaded from '
+        '--approved; it hashes approved_path_default() instead, so an alternate '
+        'committed record passes the pin of the default one')
+    return subject.check_exp11_reused(approvals_value, receipt, receipt_path,
+                                      exp06_receipt=exp06_receipt, **kwargs)
+
+
+def exp06_receipt_for(path):
+    """The identity shape ``approvals_api.load_approved_digests`` returns for a record."""
+    return {'path': str(path), 'sha256': sha(path)}
+
+
 # --- code.summarize_haa against the producer that is running ------------------------
 
 
@@ -91,7 +113,8 @@ def test_the_reused_identities_are_compared_with_the_consumed_records():
     paths = consumed()
     receipt = {'sha256': sha(paths['receipt'])}
     inputs = {}
-    subject.check_exp11_reused(approvals(), receipt, str(paths['receipt']), inputs=inputs)
+    reused(approvals(), receipt, str(paths['receipt']),
+           exp06_receipt_for(paths['exp06']), inputs=inputs)
     assert str(paths['exp04'].resolve()) in inputs
     assert str(paths['exp06'].resolve()) in inputs
 
@@ -101,8 +124,8 @@ def test_an_incorrect_but_populated_reused_digest_refuses(key):
     paths = consumed()
     receipt = {'sha256': sha(paths['receipt'])}
     with pytest.raises(ValueError, match=key):
-        subject.check_exp11_reused(approvals(reused={key: WRONG}), receipt,
-                                   str(paths['receipt']))
+        reused(approvals(reused={key: WRONG}), receipt, str(paths['receipt']),
+               exp06_receipt_for(paths['exp06']))
 
 
 def test_an_incorrect_legacy_receipt_digest_or_a_nonexistent_path_refuses(tmp_path):
@@ -111,19 +134,29 @@ def test_an_incorrect_legacy_receipt_digest_or_a_nonexistent_path_refuses(tmp_pa
     wrong_digest = approvals(reused={'legacy_receipt': {
         'path': 'ckpt/exp06/legacy_receipt.json', 'sha256': WRONG}})
     with pytest.raises(ValueError, match='legacy_receipt'):
-        subject.check_exp11_reused(wrong_digest, receipt, str(paths['receipt']))
+        reused(wrong_digest, receipt, str(paths['receipt']),
+               exp06_receipt_for(paths['exp06']))
     missing = approvals(reused={'legacy_receipt': {
         'path': 'ckpt/exp06/no_such_receipt.json', 'sha256': sha(paths['receipt'])}})
     with pytest.raises(ValueError, match='no_such_receipt'):
-        subject.check_exp11_reused(missing, receipt, str(paths['receipt']))
+        reused(missing, receipt, str(paths['receipt']), exp06_receipt_for(paths['exp06']))
     elsewhere = approvals(reused={'legacy_receipt': {
         'path': 'ckpt/exp06/legacy_receipt.json', 'sha256': sha(paths['receipt'])}})
     with pytest.raises(ValueError, match='legacy_receipt'):
-        subject.check_exp11_reused(elsewhere, receipt, str(tmp_path / 'other.json'))
+        reused(elsewhere, receipt, str(tmp_path / 'other.json'),
+               exp06_receipt_for(paths['exp06']))
 
 
 def test_the_reused_check_is_skipped_where_exp11s_record_was_not_read():
-    subject.check_exp11_reused(None, {'sha256': WRONG}, 'anywhere')
+    subject.check_exp11_reused(None, {'sha256': WRONG}, 'anywhere', exp06_receipt=None)
+
+
+def test_the_gate_refuses_to_re_resolve_the_exp06_record_itself():
+    """A caller that supplies no receipt is refused, not quietly served the default."""
+    paths = consumed()
+    with pytest.raises(ValueError, match='must be passed in as its own receipt'):
+        subject.check_exp11_reused(approvals(), {'sha256': sha(paths['receipt'])},
+                                   str(paths['receipt']))
 
 
 # --- the pipeline gate resolves K's initialisation under exp_11's exp_04 pin ---------
@@ -146,28 +179,6 @@ def test_the_pipeline_checks_exp11s_own_exp04_pin_before_resolving_K():
 
 
 # --- close review blocker 1: the CONSUMED exp_06 record, not the default one --------
-
-
-def reused(approvals_value, receipt, receipt_path, exp06_receipt, **kwargs):
-    """Call the gate with the exp_06 record ``main()`` actually loaded from ``--approved``.
-
-    The gate hashed ``approved_path_default()`` instead, so exp_11's
-    ``reused.approved_digests_exp06`` pin could match the default file while the
-    summariser consumed a different committed record -- and every identity downstream
-    (arm C's epoch, the heading artefacts) came from the record nobody pinned.
-    """
-    import inspect
-    assert 'exp06_receipt' in inspect.signature(subject.check_exp11_reused).parameters, (
-        'check_exp11_reused must be given the exp_06 approvals record main() loaded from '
-        '--approved; it hashes approved_path_default() instead, so an alternate '
-        'committed record passes the pin of the default one')
-    return subject.check_exp11_reused(approvals_value, receipt, receipt_path,
-                                      exp06_receipt=exp06_receipt, **kwargs)
-
-
-def exp06_receipt_for(path):
-    """The identity shape ``approvals_api.load_approved_digests`` returns for a record."""
-    return {'path': str(path), 'sha256': sha(path)}
 
 
 def test_the_consumed_exp06_record_is_the_one_the_pin_is_compared_with():

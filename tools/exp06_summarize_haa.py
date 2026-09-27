@@ -1430,7 +1430,8 @@ def check_exp11_producer(exp11_approved, identity, exploratory=False):
     return [deviation]
 
 
-def check_exp11_reused(exp11_approved, receipt, receipt_path, repo=REPO, inputs=None):
+def check_exp11_reused(exp11_approved, receipt, receipt_path, repo=REPO, inputs=None,
+                       exp06_receipt=None):
     """exp_11's three ``reused`` identities against the records this run consumed.
 
     ``approved_digests_exp04`` names the record ``exp04_aug_checkpoint`` reads to resolve
@@ -1444,12 +1445,25 @@ def check_exp11_reused(exp11_approved, receipt, receipt_path, repo=REPO, inputs=
         return {}
     reused = exp11_approved['reused']
     bound = {}
-    for key, path in (('approved_digests_exp04', exp04_profiles.APPROVED_DIGESTS_PATH),
-                      ('approved_digests_exp06', approvals_api.approved_path_default())):
-        file = _repo_path(path, repo)
+    # Close review blocker 1: the exp_06 record this run CONSUMED is the one ``main``
+    # loaded from ``--approved`` -- whose identity it already holds -- not whatever
+    # ``approved_path_default()`` happens to resolve to. Hashing the default file let an
+    # alternate committed record supply arm C's epoch and the heading artefacts while
+    # exp_11's pin matched a record nobody read. The receipt is required, so the gate can
+    # never fall back to re-resolving a path.
+    _require(isinstance(exp06_receipt, dict) and isinstance(exp06_receipt.get('path'), str)
+             and _is_sha256(exp06_receipt.get('sha256')),
+             'the exp_06 approvals record this run loaded must be passed in as its own '
+             'receipt, not re-resolved here: {!r}'.format(exp06_receipt))
+    consumed = [('approved_digests_exp04',
+                 _repo_path(exp04_profiles.APPROVED_DIGESTS_PATH, repo),
+                 None),
+                ('approved_digests_exp06', Path(exp06_receipt['path']),
+                 exp06_receipt['sha256'])]
+    for key, file, declared in consumed:
         _require(file.is_file(), 'the record exp_11 pins as reused.{} is missing: '
                  '{}'.format(key, file))
-        digest = provenance.sha256_file(file)
+        digest = provenance.sha256_file(file) if declared is None else declared
         _require(digest == reused[key], 'the record {} consumed for reused.{} hashes to '
                  '{}, not the approved {}'.format(file, key, digest, reused[key]))
         bound[str(file.resolve())] = digest
@@ -2297,7 +2311,8 @@ def main(argv=None):
     # Blocker 2: an approval value is evidence only where it is compared with what ran.
     deviations = deviations + check_exp11_producer(exp11_approved, identity,
                                                    args.exploratory)
-    check_exp11_reused(exp11_approved, receipt, args.legacy_receipt, REPO, extra)
+    check_exp11_reused(exp11_approved, receipt, args.legacy_receipt, REPO, extra,
+                       exp06_receipt=approvals_receipt)
     inits = ({} if args.exploratory
              else expected_inits(approved, new_arms, extra, exp11_approved))
     for arm in new_arms:
