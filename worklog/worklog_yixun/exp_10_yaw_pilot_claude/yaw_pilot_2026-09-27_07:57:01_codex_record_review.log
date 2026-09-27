@@ -1,0 +1,433 @@
+Reading additional input from stdin...
+OpenAI Codex v0.154.0
+--------
+workdir: /home/yixunhu/codespace/xRIR_code
+model: gpt-6-astra
+provider: openai
+approval: on-request
+sandbox: read-only
+reasoning effort: ultra
+reasoning summaries: none
+session id: 01a0e2b9-c9d5-75a3-bf0e-4bbe4eaa3724
+--------
+user
+You are the RECORD reviewer for exp_10 `yaw_pilot` in /home/yixunhu/codespace/xRIR_code (read-only; write only under /tmp/claude-1013/-home-yixunhu-codespace-xRIR-code/279323f7-0bed-4b41-8631-99735eadc6f1/scratchpad/codex_record_review/). Read first: worklog/experiment_SOP.md; then the whole record folder worklog/worklog_yixun/exp_10_yaw_pilot_claude/: yaw_pilot_yixun_query.md, plan_yaw_pilot.md (v3.1 incl. §10–§12), the three plan reviews, the three code reviews + the tooling review, yaw_pilot_worklog.md, yaw_pilot_params_set_up.md, yaw_pilot_command.md, commits_yaw_pilot.md, yaw_pilot_results.md, yaw_pilot_analysis.md, yaw_pilot_01_results.html with yaw_pilot_results_assets/generated/ (SHA256SUMS, backend_sensitivity_released_k8.{md,json}, runs/<arm>/*.json, cpu_protocol/*), the run logs (yaw_pilot_*_chain_*.log, *_gpu1_queue.log, *_finish.log). Canonical data: ckpt/exp10/summary/yaw_pilot_summary.json (four GPU arms), ckpt/exp10/cpu_protocol/summary/yaw_pilot_summary.json (the released_k8 CPU protocol), per-run ckpt/exp10/<arm>_{probe,all}/{meta.json, per_sample.json, check_online.json, parity_exp03.json}. The FLAC counterpart being mirrored: /home/yixunhu/codespace/FLAC/worklog/worklog_yixun/exp_02_yaw_noninvariance_claude/yaw_noninvariance_results.md and /home/yixunhu/codespace/FLAC/analysis/pilot_study/plot_pilot_yaw_gaps.py; and the FLAC metric code cited by the analysis (src/metrics/metric_callback.py, src/metrics/modules/{RT60,C50}.py).
+
+Judge: (1) every number in yaw_pilot_results.md / the HTML / the analysis is traceable to the canonical JSONs (spot-check ≥ 12 cells across arms, angles, metrics, incl. multiples, statuses, room statuses, the backend table and the controls); (2) every statement obeys the pre-registered rules (plan §1 R1–R3, §4, §12 A1–A4): multiples only where `headline.reportable`, room-level status disclosed beside every multiple, "improvement"/"denominator uncertain"/"unresolved Monte Carlo uncertainty" wording used correctly, no equivalence/invariance claim from a zero-crossing interval, no cancellation claim without paired contributions, replication label only for arms whose parity passed on probe AND full split with identical masks (which arms qualify? the released_k8 CPU run must be labelled a separate protocol), the K = 1 arm labelled "trained K = 8, evaluated K = 1", the historical band context-only, T60 denominators stated, the model-plus-Griffin-Lim qualification present, the FLAC comparability qualifications (window, T60 invalid policy, C50 constant, no waveform ranking) accurate against the FLAC code; (3) the record is complete per the SOP (query, plan + reviews, worklog with acceptance criteria before each launch, params, commands at launch time, teed logs incl. the two aborted/failed launches, results, analysis, HTML + assets, commits) and internally consistent (timestamps, commits, execution ids, sha256s in SHA256SUMS vs the files, provenance lists in the page); (4) the must-not-claim list is adequate for the paper's pilot section. Report numbered findings with severity (blocker / should-fix / nit), file:line or JSON path, minimal fix; "Verified" (what you recomputed); verdict RECORD APPROVED / APPROVED WITH CORRECTIONS / NOT APPROVED. Your final message is the review.
+codex
+I’ll read the SOP and full record, then audit the reported values against the canonical JSONs. I’ll also check the claim rules, provenance, and FLAC metric code.
+
+exec
+/bin/bash -lc 'cat worklog/experiment_SOP.md' in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+# Experiment SOP (portable)
+
+A generalizable standard operating procedure for AI-assisted research experiments. Drop this file into any project and reference it from that project's `CLAUDE.md` (e.g. "Follow `worklog/experiment_SOP.md` for all experiment work"). Written for Claude Code, but the roles are model-agnostic.
+
+## Roles (three-model separation of duties)
+
+| Role | Who | Duty |
+|---|---|---|
+| **Planner / Analyst** | The main-session model (strongest reasoning tier; currently Claude Fable 5.1) | Writes plans, judges reliability, writes analyses. Does NOT write implementation code directly. |
+| **Coder** | The strongest coding model at its highest reasoning setting — **currently Claude Opus 5 at max effort, a separate subagent launched from the main session (Agent tool, model `opus`) working in a dedicated git worktree (per Yixun 2026-09-15; 2026-09-12 → 2026-09-15 it was OpenAI Codex `gpt-6-astra` at Ultra via `codex exec`; before that a Claude Opus 4.8 max-effort subagent)** | Implements exactly what the approved plan specifies. |
+| **Reviewer** | **The opposite model family from the Coder** (mandatory cross-model review; see reciprocity note below). | Reviews all newly written code; review is saved, not just read. If the reviewer is unavailable, say so — never silently substitute. |
+
+> **Reviewer reciprocity — no model reviews its own code.** The Reviewer is always the opposite model family from the **Coder**. With the current roles (Planner Claude Fable 5.1, Coder Claude Opus 5; per Yixun 2026-09-15), the code Reviewer is **OpenAI Codex `gpt-6-astra` at Ultra** (`codex exec -s read-only` in the worktree; its final message is saved as the review file with the identity header). When the Coder was Codex (2026-09-12 → 2026-09-15), the code Reviewer was a separate Claude Fable 5.1 subagent launched from the main session with the reviewer briefing, so the review context was independent of the Planner's. Plan reviews follow the same rule (the Planner is Claude, so plans are reviewed by Codex). The Coder and Reviewer must always be different model families, so review is genuinely independent.
+
+> **Reviewer briefing — load context before judging.** Every review prompt (plan or code) must direct the Reviewer to read, before reviewing: (1) this SOP and all `worklog/worklog_<username>/announcement/` directives; (2) the experiment's `plan_*.md` and `_worklog.md` notebook (what was decided and why, including plan amendments); (3) the results/analyses of the PRIOR experiments the work builds on (e.g. baseline numbers and noise floor); (4) a one-paragraph statement of what the current Coder round was tasked to do and what is explicitly out of scope for this round. A reviewer without this context produces generic reviews, flags out-of-scope "gaps", and misses violations of experiment-specific decisions.
+
+## Directory layout
+
+All experiment bookkeeping lives in `worklog/` at the repo root, **namespaced per user** (rule updated 2026-07-12):
+
+- `worklog/experiment_SOP.md` — **this file lives directly under `worklog/`, NOT inside any user namespace** (it is shared/portable across users).
+- `worklog/worklog_<username>/` — one namespace folder per user; ALL of that user's experiment logging goes inside it (in this project `<username>` = `yixun` → `worklog/worklog_yixun/`). Every logging path that previously sat directly under `worklog/` now sits under `worklog_<username>/`:
+  - `worklog/worklog_<username>/announcement/<NN>_<topic>.md` — standing directives from the user. **Read every announcement before planning or running anything.** New standing instructions get the next number.
+  - `worklog/worklog_<username>/exp_<NN>_<exp name>_claude/` — one folder per experiment, `<NN>` zero-padded and sequential.
+  - `worklog/worklog_<username>/archive_<reason>_<date>/` — archived/superseded code (see Development discipline).
+
+## Per-experiment artifacts (in lifecycle order)
+
+Inside `worklog/worklog_<username>/exp_<NN>_<exp name>_claude/`:
+
+1. `<exp name>_<username>_query.md` — the user's driving queries: each one verbatim, plus a summary, the user's assumption/hypothesis, and why the experiment needs to run. Started at scaffold time, appended as new queries arrive. (`<username>` is the same name as in the `worklog_<username>` namespace folder — here `yixun`, e.g. `<exp name>_yixun_query.md`.)
+2. `plan_<exp name>.md` — written by the Planner BEFORE any code: the English plan AND the planned code laid out per file (each existing file to edit, each new file to create). Surfaced for user approval before implementation.
+3. `<exp name>_<reviewer>_plan_review.md` — the Reviewer's review of the PLAN, before user approval and before any implementation: method soundness, hidden assumptions, missing tests/controls, run design. Same reviewer-naming and identity-header rules as the code review below. Planner addresses the findings (revising the plan) before the user signs off.
+4. *(the implementation itself)* — the code, written by the Coder subagent per the approved plan. No dedicated markdown artifact; this step is the source-code changes.
+5. `<exp name>_<reviewer>_code_<marker>_review.md` — **one small review per Coder round, not one big review at the end**: after EVERY round of Coder output (a TDD red→green cycle, a code snippet, or a coherent commit group), the Reviewer reviews that round's commits BEFORE the next round starts. `<reviewer>` names the reviewing model (`codex` / `opus`); `<marker>` identifies the round — the TDD-cycle or snippet name, or the short name of the main commit (e.g. `<exp name>_codex_code_cyl_pose_review.md`, `<exp name>_codex_code_dispatch_review.md`). **A round is CLOSED only when its full loop has run: code written → review returned → strengthening/fixes applied by the Coder for every blocking finding → fixes re-verified (tests green; re-review or Planner verification of the fix) → loop outcome logged in `_worklog.md` with the fix commit SHAs.** No new round starts, and no run launches, while any round is open. Nits may be batched into the next round; blocking findings may not. A final integrative review of the whole experiment diff (marker `full`) still runs before the first expensive launch. Record "N/A — no code written" for code-free experiments. Every review file MUST open with a header giving the reviewer's exact identity: model/product name and version, invocation method, and review date — e.g. `**Reviewer:** OpenAI Codex (codex-cli 0.144.1, \`codex exec\`, read-only sandbox) · **Date:** 2026-07-10`. **Reviews (plan and code) always use the Reviewer family's strongest available model at its highest reasoning setting** — currently `gpt-6-astra` at Ultra (`model = "gpt-6-astra"`, `model_reasoning_effort = "ultra"` in `~/.codex/config.toml`; per Yixun 2026-09-12; supersedes `gpt-5.6-sol`; requires codex-cli ≥ 0.154 — 0.144.1 rejects the model) for Codex, Claude Fable 5.1 for Claude (per Yixun 2026-09-12; previously Claude Opus 4.8 at max effort). Since 2026-09-15 the Coder is Claude Opus 5, so code reviews are Codex (`<exp name>_codex_code_<marker>_review.md`) and plan reviews stay Codex; a Coder change mid-experiment is logged in the notebook and rounds keep single authorship (an in-flight round of the previous Coder is archived, not mixed).
+6. `<exp name>_params_set_up.md` — full hyperparameters/configuration, written at launch.
+7. `<exp name>_command.md` — exact reproduction command(s). **Rule: EVERY experiment/run launched gets its command added to this file AT LAUNCH TIME, not retroactively** — including reruns, amended iterations, probes that produce run artifacts, and diagnostics; failed/superseded runs stay in the file (marked as such) because reproducing the failure is part of the record. The notebook records *why*, this file records *how to reproduce*.
+8. `<exp name>_worklog.md` — an append-only, timestamped **lab notebook: one entry per action**, not per run. Started at scaffold, appended continuously through implementation, debugging, and every launch. This is where the validation ladder, parity audit, and failure triage (below) get recorded as they happen. Entry format in **Worklog entry template** below. Complements `_results.md` (final numbers) and `_analysis.md` (final judgment) by capturing the decision/debug trail in between.
+9. `<exp name>_<YYYY-MM-DD_HH:MM:SS>.log` — ALL terminal output, one timestamped log per run (tee/redirect every training/eval command into the folder). Aborted runs keep their log, renamed with an `_ABORTED_<reason>` suffix.
+10. `<exp name>_results.md` — results, appended as runs finish.
+11. `<exp name>_analysis.md` — written by the Planner after results land: analyze all code + configuration + results; judge whether the result is reliable; state the outcome and the recommended next step.
+12. `commits_<exp name>.md` — SHA + one-line description of every commit belonging to this experiment.
+13. `<exp name>_<idx>_results.html` — **rich HTML results visualization, produced after the experiment finishes** (alongside, not replacing, `_results.md`): tables, equations (MathJax/KaTeX or clean HTML math), figures/plots, color-coded verdict blocks, run-trajectory charts — use the full expressive range of HTML/CSS to make the results maximally human-readable. `<idx>` is chosen by the author to separate distinct parts of the visualization when one page would overload (e.g. `..._01_results.html` for gate tables, `..._02_results.html` for mechanism decomposition); a single `_01_` page is fine for simple experiments. **All sourced assets (generated plot images, data extracts, JS/CSS) live in a corresponding folder inside the experiment directory** (e.g. `exp_<NN>_<exp name>_claude/<exp name>_results_assets/`) and are referenced relatively, so the HTML renders offline from a repo checkout. Charts follow the project's visualization standards (load the dataviz guidance before writing chart code). The HTML must be self-consistent with `_results.md` numbers — it is a presentation layer, never a place where numbers appear first.
+
+## Worklog entry template
+
+Each `_worklog.md` entry is one action, headed by an ISO-8601 timestamp in **local time with UTC offset** (same clock as the run-log filenames) and a short title, then these fields. Use the full set for substantive actions (code, launches, fixes); a lightweight **Goal / Result / Analysis / Next** is enough for routine monitoring checks.
+
+`## <YYYY-MM-DDThh:mm:ss±hh:mm> — <short title>`
+
+- **Goal** — what this action is for. *(every entry)*
+- **Hypothesis** — the belief being tested, stated *before* the evidence. *(only when testing something)*
+- **Change** — exact files/behavior touched. *(when code changed)*
+- **Version Control** — branch, `base_commit`, `implementation_commit`, push/pull, changed_files. Every SHA inline.
+- **Command / Validation** — exact commands (or static checks), job ids, run dirs, log + artifact paths.
+- **Acceptance criteria** — the exact conditions that count as success, written *before* a launch (see **Running & failure discipline**).
+- **Result** — status (`passed` / `partial` / `in_progress` / `launched` / `fix_ready`) + metrics/artifacts + key evidence.
+- **Analysis** — interpretation; in particular classify any failure as *infrastructure vs. real bug*.
+- **Next** — the immediate next step.
+
+## Development discipline
+
+- Develop **commit by commit, experiment by experiment** from a known-good base commit. No long-lived uncommitted state: an experiment concludes by committing its code and its worklog folder.
+- **Each commit generally < 200 changed lines of code.** Several small commits per experiment are preferred over one large one. Log every SHA in `commits_<exp name>.md`.
+- **Test-driven development (mandatory for all new functions)** — per [TDD](https://en.wikipedia.org/wiki/Test-driven_development): for each small function, write its test FIRST (pytest, in a dedicated `tests/` folder — **ask the user where to place it** the first time tests are added to a project; do not assume repo root), run it to confirm it fails (red), then implement the minimal function that passes (green), then refactor with tests green. Each red→green cycle maps naturally onto one small commit (tests may land in the same commit as the implementation or the commit immediately before it — never after). Tests are permanent regression assets: they stay in `tests/` and must keep passing in later experiments; run the relevant test subset as rung 1½ of the validation ladder.
+- **Universal review coverage (2026-07-06):** EVERY piece of code — Coder-written source, AND Planner-written one-off scripts (page/visual generators, probe drivers, analysis one-offs) — goes through the Reviewer loop before its round closes. Small scripts may be batched into one consolidated review round; nothing executable that informs a decision or artifact ships unreviewed.
+- Superseded or exploratory code is archived (patch + files) under `worklog/worklog_<username>/archive_<reason>_<date>/` before being removed from the working tree — never destroyed.
+
+## Validation ladder (cheapest-first)
+
+Never jump straight to the expensive run. Climb this ladder; advance only when the current rung passes, and record each rung in `_worklog.md`.
+
+1. **Static checks** — `python -m py_compile <changed .py>`, config parse (`yaml.safe_load`), `bash -n <changed .sh>`, `git diff --check` (whitespace). Seconds, no accelerator.
+2. **Tiny synthetic forward** — smallest module instantiation + one forward/step on a small/cheap device with synthetic tensors. Catches graph/mesh/shape/dtype/timestep errors without loading full weights or data.
+3. **Small real-data readback** — parse a few real records; assert shapes, byte lengths, and min/max/std match the schema. Catches data-pipeline mismatches.
+4. **Bounded data build** — if the experiment produces a dataset, build the val split (or a bounded slice) first and read it back before the full build.
+5. **Smoke run** — a few steps at the smallest batch on the target hardware, checkpointing/final-save **disabled** (storage-light), just to reach one completed optimizer step and produce logs.
+6. **Fit / batch-size probe** — find the max batch that fits, still storage-light (no checkpoints), before committing to the full run.
+7. **Full run** — only after 1–6 pass and the parity audit below is clean.
+
+## Parity audit before scaling
+
+Before spending real compute on a new method, audit the implementation **component by component against the reference** (paper code / upstream repo), and diff the *numbers*, not just the shapes:
+
+- **Numeric recipe defaults** — LayerNorm eps, weight decay, betas, LR schedule, loss type, sigma/noise schedule, CFG handling. Silent mismatches (e.g. eps `1e-6` vs `1e-5`, weight decay `0` vs `1e-2`) don't crash; they quietly corrupt results.
+- **Structural parity** — which params are trainable vs frozen, residual/injection points, stop-gradient boundaries, any pinning/masking.
+- **Data parity** — take one concrete source example and its processed/cached counterpart; confirm identical dtype, byte counts, and min/max/std.
+
+Record the audit in `_worklog.md`; launch the full-scale run only from the audited commit.
+
+## Running & failure discipline
+
+- **Pre-launch acceptance criteria.** Before every launch, write in `_worklog.md` the exact conditions that count as success: the commit SHA the worker must report, device/host count, per-device and global batch, parallelism axes, which params are trainable, and "reaches ≥1 optimizer step with no OOM / NaN / parse failure." Judge the run against these, not vibes.
+- **Infrastructure vs. real bug.** In every failure Analysis, classify the cause: *infrastructure* (spot preemption, host maintenance, download/network stall, launch-env/PATH, quota) vs. *real bug* (wrong shape/sharding, wrong objective, bad schedule). Only real bugs get a code fix; infra failures get retry/resume. Prevents thrashing on non-bugs.
+- **Commit + push before running remotely.** Any remote (TPU/cluster) run executes a *pushed* SHA; verify the SHA the worker actually checked out. Never run uncommitted code on a remote.
+- **Never edit a script while it is running.** Wait for a safe boundary, then patch; fix orchestration bugs separately from the data/model path.
+- **Resume from the last safe boundary.** On a mid-pipeline crash, find the last fully-committed unit (contiguous shard / checkpoint) and resume from the next; never duplicate or lose work, never reuse stale staging.
+- **Storage guardrail.** Long data/checkpoint jobs hold only a bounded working set (one batch/segment resident), clean up after each unit, and stay above an explicit free-space floor; contiguous coverage is the correctness check.
+- **Shared-resource etiquette.** Inspect a shared machine's processes before using it; don't interrupt others' jobs without approval; verify zero stale processes/watchers/queued-resources after a failed run before relaunching.
+
+## Evaluation integrity
+
+- Always compare against the baseline method on its **full published evaluation configuration** — the complete split files and dataset configs the baseline's paper used. Never invent new eval configurations (subsampled items, hand-picked examples, reduced splits) for comparisons; subsets are for debugging only and never appear in `_results.md`.
+- Reproduce the baseline's reported numbers (within its reported variance) **before** evaluating any new method, to calibrate the pipeline and establish the noise floor.
+- Match the baseline's aggregation convention (e.g. per-scene means) and its variance protocol (e.g. mean ± std over N generations/seeds).
+- If a run is launched and the code state then changes (revert, edit), kill and relaunch rather than mixing code states across a sweep; document the abort in `_params_set_up.md`.
+
+## Sequencing summary
+
+scaffold folder + `_yixun_query.md` + `_worklog.md` → `plan_*.md` (Planner, incl. per-function test list) → `_<reviewer>_plan_review.md` (Reviewer, strongest model at highest reasoning) → Planner revises → user approves → **TDD loop**, per round: (Coder: test first → red → implement → green, one small commit per cycle) → `_<reviewer>_code_<marker>_review.md` (Reviewer, per-round small review; blocking findings fixed before the next round) → next round … → **validation ladder** (static → tests → smoke → probe) → `_<reviewer>_code_full_review.md` (Reviewer, integrative) → **parity audit** vs reference → `_params_set_up.md` + `_command.md` + **acceptance criteria** → launch with teed timestamped logs, triaging *infra-vs-bug* on failure → `_results.md` → `_analysis.md` (Planner) → **`<exp name>_<idx>_results.html`** (+ assets folder) → commit(s) + `commits_*.md`. Log every action in `_worklog.md` as it happens.
+
+exec
+/bin/bash -lc "pwd && rg --files -g AGENTS.md -g CLAUDE.md -g '*announcement*' -g '"'!data/**'"' -g '"'!ckpt/**'"' . /home/yixunhu/codespace 2>/dev/null | head -100" in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+/home/yixunhu/codespace/xRIR_code
+./CLAUDE.md
+/home/yixunhu/codespace/rir2rir-oneroom/test/flac_codec/CLAUDE.md
+/home/yixunhu/codespace/exp-17-yawaug-a6000/CLAUDE.md
+/home/yixunhu/codespace/rir2rir/CLAUDE.md
+/home/yixunhu/codespace/acoustic-overleaf/CLAUDE.md
+/home/yixunhu/codespace/xRIR_code/CLAUDE.md
+/home/yixunhu/codespace/rir2rir/test/flac_codec/CLAUDE.md
+/home/yixunhu/codespace/FLAC/CLAUDE.md
+
+exec
+/bin/bash -lc 'rg --files worklog/worklog_yixun/exp_10_yaw_pilot_claude worklog/worklog_yixun/announcement ckpt/exp10 | sort' in /home/yixunhu/codespace/xRIR_code
+ succeeded in 0ms:
+ckpt/exp10/control_k8_all/check_online.json
+ckpt/exp10/control_k8_all/meta.json
+ckpt/exp10/control_k8_all/metrics.json
+ckpt/exp10/control_k8_all/parity_exp03.json
+ckpt/exp10/control_k8_all/per_sample.json
+ckpt/exp10/control_k8_all/wav_k0.npy
+ckpt/exp10/control_k8_all/wav_k128.npy
+ckpt/exp10/control_k8_all/wav_k256.npy
+ckpt/exp10/control_k8_all/wav_k384.npy
+ckpt/exp10/control_k8_all/wav_k64.npy
+ckpt/exp10/control_k8_probe/check_online.json
+ckpt/exp10/control_k8_probe/meta.json
+ckpt/exp10/control_k8_probe/metrics.json
+ckpt/exp10/control_k8_probe/parity_exp03.json
+ckpt/exp10/control_k8_probe/per_sample.json
+ckpt/exp10/control_k8_probe/summary/yaw_pilot_gaps.csv
+ckpt/exp10/control_k8_probe/summary/yaw_pilot_gaps_all_arms.pdf
+ckpt/exp10/control_k8_probe/summary/yaw_pilot_gaps_all_arms.png
+ckpt/exp10/control_k8_probe/summary/yaw_pilot_gaps_control_k8.pdf
+ckpt/exp10/control_k8_probe/summary/yaw_pilot_gaps_control_k8.png
+ckpt/exp10/control_k8_probe/summary/yaw_pilot_summary.json
+ckpt/exp10/control_k8_probe/summary/yaw_pilot_tables.md
+ckpt/exp10/control_k8_probe/wav_k0.npy
+ckpt/exp10/control_k8_probe/wav_k128.npy
+ckpt/exp10/control_k8_probe/wav_k256.npy
+ckpt/exp10/control_k8_probe/wav_k384.npy
+ckpt/exp10/control_k8_probe/wav_k64.npy
+ckpt/exp10/cpu_protocol/released_k8_all/check_online.json
+ckpt/exp10/cpu_protocol/released_k8_all/check_online_premove.json
+ckpt/exp10/cpu_protocol/released_k8_all/meta.json
+ckpt/exp10/cpu_protocol/released_k8_all/metrics.json
+ckpt/exp10/cpu_protocol/released_k8_all/parity_exp03.json
+ckpt/exp10/cpu_protocol/released_k8_all/parity_exp03_premove.json
+ckpt/exp10/cpu_protocol/released_k8_all/per_sample.json
+ckpt/exp10/cpu_protocol/released_k8_all/wav_k0.npy
+ckpt/exp10/cpu_protocol/released_k8_all/wav_k128.npy
+ckpt/exp10/cpu_protocol/released_k8_all/wav_k256.npy
+ckpt/exp10/cpu_protocol/released_k8_all/wav_k384.npy
+ckpt/exp10/cpu_protocol/released_k8_all/wav_k64.npy
+ckpt/exp10/cpu_protocol/released_k8_probe/check_online.json
+ckpt/exp10/cpu_protocol/released_k8_probe/meta.json
+ckpt/exp10/cpu_protocol/released_k8_probe/metrics.json
+ckpt/exp10/cpu_protocol/released_k8_probe/parity_exp03.json
+ckpt/exp10/cpu_protocol/released_k8_probe/per_sample.json
+ckpt/exp10/cpu_protocol/released_k8_probe/summary/yaw_pilot_gaps.csv
+ckpt/exp10/cpu_protocol/released_k8_probe/summary/yaw_pilot_gaps_all_arms.pdf
+ckpt/exp10/cpu_protocol/released_k8_probe/summary/yaw_pilot_gaps_all_arms.png
+ckpt/exp10/cpu_protocol/released_k8_probe/summary/yaw_pilot_gaps_released_k8.pdf
+ckpt/exp10/cpu_protocol/released_k8_probe/summary/yaw_pilot_gaps_released_k8.png
+ckpt/exp10/cpu_protocol/released_k8_probe/summary/yaw_pilot_summary.json
+ckpt/exp10/cpu_protocol/released_k8_probe/summary/yaw_pilot_tables.md
+ckpt/exp10/cpu_protocol/released_k8_probe/wav_k0.npy
+ckpt/exp10/cpu_protocol/released_k8_probe/wav_k128.npy
+ckpt/exp10/cpu_protocol/released_k8_probe/wav_k256.npy
+ckpt/exp10/cpu_protocol/released_k8_probe/wav_k384.npy
+ckpt/exp10/cpu_protocol/released_k8_probe/wav_k64.npy
+ckpt/exp10/cpu_protocol/summary/yaw_pilot_gaps.csv
+ckpt/exp10/cpu_protocol/summary/yaw_pilot_gaps_all_arms.pdf
+ckpt/exp10/cpu_protocol/summary/yaw_pilot_gaps_all_arms.png
+ckpt/exp10/cpu_protocol/summary/yaw_pilot_gaps_released_k8.pdf
+ckpt/exp10/cpu_protocol/summary/yaw_pilot_gaps_released_k8.png
+ckpt/exp10/cpu_protocol/summary/yaw_pilot_summary.json
+ckpt/exp10/cpu_protocol/summary/yaw_pilot_tables.md
+ckpt/exp10/cyl_k8_all/check_online.json
+ckpt/exp10/cyl_k8_all/meta.json
+ckpt/exp10/cyl_k8_all/metrics.json
+ckpt/exp10/cyl_k8_all/parity_exp03.json
+ckpt/exp10/cyl_k8_all/per_sample.json
+ckpt/exp10/cyl_k8_all/wav_k0.npy
+ckpt/exp10/cyl_k8_all/wav_k128.npy
+ckpt/exp10/cyl_k8_all/wav_k256.npy
+ckpt/exp10/cyl_k8_all/wav_k384.npy
+ckpt/exp10/cyl_k8_all/wav_k64.npy
+ckpt/exp10/cyl_k8_probe/check_online.json
+ckpt/exp10/cyl_k8_probe/meta.json
+ckpt/exp10/cyl_k8_probe/metrics.json
+ckpt/exp10/cyl_k8_probe/parity_exp03.json
+ckpt/exp10/cyl_k8_probe/per_sample.json
+ckpt/exp10/cyl_k8_probe/summary/yaw_pilot_gaps.csv
+ckpt/exp10/cyl_k8_probe/summary/yaw_pilot_gaps_all_arms.pdf
+ckpt/exp10/cyl_k8_probe/summary/yaw_pilot_gaps_all_arms.png
+ckpt/exp10/cyl_k8_probe/summary/yaw_pilot_gaps_cyl_k8.pdf
+ckpt/exp10/cyl_k8_probe/summary/yaw_pilot_gaps_cyl_k8.png
+ckpt/exp10/cyl_k8_probe/summary/yaw_pilot_summary.json
+ckpt/exp10/cyl_k8_probe/summary/yaw_pilot_tables.md
+ckpt/exp10/cyl_k8_probe/wav_k0.npy
+ckpt/exp10/cyl_k8_probe/wav_k128.npy
+ckpt/exp10/cyl_k8_probe/wav_k256.npy
+ckpt/exp10/cyl_k8_probe/wav_k384.npy
+ckpt/exp10/cyl_k8_probe/wav_k64.npy
+ckpt/exp10/released_k1_all/check_online.json
+ckpt/exp10/released_k1_all/meta.json
+ckpt/exp10/released_k1_all/metrics.json
+ckpt/exp10/released_k1_all/per_sample.json
+ckpt/exp10/released_k1_all/wav_k0.npy
+ckpt/exp10/released_k1_all/wav_k128.npy
+ckpt/exp10/released_k1_all/wav_k256.npy
+ckpt/exp10/released_k1_all/wav_k384.npy
+ckpt/exp10/released_k1_all/wav_k64.npy
+ckpt/exp10/released_k1_probe/check_online.json
+ckpt/exp10/released_k1_probe/meta.json
+ckpt/exp10/released_k1_probe/metrics.json
+ckpt/exp10/released_k1_probe/per_sample.json
+ckpt/exp10/released_k1_probe/summary/yaw_pilot_gaps.csv
+ckpt/exp10/released_k1_probe/summary/yaw_pilot_gaps_all_arms.pdf
+ckpt/exp10/released_k1_probe/summary/yaw_pilot_gaps_all_arms.png
+ckpt/exp10/released_k1_probe/summary/yaw_pilot_gaps_released_k1.pdf
+ckpt/exp10/released_k1_probe/summary/yaw_pilot_gaps_released_k1.png
+ckpt/exp10/released_k1_probe/summary/yaw_pilot_summary.json
+ckpt/exp10/released_k1_probe/summary/yaw_pilot_tables.md
+ckpt/exp10/released_k1_probe/wav_k0.npy
+ckpt/exp10/released_k1_probe/wav_k128.npy
+ckpt/exp10/released_k1_probe/wav_k256.npy
+ckpt/exp10/released_k1_probe/wav_k384.npy
+ckpt/exp10/released_k1_probe/wav_k64.npy
+ckpt/exp10/released_k8_all/check_online.json
+ckpt/exp10/released_k8_all/meta.json
+ckpt/exp10/released_k8_all/metrics.json
+ckpt/exp10/released_k8_all/parity_exp03.json
+ckpt/exp10/released_k8_all/per_sample.json
+ckpt/exp10/released_k8_all/wav_k0.npy
+ckpt/exp10/released_k8_all/wav_k128.npy
+ckpt/exp10/released_k8_all/wav_k256.npy
+ckpt/exp10/released_k8_all/wav_k384.npy
+ckpt/exp10/released_k8_all/wav_k64.npy
+ckpt/exp10/released_k8_probe/check_online.json
+ckpt/exp10/released_k8_probe/meta.json
+ckpt/exp10/released_k8_probe/metrics.json
+ckpt/exp10/released_k8_probe/parity_exp03.json
+ckpt/exp10/released_k8_probe/per_sample.json
+ckpt/exp10/released_k8_probe/summary/yaw_pilot_gaps.csv
+ckpt/exp10/released_k8_probe/summary/yaw_pilot_gaps_all_arms.pdf
+ckpt/exp10/released_k8_probe/summary/yaw_pilot_gaps_all_arms.png
+ckpt/exp10/released_k8_probe/summary/yaw_pilot_gaps_released_k8.pdf
+ckpt/exp10/released_k8_probe/summary/yaw_pilot_gaps_released_k8.png
+ckpt/exp10/released_k8_probe/summary/yaw_pilot_summary.json
+ckpt/exp10/released_k8_probe/summary/yaw_pilot_tables.md
+ckpt/exp10/released_k8_probe/wav_k0.npy
+ckpt/exp10/released_k8_probe/wav_k128.npy
+ckpt/exp10/released_k8_probe/wav_k256.npy
+ckpt/exp10/released_k8_probe/wav_k384.npy
+ckpt/exp10/released_k8_probe/wav_k64.npy
+ckpt/exp10/summary/yaw_pilot_gaps.csv
+ckpt/exp10/summary/yaw_pilot_gaps_all_arms.pdf
+ckpt/exp10/summary/yaw_pilot_gaps_all_arms.png
+ckpt/exp10/summary/yaw_pilot_gaps_control_k8.pdf
+ckpt/exp10/summary/yaw_pilot_gaps_control_k8.png
+ckpt/exp10/summary/yaw_pilot_gaps_cyl_k8.pdf
+ckpt/exp10/summary/yaw_pilot_gaps_cyl_k8.png
+ckpt/exp10/summary/yaw_pilot_gaps_released_k1.pdf
+ckpt/exp10/summary/yaw_pilot_gaps_released_k1.png
+ckpt/exp10/summary/yaw_pilot_gaps_released_k8.pdf
+ckpt/exp10/summary/yaw_pilot_gaps_released_k8.png
+ckpt/exp10/summary/yaw_pilot_summary.json
+ckpt/exp10/summary/yaw_pilot_tables.md
+ckpt/exp10/summary_interim/yaw_pilot_gaps.csv
+ckpt/exp10/summary_interim/yaw_pilot_gaps_all_arms.pdf
+ckpt/exp10/summary_interim/yaw_pilot_gaps_all_arms.png
+ckpt/exp10/summary_interim/yaw_pilot_gaps_control_k8.pdf
+ckpt/exp10/summary_interim/yaw_pilot_gaps_control_k8.png
+ckpt/exp10/summary_interim/yaw_pilot_gaps_cyl_k8.pdf
+ckpt/exp10/summary_interim/yaw_pilot_gaps_cyl_k8.png
+ckpt/exp10/summary_interim/yaw_pilot_gaps_released_k1.pdf
+ckpt/exp10/summary_interim/yaw_pilot_gaps_released_k1.png
+ckpt/exp10/summary_interim/yaw_pilot_summary.json
+ckpt/exp10/summary_interim/yaw_pilot_tables.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/coder_prompts/round1_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/coder_prompts/round2_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/coder_prompts/round3_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/coder_prompts/round4_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/coder_prompts/round5_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/coder_prompts/round6_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/coder_prompts/round7_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/commits_yaw_pilot.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/plan_yaw_pilot.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/plan_yaw_pilot_v1_superseded.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/code_review_briefing.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/code_round1_full_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/code_round2_close_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/code_round3_close_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/code_round4_close_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/code_round5_close_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/code_round6_close_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/code_round7_close_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/plan_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/plan_round2_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/plan_round3_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/record_review_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/tooling_review_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_01_results.html
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_17:24:59_codex_plan_review.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_17:32:32_codex_plan_review_round2.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_17:37:52_codex_plan_review_round3.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_18:44:55_codex_code_round1_full.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_19:41:48_codex_code_round2_close.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_20:11:54_codex_code_round3_close.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_20:21:22_released_k8_chain_cpu.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_22:37:58_gpu1_queue.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_22:38:03_released_k1_chain_cuda.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_22:38:09_control_k8_chain_cuda.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-27_01:04:35_cyl_k8_chain_cuda.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-27_02:25:07_released_k1_chain_cuda.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-27_03:28:06_released_k8_chain_cuda.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-27_03:36:17_codex_tooling_review.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-27_04:38:06_codex_code_round4_close.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-27_04:38:18_cpu_protocol_reports_regen.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-27_05:32:33_codex_code_round5_close.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-27_06:40:47_codex_code_round6_close.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-27_07:39:36_codex_code_round7_close.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-27_07:49:18_finish.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-27_07:57:01_codex_record_review.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_analysis.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_code_round1_full_review.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_code_round2_close_review.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_code_round3_close_review.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_code_round4_close_review.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_code_round5_close_review.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_code_round6_close_review.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_code_round7_close_review.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_plan_review.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_plan_review_round2.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_plan_review_round3.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_tooling_review.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_command.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_params_set_up.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/SHA256SUMS
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/backend_sensitivity_released_k8.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/backend_sensitivity_released_k8.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/cpu_protocol/check_online_all.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/cpu_protocol/meta_all.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/cpu_protocol/parity_exp03_all.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/cpu_protocol/yaw_pilot_gaps.csv
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/cpu_protocol/yaw_pilot_gaps_released_k8_cpu.pdf
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/cpu_protocol/yaw_pilot_gaps_released_k8_cpu.png
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/cpu_protocol/yaw_pilot_summary.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/cpu_protocol/yaw_pilot_tables.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/control_k8/check_online_all.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/control_k8/meta_all.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/control_k8/meta_probe.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/control_k8/parity_exp03_all.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/control_k8/parity_exp03_probe.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/control_k8/probe_summary.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/cyl_k8/check_online_all.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/cyl_k8/meta_all.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/cyl_k8/meta_probe.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/cyl_k8/parity_exp03_all.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/cyl_k8/parity_exp03_probe.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/cyl_k8/probe_summary.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/released_k1/check_online_all.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/released_k1/meta_all.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/released_k1/meta_probe.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/released_k1/probe_summary.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/released_k8/check_online_all.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/released_k8/meta_all.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/released_k8/meta_probe.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/released_k8/parity_exp03_all.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/released_k8/parity_exp03_probe.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/runs/released_k8/probe_summary.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/validation.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/yaw_pilot_gaps.csv
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/yaw_pilot_gaps_all_arms.pdf
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/yaw_pilot_gaps_all_arms.png
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/yaw_pilot_gaps_control_k8.pdf
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/yaw_pilot_gaps_control_k8.png
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/yaw_pilot_gaps_cyl_k8.pdf
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/yaw_pilot_gaps_cyl_k8.png
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/yaw_pilot_gaps_released_k1.pdf
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/yaw_pilot_gaps_released_k1.png
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/yaw_pilot_gaps_released_k8.pdf
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/yaw_pilot_gaps_released_k8.png
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/yaw_pilot_summary.json
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated/yaw_pilot_tables.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/make_backend_table.py
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/make_results_html.py
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/make_results_md.py
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/scripts/exp10_arm_chain.sh
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/scripts/exp10_finish.sh
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/scripts/exp10_gpu_queue.sh
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/scripts/exp10_released_k1_after_queue.sh
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/validate_runs.py
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_worklog.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_yixun_query.md
+

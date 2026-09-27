@@ -131,3 +131,4 @@
 ## 2026-09-27T07:57:00-04:00 — FINISH DONE → results + analysis committed → Codex record review launched
 - **Result** — `exp10_finish.sh` (07:49–07:56): preflight bound 4 GPU arms + CPU record; canonical `ckpt/exp10/summary/yaw_pilot_summary.json` identical to the 04:5x preview apart from timestamps/run_dir (verified); 46 assets published under `yaw_pilot_results_assets/generated/` with a verifying `SHA256SUMS` (figures regenerated from the summary); `yaw_pilot_results.md`, `yaw_pilot_01_results.html`, backend table (16 cells, GPU vs CPU: same statuses, ≤ 0.5 % point difference). Analysis written from the canonical numbers (`yaw_pilot_analysis.md`).
 - **Command / Validation** — record review (Codex, ultra): `review_prompts/record_review_prompt.md`; log named in the next entry.
+- Record review log: `yaw_pilot_2026-09-27_07:57:01_codex_record_review.log` (launched 07:57).
