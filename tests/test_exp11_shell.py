@@ -1385,6 +1385,180 @@ def test_a_trainer_that_never_reported_its_exit_keeps_the_arm_shut(tmp_path):
     assert status == 0, err[-600:]
 
 
+# --- close review 11: a reader that cannot run decides nothing --------------------
+# Exit 1 was both "this file holds no record" and "I could not run at all". Read as the
+# first, a broken reader makes every pid in the arm look dead -- and a resolution, which
+# deliberately ignores its own target's marker, then tombstones and renames the
+# directory of a REGISTERED, RUNNING trainer. These regressions break the reader on
+# purpose and demand that nothing is decided.
+
+READERS = {
+    # The reader cannot run at all: this is what a missing interpreter, an unimportable
+    # module and a crash all look like from the shell -- exit 1, nothing on stdout.
+    'cannot run': 'exit 1',
+    # It answers, but the same way whatever it is asked: only the probes catch these.
+    'always record': 'echo "record 1"; exit 0',
+    'always norecord': 'echo norecord; exit 0',
+}
+
+
+def reader(tmp_path, kind, name='python_wrapper.sh'):
+    """A ``$PYTHON`` that breaks ONLY the pid reader.
+
+    Everything else -- the lock holder above all -- keeps the real interpreter, so the
+    publication lock is taken normally and the reader fails afterwards, which is exactly
+    the schedule the reviewer reproduced.
+    """
+    path = tmp_path / name
+    if kind == 'import error':                 # a real ImportError of the real module
+        fake = tmp_path / 'shadow'
+        (fake / 'tools').mkdir(parents=True, exist_ok=True)
+        (fake / 'tools/__init__.py').write_text('')
+        (fake / 'tools/exp11_pidrecord.py').write_text(
+            'raise ImportError("this reader is broken on purpose")\n')
+        body = 'cd "{}" && exec "{}" "$@"'.format(fake, PYTHON)
+    elif kind == 'fails on the trainer':       # healthy on the probes, blind to train.pid
+        body = 'case "$*" in *train.pid*) exit 1 ;; esac\n    exec "{}" "$@"'.format(PYTHON)
+    else:
+        body = READERS[kind]
+    path.write_text('#!/bin/sh\ncase " $* " in\n  *" tools.exp11_pidrecord "*)\n'
+                    '    {}\n    ;;\nesac\nexec "{}" "$@"\n'.format(body, PYTHON))
+    path.chmod(0o755)
+    return path
+
+
+def registered_live_attempt(tmp_path, name='attempt_20260927T161616'):
+    """The reviewer's state: a marker, a complete DEAD wrapper pid, a live trainer."""
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    attempt = old.parent / name
+    attempt.mkdir()
+    (attempt / 'launching').write_text('launcher 1\nat 2026-09-27T00:00:00+00:00\n')
+    (attempt / 'child.pid').write_text(DEAD)          # the timeout wrapper, long gone
+    stub = live_stub(attempt / 'train.pid')           # the trainer, alive and registered
+    stale = time.time() - 10_000
+    os.utime(str(attempt / 'launching'), (stale, stale))
+    return old, attempt, stub
+
+
+def resolve_with_reader(attempt, broken, grace='3600'):
+    """Take the publication lock with a working reader, then break it, then resolve."""
+    return lib('ARM_ROOT={root}\nDRY=0\nARM=H\nUNRESOLVED_GRACE_S={grace}\n'
+               'hold_arm_lock finalize || exit 9\n'
+               'PYTHON={broken}\n'
+               'resolve_unregistered {attempt}\n'.format(
+                   root=attempt.parent, grace=grace, broken=broken, attempt=attempt),
+               {'EXP11_TEST_ROOTS': '1'})
+
+
+def scan_with_reader(root, broken, mode='full'):
+    """The scan both modes run, with the reader broken after the lock is taken."""
+    return lib('ARM_ROOT={root}\nDRY=0\nARM=H\n'
+               'hold_arm_lock {mode} || exit 9\n'
+               'PYTHON={broken}\n'
+               'require_quiet_arm\n'.format(root=root, mode=mode, broken=broken),
+               {'EXP11_TEST_ROOTS': '1'})
+
+
+@pytest.mark.parametrize('kind', ['cannot run', 'import error', 'fails on the trainer'])
+def test_a_broken_reader_never_retires_a_live_trainers_attempt(tmp_path, kind):
+    """The reviewer's schedule: registered, running, and the reader breaks under the lock.
+
+    The resolution skips its own target's marker by design -- the tombstone is what makes
+    it safe -- so the ONLY thing standing between a running trainer and a retired
+    directory is the liveness answer. A reader that cannot answer must stop the
+    resolution, not be read as "nothing is alive".
+    """
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    try:
+        result = resolve_with_reader(attempt, reader(tmp_path, kind))
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert 'unknown' in result.stderr or 'unhealthy' in result.stderr, result.stderr
+        assert attempt.is_dir(), 'the live trainer keeps its directory'
+        assert (attempt / 'launching').is_file(), 'and its marker'
+        assert pid_of(attempt / 'train.pid') == stub.pid, 'and its registration'
+        assert not (old.parent / (attempt.name + '.resolved')).exists(), 'no tombstone'
+        assert not (old.parent / (attempt.name + '_ABORTED_unregistered')).exists()
+        assert 'RESOLVED' not in result.stdout and 'ABORT' not in result.stdout
+    finally:
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+@pytest.mark.parametrize('mode', ['full', 'finalize'])
+def test_a_broken_reader_stops_the_scan_of_either_mode(tmp_path, mode):
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    try:
+        result = scan_with_reader(old.parent, reader(tmp_path, 'fails on the trainer'),
+                                  mode=mode)
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert 'liveness unknown' in result.stderr, result.stderr
+        assert (attempt / 'launching').is_file() and attempt.is_dir()
+    finally:
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+def test_a_broken_reader_stops_a_recovery_through_the_cli(tmp_path):
+    """The same through the launcher itself, which decides liveness with $PYTHON."""
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    try:
+        status, out, err = launch(
+            ['finalize', '--arm', 'H', '--gpu', '1', '--reviewed-commit', COMMIT,
+             '--attempt', str(old), '--log', 'L.log', '--child-exit', '0', '--dry-run'],
+            {'EXP11_PRETRAIN_ROOT': str(tmp_path), 'EXP11_TEST_ROOTS': '1',
+             'EXP11_PYTHON': str(reader(tmp_path, 'cannot run'))})
+        assert status == 2, out
+        assert 'PROMOTE' not in out
+        assert 'unhealthy' in err or 'liveness unknown' in err, err
+        assert attempt.is_dir() and (attempt / 'launching').is_file()
+    finally:
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+def test_the_interpreter_override_is_refused_outside_the_test_roots(tmp_path):
+    """It exists for these regressions alone, and says so when anyone else tries it."""
+    status, out, err = launch(
+        ['finalize', '--arm', 'H', '--gpu', '1', '--reviewed-commit', COMMIT,
+         '--attempt', str(tmp_path), '--log', 'L.log', '--child-exit', '0', '--dry-run'],
+        {'EXP11_PYTHON': '/bin/false'})
+    assert status == 2 and 'EXP11_PYTHON' in err
+
+
+@pytest.mark.parametrize('kind,caught_by', [('always record', 'an empty file'),
+                                            ('always norecord', 'a file holding 1')])
+def test_the_health_check_catches_a_reader_that_answers_everything_the_same(
+        tmp_path, kind, caught_by):
+    """Two probes, because one answer is not a working reader.
+
+    A reader stuck on `record 1` calls every pid file a registration; one stuck on
+    `norecord` calls every trainer dead. Neither fails, so only asking it something
+    whose answer is known catches them.
+    """
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    try:
+        result = scan_with_reader(old.parent, reader(tmp_path, kind))
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert 'unhealthy' in result.stderr, result.stderr
+        assert caught_by in result.stderr, result.stderr
+    finally:
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+def test_a_broken_reader_leaves_the_marker_standing(tmp_path):
+    """clear_launching cannot withdraw a marker it cannot justify withdrawing."""
+    attempt = tmp_path / 'xRIR_simpor_8_shot' / 'attempt_20260927T171717'
+    attempt.mkdir(parents=True)
+    (attempt / 'launching').write_text('launcher 1\n')
+    (attempt / 'child.pid').write_text(DEAD)
+    (attempt / 'train.exit').write_text('train.exit 0\n')
+    result = lib('PYTHON={broken}\nclear_launching {attempt}\n'.format(
+        broken=reader(tmp_path, 'cannot run'), attempt=attempt))
+    assert result.returncode == 0, result.stderr[-300:]
+    assert (attempt / 'launching').is_file(), 'unknown is not a reason to clear'
+
+
 def pid_of(pidfile):
     """The pid in a registration file, if it still names a living process."""
     try:
