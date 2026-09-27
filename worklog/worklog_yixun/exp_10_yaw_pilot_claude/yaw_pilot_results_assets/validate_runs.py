@@ -40,6 +40,16 @@ Waveform arrays are checked by size against their recorded shape and dtype by de
 summariser re-hashes every array through ``tools/exp10_compare.load_run`` when it builds
 the summary a moment later, so the cheap check here is a preflight, not the only binding.
 
+The renderers share the summary bindings in this module (``verify_summary_inputs`` /
+``check_supplements`` / ``check_probe_summary``).  A summary is bound in *both* directions:
+its ``inputs`` entries against the live files they name, and every rendered ``arms[]``
+payload against the unique input entry for that arm and the hash-verified live ``meta.json``
+of the run it names (``check_arm_payload``) — identities, ``batches_arg``, the per-sample
+digest and the ``meta.arrays`` waveform digests.  Verified inputs alone were not enough: a
+complete arm payload transplanted from another independently bound summary rendered in both
+renderers, so the page showed one execution while the provenance named another (round-5
+review, finding 2).
+
 usage: validate_runs.py [--root ckpt/exp10] [--arms released_k8 ...] [--expect-n 6337]
                         [--device cuda] [--cpu-run <dir>|--no-cpu]
                         [--array-check size|full|none] [--json <report.json>]
@@ -59,6 +69,12 @@ EXPECTED_N_QUERIES = 6337
 DTYPE_BYTES = {"float16": 2, "float32": 4, "float64": 8, "int16": 2, "int32": 4, "int64": 8}
 NPY_HEADER_SLACK = 4096          # a .npy header is 128 bytes today; never a whole block
 IDENTITY_FIELDS = ("execution_id", "protocol_id", "per_sample_sha256")
+# What a rendered ``arms[]`` entry claims in its own right, and what its embedded copy of the
+# run's ``meta.json`` claims: both have to be the run the summary's ``inputs`` entry binds
+# (round-5 review, finding 2).
+ARM_IDENTITY_FIELDS = ("arm", "execution_id", "protocol_id")
+ARM_META_FIELDS = ("arm", "execution_id", "protocol_id", "device", "batches_arg",
+                   "n_queries", "per_sample_sha256", "query_list_sha256", "metrics_sha256")
 
 
 class ValidationError(Exception):
@@ -82,6 +98,16 @@ def read_json(path):
 def same_path(left, right):
     """True if two paths name the same directory or file after resolving symlinks."""
     return os.path.realpath(str(left)) == os.path.realpath(str(right))
+
+
+def unique(problems):
+    """``problems`` with duplicates dropped, in order (a flaw stated twice is one flaw)."""
+    seen, out = set(), []
+    for problem in problems:
+        if problem not in seen:
+            seen.add(problem)
+            out.append(problem)
+    return out
 
 
 def assert_ok(problems, label):
@@ -274,6 +300,86 @@ def bind_report(path, run_dir, meta, kind, require_ok=True, label=None):
     return report, problems, binding
 
 
+def check_arm_payload(arm_entry, input_entry, live_meta, label):
+    """Bind one rendered ``arms[]`` payload to its input entry and to the run's live meta.
+
+    The round-5 review transplanted another independently bound summary's *complete* arm
+    payload into a summary whose ``inputs`` entry bound a different execution: the page
+    displayed CPU execution B while the provenance and the successful online / parity
+    evidence identified CUDA execution A, and both renderers exited 0.  Binding the
+    ``inputs`` was not enough, because nothing ever compared them with what is rendered.
+
+    So every identity the payload carries in its own right (``arm``, ``execution_id``,
+    ``protocol_id``, ``n_queries``) and every field of its embedded copy of the run's
+    ``meta.json`` that the run records itself — ``batches_arg``, ``per_sample_sha256``, the
+    query-list digest, the device, and each ``meta.arrays`` waveform digest — has to equal
+    the unique ``inputs`` entry for that arm *and* the hash-verified live ``meta.json`` of
+    the run that entry names.
+
+    Args:
+        arm_entry: one element of ``summary["arms"]``.
+        input_entry: the ``inputs`` entry that binds this arm, or ``None`` when there is no
+            unique one (the caller refuses that separately).
+        live_meta: the run's ``meta.json`` as it is on disk, or ``None`` when it could not be
+            read or no longer hashes to the summary's binding (also refused separately).
+        label: how to name this summary in the messages.
+
+    Returns:
+        The problems found; empty when the payload is the run's own.
+    """
+    arm = arm_entry.get("arm")
+    problems = []
+    embedded = arm_entry.get("meta")
+    if not isinstance(embedded, dict):
+        problems.append("%s: the rendered arm %r carries no embedded meta, so its payload "
+                        "cannot be bound to a run" % (label, arm))
+        embedded = {}
+    for field in ARM_IDENTITY_FIELDS:
+        for what, other in (("the inputs entry that binds it", input_entry),
+                            ("the run it is bound to", live_meta)):
+            if other is None or field not in other:
+                continue
+            if arm_entry.get(field) != other.get(field):
+                problems.append("%s: the rendered arm %r has %s %r, but %s has %r"
+                                % (label, arm, field, arm_entry.get(field), what,
+                                   other.get(field)))
+    if input_entry is not None and "per_sample_sha256" in input_entry \
+            and embedded.get("per_sample_sha256") != input_entry.get("per_sample_sha256"):
+        problems.append("%s: the rendered arm %r has meta.per_sample_sha256 %r, but the "
+                        "inputs entry that binds it has %r"
+                        % (label, arm, embedded.get("per_sample_sha256"),
+                           input_entry.get("per_sample_sha256")))
+    if live_meta is None:
+        return problems
+    if arm_entry.get("n_queries") != live_meta.get("n_queries"):
+        problems.append("%s: the rendered arm %r has n_queries %r, but the run it is bound "
+                        "to has %r" % (label, arm, arm_entry.get("n_queries"),
+                                       live_meta.get("n_queries")))
+    for field in ARM_META_FIELDS:
+        if field in live_meta and embedded.get(field) != live_meta.get(field):
+            problems.append("%s: the rendered arm %r has meta.%s %r, but the run it is bound "
+                            "to has %r" % (label, arm, field, embedded.get(field),
+                                           live_meta.get(field)))
+    live_arrays = live_meta.get("arrays") or {}
+    arrays = embedded.get("arrays") or {}
+    for name in sorted(live_arrays):
+        if name not in arrays:
+            problems.append("%s: the rendered arm %r has no meta.arrays binding for %s, "
+                            "which the run it is bound to recorded" % (label, arm, name))
+            continue
+        for key in ("sha256", "shape", "dtype"):
+            mine = (arrays.get(name) or {}).get(key)
+            theirs = (live_arrays.get(name) or {}).get(key)
+            if mine != theirs:
+                problems.append("%s: the rendered arm %r binds %s with %s %r, but the run it "
+                                "is bound to recorded %r" % (label, arm, name, key, mine,
+                                                             theirs))
+    for name in sorted(n for n in arrays if n not in live_arrays):
+        problems.append("%s: the rendered arm %r binds a waveform array %s the run it is "
+                        "bound to does not have" % (label, arm, name))
+    return problems
+
+
 def verify_summary_inputs(summary, arms=None, label="summary"):
     """Re-verify a summariser JSON's ``inputs`` against the live files it names.
 
@@ -284,15 +390,21 @@ def verify_summary_inputs(summary, arms=None, label="summary"):
     The ``inputs`` also have to be a *bijection* with the arms the summary renders: the
     round-4 review kept only the control arm's binding and all three arms still rendered, so
     an arm with no entry — or with two entries claiming it — is refused here.
+
+    Finally, each rendered ``arms[]`` payload is compared with the input entry that binds it
+    and with the hash-verified live ``meta.json`` of the run that entry names
+    (``check_arm_payload``): the round-5 review rendered a complete payload from another
+    execution through verified bindings, because the two halves were never compared.
     """
     problems = []
     entries = summary.get("inputs")
     if not entries:
         return ["%s: has no inputs block; its numbers are unbound" % label]
     rendered = [a.get("arm") for a in summary.get("arms") or []]
-    counts = {}
+    counts, by_arm = {}, {}
     for entry in entries:
         counts[entry.get("arm")] = counts.get(entry.get("arm"), 0) + 1
+        by_arm[entry.get("arm")] = entry
     for arm in rendered:
         if counts.get(arm, 0) != 1:
             problems.append("%s: arm %r is rendered but %d inputs entries bind it; exactly "
@@ -300,11 +412,13 @@ def verify_summary_inputs(summary, arms=None, label="summary"):
     for arm in sorted(str(k) for k in counts if rendered and k not in rendered):
         problems.append("%s: the inputs entry for %r binds no rendered arm (this summary "
                         "covers %s)" % (label, arm, ", ".join(str(a) for a in rendered)))
+    verified = {}          # arm -> the live meta, when it still hashes to the summary's binding
     for entry in entries:
         run_dir = entry.get("run_dir")
         if arms is not None and entry.get("arm") not in arms:
             problems.append("%s: input arm %r is not one of %s"
                             % (label, entry.get("arm"), ", ".join(sorted(arms))))
+        meta_bound = False
         for name, key in (("per_sample.json", "per_sample_sha256"), ("meta.json", "meta_sha256")):
             path = os.path.join(str(run_dir), name)
             if not os.path.isfile(path):
@@ -314,6 +428,8 @@ def verify_summary_inputs(summary, arms=None, label="summary"):
             if live != entry.get(key):
                 problems.append("%s: %s hashes to %s, not the %s the summary was built from"
                                 % (label, path, live, entry.get(key)))
+            elif name == "meta.json":
+                meta_bound = True
         meta_path = os.path.join(str(run_dir), "meta.json")
         if os.path.isfile(meta_path):
             meta = read_json(meta_path)
@@ -325,11 +441,24 @@ def verify_summary_inputs(summary, arms=None, label="summary"):
                 if meta.get(field) != entry.get(field):
                     problems.append("%s: %s has %s %r, the summary recorded %r"
                                     % (label, run_dir, field, meta.get(field), entry.get(field)))
+            if meta_bound:
+                verified[entry.get("arm")] = meta
+    for arm_entry in summary.get("arms") or []:
+        arm = arm_entry.get("arm")
+        if counts.get(arm, 0) != 1:
+            continue          # no unique binding to compare it with: already refused above
+        problems.extend(check_arm_payload(arm_entry, by_arm.get(arm), verified.get(arm), label))
     return problems
 
 
 def check_probe_summary(path, arm, probe_meta, probe_dir=None, require_controls_ok=True):
-    """Validate a probe run's own summary: exactly that arm, that execution, controls ok."""
+    """Validate a probe run's own summary: exactly that arm, that execution, controls ok.
+
+    The rendered arm payload is bound to ``probe_meta`` — the live meta of the probe run the
+    caller verified — the same way the canonical summary's payloads are bound
+    (``check_arm_payload``): the round-5 review accepted a probe summary whose arm entry
+    contradicted its own input and protocol.
+    """
     label = "%s probe summary" % arm
     problems, binding = [], {"path": os.path.abspath(path)}
     if not os.path.isfile(path):
@@ -348,9 +477,9 @@ def check_probe_summary(path, arm, probe_meta, probe_dir=None, require_controls_
     binding["execution_id"] = entry.get("execution_id")
     binding["n_queries"] = entry.get("n_queries")
     binding["controls_ok"] = (entry.get("controls") or {}).get("ok")
-    if probe_meta and entry.get("execution_id") != probe_meta.get("execution_id"):
-        problems.append("%s: the summary's execution %r is not the probe run's %r"
-                        % (label, entry.get("execution_id"), probe_meta.get("execution_id")))
+    # The whole payload, not only the execution it claims: identities, digests and array
+    # bindings all have to be the probe run's (round-5 review, finding 2).
+    problems.extend(check_arm_payload(entry, None, probe_meta, label))
     if (entry.get("meta") or {}).get("batches_arg") != "probe":
         problems.append("%s: the summarised run's batches_arg is %r, not 'probe'"
                         % (label, (entry.get("meta") or {}).get("batches_arg")))
@@ -363,7 +492,9 @@ def check_probe_summary(path, arm, probe_meta, probe_dir=None, require_controls_
     if require_controls_ok and binding["controls_ok"] is not True:
         problems.append("%s: controls.ok is %r, not true" % (label, binding["controls_ok"]))
     problems.extend(verify_summary_inputs(summary, label=label))
-    return summary, problems, binding
+    # The payload was bound twice — against the probe run the caller verified and against the
+    # run this summary's own inputs name — so one flaw can be stated twice; say it once.
+    return summary, unique(problems), binding
 
 
 def link_href(path, assets_dir, assets_href, out_path):

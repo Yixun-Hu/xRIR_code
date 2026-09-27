@@ -52,6 +52,14 @@ def out(completed):
     return completed.stdout.decode("utf-8", "replace")
 
 
+def set_in(entry, path, value):
+    """Set ``entry[path[0]][path[1]]... = value`` (the tests edit one nested field)."""
+    target = entry
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+
+
 # --------------------------------------------------------------------------------------
 # Finding 1 -- the finish preflight has to require, validate and bind the run evidence.
 # --------------------------------------------------------------------------------------
@@ -188,6 +196,27 @@ def test_probe_summary_of_another_execution_is_refused(validate, tree):
     report = validate_tree(validate, root)
     assert report["ok"] is False
     assert any("probe" in p.lower() for p in report["problems"])
+
+
+@pytest.mark.parametrize("field,value", [
+    (("protocol_id",), "not-this-protocol"),
+    (("n_queries",), 7),
+    (("meta", "per_sample_sha256"), "0" * 64),
+    (("meta", "arrays", "wav_k64.npy", "sha256"), "1" * 64),
+])
+def test_a_probe_summary_payload_contradicting_the_probe_run_is_refused(validate, tree,
+                                                                       field, value):
+    """Round-5 finding 2: the preflight bound the probe summary's inputs but never compared
+    the *rendered* arm payload with them or with the live probe meta."""
+    root, built = tree
+    probe_dir, _ = built["control_k8"]["probe"]
+    path = os.path.join(probe_dir, "summary", "yaw_pilot_summary.json")
+    summary = fx.read_json(path)
+    set_in(summary["arms"][0], field, value)
+    fx.write_json(path, summary)
+    report = validate_tree(validate, root)
+    assert report["ok"] is False
+    assert any(field[-1] in p for p in report["problems"]), report["problems"]
 
 
 def test_missing_probe_meta_is_refused(validate, tree):
@@ -723,6 +752,117 @@ def test_a_probe_summary_naming_a_full_run_is_refused(render_case, renderer):
     done = renderer(render_case, probe=["%s=%s" % (arm, path)])
     assert done.returncode != 0
     assert "probe" in out(done)
+
+
+def execution_b(case, arm, device="cpu"):
+    """A second, independently bound run and summary of ``arm`` (another execution)."""
+    other_dir = os.path.join(case["root"], "%s_all_execution_b" % arm)
+    other_meta = fx.write_run(other_dir, arm=arm, device=device, n_queries=32)
+    return other_dir, other_meta, fx.build_summary([(other_dir, other_meta)])
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_a_transplanted_arm_payload_is_refused(render_case, renderer):
+    """Round-5 finding 2, the blocker: a *complete* ``arms[]`` payload transplanted from
+    another independently bound summary rendered in both renderers, exit 0.  The page showed
+    CPU execution B while the provenance and the online / parity evidence identified CUDA
+    execution A: the verified ``inputs`` and the rendered payloads were never compared."""
+    arm = "control_k8"
+    _dir, _meta, foreign = execution_b(render_case, arm)
+    summary = fx.read_json(render_case["summary"])
+    bound = [i for i in summary["inputs"] if i["arm"] == arm][0]
+    assert foreign["arms"][0]["execution_id"] != bound["execution_id"]
+    summary["arms"] = [foreign["arms"][0] if a["arm"] == arm else a for a in summary["arms"]]
+    fx.write_json(render_case["summary"], summary)
+    done = renderer(render_case)
+    assert done.returncode == 2, out(done)
+    assert "execution_id" in out(done) and arm in out(done)
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+@pytest.mark.parametrize("field,value", [
+    (("execution_id",), "20260927T000000Z-not-this-execution"),
+    (("protocol_id",), "not-this-protocol"),
+    (("arm",), "released_k8"),
+    (("n_queries",), 7),
+    (("meta", "execution_id"), "20260927T000000Z-not-this-execution"),
+    (("meta", "protocol_id"), "not-this-protocol"),
+    (("meta", "batches_arg"), "probe"),
+    (("meta", "n_queries"), 7),
+    (("meta", "device"), "cpu"),
+    (("meta", "per_sample_sha256"), "0" * 64),
+    (("meta", "query_list_sha256"), "0" * 64),
+    (("meta", "arrays", "wav_k64.npy", "sha256"), "1" * 64),
+    (("meta", "arrays", "wav_k64.npy", "shape"), [7, 16]),
+])
+def test_a_rendered_arm_payload_that_contradicts_its_run_is_refused(render_case, renderer,
+                                                                   field, value):
+    """Every identity and digest the transplant carries, one at a time: the rendered payload
+    has to be the one its unique ``inputs`` entry and the hash-verified live ``meta.json``
+    describe.  ``arm`` renames the entry, so the payload then binds no input at all."""
+    summary = fx.read_json(render_case["summary"])
+    set_in(summary["arms"][0], field, value)
+    fx.write_json(render_case["summary"], summary)
+    done = renderer(render_case)
+    assert done.returncode == 2, out(done)
+    assert field[-1] in out(done) or "control_k8" in out(done)
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_a_rendered_arm_payload_missing_an_array_binding_is_refused(render_case, renderer):
+    """The waveform digests are part of the payload: a summary that drops one no longer says
+    which arrays its numbers came from."""
+    summary = fx.read_json(render_case["summary"])
+    del summary["arms"][0]["meta"]["arrays"]["wav_k128.npy"]
+    fx.write_json(render_case["summary"], summary)
+    done = renderer(render_case)
+    assert done.returncode == 2, out(done)
+    assert "wav_k128.npy" in out(done)
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_a_rendered_arm_payload_with_a_foreign_array_binding_is_refused(render_case, renderer):
+    """... and one that binds an array the run does not have describes another run."""
+    summary = fx.read_json(render_case["summary"])
+    arrays = summary["arms"][0]["meta"]["arrays"]
+    arrays["wav_k512.npy"] = dict(arrays["wav_k64.npy"], k=512)
+    fx.write_json(render_case["summary"], summary)
+    done = renderer(render_case)
+    assert done.returncode == 2, out(done)
+    assert "wav_k512.npy" in out(done)
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_a_probe_summary_whose_arm_payload_contradicts_its_input_is_refused(render_case,
+                                                                           renderer):
+    """Round-5 finding 2: probe validation accepted contradictory arm protocol / payload
+    identities.  A probe summary's rendered arm entry has to be the run its own input binding
+    -- and the live probe meta -- describe, exactly like the canonical summary's."""
+    arm = "control_k8"
+    path = os.path.join(render_case["tree"][arm]["probe"][0], "summary",
+                        "yaw_pilot_summary.json")
+    probe = fx.read_json(path)
+    probe["arms"][0]["protocol_id"] = "contradictory-protocol"
+    probe["arms"][0]["meta"]["per_sample_sha256"] = "0" * 64
+    fx.write_json(path, probe)
+    done = renderer(render_case)
+    assert done.returncode == 2, out(done)
+    assert "protocol_id" in out(done) and "per_sample_sha256" in out(done)
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_a_probe_summary_carrying_a_transplanted_arm_payload_is_refused(render_case, renderer):
+    """The same transplant against a probe summary: another execution's complete payload."""
+    arm = "control_k8"
+    path = os.path.join(render_case["tree"][arm]["probe"][0], "summary",
+                        "yaw_pilot_summary.json")
+    probe = fx.read_json(path)
+    _dir, _meta, foreign = execution_b(render_case, arm)
+    probe["arms"] = [foreign["arms"][0]]
+    fx.write_json(path, probe)
+    done = renderer(render_case)
+    assert done.returncode == 2, out(done)
+    assert "execution_id" in out(done)
 
 
 def test_html_does_not_copy_a_foreign_figure(render_case):
