@@ -102,3 +102,35 @@ required, and exit 0 where a conflict or a held lock had to refuse.
 3. **`0b10d7c` was fix cycle 2's last production commit.** The commit after it
    (`1c4498e`) adds only a record-scoped `.gitattributes`; it changes no production code
    and is not part of any approvals closure.
+
+## Digests
+
+Taken at `3284068`; the last commit that touches production code is `c8b2ff0` (the two
+commits after it change a test file's docstrings and this record, neither of which is in
+any approvals closure), so these values stand for the whole cycle.
+
+**exp_06** — exactly **one** key moved against the record re-filled at `9f98bbb`; the
+other nineteen are unchanged:
+
+| key | approved at 9f98bbb | now |
+|---|---|---|
+| `summarize_haa` | `645e74c03e20…` | `deff6d49d8e9…` |
+
+**exp_11** — all eight keys:
+
+| key | digest |
+|---|---|
+| `train` | `d9cbb9de8eb0ec85ac85664d9e0da7afe156e5b169bbe89096953d863cf15571` |
+| `finalize` | `3eb15b59b672d97ac257054e66f8bc835abd27b85e24f9a417a5a1aaa9e25b9e` |
+| `haa_finetune` | `bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150` |
+| `haa_eval` | `f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20` |
+| `haa_pipeline_sh` | `3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4` |
+| `launch_sh` | `32a23ee058e2e21da2a922a0042673e092d053b6f8fc9b73eb5fb15595f08e4b` |
+| `smoke` | `62133ba07a35d42026c19fd1484b37c6c06ace0ebedc1cdd8484690df323450e` |
+| `summarize_haa` | `deff6d49d8e903d7e0d5005c5d40199b53ca35cdedfd71a90938df9815d0004a` |
+
+**Exactly one key moved against the fix-2 tip `612e3dd`: `launch_sh`**
+(`737414cc…` → `32a23ee0…`), which is the whole of this cycle's production change.
+`summarize_haa` is unchanged from fix 2 (`deff6d49…`), as are the other six. These are
+values for the **eventual reviewed merge**, not an authorisation to fill the approvals
+now: exp_11's record stays all-null and every exp_11 producer refuses today.
