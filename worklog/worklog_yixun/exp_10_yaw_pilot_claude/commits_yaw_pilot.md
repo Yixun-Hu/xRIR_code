@@ -1,10 +1,17 @@
 # exp_10 yaw_pilot — commits
 
-## main (first-parent, from the scaffold)
+## main, first-parent, from the scaffold (`ac06bca`) to HEAD (exp_10 entries; interleaved commits of other experiments are listed separately below)
+- ac06bca exp_10 yaw_pilot: scaffold, query, plan v1, Codex plan-review prompt
+- 885240c exp_10: worklog (plan review launched, worktree wt10)
+- 8ceec14 exp_10: plan v2 after Codex round-1 review; round-2 review at ultra launched
+- 0c40c63 exp_10: Coder round-1 prompt draft; probe batches; pin check
+- c52ee94 exp_10: worklog (GPU window after 22:30)
+- b430041 exp_10: plan v3 after Codex round-2 review; round-3 review launched
+- 1ee3a69 exp_10: Coder prompt draft updated to plan v3
+- c4b506d exp_10: worklog note on review prompt framing
+- 007bd89 Move Yixun's reference inputs (paper PDF ignored, two reference PNGs) out of the repo root
 - 023071f exp_10: plan v3.1 (round-3 approval with amendments A1-A4); Coder round-1 prompt final
 - c6233e3 exp_10: code-review briefing; arm launcher draft
-- 585804d exp_11 record opened: orientation-cue fairness ablation — plan v1→v3, Codex plan reviews (rounds 1–2), Coder round-1 prompt, params, query log (record only)
-- 31170e2 exp_11: commit index (585804d)
 - 3343454 exp_10: Coder round 1 logged; Codex full code review launched
 - 807a301 exp_10: Codex round-1 full review (request changes); Coder round-2 fix prompt
 - e755792 exp_10: params set-up draft
@@ -18,28 +25,14 @@
 - 9a9de52 exp_10: launch record for the released_k8 CPU chain
 - ee31cbc exp_10: chain script v1.1 (unset PYTHONPATH under set -u); relaunch
 - be5f87d exp_10: worklog (main-tree tests 162 passed; probe running)
-- 44181e3 exp_11 bookkeeping: Coder round-1 report, Codex code review round 1 (request changes), fix-cycle prompt, Phase-1 runbook and results generators (record only)
-- 33d4f75 exp_11: commit index (44181e3)
 - 31010b7 exp_10: probe gate passed (released_k8, CPU); full run launched
 - d3a1cf9 exp_10: GPU queue script for the remaining three arms
-- 32d1b87 exp_11 bookkeeping: Coder round-1 fix report, close-review prompt and launch (record only)
-- 99abf77 exp_11: commit index (32d1b87)
 - 0a770d1 exp_10: GPU 1 queue launch record
 - c737b94 exp_10: queue script v1.1 (hard-coded K=1 hash); released_k1 re-queued after the queue
 - e2259f3 exp_10: results HTML generator (canonical JSON in, page + assets out; draft for record review)
 - af49827 exp_10: results Markdown generator (canonical JSON in; draft for record review)
-- bb1b59d exp11: merge round 1 — arm G yawaug_hf (heading-frame init), exp_11 phase-1 summariser (generic decision fields, N1i interaction cell, screen families, R1 copied rows) at 91fbd8b
-- 9f98bbb exp06/exp11: approvals re-fill after the exp_11 round-1 merge (haa_pipeline_sh, summarize_haa:645e74c0)
-- 08a1554 exp_11 bookkeeping: close reviews 1–2, fix-cycle prompts/reports, merge/refill logs, suite capture (record only)
-- d3d2ecc exp_11: commit index (08a1554, bb1b59d, 9f98bbb)
 - c491396 exp_10: worklog (exp_11 merge on main; CPU contention note)
-- c640107 exp_11 bookkeeping: Coder round-1 report (wording narrowed in fix cycle 1) and fix-cycle-2 report (record only)
-- f8ca51d exp_11: Coder round-2 prompt (exp_11-owned family); commit index
-- 0a2a2e6 exp_11: commit index
 - 032b7c6 exp_10: worklog (control_k8 done, full-run parity exact; timings)
-- f290f42 exp_11 bookkeeping: post-merge suite (4 environmental failures, re-run green), Coder suite capture (record only)
-- 83905a9 exp_11 bookkeeping: Coder round-2 report, round-2 code-review prompt/launch (record only)
-- d9c8130 exp_11 bookkeeping: Codex code review round 2 (request changes, 5 blockers), fix-cycle prompt (record only)
 - f31d8e6 exp_10: worklog (cyl_k8 done, parity exact; released_k1 started)
 - b47ff59 exp_10: worklog (released_k1 done; released_k8 CPU = separate protocol, GPU re-run decided)
 - 5016b63 exp_10: released_k8 GPU re-run launch record
@@ -49,69 +42,73 @@
 - 9728af6 exp_10: record-review prompt (draft for the end-game)
 - 1ef60f0 exp_10: Codex tooling review (request changes); plan A5/A6; round-4 prompt; worklog disclosures
 - e43fed8 exp_10: round-4 close review prompt
-- 158dd74 exp_11 bookkeeping: Coder round-2 fix report, close-review prompt/launch, Phase-1b/2 runbook (record only)
-- 5d64393 exp_11 bookkeeping: Codex close review of round 2 (3 residual blockers), fix-cycle-2 prompt (record only)
 - e9ae3c4 exp_10: round-4 delivery logged; close review launched
 - e492e98 exp_10: CPU-protocol derived reports regenerated in place (command + log)
 - bc0b9df exp_10: worklog (CPU-protocol reports regenerated, identical apart from run_dir)
 - 28fb4f1 exp_10: worklog (released_k8 GPU arm done, exact parity; GPU 1 released)
 - 091f5d3 exp_10: Codex round-4 close review (request changes); round-5 prompt
 - d0831d0 exp_10: round-5 close review prompt
-- 939e413 exp_11 bookkeeping: Coder round-2 fix-2 report, close-review-2 prompt/launch (record only)
-- cf1e8c5 exp_11 bookkeeping: Codex close review 2 of round 2 (1 blocker: recovery safety), fix-cycle-3 prompt (record only)
 - b924cd6 exp_10: round-5 delivery logged; close review launched
 - 92ed42e exp_10: Codex round-5 close review (2 residual blockers); round-6 prompt
 - dd9b9dd exp_10: round-6 close review prompt
 - 8ea3520 exp_10: round-6 delivery logged; close review launched
-- 80276a6 exp_11 bookkeeping: Coder round-2 fix-3 report, close-review-3 prompt/launch (record only)
-- 0c63a82 exp_11 bookkeeping: Codex close review 3 of round 2 (2 lock defects), fix-cycle-4 prompt (record only)
 - f920717 exp_10: Codex round-6 close review (2 rollback defects); round-7 prompt
 - d5f503d exp_10: round-7 close review prompt
 - 91d5b22 exp_10: round-7 delivery logged; close review launched
 - 0b662b0 exp_10: Codex round-7 close review (approved; finish may build the record)
 - 415268d Merge exp10-yaw-pilot rounds 4-7: record tooling (validate_runs, staged finish, bound renderers, backend table, chain/queue hardening) + tests (Codex-approved)
 - 97ede19 exp_10: finish launch record
+- a9d1d51 exp_10: params set-up executed-runs table; commits list
+- 8009347 exp_10: results (Markdown + HTML + generated assets, SHA256SUMS) and analysis
+- 37d4750 exp_10: worklog (finish done; record review)
+- ad0302e exp_10: worklog (record review log)
 
-## exp10-yaw-pilot branch (Coder, Claude Opus 5; rounds 1–7)
-- c6233e3 exp_10: code-review briefing; arm launcher draft
-- 52a5d5f exp_10 round 1: Metric-1 waveform and spectrogram gaps
+## interleaved on main in the same span (other experiments / sessions, not part of exp_10)
 - 585804d exp_11 record opened: orientation-cue fairness ablation — plan v1→v3, Codex plan reviews (rounds 1–2), Coder round-1 prompt, params, query log (record only)
 - 31170e2 exp_11: commit index (585804d)
+- 44181e3 exp_11 bookkeeping: Coder round-1 report, Codex code review round 1 (request changes), fix-cycle prompt, Phase-1 runbook and results generators (record only)
+- 33d4f75 exp_11: commit index (44181e3)
+- 32d1b87 exp_11 bookkeeping: Coder round-1 fix report, close-review prompt and launch (record only)
+- 99abf77 exp_11: commit index (32d1b87)
+- bb1b59d exp11: merge round 1 — arm G yawaug_hf (heading-frame init), exp_11 phase-1 summariser (generic decision fields, N1i interaction cell, screen families, R1 copied rows) at 91fbd8b
+- 9f98bbb exp06/exp11: approvals re-fill after the exp_11 round-1 merge (haa_pipeline_sh, summarize_haa:645e74c0)
+- 08a1554 exp_11 bookkeeping: close reviews 1–2, fix-cycle prompts/reports, merge/refill logs, suite capture (record only)
+- d3d2ecc exp_11: commit index (08a1554, bb1b59d, 9f98bbb)
+- c640107 exp_11 bookkeeping: Coder round-1 report (wording narrowed in fix cycle 1) and fix-cycle-2 report (record only)
+- f8ca51d exp_11: Coder round-2 prompt (exp_11-owned family); commit index
+- 0a2a2e6 exp_11: commit index
+- f290f42 exp_11 bookkeeping: post-merge suite (4 environmental failures, re-run green), Coder suite capture (record only)
+- 83905a9 exp_11 bookkeeping: Coder round-2 report, round-2 code-review prompt/launch (record only)
+- d9c8130 exp_11 bookkeeping: Codex code review round 2 (request changes, 5 blockers), fix-cycle prompt (record only)
+- 158dd74 exp_11 bookkeeping: Coder round-2 fix report, close-review prompt/launch, Phase-1b/2 runbook (record only)
+- 5d64393 exp_11 bookkeeping: Codex close review of round 2 (3 residual blockers), fix-cycle-2 prompt (record only)
+- 939e413 exp_11 bookkeeping: Coder round-2 fix-2 report, close-review-2 prompt/launch (record only)
+- cf1e8c5 exp_11 bookkeeping: Codex close review 2 of round 2 (1 blocker: recovery safety), fix-cycle-3 prompt (record only)
+- 80276a6 exp_11 bookkeeping: Coder round-2 fix-3 report, close-review-3 prompt/launch (record only)
+- 0c63a82 exp_11 bookkeeping: Codex close review 3 of round 2 (2 lock defects), fix-cycle-4 prompt (record only)
+- c0999d4 exp_11 bookkeeping: Coder round-2 fix-4 report, close-review-4 prompt/launch (record only)
+- 0c57d45 exp_11 bookkeeping: Codex close review 4 of round 2 (2 lock defects), fix-cycle-5 prompt (record only)
+
+## exp10-yaw-pilot branch (Coder, Claude Opus 5; rounds 1–7; merges of main excluded)
+- 52a5d5f exp_10 round 1: Metric-1 waveform and spectrogram gaps
 - df8b39b exp_10 round 1: acoustic gaps and raw EDT/C50/T60 measures
 - bcc2bbe exp_10 round 1: device-agnostic apply_delay and its patch point
 - f300bbd exp_10 round 1: angle_logspec, the pinned-alignment rotated forward
 - 061a05c exp_10 round 1: invert, the stored-waveform Griffin-Lim step
 - b16b4ec exp_10 round 1: evaluate_batch, both metric families plus the controls
 - dfeeae4 exp_10 round 1: select_probe_batches, one intact canonical batch per room
-- 10661ed exp11: pipeline init yawaug_hf (arm G, heading frame)
 - fb5b594 exp_10 round 1: protocol/execution identity and strict JSON writing (A2)
 - 57d59c2 exp_10 round 1: verify_exp03_pins against the bound reviewed closure
-- fd1503c exp11: register arm G in the HAA summariser
-- fff7948 exp11: the decision notation of plan section 3, generically
-- 968e167 exp11: the four-arm interaction cell N1i
-- bc8e762 exp11: three screen families under exp_11's suppression
 - 5dbbb3c exp_10 round 1: run and the CLI, with the plan's output and identity contract
-- 824dce9 exp11: R1 historical rows, copied under a source-field map
 - 2d513e3 exp_10 round 1: run identity guard and the offline Metric-1 check
-- afd5a71 exp11: the frozen phase-1 configuration and its tables
 - b599d65 exp_10 round 1: parity_exp03 with A1's identical-validity-mask rule
-- 6af6688 exp11: render and publish the phase-1 record
 - 31554e9 exp_10 round 1: the paired-bootstrap contract of plan section 4
 - b754c71 exp_10 round 1: room-cluster bootstrap, query-weighted with multiplicities
-- 91a48eb exp11: the unavailable path is the degenerate interval and nothing else
-- e857e04 exp11: keep the section-7 comment on the section-7 contrasts
 - 3dd1501 exp_10 round 1: A2 run-identity guard, per-arm cells and the controls table
-- 850936f exp11: name the new module constants for their experiment
-- 825c7ba exp11: hoist the test module's imports
-- 73a8732 exp11: assert arm G's job declaration carries the four heading rolls
 - 31eea2f exp_10 round 1: canonical JSON, Markdown tables, FLAC-style figures and CSV
-- 5db0c82 exp11: assert arm G is admitted only in the heading frame
 - 222f1fe exp_10 round 1: refuse two arms that share a label
 - 27b5fc5 exp_10 round 1: legible figure layout (constrained, one legend, status codes)
 - 26562f0 exp_10 round 1: record how many rooms a cluster interval resampled
-- 3343454 exp_10: Coder round 1 logged; Codex full code review launched
-- 807a301 exp_10: Codex round-1 full review (request changes); Coder round-2 fix prompt
-- e755792 exp_10: params set-up draft
 - 6bfd393 exp_10 round 2: bind per_sample.json and the waveform set before reading them
 - 6685344 exp_10 round 2: an uncomparable parity cell is a failure, not a footnote
 - e19a6f5 exp_10 round 2: a control cannot pass on evidence that is missing
@@ -124,56 +121,9 @@
 - 941ad2f exp_10 round 2: synchronise the device at every timed stage boundary
 - 4b33da1 exp_10 round 2: a controls header with as many cells as the rows, and a real assertion
 - d3e927b exp_10 round 2: the cylindrical arm gets its own context band
-- 200d34b exp_10: Coder round 2 logged; Codex close review launched
-- 9c7dd1c exp_10: arm chain script (probe+gate+full) replaces the single-arm draft
-- 9188028 exp_10: Codex round-2 close review; Coder round-3 (figure) prompt
 - 128f0d8 exp_10 round 3: an interval is drawn only where both of its bounds exist
 - c2b6817 exp_10 round 3: the footer blocks get measured space of their own
 - 1ebb87d exp_10 round 3: a multi-arm legend names no model, each row names its own band
-- f3c6125 exp_10: Coder round 3 logged; Codex close review launched
-- 51a256b exp_10: Codex round-3 close review (approved for merge)
-- fc644f5 exp_10: commits list after merge
-- 9a9de52 exp_10: launch record for the released_k8 CPU chain
-- ee31cbc exp_10: chain script v1.1 (unset PYTHONPATH under set -u); relaunch
-- be5f87d exp_10: worklog (main-tree tests 162 passed; probe running)
-- 44181e3 exp_11 bookkeeping: Coder round-1 report, Codex code review round 1 (request changes), fix-cycle prompt, Phase-1 runbook and results generators (record only)
-- 33d4f75 exp_11: commit index (44181e3)
-- 65c5bbd exp11: an unavailable statement needs finite, equal endpoints
-- bf516c6 exp11: decide screen suppression before the frozen helper runs
-- 0137787 exp11: pin the historical-regression oracle to the base commit
-- 31010b7 exp_10: probe gate passed (released_k8, CPU); full run launched
-- d3a1cf9 exp_10: GPU queue script for the remaining three arms
-- 3b21a70 exp11: unconverged decisions and G's initialisation at admission
-- af052c0 exp11: the interaction's pairing and joint-cohort cases
-- 32d1b87 exp_11 bookkeeping: Coder round-1 fix report, close-review prompt and launch (record only)
-- 99abf77 exp_11: commit index (32d1b87)
-- 91fbd8b exp11: only the helper's own zero-width refusal is unavailable
-- 0a770d1 exp_10: GPU 1 queue launch record
-- c737b94 exp_10: queue script v1.1 (hard-coded K=1 hash); released_k1 re-queued after the queue
-- e2259f3 exp_10: results HTML generator (canonical JSON in, page + assets out; draft for record review)
-- af49827 exp_10: results Markdown generator (canonical JSON in; draft for record review)
-- 9f98bbb exp06/exp11: approvals re-fill after the exp_11 round-1 merge (haa_pipeline_sh, summarize_haa:645e74c0)
-- 08a1554 exp_11 bookkeeping: close reviews 1–2, fix-cycle prompts/reports, merge/refill logs, suite capture (record only)
-- d3d2ecc exp_11: commit index (08a1554, bb1b59d, 9f98bbb)
-- c491396 exp_10: worklog (exp_11 merge on main; CPU contention note)
-- c640107 exp_11 bookkeeping: Coder round-1 report (wording narrowed in fix cycle 1) and fix-cycle-2 report (record only)
-- f8ca51d exp_11: Coder round-2 prompt (exp_11-owned family); commit index
-- 0a2a2e6 exp_11: commit index
-- 032b7c6 exp_10: worklog (control_k8 done, full-run parity exact; timings)
-- f290f42 exp_11 bookkeeping: post-merge suite (4 environmental failures, re-run green), Coder suite capture (record only)
-- 83905a9 exp_11 bookkeeping: Coder round-2 report, round-2 code-review prompt/launch (record only)
-- d9c8130 exp_11 bookkeeping: Codex code review round 2 (request changes, 5 blockers), fix-cycle prompt (record only)
-- f31d8e6 exp_10: worklog (cyl_k8 done, parity exact; released_k1 started)
-- b47ff59 exp_10: worklog (released_k1 done; released_k8 CPU = separate protocol, GPU re-run decided)
-- 5016b63 exp_10: released_k8 GPU re-run launch record
-- c947a64 exp_10: end-game tooling (probe controls in generators, backend table, finish script); worklog
-- befea6d exp_10: HTML generator probe-sha ordering fix
-- d2b2db1 exp_10: Codex tooling-review prompt
-- 9728af6 exp_10: record-review prompt (draft for the end-game)
-- 1ef60f0 exp_10: Codex tooling review (request changes); plan A5/A6; round-4 prompt; worklog disclosures
-- e43fed8 exp_10: round-4 close review prompt
-- 158dd74 exp_11 bookkeeping: Coder round-2 fix report, close-review prompt/launch, Phase-1b/2 runbook (record only)
-- 5d64393 exp_11 bookkeeping: Codex close review of round 2 (3 residual blockers), fix-cycle-2 prompt (record only)
 - ad2edf9 exp_10 round 4: validate_runs.py — bind the record's run evidence (finding 1)
 - 3e00ccd exp_10 round 4: backend table enforces one protocol, two backends (finding 3)
 - d172110 exp_10 round 4: renderers bind summary, supplements and figures (finding 4)
@@ -184,33 +134,18 @@
 - 5b9e7f2 exp_10 round 4: queue wrappers preserve child failure (finding 13)
 - a9a8575 exp_10 round 4: provenance names the published asset location (finding 11/12 follow-up)
 - 1507e05 exp_10 round 4: drop an unused constant from the new test module
-- e9ae3c4 exp_10: round-4 delivery logged; close review launched
-- e492e98 exp_10: CPU-protocol derived reports regenerated in place (command + log)
-- bc0b9df exp_10: worklog (CPU-protocol reports regenerated, identical apart from run_dir)
-- 28fb4f1 exp_10: worklog (released_k8 GPU arm done, exact parity; GPU 1 released)
-- 091f5d3 exp_10: Codex round-4 close review (request changes); round-5 prompt
-- d0831d0 exp_10: round-5 close review prompt
 - 4ad0652 exp_10 round 5: drop the CPU relocation exception (finding 1)
 - dcb12e0 exp_10 round 5: publish all three artefacts or none (finding 2)
 - 2c7bba0 exp_10 round 5: regenerate the page's figures from the summary (finding 3)
 - 116e76b exp_10 round 5: bind the renderers' inputs and supplements (finding 4)
 - 8fe3f1c exp_10 round 5: the backend table needs one statistical protocol (finding 5)
 - 70be19d exp_10 round 5: per-invocation source pins inside the probe dir (finding 6)
-- 939e413 exp_11 bookkeeping: Coder round-2 fix-2 report, close-review-2 prompt/launch (record only)
 - 2916afe exp_10 round 5: escape pipes in every Markdown table cell (finding 7)
 - f53b172 exp_10 round 5: bind a probe summary through its absolute inputs path
-- cf1e8c5 exp_11 bookkeeping: Codex close review 2 of round 2 (1 blocker: recovery safety), fix-cycle-3 prompt (record only)
-- b924cd6 exp_10: round-5 delivery logged; close review launched
-- 92ed42e exp_10: Codex round-5 close review (2 residual blockers); round-6 prompt
-- dd9b9dd exp_10: round-6 close review prompt
 - 40cf3fb exp_10 round 6: roll the publication back when the finish script is killed (finding 1)
 - 1fadba3 exp_10 round 6: bind every rendered arm payload to its input and run (finding 2)
 - 6ebccea exp_10 round 6: the rollback names only what it actually left behind (finding 1)
 - ca2dfc8 exp_10 round 6: do not claim the publication is back when it is not (finding 1)
-- 8ea3520 exp_10: round-6 delivery logged; close review launched
-- 80276a6 exp_11 bookkeeping: Coder round-2 fix-3 report, close-review-3 prompt/launch (record only)
-- 0c63a82 exp_11 bookkeeping: Codex close review 3 of round 2 (2 lock defects), fix-cycle-4 prompt (record only)
-- f920717 exp_10: Codex round-6 close review (2 rollback defects); round-7 prompt
 - 2122f66 exp_10 round 7: verify and mark every rollback copy before anything is published (finding 1)
 - be6a192 exp_10 round 7: a rollback, once entered, deals with all three artefacts (finding 2)
 - 3b0f28c exp_10 round 7: pin what restore() does with a copy it cannot vouch for (finding 1)

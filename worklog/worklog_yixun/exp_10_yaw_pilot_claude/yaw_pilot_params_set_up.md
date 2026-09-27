@@ -17,7 +17,7 @@
 
 ## Executed runs (from each run's `meta.json`)
 
-| arm | stage | device | n | launch commit | execution_id | protocol_id | wall time |
+| arm | stage | device | n | HEAD recorded at completion (git metadata is captured after inference) | execution_id | protocol_id | wall time |
 |---|---|---|---|---|---|---|---|
 | released_k8 | probe | cuda | 272 | 5016b63 | `20260927T072809041814Z-bbd9dec45b8547f1a6fbd9a171c76e38` | `ece07c70be99…` | 4.7 min (inference 152 s, inversion 114 s) |
 | released_k8 | all | cuda | 6337 | bc0b9df | `20260927T073313236199Z-45c485084fee44f6b795b4f2f5a71ff4` | `ece07c70be99…` | 66.6 min (inference 2140 s, inversion 1708 s) |
@@ -31,3 +31,15 @@
 | released_k8 (CPU protocol) | probe | cpu | 272 | 33d4f75 | `20260927T002126828803Z-f4eccdf1a8c94d4883d9279ab1fc6057` | `06d5d3f72f5a…` | 18.3 min |
 
 Checkpoint sha256s (from meta): released `6cdb02767b4c11e1be78c3438e1b67bfb9351db4e07ee9c72125f68e337325c5`; control / cyl as recorded per run. Tool sha256 (`tools/exp10_yaw_pilot.py`) identical for all runs (merged `2408fb9`). Exp_03 pin verification recorded in every meta (`verify_exp03_pins.ok = true`, 12 files at `62c9107b…`).
+
+## Chain-start HEADs (first line of each chain log) and the reviewed implementation
+
+| chain | started | HEAD at chain start | log |
+|---|---|---|---|
+| released_k8, CPU (probe → full) | 2026-09-26 20:21 | `ee31cbc` | `yaw_pilot_2026-09-26_20:21:22_released_k8_chain_cpu.log` |
+| GPU queue: released_k1 (failed, K = 1 hash bug) then control_k8 | 2026-09-26 22:38 | `0a770d1` | `yaw_pilot_2026-09-26_22:38:03_released_k1_chain_cuda_ABORTED_k1_hash_bug.log`, `yaw_pilot_2026-09-26_22:38:09_control_k8_chain_cuda.log`, `yaw_pilot_2026-09-26_22:37:58_gpu1_queue.log` |
+| cyl_k8 (queue) | 2026-09-27 01:04 | `0a2a2e6` | `yaw_pilot_2026-09-27_01:04:35_cyl_k8_chain_cuda.log` |
+| released_k1 (after-queue) | 2026-09-27 02:25 | `d9c8130` | `yaw_pilot_2026-09-27_02:25:07_released_k1_chain_cuda.log` |
+| released_k8, GPU re-run | 2026-09-27 03:28 | `5016b63` | `yaw_pilot_2026-09-27_03:28:06_released_k8_chain_cuda.log` |
+
+These HEADs differ only in `worklog/` bookkeeping; the evaluator and its closure are the merged tools of `2408fb9` throughout: `tools/exp10_yaw_pilot.py` sha256 `e727cba016dcc2d78c7ba193fca85b75116c40f9e9d567be784970a2974c8823` is recorded identically in every run's `meta.json` (`tool_sha256`), and every run's `verify_exp03_pins` block matches the 12 reviewed files at `62c9107b…`. The "HEAD recorded at completion" column above is the commit checked out when each run finished writing, not the launch commit.
