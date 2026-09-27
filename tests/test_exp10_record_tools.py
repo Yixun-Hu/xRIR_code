@@ -347,40 +347,47 @@ def test_cli_reports_and_exits_nonzero_on_a_broken_record(validate, tree):
     assert json.load(open(report_path))["ok"] is False
 
 
-def test_relocated_cpu_reports_are_refused_without_a_declaration(validate, tree):
-    """Finding 1: exp_10's CPU record was moved into cpu_protocol/ after its reports were
-    written, so they name the pre-move path -- silently accepting that would also accept a
-    report naming any other directory."""
+def test_cpu_reports_naming_another_directory_are_refused(validate, tree):
+    """Finding 1 (round 4): every report must name its own run directory."""
     root, built = tree
     run_dir, meta = built["cpu"]["all"]
-    moved_from = os.path.join(root, "released_k8_all_cpu_original")
-    fx.write_check_online(run_dir, meta, ok=True, run_dir_value=moved_from)
+    elsewhere = os.path.join(root, "released_k8_all_cpu_original")
+    fx.write_check_online(run_dir, meta, ok=True, run_dir_value=elsewhere)
     report = validate_tree(validate, root)
     assert report["ok"] is False
     assert any("cpu" in p.lower() and "run_dir" in p for p in report["problems"])
 
 
-def test_declared_cpu_relocation_is_accepted_and_recorded(validate, tree):
+def test_cpu_reports_naming_the_gpu_arms_directory_are_refused(validate, tree):
+    """Round-4 finding 1, the blocker: the relocation alias accepted a report naming
+    ``<root>/released_k8_all``, which is now the *GPU* execution -- so the GPU arm's
+    validation reports could be filed as the CPU record's and reach FINISH DONE."""
     root, built = tree
     run_dir, meta = built["cpu"]["all"]
-    moved_from = os.path.join(root, "released_k8_all")      # same basename: the same run
-    fx.write_check_online(run_dir, meta, ok=True, run_dir_value=moved_from)
-    fx.write_parity(run_dir, meta, arm="released_k8", ok=False, run_dir_value=moved_from)
-    report = validate_tree(validate, root, cpu_recorded_run_dir=moved_from)
-    assert report["ok"] is True, report["problems"]
-    assert report["cpu"]["check_online"]["relocated_from"] == moved_from
-    assert "run_dir (declared relocation)" in report["cpu"]["check_online"]["bound_by"]
-
-
-def test_a_declaration_does_not_admit_another_runs_report(validate, tree):
-    """The declared alternative only covers this run: a different basename is still refused."""
-    root, built = tree
-    run_dir, meta = built["cpu"]["all"]
-    other = os.path.join(root, "control_k8_all")
-    fx.write_check_online(run_dir, meta, ok=True, run_dir_value=other)
-    report = validate_tree(validate, root, cpu_recorded_run_dir=other)
+    gpu_dir = built["released_k8"]["all"][0]         # same basename, another execution
+    assert os.path.basename(gpu_dir) == os.path.basename(run_dir)
+    fx.write_check_online(run_dir, meta, ok=True, run_dir_value=os.path.abspath(gpu_dir))
+    fx.write_parity(run_dir, meta, arm="released_k8", ok=False,
+                    run_dir_value=os.path.abspath(gpu_dir))
+    report = validate_tree(validate, root)
     assert report["ok"] is False
-    assert any("run_dir" in p for p in report["problems"])
+    assert any("cpu" in p.lower() and "run_dir" in p for p in report["problems"])
+
+
+def test_the_relocation_exception_is_gone(validate, tree):
+    """Round-4 finding 1: no argument may waive the run_dir binding any more."""
+    import inspect
+
+    for function in (validate.validate_record, validate.validate_cpu_record,
+                     validate.bind_report):
+        names = list(inspect.signature(function).parameters)
+        assert not [n for n in names if "reloc" in n or n == "also_accept"], names
+    assert not hasattr(validate, "_declared_relocation")
+    root, _ = tree
+    done = run_python(os.path.join(ASSETS, "validate_runs.py"), "--root", root,
+                      "--expect-n", 32, "--cpu-recorded-run-dir", root)
+    assert done.returncode != 0
+    assert "cpu-recorded-run-dir" in out(done)
 
 
 # --------------------------------------------------------------------------------------
@@ -836,7 +843,7 @@ def run_finish(scratch, env=None):
 def staging_dirs(scratch):
     return [n for n in os.listdir(scratch["assets"])
             if n.startswith("generated.staging") or n.startswith("generated.previous")
-            or n.startswith(".finish_tmp")]
+            or n.startswith(".finish_tmp") or n.startswith(".finish_prev")]
 
 
 def assert_generated_untouched(scratch):
@@ -845,6 +852,8 @@ def assert_generated_untouched(scratch):
     assert staging_dirs(scratch) == []
     assert open(os.path.join(scratch["record"], "yaw_pilot_results.md")).read() == \
         "PREVIOUS MARKDOWN\n"
+    assert open(os.path.join(scratch["record"], "yaw_pilot_01_results.html")).read() == \
+        "PREVIOUS PAGE\n"
 
 
 def test_finish_refuses_when_released_k8_is_absent(tmp_path):
@@ -858,6 +867,8 @@ def test_finish_refuses_when_released_k8_is_absent(tmp_path):
         fout.write("{}")
     with open(os.path.join(built["record"], "yaw_pilot_results.md"), "w") as fout:
         fout.write("PREVIOUS MARKDOWN\n")
+    with open(os.path.join(built["record"], "yaw_pilot_01_results.html"), "w") as fout:
+        fout.write("PREVIOUS PAGE\n")
     done = run_finish(built)
     assert done.returncode != 0
     assert "released_k8_all" in out(done)
@@ -882,6 +893,22 @@ def test_finish_refuses_a_failed_probe_control(scratch):
     done = run_finish(scratch)
     assert done.returncode != 0
     assert "controls" in out(done)
+    assert_generated_untouched(scratch)
+
+
+def test_finish_refuses_the_gpu_arms_reports_filed_as_the_cpu_record(scratch):
+    """Round-4 finding 1: the finish script passed a relocation alias, so the GPU arm's
+    check_online / parity reports -- copied into the CPU record -- were accepted and
+    published as the CPU protocol's evidence."""
+    cpu_dir = scratch["tree"]["cpu"]["all"][0]
+    gpu_dir = scratch["tree"]["released_k8"]["all"][0]
+    for name in ("check_online.json", "parity_exp03.json"):
+        import shutil
+        shutil.copy2(os.path.join(gpu_dir, name), os.path.join(cpu_dir, name))
+    done = run_finish(scratch)
+    assert done.returncode != 0
+    assert "FINISH DONE" not in out(done)
+    assert "run_dir" in out(done)
     assert_generated_untouched(scratch)
 
 

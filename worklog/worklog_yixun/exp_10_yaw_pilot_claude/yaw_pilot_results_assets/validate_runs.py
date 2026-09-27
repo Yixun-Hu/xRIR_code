@@ -42,7 +42,6 @@ the summary a moment later, so the cheap check here is a preflight, not the only
 
 usage: validate_runs.py [--root ckpt/exp10] [--arms released_k8 ...] [--expect-n 6337]
                         [--device cuda] [--cpu-run <dir>|--no-cpu]
-                        [--cpu-recorded-run-dir <pre-move path>]
                         [--array-check size|full|none] [--json <report.json>]
 exit status: 0 = every requirement met, 2 = at least one failure (all of them are printed).
 """
@@ -208,20 +207,7 @@ def check_run(run_dir, arm=None, expect_device=None, expect_n=None,
     return meta, problems, binding
 
 
-def _declared_relocation(recorded, run_dir, also_accept):
-    """True if ``recorded`` is a declared former location of this very run directory."""
-    if not also_accept:
-        return False
-    name = os.path.basename(os.path.abspath(str(run_dir)).rstrip("/"))
-    if os.path.basename(str(recorded).rstrip("/")) != name:
-        return False
-    candidates = [also_accept] if isinstance(also_accept, str) else list(also_accept)
-    return any(same_path(recorded, c) or
-               os.path.abspath(str(recorded)) == os.path.abspath(str(c))
-               for c in candidates)
-
-
-def bind_report(path, run_dir, meta, kind, require_ok=True, label=None, also_accept=None):
+def bind_report(path, run_dir, meta, kind, require_ok=True, label=None):
     """Validate a per-run validation report (``check_online.json`` / ``parity_exp03.json``).
 
     The report must exist, be readable, name *this* run in ``run_dir``, agree with the meta
@@ -229,12 +215,13 @@ def bind_report(path, run_dir, meta, kind, require_ok=True, label=None, also_acc
     report ``ok is True``.  ``ok`` is compared to the Boolean: the comparator writes
     ``false`` and exits 0, which is exactly how a failed check slipped through.
 
-    ``also_accept`` declares paths the report may name *instead* of ``run_dir`` because the
-    directory was moved after the report was written (exp_10's CPU record was relocated to
-    ``cpu_protocol/`` when the headline arm was re-run on the GPU, and its two reports still
-    name the pre-move path).  A declared alternative is accepted only when its last path
-    component is the run's own — so it cannot silently admit another arm's report — and the
-    relocation is recorded in the binding rather than hidden.
+    There is no exception to the ``run_dir`` binding.  An earlier revision let the caller
+    declare a pre-move path for exp_10's relocated CPU record; because that alias only
+    required the *basename* to match, it accepted the GPU arm's reports (which name
+    ``ckpt/exp10/released_k8_all``, a different execution) as the CPU record's, and the
+    finish script reached ``FINISH DONE`` with them (round-4 review, finding 1).  The CPU
+    record's reports were regenerated in place and name their own directory, so every
+    report is bound the same way: by the run directory it names.
     """
     label = label or "%s %s" % (os.path.basename(str(run_dir).rstrip("/")), kind)
     problems, binding = [], {"path": os.path.abspath(path), "kind": kind, "bound_by": []}
@@ -251,9 +238,6 @@ def bind_report(path, run_dir, meta, kind, require_ok=True, label=None, also_acc
         problems.append("%s: the report has no run_dir; it cannot be bound to a run" % label)
     elif same_path(report["run_dir"], run_dir):
         binding["bound_by"].append("run_dir")
-    elif _declared_relocation(report["run_dir"], run_dir, also_accept):
-        binding["bound_by"].append("run_dir (declared relocation)")
-        binding["relocated_from"] = report["run_dir"]
     else:
         problems.append("%s: the report's run_dir %r is not this run (%s)"
                         % (label, report.get("run_dir"), os.path.abspath(run_dir)))
@@ -517,14 +501,13 @@ def validate_arm(root, arm, expect_n=EXPECTED_N_QUERIES, device="cuda",
 
 
 def validate_cpu_record(run_dir, expect_n=EXPECTED_N_QUERIES, arm="released_k8",
-                        array_check="size", recorded_run_dir=None):
+                        array_check="size"):
     """Validate the CPU-protocol record, preserving its documented parity failure.
 
-    ``recorded_run_dir`` declares the path this run's reports were written under, for the
-    documented relocation into ``cpu_protocol/`` (see ``bind_report``).
+    Its two reports are bound exactly like every other arm's: they must name this very
+    directory.  There is no relocation exception (round-4 review, finding 1).
     """
-    entry = {"arm": arm, "run_dir": os.path.abspath(run_dir), "problems": [],
-             "recorded_run_dir": recorded_run_dir}
+    entry = {"arm": arm, "run_dir": os.path.abspath(run_dir), "problems": []}
     meta, problems, binding = check_run(run_dir, arm=arm, expect_device="cpu",
                                         expect_n=expect_n, expect_batches_arg="all",
                                         array_check=array_check,
@@ -533,24 +516,21 @@ def validate_cpu_record(run_dir, expect_n=EXPECTED_N_QUERIES, arm="released_k8",
     entry["problems"].extend(problems)
     report, problems, binding = bind_report(
         os.path.join(run_dir, "check_online.json"), run_dir, meta, "check_online",
-        require_ok=True, label="cpu_protocol/%s_all check_online" % arm,
-        also_accept=recorded_run_dir)
+        require_ok=True, label="cpu_protocol/%s_all check_online" % arm)
     entry["check_online"] = binding
     entry["problems"].extend(problems)
     # Parity must be *present* — the plan's CPU-protocol decision rests on it — but its
     # ok is recorded, not required: exp_10's CPU run fails criterion (a) by design.
     report, problems, binding = bind_report(
         os.path.join(run_dir, "parity_exp03.json"), run_dir, meta, "parity_exp03",
-        require_ok=False, label="cpu_protocol/%s_all parity_exp03" % arm,
-        also_accept=recorded_run_dir)
+        require_ok=False, label="cpu_protocol/%s_all parity_exp03" % arm)
     entry["parity_all"] = binding
     entry["problems"].extend(problems)
     return entry
 
 
 def validate_record(root, arms=ARMS, expect_n=EXPECTED_N_QUERIES, device="cuda",
-                    cpu_run=None, array_check="size", parity_arms=PARITY_ARMS,
-                    cpu_recorded_run_dir=None):
+                    cpu_run=None, array_check="size", parity_arms=PARITY_ARMS):
     """Validate the whole evidence tree; returns a report whose ``ok`` decides the finish.
 
     Args:
@@ -560,8 +540,6 @@ def validate_record(root, arms=ARMS, expect_n=EXPECTED_N_QUERIES, device="cuda",
         device: the device the GPU arms must have run on.
         cpu_run: the CPU-protocol run directory; ``None`` → ``<root>/cpu_protocol/released_k8_all``;
             ``False`` → do not validate a CPU record.
-        cpu_recorded_run_dir: the path the CPU record's reports name, if the directory was
-            moved after they were written (a declared relocation, recorded in the report).
         array_check: ``size`` (default), ``full`` or ``none``.
         parity_arms: the arms with an exp_03 predecessor (parity required).
 
@@ -589,8 +567,7 @@ def validate_record(root, arms=ARMS, expect_n=EXPECTED_N_QUERIES, device="cuda",
             seen[value] = arm
     if cpu_run is not False:
         cpu_run = cpu_run or os.path.join(root, "cpu_protocol", "released_k8_all")
-        entry = validate_cpu_record(cpu_run, expect_n=expect_n, array_check=array_check,
-                                    recorded_run_dir=cpu_recorded_run_dir)
+        entry = validate_cpu_record(cpu_run, expect_n=expect_n, array_check=array_check)
         report["cpu"] = entry
         report["problems"].extend(entry["problems"])
     report["ok"] = not report["problems"]
@@ -604,9 +581,6 @@ def main(argv=None):
     parser.add_argument("--expect-n", type=int, default=EXPECTED_N_QUERIES)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--cpu-run", default=None)
-    parser.add_argument("--cpu-recorded-run-dir", default=None,
-                        help="the run_dir the CPU record's reports name, if its directory "
-                             "was moved after they were written (declared relocation)")
     parser.add_argument("--no-cpu", action="store_true",
                         help="do not validate a CPU-protocol record")
     parser.add_argument("--array-check", choices=("none", "size", "full"), default="size")
@@ -615,8 +589,7 @@ def main(argv=None):
     report = validate_record(args.root, arms=tuple(args.arms), expect_n=args.expect_n,
                              device=args.device,
                              cpu_run=False if args.no_cpu else args.cpu_run,
-                             array_check=args.array_check,
-                             cpu_recorded_run_dir=args.cpu_recorded_run_dir)
+                             array_check=args.array_check)
     if args.json:
         parent = os.path.dirname(os.path.abspath(args.json))
         if parent and not os.path.isdir(parent):

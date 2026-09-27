@@ -14,8 +14,11 @@
 #     `generated/` get replaced by a rename. Any error at any point leaves `generated/` and the
 #     published Markdown / HTML exactly as they were.
 #
-# The CPU record's two reports name its pre-move path (it was relocated into `cpu_protocol/`
-# when the headline arm was re-run on the GPU), so that relocation is declared explicitly.
+# Every validation report is bound by the run directory it names, with no exception: the
+# relocation alias this script used to pass for the CPU record accepted the GPU arm's
+# reports (same basename, another execution) as the CPU protocol's evidence and reached
+# `FINISH DONE` with them (round-4 review, finding 1). The CPU record's reports were
+# regenerated in place and name `ckpt/exp10/cpu_protocol/released_k8_all` themselves.
 #
 # usage: exp10_finish.sh          (no arguments)
 # env:   EXP10_REPO_ROOT, EXP10_EXPECT_N — overrides for the tests; the production defaults are
@@ -46,7 +49,6 @@ say "HEAD $(git rev-parse HEAD 2>/dev/null || echo unknown); repo $REPO; expect 
 # ---- preflight: the evidence, validated and bound (finding 1) -------------------------------
 python "$A/validate_runs.py" --root ckpt/exp10 --arms $ARMS --expect-n "$EXPECT_N" \
   --device cuda --cpu-run "$CPU/released_k8_all" \
-  --cpu-recorded-run-dir ckpt/exp10/released_k8_all \
   --json "$STAGE/validation.json" 2>&1 | tee -a "$LOG"
 say "preflight passed: four GPU arms + the CPU record validated and bound"
 
