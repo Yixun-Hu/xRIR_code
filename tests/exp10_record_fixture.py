@@ -426,3 +426,101 @@ def make_scratch_repo(root, assets_src, arms=ARMS, n_queries=32, drop=(), cpu=Tr
             os.remove(target)
     return {"root": root, "assets": assets, "scripts": scripts, "exp10": exp10,
             "tree": tree, "record": record}
+
+
+STUB_YAW_PILOT = '''#!/usr/bin/env python3
+"""Stand-in for tools/exp10_yaw_pilot.py in the chain-script tests (no model, no data)."""
+import argparse
+import os
+import sys
+
+sys.path.insert(0, os.environ["EXP10_FIXTURE_DIR"])
+import exp10_record_fixture as fx
+
+ap = argparse.ArgumentParser()
+ap.add_argument("--arm", required=True)
+ap.add_argument("--backbone")
+ap.add_argument("--checkpoint")
+ap.add_argument("--manifest")
+ap.add_argument("--manifest-hash")
+ap.add_argument("--num-shot")
+ap.add_argument("--ks")
+ap.add_argument("--batches", required=True)
+ap.add_argument("--controls", action="store_true")
+ap.add_argument("--device", default="cpu")
+ap.add_argument("--threads", type=int, default=1)
+ap.add_argument("--out-dir", required=True)
+args = ap.parse_args()
+if os.environ.get("STUB_EVAL_FAIL_STAGE") == args.batches:
+    sys.stderr.write("stub evaluator: failing the %s stage (test)\\n" % args.batches)
+    sys.exit(7)
+fx.write_run(args.out_dir, arm=args.arm, device=args.device,
+             n_queries=8 if args.batches == "probe" else 16,
+             batches_arg=args.batches)
+print("stub run written to", args.out_dir)
+'''
+
+STUB_COMPARE = '''#!/usr/bin/env python3
+"""Stand-in for tools/exp10_compare.py in the chain-script tests.
+
+Writes a report of the requested kind and *exits 0* even when the report says ok = false --
+which is exactly the behaviour of the approved comparator that let a failed online check
+through the chain (finding 7).
+"""
+import argparse
+import os
+import sys
+
+sys.path.insert(0, os.environ["EXP10_FIXTURE_DIR"])
+import exp10_record_fixture as fx
+
+ap = argparse.ArgumentParser()
+ap.add_argument("command", choices=["check-online", "parity-exp03"])
+ap.add_argument("run_dir")
+ap.add_argument("exp03", nargs="?", default=None)
+ap.add_argument("--json", required=True)
+args = ap.parse_args()
+stage = "probe" if args.run_dir.rstrip("/").endswith("_probe") else "all"
+meta = fx.read_json(os.path.join(args.run_dir, "meta.json"))
+if args.command == "check-online":
+    ok = os.environ.get("STUB_ONLINE_FAIL_STAGE") != stage
+    fx.write_check_online(args.run_dir, meta, ok=ok)
+else:
+    if not args.exp03 or not os.path.isfile(args.exp03):
+        sys.stderr.write("stub comparator: no exp_03 predecessor at %r\\n" % args.exp03)
+        sys.exit(4)
+    ok = os.environ.get("STUB_PARITY_FAIL_STAGE") != stage
+    fx.write_parity(args.run_dir, meta, ok=ok, arm=meta["arm"],
+                    extra={"exp03_path": os.path.abspath(args.exp03)})
+if os.environ.get("STUB_TOUCH_TOOL") and stage == "probe":
+    with open("tools/exp10_yaw_pilot.py", "a") as fout:
+        fout.write("# touched after the probe (test)\\n")
+print("stub", args.command, "wrote", args.json, "ok =", ok)
+'''
+
+
+def make_chain_repo(root, assets_src):
+    """A scratch git repository the arm chain can run in, with stubs for the three tools.
+
+    Returns:
+        ``{"root", "assets", "scripts", "record"}``.
+    """
+    import subprocess
+
+    built = make_scratch_repo(root, assets_src, arms=(), cpu=False)
+    with open(os.path.join(root, "tools", "exp10_yaw_pilot.py"), "w") as fout:
+        fout.write(STUB_YAW_PILOT)
+    with open(os.path.join(root, "tools", "exp10_compare.py"), "w") as fout:
+        fout.write(STUB_COMPARE)
+    for name in ("sweep_released", "sweep_control", "sweep_cyl"):
+        write_json(os.path.join(root, "ckpt", "yaw_rotation", name, "per_sample_yaw.json"),
+                   {"angles": {}})
+    write_json(os.path.join(root, "ckpt", "yaw_rotation", "reference_manifest.json"), {"k": 8})
+    with open(os.path.join(root, ".gitignore"), "w") as fout:
+        fout.write("ckpt/\n")
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+    subprocess.check_call(["git", "init", "-q", root], env=env)
+    subprocess.check_call(["git", "-C", root, "add", "-A"], env=env)
+    subprocess.check_call(["git", "-C", root, "commit", "-q", "-m", "scratch"], env=env)
+    return built

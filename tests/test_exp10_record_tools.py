@@ -938,3 +938,137 @@ def test_finish_does_not_certify_a_foreign_figure(scratch):
     assert done.returncode == 0, out(done)
     listed = open(os.path.join(scratch["generated"], "SHA256SUMS")).read()
     assert "someone_else" not in listed
+
+
+# --------------------------------------------------------------------------------------
+# Findings 7-10 -- the arm chain: ok-gates, the predecessor table, atomic reservation, pins.
+# --------------------------------------------------------------------------------------
+
+@pytest.fixture
+def chain(tmp_path):
+    """A scratch git repository with stubs for the evaluator, comparator and summariser."""
+    root = str(tmp_path / "repo")
+    os.makedirs(root)
+    return fx.make_chain_repo(root, ASSETS)
+
+
+def run_chain(chain, arm="control_k8", args=None, env=None):
+    script = os.path.join(chain["scripts"], "exp10_arm_chain.sh")
+    argv = ["bash", script] + list(args if args is not None else
+                                  [arm, "simple", "ckpt/xRIR_simple_8_shot/epoch_12.pth",
+                                   "ckpt/yaw_rotation/reference_manifest.json", "47637a55",
+                                   "8", "cpu", "0"])
+    e = dict(os.environ)
+    e.update({"EXP10_REPO_ROOT": chain["root"], "EXP10_FIXTURE_DIR": os.path.join(REPO, "tests")})
+    e.update(env or {})
+    return subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=e,
+                          cwd=chain["root"])
+
+
+def run_path(chain, *parts):
+    return os.path.join(chain["root"], "ckpt", "exp10", *parts)
+
+
+def test_chain_runs_the_probe_then_the_full_stage(chain):
+    done = run_chain(chain)
+    assert done.returncode == 0, out(done)
+    assert "ARM DONE" in out(done)
+    assert os.path.isfile(run_path(chain, "control_k8_probe", "meta.json"))
+    assert os.path.isfile(run_path(chain, "control_k8_all", "meta.json"))
+    assert os.path.isfile(run_path(chain, "control_k8_probe", "parity_exp03.json"))
+
+
+def test_chain_fails_a_stage_whose_online_check_reports_not_ok(chain):
+    """Finding 7: the comparator exits 0 with ok=false, so the chain launched full anyway."""
+    done = run_chain(chain, env={"STUB_ONLINE_FAIL_STAGE": "probe"})
+    assert done.returncode != 0
+    assert "ARM DONE" not in out(done)
+    assert "check-online" in out(done)
+    assert not os.path.exists(run_path(chain, "control_k8_all"))
+
+
+def test_chain_fails_when_the_full_runs_online_check_is_not_ok(chain):
+    done = run_chain(chain, env={"STUB_ONLINE_FAIL_STAGE": "all"})
+    assert done.returncode != 0
+    assert "ARM DONE" not in out(done)
+
+
+def test_chain_fails_a_stage_whose_parity_reports_not_ok(chain):
+    done = run_chain(chain, env={"STUB_PARITY_FAIL_STAGE": "probe"})
+    assert done.returncode != 0
+    assert not os.path.exists(run_path(chain, "control_k8_all"))
+
+
+def test_chain_refuses_an_unknown_arm(chain):
+    """Finding 8: the predecessor came from an unrestricted argument."""
+    done = run_chain(chain, args=["made_up_arm", "simple", "ck", "man", "hash", "8", "cpu", "0"])
+    assert done.returncode != 0
+    assert "made_up_arm" in out(done)
+
+
+def test_chain_uses_the_table_predecessor_when_the_argument_is_omitted(chain):
+    done = run_chain(chain)
+    assert done.returncode == 0, out(done)
+    parity = fx.read_json(run_path(chain, "control_k8_all", "parity_exp03.json"))
+    assert parity["exp03_path"].endswith("sweep_control/per_sample_yaw.json")
+
+
+def test_chain_refuses_none_for_a_replicated_arm(chain):
+    """Finding 8: omitting the predecessor for control_k8 yielded parity_ok=n/a."""
+    done = run_chain(chain, args=["control_k8", "simple", "ck", "man", "hash", "8", "cpu", "0",
+                                  "none"])
+    assert done.returncode != 0
+    assert "none" in out(done)
+    assert not os.path.exists(run_path(chain, "control_k8_probe"))
+
+
+def test_chain_refuses_a_predecessor_that_is_not_the_tables(chain):
+    done = run_chain(chain, args=["control_k8", "simple", "ck", "man", "hash", "8", "cpu", "0",
+                                  "ckpt/yaw_rotation/sweep_cyl/per_sample_yaw.json"])
+    assert done.returncode != 0
+    assert "sweep_control" in out(done)
+
+
+def test_chain_runs_released_k1_without_a_predecessor(chain):
+    done = run_chain(chain, arm="released_k1")
+    assert done.returncode == 0, out(done)
+    assert not os.path.exists(run_path(chain, "released_k1_probe", "parity_exp03.json"))
+
+
+def test_chain_refuses_an_existing_output_directory_without_metadata(chain):
+    """Finding 9: a directory with a waveform but no meta.json was overwritten."""
+    partial = run_path(chain, "control_k8_probe")
+    os.makedirs(partial)
+    with open(os.path.join(partial, "wav_k0.npy"), "wb") as fout:
+        fout.write(b"partial")
+    done = run_chain(chain)
+    assert done.returncode != 0
+    assert "control_k8_probe" in out(done)
+    assert not os.path.isfile(os.path.join(partial, "meta.json"))
+
+
+def test_chain_tolerates_narrative_files_under_worklog(chain):
+    """Finding 10: only worklog markdown and logs are exempt from the clean-tree check."""
+    with open(os.path.join(chain["record"], "scratch_notes.md"), "w") as fout:
+        fout.write("notes\n")
+    with open(os.path.join(chain["record"], "scratch.log"), "w") as fout:
+        fout.write("log\n")
+    assert run_chain(chain).returncode == 0
+
+
+def test_chain_refuses_a_dirty_script_under_worklog(chain):
+    with open(os.path.join(chain["scripts"], "sneaky.py"), "w") as fout:
+        fout.write("print('hi')\n")
+    done = run_chain(chain)
+    assert done.returncode != 0
+    assert "dirty" in out(done)
+    assert not os.path.exists(run_path(chain, "control_k8_probe"))
+
+
+def test_chain_refuses_when_a_tool_changes_between_the_probe_and_the_full_stage(chain):
+    """Finding 10: cleanliness was checked once, so an evaluator edited after the probe ran."""
+    done = run_chain(chain, env={"STUB_TOUCH_TOOL": "1"})
+    assert done.returncode != 0
+    assert "ARM DONE" not in out(done)
+    assert not os.path.exists(run_path(chain, "control_k8_all"))
+    assert "exp10_yaw_pilot.py" in out(done)
