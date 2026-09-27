@@ -318,7 +318,8 @@ def test_a_job_whose_bound_evidence_changed_is_refused(real_job, cache, monkeypa
         target.write_bytes(original)
 
 
-NEW_OFFSETS = {'cyl_or': 0.02, 'control_hf': 0.04, 'cyl_hf': 0.06, 'yawaug': 0.08}
+NEW_OFFSETS = {'cyl_or': 0.02, 'control_hf': 0.04, 'cyl_hf': 0.06, 'yawaug': 0.08,
+               'yawaug_hf': 0.10}
 
 
 @pytest.fixture
@@ -1217,13 +1218,13 @@ def test_a_dependency_that_contradicts_an_earlier_binding_is_refused(real_job, c
 
 def test_the_arm_registry_carries_arm_e_and_the_experiment_that_produced_it():
     assert tuple(subject.ARMS) == ('control', 'cyl', 'cyl_or', 'control_hf', 'cyl_hf',
-                                   'yawaug')
-    assert subject.NEW_ARMS == ('cyl_or', 'control_hf', 'cyl_hf', 'yawaug')
+                                   'yawaug', 'yawaug_hf')
+    assert subject.NEW_ARMS == ('cyl_or', 'control_hf', 'cyl_hf', 'yawaug', 'yawaug_hf')
     arm = subject.ARMS['yawaug']
     assert (arm['label'], arm['backbone'], arm['frame']) == ('E', 'simple', 'room')
     assert arm['root'] == 'ckpt/exp09/sim2real/yawaug' and arm['init_sha256'] is None
     assert [subject.ARMS[name]['experiment'] for name in subject.NEW_ARMS] == [
-        'exp06', 'exp06', 'exp06', 'exp09']
+        'exp06', 'exp06', 'exp06', 'exp09', 'exp11']
 
 
 def test_the_experiments_freeze_their_arms_contrasts_and_outputs():

@@ -88,13 +88,21 @@ ARMS = OrderedDict([
     # expected_inits through 6.4's reused pin -- never exp_06's artifacts.epoch_012.
     ('yawaug', {'label': 'E', 'branch': 'new', 'root': 'ckpt/exp09/sim2real/yawaug',
                 'backbone': 'simple', 'frame': 'room', 'experiment': 'exp09',
-                'init_sha256': None})])
+                'init_sha256': None}),
+    # exp_11's arm G: the same approved exp_04 checkpoint as E, fine-tuned and evaluated
+    # in exp_06's HEADING frame (D's frame), under exp_11's own tree. Its initialisation
+    # is resolved by expected_inits exactly as E's, never by a literal here.
+    ('yawaug_hf', {'label': 'G', 'branch': 'new', 'root': 'ckpt/exp11/sim2real/yawaug_hf',
+                   'backbone': 'simple', 'frame': 'heading', 'experiment': 'exp11',
+                   'init_sha256': None})])
 LEGACY_ARMS = tuple(name for name, arm in ARMS.items() if arm['branch'] == 'legacy')
 NEW_ARMS = tuple(name for name, arm in ARMS.items() if arm['branch'] == 'new')
 LEGACY_ROOT = 'ckpt/sim2real'
 NEW_ROOT = 'ckpt/exp06/sim2real'
 EXP09_ROOT = 'ckpt/exp09/sim2real'
+EXP11_ROOT = 'ckpt/exp11/sim2real'
 CANONICAL = ('stats.json', 'summary.txt')            # exp_02's hash-bound record
+EXP04_AUG_ARMS = ('yawaug', 'yawaug_hf')   # the arms exp_04's approved checkpoint starts
 
 # The contrasts of section 7. H1 and H1b are decision bearing; the rest describe.
 H1 = ('cyl_or', 'control')
@@ -104,6 +112,58 @@ DESCRIPTIVE = (('cyl_or', 'control_hf'), ('control_hf', 'control'), ('cyl_hf', '
 # the eleven-cell screen against the same comparator, E3 descriptive against arm C.
 E1 = ('yawaug', 'control')
 E3 = (('yawaug', 'cyl_or'),)
+
+# --- R1: historical rows, copied from the hash-bound canonical records -------------------
+
+EXP06_STATS = 'ckpt/exp06/stats.json'
+EXP09_STATS = 'ckpt/exp09/stats.json'
+# The universe of decision-bearing fields a copied row may carry. A source records some
+# of them; the rest are null here and named in ``not_recorded``.
+HISTORICAL_FIELDS = ('diff', 'two_way', 'nominal_two_way', 'convergence', 'verdict',
+                     'category', 'non_inferior_at_margin')
+DECISION_ROW = ('diff', 'two_way', 'convergence', 'verdict')
+DESCRIPTIVE_ROW = ('diff', 'nominal_two_way')
+# Plan section 3's source-field map: which record, which table, which row, which fields.
+EXP11_HISTORICAL = (
+    {'name': 'C - D', 'source': EXP06_STATS, 'table': 'D', 'kind': 'descriptive',
+     'contrast': 'cyl_or - control_hf', 'fields': DESCRIPTIVE_ROW},
+    {'name': 'D - A', 'source': EXP06_STATS, 'table': 'D', 'kind': 'descriptive',
+     'contrast': 'control_hf - control', 'fields': DESCRIPTIVE_ROW},
+    {'name': 'C - A', 'source': EXP06_STATS, 'table': 'H1', 'kind': 'decision',
+     'contrast': 'cyl_or - control', 'fields': DECISION_ROW},
+    {'name': 'C - F', 'source': EXP06_STATS, 'table': 'H1b', 'kind': 'decision',
+     'contrast': 'cyl_or - cyl_hf', 'fields': DECISION_ROW},
+    {'name': 'E - A', 'source': EXP09_STATS, 'table': 'E1', 'kind': 'decision',
+     'contrast': 'yawaug - control',
+     'fields': DECISION_ROW + ('category', 'non_inferior_at_margin')})
+
+
+# exp_11 section 3. N1 = G - D, N1i = the interaction (G - E) - (D - A), N2 = C - G and
+# N3 = G - E, each publishing exactly the statements of the notation block that it
+# registers -- never a margin verdict, and never a field the plan did not ask of it.
+N1 = ('yawaug_hf', 'control_hf')
+N1I = ('yawaug_hf', 'yawaug', 'control_hf', 'control')
+N2 = ('cyl_or', 'yawaug_hf')
+N3 = ('yawaug_hf', 'yawaug')
+EXP11_ARMS = ('control', 'cyl', 'cyl_or', 'control_hf', 'cyl_hf', 'yawaug', 'yawaug_hf')
+EXP11_DECISIONS = (
+    {'name': 'N1', 'kind': 'contrast', 'pair': N1, 'room': H1_ROOM, 'metric': H1_METRIC,
+     'margin': None, 'fields': ('category',),
+     'reading': 'does roll-robust pretraining change what the SimpleViT does with the '
+                'heading frame?'},
+    {'name': 'N1i', 'kind': 'interaction', 'arms': N1I, 'room': H1_ROOM,
+     'metric': H1_METRIC, 'margin': None, 'fields': ('category',),
+     'reading': 'positive = a larger heading-frame penalty after yaw pretraining, not '
+                'harm by any single arm'},
+    {'name': 'N2', 'kind': 'contrast', 'pair': N2, 'room': H1_ROOM, 'metric': H1_METRIC,
+     'margin': H1_MARGIN_DB,
+     'fields': ('category', 'y_non_inferior_at_margin', 'x_margin_advantage'),
+     'reading': "G's non-inferiority to C and C's margin-sized advantage are separate "
+                'statements; failing to establish one is not evidence of its negation'},
+    {'name': 'N3', 'kind': 'contrast', 'pair': N3, 'room': H1_ROOM, 'metric': H1_METRIC,
+     'margin': H1_MARGIN_DB, 'fields': ('category', 'equivalent_at_margin'),
+     'reading': 'the prediction G = E is the equivalence statement, not the category'})
+EXP11_SCREENS = (N1, N2, N3)        # three declared families; no claim across them
 
 # One frozen configuration per experiment: which arms are loaded, which contrasts are
 # computed under which names, which of them carry exp_09's two-sided classification, and
@@ -118,7 +178,15 @@ EXPERIMENTS = OrderedDict([
     ('exp09', {'arms': ('control', 'cyl', 'cyl_or', 'yawaug'),
                'decisions': (('E1', E1, H1_ROOM, H1_METRIC, H1_MARGIN_DB),),
                'screen': ('E2', E1), 'descriptive': ('E3', E3), 'classified': ('E1',),
-               'outputs': ('ckpt/exp09/stats.json', 'ckpt/exp09/summary.txt')})])
+               'outputs': ('ckpt/exp09/stats.json', 'ckpt/exp09/summary.txt')}),
+    # exp_11 phase 1. A ``phase`` selects section 3's statements instead of exp_06's
+    # margin verdicts, so ``decisions``/``classified`` stay empty here: the historical
+    # tables are built by the historical path and are untouched by this registration.
+    ('exp11', {'arms': EXP11_ARMS, 'phase': 'phase1', 'decisions': (), 'classified': (),
+               'exp11_decisions': EXP11_DECISIONS, 'screens': EXP11_SCREENS,
+               'historical': EXP11_HISTORICAL,
+               'outputs': ('ckpt/exp11/phase1/stats.json',
+                           'ckpt/exp11/phase1/summary.txt')})])
 
 
 def _require(ok, cause):
@@ -542,12 +610,13 @@ def check_test_indices(name, room, index):
 
 def expected_inits(approved, arms=NEW_ARMS, inputs=None):
     """What each new arm must have started from: exp_01's weights, exp_06's approved
-    epoch, or -- for arm E -- exp_04's approved ``checkpoints.aug``.
+    epoch, or -- for arms E and G -- exp_04's approved ``checkpoints.aug``.
 
-    E's identity is resolved through 6.4's ``reused`` exp_04 pin rather than a literal, so
-    only the approvals a reviewer committed can name it; the record it was read from is
-    bound into ``inputs`` and published with the analysis. It is resolved only when E is
-    among the arms being loaded, so an exp_06 run depends on nothing further.
+    Their identity is resolved through 6.4's ``reused`` exp_04 pin rather than a literal,
+    so only the approvals a reviewer committed can name it; the record it was read from is
+    bound into ``inputs`` and published with the analysis. It is resolved only when one of
+    them is among the arms being loaded, so an exp_06 run depends on nothing further, and
+    a registered arm with a null ``init_sha256`` is never left unchecked.
     """
     inits = {arm: ARMS[arm]['init_sha256'] for arm in arms
              if ARMS[arm]['branch'] == 'new'}   # an experiment's arms include the legacy two
@@ -555,9 +624,11 @@ def expected_inits(approved, arms=NEW_ARMS, inputs=None):
         return inits
     if 'cyl_or' in inits:
         inits['cyl_or'] = approved.get('artifacts', {}).get('epoch_012', {}).get('sha256')
-    if 'yawaug' in inits:
+    augmented = [arm for arm in EXP04_AUG_ARMS if arm in inits]
+    if augmented:      # exp_09's E and exp_11's G start from the one approved checkpoint
         record = finalizer.exp04_aug_checkpoint(approved)
-        inits['yawaug'] = record['checkpoint']['sha256']
+        for arm in augmented:
+            inits[arm] = record['checkpoint']['sha256']
         if inputs is not None:
             bind(inputs, record['path'], record['sha256'])
     return inits
@@ -887,6 +958,14 @@ def decision_cell(arms, pair, room, metric, margin, n_boot=N_BOOT, alpha=ALPHA):
                 verdict=verdict_of(convergence, void, margin))
 
 
+def screen_cell_base(treatment, comparator, room, metric, alpha, adjusted_alpha, rows):
+    """The fields of one screen cell that exist before anything is resampled."""
+    return {'contrast': '{} - {}'.format(treatment, comparator), 'room': room,
+            'metric': metric, 'alpha': alpha, 'adjusted_alpha': adjusted_alpha,
+            'family': H2_FAMILY, 'cohort': rows['cohort'], 'n_test': rows['n_test'],
+            'excluded': rows['excluded'], 'per_seed_diff': rows['per_seed_diff']}
+
+
 def screen_cells(arms, pair, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, alpha=ALPHA):
     """H2: the eleven room x metric cells, nominal and Bonferroni adjusted."""
     treatment, comparator = pair
@@ -894,10 +973,8 @@ def screen_cells(arms, pair, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, alp
     cells = []
     for room, metric in CELLS:
         rows = cell_rows(arms, treatment, comparator, room, metric)
-        cell = {'contrast': '{} - {}'.format(treatment, comparator), 'room': room,
-                'metric': metric, 'alpha': alpha, 'adjusted_alpha': adjusted_alpha,
-                'family': H2_FAMILY, 'cohort': rows['cohort'], 'n_test': rows['n_test'],
-                'excluded': rows['excluded'], 'per_seed_diff': rows['per_seed_diff']}
+        cell = screen_cell_base(treatment, comparator, room, metric, alpha,
+                                adjusted_alpha, rows)
         nominal = intervals(rows, alpha, n_boot)
         if nominal is None:      # finding 8: nothing is resampled from an empty cohort
             cells.append(dict(cell, diff=None, nominal_two_way=None, query=None,
@@ -1117,6 +1194,433 @@ def classify_cell(cell):
                 non_inferior_at_margin=bool(interval[1] < cell['margin']))
 
 
+# --- exp_11's decision notation and its cells (plan section 3) ---------------------------
+
+EXP11_FIELDS = ('category', 'y_non_inferior_at_margin', 'x_margin_advantage',
+                'equivalent_at_margin')
+EXP11_MARGIN_FIELDS = EXP11_FIELDS[1:]                 # the three that read the margin m
+# A status that carries no interval withholds every decision-bearing field.
+EXP11_WITHHELD = ('void', 'not_converged', 'unavailable', 'suppressed (draft)')
+
+
+def decision_fields(interval, margin, fields):
+    """Plan section 3's notation block, for one contrast X - Y with interval [L, U] at m:
+
+    ``category``                  two-sided, exactly ``h2_label``'s semantics: harm for X
+                                  if L > 0, improvement for X if U < 0, else no detected
+                                  difference;
+    ``y_non_inferior_at_margin``  Y is non-inferior to X at m iff -L < m;
+    ``x_margin_advantage``        X has a margin-sized advantage iff U < -m;
+    ``equivalent_at_margin``      95 % containment: L > -m and U < m.
+
+    The direction is the cell's own ``contrast`` string, so X and Y are never guessed
+    from a field name. Every inequality is strict: an endpoint exactly on a decision
+    boundary establishes neither the statement nor its negation. Every field is ``None``
+    -- withheld -- when the cell carries no interval, which is how a void, unconverged,
+    degenerate or draft cell reports.
+    """
+    unknown = [name for name in fields if name not in EXP11_FIELDS]
+    _require(not unknown, 'unknown decision field(s): ' + ', '.join(unknown))
+    if [name for name in fields if name in EXP11_MARGIN_FIELDS]:
+        _require(isinstance(margin, (int, float)) and not isinstance(margin, bool),
+                 'the fields {} need a margin, not {!r}'.format(
+                     ', '.join(name for name in fields if name in EXP11_MARGIN_FIELDS), margin))
+    values = OrderedDict((name, None) for name in fields)
+    if interval is None:
+        return values
+    low, high = float(interval[0]), float(interval[1])
+    for name in values:
+        if name == 'category':
+            values[name] = h2_label((low, high))
+        elif name == 'y_non_inferior_at_margin':
+            values[name] = bool(-low < margin)
+        elif name == 'x_margin_advantage':
+            values[name] = bool(high < -margin)
+        else:
+            values[name] = bool(low > -margin and high < margin)
+    return values
+
+
+def zero_width(interval):
+    """True only for a genuinely degenerate interval: two finite, equal endpoints.
+
+    This is the one refusal of the frozen convergence helper exp_11 may publish as a
+    defined ``unavailable`` statement. A non-finite endpoint (an overflowed mean gives
+    ``inf``/``nan``) or a reversed interval is a numerical failure, not the cancellation
+    the plan registers, and must propagate.
+    """
+    if not isinstance(interval, dict):
+        return False
+    low, high = interval.get('lo'), interval.get('hi')
+    if not (isinstance(low, float) and isinstance(high, float)):
+        return False
+    return bool(math.isfinite(low) and math.isfinite(high) and low == high)
+
+
+def _zero_width_reason():
+    """The frozen helper's own zero-width refusal, taken from the helper itself.
+
+    ``tools/exp06_bootstrap.py`` is frozen and publishes this text only by raising it, so
+    it is provoked once here -- a degenerate interval function, no resampling at all --
+    rather than copied into this module, where a reworded helper would leave a stale
+    literal behind. It is the one refusal exp_11 may report as an ``unavailable``
+    statement, so it has to be the helper's own words and nobody else's.
+    """
+    try:
+        bootstrap.convergence_endpoints(lambda seed: (0.0, 0.0))
+    except ValueError as error:
+        return str(error)
+    raise ValueError('the frozen bootstrap no longer refuses a zero-width interval')
+
+
+ZERO_WIDTH_REASON = _zero_width_reason()
+
+
+def constant_difference(rows):
+    """True when every paired difference is the same finite number.
+
+    A resample of any size at any level then averages to that one value, so the interval
+    is degenerate whatever alpha it is taken at. Reading it off the rows costs nothing
+    and lets exp_11 decide *before* the frozen helper is called.
+    """
+    if not rows['cohort']:
+        return False
+    difference = np.asarray(rows['a'], dtype=float) - np.asarray(rows['b'], dtype=float)
+    return bool(difference.size and np.isfinite(difference).all()
+                and float(difference.max()) == float(difference.min()))
+
+
+def exp11_convergence(rows, nominal, void, alpha, n_boot):
+    """exp_11's convergence gate: invalidity first, the registered cancellation second,
+    the frozen helper last.
+
+    Neither an invalid cell nor an exactly cancelling one reaches ``converged_two_way``,
+    because that helper refuses a zero-width interval and one such cell must withhold
+    its label without aborting the phase summary. The cancellation is established two
+    ways -- constant finite differences *and* a computed interval of two finite, equal
+    endpoints -- so a set whose arithmetic overflowed (constant, but non-finite once
+    averaged) is not mistaken for it. A refusal that still occurs is swallowed only when
+    the helper raised its own documented zero-width message *and* the seed-0 interval
+    really is finite and zero-width; every other failure -- a refusal raised for another
+    bootstrap seed, an unrelated error -- is a fault and propagates unchanged.
+    """
+    if void:
+        return {'status': 'void', 'n_boot': None, 'interval': None, 'attempts': []}
+    if nominal is not None and constant_difference(rows) and zero_width(nominal['two_way']):
+        return {'status': 'unavailable', 'n_boot': None, 'interval': None, 'attempts': [],
+                'reason': ZERO_WIDTH_REASON}
+    try:
+        return converged_two_way(rows, alpha, n_boot)
+    except ValueError as error:
+        # The helper validates every seed before it measures a width, so a refusal is
+        # the registered cancellation only when the helper says so in its own words.
+        # A recomputation of seed 0 alone cannot establish it: seed 0 can be a finite
+        # [x, x] while seed 1 overflowed, and an unrelated failure can occur over rows
+        # whose seed-0 interval happens to be degenerate. Both conditions are required,
+        # and every other failure is re-raised unchanged.
+        if str(error) != ZERO_WIDTH_REASON:
+            raise
+        if not zero_width(intervals(rows, alpha, n_boot)['two_way']):
+            raise
+        return {'status': 'unavailable', 'n_boot': None, 'interval': None, 'attempts': [],
+                'reason': str(error)}
+
+
+def decision_interval(cell):
+    """The one interval every field of an exp_11 cell reads, or nothing at all.
+
+    It is the interval exp_06's margin verdict reads -- the seed-0 two-way interval of
+    the resample size that converged -- and a withholding status suppresses it even
+    though a nominal interval may still exist.
+    """
+    if cell.get('status') in EXP11_WITHHELD:
+        return None
+    return (cell.get('convergence') or {}).get('interval')
+
+
+def exp11_cell(rows, void, base, margin, fields, n_boot=N_BOOT, alpha=ALPHA):
+    """One exp_11 decision cell: the invalidity policy, the convergence gate and the
+    named fields of section 3.
+
+    exp_06's ``decision_cell`` answers a margin verdict; exp_11's decisions are the
+    statements above instead, so a cell carries a ``status`` and never a ``verdict``.
+    A degenerate (zero-width) interval -- reachable by cancellation in an interaction --
+    is a defined ``unavailable`` result: the frozen convergence helper refuses it, and
+    that refusal is caught here rather than aborting the summary or being worked around
+    in the helper. Only that case is caught -- ``zero_width`` requires two finite, equal
+    endpoints -- so a positive width, a non-finite or reversed interval and any unrelated
+    failure are faults and are re-raised.
+    """
+    cell = dict(base, margin=margin, alpha=alpha, fields=list(fields),
+                cohort=rows['cohort'], n_test=rows['n_test'], excluded=rows['excluded'],
+                per_seed_diff=rows['per_seed_diff'], void_reasons=list(void),
+                bootstrap_seeds=list(BOOT_SEEDS))
+    if void:   # decided before anything is resampled, exactly as decision_cell decides it
+        cell.update(diff=None, query=None, two_way=None, status='void',
+                    convergence={'status': 'void', 'n_boot': None, 'interval': None,
+                                 'attempts': []})
+        return dict(cell, **decision_fields(None, margin, fields))
+    _require(rows['cohort'], 'an empty cohort is never bootstrapped: it is void')
+    nominal = intervals(rows, alpha, n_boot)
+    convergence = exp11_convergence(rows, nominal, void, alpha, n_boot)
+    if convergence['status'] == 'converged':
+        nominal = intervals(rows, alpha, convergence['n_boot'] or n_boot)
+    cell.update(diff=nominal['diff'], query=nominal['query'], two_way=nominal['two_way'],
+                convergence=convergence,
+                status={'converged': 'reported'}.get(convergence['status'],
+                                                     convergence['status']))
+    return dict(cell, **decision_fields(decision_interval(cell), margin, fields))
+
+
+def interaction_rows(arms, quad, room, metric):
+    """The four-arm cohort of an interaction ``(X1 - Y1) - (X2 - Y2)``.
+
+    ``cell_rows`` assembles two arms; an interaction must be estimated on the queries
+    finite in **all four** arms and all three seeds, so the mask is built once here
+    rather than by combining two independently assembled cohorts. Every arm is paired
+    against the first with exp_02's own assertions -- the query index, the ``ir_path``
+    entries and the protocol metadata (``eval_seed``, ``num_shot``) -- and each arm's
+    own exclusions are reported, not only the joint ones.
+
+    The returned rows are ``a`` = X1 - Y1 and ``b`` = X2 - Y2 on that one cohort, so the
+    frozen ``paired_intervals(a, b, clusters, seeds)`` resamples the interaction jointly
+    and keeps its covariance; two separately bootstrapped intervals are never subtracted.
+    """
+    _require(len(quad) == 4 and len(set(quad)) == 4,
+             'an interaction needs four distinct arms, not {}'.format(list(quad)))
+    columns, index = {arm: [] for arm in quad}, None
+    for seed in SEEDS:
+        for arm in quad:
+            _require(seed in arms[arm]['per'] and room in arms[arm]['per'][seed],
+                     'arm {} has no {} of {}'.format(arm, room, seed))
+        first = arms[quad[0]]['per'][seed][room]
+        for arm in quad[1:]:
+            assert_pairing(first, arms[arm]['per'][seed][room],
+                           '{}-{} {} {}'.format(quad[0], arm, room, seed))
+        index = list(first['index']) if index is None else index
+        _require(list(first['index']) == index,
+                 'the seeds of {}/{} do not share one query order'.format(room, metric))
+        for arm in quad:
+            columns[arm].append(np.asarray(arms[arm]['per'][seed][room][metric],
+                                           dtype=float))
+    stacked = {arm: np.stack(columns[arm]) for arm in quad}
+    finite = {arm: np.isfinite(stacked[arm]).all(axis=0) for arm in quad}
+    cohort = np.ones(len(index), dtype=bool)
+    for arm in quad:
+        cohort = cohort & finite[arm]
+    sides = [stacked[quad[0]] - stacked[quad[1]], stacked[quad[2]] - stacked[quad[3]]]
+    rows = [np.concatenate([side[i][cohort] for i in range(len(SEEDS))]) for side in sides]
+    queries = np.asarray(index)[cohort]
+    return {'a': rows[0], 'b': rows[1],
+            'clusters': np.concatenate([queries] * len(SEEDS)),
+            'seeds': np.concatenate([np.full(int(cohort.sum()), seed) for seed in SEEDS]),
+            'cohort': int(cohort.sum()), 'n_test': len(index),
+            'per_seed_diff': {seed: (float((sides[0][i][cohort]
+                                            - sides[1][i][cohort]).mean())
+                                     if cohort.any() else None)
+                              for i, seed in enumerate(SEEDS)},
+            'excluded': {arm: {'queries': int((~finite[arm]).sum()),
+                               'seeds': {seed: int((~np.isfinite(stacked[arm][i])).sum())
+                                         for i, seed in enumerate(SEEDS)}}
+                         for arm in quad}}
+
+
+def interaction_void_reasons(arms, quad, rows, room, metric):
+    """The interaction's invalidity policy: the joint cohort, plus both components.
+
+    The joint cohort must cover at least 99 % of the room's test split, and the
+    component contrasts keep exactly the checks section 7 gives them -- a component the
+    two-arm policy would void cannot be rescued by the interaction's own cohort.
+    """
+    reasons = []
+    if not rows['cohort']:
+        reasons.append('no query of the {} test split is finite in all four compared '
+                       'arms'.format(rows['n_test']))
+    if rows['cohort'] < VOID_COHORT_FRACTION * rows['n_test']:
+        reasons.append('the joint cohort of {} queries is below {:.0%} of the {} in the '
+                       'test split'.format(rows['cohort'], VOID_COHORT_FRACTION,
+                                           rows['n_test']))
+    for treatment, comparator in ((quad[0], quad[1]), (quad[2], quad[3])):
+        component = cell_rows(arms, treatment, comparator, room, metric)
+        reasons.extend('{} - {}: {}'.format(treatment, comparator, reason)
+                       for reason in void_reasons(component, treatment, comparator))
+    return reasons
+
+
+def exp11_decision(arms, spec, n_boot=N_BOOT, alpha=ALPHA):
+    """One registered exp_11 decision: a two-arm contrast, or the four-arm interaction."""
+    room, metric, margin = spec['room'], spec['metric'], spec.get('margin')
+    base = {'name': spec['name'], 'room': room, 'metric': metric,
+            'reading': spec.get('reading')}
+    if spec.get('kind') == 'interaction':
+        quad = tuple(spec['arms'])
+        rows = interaction_rows(arms, quad, room, metric)
+        void = interaction_void_reasons(arms, quad, rows, room, metric)
+        base.update(kind='interaction', arms=list(quad),
+                    contrast='({} - {}) - ({} - {})'.format(*quad))
+    else:
+        x, y = spec['pair']
+        rows = cell_rows(arms, x, y, room, metric)
+        void = void_reasons(rows, x, y)
+        base.update(kind='contrast', x=x, y=y, contrast='{} - {}'.format(x, y))
+    return exp11_cell(rows, void, base, margin, tuple(spec['fields']), n_boot, alpha)
+
+
+def exp11_screen_cells(arms, pair, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED,
+                       alpha=ALPHA):
+    """One exp_11 screen family: the eleven Bonferroni-adjusted cells of exp_09's E2,
+    under the universal suppression plan section 3 registers for exp_11.
+
+    The historical screens label any cell with a non-empty cohort; exp_11 withholds the
+    label of every cell the invalidity policy voids or the convergence check refuses, and
+    says why. The gate is exp_11's own and it runs *first*: ``screen_cells`` resamples
+    every non-empty cohort before it reports anything, and the frozen convergence helper
+    refuses a zero-width interval, so a cell that exp_11 must withhold would abort the
+    whole phase summary there. This builds its own cells from the same helpers and the
+    same ``screen_cell_base``; ``screen_cells`` is untouched and keeps publishing exp_06's
+    and exp_09's screens exactly as it always has.
+    """
+    treatment, comparator = pair
+    adjusted_alpha = bootstrap.bonferroni_alpha(alpha, H2_FAMILY)
+    cells = []
+    for room, metric in CELLS:
+        rows = cell_rows(arms, treatment, comparator, room, metric)
+        cell = screen_cell_base(treatment, comparator, room, metric, alpha,
+                                adjusted_alpha, rows)
+        void = void_reasons(rows, treatment, comparator)
+        nominal = intervals(rows, alpha, n_boot)
+        if nominal is None:      # an empty cohort: nothing is resampled at all
+            cells.append(dict(cell, diff=None, nominal_two_way=None, query=None,
+                              adjusted_two_way=None, convergence=None, label=None,
+                              withheld=True, void_reasons=void))
+            continue
+        convergence = exp11_convergence(rows, nominal, void, adjusted_alpha,
+                                        adjusted_n_boot)
+        interval = convergence['interval']
+        withheld = bool(void) or interval is None
+        cells.append(dict(cell, diff=nominal['diff'], nominal_two_way=nominal['two_way'],
+                          query=nominal['query'], adjusted_two_way=interval,
+                          convergence=convergence, void_reasons=void, withheld=withheld,
+                          label=None if withheld else h2_label(interval)))
+    return cells
+
+
+def exp11_screens(arms, families, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED,
+                  alpha=ALPHA):
+    """The declared screen families, keyed by their own contrast.
+
+    Each is its own eleven-cell Bonferroni family: the adjustment protects within a
+    family and no claim is made across them (section 3, S1).
+    """
+    return OrderedDict(
+        ('{} - {}'.format(*pair),
+         exp11_screen_cells(arms, tuple(pair), n_boot, adjusted_n_boot, alpha))
+        for pair in families)
+
+
+def historical_source(path, label, inputs=None):
+    """One canonical record, admitted only with the summary its own bytes bind."""
+    path = Path(path)
+    _require(path.is_file(), 'missing historical source {}'.format(path))
+    digest = provenance.sha256_file(path)
+    record = _read_json(path, label, inputs, digest)
+    summary = path.with_name('summary.txt')
+    _require(summary.is_file(),
+             'the historical source {} has no {}'.format(path, summary.name))
+    published = provenance.sha256_file(summary)
+    _require(published == record.get('summary_sha256'),
+             'the summary {} hashes to {}, not the summary_sha256 {} the record '
+             'binds'.format(summary, published, record.get('summary_sha256')))
+    if inputs is not None:
+        bind(inputs, summary, published)
+    return record, digest
+
+
+def historical_row(record, spec, room, metric):
+    """The row the selector names -- by contrast, room and metric, never by position."""
+    table = record.get(spec['table'])
+    if isinstance(table, list):
+        found = [row for row in table
+                 if (row.get('contrast'), row.get('room'), row.get('metric'))
+                 == (spec['contrast'], room, metric)]
+        _require(len(found) == 1, 'the historical table {} holds {} rows for {} {} '
+                 '{}'.format(spec['table'], len(found), spec['contrast'], room, metric))
+        row = found[0]
+    else:
+        row = table
+        _require(isinstance(row, dict),
+                 'the historical record has no {}'.format(spec['table']))
+    for field, value in (('contrast', spec['contrast']), ('room', room),
+                         ('metric', metric)):
+        _require(row.get(field) == value, 'the historical {} records {} {!r}, not the '
+                 'selected {!r}'.format(spec['table'], field, row.get(field), value))
+    return row
+
+
+def historical_rows(specs=EXP11_HISTORICAL, repo=REPO, room=H1_ROOM, metric=H1_METRIC,
+                    inputs=None):
+    """R1: rows re-reported from exp_06's and exp_09's canonical records.
+
+    Extant fields are copied exactly, keeping their original names, meaning and interval
+    convention (``nominal_two_way`` stays a descriptive nominal interval); a field the
+    source does not record is ``null`` here and named in ``not_recorded``. Each row
+    carries the source path, that file's sha256 and the selector it was found by.
+    Nothing is recomputed, no convergence is manufactured, and a descriptive row is never
+    reclassified as a decision.
+    """
+    rows, sources = [], {}
+    for spec in specs:
+        if spec['source'] not in sources:
+            sources[spec['source']] = historical_source(
+                Path(repo) / spec['source'], 'historical ' + spec['source'], inputs)
+        record, digest = sources[spec['source']]
+        found = historical_row(record, spec, room, metric)
+        copied = OrderedDict()
+        for field in HISTORICAL_FIELDS:
+            if field not in spec['fields']:
+                copied[field] = None
+                continue
+            _require(field in found, 'the historical row {} records no {}'.format(
+                spec['name'], field))
+            copied[field] = found[field]
+        rows.append(dict(copied, name=spec['name'], kind=spec['kind'],
+                         contrast=spec['contrast'], room=room, metric=metric,
+                         inference='none (copied)', source=spec['source'],
+                         source_sha256=digest,
+                         selector={'table': spec['table'], 'contrast': spec['contrast'],
+                                   'room': room, 'metric': metric},
+                         not_recorded=[field for field in HISTORICAL_FIELDS
+                                       if field not in spec['fields']]))
+    return rows
+
+
+def exp11_tables(result, arms, config, n_boot=N_BOOT,
+                 adjusted_n_boot=N_BOOT_ADJUSTED, exploratory=False, sensitivity=False,
+                 historical_root=REPO):
+    """exp_11's phase tables: the registered decisions, the declared screen families and
+    the copied historical rows, into the record ``analyse`` has already opened.
+
+    A draft states no conclusion of any kind -- every decision-bearing field is withheld
+    and the status says so -- and a relaxed admission labels every status, exactly as the
+    historical path labels its verdicts.
+    """
+    result['phase'] = config['phase']
+    result['decisions'] = [spec['name'] for spec in config['exp11_decisions']]
+    for spec in config['exp11_decisions']:
+        cell = exp11_decision(arms, spec, n_boot)
+        if exploratory:
+            cell = dict(cell, status='suppressed (draft)',
+                        **decision_fields(None, spec.get('margin'),
+                                          tuple(spec['fields'])))
+        elif sensitivity:
+            cell = dict(cell, status='sensitivity: ' + cell['status'])
+        result[spec['name']] = cell
+    result['screens'] = exp11_screens(arms, config['screens'], n_boot, adjusted_n_boot)
+    result['historical'] = historical_rows(config['historical'], historical_root,
+                                           inputs=result['inputs'])
+    return result
+
+
 def check_output_paths(experiment, json_path, summary_path):
     """No experiment's run may write another's canonical record."""
     targets = {str(Path(path).resolve()) for path in (json_path, summary_path)}
@@ -1132,7 +1636,7 @@ def check_output_paths(experiment, json_path, summary_path):
 def analyse(arms, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, cache_root=None,
             exploratory=False, receipt=None, receipt_path=None, approved=None,
             deviations=(), approvals_receipt=None, producer=None, extra_inputs=(),
-            sensitivity=False, experiment='exp06'):
+            sensitivity=False, experiment='exp06', historical_root=REPO):
     """Every displayed number, and the evidence each rests on."""
     config = EXPERIMENTS[experiment]
     # The frozen configuration decides what is published, not what the caller happens to
@@ -1167,6 +1671,9 @@ def analyse(arms, n_boot=N_BOOT, adjusted_n_boot=N_BOOT_ADJUSTED, cache_root=Non
     for path, digest in sorted(dict(cache_inputs, **dict(extra_inputs)).items()):
         bind(result['inputs'], path, digest)
     producer_inputs(result['inputs'], producer, approvals_receipt)
+    if 'phase' in config:   # exp_11 publishes section 3's statements, not margin verdicts
+        return exp11_tables(result, arms, config, n_boot, adjusted_n_boot, exploratory,
+                            sensitivity, historical_root)
     for name, pair, room, metric, margin in config['decisions']:
         cell = decision_cell(arms, pair, room, metric, margin, n_boot)
         result[name] = classify_cell(cell) if name in config['classified'] else cell
@@ -1213,31 +1720,10 @@ def _bounds(interval):
     return '[{:+.4f}, {:+.4f}]'.format(interval['lo'], interval['hi'])
 
 
-def render(result):
-    """The printed summary: exp_02's arm table, then the paired tables and the verdicts."""
+def render_decisions(result, config):
+    """exp_06's and exp_09's blocks: the decisions, the screen and the descriptive
+    contrasts, printed exactly as they have always been printed."""
     lines = []
-    if result.get('mode') == 'sensitivity':
-        lines.append('SENSITIVITY - relaxed admission; not the primary comparison of 6.2')
-    if result['exploratory']:
-        lines.append('DRAFT - exploratory run; verdicts are suppressed')
-    if result['exploratory'] or result.get('mode') == 'sensitivity':
-        lines.extend('Deviation: ' + item for item in result['deviations'])
-    lines.append('{:22s}'.format('model') + ''.join('| {:39s}'.format(r) for r in ROOMS))
-    lines.append('{:22s}'.format('') + ''.join(
-        '| ' + ''.join('{:>13s}'.format(name) for _, name, _ in METRICS) for _ in ROOMS))
-    for arm in ARMS:
-        if arm not in result['arms']:
-            continue
-        for kind in ('zero-shot', 'fine-tuned'):
-            line = '{:22s}'.format('{} {}'.format(arm, kind))
-            for room in ROOMS:
-                cells = []
-                for key, _, nd in METRICS:
-                    row = result['rows']['{}|{}|{}|{}'.format(arm, kind, room, key)]
-                    cells.append(legacy.fmt(row['per_run'], nd))
-                line += '| ' + ''.join(cells)
-            lines.append(line)
-    config = EXPERIMENTS[result.get('experiment', 'exp06')]
     for name, *_ in config['decisions']:
         cell = result[name]
         lines.append('\n{} {} {} {}: diff {}, two-way {}, margin {}, cohort {}/{} -> '
@@ -1265,6 +1751,74 @@ def render(result):
         lines.append('  {:22s} {:14s} {:4s} diff {} {}'.format(
             cell['contrast'], cell['room'], cell['metric'], _number(cell['diff']),
             _bounds(cell['nominal_two_way'])))
+    return lines
+
+
+def render_exp11(result):
+    """exp_11's blocks: each registered statement under the contrast whose direction it
+    names, the three declared screen families, and the copied historical rows."""
+    lines = []
+    for name in result['decisions']:
+        cell = result[name]
+        lines.append('\n{} {} {} {}: diff {}, two-way {}, cohort {}/{} -> {}'.format(
+            name, cell['contrast'], cell['room'], cell['metric'], _number(cell['diff']),
+            _bounds(cell['two_way']), cell['cohort'], cell['n_test'], cell['status']))
+        for field in cell['fields']:
+            lines.append('  {}: {}'.format(
+                field, UNAVAILABLE if cell[field] is None else cell[field]))
+        if cell['margin'] is not None:
+            lines.append('  margin: {} dB'.format(cell['margin']))
+        lines.append('  reading: {}'.format(cell['reading']))
+        lines.extend('  void: ' + reason for reason in cell['void_reasons'])
+    for name in result['screens']:
+        cells = result['screens'][name]
+        lines.append('\nS1 screen {} ({} cells, adjusted at alpha/{})'.format(
+            name, len(cells), H2_FAMILY))
+        for cell in cells:
+            lines.append('  {:14s} {:4s} diff {} nominal {} adjusted {} -> {}'.format(
+                cell['room'], cell['metric'], _number(cell['diff']),
+                _bounds(cell['nominal_two_way']),
+                UNAVAILABLE if cell['adjusted_two_way'] is None
+                else cell['adjusted_two_way'],
+                UNAVAILABLE if cell['label'] is None else cell['label']))
+    lines.append('\nR1 historical rows (copied; no new inference)')
+    for row in result['historical']:
+        lines.append('  {:8s} {:22s} {:4s} diff {} two-way {} nominal {} -> {}'.format(
+            row['name'], row['contrast'], row['metric'], _number(row['diff']),
+            _bounds(row['two_way']), _bounds(row['nominal_two_way']),
+            UNAVAILABLE if row['verdict'] is None else row['verdict']))
+        lines.append('    source {} ({}) not recorded: {}'.format(
+            row['source'], row['source_sha256'][:12], ', '.join(row['not_recorded'])))
+    return lines
+
+
+def render(result):
+    """The printed summary: exp_02's arm table, then the paired tables and the verdicts."""
+    lines = []
+    if result.get('mode') == 'sensitivity':
+        lines.append('SENSITIVITY - relaxed admission; not the primary comparison of 6.2')
+    if result['exploratory']:
+        lines.append('DRAFT - exploratory run; verdicts are suppressed')
+    if result['exploratory'] or result.get('mode') == 'sensitivity':
+        lines.extend('Deviation: ' + item for item in result['deviations'])
+    lines.append('{:22s}'.format('model') + ''.join('| {:39s}'.format(r) for r in ROOMS))
+    lines.append('{:22s}'.format('') + ''.join(
+        '| ' + ''.join('{:>13s}'.format(name) for _, name, _ in METRICS) for _ in ROOMS))
+    for arm in ARMS:
+        if arm not in result['arms']:
+            continue
+        for kind in ('zero-shot', 'fine-tuned'):
+            line = '{:22s}'.format('{} {}'.format(arm, kind))
+            for room in ROOMS:
+                cells = []
+                for key, _, nd in METRICS:
+                    row = result['rows']['{}|{}|{}|{}'.format(arm, kind, room, key)]
+                    cells.append(legacy.fmt(row['per_run'], nd))
+                line += '| ' + ''.join(cells)
+            lines.append(line)
+    config = EXPERIMENTS[result.get('experiment', 'exp06')]
+    lines.extend(render_exp11(result) if 'phase' in config
+                 else render_decisions(result, config))
     lines.append('\nRoom-frame side split ({} job)'.format(result['side_split']['job']))
     for key in sorted(result['side_split']['cells']):
         entry = result['side_split']['cells'][key]
@@ -1319,6 +1873,7 @@ def build_parser():
     parser.add_argument('--legacy-root', default=LEGACY_ROOT)
     parser.add_argument('--new-root', default=NEW_ROOT)
     parser.add_argument('--exp09-root', default=EXP09_ROOT)
+    parser.add_argument('--exp11-root', default=EXP11_ROOT)
     parser.add_argument('--legacy-receipt', default='ckpt/exp06/legacy_receipt.json')
     parser.add_argument('--write-legacy-receipt')
     parser.add_argument('--approved')
@@ -1354,7 +1909,8 @@ def main(argv=None):
     _require(args.json and args.summary, 'both --json and --summary are required')
     check_output_paths(args.experiment, args.json, args.summary)
     config = EXPERIMENTS[args.experiment]
-    roots = {'exp06': args.new_root, 'exp09': args.exp09_root}
+    roots = {'exp06': args.new_root, 'exp09': args.exp09_root,
+             'exp11': args.exp11_root}
     new_arms = tuple(arm for arm in config['arms'] if ARMS[arm]['branch'] == 'new')
     binding = approved['reused']['legacy_receipt'] if approved else None
     if binding is not None and binding.get('sha256') is None:
@@ -1377,6 +1933,9 @@ def main(argv=None):
                  'summary_sha256': record['summary_sha256']}
     if args.experiment != 'exp06':     # exp_06 prints the keys it has always printed
         published['experiment'] = args.experiment
+    if 'phase' in config:      # exp_11 reports a status per registered statement
+        published['phase'] = config['phase']
+        published.update({name: record[name]['status'] for name in record['decisions']})
     published.update({name: record[name]['verdict'] for name, *_ in config['decisions']})
     print(json.dumps(published))
     return 0

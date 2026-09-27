@@ -17,15 +17,19 @@ ROOMS = ('class_room', 'dampened_room', 'hallway', 'complex_room')
 S1_ROOMS = 'class_room hallway complex_room'
 CYLOR = 'ckpt/exp06/pretrain/xRIR_cylor_8_shot/final/epoch_012.pth'
 YAWAUG = 'ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth'
-# exp_09's arm E runs the same pipeline in the room frame, from exp_04's checkpoint.
+# exp_09's arm E runs the same pipeline in the room frame, from exp_04's checkpoint;
+# exp_11's arm G is the same checkpoint in exp_06's HEADING frame (plan section 2.2).
 INITS = {'cyl_or': ('cylindrical_oriented', CYLOR, 'heading'),
          'control_hf': ('simple', 'ckpt/xRIR_simple_8_shot/epoch_12.pth', 'heading'),
          'cyl_hf': ('cylindrical', 'ckpt/xRIR_cyl_8_shot/epoch_12.pth', 'heading'),
-         'yawaug': ('simple', YAWAUG, 'room')}
+         'yawaug': ('simple', YAWAUG, 'room'),
+         'yawaug_hf': ('simple', YAWAUG, 'heading')}
 EXP06_ARMS = ('cyl_or', 'control_hf', 'cyl_hf')
 EXP04_AUG_SHA256 = 'f8e640523892154fe744b60e2fe99178b68a522ee3947758812aa5a7dc15b299'
 EXP09_RECORD = 'worklog/worklog_yixun/exp_09_yawaug_haa_claude'
 EXP09_OUT = 'ckpt/exp09/sim2real'
+EXP11_RECORD = 'worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude'
+EXP11_OUT = 'ckpt/exp11/sim2real'
 
 
 def run(*argv, **environment):
@@ -274,6 +278,101 @@ def test_the_cli_takes_the_output_root_from_the_environment(tmp_path):
 def test_the_yawaug_checkpoint_is_overridable(tmp_path):
     printed = '\n'.join(run_dry(tmp_path, 'yawaug:2', EXP09_YAWAUG_CKPT='alt/aug.pth'))
     assert 'init=alt/aug.pth' in printed and YAWAUG not in printed
+
+
+# --- exp_11: arm G, exp_04's checkpoint in exp_06's heading frame ---------------------
+
+
+def test_arm_g_is_the_yawaug_checkpoint_in_the_heading_frame(tmp_path):
+    """G is E's initialisation and D's frame: the same nine children, with the heading."""
+    printed = run_dry(tmp_path, 'yawaug_hf:0')
+    assert printed == finetune_job('yawaug_hf', 0) + ['QUEUE_DONE gpu=7']
+    assert 'frame=heading heading={}'.format(HEADING) in printed[4]
+    assert len([line for line in printed
+                if line.startswith('RUN nohup setsid ')
+                and '--heading-json-dir ' + HEADING + ' ' in line]) == 9
+
+
+def test_arm_gs_checkpoint_follows_exp09s_override(tmp_path):
+    """One checkpoint variable for both arms: G starts from exactly what E starts from."""
+    printed = '\n'.join(run_dry(tmp_path, 'yawaug_hf:2', EXP09_YAWAUG_CKPT='alt/aug.pth'))
+    assert 'init=alt/aug.pth' in printed and YAWAUG not in printed
+
+
+def test_arm_gs_zeroshot_set_is_its_own_job_token(tmp_path):
+    """Bare `zeroshot` keeps its historical exp_06 expansion, so G asks for its own."""
+    assert run_dry(tmp_path, 'yawaug_hf:zeroshot') == (zeroshot_job('yawaug_hf')
+                                                       + ['QUEUE_DONE gpu=7'])
+    printed = '\n'.join(run_dry(tmp_path, 'zeroshot', gpu='1'))
+    assert 'yawaug' not in printed and 'cyl_or' in printed
+
+
+def test_a_queue_that_mixes_arm_e_and_arm_g_gives_room_then_heading(tmp_path):
+    """The frame is reset on every init selection, so E never inherits G's heading."""
+    printed = run_dry(tmp_path, 'yawaug:0', 'yawaug_hf:0')
+    assert printed == (finetune_job('yawaug', 0) + finetune_job('yawaug_hf', 0)
+                       + ['QUEUE_DONE gpu=7'])
+    declarations = [line for line in printed if line.startswith('JOBSPEC ')]
+    assert 'frame=room heading=none' in declarations[0]
+    assert 'frame=heading heading={}'.format(HEADING) in declarations[1]
+    assert run_dry(tmp_path, 'yawaug_hf:0', 'yawaug:0') == (
+        finetune_job('yawaug_hf', 0) + finetune_job('yawaug', 0) + ['QUEUE_DONE gpu=7'])
+
+
+def test_the_exp11_record_takes_its_own_child_log_prefix(tmp_path):
+    """An exp_11 queue writes neither oriented_cyl_ nor yawaug_haa_ logs."""
+    lines = run_dry(tmp_path, 'yawaug_hf:0', out=EXP11_OUT, record=EXP11_RECORD,
+                    private='exp_11_record', EXP06_HAA_OUT=str(tmp_path / 'sim2real'))
+    assert lines == finetune_job('yawaug_hf', 0, out=EXP11_OUT, record=EXP11_RECORD,
+                                 prefix='orientation_cue_fairness_haa') + ['QUEUE_DONE gpu=7']
+    printed = '\n'.join(lines)
+    assert OUT not in printed and 'oriented_cyl_' not in printed
+    assert 'yawaug_haa_' not in printed
+
+
+def test_arm_gs_job_declares_the_four_heading_rolls(tmp_path, cache):
+    """The positive control: G's declaration is cyl_or's, with SimpleViT and E's weights."""
+    result, events = run_lib(INVOKE.format('run_finetune yawaug_hf 0'), tmp_path,
+                             EXP06_HEADING_DIR=cache['heading'], HAA_XRIR_ROOT=cache['root'],
+                             EXP09_YAWAUG_CKPT=cache['init'])
+    assert 'STATUS 0' in result.stdout, result.stderr
+    assert len([line for line in events if line.startswith('CHILD ')]) == 9
+    spec = json.loads((tmp_path / 'out/yawaug_hf/seed0/job_spec.json').read_text())
+    assert spec['heading'] == {room: 128 for room in ROOMS}
+    assert spec['frame'] == 'heading' and spec['backbone'] == 'simple'
+    assert spec['init'] == 'yawaug_hf' and spec['expect'] == 'finetune'
+    assert spec['rooms'] == sorted(ROOMS) and spec['seed'] == 0
+
+
+def test_the_real_approvals_gate_pins_arm_gs_initialisation(tmp_path):
+    """G's identity gate is E's: exp_04's approved checkpoints.aug, never epoch_012."""
+    other = tmp_path / 'epoch_012.pth'
+    other.write_bytes(b'not the yaw-augmented checkpoint')
+    result, events = run_lib(INVOKE.format('run_finetune yawaug_hf 0'), tmp_path,
+                             adapter=REAL_ADAPTER, EXP09_YAWAUG_CKPT=str(other))
+    assert events == [] and 'REFUSED approvals' in result.stdout
+    assert "exp_04's approved checkpoints.aug" in result.stderr
+    assert EXP04_AUG_SHA256 in result.stderr and 'artifacts.epoch_012' not in result.stderr
+    assert not (tmp_path / 'out/yawaug_hf/seed0').exists()
+
+
+def test_arm_g_is_refused_without_the_four_heading_records(tmp_path):
+    """A heading-frame job declares every room's roll; the room-frame arm declares none."""
+    init = tmp_path / 'aug.pth'
+    init.write_bytes(b'the initialisation both arms share')
+    missing = str(tmp_path / 'no_such_heading_dir')
+    result, events = run_lib(INVOKE.format('run_finetune yawaug_hf 0'), tmp_path,
+                             EXP06_HEADING_DIR=missing, EXP09_YAWAUG_CKPT=str(init))
+    assert events == [] and 'STATUS 1' in result.stdout
+    assert 'REFUSED job_spec' in result.stdout
+    assert 'missing heading json' in result.stderr
+    assert not (tmp_path / 'out/yawaug_hf/seed0/job_spec.json').exists()
+    result, events = run_lib(INVOKE.format('run_finetune yawaug 0'), tmp_path,
+                             EXP06_HEADING_DIR=missing, EXP09_YAWAUG_CKPT=str(init))
+    assert 'STATUS 0' in result.stdout, result.stderr
+    assert len([line for line in events if line.startswith('CHILD ')]) == 9
+    spec = json.loads((tmp_path / 'out/yawaug/seed0/job_spec.json').read_text())
+    assert spec['frame'] == 'room' and 'heading' not in spec
 
 
 def test_the_cli_announces_the_gpu_the_jobs_and_the_output_root():
