@@ -1,0 +1,10 @@
+23:19:34 MERGE 2026-09-26_23:19:34 HEAD=af4982710fe4934e436ca08d97b7770cf9692f60
+Merge made by the 'ort' strategy.
+ tests/test_exp06_haa_pipeline.py  |  103 +++-
+ tests/test_exp06_summarize_haa.py |    9 +-
+ tests/test_exp11_summarize_haa.py | 1054 +++++++++++++++++++++++++++++++++++++
+ tools/exp06_haa_pipeline.sh       |   24 +-
+ tools/exp06_summarize_haa.py      |  637 ++++++++++++++++++++--
+ 5 files changed, 1776 insertions(+), 51 deletions(-)
+ create mode 100644 tests/test_exp11_summarize_haa.py
+23:19:35 MERGE OK: bb1b59d6867e3cdec0ad8fe7eec3e67c279e4eed
