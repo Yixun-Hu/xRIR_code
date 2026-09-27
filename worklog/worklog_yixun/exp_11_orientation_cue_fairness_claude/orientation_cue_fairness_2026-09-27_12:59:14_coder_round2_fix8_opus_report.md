@@ -172,9 +172,10 @@ exp_11's approvals record remains all-null and every exp_11 producer refuses tod
 * **Targeted set** — all fourteen `tests/test_exp11_*.py` plus
   `tests/test_exp06_summarize_haa.py` and `tests/test_exp09_sim_eval_closures.py`:
   **384 passed** in 556 s
-  (`tests/test_exp11_shell.py` alone: **78**, `tests/test_exp11_train.py`: **15**,
+  (`tests/test_exp11_shell.py` alone: **72**, `tests/test_exp11_train.py`: **15**,
   `tests/test_exp11_lock_holder.py`: **7**). Fix 7 ended at 371; the 13 new passes are
-  this cycle's regressions.
+  this cycle's regressions. (Corrected in fix 9 from close review 8: the shell file
+  collects **72**, not 78.)
 * `bash -n` on both shells, `py_compile` on every changed module and test, and
   `git diff --check e19bb44..HEAD`: clean. `tools/exp06_launch.sh` and
   `tools/exp06_finalize.py` are byte-identical to `e19bb44`.
