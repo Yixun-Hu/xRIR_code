@@ -1391,3 +1391,5 @@ arm released_k8  backbone simple  device cpu  queries 6337  batches 397  angles 
 [1600/6337] 0.27 samples/s, eta 292.7 min
 [1680/6337] 0.26 samples/s, eta 298.8 min
 [1760/6337] 0.25 samples/s, eta 302.2 min
+[1840/6337] 0.24 samples/s, eta 317.6 min
+[1920/6337] 0.22 samples/s, eta 340.5 min
