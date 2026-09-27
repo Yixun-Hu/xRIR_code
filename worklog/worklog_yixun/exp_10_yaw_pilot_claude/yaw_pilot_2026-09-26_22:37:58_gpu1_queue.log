@@ -1,0 +1,8 @@
+[22:37:58] queue start on GPU 1, free memory 21160 MiB
+[22:38:02] K=1 manifest hash 
+[22:38:02] === arm released_k1
+    raise ValueError("manifest {} hashes to {}, expected {}".format(
+ValueError: manifest ckpt/yaw_rotation/reference_manifest_k1.json hashes to f6d71f86d5d313f2a982fe6f8cb801116a20ea1c37b0a65d290c088934fd73e3, expected 
+[22:38:08] stage probe FAILED rc=1
+[22:38:08] === arm released_k1 exit 1
+[22:38:08] === arm control_k8

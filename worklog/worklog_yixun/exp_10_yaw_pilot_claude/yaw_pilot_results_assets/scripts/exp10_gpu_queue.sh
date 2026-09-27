@@ -12,7 +12,7 @@ FREE=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits -i "$GPU
 say "queue start on GPU $GPU, free memory ${FREE} MiB"
 [ "$FREE" -lt 8000 ] && { say "REFUSED: < 8 GB free on GPU $GPU"; exit 9; }
 M8=ckpt/yaw_rotation/reference_manifest.json; H8=47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d
-M1=ckpt/yaw_rotation/reference_manifest_k1.json; H1=$(python3 -c "import json,sys; sys.path.insert(0,'.'); from tools.reference_manifest import load_manifest, manifest_hash; print(manifest_hash(load_manifest('$M1')))")
+M1=ckpt/yaw_rotation/reference_manifest_k1.json; H1=f6d71f86d5d313f2a982fe6f8cb801116a20ea1c37b0a65d290c088934fd73e3  # v1.1: hard-coded (v1 computed it with the system python3 outside the conda env → empty → refused)
 say "K=1 manifest hash $H1"
 run() { say "=== arm $1"; "$S" "$@" 2>&1 | tail -3 | tee -a "$QLOG"; local rc=${PIPESTATUS[0]}; say "=== arm $1 exit $rc"; return $rc; }
 run released_k1 simple checkpoints/xRIR_unseen.pth "$M1" "$H1" 1 cuda "$GPU" none

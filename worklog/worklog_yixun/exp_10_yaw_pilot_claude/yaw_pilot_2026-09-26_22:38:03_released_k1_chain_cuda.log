@@ -1,0 +1,13 @@
+[22:38:03] HEAD 0a770d13beeeeeb6ddf849cf6bc116a49e9d8378 arm=released_k1 backbone=simple ckpt=checkpoints/xRIR_unseen.pth manifest=ckpt/yaw_rotation/reference_manifest_k1.json K=1 device=cuda gpu=1 exp03=none
+[22:38:03] stage probe → ckpt/exp10/released_k1_probe
+Traceback (most recent call last):
+  File "tools/exp10_yaw_pilot.py", line 1015, in <module>
+    main()
+  File "tools/exp10_yaw_pilot.py", line 1011, in main
+    return run(parser.parse_args(argv))
+  File "tools/exp10_yaw_pilot.py", line 828, in run
+    manifest = load_checked_manifest(args.manifest, args.manifest_hash)
+  File "/home/yixunhu/codespace/xRIR_code/eval_yaw_rotation.py", line 459, in load_checked_manifest
+    raise ValueError("manifest {} hashes to {}, expected {}".format(
+ValueError: manifest ckpt/yaw_rotation/reference_manifest_k1.json hashes to f6d71f86d5d313f2a982fe6f8cb801116a20ea1c37b0a65d290c088934fd73e3, expected 
+[22:38:08] stage probe FAILED rc=1
