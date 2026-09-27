@@ -849,6 +849,72 @@ def test_the_marker_is_withdrawn_only_against_a_real_registration(tmp_path, cont
     assert (attempt / 'launching').is_file() is not cleared
 
 
+# --- close review 8 blocker 3: the resolution is confined to the arm it locked -------
+
+
+def unresolved_attempt(root, name='attempt_20260927T555555'):
+    attempt = root / name
+    attempt.mkdir(parents=True)
+    (attempt / 'launching').write_text('launcher 1\nat 2026-09-27T00:00:00+00:00\n')
+    return attempt
+
+
+def test_the_resolution_refuses_an_attempt_of_another_arm(tmp_path):
+    """H holds H's lock and scanned H; it may not retire anything of I.
+
+    The lock and the scan are per arm, so a target outside the selected arm root is
+    reached with no exclusion and no liveness answer behind it at all.
+    """
+    theirs = unresolved_attempt(tmp_path / 'xRIR_simpor_yawaug_8_shot')
+    mine = tmp_path / 'xRIR_simpor_8_shot'
+    mine.mkdir(parents=True)
+    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nUNRESOLVED_GRACE_S=0\n'
+                 'resolve_unregistered {target}\n'.format(root=mine, target=theirs))
+    assert result.returncode != 0
+    assert 'arm' in result.stderr.lower() and 'refusing' in result.stderr
+    assert theirs.is_dir() and (theirs / 'launching').is_file()
+    assert not list(theirs.parent.glob('*_ABORTED_*'))
+
+
+@pytest.mark.parametrize('name', ['attempt', 'attempt_../escape', 'final',
+                                  'attempt_20260927T000000_ABORTED_unregistered'])
+def test_the_resolution_refuses_a_name_that_is_not_an_attempts(tmp_path, name):
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    target = root / name
+    target.mkdir(parents=True, exist_ok=True)
+    (target / 'launching').write_text('launcher 1\n')
+    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nUNRESOLVED_GRACE_S=0\n'
+                 'resolve_unregistered {target}\n'.format(root=root, target=target))
+    assert result.returncode != 0 and 'refusing' in result.stderr
+    assert target.is_dir()
+
+
+def test_the_resolution_accepts_the_same_directory_named_differently(tmp_path):
+    """An absolute target under a relative root is the same attempt; strings are not.
+
+    ``resolve_unregistered`` is handed paths by an operator, so identity has to be the
+    canonical directory, never the spelling.
+    """
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    attempt = unresolved_attempt(root)
+    relative = os.path.relpath(str(root), str(REPO))
+    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nUNRESOLVED_GRACE_S=0\n'
+                 'resolve_unregistered {target}\n'.format(root=relative, target=attempt))
+    assert result.returncode == 0, result.stderr[-500:]
+    assert not attempt.exists()
+    assert (root / (attempt.name + '_ABORTED_unregistered')).is_dir()
+
+
+def test_the_resolution_does_not_need_an_args_file(tmp_path):
+    """A launch that died before the trainer wrote args.json is the normal case."""
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    attempt = unresolved_attempt(root)
+    assert not (attempt / 'args.json').exists()
+    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nUNRESOLVED_GRACE_S=0\n'
+                 'resolve_unregistered {target}\n'.format(root=root, target=attempt))
+    assert result.returncode == 0, result.stderr[-500:]
+
+
 def pid_of(pidfile):
     """The pid in a registration file, if it still names a living process."""
     try:
