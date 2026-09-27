@@ -14,3 +14,3113 @@ user
 You are the code REVIEWER (OpenAI Codex) for experiment exp_11 `orientation_cue_fairness` of the xRIR repository. CLOSE review 5 of ROUND 2, in the git worktree /home/yixunhu/codespace/xRIR_code_wt on branch `exp11-cue` (read-only; CPU ≤ 4 threads; CUDA_VISIBLE_DEVICES=''; never signal processes; pytest on selected files with `-p no:cacheprovider`, PYTHONPATH = the worktree, writes only under /tmp). Your close review 4 (`orientation_cue_fairness_codex_code_round2_close4_review.md`, worktree record) left two defects in `tools/exp11_launch.sh`'s lock: the mkdir→owner-write acquisition race (two schedules) and the missing-owner cleanup bypassing the handler's exit. The Coder added 5 commits on `4f72ac2` → `86b1a46` (`git log --oneline 4f72ac2..86b1a46`, `git diff 4f72ac2 86b1a46`; report `orientation_cue_fairness_2026-09-27_08:10:41_coder_round2_fix5_opus_report.md`); the only production change is `tools/exp11_launch.sh` (`launch_sh` → fbc01245…).
 
 Verify by reading the code and re-running your own schedules with the real functions and file barriers (`EXP11_LOCK_BARRIER`, `EXP11_ACQUIRE_BARRIER` are paths, never evaluated): (1) the breaking meta-lock `<lock>.breaking` (atomic mkdir, nonce discipline, released via `release_breaking` on every exit path incl. EXIT) held for the whole break; `take_lock` refuses while it exists; a second breaker refuses on it; (2) the initialisation grace `LOCK_GRACE_S` = 30 s: an owner-less lock younger than the grace is "acquisition in progress" and unbreakable; older is breakable; (3) `take_lock` self-verification — inode recorded after mkdir, owner written atomically inside the directory (`.owner.$$` → `mv owner`; a write into a retired directory fails closed), re-check of same inode + own generation + no `.breaking`, refusal WITHOUT removing anything on mismatch; (4) rename-based retirement re-verified under the meta-lock; `UNRESTORED` unreachable in normal operation; (5) every owner-file reader guarded (`|| true`), absent/unreadable owner = explicit non-ownership (`UNLOCK SKIPPED … has no owner`), handler exit 128+n unconditional; TERM replay with the owner file deleted → SIGNAL, UNLOCK SKIPPED, exit 143, lock preserved; (6) re-run BOTH of your schedules from close review 4 (A paused between mkdir and owner write while B breaks; B observes empty, A completes, B breaks) plus a third caller and normal EXIT cleanup: exactly one holder at every point, no multiple holders, no exposed pathname; (7) the RED evidence of this cycle (replay one) and the exception record (519b48f 306/−27; 16b1eff 96/−9; a2cb3b6 437; c8b2ff0 205 changed lines); (8) closure hygiene at `86b1a46`: vs 9f98bbb only exp_06 `summarize_haa` moved (report it); the eight exp_11 keys (report all); sim-eval closures unchanged; frozen files untouched; `BACKBONES_EXP06` unchanged; `tests/test_exp09_sim_eval_closures.py` green; pinned oracles byte-identical; (9) anything new. State whether round 2 can be CLOSED and `86b1a46` merged (verdict "approve", "approve with changes" listed with file:line, or "request changes" with blockers numbered), and give the exact fill manifest at the merge commit (exp_06 `code.summarize_haa`; the re-filled exp_06 record digest with only that key replaced; exp_11's eight `code.*`, `reused.*`; `artifacts.*` null). Identity header (model, reasoning effort as the invocation metadata states it, sandbox, tree, HEAD, date/time); print the review in full; save nothing.
+codex
+I’ll review the lock changes, replay the race and TERM schedules with the real functions, and verify the closure manifest. I’ll keep the worktree read-only, disable CUDA, cap CPU threads at four, and put all test output under `/tmp`.
+
+exec
+/bin/bash -lc "pwd; git status --short; git rev-parse HEAD; git branch --show-current; date --iso-8601=seconds; rg --files -g AGENTS.md -g '*close4_review.md' -g '*round2_fix5*' -g '*exp11*' -g '*closure*' -g '*orientation_cue_fairness*'" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+/home/yixunhu/codespace/xRIR_code_wt
+?? worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/codex_code_round2_close5_prompt.md
+86b1a465ba746da47058a2c90088b053b1d8dac3
+exp11-cue
+2026-09-27T09:15:02-04:00
+model/xrir_exp11_registry.py
+tools/exp11_launch.sh
+tools/exp11_recipe.py
+tools/exp11_approved_digests_template.json
+tools/exp11_train.py
+tools/exp11_haa_finetune.py
+tools/exp11_haa_eval.py
+tools/exp11_finalize.py
+tools/exp11_haa_pipeline.sh
+tools/exp11_smoke.py
+tools/exp11_profiles.py
+tests/test_exp11_zeroshot_adapter.py
+tests/test_exp11_models.py
+tests/test_exp11_shell.py
+tests/test_exp11_admission.py
+tests/test_exp11_train.py
+tests/test_exp11_profiles.py
+tests/test_exp11_approval_enforcement.py
+tests/test_exp11_haa_parity.py
+tests/test_exp11_summarize_haa.py
+tests/test_exp11_recipe.py
+tests/test_exp11_adapter.py
+tests/test_exp09_sim_eval_closures.py
+tests/test_exp11_registry.py
+tests/test_exp11_finalize.py
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_18:26:47_coder_round1_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_params_set_up.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:14:01_codex_code_round1_close2_review.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close3_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/plan_orientation_cue_fairness_v1_superseded.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/plan_orientation_cue_fairness.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:14:38_suite_full_cpu_91fbd8b_captured.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_plan_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_17:31:52_codex_plan_review.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close2_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_02:35:15_coder_round2_fix_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_command.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_17:44:43_codex_plan_round2_review.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_04:10:40_coder_round2_fix2_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:19:35_refill.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_yixun_query.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:21:56_suite_full_cpu.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close4_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/commits_orientation_cue_fairness.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_worklog.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/coder_prompts/round2_fix5_opus_prompt.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_06:52:49_coder_round2_fix4_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_22:21:54_codex_code_round1_close_review.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_20:47:07_coder_round1_fix_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_05:35:56_coder_round2_fix3_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round1_close_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:21:56_suite.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:19:34_merge.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_19:20_suite_full_cpu_5db0c82.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:35:21_coder_round2_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round1_close2_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_20:50_suite_full_cpu_af052c0.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:21:56_suite_launcher.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_plan_round2_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:14:24_suite_full_cpu_91fbd8b_captured.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round1_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_08:10:41_coder_round2_fix5_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_20:24:52_codex_code_round1_review.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_results_assets/planner_probes/exp11_runbook.sh
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round2a_close4_review.md
+
+exec
+/bin/bash -lc 'cat worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_08:10:41_coder_round2_fix5_opus_report.md; nl -ba tools/exp11_launch.sh' in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+# Coder report — exp_11 `orientation_cue_fairness`, ROUND 2 **FIX CYCLE 5**
+
+**Coder:** Claude Opus 5 (1M context), Claude Code
+**Worktree:** `/home/yixunhu/codespace/xRIR_code_wt`, branch `exp11-cue`, from the reviewed tip `4f72ac2`
+**Interpreter:** `/home/yixunhu/miniconda3/envs/xRIR/bin/python`, `PYTHONPATH=<worktree>`, `CUDA_VISIBLE_DEVICES=''` throughout — no GPU, **no process was ever signalled**
+**Started:** 2026-09-27 08:0x EDT
+**Input:** `orientation_cue_fairness_codex_code_round2_close4_review.md` (request changes, two lock defects) and `coder_prompts/round2_fix5_opus_prompt.md`
+
+## Commits
+
+| SHA | Subject |
+|---|---|
+| `ad9317e` | exp11 fix5 (RED): the acquisition race, and a cleanup path that bypasses the exit |
+| `519b48f` | exp11 fix5 (GREEN): a breaking meta-lock, an acquisition grace and self-verification |
+
+Both defects are in `tools/exp11_launch.sh`. **The prompt's design was implemented as
+specified** — breaking meta-lock, initialisation grace, self-verification, rename-based
+retirement re-verified under the meta-lock — rather than an equivalent of my own.
+
+## Blocker 1 [P2] — the acquisition race
+
+`mkdir` makes the lock pathname visible **before** the owner file exists. A breaker that
+accepted an empty observed generation with no live pid retired a directory whose acquirer
+was still initialising; the acquirer then wrote its owner into the breaker's directory and
+both held the lock, and the first exit removed the shared pathname so a third caller could
+acquire. The second schedule reached `UNRESTORED` with two live holders.
+
+**(a) Breaking meta-lock.** `break_lock` first takes `<lock>.breaking` (atomic `mkdir`,
+owner file with the same nonce discipline, released on every exit path via
+`release_breaking`, which `release_lock` and therefore the `EXIT` trap call). It is held
+for the **whole** break. `take_lock` refuses immediately while it exists, so the pathname
+exposed by retirement is never acquirable, and a second breaker refuses on the meta-lock
+instead of racing the first.
+
+**(b) Initialisation grace.** A lock with **no owner file** is an acquisition in progress,
+not a stale lock: `break_lock` refuses it unless the directory's mtime is older than
+`LOCK_GRACE_S` (30 s, overridable for tests). That closes schedule 1 at its root — the
+empty generation is no longer breakable while its acquirer is alive.
+
+**(c) Self-verification.** `take_lock` records the directory's **inode** after `mkdir`,
+writes the owner **atomically inside that directory** (`.owner.$$` then `mv` to `owner`,
+so a write into a retired directory fails closed rather than landing in somebody else's),
+and then re-checks three things: the same inode, its **own** generation in the owner file,
+and no `<lock>.breaking`. On any mismatch it **refuses and removes nothing** — it never
+owned a surviving lock. That closes schedule 2 from the acquirer's side.
+
+**(d) Retirement.** Still rename-based on the observed generation
+(`mv -T <lock> <lock>.broken.<observed>`), re-verified after the move under the meta-lock.
+With (a) nothing can replace the directory in between, so the restore branch is documented
+as unreachable in normal operation and kept as defensive code with its `UNRESTORED` line.
+
+## Blocker 2 [P2] — a cleanup path could pre-empt the handler's exit
+
+`now="$(lock_nonce_of "$LOCK_DIR")"` propagated `sed`'s failure when the owner file was
+absent, so under `set -e` the handler exited 2 before `UNLOCK SKIPPED` and before its
+`exit 128+n`.
+
+Every owner-file reader (`lock_nonce_of`, `lock_pid_of`, `lock_owner_line`,
+`lock_inode_of`) now ends in `|| true`, and `release_lock` tests for the file first:
+an absent or unreadable owner is **explicit non-ownership**, logged
+`UNLOCK SKIPPED … has no owner: this invocation owns nothing there`, and the lock is left
+alone. No cleanup path can bypass the handler's unconditional `exit $((128 + n))`.
+
+## Regressions (deterministic file barriers, never a signal)
+
+`EXP11_ACQUIRE_BARRIER` joins `EXP11_LOCK_BARRIER`; both take a **path**, never a command,
+and wait boundedly (10 s). The acquisition hook sits at the one point the schedules need:
+after the owner file has landed and before self-verification.
+
+* **Schedule 1** — an acquirer paused between `mkdir` and self-verification while a
+  breaker runs: **exactly one holder**, an ordinary third caller is refused *while the
+  holder still holds it*, and the lock is gone only after the holder's own exit.
+* **Schedule 2** — a breaker that observed an empty generation while the acquirer
+  completes: the breaker refuses, the acquirer remains the sole holder, and `UNRESTORED`
+  never appears.
+* **Grace** — a young owner-less lock refuses the breaker ("acquisition in progress");
+  an old owner-less one is still breakable.
+* **Meta-lock** — nothing acquires the pathname while `.breaking` exists, and a second
+  breaker refuses on it.
+* **Self-verification** — a lock retired under an acquirer leaves the successor's lock
+  intact; the acquirer refuses and removes nothing.
+* **Missing owner** — the registered `TERM` handler replayed with the owner file deleted:
+  `SIGNAL TERM`, `UNLOCK SKIPPED … no owner`, **exit 143**, lock preserved, no
+  `CONTINUED`. And `release_lock` alone in the same state returns cleanly and preserves
+  the lock.
+
+## Report corrections carried over
+
+| item | corrected figure |
+|---|---|
+| `16b1eff` (fix 4 GREEN) | **96 insertions / −9**, launcher only — the 224 figure was RED+GREEN combined |
+| `fa12f00` (fix 4 RED) | 128 test insertions |
+| `a2cb3b6` | **437 record-only lines** (prompt 9, report 92, copied review 333, review prompt 3) — recorded here as a record-only commit |
+| `c8b2ff0` (fix 3 GREEN) | **205 changed lines** in the launcher and its tests (116/−2 + 75/−12), not "insertions"; the commit's other 332 lines are the copied review and prompts |
+
+This cycle's GREEN commit is **306 insertions / −27** across `tools/exp11_launch.sh` and
+`tests/test_exp11_shell.py`, so it exceeds 200 changed lines and is recorded as an
+exception: the meta-lock, the grace, the atomic owner write and the self-verification are
+one interlocking mechanism, and any split would leave a state in which the lock is
+partly protected.
+
+## Digests
+
+Taken at `b3de57f`; the last commit that touches production code is `519b48f` (the commit
+after it is this record), so these values stand for the cycle.
+
+**exp_06** — exactly **one** key moved against the record re-filled at `9f98bbb`; the
+other nineteen are unchanged:
+
+| key | approved at 9f98bbb | now |
+|---|---|---|
+| `summarize_haa` | `645e74c03e20…` | `deff6d49d8e9…` |
+
+**exp_11** — all eight keys:
+
+| key | digest |
+|---|---|
+| `train` | `d9cbb9de8eb0ec85ac85664d9e0da7afe156e5b169bbe89096953d863cf15571` |
+| `finalize` | `3eb15b59b672d97ac257054e66f8bc835abd27b85e24f9a417a5a1aaa9e25b9e` |
+| `haa_finetune` | `bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150` |
+| `haa_eval` | `f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20` |
+| `haa_pipeline_sh` | `3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4` |
+| `launch_sh` | `fbc012454f0d7962d1c58fd778baa670d1340e56cab71131ba769e95f214d4c8` |
+| `smoke` | `62133ba07a35d42026c19fd1484b37c6c06ace0ebedc1cdd8484690df323450e` |
+| `summarize_haa` | `deff6d49d8e903d7e0d5005c5d40199b53ca35cdedfd71a90938df9815d0004a` |
+
+**Exactly one key moved against the fix-4 tip `4f72ac2`: `launch_sh`**
+(`3cff85cc…` → `fbc01245…`), which is the whole of this cycle's production change; the
+other seven are unchanged. Values for the eventual reviewed merge — exp_11's record stays
+all-null and every exp_11 producer refuses today.
+
+## Tests
+
+* **Targeted set** — all `tests/test_exp11_*.py` plus `tests/test_exp06_summarize_haa.py`
+  and `tests/test_exp09_sim_eval_closures.py`: **369 passed** in 478 s
+  (`tests/test_exp11_shell.py` alone: 70). The pinned exp_06/exp_09 and exp_11 phase-1
+  oracles still reproduce their payloads and rendered summaries byte for byte.
+* `bash -n` on both shells, `py_compile` on every exp_11 module and test, and
+  `git diff --check` over `4f72ac2..HEAD`: clean.
+
+## Full CPU suite
+
+`CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 python -m pytest tests -q -rf` on the frozen
+tree (clean outside `worklog/`):
+
+```
+1 failed, 3699 passed, 55 skipped, 307 warnings in 3224.26s (0:53:44)
+FAILED tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes
+```
+
+The single failure is the **expected exp_06 approvals re-fill** — `code.summarize_haa`
+has moved and the record is stale until a reviewer re-fills it at the reviewed merge,
+exactly as round 1 did with `9f98bbb`. It is the mechanism that detects the one key this
+round is allowed to move, not a regression.
+
+Progression across this round's six runs: 3 614 → 3 651 → 3 669 → 3 683 → 3 690 →
+**3 699** passing, with 2 → 1 → 1 → 1 → 1 → 1 failures — all of them that same
+approvals-drift detector after the first run's load-average SIGTERM flake, which has not
+recurred.
+
+## Status
+
+Both lock defects are closed by the design the prompt specified, and the four
+commit-size figures are corrected. Ready for re-review at this tip.
+     1	#!/usr/bin/env bash
+     2	# exp_11 launcher (plan v3 items 6 and 12). Certified invocation for a confirmatory run:
+     3	#   nohup setsid tools/exp11_launch.sh full --arm H --gpu 1 --reviewed-commit <sha> \
+     4	#       > <launcher.log> 2>&1 &
+     5	# Recovery after a crashed launcher (the child already exited):
+     6	#   tools/exp11_launch.sh finalize --arm H --gpu 1 --reviewed-commit <sha> \
+     7	#       --attempt <dir> --log <child.log> --child-exit <code>
+     8	# --dry-run prints every command and path (timestamps as <UTC>) and executes nothing.
+     9	#
+    10	# The child lifecycle -- exclusive directory, one drained pipe, the end marker, the exit
+    11	# receipt -- is tools/exp06_launch.sh's and is sourced here as a library; it is shared
+    12	# evidence, not an exp_11 decision, and forking it would fork the very bytes closed_log
+    13	# re-validates. Both files are bound by exp_11's `launch_sh` approvals key. What this
+    14	# script overrides is everything that names an experiment: the finalizer it calls
+    15	# (tools/exp11_finalize.py), the approvals, the attempt roots, the record and the arms.
+    16	#
+    17	# EXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh defines the functions and returns, so
+    18	# the pipeline can reuse them without a mode.
+    19	set -euo pipefail
+    20	cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+    21	EXP06_LAUNCH_LIB=1 source tools/exp06_launch.sh
+    22	export PYTHONPATH="$PWD"
+    23	
+    24	RECORD=worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude
+    25	APPROVED_DEFAULT="$RECORD/orientation_cue_fairness_results_assets/approved_digests.json"
+    26	SMOKE_DIR=ckpt/exp11/_smoke
+    27	# The pretraining roots. EXP11_PRETRAIN_ROOT exists for the dry-run tests alone: it moves
+    28	# the attempt roots AND the roots preflight scans for live pid files, so a real launch may
+    29	# never take it. It is honoured only with EXP11_TEST_ROOTS=1 *and* --dry-run, and is
+    30	# refused outright otherwise (see apply_root_override below).
+    31	PRETRAIN_ROOT=ckpt/exp11/pretrain
+    32	SIMPOR_ROOT="$PRETRAIN_ROOT/xRIR_simpor_8_shot"          # arm H
+    33	SIMPOR_YAW_ROOT="$PRETRAIN_ROOT/xRIR_simpor_yawaug_8_shot"   # arm I
+    34	HEADING_DIR="${EXP06_HEADING_DIR:-ckpt/exp06/heading}"
+    35	SMOKE_FLAGS="--epochs 1 --max-train-batches 3 --max-test-batches 2 --batch-size 4 --num-workers 4 --no-save"
+    36	SMOKE_ALARM_S="${EXP11_SMOKE_ALARM_S:-300}"
+    37	SMOKE_MAX_GB="${EXP11_SMOKE_MAX_GB:-6}"
+    38	# Plan section 7 reserves 36 h per pretraining; the child runs under that hard ceiling, so
+    39	# a stalled attempt fails and is aborted instead of holding the card indefinitely. The
+    40	# value goes straight to GNU timeout, where 0 means "no timeout", so an override is
+    41	# validated before anything starts and may only TIGHTEN the registered ceiling.
+    42	FULL_CEILING_MAX=129600
+    43	FULL_CEILING_S="${EXP11_FULL_CEILING_S-$FULL_CEILING_MAX}"
+    44	
+    45	# The value is validated as a BOUNDED DECIMAL STRING before any arithmetic: bash's
+    46	# integer comparisons error out above 2**63-1, which left the `if` false and the launch
+    47	# running with an overflowing value handed to GNU timeout. Six digits is the whole
+    48	# contract (129600 has six), so the numeric comparison below can never be out of range;
+    49	# leading zeros are refused with everything else that is not a plain decimal.
+    50	check_ceiling() {
+    51	    local why="must be a plain decimal of at most 6 digits in (0, $FULL_CEILING_MAX]"
+    52	    case "$FULL_CEILING_S" in
+    53	        ''|*[!0-9]*|0*|???????*)
+    54	            echo "refusing: EXP11_FULL_CEILING_S '$FULL_CEILING_S' $why" >&2; return 1 ;;
+    55	    esac
+    56	    if [ "$FULL_CEILING_S" -le 0 ] || [ "$FULL_CEILING_S" -gt "$FULL_CEILING_MAX" ]; then
+    57	        echo "refusing: EXP11_FULL_CEILING_S $FULL_CEILING_S $why;" \
+    58	             "an override may only tighten the 36 h ceiling" >&2
+    59	        return 1
+    60	    fi
+    61	}
+    62	
+    63	# apply_root_override: EXP11_PRETRAIN_ROOT is a dry-run test affordance and nothing else.
+    64	apply_root_override() {
+    65	    [ -n "${EXP11_PRETRAIN_ROOT:-}" ] || return 0
+    66	    if [ "${EXP11_TEST_ROOTS:-0}" != 1 ] || [ "$DRY" -ne 1 ]; then
+    67	        echo "refusing: EXP11_PRETRAIN_ROOT moves the attempt roots and the roots" \
+    68	             "preflight scans, so it is honoured only with EXP11_TEST_ROOTS=1 and" \
+    69	             "--dry-run" >&2
+    70	        return 1
+    71	    fi
+    72	    PRETRAIN_ROOT="$EXP11_PRETRAIN_ROOT"
+    73	    SIMPOR_ROOT="$PRETRAIN_ROOT/xRIR_simpor_8_shot"
+    74	    SIMPOR_YAW_ROOT="$PRETRAIN_ROOT/xRIR_simpor_yawaug_8_shot"
+    75	}
+    76	
+    77	# check_attempt <attempt> <root> <arm>: recovery may promote only this arm's own attempt.
+    78	# The basename is linked under the root --arm selects, so an attempt of the other arm
+    79	# would leave a dangling or wrong `final`; the directory AND the profile its recorded
+    80	# arguments select must both be the selected arm's.
+    81	CHECK_ATTEMPT_PY='
+    82	import json, sys
+    83	from pathlib import Path
+    84	from tools import exp11_recipe
+    85	attempt, root, arm = sys.argv[1:4]
+    86	expected = {"H": "H_RECIPE", "I": "I_RECIPE"}[arm]
+    87	try:
+    88	    # The path that is VALIDATED must be the path that is finalized and promoted, or an
+    89	    # alias (an existing `final`, or a link from outside) would be validated here and
+    90	    # promoted by its own basename - a self-referencing or dangling link under the root.
+    91	    directory, base = Path(attempt).resolve(), Path(root).resolve()
+    92	    if directory.parent != base:
+    93	        raise ValueError("attempt {} is not an attempt of the arm {} root {}".format(
+    94	            directory, arm, base))
+    95	    if not directory.name.startswith("attempt_"):
+    96	        raise ValueError("{} is not an attempt_<UTC> directory".format(directory))
+    97	    args = json.loads((directory / "args.json").read_text())
+    98	    profile = exp11_recipe.select_profile(args)
+    99	    if profile != expected:
+   100	        raise ValueError("attempt {} recorded the profile {}, not the {} of arm {}".format(
+   101	            directory, profile, expected, arm))
+   102	except (OSError, ValueError, KeyError) as error:
+   103	    raise SystemExit("refusing: " + str(error))
+   104	print("ATTEMPT ok {} arm={} profile={}".format(attempt, arm, expected))
+   105	print("ATTEMPT canonical {}".format(directory))
+   106	'
+   107	
+   108	# check_attempt <attempt>: sets CANONICAL_ATTEMPT to the resolved directory, which is
+   109	# what finalization and promotion then use.
+   110	check_attempt() {
+   111	    local output
+   112	    say "ATTEMPTCHECK $1 arm=$ARM root=$ARM_ROOT"
+   113	    output="$(CUDA_VISIBLE_DEVICES="" "$PYTHON" -c "$CHECK_ATTEMPT_PY" "$1" "$ARM_ROOT" \
+   114	              "$ARM")" || return 1
+   115	    printf '%s\n' "$output"
+   116	    CANONICAL_ATTEMPT="${output##*ATTEMPT canonical }"
+   117	    case "$CANONICAL_ATTEMPT" in
+   118	        "$ARM_ROOT"/attempt_*|/*) ;;
+   119	        *) echo "refusing: no canonical attempt was resolved for $1" >&2; return 1 ;;
+   120	    esac
+   121	}
+   122	ARM=""
+   123	ARM_BACKBONE=simple_oriented
+   124	ARM_YAW=0
+   125	ARM_SAVE_EVERY=500
+   126	
+   127	usage() {
+   128	    echo "usage: $0 <smoke|probe|full|finalize> --arm <H|I> --gpu <g> --reviewed-commit <sha40>" >&2
+   129	    echo "       [--attempt-root <dir>] [--approved <json>] [--exploratory]" >&2
+   130	    echo "       [--attempt <dir> --log <path> --child-exit <n>] [--dry-run]" >&2
+   131	    echo "       finalize also takes [--replace-final] [--break-lock]" >&2
+   132	    exit 2
+   133	}
+   134	
+   135	# arm_of <H|I>: the attempt root, augmentation and saving cadence of one pretraining arm.
+   136	# H is exp_01's recipe (save_every 500); I is exp_04's, whose constraints the trainer
+   137	# re-applies (--save-every 0 and no --resume).
+   138	arm_of() { case "$1" in
+   139	  H) ARM_ROOT="$SIMPOR_ROOT"; ARM_YAW=0; ARM_SAVE_EVERY=500;;
+   140	  I) ARM_ROOT="$SIMPOR_YAW_ROOT"; ARM_YAW=1; ARM_SAVE_EVERY=0;;
+   141	  *) echo "refusing: unknown arm $1 (H or I)" >&2; return 1;; esac
+   142	  ARM_BACKBONE=simple_oriented; }
+   143	
+   144	# Every gate before a child starts, through exp_11's own finalizer: HEAD at the reviewed
+   145	# commit, a tree clean outside worklog/, no live launch.pid or child.pid under either
+   146	# attempt root or the smoke tree, exp_11's approvals, and -- for probe and full -- a card
+   147	# with no compute apps at all.
+   148	preflight() {
+   149	    local extra=()
+   150	    [ "${EXPLORATORY:-0}" -eq 0 ] || extra+=(--exploratory)
+   151	    [ "$MODE" != smoke ] || extra+=(--min-free-gb "$SMOKE_MAX_GB")
+   152	    run "$PYTHON" tools/exp11_finalize.py preflight --mode "$MODE" --gpu "$GPU" \
+   153	        --reviewed-commit "$COMMIT" --attempt-root "$SIMPOR_ROOT" \
+   154	        --attempt-root "$SIMPOR_YAW_ROOT" --attempt-root "$SMOKE_DIR" \
+   155	        --approved "$APPROVED" ${extra[@]+"${extra[@]}"}
+   156	}
+   157	
+   158	finalize() {  # finalize <run dir> <log> <child-exit> <run-type> [receipt]
+   159	    local extra=()
+   160	    [ -z "${OWNER:-}" ] || extra+=(--owner-pid "$OWNER")
+   161	    [ $# -lt 5 ] || extra+=(--receipt "$5")
+   162	    run "$PYTHON" tools/exp11_finalize.py --run-dir "$1" --run-type "$4" --log "$2" \
+   163	        --child-exit "$3" ${extra[@]+"${extra[@]}"}
+   164	}
+   165	
+   166	require_passed() {  # require_passed <run dir>: the next rung consumes this one's checkpoint
+   167	    if ! run "$PYTHON" tools/exp11_finalize.py passed --run-dir "$1" --run-type exp11_smoke; then
+   168	        say "STOP $1 did not pass; the rung that consumes its checkpoint is not started"
+   169	        exit 2
+   170	    fi
+   171	}
+   172	
+   173	promote() {  # promote <attempt basename>: atomic, so `final` never points at nothing
+   174	    say "PROMOTE $ARM_ROOT/final -> $1"
+   175	    if [ "${DRY:-0}" -eq 0 ]; then
+   176	        ln -s -- "$1" "$ARM_ROOT/.final.$$"
+   177	        mv -Tf -- "$ARM_ROOT/.final.$$" "$ARM_ROOT/final"
+   178	    fi
+   179	}
+   180	
+   181	# --- publishing one arm is serialised -----------------------------------------------
+   182	# Close review 2: recovery had no ownership at all, so two invocations could interleave
+   183	# -- one finalising while the other renamed the shared attempt out from under it -- and
+   184	# report success over a dangling `final`. Every path that validates, finalises or
+   185	# promotes an attempt of an arm takes this lock first. `mkdir` is the atomic primitive:
+   186	# it succeeds for exactly one caller. A held lock REFUSES immediately, it never waits,
+   187	# and a stale one is evidence of an interrupted publication, so it is cleared only by an
+   188	# explicit --break-lock and never on a timer.
+   189	LOCK_DIR=""
+   190	LOCK_HELD=0
+   191	# The GENERATION of the lock this invocation holds. A lock directory is not identity
+   192	# enough: it can be retired and re-created between two statements of one shell, so a
+   193	# process-local flag would let an earlier owner remove its successor's lock. The owner
+   194	# file carries this nonce, and cleanup acts only where the nonce is still ours.
+   195	LOCK_NONCE=""
+   196	INTERRUPTED=0
+   197	# A lock whose owner file has not landed yet is an acquisition in progress, not a stale
+   198	# lock; only one older than this may be broken.
+   199	LOCK_GRACE_S="${EXP11_LOCK_GRACE_S:-30}"
+   200	BREAKING_DIR=""
+   201	BREAKING_HELD=0
+   202	LOCK_NONCE_CANDIDATE=""
+   203	
+   204	# Every reader of an owner file ends in `|| true`: an absent or unreadable owner is
+   205	# explicit NON-ownership, and `sed`'s failure must never propagate under `set -e` --
+   206	# that is what pre-empted the signal handler's own exit.
+   207	lock_nonce_of() {  # the generation recorded in one lock directory, or nothing
+   208	    sed -n 's/^pid [0-9][0-9]* nonce \([^ ][^ ]*\).*/\1/p' "$1/owner" 2>/dev/null || true
+   209	}
+   210	
+   211	lock_pid_of() {
+   212	    sed -n 's/^pid \([0-9][0-9]*\).*/\1/p' "$1/owner" 2>/dev/null || true
+   213	}
+   214	
+   215	lock_owner_line() {
+   216	    cat -- "$1/owner" 2>/dev/null | tr -d '\n' || true
+   217	}
+   218	
+   219	lock_inode_of() {
+   220	    stat -c %i -- "$1" 2>/dev/null || true
+   221	}
+   222	
+   223	# Older than the initialisation grace? `mkdir` publishes the pathname before the owner
+   224	# file lands, so a lock without an owner is an acquisition in progress until it is old
+   225	# enough to be an abandoned one.
+   226	lock_older_than_grace() {
+   227	    local age
+   228	    age="$(( $(date +%s) - $(stat -c %Y -- "$1" 2>/dev/null || echo 0) ))"
+   229	    [ "$age" -ge "$LOCK_GRACE_S" ]
+   230	}
+   231	
+   232	lock_is_live() {  # a pid that is gone does not hold a lock; a live one is never overridden
+   233	    local pid
+   234	    pid="$(lock_pid_of "$1")"
+   235	    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+   236	}
+   237	
+   238	# A test-only ordering hook: wait (bounded) for a file to appear. It takes a PATH, never
+   239	# a command, so nothing here evaluates anything the environment supplies.
+   240	lock_barrier() { lock_wait_for "${EXP11_LOCK_BARRIER:-}"; }
+   241	
+   242	# The same hook at the one point inside acquisition the schedules need to interleave at:
+   243	# after the owner file has landed and before self-verification.
+   244	lock_acquire_barrier() { lock_wait_for "${EXP11_ACQUIRE_BARRIER:-}"; }
+   245	
+   246	lock_wait_for() {
+   247	    local file="$1" waited=0
+   248	    [ -n "$file" ] || return 0
+   249	    while [ ! -e "$file" ] && [ "$waited" -lt 100 ]; do sleep 0.1; waited=$((waited + 1)); done
+   250	}
+   251	
+   252	release_lock() {
+   253	    release_breaking
+   254	    [ "$LOCK_HELD" -eq 1 ] || return 0
+   255	    LOCK_HELD=0
+   256	    local now=""
+   257	    if [ -f "$LOCK_DIR/owner" ]; then
+   258	        now="$(lock_nonce_of "$LOCK_DIR")"
+   259	    else
+   260	        say "UNLOCK SKIPPED $LOCK_DIR has no owner: this invocation owns nothing there"
+   261	        return 0
+   262	    fi
+   263	    if [ -n "$LOCK_NONCE" ] && [ "$now" != "$LOCK_NONCE" ]; then
+   264	        say "UNLOCK SKIPPED $LOCK_DIR holds the generation ${now:-none}, not $LOCK_NONCE"
+   265	        return 0
+   266	    fi
+   267	    rm -f -- "$LOCK_DIR/owner"
+   268	    rmdir -- "$LOCK_DIR" 2>/dev/null || true
+   269	    say "UNLOCK $LOCK_DIR"
+   270	}
+   271	
+   272	# The BREAKING META-LOCK. Retirement exposes the lock pathname for as long as it takes
+   273	# to re-create it, and nothing may acquire it in that window -- which is what let a
+   274	# breaker and an ordinary caller both end up holding. `take_lock` refuses while this
+   275	# exists, and a second breaker refuses on it rather than racing the first.
+   276	take_breaking() {
+   277	    BREAKING_DIR="$LOCK_DIR.breaking"
+   278	    if ! mkdir -- "$BREAKING_DIR" 2>/dev/null; then
+   279	        echo "refusing: a break of $LOCK_DIR is already in progress" \
+   280	             "($(lock_owner_line "$BREAKING_DIR"))" >&2
+   281	        return 1
+   282	    fi
+   283	    BREAKING_HELD=1
+   284	    printf 'pid %s nonce %s arm %s at %s\n' "$$" "$LOCK_NONCE_CANDIDATE" "$ARM" \
+   285	        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$BREAKING_DIR/owner"
+   286	}
+   287	
+   288	release_breaking() {
+   289	    [ "$BREAKING_HELD" -eq 1 ] || return 0
+   290	    BREAKING_HELD=0
+   291	    local now=""
+   292	    [ ! -f "$BREAKING_DIR/owner" ] || now="$(lock_nonce_of "$BREAKING_DIR")"
+   293	    if [ -n "$now" ] && [ "$now" != "$LOCK_NONCE_CANDIDATE" ]; then
+   294	        say "UNBREAKING SKIPPED $BREAKING_DIR is not this invocation's"
+   295	        return 0
+   296	    fi
+   297	    rm -f -- "$BREAKING_DIR/owner"
+   298	    rmdir -- "$BREAKING_DIR" 2>/dev/null || true
+   299	}
+   300	
+   301	# A signal handler must END this invocation. A cleanup-only handler returns, and bash
+   302	# resumes -- which would let finalization and promotion continue with the lock released.
+   303	on_signal() {  # on_signal <NAME> <number>
+   304	    INTERRUPTED=1
+   305	    say "SIGNAL $1"
+   306	    release_lock
+   307	    exit $((128 + $2))
+   308	}
+   309	
+   310	# Checked before every protected step, so nothing runs after a handler has fired even if
+   311	# some future caller swallows the exit.
+   312	not_interrupted() {
+   313	    [ "$INTERRUPTED" -eq 0 ] && return 0
+   314	    echo "refusing: a signal handler has fired; this invocation does not continue" >&2
+   315	    return 1
+   316	}
+   317	
+   318	# break_lock <observed-nonce>: retire the SPECIFIC stale lock this invocation observed,
+   319	# under the breaking meta-lock so nothing can acquire the exposed pathname meanwhile.
+   320	#
+   321	# The two schedules the close review demonstrated are closed as follows. (1) An acquirer
+   322	# paused between `mkdir` and its owner write leaves an owner-less lock: that is an
+   323	# acquisition in progress until it is older than the grace, so the breaker refuses rather
+   324	# than retiring it. (2) A breaker whose observation is out of date fails the generation
+   325	# comparison, and because the meta-lock is held for the whole break, no third caller can
+   326	# slip into the exposed pathname even in the defensive restore branch.
+   327	break_lock() {
+   328	    local observed="$1" retired="$LOCK_DIR.broken.${1:-empty}" now
+   329	    [ -d "$LOCK_DIR" ] || return 0
+   330	    take_breaking || return 1
+   331	    if lock_is_live "$LOCK_DIR"; then
+   332	        echo "refusing: --break-lock will not override the live owner of $LOCK_DIR" \
+   333	             "($(lock_owner_line "$LOCK_DIR"))" >&2
+   334	        return 1
+   335	    fi
+   336	    if [ ! -f "$LOCK_DIR/owner" ]; then
+   337	        if ! lock_older_than_grace "$LOCK_DIR"; then
+   338	            echo "refusing: $LOCK_DIR has no owner file yet and is younger than the" \
+   339	                 "${LOCK_GRACE_S}s grace: that is an acquisition in progress, not a" \
+   340	                 "stale lock" >&2
+   341	            return 1
+   342	        fi
+   343	    fi
+   344	    now="$(lock_nonce_of "$LOCK_DIR")"
+   345	    if [ "$now" != "$observed" ]; then
+   346	        echo "refusing: $LOCK_DIR now holds the generation ${now:-none}, not the" \
+   347	             "${observed:-none} this invocation observed; another publication has" \
+   348	             "taken it" >&2
+   349	        return 1
+   350	    fi
+   351	    lock_barrier
+   352	    if ! mv -T -- "$LOCK_DIR" "$retired" 2>/dev/null; then
+   353	        echo "refusing: could not retire the stale lock $LOCK_DIR as $retired;" \
+   354	             "another --break-lock reached it first" >&2
+   355	        return 1
+   356	    fi
+   357	    # Defensive: with the meta-lock held nothing else can have replaced the directory
+   358	    # between the comparison and the rename, so this branch should be unreachable.
+   359	    now="$(lock_nonce_of "$retired")"
+   360	    if [ "$now" != "$observed" ]; then
+   361	        mv -T -- "$retired" "$LOCK_DIR" 2>/dev/null \
+   362	            || say "UNRESTORED $retired could not be put back as $LOCK_DIR"
+   363	        echo "refusing: the lock changed generation while it was being retired" >&2
+   364	        return 1
+   365	    fi
+   366	    say "BREAKLOCK $LOCK_DIR retired as $retired owner=$(lock_owner_line "$retired")"
+   367	}
+   368	
+   369	take_lock() {  # take_lock <mode>
+   370	    LOCK_DIR="$ARM_ROOT/.publish.lock"
+   371	    say "LOCK $LOCK_DIR"
+   372	    # A dry run touches nothing outside the test roots, so the lock is real exactly
+   373	    # where the tests exercise it and announced everywhere else.
+   374	    if [ "$DRY" -eq 1 ] && [ "${EXP11_TEST_ROOTS:-0}" != 1 ]; then return 0; fi
+   375	    mkdir -p -- "$ARM_ROOT" || return 1
+   376	    # The generation is chosen BEFORE anything is created, so the meta-lock and the lock
+   377	    # itself carry the same invocation identity.
+   378	    LOCK_NONCE_CANDIDATE="$$-$(date -u +%s%N)-${RANDOM}${RANDOM}"
+   379	    if [ "$BREAK_LOCK" -eq 1 ] && [ -d "$LOCK_DIR" ]; then
+   380	        break_lock "$(lock_nonce_of "$LOCK_DIR")" || { release_breaking; return 1; }
+   381	    fi
+   382	    if [ -d "$LOCK_DIR.breaking" ] && [ "$BREAKING_HELD" -eq 0 ]; then
+   383	        echo "refusing: a break of $LOCK_DIR is in progress; the lock pathname is not" \
+   384	             "available while it is being retired" >&2
+   385	        return 1
+   386	    fi
+   387	    if ! mkdir -- "$LOCK_DIR" 2>/dev/null; then
+   388	        local live=no
+   389	        lock_is_live "$LOCK_DIR" && live=yes
+   390	        echo "refusing: another publication holds the lock $LOCK_DIR (owner:" \
+   391	             "$(lock_owner_line "$LOCK_DIR"), live=$live)." \
+   392	             "Publishing one arm is serialised; a stale lock is cleared only with" \
+   393	             "--break-lock, never automatically" >&2
+   394	        return 1
+   395	    fi
+   396	    local inode
+   397	    inode="$(lock_inode_of "$LOCK_DIR")"
+   398	    LOCK_NONCE="$LOCK_NONCE_CANDIDATE"
+   399	    LOCK_HELD=1
+   400	    trap release_lock EXIT
+   401	    trap 'on_signal INT 2' INT
+   402	    trap 'on_signal TERM 15' TERM
+   403	    # The owner file lands atomically inside the directory this invocation created: a
+   404	    # write into a retired directory fails here rather than appearing in somebody else's.
+   405	    if ! { printf 'pid %s nonce %s mode %s arm %s at %s\n' "$$" "$LOCK_NONCE" "$1" \
+   406	               "$ARM" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK_DIR/.owner.$$" \
+   407	           && mv -- "$LOCK_DIR/.owner.$$" "$LOCK_DIR/owner"; }; then
+   408	        LOCK_HELD=0
+   409	        echo "refusing: could not record ownership of $LOCK_DIR; it was retired while" \
+   410	             "this invocation was acquiring it" >&2
+   411	        return 1
+   412	    fi
+   413	    lock_acquire_barrier
+   414	    # SELF-VERIFICATION. Between `mkdir` and now the directory may have been retired and
+   415	    # re-created by somebody else; this invocation then owns nothing and must remove
+   416	    # nothing. Same inode, our own generation, and no break in progress.
+   417	    if [ "$(lock_inode_of "$LOCK_DIR")" != "$inode" ] \
+   418	       || [ "$(lock_nonce_of "$LOCK_DIR")" != "$LOCK_NONCE" ] \
+   419	       || { [ -d "$LOCK_DIR.breaking" ] && [ "$BREAKING_HELD" -eq 0 ]; }; then
+   420	        LOCK_HELD=0
+   421	        echo "refusing: $LOCK_DIR is no longer the lock this invocation created" \
+   422	             "(inode or generation changed, or a break began); nothing was removed" >&2
+   423	        return 1
+   424	    fi
+   425	    release_breaking
+   426	}
+   427	
+   428	# published_target: what `final` resolves to under this arm root, or nothing.
+   429	published_target() {
+   430	    [ -L "$ARM_ROOT/final" ] || return 1
+   431	    readlink -f -- "$ARM_ROOT/final"
+   432	}
+   433	
+   434	# already_published <canonical>: this attempt is the published one and it completed.
+   435	already_published() {
+   436	    local target
+   437	    target="$(published_target)" || return 1
+   438	    [ "$target" = "$1" ] && [ -f "$1/completion.json" ]
+   439	}
+   440	
+   441	# check_final_conflict <canonical>: a DIFFERENT existing `final` is never replaced by a
+   442	# recovery unless the operator asks for it, and the replaced target is logged first.
+   443	check_final_conflict() {
+   444	    local target
+   445	    target="$(published_target)" || return 0
+   446	    [ "$target" != "$1" ] || return 0
+   447	    if [ "$REPLACE_FINAL" -eq 0 ]; then
+   448	        echo "refusing: $ARM_ROOT/final already publishes $target, not $1; pass" \
+   449	             "--replace-final to replace it" >&2
+   450	        return 1
+   451	    fi
+   452	    say "REPLACING $ARM_ROOT/final -> $(basename -- "$target") with $(basename -- "$1")"
+   453	}
+   454	
+   455	# abort_recovery <canonical> <log>: the abort path of a REFUSED recovery. A malformed
+   456	# invocation does not establish that a finished run failed, so an attempt that is
+   457	# already published or already completed is left exactly as it is -- directory,
+   458	# completion and `final` untouched -- and the finalizer's own cause stands on stderr.
+   459	# Full mode keeps aborting unconditionally: it launched the attempt it is aborting.
+   460	abort_recovery() {
+   461	    local canonical="$1" log="$2" why=""
+   462	    [ -f "$canonical/completion.json" ] && why="it has completed"
+   463	    [ "$(published_target || true)" != "$canonical" ] || why="it is published as final"
+   464	    if [ -n "$why" ]; then
+   465	        say "PRESERVED $canonical ($why); the refusal is this invocation's, not the run's"
+   466	        return 0
+   467	    fi
+   468	    abort "$canonical" "$log" finalize_refused
+   469	}
+   470	
+   471	# diagnostic <kind> <run dir> <log> <receipt> <entry argv...>: one enumerated diagnostic
+   472	# kind through the same lifecycle as a confirmatory child, finalized as exp11_smoke and
+   473	# never admissible as an arm.
+   474	diagnostic() {
+   475	    local kind="$1" dir="$2" log="$3" receipt="$4"
+   476	    shift 4
+   477	    local flags=(--kind "$kind" --receipt "$receipt" --provenance-out "$dir/provenance.json"
+   478	                 --approved "$APPROVED" --reviewed-commit "$COMMIT")
+   479	    [ "${EXPLORATORY:-0}" -eq 0 ] || flags+=(--exploratory)
+   480	    local cmd=("$PYTHON" tools/exp11_smoke.py "${flags[@]}" "$@")
+   481	    say "MKDIR $dir"
+   482	    say "SINK cat >> $log"
+   483	    say "PIDFILE $dir/launch.pid"
+   484	    say "RUN nohup setsid ${cmd[*]}"
+   485	    if [ "$DRY" -eq 1 ]; then
+   486	        say "MARKER EXP06_CHILD_EXIT <code> <iso> >> $log"
+   487	        finalize "$dir" "$log" '<code>' exp11_smoke "$receipt"
+   488	        return 0
+   489	    fi
+   490	    mkdir -p -- "$(dirname -- "$dir")" "$RECORD"
+   491	    mkdir -- "$dir"      # exclusive: a repeated stamp must not reuse a diagnostic run
+   492	    own_launch "$dir"
+   493	    : > "$log"
+   494	    run_child "$dir" "$log" "${cmd[@]}"
+   495	    close_child "$dir" "$log"
+   496	    if ! finalize "$dir" "$log" "$CHILD_STATUS" exp11_smoke "$receipt"; then
+   497	        abort "$dir" "$log" finalize_refused
+   498	        exit 2
+   499	    fi
+   500	    if [ "$CHILD_STATUS" -ne 0 ]; then
+   501	        abort "$dir" "$log" "child_failed_$CHILD_STATUS"
+   502	        exit "$CHILD_STATUS"
+   503	    fi
+   504	}
+   505	
+   506	# The sourced library already resolved APPROVED to exp_06's record, so exp_11's default
+   507	# is assigned unconditionally; EXP11_APPROVED (or --approved) overrides it.
+   508	APPROVED="${EXP11_APPROVED:-$APPROVED_DEFAULT}"
+   509	COMMIT="${COMMIT:-}"
+   510	EXPLORATORY="${EXPLORATORY:-0}"
+   511	ARM_ROOT="${ARM_ROOT:-$SIMPOR_ROOT}"
+   512	CANONICAL_ATTEMPT="${CANONICAL_ATTEMPT:-}"
+   513	BREAK_LOCK="${BREAK_LOCK:-0}"
+   514	INTERRUPTED="${INTERRUPTED:-0}"
+   515	LOCK_NONCE_CANDIDATE="${LOCK_NONCE_CANDIDATE:-}"
+   516	REPLACE_FINAL="${REPLACE_FINAL:-0}"
+   517	DRY="${DRY:-0}"
+   518	ARM="${ARM:-H}"
+   519	
+   520	if [ "${EXP11_LAUNCH_LIB:-0}" = 1 ]; then return 0; fi
+   521	
+   522	MODE="${1:-}"
+   523	shift || true
+   524	case "$MODE" in smoke|probe|full|finalize) ;; *) usage ;; esac
+   525	GPU=""; COMMIT=""; ATTEMPT=""; LOG=""; CHILD_EXIT=""; DRY=0; ARM=H
+   526	while [ $# -gt 0 ]; do
+   527	    case "$1" in
+   528	        --arm) ARM="${2:-}"; shift 2 ;;
+   529	        --gpu) GPU="${2:-}"; shift 2 ;;
+   530	        --reviewed-commit) COMMIT="${2:-}"; shift 2 ;;
+   531	        --attempt) ATTEMPT="${2:-}"; shift 2 ;;
+   532	        --log) LOG="${2:-}"; shift 2 ;;
+   533	        --child-exit) CHILD_EXIT="${2:-}"; shift 2 ;;
+   534	        --approved) APPROVED="${2:-}"; shift 2 ;;
+   535	        --exploratory) EXPLORATORY=1; shift ;;
+   536	        --break-lock) BREAK_LOCK=1; shift ;;
+   537	        --replace-final) REPLACE_FINAL=1; shift ;;
+   538	        --dry-run) DRY=1; shift ;;
+   539	        *) usage ;;
+   540	    esac
+   541	done
+   542	[ -n "$GPU" ] && [ -n "$COMMIT" ] || usage
+   543	apply_root_override || exit 2
+   544	arm_of "$ARM" || exit 2
+   545	check_ceiling || exit 2
+   546	[ "$MODE" != finalize ] || { [ -n "$ATTEMPT" ] && [ -n "$LOG" ] && [ -n "$CHILD_EXIT" ]; } || usage
+   547	
+   548	if [ "$DRY" -eq 1 ]; then STAMP='<UTC>'; else STAMP="$(date -u +%Y%m%dT%H%M%S)"; fi
+   549	if [ "$MODE" = finalize ]; then OWNER=""        # recovery owns no live launch.pid
+   550	elif [ "$DRY" -eq 1 ]; then OWNER='<pid>'
+   551	else OWNER="$$"; fi
+   552	
+   553	say "EXP11_LAUNCH mode=$MODE arm=$ARM gpu=$GPU commit=$COMMIT root=$ARM_ROOT stamp=$STAMP dry_run=$DRY"
+   554	say "ENV CUDA_VISIBLE_DEVICES=$GPU PYTHONHASHSEED=0 OMP_NUM_THREADS=8 XRIR_DATA_PATH=$DATA_ROOT"
+   555	if [ "$DRY" -eq 0 ] && [ ! -d "$DATA_ROOT" ]; then
+   556	    echo "refusing: XRIR_DATA_PATH $DATA_ROOT is not a directory" >&2
+   557	    exit 2
+   558	fi
+   559	export XRIR_DATA_PATH="$DATA_ROOT"
+   560	CHILD_EXPLORATORY=()
+   561	[ "$EXPLORATORY" -eq 0 ] || CHILD_EXPLORATORY=(--exploratory)
+   562	
+   563	case "$MODE" in
+   564	full)
+   565	    preflight
+   566	    attempt="$ARM_ROOT/attempt_$STAMP"
+   567	    log="$RECORD/orientation_cue_fairness_${STAMP}_train_full_${ARM}.log"
+   568	    say "MKDIR $attempt"
+   569	    say "SINK cat >> $log"
+   570	    say "PIDFILE $attempt/launch.pid"
+   571	    say "CEILING ${FULL_CEILING_S}s"
+   572	    child=(timeout --kill-after=60 "$FULL_CEILING_S"
+   573	           "$PYTHON" tools/exp11_train.py --backbone "$ARM_BACKBONE" --save-dir "$attempt"
+   574	           --num-shot 8 --max-len 9600 --lr 1e-3 --weight-decay 1e-4 --decay-epochs 3
+   575	           --lr-gamma 0.1 --epochs 12 --batch-size 32 --accum-steps 2 --num-workers 12
+   576	           --seed 0 --tf32 --log-interval 50 --save-every "$ARM_SAVE_EVERY"
+   577	           --epoch-ckpt-every 1 --yaw-aug "$ARM_YAW" --yaw-aug-seed 0 --yaw-aug-width 512
+   578	           --run-type full --approved "$APPROVED" --reviewed-commit "$COMMIT")
+   579	    say "RUN nohup setsid ${child[*]}"
+   580	    take_lock full || exit 2   # publishing this arm is serialised with any recovery
+   581	    if [ "$DRY" -eq 1 ]; then
+   582	        say "MARKER EXP06_CHILD_EXIT <code> <iso> >> $log"
+   583	        abort "$attempt" "$log" 'child_exit_<code>'
+   584	        finalize "$attempt" "$log" '<code>' exp11_train
+   585	        promote "attempt_$STAMP"
+   586	        release_lock
+   587	        exit 0
+   588	    fi
+   589	    mkdir -p -- "$ARM_ROOT"
+   590	    mkdir -- "$attempt"   # exclusive: a repeated stamp must not reuse an attempt
+   591	    own_launch "$attempt"
+   592	    mkdir -p -- "$RECORD"
+   593	    : > "$log"
+   594	    export CUDA_VISIBLE_DEVICES="$GPU" PYTHONHASHSEED=0 OMP_NUM_THREADS=8
+   595	    run_child "$attempt" "$log" "${child[@]}"
+   596	    close_child "$attempt" "$log"
+   597	    status="$CHILD_STATUS"
+   598	    if [ "$status" -ne 0 ]; then
+   599	        abort "$attempt" "$log" "child_exit_$status"
+   600	        exit "$status"
+   601	    fi
+   602	    not_interrupted || exit 2
+   603	    if ! finalize "$attempt" "$log" "$status" exp11_train; then
+   604	        abort "$attempt" "$log" finalize_refused
+   605	        exit 2
+   606	    fi
+   607	    not_interrupted || exit 2
+   608	    promote "attempt_$STAMP"
+   609	    ;;
+   610	probe)
+   611	    preflight
+   612	    export CUDA_VISIBLE_DEVICES="$GPU" PYTHONHASHSEED=0 OMP_NUM_THREADS=8
+   613	    diagnostic probe "$ARM_ROOT/probe_$STAMP" \
+   614	        "$RECORD/orientation_cue_fairness_${STAMP}_probe_${ARM}.log" \
+   615	        "$ARM_ROOT/probe_$STAMP.json" -- \
+   616	        --backbone "$ARM_BACKBONE" --save-dir "$ARM_ROOT/probe_$STAMP" \
+   617	        --epochs 1 --max-train-batches 200 --max-test-batches 20 --no-save --run-type probe \
+   618	        --batch-size 32 --accum-steps 2 --tf32 --num-workers 12 --decay-epochs 3 \
+   619	        --yaw-aug "$ARM_YAW" --save-every 0 --log-interval 50 \
+   620	        ${CHILD_EXPLORATORY[@]+"${CHILD_EXPLORATORY[@]}"}
+   621	    ;;
+   622	smoke)
+   623	    preflight
+   624	    export CUDA_VISIBLE_DEVICES="$GPU" PYTHONHASHSEED=0 OMP_NUM_THREADS=8
+   625	    # (a) the oriented backbone on a bounded budget, through exp_11's training entry.
+   626	    diagnostic probe "$SMOKE_DIR/exp11_train_$STAMP" \
+   627	        "$RECORD/orientation_cue_fairness_${STAMP}_smoke_exp11_train.log" \
+   628	        "$SMOKE_DIR/receipt_exp11_train_$STAMP.json" \
+   629	        --alarm-seconds "$SMOKE_ALARM_S" --max-gb "$SMOKE_MAX_GB" -- \
+   630	        --backbone "$ARM_BACKBONE" --save-dir "$SMOKE_DIR/t0" $SMOKE_FLAGS \
+   631	        --save-every 0 --yaw-aug "$ARM_YAW" --run-type probe \
+   632	        ${CHILD_EXPLORATORY[@]+"${CHILD_EXPLORATORY[@]}"}
+   633	    # (b) the CPU fixtures the HAA smokes load; the exp_01 checkpoints cannot load into
+   634	    # the five-channel patch embedding, and the adapter needs its own keys.
+   635	    run "$PYTHON" tools/exp11_smoke.py --make-fixture "$SMOKE_DIR/fixture_simpor.pth" \
+   636	        --fixture-backbone simple_oriented
+   637	    run "$PYTHON" tools/exp11_smoke.py --make-fixture "$SMOKE_DIR/fixture_simpadapter.pth" \
+   638	        --fixture-backbone simple_adapter
+   639	    # (c) the HAA fine-tuning smoke in the heading frame, then (d) the evaluation smoke
+   640	    # that loads its best.pth -- gated on (c)'s own completion certifying it passed.
+   641	    h1="$SMOKE_DIR/haa_finetune_$STAMP"
+   642	    diagnostic haa_train_smoke "$h1" \
+   643	        "$RECORD/orientation_cue_fairness_${STAMP}_smoke_haa_finetune.log" \
+   644	        "$SMOKE_DIR/receipt_haa_finetune_$STAMP.json" \
+   645	        --alarm-seconds "$SMOKE_ALARM_S" --max-gb "$SMOKE_MAX_GB" -- \
+   646	        --backbone "$ARM_BACKBONE" --init "$SMOKE_DIR/fixture_simpor.pth" \
+   647	        --rooms class_room --heading-json-dir "$HEADING_DIR" --save-dir "$h1/run" \
+   648	        --epochs 2 --val-every 1 --batch-size 4 --val-batch-size 4 --seed 0
+   649	    require_passed "$h1"
+   650	    h2="$SMOKE_DIR/haa_eval_$STAMP"
+   651	    diagnostic haa_eval_smoke "$h2" \
+   652	        "$RECORD/orientation_cue_fairness_${STAMP}_smoke_haa_eval.log" \
+   653	        "$SMOKE_DIR/receipt_haa_eval_$STAMP.json" \
+   654	        --alarm-seconds "$SMOKE_ALARM_S" --max-gb "$SMOKE_MAX_GB" -- \
+   655	        --backbone "$ARM_BACKBONE" --checkpoint "$h1/run/best.pth" \
+   656	        --heading-json-dir "$HEADING_DIR" --rooms hallway --max-samples 4 \
+   657	        --save-dir "$h2/run" --seed 0
+   658	    # (e)/(f) the ADAPTER route of arms J and K. The oriented rungs above prove nothing
+   659	    # about it: a different backbone, the --adapter-heading-json-dir cue instead of the
+   660	    # frame, and the contextual loading mode (base weights first, the trained adapter
+   661	    # afterwards). Both rungs run here so J/K have a reviewed smoke before their queue.
+   662	    a1="$SMOKE_DIR/haa_adapter_finetune_$STAMP"
+   663	    diagnostic haa_train_smoke "$a1" \
+   664	        "$RECORD/orientation_cue_fairness_${STAMP}_smoke_haa_adapter_finetune.log" \
+   665	        "$SMOKE_DIR/receipt_haa_adapter_finetune_$STAMP.json" \
+   666	        --alarm-seconds "$SMOKE_ALARM_S" --max-gb "$SMOKE_MAX_GB" -- \
+   667	        --backbone simple_adapter --init "$SMOKE_DIR/fixture_simpadapter.pth" \
+   668	        --rooms class_room --adapter-heading-json-dir "$HEADING_DIR" \
+   669	        --save-dir "$a1/run" --epochs 2 --val-every 1 --batch-size 4 \
+   670	        --val-batch-size 4 --seed 0
+   671	    require_passed "$a1"
+   672	    a2="$SMOKE_DIR/haa_adapter_eval_$STAMP"
+   673	    diagnostic haa_eval_smoke "$a2" \
+   674	        "$RECORD/orientation_cue_fairness_${STAMP}_smoke_haa_adapter_eval.log" \
+   675	        "$SMOKE_DIR/receipt_haa_adapter_eval_$STAMP.json" \
+   676	        --alarm-seconds "$SMOKE_ALARM_S" --max-gb "$SMOKE_MAX_GB" -- \
+   677	        --backbone simple_adapter --checkpoint "$a1/run/best.pth" \
+   678	        --adapter-heading-json-dir "$HEADING_DIR" --rooms hallway --max-samples 4 \
+   679	        --save-dir "$a2/run" --seed 0
+   680	    ;;
+   681	finalize)
+   682	    preflight   # recovery is gated by the same reviewed commit, clean tree and pid checks
+   683	    take_lock finalize || exit 2   # alias resolution, validation and publication
+   684	    check_attempt "$ATTEMPT" || exit 2
+   685	    # Everything below uses the canonical directory, never the path as it was typed.
+   686	    if already_published "$CANONICAL_ATTEMPT"; then
+   687	        say "SKIP $CANONICAL_ATTEMPT is already published as final and has completed"
+   688	        say "ALREADY PUBLISHED $ARM_ROOT/final -> $(basename -- "$CANONICAL_ATTEMPT")"
+   689	        exit 0
+   690	    fi
+   691	    check_final_conflict "$CANONICAL_ATTEMPT" || exit 2
+   692	    [ "$DRY" -eq 0 ] || abort_recovery "$CANONICAL_ATTEMPT" "$LOG"
+   693	    not_interrupted || exit 2
+   694	    if ! finalize "$CANONICAL_ATTEMPT" "$LOG" "$CHILD_EXIT" exp11_train; then
+   695	        abort_recovery "$CANONICAL_ATTEMPT" "$LOG"
+   696	        exit 2
+   697	    fi
+   698	    not_interrupted || exit 2
+   699	    promote "$(basename -- "$CANONICAL_ATTEMPT")"
+   700	    ;;
+   701	esac
+
+exec
+/bin/bash -lc 'for p in /AGENTS.md /home/AGENTS.md /home/yixunhu/AGENTS.md /home/yixunhu/codespace/AGENTS.md /home/yixunhu/codespace/xRIR_code_wt/AGENTS.md; do if test -f "$p"; then printf '"'%s\\n' \""'$p"; cat "$p"; fi; done; git log --oneline 4f72ac2..86b1a46; git diff --stat 4f72ac2 86b1a46; cat worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close4_review.md' in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+86b1a46 exp11 bookkeeping: fix5 tests and full CPU suite result (record only)
+1f2e629 exp11 bookkeeping: fix5 digests (record only)
+b3de57f exp11 bookkeeping: Coder round-2 fix-cycle-5 report (record only)
+519b48f exp11 fix5 (GREEN): a breaking meta-lock, an acquisition grace and self-verification
+ad9317e exp11 fix5 (RED): the acquisition race, and a cleanup path that bypasses the exit
+ tests/test_exp11_shell.py                          | 172 ++++++++++-
+ tools/exp11_launch.sh                              | 161 ++++++++--
+ .../coder_prompts/round2_fix5_opus_prompt.md       |  15 +
+ ...09-27_08:10:41_coder_round2_fix5_opus_report.md | 164 ++++++++++
+ ...cue_fairness_codex_code_round2_close4_review.md | 343 +++++++++++++++++++++
+ .../codex_code_round2_close4_prompt.md             |   3 +
+ 6 files changed, 831 insertions(+), 27 deletions(-)
+**Reviewer:** OpenAI Codex, GPT-6 per exposed developer metadata. Exact model identifier and reasoning-effort setting are not exposed.  
+**Sandbox:** Read-only worktree; temporary writes only under `/tmp`; `CUDA_VISIBLE_DEVICES=''`; numerical thread limits set to 1; no signals sent.  
+**Tree:** `/home/yixunhu/codespace/xRIR_code_wt`, branch `exp11-cue`.  
+**HEAD:** `4f72ac27ac54e1b766c346ddbfdef29397361683`.  
+**Review window:** 2026-09-27, 11:56–12:00 UTC / 07:56–08:00 EDT.  
+**Scope:** Five commits in `48b7bd4..4f72ac2`, combined diff, fix4 report, function/handler replays, selected tests and closure calculations.
+
+**Verdict: request changes. Round 2 cannot be CLOSED, and `4f72ac2` should not be merged.** The original stale-generation reproductions pass, but acquisition still has a race that permits multiple holders.
+
+1. **[P2] A breaker can retire a live acquisition before its owner file exists.**  
+   [take_lock:300](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:300), [break_lock:258](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:258)
+
+   `mkdir` makes the lock visible before `take_lock` writes its owner. During that interval, `break_lock` accepts an empty observed generation and finds no live PID.
+
+   I reproduced this with unchanged production functions, pausing A immediately after its actual `mkdir`. No owner records were fabricated:
+
+   ```text
+   A creates .publish.lock; pauses before writing owner
+   B --break-lock retires the empty directory to .publish.lock.broken.
+   B acquires replacement lock, writes B's owner, enters protected work
+   A resumes, writes A's owner into B's directory, enters protected work
+
+   A_AND_B_ALIVE True True
+   A_OVERWROTE_B_OWNER True
+   A_EXIT 0; UNLOCK
+   B_STILL_ALIVE True LOCK_PRESENT False
+   C ordinary take_lock succeeds
+   B_AND_C_ALIVE True True LOCK_PRESENT True
+   ```
+
+   The nonce check cannot protect B here: A overwrote the owner file, so A’s cleanup sees its own nonce and removes the shared pathname.
+
+   A second interleaving confirms that the restoration check is insufficient: B checks the empty generation; A completes acquisition; B retires A’s now-live lock; C acquires the exposed pathname. B then detects the changed nonce, fails restoration, logs `UNRESTORED`, and exits 2. **A and C remain live holders.**
+
+   **Required correction:** Coordinate initialization, breaking and acquisition so an incomplete live acquisition cannot be treated as stale, and retirement cannot expose an occupied lock as available. Add deterministic regressions covering both schedules, including normal EXIT cleanup and refusal of a third caller.
+
+2. **[P2] Missing-owner cleanup bypasses the signal handler’s required exit status.**  
+   [release_lock:224](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:224), [on_signal:239](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:239)
+
+   `now="$(lock_nonce_of "$LOCK_DIR")"` propagates `sed`’s failure when the owner file is absent. With `set -e`, execution exits before `UNLOCK SKIPPED` and before `exit $((128 + $2))`.
+
+   After the first reproduction naturally removed B’s lock, I replayed B’s registered TERM body:
+
+   ```text
+   trap -- 'on_signal TERM 15' SIGTERM
+   SIGNAL TERM
+   exit: 2
+   UNLOCK_SKIPPED_LOGGED False
+   ```
+
+   The handler did not resume publication, but its promised exit 143 and ownership-loss cleanup behavior failed.
+
+   **Required correction:** Handle an absent/unreadable owner explicitly as nonownership, preserve any successor lock, and ensure cleanup cannot bypass the handler’s specified exit. Cover registered INT/TERM replay with missing ownership.
+
+The ordinary signal case verifies. [The handlers](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:236) set `INTERRUPTED=1`, log `SIGNAL`, release and terminate. INT/TERM are registered separately; EXIT retains cleanup. With an intact owned lock, direct replay produced **143 for TERM and 130 for INT**, removed the lock and never reached continuation or promotion.
+
+`not_interrupted` guards finalization and promotion in both production branches: [full:491](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:491) and [finalize:582](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:582). The registered-body regression reads `trap -p`, rather than assuming the installed handler.
+
+The requested existing-generation cases also verify:
+
+| Check | Result |
+|---|---|
+| Owner format | `pid … nonce …` written on successful acquisition. |
+| Previous-owner fixture | EXIT logs `UNLOCK SKIPPED`; successor owner and directory survive. |
+| Changed observed generation | Breaker refuses; current owner bytes remain unchanged. |
+| Live recorded PID | Breaker refuses. |
+| Two breakers observing the same nonempty stale generation | With a readiness handshake, fast caller remains alive holding the lock; slow caller exits 2 because retirement fails; owner bytes remain intact. |
+| Retirement | Uses `<lock>.broken.<observed>`, then rereads its owner and attempts restoration on mismatch. |
+| Barrier | `EXP11_LOCK_BARRIER` is a quoted file path, waited on for at most approximately ten seconds; never evaluated as a command. |
+
+Those passing cases do not cover the owner-initialization interval identified above.
+
+**RED evidence was independently replayed.** Using the historical launcher at `fa12f00` with the regression’s actual test function:
+
+```text
+UNLOCK …
+CONTINUED_AFTER_HANDLER LOCK_HELD=0
+PROMOTE …/final -> attempt_X
+exit: 0
+EXPECTED RED ASSERTION:
+the TERM handler returned and execution resumed without the lock
+```
+
+The failure was the intended assertion, not an import or fixture failure. Current registered-handler replay passes for intact ownership.
+
+The commit-size record needs a nonblocking correction at [report:85](/home/yixunhu/codespace/xRIR_code_wt/worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_06:52:49_coder_round2_fix4_opus_report.md:85):
+
+- `c8b2ff0` is **524 insertions / 14 deletions**. Launcher plus tests account for **205 changed lines**, not 205 insertions. Its exception is now acknowledged.
+- `16b1eff` itself is **96 insertions / 9 deletions**, touching only the launcher. **224 insertions / 9 deletions** is the combined RED-plus-GREEN total; `fa12f00` separately added 128 test lines.
+- `a2cb3b6` adds **437 record-only lines** and is the actual over-200-line commit in this cycle that should be recorded.
+
+**Selected verification: 91 passed, no skips.**
+
+| Selection | Passed |
+|---|---:|
+| Shell tests | 61 |
+| Approval enforcement | 13 |
+| Committed-blob binding | 1 |
+| Sim-eval closures | 3 |
+| Registry | 6 |
+| Pinned-oracle identity and parity | 7 |
+
+Both shells pass `bash -n`; `git diff --check 48b7bd4 4f72ac2` passes. Pytest used worktree `PYTHONPATH`, `PYTHONDONTWRITEBYTECODE=1`, `-p no:cacheprovider`, CPU-only settings and `/tmp` fixtures/caches.
+
+I did not rerun the full CPU suite. The report’s **3,690 passed / 55 skipped / one stale-exp_06-approval failure** is consistent with the independently verified approval drift; the passing suite does not cover the new race.
+
+Closure hygiene passes at this candidate:
+
+- Against the approval record at `9f98bbb`, exactly **one of twenty exp_06 keys** differs: `summarize_haa`. The other nineteen match.
+- All four sim-eval closures—`eval`, `eval_launch`, `compare`, `mirror_probe`—are unchanged; their three tests pass.
+- Frozen files are untouched. The only modified existing production source versus `9f98bbb` is `tools/exp06_summarize_haa.py`; exp_11 production files are additions.
+- `BACKBONES_EXP06` remains unchanged, including inherited class/output parity. Its digest remains `f9852f8568fb62aad5ec39a955b8e254dad6b5f53bbde71c69b048efa8b3e169`.
+- Serialized statistical payloads and rendered summaries are byte-identical against pinned `c6233e3` exp_06/exp_09 and `c491396` exp_11 Phase-1 oracles.
+- This cycle changes only production `tools/exp11_launch.sh`; only exp_11 `code.launch_sh` moves versus `48b7bd4`.
+- Exp_11 approval leaves remain null in the repository.
+
+The exact fill below applies to **unchanged `4f72ac2` candidate contents**. Because merge is blocked, it is not an approved merge manifest. Recompute affected closures after correcting the launcher.
+
+Replace only exp_06 `code.summarize_haa`:
+
+```text
+old: 645e74c03e20425e361c2efcab564f2f2b2557c98574df538cd7dd439f8b3619
+new: deff6d49d8e903d7e0d5005c5d40199b53ca35cdedfd71a90938df9815d0004a
+```
+
+Replacing that single value while preserving every other byte yields a **3,190-byte** exp_06 approval record with SHA-256:
+
+```text
+80134832646672411740f779835fa7c06f8bb354b46aab558884503b39a1b666
+```
+
+All eight exp_11 code keys, reused identities and null artifact leaves:
+
+```json
+{
+  "schema_version": 1,
+  "code": {
+    "train": "d9cbb9de8eb0ec85ac85664d9e0da7afe156e5b169bbe89096953d863cf15571",
+    "finalize": "3eb15b59b672d97ac257054e66f8bc835abd27b85e24f9a417a5a1aaa9e25b9e",
+    "haa_finetune": "bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150",
+    "haa_eval": "f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20",
+    "haa_pipeline_sh": "3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4",
+    "launch_sh": "3cff85cc57cfedb3682fc9c110de3ce78e9aae413a8399b8fda62ecfe0b9279f",
+    "smoke": "62133ba07a35d42026c19fd1484b37c6c06ace0ebedc1cdd8484690df323450e",
+    "summarize_haa": "deff6d49d8e903d7e0d5005c5d40199b53ca35cdedfd71a90938df9815d0004a"
+  },
+  "reused": {
+    "approved_digests_exp04": "2e4521173bb230fc8114116ba0c94b4afd0ccdd3b0b034faaf54516461ee0314",
+    "approved_digests_exp06": "80134832646672411740f779835fa7c06f8bb354b46aab558884503b39a1b666",
+    "legacy_receipt": {
+      "path": "ckpt/exp06/legacy_receipt.json",
+      "sha256": "5a12494657665d336cf5f952c6ef918abbeae44e451f28821790ac5c46232540"
+    }
+  },
+  "artifacts": {
+    "simpor_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    },
+    "simpor_yaw_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    }
+  }
+}
+```
+
+HEAD and worktree contents remained unchanged, including the pre-existing untracked close4 prompt. No review file or approval record was saved.
+tokens used
+70,304
+**Reviewer:** OpenAI Codex, GPT-6 per exposed developer metadata. Exact model identifier and reasoning-effort setting are not exposed.  
+**Sandbox:** Read-only worktree; temporary writes only under `/tmp`; `CUDA_VISIBLE_DEVICES=''`; numerical thread limits set to 1; no signals sent.  
+**Tree:** `/home/yixunhu/codespace/xRIR_code_wt`, branch `exp11-cue`.  
+**HEAD:** `4f72ac27ac54e1b766c346ddbfdef29397361683`.  
+**Review window:** 2026-09-27, 11:56–12:00 UTC / 07:56–08:00 EDT.  
+**Scope:** Five commits in `48b7bd4..4f72ac2`, combined diff, fix4 report, function/handler replays, selected tests and closure calculations.
+
+**Verdict: request changes. Round 2 cannot be CLOSED, and `4f72ac2` should not be merged.** The original stale-generation reproductions pass, but acquisition still has a race that permits multiple holders.
+
+1. **[P2] A breaker can retire a live acquisition before its owner file exists.**  
+   [take_lock:300](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:300), [break_lock:258](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:258)
+
+   `mkdir` makes the lock visible before `take_lock` writes its owner. During that interval, `break_lock` accepts an empty observed generation and finds no live PID.
+
+   I reproduced this with unchanged production functions, pausing A immediately after its actual `mkdir`. No owner records were fabricated:
+
+   ```text
+   A creates .publish.lock; pauses before writing owner
+   B --break-lock retires the empty directory to .publish.lock.broken.
+   B acquires replacement lock, writes B's owner, enters protected work
+   A resumes, writes A's owner into B's directory, enters protected work
+
+   A_AND_B_ALIVE True True
+   A_OVERWROTE_B_OWNER True
+   A_EXIT 0; UNLOCK
+   B_STILL_ALIVE True LOCK_PRESENT False
+   C ordinary take_lock succeeds
+   B_AND_C_ALIVE True True LOCK_PRESENT True
+   ```
+
+   The nonce check cannot protect B here: A overwrote the owner file, so A’s cleanup sees its own nonce and removes the shared pathname.
+
+   A second interleaving confirms that the restoration check is insufficient: B checks the empty generation; A completes acquisition; B retires A’s now-live lock; C acquires the exposed pathname. B then detects the changed nonce, fails restoration, logs `UNRESTORED`, and exits 2. **A and C remain live holders.**
+
+   **Required correction:** Coordinate initialization, breaking and acquisition so an incomplete live acquisition cannot be treated as stale, and retirement cannot expose an occupied lock as available. Add deterministic regressions covering both schedules, including normal EXIT cleanup and refusal of a third caller.
+
+2. **[P2] Missing-owner cleanup bypasses the signal handler’s required exit status.**  
+   [release_lock:224](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:224), [on_signal:239](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:239)
+
+   `now="$(lock_nonce_of "$LOCK_DIR")"` propagates `sed`’s failure when the owner file is absent. With `set -e`, execution exits before `UNLOCK SKIPPED` and before `exit $((128 + $2))`.
+
+   After the first reproduction naturally removed B’s lock, I replayed B’s registered TERM body:
+
+   ```text
+   trap -- 'on_signal TERM 15' SIGTERM
+   SIGNAL TERM
+   exit: 2
+   UNLOCK_SKIPPED_LOGGED False
+   ```
+
+   The handler did not resume publication, but its promised exit 143 and ownership-loss cleanup behavior failed.
+
+   **Required correction:** Handle an absent/unreadable owner explicitly as nonownership, preserve any successor lock, and ensure cleanup cannot bypass the handler’s specified exit. Cover registered INT/TERM replay with missing ownership.
+
+The ordinary signal case verifies. [The handlers](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:236) set `INTERRUPTED=1`, log `SIGNAL`, release and terminate. INT/TERM are registered separately; EXIT retains cleanup. With an intact owned lock, direct replay produced **143 for TERM and 130 for INT**, removed the lock and never reached continuation or promotion.
+
+`not_interrupted` guards finalization and promotion in both production branches: [full:491](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:491) and [finalize:582](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:582). The registered-body regression reads `trap -p`, rather than assuming the installed handler.
+
+The requested existing-generation cases also verify:
+
+| Check | Result |
+|---|---|
+| Owner format | `pid … nonce …` written on successful acquisition. |
+| Previous-owner fixture | EXIT logs `UNLOCK SKIPPED`; successor owner and directory survive. |
+| Changed observed generation | Breaker refuses; current owner bytes remain unchanged. |
+| Live recorded PID | Breaker refuses. |
+| Two breakers observing the same nonempty stale generation | With a readiness handshake, fast caller remains alive holding the lock; slow caller exits 2 because retirement fails; owner bytes remain intact. |
+| Retirement | Uses `<lock>.broken.<observed>`, then rereads its owner and attempts restoration on mismatch. |
+| Barrier | `EXP11_LOCK_BARRIER` is a quoted file path, waited on for at most approximately ten seconds; never evaluated as a command. |
+
+Those passing cases do not cover the owner-initialization interval identified above.
+
+**RED evidence was independently replayed.** Using the historical launcher at `fa12f00` with the regression’s actual test function:
+
+```text
+UNLOCK …
+CONTINUED_AFTER_HANDLER LOCK_HELD=0
+PROMOTE …/final -> attempt_X
+exit: 0
+EXPECTED RED ASSERTION:
+the TERM handler returned and execution resumed without the lock
+```
+
+The failure was the intended assertion, not an import or fixture failure. Current registered-handler replay passes for intact ownership.
+
+The commit-size record needs a nonblocking correction at [report:85](/home/yixunhu/codespace/xRIR_code_wt/worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_06:52:49_coder_round2_fix4_opus_report.md:85):
+
+- `c8b2ff0` is **524 insertions / 14 deletions**. Launcher plus tests account for **205 changed lines**, not 205 insertions. Its exception is now acknowledged.
+- `16b1eff` itself is **96 insertions / 9 deletions**, touching only the launcher. **224 insertions / 9 deletions** is the combined RED-plus-GREEN total; `fa12f00` separately added 128 test lines.
+- `a2cb3b6` adds **437 record-only lines** and is the actual over-200-line commit in this cycle that should be recorded.
+
+**Selected verification: 91 passed, no skips.**
+
+| Selection | Passed |
+|---|---:|
+| Shell tests | 61 |
+| Approval enforcement | 13 |
+| Committed-blob binding | 1 |
+| Sim-eval closures | 3 |
+| Registry | 6 |
+| Pinned-oracle identity and parity | 7 |
+
+Both shells pass `bash -n`; `git diff --check 48b7bd4 4f72ac2` passes. Pytest used worktree `PYTHONPATH`, `PYTHONDONTWRITEBYTECODE=1`, `-p no:cacheprovider`, CPU-only settings and `/tmp` fixtures/caches.
+
+I did not rerun the full CPU suite. The report’s **3,690 passed / 55 skipped / one stale-exp_06-approval failure** is consistent with the independently verified approval drift; the passing suite does not cover the new race.
+
+Closure hygiene passes at this candidate:
+
+- Against the approval record at `9f98bbb`, exactly **one of twenty exp_06 keys** differs: `summarize_haa`. The other nineteen match.
+- All four sim-eval closures—`eval`, `eval_launch`, `compare`, `mirror_probe`—are unchanged; their three tests pass.
+- Frozen files are untouched. The only modified existing production source versus `9f98bbb` is `tools/exp06_summarize_haa.py`; exp_11 production files are additions.
+- `BACKBONES_EXP06` remains unchanged, including inherited class/output parity. Its digest remains `f9852f8568fb62aad5ec39a955b8e254dad6b5f53bbde71c69b048efa8b3e169`.
+- Serialized statistical payloads and rendered summaries are byte-identical against pinned `c6233e3` exp_06/exp_09 and `c491396` exp_11 Phase-1 oracles.
+- This cycle changes only production `tools/exp11_launch.sh`; only exp_11 `code.launch_sh` moves versus `48b7bd4`.
+- Exp_11 approval leaves remain null in the repository.
+
+The exact fill below applies to **unchanged `4f72ac2` candidate contents**. Because merge is blocked, it is not an approved merge manifest. Recompute affected closures after correcting the launcher.
+
+Replace only exp_06 `code.summarize_haa`:
+
+```text
+old: 645e74c03e20425e361c2efcab564f2f2b2557c98574df538cd7dd439f8b3619
+new: deff6d49d8e903d7e0d5005c5d40199b53ca35cdedfd71a90938df9815d0004a
+```
+
+Replacing that single value while preserving every other byte yields a **3,190-byte** exp_06 approval record with SHA-256:
+
+```text
+80134832646672411740f779835fa7c06f8bb354b46aab558884503b39a1b666
+```
+
+All eight exp_11 code keys, reused identities and null artifact leaves:
+
+```json
+{
+  "schema_version": 1,
+  "code": {
+    "train": "d9cbb9de8eb0ec85ac85664d9e0da7afe156e5b169bbe89096953d863cf15571",
+    "finalize": "3eb15b59b672d97ac257054e66f8bc835abd27b85e24f9a417a5a1aaa9e25b9e",
+    "haa_finetune": "bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150",
+    "haa_eval": "f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20",
+    "haa_pipeline_sh": "3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4",
+    "launch_sh": "3cff85cc57cfedb3682fc9c110de3ce78e9aae413a8399b8fda62ecfe0b9279f",
+    "smoke": "62133ba07a35d42026c19fd1484b37c6c06ace0ebedc1cdd8484690df323450e",
+    "summarize_haa": "deff6d49d8e903d7e0d5005c5d40199b53ca35cdedfd71a90938df9815d0004a"
+  },
+  "reused": {
+    "approved_digests_exp04": "2e4521173bb230fc8114116ba0c94b4afd0ccdd3b0b034faaf54516461ee0314",
+    "approved_digests_exp06": "80134832646672411740f779835fa7c06f8bb354b46aab558884503b39a1b666",
+    "legacy_receipt": {
+      "path": "ckpt/exp06/legacy_receipt.json",
+      "sha256": "5a12494657665d336cf5f952c6ef918abbeae44e451f28821790ac5c46232540"
+    }
+  },
+  "artifacts": {
+    "simpor_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    },
+    "simpor_yaw_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    }
+  }
+}
+```
+
+HEAD and worktree contents remained unchanged, including the pre-existing untracked close4 prompt. No review file or approval record was saved.
+
+
+exec
+/bin/bash -lc "sed -n '1,200p' worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_08:10:41_coder_round2_fix5_opus_report.md; nl -ba tools/exp11_launch.sh | sed -n '1,65p;185,429p'; git diff 4f72ac2 86b1a46 -- tools/exp11_launch.sh" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+# Coder report — exp_11 `orientation_cue_fairness`, ROUND 2 **FIX CYCLE 5**
+
+**Coder:** Claude Opus 5 (1M context), Claude Code
+**Worktree:** `/home/yixunhu/codespace/xRIR_code_wt`, branch `exp11-cue`, from the reviewed tip `4f72ac2`
+**Interpreter:** `/home/yixunhu/miniconda3/envs/xRIR/bin/python`, `PYTHONPATH=<worktree>`, `CUDA_VISIBLE_DEVICES=''` throughout — no GPU, **no process was ever signalled**
+**Started:** 2026-09-27 08:0x EDT
+**Input:** `orientation_cue_fairness_codex_code_round2_close4_review.md` (request changes, two lock defects) and `coder_prompts/round2_fix5_opus_prompt.md`
+
+## Commits
+
+| SHA | Subject |
+|---|---|
+| `ad9317e` | exp11 fix5 (RED): the acquisition race, and a cleanup path that bypasses the exit |
+| `519b48f` | exp11 fix5 (GREEN): a breaking meta-lock, an acquisition grace and self-verification |
+
+Both defects are in `tools/exp11_launch.sh`. **The prompt's design was implemented as
+specified** — breaking meta-lock, initialisation grace, self-verification, rename-based
+retirement re-verified under the meta-lock — rather than an equivalent of my own.
+
+## Blocker 1 [P2] — the acquisition race
+
+`mkdir` makes the lock pathname visible **before** the owner file exists. A breaker that
+accepted an empty observed generation with no live pid retired a directory whose acquirer
+was still initialising; the acquirer then wrote its owner into the breaker's directory and
+both held the lock, and the first exit removed the shared pathname so a third caller could
+acquire. The second schedule reached `UNRESTORED` with two live holders.
+
+**(a) Breaking meta-lock.** `break_lock` first takes `<lock>.breaking` (atomic `mkdir`,
+owner file with the same nonce discipline, released on every exit path via
+`release_breaking`, which `release_lock` and therefore the `EXIT` trap call). It is held
+for the **whole** break. `take_lock` refuses immediately while it exists, so the pathname
+exposed by retirement is never acquirable, and a second breaker refuses on the meta-lock
+instead of racing the first.
+
+**(b) Initialisation grace.** A lock with **no owner file** is an acquisition in progress,
+not a stale lock: `break_lock` refuses it unless the directory's mtime is older than
+`LOCK_GRACE_S` (30 s, overridable for tests). That closes schedule 1 at its root — the
+empty generation is no longer breakable while its acquirer is alive.
+
+**(c) Self-verification.** `take_lock` records the directory's **inode** after `mkdir`,
+writes the owner **atomically inside that directory** (`.owner.$$` then `mv` to `owner`,
+so a write into a retired directory fails closed rather than landing in somebody else's),
+and then re-checks three things: the same inode, its **own** generation in the owner file,
+and no `<lock>.breaking`. On any mismatch it **refuses and removes nothing** — it never
+owned a surviving lock. That closes schedule 2 from the acquirer's side.
+
+**(d) Retirement.** Still rename-based on the observed generation
+(`mv -T <lock> <lock>.broken.<observed>`), re-verified after the move under the meta-lock.
+With (a) nothing can replace the directory in between, so the restore branch is documented
+as unreachable in normal operation and kept as defensive code with its `UNRESTORED` line.
+
+## Blocker 2 [P2] — a cleanup path could pre-empt the handler's exit
+
+`now="$(lock_nonce_of "$LOCK_DIR")"` propagated `sed`'s failure when the owner file was
+absent, so under `set -e` the handler exited 2 before `UNLOCK SKIPPED` and before its
+`exit 128+n`.
+
+Every owner-file reader (`lock_nonce_of`, `lock_pid_of`, `lock_owner_line`,
+`lock_inode_of`) now ends in `|| true`, and `release_lock` tests for the file first:
+an absent or unreadable owner is **explicit non-ownership**, logged
+`UNLOCK SKIPPED … has no owner: this invocation owns nothing there`, and the lock is left
+alone. No cleanup path can bypass the handler's unconditional `exit $((128 + n))`.
+
+## Regressions (deterministic file barriers, never a signal)
+
+`EXP11_ACQUIRE_BARRIER` joins `EXP11_LOCK_BARRIER`; both take a **path**, never a command,
+and wait boundedly (10 s). The acquisition hook sits at the one point the schedules need:
+after the owner file has landed and before self-verification.
+
+* **Schedule 1** — an acquirer paused between `mkdir` and self-verification while a
+  breaker runs: **exactly one holder**, an ordinary third caller is refused *while the
+  holder still holds it*, and the lock is gone only after the holder's own exit.
+* **Schedule 2** — a breaker that observed an empty generation while the acquirer
+  completes: the breaker refuses, the acquirer remains the sole holder, and `UNRESTORED`
+  never appears.
+* **Grace** — a young owner-less lock refuses the breaker ("acquisition in progress");
+  an old owner-less one is still breakable.
+* **Meta-lock** — nothing acquires the pathname while `.breaking` exists, and a second
+  breaker refuses on it.
+* **Self-verification** — a lock retired under an acquirer leaves the successor's lock
+  intact; the acquirer refuses and removes nothing.
+* **Missing owner** — the registered `TERM` handler replayed with the owner file deleted:
+  `SIGNAL TERM`, `UNLOCK SKIPPED … no owner`, **exit 143**, lock preserved, no
+  `CONTINUED`. And `release_lock` alone in the same state returns cleanly and preserves
+  the lock.
+
+## Report corrections carried over
+
+| item | corrected figure |
+|---|---|
+| `16b1eff` (fix 4 GREEN) | **96 insertions / −9**, launcher only — the 224 figure was RED+GREEN combined |
+| `fa12f00` (fix 4 RED) | 128 test insertions |
+| `a2cb3b6` | **437 record-only lines** (prompt 9, report 92, copied review 333, review prompt 3) — recorded here as a record-only commit |
+| `c8b2ff0` (fix 3 GREEN) | **205 changed lines** in the launcher and its tests (116/−2 + 75/−12), not "insertions"; the commit's other 332 lines are the copied review and prompts |
+
+This cycle's GREEN commit is **306 insertions / −27** across `tools/exp11_launch.sh` and
+`tests/test_exp11_shell.py`, so it exceeds 200 changed lines and is recorded as an
+exception: the meta-lock, the grace, the atomic owner write and the self-verification are
+one interlocking mechanism, and any split would leave a state in which the lock is
+partly protected.
+
+## Digests
+
+Taken at `b3de57f`; the last commit that touches production code is `519b48f` (the commit
+after it is this record), so these values stand for the cycle.
+
+**exp_06** — exactly **one** key moved against the record re-filled at `9f98bbb`; the
+other nineteen are unchanged:
+
+| key | approved at 9f98bbb | now |
+|---|---|---|
+| `summarize_haa` | `645e74c03e20…` | `deff6d49d8e9…` |
+
+**exp_11** — all eight keys:
+
+| key | digest |
+|---|---|
+| `train` | `d9cbb9de8eb0ec85ac85664d9e0da7afe156e5b169bbe89096953d863cf15571` |
+| `finalize` | `3eb15b59b672d97ac257054e66f8bc835abd27b85e24f9a417a5a1aaa9e25b9e` |
+| `haa_finetune` | `bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150` |
+| `haa_eval` | `f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20` |
+| `haa_pipeline_sh` | `3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4` |
+| `launch_sh` | `fbc012454f0d7962d1c58fd778baa670d1340e56cab71131ba769e95f214d4c8` |
+| `smoke` | `62133ba07a35d42026c19fd1484b37c6c06ace0ebedc1cdd8484690df323450e` |
+| `summarize_haa` | `deff6d49d8e903d7e0d5005c5d40199b53ca35cdedfd71a90938df9815d0004a` |
+
+**Exactly one key moved against the fix-4 tip `4f72ac2`: `launch_sh`**
+(`3cff85cc…` → `fbc01245…`), which is the whole of this cycle's production change; the
+other seven are unchanged. Values for the eventual reviewed merge — exp_11's record stays
+all-null and every exp_11 producer refuses today.
+
+## Tests
+
+* **Targeted set** — all `tests/test_exp11_*.py` plus `tests/test_exp06_summarize_haa.py`
+  and `tests/test_exp09_sim_eval_closures.py`: **369 passed** in 478 s
+  (`tests/test_exp11_shell.py` alone: 70). The pinned exp_06/exp_09 and exp_11 phase-1
+  oracles still reproduce their payloads and rendered summaries byte for byte.
+* `bash -n` on both shells, `py_compile` on every exp_11 module and test, and
+  `git diff --check` over `4f72ac2..HEAD`: clean.
+
+## Full CPU suite
+
+`CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 python -m pytest tests -q -rf` on the frozen
+tree (clean outside `worklog/`):
+
+```
+1 failed, 3699 passed, 55 skipped, 307 warnings in 3224.26s (0:53:44)
+FAILED tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes
+```
+
+The single failure is the **expected exp_06 approvals re-fill** — `code.summarize_haa`
+has moved and the record is stale until a reviewer re-fills it at the reviewed merge,
+exactly as round 1 did with `9f98bbb`. It is the mechanism that detects the one key this
+round is allowed to move, not a regression.
+
+Progression across this round's six runs: 3 614 → 3 651 → 3 669 → 3 683 → 3 690 →
+**3 699** passing, with 2 → 1 → 1 → 1 → 1 → 1 failures — all of them that same
+approvals-drift detector after the first run's load-average SIGTERM flake, which has not
+recurred.
+
+## Status
+
+Both lock defects are closed by the design the prompt specified, and the four
+commit-size figures are corrected. Ready for re-review at this tip.
+     1	#!/usr/bin/env bash
+     2	# exp_11 launcher (plan v3 items 6 and 12). Certified invocation for a confirmatory run:
+     3	#   nohup setsid tools/exp11_launch.sh full --arm H --gpu 1 --reviewed-commit <sha> \
+     4	#       > <launcher.log> 2>&1 &
+     5	# Recovery after a crashed launcher (the child already exited):
+     6	#   tools/exp11_launch.sh finalize --arm H --gpu 1 --reviewed-commit <sha> \
+     7	#       --attempt <dir> --log <child.log> --child-exit <code>
+     8	# --dry-run prints every command and path (timestamps as <UTC>) and executes nothing.
+     9	#
+    10	# The child lifecycle -- exclusive directory, one drained pipe, the end marker, the exit
+    11	# receipt -- is tools/exp06_launch.sh's and is sourced here as a library; it is shared
+    12	# evidence, not an exp_11 decision, and forking it would fork the very bytes closed_log
+    13	# re-validates. Both files are bound by exp_11's `launch_sh` approvals key. What this
+    14	# script overrides is everything that names an experiment: the finalizer it calls
+    15	# (tools/exp11_finalize.py), the approvals, the attempt roots, the record and the arms.
+    16	#
+    17	# EXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh defines the functions and returns, so
+    18	# the pipeline can reuse them without a mode.
+    19	set -euo pipefail
+    20	cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+    21	EXP06_LAUNCH_LIB=1 source tools/exp06_launch.sh
+    22	export PYTHONPATH="$PWD"
+    23	
+    24	RECORD=worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude
+    25	APPROVED_DEFAULT="$RECORD/orientation_cue_fairness_results_assets/approved_digests.json"
+    26	SMOKE_DIR=ckpt/exp11/_smoke
+    27	# The pretraining roots. EXP11_PRETRAIN_ROOT exists for the dry-run tests alone: it moves
+    28	# the attempt roots AND the roots preflight scans for live pid files, so a real launch may
+    29	# never take it. It is honoured only with EXP11_TEST_ROOTS=1 *and* --dry-run, and is
+    30	# refused outright otherwise (see apply_root_override below).
+    31	PRETRAIN_ROOT=ckpt/exp11/pretrain
+    32	SIMPOR_ROOT="$PRETRAIN_ROOT/xRIR_simpor_8_shot"          # arm H
+    33	SIMPOR_YAW_ROOT="$PRETRAIN_ROOT/xRIR_simpor_yawaug_8_shot"   # arm I
+    34	HEADING_DIR="${EXP06_HEADING_DIR:-ckpt/exp06/heading}"
+    35	SMOKE_FLAGS="--epochs 1 --max-train-batches 3 --max-test-batches 2 --batch-size 4 --num-workers 4 --no-save"
+    36	SMOKE_ALARM_S="${EXP11_SMOKE_ALARM_S:-300}"
+    37	SMOKE_MAX_GB="${EXP11_SMOKE_MAX_GB:-6}"
+    38	# Plan section 7 reserves 36 h per pretraining; the child runs under that hard ceiling, so
+    39	# a stalled attempt fails and is aborted instead of holding the card indefinitely. The
+    40	# value goes straight to GNU timeout, where 0 means "no timeout", so an override is
+    41	# validated before anything starts and may only TIGHTEN the registered ceiling.
+    42	FULL_CEILING_MAX=129600
+    43	FULL_CEILING_S="${EXP11_FULL_CEILING_S-$FULL_CEILING_MAX}"
+    44	
+    45	# The value is validated as a BOUNDED DECIMAL STRING before any arithmetic: bash's
+    46	# integer comparisons error out above 2**63-1, which left the `if` false and the launch
+    47	# running with an overflowing value handed to GNU timeout. Six digits is the whole
+    48	# contract (129600 has six), so the numeric comparison below can never be out of range;
+    49	# leading zeros are refused with everything else that is not a plain decimal.
+    50	check_ceiling() {
+    51	    local why="must be a plain decimal of at most 6 digits in (0, $FULL_CEILING_MAX]"
+    52	    case "$FULL_CEILING_S" in
+    53	        ''|*[!0-9]*|0*|???????*)
+    54	            echo "refusing: EXP11_FULL_CEILING_S '$FULL_CEILING_S' $why" >&2; return 1 ;;
+    55	    esac
+    56	    if [ "$FULL_CEILING_S" -le 0 ] || [ "$FULL_CEILING_S" -gt "$FULL_CEILING_MAX" ]; then
+    57	        echo "refusing: EXP11_FULL_CEILING_S $FULL_CEILING_S $why;" \
+    58	             "an override may only tighten the 36 h ceiling" >&2
+    59	        return 1
+    60	    fi
+    61	}
+    62	
+    63	# apply_root_override: EXP11_PRETRAIN_ROOT is a dry-run test affordance and nothing else.
+    64	apply_root_override() {
+    65	    [ -n "${EXP11_PRETRAIN_ROOT:-}" ] || return 0
+   185	# promotes an attempt of an arm takes this lock first. `mkdir` is the atomic primitive:
+   186	# it succeeds for exactly one caller. A held lock REFUSES immediately, it never waits,
+   187	# and a stale one is evidence of an interrupted publication, so it is cleared only by an
+   188	# explicit --break-lock and never on a timer.
+   189	LOCK_DIR=""
+   190	LOCK_HELD=0
+   191	# The GENERATION of the lock this invocation holds. A lock directory is not identity
+   192	# enough: it can be retired and re-created between two statements of one shell, so a
+   193	# process-local flag would let an earlier owner remove its successor's lock. The owner
+   194	# file carries this nonce, and cleanup acts only where the nonce is still ours.
+   195	LOCK_NONCE=""
+   196	INTERRUPTED=0
+   197	# A lock whose owner file has not landed yet is an acquisition in progress, not a stale
+   198	# lock; only one older than this may be broken.
+   199	LOCK_GRACE_S="${EXP11_LOCK_GRACE_S:-30}"
+   200	BREAKING_DIR=""
+   201	BREAKING_HELD=0
+   202	LOCK_NONCE_CANDIDATE=""
+   203	
+   204	# Every reader of an owner file ends in `|| true`: an absent or unreadable owner is
+   205	# explicit NON-ownership, and `sed`'s failure must never propagate under `set -e` --
+   206	# that is what pre-empted the signal handler's own exit.
+   207	lock_nonce_of() {  # the generation recorded in one lock directory, or nothing
+   208	    sed -n 's/^pid [0-9][0-9]* nonce \([^ ][^ ]*\).*/\1/p' "$1/owner" 2>/dev/null || true
+   209	}
+   210	
+   211	lock_pid_of() {
+   212	    sed -n 's/^pid \([0-9][0-9]*\).*/\1/p' "$1/owner" 2>/dev/null || true
+   213	}
+   214	
+   215	lock_owner_line() {
+   216	    cat -- "$1/owner" 2>/dev/null | tr -d '\n' || true
+   217	}
+   218	
+   219	lock_inode_of() {
+   220	    stat -c %i -- "$1" 2>/dev/null || true
+   221	}
+   222	
+   223	# Older than the initialisation grace? `mkdir` publishes the pathname before the owner
+   224	# file lands, so a lock without an owner is an acquisition in progress until it is old
+   225	# enough to be an abandoned one.
+   226	lock_older_than_grace() {
+   227	    local age
+   228	    age="$(( $(date +%s) - $(stat -c %Y -- "$1" 2>/dev/null || echo 0) ))"
+   229	    [ "$age" -ge "$LOCK_GRACE_S" ]
+   230	}
+   231	
+   232	lock_is_live() {  # a pid that is gone does not hold a lock; a live one is never overridden
+   233	    local pid
+   234	    pid="$(lock_pid_of "$1")"
+   235	    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+   236	}
+   237	
+   238	# A test-only ordering hook: wait (bounded) for a file to appear. It takes a PATH, never
+   239	# a command, so nothing here evaluates anything the environment supplies.
+   240	lock_barrier() { lock_wait_for "${EXP11_LOCK_BARRIER:-}"; }
+   241	
+   242	# The same hook at the one point inside acquisition the schedules need to interleave at:
+   243	# after the owner file has landed and before self-verification.
+   244	lock_acquire_barrier() { lock_wait_for "${EXP11_ACQUIRE_BARRIER:-}"; }
+   245	
+   246	lock_wait_for() {
+   247	    local file="$1" waited=0
+   248	    [ -n "$file" ] || return 0
+   249	    while [ ! -e "$file" ] && [ "$waited" -lt 100 ]; do sleep 0.1; waited=$((waited + 1)); done
+   250	}
+   251	
+   252	release_lock() {
+   253	    release_breaking
+   254	    [ "$LOCK_HELD" -eq 1 ] || return 0
+   255	    LOCK_HELD=0
+   256	    local now=""
+   257	    if [ -f "$LOCK_DIR/owner" ]; then
+   258	        now="$(lock_nonce_of "$LOCK_DIR")"
+   259	    else
+   260	        say "UNLOCK SKIPPED $LOCK_DIR has no owner: this invocation owns nothing there"
+   261	        return 0
+   262	    fi
+   263	    if [ -n "$LOCK_NONCE" ] && [ "$now" != "$LOCK_NONCE" ]; then
+   264	        say "UNLOCK SKIPPED $LOCK_DIR holds the generation ${now:-none}, not $LOCK_NONCE"
+   265	        return 0
+   266	    fi
+   267	    rm -f -- "$LOCK_DIR/owner"
+   268	    rmdir -- "$LOCK_DIR" 2>/dev/null || true
+   269	    say "UNLOCK $LOCK_DIR"
+   270	}
+   271	
+   272	# The BREAKING META-LOCK. Retirement exposes the lock pathname for as long as it takes
+   273	# to re-create it, and nothing may acquire it in that window -- which is what let a
+   274	# breaker and an ordinary caller both end up holding. `take_lock` refuses while this
+   275	# exists, and a second breaker refuses on it rather than racing the first.
+   276	take_breaking() {
+   277	    BREAKING_DIR="$LOCK_DIR.breaking"
+   278	    if ! mkdir -- "$BREAKING_DIR" 2>/dev/null; then
+   279	        echo "refusing: a break of $LOCK_DIR is already in progress" \
+   280	             "($(lock_owner_line "$BREAKING_DIR"))" >&2
+   281	        return 1
+   282	    fi
+   283	    BREAKING_HELD=1
+   284	    printf 'pid %s nonce %s arm %s at %s\n' "$$" "$LOCK_NONCE_CANDIDATE" "$ARM" \
+   285	        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$BREAKING_DIR/owner"
+   286	}
+   287	
+   288	release_breaking() {
+   289	    [ "$BREAKING_HELD" -eq 1 ] || return 0
+   290	    BREAKING_HELD=0
+   291	    local now=""
+   292	    [ ! -f "$BREAKING_DIR/owner" ] || now="$(lock_nonce_of "$BREAKING_DIR")"
+   293	    if [ -n "$now" ] && [ "$now" != "$LOCK_NONCE_CANDIDATE" ]; then
+   294	        say "UNBREAKING SKIPPED $BREAKING_DIR is not this invocation's"
+   295	        return 0
+   296	    fi
+   297	    rm -f -- "$BREAKING_DIR/owner"
+   298	    rmdir -- "$BREAKING_DIR" 2>/dev/null || true
+   299	}
+   300	
+   301	# A signal handler must END this invocation. A cleanup-only handler returns, and bash
+   302	# resumes -- which would let finalization and promotion continue with the lock released.
+   303	on_signal() {  # on_signal <NAME> <number>
+   304	    INTERRUPTED=1
+   305	    say "SIGNAL $1"
+   306	    release_lock
+   307	    exit $((128 + $2))
+   308	}
+   309	
+   310	# Checked before every protected step, so nothing runs after a handler has fired even if
+   311	# some future caller swallows the exit.
+   312	not_interrupted() {
+   313	    [ "$INTERRUPTED" -eq 0 ] && return 0
+   314	    echo "refusing: a signal handler has fired; this invocation does not continue" >&2
+   315	    return 1
+   316	}
+   317	
+   318	# break_lock <observed-nonce>: retire the SPECIFIC stale lock this invocation observed,
+   319	# under the breaking meta-lock so nothing can acquire the exposed pathname meanwhile.
+   320	#
+   321	# The two schedules the close review demonstrated are closed as follows. (1) An acquirer
+   322	# paused between `mkdir` and its owner write leaves an owner-less lock: that is an
+   323	# acquisition in progress until it is older than the grace, so the breaker refuses rather
+   324	# than retiring it. (2) A breaker whose observation is out of date fails the generation
+   325	# comparison, and because the meta-lock is held for the whole break, no third caller can
+   326	# slip into the exposed pathname even in the defensive restore branch.
+   327	break_lock() {
+   328	    local observed="$1" retired="$LOCK_DIR.broken.${1:-empty}" now
+   329	    [ -d "$LOCK_DIR" ] || return 0
+   330	    take_breaking || return 1
+   331	    if lock_is_live "$LOCK_DIR"; then
+   332	        echo "refusing: --break-lock will not override the live owner of $LOCK_DIR" \
+   333	             "($(lock_owner_line "$LOCK_DIR"))" >&2
+   334	        return 1
+   335	    fi
+   336	    if [ ! -f "$LOCK_DIR/owner" ]; then
+   337	        if ! lock_older_than_grace "$LOCK_DIR"; then
+   338	            echo "refusing: $LOCK_DIR has no owner file yet and is younger than the" \
+   339	                 "${LOCK_GRACE_S}s grace: that is an acquisition in progress, not a" \
+   340	                 "stale lock" >&2
+   341	            return 1
+   342	        fi
+   343	    fi
+   344	    now="$(lock_nonce_of "$LOCK_DIR")"
+   345	    if [ "$now" != "$observed" ]; then
+   346	        echo "refusing: $LOCK_DIR now holds the generation ${now:-none}, not the" \
+   347	             "${observed:-none} this invocation observed; another publication has" \
+   348	             "taken it" >&2
+   349	        return 1
+   350	    fi
+   351	    lock_barrier
+   352	    if ! mv -T -- "$LOCK_DIR" "$retired" 2>/dev/null; then
+   353	        echo "refusing: could not retire the stale lock $LOCK_DIR as $retired;" \
+   354	             "another --break-lock reached it first" >&2
+   355	        return 1
+   356	    fi
+   357	    # Defensive: with the meta-lock held nothing else can have replaced the directory
+   358	    # between the comparison and the rename, so this branch should be unreachable.
+   359	    now="$(lock_nonce_of "$retired")"
+   360	    if [ "$now" != "$observed" ]; then
+   361	        mv -T -- "$retired" "$LOCK_DIR" 2>/dev/null \
+   362	            || say "UNRESTORED $retired could not be put back as $LOCK_DIR"
+   363	        echo "refusing: the lock changed generation while it was being retired" >&2
+   364	        return 1
+   365	    fi
+   366	    say "BREAKLOCK $LOCK_DIR retired as $retired owner=$(lock_owner_line "$retired")"
+   367	}
+   368	
+   369	take_lock() {  # take_lock <mode>
+   370	    LOCK_DIR="$ARM_ROOT/.publish.lock"
+   371	    say "LOCK $LOCK_DIR"
+   372	    # A dry run touches nothing outside the test roots, so the lock is real exactly
+   373	    # where the tests exercise it and announced everywhere else.
+   374	    if [ "$DRY" -eq 1 ] && [ "${EXP11_TEST_ROOTS:-0}" != 1 ]; then return 0; fi
+   375	    mkdir -p -- "$ARM_ROOT" || return 1
+   376	    # The generation is chosen BEFORE anything is created, so the meta-lock and the lock
+   377	    # itself carry the same invocation identity.
+   378	    LOCK_NONCE_CANDIDATE="$$-$(date -u +%s%N)-${RANDOM}${RANDOM}"
+   379	    if [ "$BREAK_LOCK" -eq 1 ] && [ -d "$LOCK_DIR" ]; then
+   380	        break_lock "$(lock_nonce_of "$LOCK_DIR")" || { release_breaking; return 1; }
+   381	    fi
+   382	    if [ -d "$LOCK_DIR.breaking" ] && [ "$BREAKING_HELD" -eq 0 ]; then
+   383	        echo "refusing: a break of $LOCK_DIR is in progress; the lock pathname is not" \
+   384	             "available while it is being retired" >&2
+   385	        return 1
+   386	    fi
+   387	    if ! mkdir -- "$LOCK_DIR" 2>/dev/null; then
+   388	        local live=no
+   389	        lock_is_live "$LOCK_DIR" && live=yes
+   390	        echo "refusing: another publication holds the lock $LOCK_DIR (owner:" \
+   391	             "$(lock_owner_line "$LOCK_DIR"), live=$live)." \
+   392	             "Publishing one arm is serialised; a stale lock is cleared only with" \
+   393	             "--break-lock, never automatically" >&2
+   394	        return 1
+   395	    fi
+   396	    local inode
+   397	    inode="$(lock_inode_of "$LOCK_DIR")"
+   398	    LOCK_NONCE="$LOCK_NONCE_CANDIDATE"
+   399	    LOCK_HELD=1
+   400	    trap release_lock EXIT
+   401	    trap 'on_signal INT 2' INT
+   402	    trap 'on_signal TERM 15' TERM
+   403	    # The owner file lands atomically inside the directory this invocation created: a
+   404	    # write into a retired directory fails here rather than appearing in somebody else's.
+   405	    if ! { printf 'pid %s nonce %s mode %s arm %s at %s\n' "$$" "$LOCK_NONCE" "$1" \
+   406	               "$ARM" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK_DIR/.owner.$$" \
+   407	           && mv -- "$LOCK_DIR/.owner.$$" "$LOCK_DIR/owner"; }; then
+   408	        LOCK_HELD=0
+   409	        echo "refusing: could not record ownership of $LOCK_DIR; it was retired while" \
+   410	             "this invocation was acquiring it" >&2
+   411	        return 1
+   412	    fi
+   413	    lock_acquire_barrier
+   414	    # SELF-VERIFICATION. Between `mkdir` and now the directory may have been retired and
+   415	    # re-created by somebody else; this invocation then owns nothing and must remove
+   416	    # nothing. Same inode, our own generation, and no break in progress.
+   417	    if [ "$(lock_inode_of "$LOCK_DIR")" != "$inode" ] \
+   418	       || [ "$(lock_nonce_of "$LOCK_DIR")" != "$LOCK_NONCE" ] \
+   419	       || { [ -d "$LOCK_DIR.breaking" ] && [ "$BREAKING_HELD" -eq 0 ]; }; then
+   420	        LOCK_HELD=0
+   421	        echo "refusing: $LOCK_DIR is no longer the lock this invocation created" \
+   422	             "(inode or generation changed, or a break began); nothing was removed" >&2
+   423	        return 1
+   424	    fi
+   425	    release_breaking
+   426	}
+   427	
+   428	# published_target: what `final` resolves to under this arm root, or nothing.
+   429	published_target() {
+diff --git a/tools/exp11_launch.sh b/tools/exp11_launch.sh
+index ac10f3a..bb2e8cf 100755
+--- a/tools/exp11_launch.sh
++++ b/tools/exp11_launch.sh
+@@ -194,13 +194,39 @@ LOCK_HELD=0
+ # file carries this nonce, and cleanup acts only where the nonce is still ours.
+ LOCK_NONCE=""
+ INTERRUPTED=0
+-
++# A lock whose owner file has not landed yet is an acquisition in progress, not a stale
++# lock; only one older than this may be broken.
++LOCK_GRACE_S="${EXP11_LOCK_GRACE_S:-30}"
++BREAKING_DIR=""
++BREAKING_HELD=0
++LOCK_NONCE_CANDIDATE=""
++
++# Every reader of an owner file ends in `|| true`: an absent or unreadable owner is
++# explicit NON-ownership, and `sed`'s failure must never propagate under `set -e` --
++# that is what pre-empted the signal handler's own exit.
+ lock_nonce_of() {  # the generation recorded in one lock directory, or nothing
+-    sed -n 's/^pid [0-9][0-9]* nonce \([^ ][^ ]*\).*/\1/p' "$1/owner" 2>/dev/null
++    sed -n 's/^pid [0-9][0-9]* nonce \([^ ][^ ]*\).*/\1/p' "$1/owner" 2>/dev/null || true
+ }
+ 
+ lock_pid_of() {
+-    sed -n 's/^pid \([0-9][0-9]*\).*/\1/p' "$1/owner" 2>/dev/null
++    sed -n 's/^pid \([0-9][0-9]*\).*/\1/p' "$1/owner" 2>/dev/null || true
++}
++
++lock_owner_line() {
++    cat -- "$1/owner" 2>/dev/null | tr -d '\n' || true
++}
++
++lock_inode_of() {
++    stat -c %i -- "$1" 2>/dev/null || true
++}
++
++# Older than the initialisation grace? `mkdir` publishes the pathname before the owner
++# file lands, so a lock without an owner is an acquisition in progress until it is old
++# enough to be an abandoned one.
++lock_older_than_grace() {
++    local age
++    age="$(( $(date +%s) - $(stat -c %Y -- "$1" 2>/dev/null || echo 0) ))"
++    [ "$age" -ge "$LOCK_GRACE_S" ]
+ }
+ 
+ lock_is_live() {  # a pid that is gone does not hold a lock; a live one is never overridden
+@@ -211,17 +237,29 @@ lock_is_live() {  # a pid that is gone does not hold a lock; a live one is never
+ 
+ # A test-only ordering hook: wait (bounded) for a file to appear. It takes a PATH, never
+ # a command, so nothing here evaluates anything the environment supplies.
+-lock_barrier() {
+-    local file="${EXP11_LOCK_BARRIER:-}" waited=0
++lock_barrier() { lock_wait_for "${EXP11_LOCK_BARRIER:-}"; }
++
++# The same hook at the one point inside acquisition the schedules need to interleave at:
++# after the owner file has landed and before self-verification.
++lock_acquire_barrier() { lock_wait_for "${EXP11_ACQUIRE_BARRIER:-}"; }
++
++lock_wait_for() {
++    local file="$1" waited=0
+     [ -n "$file" ] || return 0
+     while [ ! -e "$file" ] && [ "$waited" -lt 100 ]; do sleep 0.1; waited=$((waited + 1)); done
+ }
+ 
+ release_lock() {
++    release_breaking
+     [ "$LOCK_HELD" -eq 1 ] || return 0
+     LOCK_HELD=0
+-    local now
+-    now="$(lock_nonce_of "$LOCK_DIR")"
++    local now=""
++    if [ -f "$LOCK_DIR/owner" ]; then
++        now="$(lock_nonce_of "$LOCK_DIR")"
++    else
++        say "UNLOCK SKIPPED $LOCK_DIR has no owner: this invocation owns nothing there"
++        return 0
++    fi
+     if [ -n "$LOCK_NONCE" ] && [ "$now" != "$LOCK_NONCE" ]; then
+         say "UNLOCK SKIPPED $LOCK_DIR holds the generation ${now:-none}, not $LOCK_NONCE"
+         return 0
+@@ -231,6 +269,35 @@ release_lock() {
+     say "UNLOCK $LOCK_DIR"
+ }
+ 
++# The BREAKING META-LOCK. Retirement exposes the lock pathname for as long as it takes
++# to re-create it, and nothing may acquire it in that window -- which is what let a
++# breaker and an ordinary caller both end up holding. `take_lock` refuses while this
++# exists, and a second breaker refuses on it rather than racing the first.
++take_breaking() {
++    BREAKING_DIR="$LOCK_DIR.breaking"
++    if ! mkdir -- "$BREAKING_DIR" 2>/dev/null; then
++        echo "refusing: a break of $LOCK_DIR is already in progress" \
++             "($(lock_owner_line "$BREAKING_DIR"))" >&2
++        return 1
++    fi
++    BREAKING_HELD=1
++    printf 'pid %s nonce %s arm %s at %s\n' "$$" "$LOCK_NONCE_CANDIDATE" "$ARM" \
++        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$BREAKING_DIR/owner"
++}
++
++release_breaking() {
++    [ "$BREAKING_HELD" -eq 1 ] || return 0
++    BREAKING_HELD=0
++    local now=""
++    [ ! -f "$BREAKING_DIR/owner" ] || now="$(lock_nonce_of "$BREAKING_DIR")"
++    if [ -n "$now" ] && [ "$now" != "$LOCK_NONCE_CANDIDATE" ]; then
++        say "UNBREAKING SKIPPED $BREAKING_DIR is not this invocation's"
++        return 0
++    fi
++    rm -f -- "$BREAKING_DIR/owner"
++    rmdir -- "$BREAKING_DIR" 2>/dev/null || true
++}
++
+ # A signal handler must END this invocation. A cleanup-only handler returns, and bash
+ # resumes -- which would let finalization and promotion continue with the lock released.
+ on_signal() {  # on_signal <NAME> <number>
+@@ -248,24 +315,37 @@ not_interrupted() {
+     return 1
+ }
+ 
+-# break_lock <observed-nonce>: retire the SPECIFIC stale lock this invocation observed.
+-# Two breakers that read the same stale owner must not both proceed, and a breaker whose
+-# observation is out of date must not retire the generation that replaced it. The rename
+-# is the serialisation point: it fails for the second breaker once the first has moved
+-# the directory aside, and its target is named for the observed generation, so a repeat
+-# of the same observation collides instead of succeeding twice.
++# break_lock <observed-nonce>: retire the SPECIFIC stale lock this invocation observed,
++# under the breaking meta-lock so nothing can acquire the exposed pathname meanwhile.
++#
++# The two schedules the close review demonstrated are closed as follows. (1) An acquirer
++# paused between `mkdir` and its owner write leaves an owner-less lock: that is an
++# acquisition in progress until it is older than the grace, so the breaker refuses rather
++# than retiring it. (2) A breaker whose observation is out of date fails the generation
++# comparison, and because the meta-lock is held for the whole break, no third caller can
++# slip into the exposed pathname even in the defensive restore branch.
+ break_lock() {
+-    local observed="$1" retired="$LOCK_DIR.broken.$1" now
++    local observed="$1" retired="$LOCK_DIR.broken.${1:-empty}" now
+     [ -d "$LOCK_DIR" ] || return 0
++    take_breaking || return 1
+     if lock_is_live "$LOCK_DIR"; then
+         echo "refusing: --break-lock will not override the live owner of $LOCK_DIR" \
+-             "($(cat -- "$LOCK_DIR/owner" 2>/dev/null | tr -d '\n'))" >&2
++             "($(lock_owner_line "$LOCK_DIR"))" >&2
+         return 1
+     fi
++    if [ ! -f "$LOCK_DIR/owner" ]; then
++        if ! lock_older_than_grace "$LOCK_DIR"; then
++            echo "refusing: $LOCK_DIR has no owner file yet and is younger than the" \
++                 "${LOCK_GRACE_S}s grace: that is an acquisition in progress, not a" \
++                 "stale lock" >&2
++            return 1
++        fi
++    fi
+     now="$(lock_nonce_of "$LOCK_DIR")"
+     if [ "$now" != "$observed" ]; then
+         echo "refusing: $LOCK_DIR now holds the generation ${now:-none}, not the" \
+-             "$observed this invocation observed; another publication has taken it" >&2
++             "${observed:-none} this invocation observed; another publication has" \
++             "taken it" >&2
+         return 1
+     fi
+     lock_barrier
+@@ -274,8 +354,8 @@ break_lock() {
+              "another --break-lock reached it first" >&2
+         return 1
+     fi
+-    # The rename is atomic but the observation preceded it: if what moved is not what was
+-    # observed, put it back and refuse rather than publish over a live generation.
++    # Defensive: with the meta-lock held nothing else can have replaced the directory
++    # between the comparison and the rename, so this branch should be unreachable.
+     now="$(lock_nonce_of "$retired")"
+     if [ "$now" != "$observed" ]; then
+         mv -T -- "$retired" "$LOCK_DIR" 2>/dev/null \
+@@ -283,8 +363,7 @@ break_lock() {
+         echo "refusing: the lock changed generation while it was being retired" >&2
+         return 1
+     fi
+-    say "BREAKLOCK $LOCK_DIR retired as $retired owner=$(cat -- "$retired/owner" \
+-        2>/dev/null | tr -d '\n')"
++    say "BREAKLOCK $LOCK_DIR retired as $retired owner=$(lock_owner_line "$retired")"
+ }
+ 
+ take_lock() {  # take_lock <mode>
+@@ -294,25 +373,56 @@ take_lock() {  # take_lock <mode>
+     # where the tests exercise it and announced everywhere else.
+     if [ "$DRY" -eq 1 ] && [ "${EXP11_TEST_ROOTS:-0}" != 1 ]; then return 0; fi
+     mkdir -p -- "$ARM_ROOT" || return 1
++    # The generation is chosen BEFORE anything is created, so the meta-lock and the lock
++    # itself carry the same invocation identity.
++    LOCK_NONCE_CANDIDATE="$$-$(date -u +%s%N)-${RANDOM}${RANDOM}"
+     if [ "$BREAK_LOCK" -eq 1 ] && [ -d "$LOCK_DIR" ]; then
+-        break_lock "$(lock_nonce_of "$LOCK_DIR")" || return 1
++        break_lock "$(lock_nonce_of "$LOCK_DIR")" || { release_breaking; return 1; }
++    fi
++    if [ -d "$LOCK_DIR.breaking" ] && [ "$BREAKING_HELD" -eq 0 ]; then
++        echo "refusing: a break of $LOCK_DIR is in progress; the lock pathname is not" \
++             "available while it is being retired" >&2
++        return 1
+     fi
+     if ! mkdir -- "$LOCK_DIR" 2>/dev/null; then
+         local live=no
+         lock_is_live "$LOCK_DIR" && live=yes
+         echo "refusing: another publication holds the lock $LOCK_DIR (owner:" \
+-             "$(cat -- "$LOCK_DIR/owner" 2>/dev/null | tr -d '\n'), live=$live)." \
++             "$(lock_owner_line "$LOCK_DIR"), live=$live)." \
+              "Publishing one arm is serialised; a stale lock is cleared only with" \
+              "--break-lock, never automatically" >&2
+         return 1
+     fi
+-    LOCK_NONCE="$$-$(date -u +%s%N)-${RANDOM}${RANDOM}"
++    local inode
++    inode="$(lock_inode_of "$LOCK_DIR")"
++    LOCK_NONCE="$LOCK_NONCE_CANDIDATE"
+     LOCK_HELD=1
+     trap release_lock EXIT
+     trap 'on_signal INT 2' INT
+     trap 'on_signal TERM 15' TERM
+-    printf 'pid %s nonce %s mode %s arm %s at %s\n' "$$" "$LOCK_NONCE" "$1" "$ARM" \
+-        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK_DIR/owner"
++    # The owner file lands atomically inside the directory this invocation created: a
++    # write into a retired directory fails here rather than appearing in somebody else's.
++    if ! { printf 'pid %s nonce %s mode %s arm %s at %s\n' "$$" "$LOCK_NONCE" "$1" \
++               "$ARM" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK_DIR/.owner.$$" \
++           && mv -- "$LOCK_DIR/.owner.$$" "$LOCK_DIR/owner"; }; then
++        LOCK_HELD=0
++        echo "refusing: could not record ownership of $LOCK_DIR; it was retired while" \
++             "this invocation was acquiring it" >&2
++        return 1
++    fi
++    lock_acquire_barrier
++    # SELF-VERIFICATION. Between `mkdir` and now the directory may have been retired and
++    # re-created by somebody else; this invocation then owns nothing and must remove
++    # nothing. Same inode, our own generation, and no break in progress.
++    if [ "$(lock_inode_of "$LOCK_DIR")" != "$inode" ] \
++       || [ "$(lock_nonce_of "$LOCK_DIR")" != "$LOCK_NONCE" ] \
++       || { [ -d "$LOCK_DIR.breaking" ] && [ "$BREAKING_HELD" -eq 0 ]; }; then
++        LOCK_HELD=0
++        echo "refusing: $LOCK_DIR is no longer the lock this invocation created" \
++             "(inode or generation changed, or a break began); nothing was removed" >&2
++        return 1
++    fi
++    release_breaking
+ }
+ 
+ # published_target: what `final` resolves to under this arm root, or nothing.
+@@ -402,6 +512,7 @@ ARM_ROOT="${ARM_ROOT:-$SIMPOR_ROOT}"
+ CANONICAL_ATTEMPT="${CANONICAL_ATTEMPT:-}"
+ BREAK_LOCK="${BREAK_LOCK:-0}"
+ INTERRUPTED="${INTERRUPTED:-0}"
++LOCK_NONCE_CANDIDATE="${LOCK_NONCE_CANDIDATE:-}"
+ REPLACE_FINAL="${REPLACE_FINAL:-0}"
+ DRY="${DRY:-0}"
+ ARM="${ARM:-H}"
+
+codex
+The new checks protect acquisitions within the grace period, but the inode read and owner write still use the shared pathname after `mkdir`. I’m replaying a pause beyond the default 30-second grace to check whether the acquirer can resume into a successor’s directory. I’m also checking EXIT cleanup before the main lock’s traps are installed.
+
+exec
+/bin/bash -lc "export CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/home/yixunhu/codespace/xRIR_code_wt; /home/yixunhu/miniconda3/envs/xRIR/bin/python -u - <<'PY'
+import os, pathlib, subprocess, tempfile, time, shlex
+R=pathlib.Path('/home/yixunhu/codespace/xRIR_code_wt')
+T=pathlib.Path(tempfile.mkdtemp(prefix='exp11_close5_own_', dir='/tmp'))
+print('TEMP', T, flush=True)
+processes=[]
+gates=[]
+def spawn(root, name, body):
+    root.mkdir(parents=True, exist_ok=True)
+    log=open(root/(name+'.log'),'w+')
+    script='EXP11_LAUNCH_LIB=1 source '+shlex.quote(str(R/'tools/exp11_launch.sh'))+'\\nARM_ROOT='+shlex.quote(str(root/'arm'))+'\\nDRY=0; ARM=H; BREAK_LOCK=0\\n'+body
+    p=subprocess.Popen(['bash','-c',script],cwd=R,stdout=log,stderr=subprocess.STDOUT,env=os.environ.copy())
+    processes.append((p,log,name))
+    return p,log
+def waitfile(path, limit=8):
+    end=time.monotonic()+limit
+    while not path.exists():
+        if time.monotonic()>end: raise AssertionError('missing '+str(path))
+        time.sleep(.025)
+def finish(p,log,limit=8):
+    p.wait(timeout=limit); log.flush(); log.seek(0); return p.returncode,log.read()
+def hold(root,label):
+    gate=root/(label+'.exit'); gates.append(gate)
+    return ': > '+shlex.quote(str(root/(label+'.held')))+'\\nfor ((i=0;i<2400;i++)); do [ "'! -e '"'+shlex.quote(str(gate))+' ] || break; sleep 0.025; done\\n'
+def acquirer(root):
+    ready=root/'A.mkdir'; gate=root/'A.resume'; gates.append(gate)
+    body='''mkdir() {
+ command mkdir \""'$@" || return $?
+ if [ "$#" -eq 2 ] && [ "$1" = -- ] && [ "$2" = "$ARM_ROOT/.publish.lock" ]; then
+   : > READY
+   for ((i=0;i<2400;i++)); do [ ! -e GATE ] || break; sleep 0.025; done
+ fi
+}
+take_lock full || exit 2
+'"'''.replace('READY',shlex.quote(str(ready))).replace('GATE',shlex.quote(str(gate)))+hold(root,'A')
+    p,l=spawn(root,'A',body); waitfile(ready); return p,l,gate
+try:
+    root=T/'young'; a,al,ag=acquirer(root)
+    b,bl=spawn(root,'B','BREAK_LOCK=1; take_lock finalize || exit 2\\necho B_HELD\\n')
+    br,bo=finish(b,bl); print('YOUNG_BREAK',br,bo.strip(),flush=True)
+    assert br==2 and 'acquisition in progress' in bo
+    assert not (root/'arm/.publish.lock.breaking').exists()
+    ag.touch(); waitfile(root/'A.held')
+    c,cl=spawn(root,'C','take_lock finalize || exit 2\\necho C_HELD\\n')
+    cr,co=finish(c,cl); print('YOUNG_THIRD',cr,co.strip(),flush=True); assert cr==2
+    (root/'A.exit').touch(); ar,ao=finish(a,al)
+    print('YOUNG_A_EXIT',ar,ao.strip(),'lock_exists',(root/'arm/.publish.lock').exists(),flush=True)
+    assert ar==0 and not (root/'arm/.publish.lock').exists()
+
+    root=T/'observed_empty'; a,al,ag=acquirer(root)
+    bg=root/'B.resume'; gates.append(bg)
+    body='LOCK_DIR=\""'$ARM_ROOT/.publish.lock"; LOCK_NONCE_CANDIDATE="$$-replay"'"\\nobserved=\""'$(lock_nonce_of "$LOCK_DIR")"'"\\n: > '+shlex.quote(str(root/'B.observed'))+'\\nfor ((i=0;i<2400;i++)); do [ "'! -e '"'+shlex.quote(str(bg))+' ] || break; sleep 0.025; done\\nbreak_lock \""'$observed" || { release_breaking; exit 2; }'"\\nrelease_breaking\\n'
+    b,bl=spawn(root,'B',body); waitfile(root/'B.observed'); ag.touch(); waitfile(root/'A.held'); bg.touch()
+    br,bo=finish(b,bl); print('OBSERVED_EMPTY_BREAK',br,bo.strip(),flush=True)
+    assert br==2 and 'live owner' in bo
+    c,cl=spawn(root,'C','take_lock finalize || exit 2\\necho C_HELD\\n'); cr,co=finish(c,cl); assert cr==2
+    print('OBSERVED_EMPTY_THIRD',cr,co.strip(),flush=True)
+    (root/'A.exit').touch(); ar,ao=finish(a,al); assert ar==0 and not (root/'arm/.publish.lock').exists()
+    print('OBSERVED_EMPTY_A_EXIT',ar,ao.strip(),flush=True)
+
+    root=T/'default_grace_expired'; a,al,ag=acquirer(root)
+    lock=root/'arm/.publish.lock'; initial_inode=lock.stat().st_ino
+    print('DEFAULT_GRACE_WAIT_START',time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'inode',initial_inode,flush=True)
+    deadline=time.monotonic()+31.25
+    while time.monotonic()<deadline: time.sleep(.1)
+    print('DEFAULT_GRACE_REAL_AGE',time.time()-lock.stat().st_mtime,flush=True)
+    b,bl=spawn(root,'B','BREAK_LOCK=1; take_lock finalize || exit 2\\n'+hold(root,'B'))
+    waitfile(root/'B.held'); b_owner=(lock/'owner').read_text(); print('B_HELD',b.pid,'inode',lock.stat().st_ino,'owner',b_owner.strip(),flush=True)
+    ag.touch(); waitfile(root/'A.held'); a_owner=(lock/'owner').read_text()
+    print('A_AND_B_HOLD',a.poll() is None,b.poll() is None,'A_OVERWROTE_B_OWNER',a_owner"'!=b_owner,'"'owner',a_owner.strip(),flush=True)
+    assert a.poll() is None and b.poll() is None and a_owner"'!=b_owner
+    (root/'"'A.exit').touch(); ar,ao=finish(a,al)
+    print('A_EXIT',ar,ao.strip(),'B_STILL_HOLDING',b.poll() is None,'LOCK_EXISTS',lock.exists(),flush=True)
+    assert ar==0 and b.poll() is None and not lock.exists()
+    c,cl=spawn(root,'C','take_lock finalize || exit 2\\n'+hold(root,'C')); waitfile(root/'C.held')
+    print('B_AND_C_HOLD',b.poll() is None,c.poll() is None,'C_OWNER',(lock/'owner').read_text().strip(),flush=True)
+    assert b.poll() is None and c.poll() is None
+    (root/'B.exit').touch(); br,bo=finish(b,bl); print('B_EXIT',br,bo.strip(),'C_LOCK_PRESERVED',lock.exists(),flush=True)
+    assert lock.exists()
+    (root/'C.exit').touch(); cr,co=finish(c,cl); print('C_EXIT',cr,co.strip(),'LOCK_EXISTS',lock.exists(),flush=True)
+finally:
+    for gate in gates: gate.touch(exist_ok=True)
+    for p,l,n in processes:
+        p.wait(timeout=65); l.close()
+print('REPLAY_COMPLETE',flush=True)
+PY" in /home/yixunhu/codespace/xRIR_code_wt
+exec
+/bin/bash -lc "nl -ba tests/test_exp11_shell.py | sed -n '660,910p'; rg -n 'trap|release_lock|EXIT' tools/exp06_launch.sh; git diff --check 4f72ac2 86b1a46; bash -n tools/exp11_launch.sh; bash -n tools/exp11_haa_pipeline.sh" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+   660	        env=dict(os.environ, CUDA_VISIBLE_DEVICES='', EXP11_LOCK_BARRIER=str(gate)))
+   661	    fast = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nBREAK_LOCK=1\ntake_lock finalize\n'
+   662	               'echo FAST_ACQUIRED\nLOCK_HELD=0\n'.format(root=root))
+   663	    gate.write_text('go\n')
+   664	    slow_out, slow_err = slow.communicate(timeout=60)
+   665	    acquired = ('FAST_ACQUIRED' in fast.stdout) + ('SLOW_ACQUIRED' in slow_out)
+   666	    assert acquired == 1, (fast.stdout, fast.stderr, slow_out, slow_err)
+   667	    # The winner still held its own generation while the loser was running and refusing.
+   668	    assert 'HELD_THROUGHOUT' in slow_out or 'FAST_ACQUIRED' in fast.stdout
+   669	    if 'SLOW_ACQUIRED' in slow_out:
+   670	        assert 'HELD_THROUGHOUT' in slow_out, (slow_out, fast.stdout, fast.stderr)
+   671	
+   672	
+   673	# --- close review 4: the acquisition race and a cleanup path that bypasses the exit --
+   674	
+   675	GRACE = 30
+   676	BREAKING = LOCK + '.breaking'
+   677	
+   678	
+   679	def libp(script, env=None):
+   680	    """Start a sourced-library snippet in the background and return the process."""
+   681	    body = ('set -euo pipefail\n'
+   682	            'EXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh\n' + script)
+   683	    return subprocess.Popen(['bash', '-c', body], cwd=str(REPO), stdout=subprocess.PIPE,
+   684	                            stderr=subprocess.PIPE, text=True,
+   685	                            env=dict(os.environ, CUDA_VISIBLE_DEVICES='', **(env or {})))
+   686	
+   687	
+   688	def holders(*outputs):
+   689	    return sum('ACQUIRED' in text for text in outputs)
+   690	
+   691	
+   692	def test_an_ownerless_lock_inside_the_grace_is_not_stale(tmp_path):
+   693	    """``mkdir`` publishes the pathname before the owner file exists.
+   694	
+   695	    A breaker that accepts an empty generation retires a lock whose acquirer is still
+   696	    initialising, and both end up holding it. A young owner-less lock is an acquisition
+   697	    in progress, not a stale lock.
+   698	    """
+   699	    root = tmp_path / 'xRIR_simpor_8_shot'
+   700	    (root / LOCK).mkdir(parents=True)                      # no owner file yet
+   701	    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nLOCK_DIR="$ARM_ROOT/{lock}"\n'
+   702	                 'break_lock ""\n'.format(root=root, lock=LOCK))
+   703	    assert result.returncode != 0, result.stdout[-400:]
+   704	    assert 'acquisition in progress' in result.stderr
+   705	    assert (root / LOCK).is_dir()
+   706	
+   707	
+   708	def test_an_old_ownerless_lock_is_breakable(tmp_path):
+   709	    """The grace is a grace, not an exemption: an abandoned empty lock is still stale."""
+   710	    root = tmp_path / 'xRIR_simpor_8_shot'
+   711	    (root / LOCK).mkdir(parents=True)
+   712	    os.utime(root / LOCK, (0, 0))
+   713	    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nBREAK_LOCK=1\ntake_lock finalize\n'
+   714	                 'echo ACQUIRED\nLOCK_HELD=0\n'.format(root=root))
+   715	    assert result.returncode == 0, result.stderr[-400:]
+   716	    assert 'ACQUIRED' in result.stdout and 'BREAKLOCK' in result.stdout
+   717	
+   718	
+   719	def test_nobody_acquires_the_pathname_while_a_break_is_in_progress(tmp_path):
+   720	    """The breaking meta-lock: the exposed pathname is not up for grabs mid-break."""
+   721	    root = tmp_path / 'xRIR_simpor_8_shot'
+   722	    root.mkdir(parents=True)
+   723	    (root / BREAKING).mkdir()
+   724	    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\necho ACQUIRED\n'.format(
+   725	        root=root))
+   726	    assert result.returncode != 0 and 'ACQUIRED' not in result.stdout
+   727	    assert 'break' in result.stderr.lower()
+   728	
+   729	
+   730	def test_a_second_breaker_refuses_on_the_meta_lock(tmp_path):
+   731	    root = tmp_path / 'xRIR_simpor_8_shot'
+   732	    lock_with(root, nonce='stale')
+   733	    (root / BREAKING).mkdir()
+   734	    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nLOCK_DIR="$ARM_ROOT/{lock}"\n'
+   735	                 'break_lock stale\n'.format(root=root, lock=LOCK))
+   736	    assert result.returncode != 0 and 'break' in result.stderr.lower()
+   737	    assert (root / LOCK).is_dir()
+   738	
+   739	
+   740	def test_schedule_one_acquirer_paused_between_mkdir_and_owner(tmp_path):
+   741	    """Reviewer schedule 1: exactly one holder, and the loser removes nothing."""
+   742	    root = tmp_path / 'xRIR_simpor_8_shot'
+   743	    root.mkdir(parents=True)
+   744	    gate = tmp_path / 'gate'
+   745	    acquirer = libp('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\n'
+   746	                    'echo ACQUIRED\nsleep 2\n'.format(root=root),
+   747	                    {'EXP11_ACQUIRE_BARRIER': str(gate)})
+   748	    for _ in range(100):                                   # wait for the bare directory
+   749	        if (root / LOCK).is_dir():
+   750	            break
+   751	        time.sleep(0.05)
+   752	    breaker = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nBREAK_LOCK=1\ntake_lock finalize\n'
+   753	                  'echo ACQUIRED\nLOCK_HELD=0\n'.format(root=root))
+   754	    # While the acquirer is still paused -- and therefore still holding whatever it got --
+   755	    # an ordinary third caller must find the arm locked.
+   756	    third = lib('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\necho ACQUIRED\n'.format(
+   757	        root=root))
+   758	    gate.write_text('go\n')
+   759	    out, err = acquirer.communicate(timeout=60)
+   760	    assert holders(out, breaker.stdout) == 1, (out, err, breaker.stdout, breaker.stderr)
+   761	    assert 'ACQUIRED' not in third.stdout, (third.stdout, third.stderr)
+   762	    assert not (root / LOCK).exists(), 'the holder released it on exit, nobody else did'
+   763	
+   764	
+   765	def test_schedule_two_breaker_observed_an_empty_generation(tmp_path):
+   766	    """Reviewer schedule 2: B observed empty, A completed; B must refuse, A survives."""
+   767	    root = tmp_path / 'xRIR_simpor_8_shot'
+   768	    root.mkdir(parents=True)
+   769	    holder = libp('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\n'
+   770	                  'echo ACQUIRED\nsleep 2\n'.format(root=root))
+   771	    for _ in range(100):
+   772	        if (root / LOCK / 'owner').is_file():
+   773	            break
+   774	        time.sleep(0.05)
+   775	    late = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nLOCK_DIR="$ARM_ROOT/{lock}"\n'
+   776	               'break_lock ""\n'.format(root=root, lock=LOCK))
+   777	    out, err = holder.communicate(timeout=60)
+   778	    assert 'ACQUIRED' in out, (out, err)
+   779	    assert late.returncode != 0, late.stdout[-300:]
+   780	    assert 'UNRESTORED' not in late.stdout
+   781	
+   782	
+   783	def test_acquisition_self_verifies_and_removes_nothing_when_it_lost(tmp_path):
+   784	    """A lock retired under an acquirer must not be 'released' by it."""
+   785	    root = tmp_path / 'xRIR_simpor_8_shot'
+   786	    root.mkdir(parents=True)
+   787	    gate = tmp_path / 'gate'
+   788	    acquirer = libp('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\n'
+   789	                    'echo ACQUIRED\n'.format(root=root),
+   790	                    {'EXP11_ACQUIRE_BARRIER': str(gate)})
+   791	    for _ in range(100):
+   792	        if (root / LOCK).is_dir():
+   793	            break
+   794	        time.sleep(0.05)
+   795	    (root / LOCK).rename(root / (LOCK + '.retired'))       # the pathname disappears
+   796	    (root / LOCK).mkdir()
+   797	    (root / LOCK / 'owner').write_text('pid 424242 nonce successor mode finalize arm H at x\n')
+   798	    gate.write_text('go\n')
+   799	    out, err = acquirer.communicate(timeout=60)
+   800	    assert 'ACQUIRED' not in out, (out, err)
+   801	    assert acquirer.returncode != 0
+   802	    assert (root / LOCK).is_dir()
+   803	    assert 'successor' in (root / LOCK / 'owner').read_text(), (
+   804	        'the acquirer removed a lock it never owned')
+   805	
+   806	
+   807	def test_the_handler_still_exits_when_the_owner_file_is_gone(tmp_path):
+   808	    """``sed`` failing on a missing owner file must not pre-empt the handler's exit."""
+   809	    root = tmp_path / 'xRIR_simpor_8_shot'
+   810	    root.mkdir(parents=True)
+   811	    script = ('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\n'
+   812	              'rm -f -- "$LOCK_DIR/owner"\n'
+   813	              'handler="$(trap -p TERM | sed -n "s/^trap -- \'\\(.*\\)\' SIGTERM$/\\1/p")"\n'
+   814	              'eval "$handler"\necho CONTINUED\n').format(root=root)
+   815	    result = lib(script)
+   816	    assert result.returncode == 143, (result.returncode, result.stdout[-400:],
+   817	                                      result.stderr[-400:])
+   818	    assert 'SIGNAL TERM' in result.stdout
+   819	    assert 'UNLOCK SKIPPED' in result.stdout and 'no owner' in result.stdout
+   820	    assert 'CONTINUED' not in result.stdout
+   821	    assert (root / LOCK).is_dir(), 'an owner-less lock is not this invocation to remove'
+   822	
+   823	
+   824	def test_release_treats_a_missing_owner_as_non_ownership(tmp_path):
+   825	    root = tmp_path / 'xRIR_simpor_8_shot'
+   826	    root.mkdir(parents=True)
+   827	    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\n'
+   828	                 'rm -f -- "$LOCK_DIR/owner"\nrelease_lock\necho AFTER\n'.format(root=root))
+   829	    assert result.returncode == 0, result.stderr[-300:]
+   830	    assert 'AFTER' in result.stdout
+   831	    assert 'UNLOCK SKIPPED' in result.stdout and 'no owner' in result.stdout
+   832	    assert (root / LOCK).is_dir()
+108:        say "MARKER EXP06_CHILD_EXIT <code> <iso> >> $log"
+160:    say "MARKER EXP06_CHILD_EXIT $CHILD_STATUS <iso> >> $2"
+177:ATTEMPT=""; LOG=""; CHILD_EXIT=""; DRY=0
+185:        --child-exit) CHILD_EXIT="${2:-}"; shift 2 ;;
+193:[ "$MODE" != finalize ] || { [ -n "$ATTEMPT" ] && [ -n "$LOG" ] && [ -n "$CHILD_EXIT" ]; } || usage
+230:        say "MARKER EXP06_CHILD_EXIT <code> <iso> >> $log"
+322:    if ! finalize "$ATTEMPT" "$LOG" "$CHILD_EXIT" full; then
+
+ succeeded in 31799ms:
+YOUNG_THIRD 2 LOCK /tmp/exp11_close5_own_c3ue_twe/young/arm/.publish.lock
+refusing: another publication holds the lock /tmp/exp11_close5_own_c3ue_twe/young/arm/.publish.lock (owner: pid 665268 nonce 665268-1790515057581432970-1040922278 mode full arm H at 2026-09-27T13:17:37Z, live=yes). Publishing one arm is serialised; a stale lock is cleared only with --break-lock, never automatically
+YOUNG_A_EXIT 0 LOCK /tmp/exp11_close5_own_c3ue_twe/young/arm/.publish.lock
+UNLOCK /tmp/exp11_close5_own_c3ue_twe/young/arm/.publish.lock lock_exists False
+OBSERVED_EMPTY_BREAK 2 refusing: --break-lock will not override the live owner of /tmp/exp11_close5_own_c3ue_twe/observed_empty/arm/.publish.lock (pid 665319 nonce 665319-1790515057734356755-52613762 mode full arm H at 2026-09-27T13:17:37Z)
+OBSERVED_EMPTY_THIRD 2 LOCK /tmp/exp11_close5_own_c3ue_twe/observed_empty/arm/.publish.lock
+refusing: another publication holds the lock /tmp/exp11_close5_own_c3ue_twe/observed_empty/arm/.publish.lock (owner: pid 665319 nonce 665319-1790515057734356755-52613762 mode full arm H at 2026-09-27T13:17:37Z, live=yes). Publishing one arm is serialised; a stale lock is cleared only with --break-lock, never automatically
+OBSERVED_EMPTY_A_EXIT 0 LOCK /tmp/exp11_close5_own_c3ue_twe/observed_empty/arm/.publish.lock
+UNLOCK /tmp/exp11_close5_own_c3ue_twe/observed_empty/arm/.publish.lock
+DEFAULT_GRACE_WAIT_START 2026-09-27T09:17:37-0400 inode 95687017
+DEFAULT_GRACE_REAL_AGE 31.267088174819946
+B_HELD 667849 inode 95687038 owner pid 667849 nonce 667849-1790515089257517204-81635629 mode finalize arm H at 2026-09-27T13:18:09Z
+A_AND_B_HOLD True True A_OVERWROTE_B_OWNER True owner pid 665377 nonce 665377-1790515057973103940-443717850 mode full arm H at 2026-09-27T13:18:09Z
+A_EXIT 0 LOCK /tmp/exp11_close5_own_c3ue_twe/default_grace_expired/arm/.publish.lock
+UNLOCK /tmp/exp11_close5_own_c3ue_twe/default_grace_expired/arm/.publish.lock B_STILL_HOLDING True LOCK_EXISTS False
+B_AND_C_HOLD True True C_OWNER pid 667904 nonce 667904-1790515089399781914-145972360 mode finalize arm H at 2026-09-27T13:18:09Z
+B_EXIT 0 LOCK /tmp/exp11_close5_own_c3ue_twe/default_grace_expired/arm/.publish.lock
+BREAKLOCK /tmp/exp11_close5_own_c3ue_twe/default_grace_expired/arm/.publish.lock retired as /tmp/exp11_close5_own_c3ue_twe/default_grace_expired/arm/.publish.lock.broken.empty owner=
+UNLOCK SKIPPED /tmp/exp11_close5_own_c3ue_twe/default_grace_expired/arm/.publish.lock holds the generation 667904-1790515089399781914-145972360, not 667849-1790515089257517204-81635629 C_LOCK_PRESERVED True
+C_EXIT 0 LOCK /tmp/exp11_close5_own_c3ue_twe/default_grace_expired/arm/.publish.lock
+UNLOCK /tmp/exp11_close5_own_c3ue_twe/default_grace_expired/arm/.publish.lock LOCK_EXISTS False
+REPLAY_COMPLETE
+
+codex
+The default-grace replay reproduced the blocker: after a 31.27-second pause, A and B both entered protected work. A’s normal EXIT removed B’s lock, allowing C to enter while B was still active. The selected tests are green, but the committed acquisition barrier runs after the owner write and misses this interval.
+
+exec
+/bin/bash -lc "export CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/home/yixunhu/codespace/xRIR_code_wt; /home/yixunhu/miniconda3/envs/xRIR/bin/python -u - <<'PY'
+import os, pathlib, subprocess, tempfile, shlex
+r=pathlib.Path(tempfile.mkdtemp(prefix='exp11_close5_signal_',dir='/tmp'))
+source='EXP11_LAUNCH_LIB=1 source /home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh\\n'
+for sig,n,missing in [('TERM',15,True),('INT',2,True),('TERM',15,False)]:
+    root=r/(sig+str(missing))
+    body=source+'ARM_ROOT='+shlex.quote(str(root))+'\\nDRY=0; ARM=H; BREAK_LOCK=0\\ntake_lock finalize || exit 2\\n'
+    if missing: body+='rm -f -- \""'$LOCK_DIR/owner"'"\\n'
+    body+='handler=\""'$(trap -p '"'+sig+' | sed -n \"s/"'^trap -- '"\\'\\\\(.*\\\\)\\' SIG'+sig+'"'$/'"\\\\1/p\")\"\\nprintf \"REGISTERED %s\\\\n\" \""'$handler"'"\\neval \""'$handler"'"\\necho CONTINUED\\n'
+    p=subprocess.Popen(['bash','-c',body],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,env=os.environ.copy())
+    out,err=p.communicate()
+    print(sig,'missing',missing,'status',p.returncode,'lock_preserved',(root/'.publish.lock').is_dir()); print(out+err)
+    assert p.returncode==128+n and 'CONTINUED' not in out
+    assert (root/'.publish.lock').exists()==missing
+    if missing: assert 'has no owner' in out and 'UNLOCK SKIPPED' in out
+PY" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+TERM missing True status 143 lock_preserved True
+LOCK /tmp/exp11_close5_signal_p0kvmn6e/TERMTrue/.publish.lock
+REGISTERED on_signal TERM 15
+SIGNAL TERM
+UNLOCK SKIPPED /tmp/exp11_close5_signal_p0kvmn6e/TERMTrue/.publish.lock has no owner: this invocation owns nothing there
+
+INT missing True status 130 lock_preserved True
+LOCK /tmp/exp11_close5_signal_p0kvmn6e/INTTrue/.publish.lock
+REGISTERED on_signal INT 2
+SIGNAL INT
+UNLOCK SKIPPED /tmp/exp11_close5_signal_p0kvmn6e/INTTrue/.publish.lock has no owner: this invocation owns nothing there
+
+TERM missing False status 143 lock_preserved False
+LOCK /tmp/exp11_close5_signal_p0kvmn6e/TERMFalse/.publish.lock
+REGISTERED on_signal TERM 15
+SIGNAL TERM
+UNLOCK /tmp/exp11_close5_signal_p0kvmn6e/TERMFalse/.publish.lock
+
+
+exec
+/bin/bash -lc "git show --numstat --format='%h %s' 519b48f; rg -n 'kill|terminate|SIG|signal' tests/test_exp11_shell.py tests/test_exp11_approval_enforcement.py tests/test_exp11_registry.py tests/test_exp09_sim_eval_closures.py; git status --short; date --iso-8601=seconds" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+519b48f exp11 fix5 (GREEN): a breaking meta-lock, an acquisition grace and self-verification
+
+13	6	tests/test_exp11_shell.py
+136	25	tools/exp11_launch.sh
+tests/test_exp11_shell.py:145:    assert 'timeout --kill-after=60 {} '.format(value) in out
+tests/test_exp11_shell.py:274:    assert 'timeout --kill-after' not in out
+tests/test_exp11_shell.py:540:# --- close review 3: signal handlers must terminate; locks need generations ---------
+tests/test_exp11_shell.py:553:def test_the_term_handler_terminates_instead_of_resuming(tmp_path):
+tests/test_exp11_shell.py:556:    The registered body is replayed directly -- no signal is ever sent -- and execution
+tests/test_exp11_shell.py:562:              'handler="$(trap -p TERM | sed -n "s/^trap -- \'\\(.*\\)\' SIGTERM$/\\1/p")"\n'
+tests/test_exp11_shell.py:572:    assert 'SIGNAL TERM' in result.stdout
+tests/test_exp11_shell.py:575:def test_the_int_handler_terminates_too(tmp_path):
+tests/test_exp11_shell.py:579:              'handler="$(trap -p INT | sed -n "s/^trap -- \'\\(.*\\)\' SIGINT$/\\1/p")"\n'
+tests/test_exp11_shell.py:590:        'promotion can never run after a signal handler fired')
+tests/test_exp11_shell.py:813:              'handler="$(trap -p TERM | sed -n "s/^trap -- \'\\(.*\\)\' SIGTERM$/\\1/p")"\n'
+tests/test_exp11_shell.py:818:    assert 'SIGNAL TERM' in result.stdout
+?? worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/codex_code_round2_close5_prompt.md
+2026-09-27T09:18:44-04:00
+
+exec
+/bin/bash -lc 'ls -la /tmp/exp11-close5-meta-exit-ij43ef9v /tmp/exp11-close5-unrestored-94gthugs /tmp/exp11-close5-independent-l8md9x5b; rg --files /tmp/exp11-close5-meta-exit-ij43ef9v /tmp/exp11-close5-unrestored-94gthugs /tmp/exp11-close5-independent-l8md9x5b; git diff 4f72ac2 86b1a46 -- tests/test_exp11_shell.py' in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+/tmp/exp11-close5-independent-l8md9x5b:
+total 1192
+drwx------    3 yixunhu yixunhu    4096 Sep 27 09:17 .
+drwxrwxrwt 1006 nobody  nogroup 1208320 Sep 27 09:18 ..
+-rw-rw-r--    1 yixunhu yixunhu       0 Sep 27 09:17 A.resume
+-rw-rw-r--    1 yixunhu yixunhu       0 Sep 27 09:17 A.stat.ready
+-rw-rw-r--    1 yixunhu yixunhu       0 Sep 27 09:17 B.exit
+-rw-rw-r--    1 yixunhu yixunhu       0 Sep 27 09:17 B.held
+-rw-rw-r--    1 yixunhu yixunhu       0 Sep 27 09:17 C.exit
+-rw-rw-r--    1 yixunhu yixunhu       0 Sep 27 09:17 C.held
+drwxrwxr-x    4 yixunhu yixunhu    4096 Sep 27 09:17 arm
+
+/tmp/exp11-close5-meta-exit-ij43ef9v:
+total 1192
+drwx------    3 yixunhu yixunhu    4096 Sep 27 09:18 .
+drwxrwxrwt 1006 nobody  nogroup 1208320 Sep 27 09:18 ..
+-rw-rw-r--    1 yixunhu yixunhu       0 Sep 27 09:18 B.resume
+-rw-rw-r--    1 yixunhu yixunhu       0 Sep 27 09:18 B.retired
+-rw-rw-r--    1 yixunhu yixunhu       0 Sep 27 09:18 C.prechecked
+-rw-rw-r--    1 yixunhu yixunhu       0 Sep 27 09:18 C.resume
+drwxrwxr-x    5 yixunhu yixunhu    4096 Sep 27 09:18 arm
+
+/tmp/exp11-close5-unrestored-94gthugs:
+total 1192
+drwx------    3 yixunhu yixunhu    4096 Sep 27 09:17 .
+drwxrwxrwt 1006 nobody  nogroup 1208320 Sep 27 09:18 ..
+-rw-rw-r--    1 yixunhu yixunhu       0 Sep 27 09:17 A.ready
+-rw-rw-r--    1 yixunhu yixunhu       0 Sep 27 09:17 A.resume
+-rw-rw-r--    1 yixunhu yixunhu       0 Sep 27 09:17 B.move
+-rw-rw-r--    1 yixunhu yixunhu       0 Sep 27 09:17 B.resume
+-rw-rw-r--    1 yixunhu yixunhu       0 Sep 27 09:17 B.retired
+-rw-rw-r--    1 yixunhu yixunhu       0 Sep 27 09:17 B.validated
+-rw-rw-r--    1 yixunhu yixunhu       0 Sep 27 09:17 C.prechecked
+-rw-rw-r--    1 yixunhu yixunhu       0 Sep 27 09:17 C.resume
+drwxrwxr-x    4 yixunhu yixunhu    4096 Sep 27 09:17 arm
+/tmp/exp11-close5-independent-l8md9x5b/B.exit
+/tmp/exp11-close5-independent-l8md9x5b/B.held
+/tmp/exp11-close5-independent-l8md9x5b/C.held
+/tmp/exp11-close5-independent-l8md9x5b/A.resume
+/tmp/exp11-close5-independent-l8md9x5b/C.exit
+/tmp/exp11-close5-independent-l8md9x5b/A.stat.ready
+/tmp/exp11-close5-unrestored-94gthugs/B.resume
+/tmp/exp11-close5-unrestored-94gthugs/B.retired
+/tmp/exp11-close5-unrestored-94gthugs/B.move
+/tmp/exp11-close5-unrestored-94gthugs/C.prechecked
+/tmp/exp11-close5-unrestored-94gthugs/B.validated
+/tmp/exp11-close5-unrestored-94gthugs/A.ready
+/tmp/exp11-close5-unrestored-94gthugs/A.resume
+/tmp/exp11-close5-unrestored-94gthugs/C.resume
+/tmp/exp11-close5-meta-exit-ij43ef9v/B.resume
+/tmp/exp11-close5-meta-exit-ij43ef9v/C.prechecked
+/tmp/exp11-close5-meta-exit-ij43ef9v/B.retired
+/tmp/exp11-close5-meta-exit-ij43ef9v/C.resume
+diff --git a/tests/test_exp11_shell.py b/tests/test_exp11_shell.py
+index ed58f5d..39ca1a2 100644
+--- a/tests/test_exp11_shell.py
++++ b/tests/test_exp11_shell.py
+@@ -9,6 +9,7 @@ import json
+ import os
+ from pathlib import Path
+ import subprocess
++import time
+ 
+ import pytest
+ 
+@@ -652,7 +653,9 @@ def test_two_interleaved_breakers_leave_exactly_one_holder(tmp_path):
+         ['bash', '-c',
+          'set -euo pipefail\nEXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh\n'
+          'ARM_ROOT={root}\nDRY=0\nARM=H\nBREAK_LOCK=1\ntake_lock finalize\n'
+-         'echo SLOW_ACQUIRED\nsleep 3\n'.format(root=root)],
++         'echo SLOW_ACQUIRED\nsleep 1\n'
++         '[ "$(lock_nonce_of "$LOCK_DIR")" = "$LOCK_NONCE" ] && echo HELD_THROUGHOUT\n'
++         .format(root=root)],
+         cwd=str(REPO), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+         env=dict(os.environ, CUDA_VISIBLE_DEVICES='', EXP11_LOCK_BARRIER=str(gate)))
+     fast = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nBREAK_LOCK=1\ntake_lock finalize\n'
+@@ -661,4 +664,169 @@ def test_two_interleaved_breakers_leave_exactly_one_holder(tmp_path):
+     slow_out, slow_err = slow.communicate(timeout=60)
+     acquired = ('FAST_ACQUIRED' in fast.stdout) + ('SLOW_ACQUIRED' in slow_out)
+     assert acquired == 1, (fast.stdout, fast.stderr, slow_out, slow_err)
+-    assert (root / LOCK).is_dir(), 'the loser removed the winner\'s lock'
++    # The winner still held its own generation while the loser was running and refusing.
++    assert 'HELD_THROUGHOUT' in slow_out or 'FAST_ACQUIRED' in fast.stdout
++    if 'SLOW_ACQUIRED' in slow_out:
++        assert 'HELD_THROUGHOUT' in slow_out, (slow_out, fast.stdout, fast.stderr)
++
++
++# --- close review 4: the acquisition race and a cleanup path that bypasses the exit --
++
++GRACE = 30
++BREAKING = LOCK + '.breaking'
++
++
++def libp(script, env=None):
++    """Start a sourced-library snippet in the background and return the process."""
++    body = ('set -euo pipefail\n'
++            'EXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh\n' + script)
++    return subprocess.Popen(['bash', '-c', body], cwd=str(REPO), stdout=subprocess.PIPE,
++                            stderr=subprocess.PIPE, text=True,
++                            env=dict(os.environ, CUDA_VISIBLE_DEVICES='', **(env or {})))
++
++
++def holders(*outputs):
++    return sum('ACQUIRED' in text for text in outputs)
++
++
++def test_an_ownerless_lock_inside_the_grace_is_not_stale(tmp_path):
++    """``mkdir`` publishes the pathname before the owner file exists.
++
++    A breaker that accepts an empty generation retires a lock whose acquirer is still
++    initialising, and both end up holding it. A young owner-less lock is an acquisition
++    in progress, not a stale lock.
++    """
++    root = tmp_path / 'xRIR_simpor_8_shot'
++    (root / LOCK).mkdir(parents=True)                      # no owner file yet
++    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nLOCK_DIR="$ARM_ROOT/{lock}"\n'
++                 'break_lock ""\n'.format(root=root, lock=LOCK))
++    assert result.returncode != 0, result.stdout[-400:]
++    assert 'acquisition in progress' in result.stderr
++    assert (root / LOCK).is_dir()
++
++
++def test_an_old_ownerless_lock_is_breakable(tmp_path):
++    """The grace is a grace, not an exemption: an abandoned empty lock is still stale."""
++    root = tmp_path / 'xRIR_simpor_8_shot'
++    (root / LOCK).mkdir(parents=True)
++    os.utime(root / LOCK, (0, 0))
++    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nBREAK_LOCK=1\ntake_lock finalize\n'
++                 'echo ACQUIRED\nLOCK_HELD=0\n'.format(root=root))
++    assert result.returncode == 0, result.stderr[-400:]
++    assert 'ACQUIRED' in result.stdout and 'BREAKLOCK' in result.stdout
++
++
++def test_nobody_acquires_the_pathname_while_a_break_is_in_progress(tmp_path):
++    """The breaking meta-lock: the exposed pathname is not up for grabs mid-break."""
++    root = tmp_path / 'xRIR_simpor_8_shot'
++    root.mkdir(parents=True)
++    (root / BREAKING).mkdir()
++    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\necho ACQUIRED\n'.format(
++        root=root))
++    assert result.returncode != 0 and 'ACQUIRED' not in result.stdout
++    assert 'break' in result.stderr.lower()
++
++
++def test_a_second_breaker_refuses_on_the_meta_lock(tmp_path):
++    root = tmp_path / 'xRIR_simpor_8_shot'
++    lock_with(root, nonce='stale')
++    (root / BREAKING).mkdir()
++    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nLOCK_DIR="$ARM_ROOT/{lock}"\n'
++                 'break_lock stale\n'.format(root=root, lock=LOCK))
++    assert result.returncode != 0 and 'break' in result.stderr.lower()
++    assert (root / LOCK).is_dir()
++
++
++def test_schedule_one_acquirer_paused_between_mkdir_and_owner(tmp_path):
++    """Reviewer schedule 1: exactly one holder, and the loser removes nothing."""
++    root = tmp_path / 'xRIR_simpor_8_shot'
++    root.mkdir(parents=True)
++    gate = tmp_path / 'gate'
++    acquirer = libp('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\n'
++                    'echo ACQUIRED\nsleep 2\n'.format(root=root),
++                    {'EXP11_ACQUIRE_BARRIER': str(gate)})
++    for _ in range(100):                                   # wait for the bare directory
++        if (root / LOCK).is_dir():
++            break
++        time.sleep(0.05)
++    breaker = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nBREAK_LOCK=1\ntake_lock finalize\n'
++                  'echo ACQUIRED\nLOCK_HELD=0\n'.format(root=root))
++    # While the acquirer is still paused -- and therefore still holding whatever it got --
++    # an ordinary third caller must find the arm locked.
++    third = lib('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\necho ACQUIRED\n'.format(
++        root=root))
++    gate.write_text('go\n')
++    out, err = acquirer.communicate(timeout=60)
++    assert holders(out, breaker.stdout) == 1, (out, err, breaker.stdout, breaker.stderr)
++    assert 'ACQUIRED' not in third.stdout, (third.stdout, third.stderr)
++    assert not (root / LOCK).exists(), 'the holder released it on exit, nobody else did'
++
++
++def test_schedule_two_breaker_observed_an_empty_generation(tmp_path):
++    """Reviewer schedule 2: B observed empty, A completed; B must refuse, A survives."""
++    root = tmp_path / 'xRIR_simpor_8_shot'
++    root.mkdir(parents=True)
++    holder = libp('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\n'
++                  'echo ACQUIRED\nsleep 2\n'.format(root=root))
++    for _ in range(100):
++        if (root / LOCK / 'owner').is_file():
++            break
++        time.sleep(0.05)
++    late = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nLOCK_DIR="$ARM_ROOT/{lock}"\n'
++               'break_lock ""\n'.format(root=root, lock=LOCK))
++    out, err = holder.communicate(timeout=60)
++    assert 'ACQUIRED' in out, (out, err)
++    assert late.returncode != 0, late.stdout[-300:]
++    assert 'UNRESTORED' not in late.stdout
++
++
++def test_acquisition_self_verifies_and_removes_nothing_when_it_lost(tmp_path):
++    """A lock retired under an acquirer must not be 'released' by it."""
++    root = tmp_path / 'xRIR_simpor_8_shot'
++    root.mkdir(parents=True)
++    gate = tmp_path / 'gate'
++    acquirer = libp('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\n'
++                    'echo ACQUIRED\n'.format(root=root),
++                    {'EXP11_ACQUIRE_BARRIER': str(gate)})
++    for _ in range(100):
++        if (root / LOCK).is_dir():
++            break
++        time.sleep(0.05)
++    (root / LOCK).rename(root / (LOCK + '.retired'))       # the pathname disappears
++    (root / LOCK).mkdir()
++    (root / LOCK / 'owner').write_text('pid 424242 nonce successor mode finalize arm H at x\n')
++    gate.write_text('go\n')
++    out, err = acquirer.communicate(timeout=60)
++    assert 'ACQUIRED' not in out, (out, err)
++    assert acquirer.returncode != 0
++    assert (root / LOCK).is_dir()
++    assert 'successor' in (root / LOCK / 'owner').read_text(), (
++        'the acquirer removed a lock it never owned')
++
++
++def test_the_handler_still_exits_when_the_owner_file_is_gone(tmp_path):
++    """``sed`` failing on a missing owner file must not pre-empt the handler's exit."""
++    root = tmp_path / 'xRIR_simpor_8_shot'
++    root.mkdir(parents=True)
++    script = ('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\n'
++              'rm -f -- "$LOCK_DIR/owner"\n'
++              'handler="$(trap -p TERM | sed -n "s/^trap -- \'\\(.*\\)\' SIGTERM$/\\1/p")"\n'
++              'eval "$handler"\necho CONTINUED\n').format(root=root)
++    result = lib(script)
++    assert result.returncode == 143, (result.returncode, result.stdout[-400:],
++                                      result.stderr[-400:])
++    assert 'SIGNAL TERM' in result.stdout
++    assert 'UNLOCK SKIPPED' in result.stdout and 'no owner' in result.stdout
++    assert 'CONTINUED' not in result.stdout
++    assert (root / LOCK).is_dir(), 'an owner-less lock is not this invocation to remove'
++
++
++def test_release_treats_a_missing_owner_as_non_ownership(tmp_path):
++    root = tmp_path / 'xRIR_simpor_8_shot'
++    root.mkdir(parents=True)
++    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\n'
++                 'rm -f -- "$LOCK_DIR/owner"\nrelease_lock\necho AFTER\n'.format(root=root))
++    assert result.returncode == 0, result.stderr[-300:]
++    assert 'AFTER' in result.stdout
++    assert 'UNLOCK SKIPPED' in result.stdout and 'no owner' in result.stdout
++    assert (root / LOCK).is_dir()
+
+exec
+/bin/bash -lc "git show --stat --oneline ad9317e; git diff --name-status 4f72ac2 86b1a46; nl -ba worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_08:10:41_coder_round2_fix5_opus_report.md | sed -n '82,103p'" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+ad9317e exp11 fix5 (RED): the acquisition race, and a cleanup path that bypasses the exit
+ tests/test_exp11_shell.py | 161 ++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 161 insertions(+)
+M	tests/test_exp11_shell.py
+M	tools/exp11_launch.sh
+A	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/coder_prompts/round2_fix5_opus_prompt.md
+A	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_08:10:41_coder_round2_fix5_opus_report.md
+A	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close4_review.md
+A	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/codex_code_round2_close4_prompt.md
+    82	* **Missing owner** — the registered `TERM` handler replayed with the owner file deleted:
+    83	  `SIGNAL TERM`, `UNLOCK SKIPPED … no owner`, **exit 143**, lock preserved, no
+    84	  `CONTINUED`. And `release_lock` alone in the same state returns cleanly and preserves
+    85	  the lock.
+    86	
+    87	## Report corrections carried over
+    88	
+    89	| item | corrected figure |
+    90	|---|---|
+    91	| `16b1eff` (fix 4 GREEN) | **96 insertions / −9**, launcher only — the 224 figure was RED+GREEN combined |
+    92	| `fa12f00` (fix 4 RED) | 128 test insertions |
+    93	| `a2cb3b6` | **437 record-only lines** (prompt 9, report 92, copied review 333, review prompt 3) — recorded here as a record-only commit |
+    94	| `c8b2ff0` (fix 3 GREEN) | **205 changed lines** in the launcher and its tests (116/−2 + 75/−12), not "insertions"; the commit's other 332 lines are the copied review and prompts |
+    95	
+    96	This cycle's GREEN commit is **306 insertions / −27** across `tools/exp11_launch.sh` and
+    97	`tests/test_exp11_shell.py`, so it exceeds 200 changed lines and is recorded as an
+    98	exception: the meta-lock, the grace, the atomic owner write and the self-verification are
+    99	one interlocking mechanism, and any split would leave a state in which the lock is
+   100	partly protected.
+   101	
+   102	## Digests
+   103	
+
+exec
+/bin/bash -lc "export CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/home/yixunhu/codespace/xRIR_code_wt; /home/yixunhu/miniconda3/envs/xRIR/bin/python -u - <<'PY'
+import pathlib, subprocess, tempfile, shlex
+r=pathlib.Path(tempfile.mkdtemp(prefix='exp11_close5_unreadable_',dir='/tmp'))
+body='EXP11_LAUNCH_LIB=1 source /home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh\\nARM_ROOT='+shlex.quote(str(r/'arm'))+'\\nDRY=0; ARM=H; BREAK_LOCK=0\\ntake_lock finalize || exit 2\\nchmod 000 \""'$LOCK_DIR/owner"'"\\non_signal TERM 15\\necho CONTINUED\\n'
+p=subprocess.Popen(['bash','-c',body],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+out,err=p.communicate(); print('UNREADABLE_TERM',p.returncode,'lock_preserved',(r/'arm/.publish.lock').exists()); print(out+err)
+(r/'arm/.publish.lock/owner').chmod(0o600)
+assert p.returncode==143 and (r/'arm/.publish.lock').exists() and 'CONTINUED' not in out
+PY" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+UNREADABLE_TERM 143 lock_preserved True
+LOCK /tmp/exp11_close5_unreadable_7rzzkxjn/arm/.publish.lock
+SIGNAL TERM
+UNLOCK SKIPPED /tmp/exp11_close5_unreadable_7rzzkxjn/arm/.publish.lock holds the generation none, not 668701-1790515161910714593-44053321
+
+
+exec
+/bin/bash -lc 'git rev-parse HEAD; git status --short; date --iso-8601=seconds' in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+86b1a465ba746da47058a2c90088b053b1d8dac3
+?? worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/codex_code_round2_close5_prompt.md
+2026-09-27T09:19:22-04:00
+
+codex
+A second replay confirmed that normal EXIT can leave `.breaking` behind: a caller that passed the earlier check can create the pathname during retirement, causing the breaker’s later `mkdir` to fail before its EXIT trap is installed. Later callers are then blocked. The missing-owner TERM replay now passes with exit 143, and closure checks confirm the expected digest values.
+
+codex
+**Reviewer:** OpenAI Codex, GPT-6 per developer metadata; exact model identifier and reasoning-effort setting are not exposed.  
+**Sandbox:** Read-only worktree; writes confined to `/tmp`; CUDA disabled; numerical threads limited to one per worker, at most four concurrent workers; no signals sent.  
+**Tree:** `/home/yixunhu/codespace/xRIR_code_wt`, branch `exp11-cue`.  
+**HEAD:** `86b1a465ba746da47058a2c90088b053b1d8dac3`.  
+**Review window:** 2026-09-27, 09:15–09:20 EDT / 13:15–13:20 UTC.  
+**Scope:** Five commits in `4f72ac2..86b1a46`, combined diff, fix5 report, independent schedules, selected tests and closure calculations.
+
+**Verdict: request changes. Round 2 cannot be CLOSED, and `86b1a46` should not be merged.** Missing-owner signal cleanup is fixed, but acquisition still permits multiple holders, and normal EXIT can leak the breaking meta-lock.
+
+1. **[P2] Acquisition can adopt or corrupt a successor’s lock after the grace expires.**  
+   [Inode capture:397](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:397), [owner write:405](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:405), [verification:417](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:417).
+
+   The inode is read after `mkdir`, and both owner-write operations resolve the shared pathname again. Atomic `.owner.$$` → `owner` replacement does not bind the write to the directory A created.
+
+   I replayed the first close4 schedule using unchanged production functions and a file barrier immediately after the actual `mkdir`. With the default grace unchanged, I waited **31.267 seconds**, without adjusting directory timestamps:
+
+   ```text
+   A creates lock; pauses before inode capture and owner write
+   B breaks the now-old ownerless directory and acquires its replacement
+   A resumes, records B's inode, overwrites B's owner, passes verification
+
+   A_AND_B_HOLD True True
+   A_OVERWROTE_B_OWNER True
+   A_EXIT 0
+   B_STILL_HOLDING True
+   LOCK_EXISTS False
+
+   C acquires
+   B_AND_C_HOLD True True
+   ```
+
+   A’s normal EXIT removed B’s lock. B’s later EXIT preserved C’s generation, but mutual exclusion had already failed twice.
+
+   A second replay paused A **after capturing its original inode**. A subsequently overwrote B’s owner and then refused because the inode differed. After A exited, C’s breaker saw A’s dead PID and acquired while B remained active. Thus “refuses and removes nothing” still allows successor corruption.
+
+   **Required correction:** Coordinate initialization and retirement so a delayed acquirer cannot adopt a replacement directory or write into its successor. Cover pauses both before inode capture and after it, including grace expiry, third callers and normal EXIT.
+
+2. **[P2] The breaking meta-lock does not exclude callers that passed its earlier check, and can survive normal EXIT.**  
+   [Meta-lock check:382](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:382), [mkdir failure:387](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:387), [late trap installation:400](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:400).
+
+   A caller can pass the `.breaking` check, pause before `mkdir`, then create the exposed pathname during retirement. Independent replay with actual `mkdir`/`mv` operations and file barriers produced:
+
+   ```text
+   C passes .breaking check; pauses before mkdir
+   B acquires .breaking and retires the stale directory
+   C creates the exposed pathname, writes owner, then refuses on .breaking
+   B's replacement mkdir fails
+   B exits 2 before installing its EXIT trap
+
+   breaking_survived_normal_EXIT: true
+   D --break-lock exits 2: a break is already in progress
+   breaking_still_present: true
+   ```
+
+   No holder remains, but subsequent acquisitions and breakers are blocked. The failure return at line 394 does not release the already-held meta-lock.
+
+   The same prechecked-caller interleaving also makes [the `UNRESTORED` branch:361](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:361) reachable. B validated an empty generation; A then wrote its owner and refused on `.breaking`; B retired the directory; C created the exposed pathname before B attempted restoration:
+
+   ```text
+   LOCK_ABSENT_WITH_META True True
+   C_EXPOSED_PATH_CREATED True
+   UNRESTORED .../.publish.lock.broken.empty could not be put back
+   UNRESTORED_reached: true
+   retired_left: true
+   ```
+
+   **Required correction:** Make acquisition participate in exclusion across the check-to-`mkdir` interval. Establish cleanup before acquiring `.breaking`, and release it on every failure and EXIT path, including replacement-`mkdir` failure.
+
+The requested checks therefore have mixed results:
+
+| Check | Result |
+|---|---|
+| Atomic `.breaking` creation; second breaker refuses | Pass for callers observing the existing meta-lock. |
+| Meta-lock excludes every acquisition and cleans up on every exit | **Fail**, blocker 2. |
+| Default 30-second initialization grace | Young ownerless lock refuses as “acquisition in progress”; older lock is breakable. |
+| Self-verification preserves successor ownership | **Fail**, blocker 1. |
+| Rename retirement and post-rename generation check | Present; `UNRESTORED` remains reachable. |
+| Both barrier variables are paths, never evaluated | Pass. |
+| Owner readers tolerate missing/unreadable files | Pass. |
+| Missing-owner TERM exits 143 and preserves lock | Pass. |
+| Close4 schedules, third callers and normal EXIT preserve mutual exclusion | **Fail after grace expiry.** |
+
+The short, within-grace schedules pass: B refuses A’s unfinished acquisition; a third caller refuses; A’s normal EXIT removes its own lock. With B actually observing empty before A completes, B subsequently refuses the live owner and A remains the sole holder. These passing cases do not establish safety after grace expiry or after B has already validated the empty generation.
+
+The committed regressions miss those intervals. [Schedule one:740](/home/yixunhu/codespace/xRIR_code_wt/tests/test_exp11_shell.py:740) uses `EXP11_ACQUIRE_BARRIER`, whose hook is **after the owner write**. [Schedule two:765](/home/yixunhu/codespace/xRIR_code_wt/tests/test_exp11_shell.py:765) waits for an owner before calling `break_lock ""`; it does not pause B after validating empty and before retirement.
+
+**The missing-owner handler defect is closed.** Replaying the registered handler body, without sending a signal, produced:
+
+```text
+REGISTERED on_signal TERM 15
+SIGNAL TERM
+UNLOCK SKIPPED ... has no owner: this invocation owns nothing there
+status: 143
+lock_preserved: True
+```
+
+Missing-owner INT returned 130 and preserved the directory. Intact-owner TERM returned 143 and removed its lock. An unreadable owner also returned 143 and preserved the directory, logging `UNLOCK SKIPPED … generation none`. No replay continued past the handler.
+
+**RED evidence independently reproduced.** The committed missing-owner regression against the byte-exact `ad9317e` launcher and its dependency failed for the intended reason:
+
+```text
+LOCK ...
+SIGNAL TERM
+status: 2
+UNLOCK SKIPPED absent
+lock preserved: True
+```
+
+**The exception record still needs correction.** [Fix5 report:96](/home/yixunhu/codespace/xRIR_code_wt/worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_08:10:41_coder_round2_fix5_opus_report.md:96) assigns the combined RED+GREEN count to GREEN alone:
+
+| Commit/range | Verified accounting |
+|---|---|
+| `519b48f` alone | **149 insertions / 31 deletions — 180 changed lines**, below 200. |
+| `4f72ac2..519b48f` | **306 insertions / 27 deletions — 333 changed lines.** |
+| `16b1eff` | **96 insertions / 9 deletions**, correctly recorded. |
+| `a2cb3b6` | **437 record-only insertions**, correctly recorded. |
+| `c8b2ff0` launcher plus tests | **205 changed lines**, correctly distinguished from insertions. |
+
+For completeness, `c8b2ff0` totals 524 insertions / 14 deletions. Its remaining 333 insertions comprise 331 record lines and two golden-file insertions; the report’s “other 332” statement is also inaccurate. These bookkeeping corrections are nonblocking independently of the lock defects.
+
+**Selected verification: 100 distinct tests passed, no skips.**
+
+| Selection | Passed |
+|---|---:|
+| Shell | 70 |
+| Approval enforcement | 13 |
+| Committed-blob binding | 1 |
+| Sim-eval closures | 3 |
+| Registry | 6 |
+| Pinned-oracle identity and parity | 7 |
+
+There were 101 test executions because committed-blob binding ran in both verification selections. Pytest used worktree `PYTHONPATH`, `PYTHONDONTWRITEBYTECODE=1`, `-p no:cacheprovider`, CPU-only settings and `/tmp` caches/fixtures. Both shells passed `bash -n`; `git diff --check 4f72ac2 86b1a46` passed. I did not rerun the full CPU suite.
+
+**Closure hygiene passes at `86b1a46`:**
+
+- Against the approval record committed at `9f98bbb`, only **exp_06 `code.summarize_haa`** differs among twenty keys; the other nineteen match.
+- All four sim-eval closures—`eval`, `eval_launch`, `compare`, `mirror_probe`—are unchanged; their three tests pass.
+- Frozen files remain untouched. The only modified existing production source versus `9f98bbb` is `tools/exp06_summarize_haa.py`; exp_11 production files are additions.
+- `BACKBONES_EXP06`, inherited class identities and outputs remain unchanged. Its digest is `f9852f8568fb62aad5ec39a955b8e254dad6b5f53bbde71c69b048efa8b3e169`.
+- Statistical payloads and rendered summaries are byte-identical against pinned `c6233e3` exp_06/exp_09 and `c491396` exp_11 Phase-1 oracles.
+- This cycle changes only production `tools/exp11_launch.sh`; only exp_11 `code.launch_sh` moves.
+- The checked-in exp_11 approval record remains identical to the all-null template.
+
+**Exact fill values for the unchanged candidate follow.** Because merge is blocked, this is not an approved merge manifest. Recompute affected closures after fixing the launcher and verify them at the eventual merge commit.
+
+Replace only exp_06 `code.summarize_haa`:
+
+```text
+old: 645e74c03e20425e361c2efcab564f2f2b2557c98574df538cd7dd439f8b3619
+new: deff6d49d8e903d7e0d5005c5d40199b53ca35cdedfd71a90938df9815d0004a
+```
+
+Preserving every other byte produces a **3,190-byte** exp_06 approval record with SHA-256:
+
+```text
+80134832646672411740f779835fa7c06f8bb354b46aab558884503b39a1b666
+```
+
+All eight exp_11 code keys, independently verified reused identities, and null artifact leaves:
+
+```json
+{
+  "schema_version": 1,
+  "code": {
+    "train": "d9cbb9de8eb0ec85ac85664d9e0da7afe156e5b169bbe89096953d863cf15571",
+    "finalize": "3eb15b59b672d97ac257054e66f8bc835abd27b85e24f9a417a5a1aaa9e25b9e",
+    "haa_finetune": "bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150",
+    "haa_eval": "f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20",
+    "haa_pipeline_sh": "3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4",
+    "launch_sh": "fbc012454f0d7962d1c58fd778baa670d1340e56cab71131ba769e95f214d4c8",
+    "smoke": "62133ba07a35d42026c19fd1484b37c6c06ace0ebedc1cdd8484690df323450e",
+    "summarize_haa": "deff6d49d8e903d7e0d5005c5d40199b53ca35cdedfd71a90938df9815d0004a"
+  },
+  "reused": {
+    "approved_digests_exp04": "2e4521173bb230fc8114116ba0c94b4afd0ccdd3b0b034faaf54516461ee0314",
+    "approved_digests_exp06": "80134832646672411740f779835fa7c06f8bb354b46aab558884503b39a1b666",
+    "legacy_receipt": {
+      "path": "ckpt/exp06/legacy_receipt.json",
+      "sha256": "5a12494657665d336cf5f952c6ef918abbeae44e451f28821790ac5c46232540"
+    }
+  },
+  "artifacts": {
+    "simpor_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    },
+    "simpor_yaw_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    }
+  }
+}
+```
+
+HEAD and worktree contents remained unchanged, including the pre-existing untracked close5 prompt. No review file or approval record was saved.
+tokens used
+57,408
+**Reviewer:** OpenAI Codex, GPT-6 per developer metadata; exact model identifier and reasoning-effort setting are not exposed.  
+**Sandbox:** Read-only worktree; writes confined to `/tmp`; CUDA disabled; numerical threads limited to one per worker, at most four concurrent workers; no signals sent.  
+**Tree:** `/home/yixunhu/codespace/xRIR_code_wt`, branch `exp11-cue`.  
+**HEAD:** `86b1a465ba746da47058a2c90088b053b1d8dac3`.  
+**Review window:** 2026-09-27, 09:15–09:20 EDT / 13:15–13:20 UTC.  
+**Scope:** Five commits in `4f72ac2..86b1a46`, combined diff, fix5 report, independent schedules, selected tests and closure calculations.
+
+**Verdict: request changes. Round 2 cannot be CLOSED, and `86b1a46` should not be merged.** Missing-owner signal cleanup is fixed, but acquisition still permits multiple holders, and normal EXIT can leak the breaking meta-lock.
+
+1. **[P2] Acquisition can adopt or corrupt a successor’s lock after the grace expires.**  
+   [Inode capture:397](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:397), [owner write:405](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:405), [verification:417](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:417).
+
+   The inode is read after `mkdir`, and both owner-write operations resolve the shared pathname again. Atomic `.owner.$$` → `owner` replacement does not bind the write to the directory A created.
+
+   I replayed the first close4 schedule using unchanged production functions and a file barrier immediately after the actual `mkdir`. With the default grace unchanged, I waited **31.267 seconds**, without adjusting directory timestamps:
+
+   ```text
+   A creates lock; pauses before inode capture and owner write
+   B breaks the now-old ownerless directory and acquires its replacement
+   A resumes, records B's inode, overwrites B's owner, passes verification
+
+   A_AND_B_HOLD True True
+   A_OVERWROTE_B_OWNER True
+   A_EXIT 0
+   B_STILL_HOLDING True
+   LOCK_EXISTS False
+
+   C acquires
+   B_AND_C_HOLD True True
+   ```
+
+   A’s normal EXIT removed B’s lock. B’s later EXIT preserved C’s generation, but mutual exclusion had already failed twice.
+
+   A second replay paused A **after capturing its original inode**. A subsequently overwrote B’s owner and then refused because the inode differed. After A exited, C’s breaker saw A’s dead PID and acquired while B remained active. Thus “refuses and removes nothing” still allows successor corruption.
+
+   **Required correction:** Coordinate initialization and retirement so a delayed acquirer cannot adopt a replacement directory or write into its successor. Cover pauses both before inode capture and after it, including grace expiry, third callers and normal EXIT.
+
+2. **[P2] The breaking meta-lock does not exclude callers that passed its earlier check, and can survive normal EXIT.**  
+   [Meta-lock check:382](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:382), [mkdir failure:387](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:387), [late trap installation:400](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:400).
+
+   A caller can pass the `.breaking` check, pause before `mkdir`, then create the exposed pathname during retirement. Independent replay with actual `mkdir`/`mv` operations and file barriers produced:
+
+   ```text
+   C passes .breaking check; pauses before mkdir
+   B acquires .breaking and retires the stale directory
+   C creates the exposed pathname, writes owner, then refuses on .breaking
+   B's replacement mkdir fails
+   B exits 2 before installing its EXIT trap
+
+   breaking_survived_normal_EXIT: true
+   D --break-lock exits 2: a break is already in progress
+   breaking_still_present: true
+   ```
+
+   No holder remains, but subsequent acquisitions and breakers are blocked. The failure return at line 394 does not release the already-held meta-lock.
+
+   The same prechecked-caller interleaving also makes [the `UNRESTORED` branch:361](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:361) reachable. B validated an empty generation; A then wrote its owner and refused on `.breaking`; B retired the directory; C created the exposed pathname before B attempted restoration:
+
+   ```text
+   LOCK_ABSENT_WITH_META True True
+   C_EXPOSED_PATH_CREATED True
+   UNRESTORED .../.publish.lock.broken.empty could not be put back
+   UNRESTORED_reached: true
+   retired_left: true
+   ```
+
+   **Required correction:** Make acquisition participate in exclusion across the check-to-`mkdir` interval. Establish cleanup before acquiring `.breaking`, and release it on every failure and EXIT path, including replacement-`mkdir` failure.
+
+The requested checks therefore have mixed results:
+
+| Check | Result |
+|---|---|
+| Atomic `.breaking` creation; second breaker refuses | Pass for callers observing the existing meta-lock. |
+| Meta-lock excludes every acquisition and cleans up on every exit | **Fail**, blocker 2. |
+| Default 30-second initialization grace | Young ownerless lock refuses as “acquisition in progress”; older lock is breakable. |
+| Self-verification preserves successor ownership | **Fail**, blocker 1. |
+| Rename retirement and post-rename generation check | Present; `UNRESTORED` remains reachable. |
+| Both barrier variables are paths, never evaluated | Pass. |
+| Owner readers tolerate missing/unreadable files | Pass. |
+| Missing-owner TERM exits 143 and preserves lock | Pass. |
+| Close4 schedules, third callers and normal EXIT preserve mutual exclusion | **Fail after grace expiry.** |
+
+The short, within-grace schedules pass: B refuses A’s unfinished acquisition; a third caller refuses; A’s normal EXIT removes its own lock. With B actually observing empty before A completes, B subsequently refuses the live owner and A remains the sole holder. These passing cases do not establish safety after grace expiry or after B has already validated the empty generation.
+
+The committed regressions miss those intervals. [Schedule one:740](/home/yixunhu/codespace/xRIR_code_wt/tests/test_exp11_shell.py:740) uses `EXP11_ACQUIRE_BARRIER`, whose hook is **after the owner write**. [Schedule two:765](/home/yixunhu/codespace/xRIR_code_wt/tests/test_exp11_shell.py:765) waits for an owner before calling `break_lock ""`; it does not pause B after validating empty and before retirement.
+
+**The missing-owner handler defect is closed.** Replaying the registered handler body, without sending a signal, produced:
+
+```text
+REGISTERED on_signal TERM 15
+SIGNAL TERM
+UNLOCK SKIPPED ... has no owner: this invocation owns nothing there
+status: 143
+lock_preserved: True
+```
+
+Missing-owner INT returned 130 and preserved the directory. Intact-owner TERM returned 143 and removed its lock. An unreadable owner also returned 143 and preserved the directory, logging `UNLOCK SKIPPED … generation none`. No replay continued past the handler.
+
+**RED evidence independently reproduced.** The committed missing-owner regression against the byte-exact `ad9317e` launcher and its dependency failed for the intended reason:
+
+```text
+LOCK ...
+SIGNAL TERM
+status: 2
+UNLOCK SKIPPED absent
+lock preserved: True
+```
+
+**The exception record still needs correction.** [Fix5 report:96](/home/yixunhu/codespace/xRIR_code_wt/worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_08:10:41_coder_round2_fix5_opus_report.md:96) assigns the combined RED+GREEN count to GREEN alone:
+
+| Commit/range | Verified accounting |
+|---|---|
+| `519b48f` alone | **149 insertions / 31 deletions — 180 changed lines**, below 200. |
+| `4f72ac2..519b48f` | **306 insertions / 27 deletions — 333 changed lines.** |
+| `16b1eff` | **96 insertions / 9 deletions**, correctly recorded. |
+| `a2cb3b6` | **437 record-only insertions**, correctly recorded. |
+| `c8b2ff0` launcher plus tests | **205 changed lines**, correctly distinguished from insertions. |
+
+For completeness, `c8b2ff0` totals 524 insertions / 14 deletions. Its remaining 333 insertions comprise 331 record lines and two golden-file insertions; the report’s “other 332” statement is also inaccurate. These bookkeeping corrections are nonblocking independently of the lock defects.
+
+**Selected verification: 100 distinct tests passed, no skips.**
+
+| Selection | Passed |
+|---|---:|
+| Shell | 70 |
+| Approval enforcement | 13 |
+| Committed-blob binding | 1 |
+| Sim-eval closures | 3 |
+| Registry | 6 |
+| Pinned-oracle identity and parity | 7 |
+
+There were 101 test executions because committed-blob binding ran in both verification selections. Pytest used worktree `PYTHONPATH`, `PYTHONDONTWRITEBYTECODE=1`, `-p no:cacheprovider`, CPU-only settings and `/tmp` caches/fixtures. Both shells passed `bash -n`; `git diff --check 4f72ac2 86b1a46` passed. I did not rerun the full CPU suite.
+
+**Closure hygiene passes at `86b1a46`:**
+
+- Against the approval record committed at `9f98bbb`, only **exp_06 `code.summarize_haa`** differs among twenty keys; the other nineteen match.
+- All four sim-eval closures—`eval`, `eval_launch`, `compare`, `mirror_probe`—are unchanged; their three tests pass.
+- Frozen files remain untouched. The only modified existing production source versus `9f98bbb` is `tools/exp06_summarize_haa.py`; exp_11 production files are additions.
+- `BACKBONES_EXP06`, inherited class identities and outputs remain unchanged. Its digest is `f9852f8568fb62aad5ec39a955b8e254dad6b5f53bbde71c69b048efa8b3e169`.
+- Statistical payloads and rendered summaries are byte-identical against pinned `c6233e3` exp_06/exp_09 and `c491396` exp_11 Phase-1 oracles.
+- This cycle changes only production `tools/exp11_launch.sh`; only exp_11 `code.launch_sh` moves.
+- The checked-in exp_11 approval record remains identical to the all-null template.
+
+**Exact fill values for the unchanged candidate follow.** Because merge is blocked, this is not an approved merge manifest. Recompute affected closures after fixing the launcher and verify them at the eventual merge commit.
+
+Replace only exp_06 `code.summarize_haa`:
+
+```text
+old: 645e74c03e20425e361c2efcab564f2f2b2557c98574df538cd7dd439f8b3619
+new: deff6d49d8e903d7e0d5005c5d40199b53ca35cdedfd71a90938df9815d0004a
+```
+
+Preserving every other byte produces a **3,190-byte** exp_06 approval record with SHA-256:
+
+```text
+80134832646672411740f779835fa7c06f8bb354b46aab558884503b39a1b666
+```
+
+All eight exp_11 code keys, independently verified reused identities, and null artifact leaves:
+
+```json
+{
+  "schema_version": 1,
+  "code": {
+    "train": "d9cbb9de8eb0ec85ac85664d9e0da7afe156e5b169bbe89096953d863cf15571",
+    "finalize": "3eb15b59b672d97ac257054e66f8bc835abd27b85e24f9a417a5a1aaa9e25b9e",
+    "haa_finetune": "bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150",
+    "haa_eval": "f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20",
+    "haa_pipeline_sh": "3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4",
+    "launch_sh": "fbc012454f0d7962d1c58fd778baa670d1340e56cab71131ba769e95f214d4c8",
+    "smoke": "62133ba07a35d42026c19fd1484b37c6c06ace0ebedc1cdd8484690df323450e",
+    "summarize_haa": "deff6d49d8e903d7e0d5005c5d40199b53ca35cdedfd71a90938df9815d0004a"
+  },
+  "reused": {
+    "approved_digests_exp04": "2e4521173bb230fc8114116ba0c94b4afd0ccdd3b0b034faaf54516461ee0314",
+    "approved_digests_exp06": "80134832646672411740f779835fa7c06f8bb354b46aab558884503b39a1b666",
+    "legacy_receipt": {
+      "path": "ckpt/exp06/legacy_receipt.json",
+      "sha256": "5a12494657665d336cf5f952c6ef918abbeae44e451f28821790ac5c46232540"
+    }
+  },
+  "artifacts": {
+    "simpor_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    },
+    "simpor_yaw_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    }
+  }
+}
+```
+
+HEAD and worktree contents remained unchanged, including the pre-existing untracked close5 prompt. No review file or approval record was saved.
