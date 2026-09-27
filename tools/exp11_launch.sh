@@ -188,26 +188,103 @@ promote() {  # promote <attempt basename>: atomic, so `final` never points at no
 # explicit --break-lock and never on a timer.
 LOCK_DIR=""
 LOCK_HELD=0
+# The GENERATION of the lock this invocation holds. A lock directory is not identity
+# enough: it can be retired and re-created between two statements of one shell, so a
+# process-local flag would let an earlier owner remove its successor's lock. The owner
+# file carries this nonce, and cleanup acts only where the nonce is still ours.
+LOCK_NONCE=""
+INTERRUPTED=0
 
-lock_is_live() {  # only for the message: a pid that is gone does not release a lock
+lock_nonce_of() {  # the generation recorded in one lock directory, or nothing
+    sed -n 's/^pid [0-9][0-9]* nonce \([^ ][^ ]*\).*/\1/p' "$1/owner" 2>/dev/null
+}
+
+lock_pid_of() {
+    sed -n 's/^pid \([0-9][0-9]*\).*/\1/p' "$1/owner" 2>/dev/null
+}
+
+lock_is_live() {  # a pid that is gone does not hold a lock; a live one is never overridden
     local pid
-    pid="$(sed -n 's/^pid \([0-9][0-9]*\).*/\1/p' "$1/owner" 2>/dev/null || true)"
+    pid="$(lock_pid_of "$1")"
     [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+# A test-only ordering hook: wait (bounded) for a file to appear. It takes a PATH, never
+# a command, so nothing here evaluates anything the environment supplies.
+lock_barrier() {
+    local file="${EXP11_LOCK_BARRIER:-}" waited=0
+    [ -n "$file" ] || return 0
+    while [ ! -e "$file" ] && [ "$waited" -lt 100 ]; do sleep 0.1; waited=$((waited + 1)); done
 }
 
 release_lock() {
     [ "$LOCK_HELD" -eq 1 ] || return 0
     LOCK_HELD=0
+    local now
+    now="$(lock_nonce_of "$LOCK_DIR")"
+    if [ -n "$LOCK_NONCE" ] && [ "$now" != "$LOCK_NONCE" ]; then
+        say "UNLOCK SKIPPED $LOCK_DIR holds the generation ${now:-none}, not $LOCK_NONCE"
+        return 0
+    fi
     rm -f -- "$LOCK_DIR/owner"
     rmdir -- "$LOCK_DIR" 2>/dev/null || true
     say "UNLOCK $LOCK_DIR"
 }
 
-break_lock() {  # only ever from --break-lock, and it says so in the log
+# A signal handler must END this invocation. A cleanup-only handler returns, and bash
+# resumes -- which would let finalization and promotion continue with the lock released.
+on_signal() {  # on_signal <NAME> <number>
+    INTERRUPTED=1
+    say "SIGNAL $1"
+    release_lock
+    exit $((128 + $2))
+}
+
+# Checked before every protected step, so nothing runs after a handler has fired even if
+# some future caller swallows the exit.
+not_interrupted() {
+    [ "$INTERRUPTED" -eq 0 ] && return 0
+    echo "refusing: a signal handler has fired; this invocation does not continue" >&2
+    return 1
+}
+
+# break_lock <observed-nonce>: retire the SPECIFIC stale lock this invocation observed.
+# Two breakers that read the same stale owner must not both proceed, and a breaker whose
+# observation is out of date must not retire the generation that replaced it. The rename
+# is the serialisation point: it fails for the second breaker once the first has moved
+# the directory aside, and its target is named for the observed generation, so a repeat
+# of the same observation collides instead of succeeding twice.
+break_lock() {
+    local observed="$1" retired="$LOCK_DIR.broken.$1" now
     [ -d "$LOCK_DIR" ] || return 0
-    say "BREAKLOCK $LOCK_DIR owner=$(cat -- "$LOCK_DIR/owner" 2>/dev/null | tr -d '\n')"
-    rm -f -- "$LOCK_DIR/owner"
-    rmdir -- "$LOCK_DIR" 2>/dev/null || true
+    if lock_is_live "$LOCK_DIR"; then
+        echo "refusing: --break-lock will not override the live owner of $LOCK_DIR" \
+             "($(cat -- "$LOCK_DIR/owner" 2>/dev/null | tr -d '\n'))" >&2
+        return 1
+    fi
+    now="$(lock_nonce_of "$LOCK_DIR")"
+    if [ "$now" != "$observed" ]; then
+        echo "refusing: $LOCK_DIR now holds the generation ${now:-none}, not the" \
+             "$observed this invocation observed; another publication has taken it" >&2
+        return 1
+    fi
+    lock_barrier
+    if ! mv -T -- "$LOCK_DIR" "$retired" 2>/dev/null; then
+        echo "refusing: could not retire the stale lock $LOCK_DIR as $retired;" \
+             "another --break-lock reached it first" >&2
+        return 1
+    fi
+    # The rename is atomic but the observation preceded it: if what moved is not what was
+    # observed, put it back and refuse rather than publish over a live generation.
+    now="$(lock_nonce_of "$retired")"
+    if [ "$now" != "$observed" ]; then
+        mv -T -- "$retired" "$LOCK_DIR" 2>/dev/null \
+            || say "UNRESTORED $retired could not be put back as $LOCK_DIR"
+        echo "refusing: the lock changed generation while it was being retired" >&2
+        return 1
+    fi
+    say "BREAKLOCK $LOCK_DIR retired as $retired owner=$(cat -- "$retired/owner" \
+        2>/dev/null | tr -d '\n')"
 }
 
 take_lock() {  # take_lock <mode>
@@ -217,7 +294,9 @@ take_lock() {  # take_lock <mode>
     # where the tests exercise it and announced everywhere else.
     if [ "$DRY" -eq 1 ] && [ "${EXP11_TEST_ROOTS:-0}" != 1 ]; then return 0; fi
     mkdir -p -- "$ARM_ROOT" || return 1
-    [ "$BREAK_LOCK" -eq 0 ] || break_lock
+    if [ "$BREAK_LOCK" -eq 1 ] && [ -d "$LOCK_DIR" ]; then
+        break_lock "$(lock_nonce_of "$LOCK_DIR")" || return 1
+    fi
     if ! mkdir -- "$LOCK_DIR" 2>/dev/null; then
         local live=no
         lock_is_live "$LOCK_DIR" && live=yes
@@ -227,9 +306,12 @@ take_lock() {  # take_lock <mode>
              "--break-lock, never automatically" >&2
         return 1
     fi
+    LOCK_NONCE="$$-$(date -u +%s%N)-${RANDOM}${RANDOM}"
     LOCK_HELD=1
-    trap release_lock EXIT INT TERM
-    printf 'pid %s mode %s arm %s at %s\n' "$$" "$1" "$ARM" \
+    trap release_lock EXIT
+    trap 'on_signal INT 2' INT
+    trap 'on_signal TERM 15' TERM
+    printf 'pid %s nonce %s mode %s arm %s at %s\n' "$$" "$LOCK_NONCE" "$1" "$ARM" \
         "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK_DIR/owner"
 }
 
@@ -319,6 +401,7 @@ EXPLORATORY="${EXPLORATORY:-0}"
 ARM_ROOT="${ARM_ROOT:-$SIMPOR_ROOT}"
 CANONICAL_ATTEMPT="${CANONICAL_ATTEMPT:-}"
 BREAK_LOCK="${BREAK_LOCK:-0}"
+INTERRUPTED="${INTERRUPTED:-0}"
 REPLACE_FINAL="${REPLACE_FINAL:-0}"
 DRY="${DRY:-0}"
 ARM="${ARM:-H}"
@@ -405,10 +488,12 @@ full)
         abort "$attempt" "$log" "child_exit_$status"
         exit "$status"
     fi
+    not_interrupted || exit 2
     if ! finalize "$attempt" "$log" "$status" exp11_train; then
         abort "$attempt" "$log" finalize_refused
         exit 2
     fi
+    not_interrupted || exit 2
     promote "attempt_$STAMP"
     ;;
 probe)
@@ -494,10 +579,12 @@ finalize)
     fi
     check_final_conflict "$CANONICAL_ATTEMPT" || exit 2
     [ "$DRY" -eq 0 ] || abort_recovery "$CANONICAL_ATTEMPT" "$LOG"
+    not_interrupted || exit 2
     if ! finalize "$CANONICAL_ATTEMPT" "$LOG" "$CHILD_EXIT" exp11_train; then
         abort_recovery "$CANONICAL_ATTEMPT" "$LOG"
         exit 2
     fi
+    not_interrupted || exit 2
     promote "$(basename -- "$CANONICAL_ATTEMPT")"
     ;;
 esac
