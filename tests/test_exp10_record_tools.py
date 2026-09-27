@@ -610,6 +610,78 @@ def test_another_arms_probe_summary_is_refused(render_case, renderer):
     assert "control_k8" in out(done)
 
 
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+@pytest.mark.parametrize("kind", ["parity_exp03", "check_online"])
+@pytest.mark.parametrize("field", list(("execution_id", "protocol_id", "per_sample_sha256")))
+def test_a_supplement_contradicting_its_runs_identity_is_refused(render_case, renderer,
+                                                                 kind, field):
+    """Round-4 finding 4: a report with the correct path but a deliberately wrong
+    execution_id / protocol_id / per_sample_sha256 was rendered.  The supplements were
+    bound by ``run_dir`` alone; every identity the report carries is now compared with the
+    meta of the run it names (the reports carry ``run_dir`` only, so that is where the
+    identity comes from)."""
+    path = os.path.join(render_case["tree"]["cyl_k8"]["all"][0], "%s.json" % kind)
+    report = fx.read_json(path)
+    report[field] = "wrong-execution-or-hash"
+    fx.write_json(path, report)
+    done = renderer(render_case)
+    assert done.returncode != 0
+    assert field in out(done)
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_a_summary_missing_an_input_for_a_rendered_arm_is_refused(render_case, renderer):
+    """Round-4 finding 4: keeping only the control's input binding while still rendering
+    every arm succeeded in both renderers."""
+    summary = fx.read_json(render_case["summary"])
+    summary["inputs"] = [i for i in summary["inputs"] if i["arm"] == "control_k8"]
+    fx.write_json(render_case["summary"], summary)
+    done = renderer(render_case)
+    assert done.returncode != 0
+    assert "cyl_k8" in out(done)
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_a_summary_binding_one_arm_twice_is_refused(render_case, renderer):
+    """The other half of "exactly one": two entries claiming an arm bind none of them."""
+    summary = fx.read_json(render_case["summary"])
+    summary["inputs"].append(dict(summary["inputs"][0]))
+    fx.write_json(render_case["summary"], summary)
+    done = renderer(render_case)
+    assert done.returncode != 0
+    assert "control_k8" in out(done)
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_a_probe_summary_of_another_execution_is_refused(render_case, renderer):
+    """Finding 4: the probe controls are rendered as that probe *run's* -- so the probe
+    summary's own arm entry has to bind the meta of the run it names."""
+    arm = "control_k8"
+    path = os.path.join(render_case["tree"][arm]["probe"][0], "summary",
+                        "yaw_pilot_summary.json")
+    probe = fx.read_json(path)
+    probe["arms"][0]["execution_id"] = "20260927T000000Z-not-the-probe-run"
+    fx.write_json(path, probe)
+    done = renderer(render_case)
+    assert done.returncode != 0
+    assert "execution" in out(done)
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_a_probe_summary_naming_a_full_run_is_refused(render_case, renderer):
+    """Finding 4: the embedded ``meta.batches_arg`` is part of the summary, so it can say
+    ``probe`` about a full run.  The run it names has to be a probe run of that arm."""
+    arm = "control_k8"
+    full_dir, full_meta = render_case["tree"][arm]["all"]
+    forged = fx.build_summary([(full_dir, full_meta)])
+    forged["arms"][0]["meta"]["batches_arg"] = "probe"
+    path = os.path.join(render_case["out_dir"], "forged_probe_summary.json")
+    fx.write_json(path, forged)
+    done = renderer(render_case, probe=["%s=%s" % (arm, path)])
+    assert done.returncode != 0
+    assert "probe" in out(done)
+
+
 def test_html_does_not_copy_a_foreign_figure(render_case):
     """Finding 4: neighbouring figures were copied without binding them to the summary.
 

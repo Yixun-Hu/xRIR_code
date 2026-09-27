@@ -280,11 +280,26 @@ def verify_summary_inputs(summary, arms=None, label="summary"):
     Both bindings the summariser itself records are checked: the per-sample and meta files
     must still hash to what the summary was built from, and each run's meta must still bind
     its own per-sample file.  A summary that fails this is not evidence for its numbers.
+
+    The ``inputs`` also have to be a *bijection* with the arms the summary renders: the
+    round-4 review kept only the control arm's binding and all three arms still rendered, so
+    an arm with no entry — or with two entries claiming it — is refused here.
     """
     problems = []
     entries = summary.get("inputs")
     if not entries:
         return ["%s: has no inputs block; its numbers are unbound" % label]
+    rendered = [a.get("arm") for a in summary.get("arms") or []]
+    counts = {}
+    for entry in entries:
+        counts[entry.get("arm")] = counts.get(entry.get("arm"), 0) + 1
+    for arm in rendered:
+        if counts.get(arm, 0) != 1:
+            problems.append("%s: arm %r is rendered but %d inputs entries bind it; exactly "
+                            "one has to" % (label, arm, counts.get(arm, 0)))
+    for arm in sorted(str(k) for k in counts if rendered and k not in rendered):
+        problems.append("%s: the inputs entry for %r binds no rendered arm (this summary "
+                        "covers %s)" % (label, arm, ", ".join(str(a) for a in rendered)))
     for entry in entries:
         run_dir = entry.get("run_dir")
         if arms is not None and entry.get("arm") not in arms:
@@ -382,18 +397,63 @@ def parse_pairs(items, flag):
     return pairs
 
 
+def summary_run_dir(summary, arm):
+    """The run directory a summary names for ``arm`` (its arm entry, else its ``inputs``)."""
+    for entry in summary.get("arms") or []:
+        if entry.get("arm") == arm and entry.get("run_dir"):
+            return entry["run_dir"]
+    for entry in summary.get("inputs") or []:
+        if entry.get("arm") == arm and entry.get("run_dir"):
+            return entry["run_dir"]
+    return None
+
+
+def _live_identity(problems, label, run_dir, expected, what):
+    """Read ``run_dir/meta.json`` and require its identity to be ``expected``'s.
+
+    A report carries a ``run_dir`` and nothing else, so the identity a supplemental is
+    checked against is the *live* meta of the run it names — and that meta has to be the one
+    the summary recorded for this arm, or the report and the summary are about two runs.
+    """
+    meta_path = os.path.join(str(run_dir), "meta.json")
+    if not os.path.isfile(meta_path):
+        problems.append("%s: %s has no meta.json, so %s cannot be bound to a run"
+                        % (label, run_dir, what))
+        return None
+    try:
+        meta = read_json(meta_path)
+    except ValueError as exc:
+        problems.append("%s: %s is not readable JSON (%s)" % (label, meta_path, exc))
+        return None
+    for field in IDENTITY_FIELDS:
+        if expected is not None and meta.get(field) != expected.get(field):
+            problems.append("%s: the run it names has %s %r, but the summary recorded %r"
+                            % (label, field, meta.get(field), expected.get(field)))
+    return meta
+
+
 def check_supplements(summary, parity=(), online=(), probes=(), stage="_all"):
     """Check that every supplemental report belongs to the arm it is attached to.
 
     A report is accepted for ``arm`` only when the arm is in this summary, the report's
     ``run_dir`` resolves to the very run directory the summary was built from for that arm,
-    and its last path component is that arm's stage directory.  A probe summary must cover
-    exactly that arm, have ``batches_arg == "probe"`` and bind its own inputs.  (Codex's
-    review attached the cylindrical parity report to the control arm and it was rendered.)
+    its last path component is that arm's stage directory, and — through ``bind_report`` —
+    every identity field the report carries agrees with the live ``meta.json`` of that run.
+    The last part is the round-4 review's finding 4: reports with the correct path and a
+    deliberately wrong ``execution_id`` / ``protocol_id`` / ``per_sample_sha256`` were
+    rendered, because the binding was ``run_dir`` alone.  ``ok`` is *not* required here —
+    the page prints whatever the report says; requiring it is the record preflight's job
+    (``validate_arm``).
+
+    A probe summary must cover exactly that arm, bind its own inputs, and bind the meta of
+    the run it names: that run has to be a probe run (``batches_arg == "probe"``) of this
+    arm, with the execution the probe summary claims.  (The embedded ``meta`` is part of the
+    summary, so it can say "probe" about a full run; the live meta cannot.)
     """
     problems = []
     arms = [a.get("arm") for a in summary.get("arms") or []]
     run_dirs = {i.get("arm"): i.get("run_dir") for i in summary.get("inputs") or []}
+    inputs = {i.get("arm"): i for i in summary.get("inputs") or []}
     for kind, items in (("parity_exp03", parity), ("check_online", online)):
         for arm, path in items or []:
             label = "%s %s (%s)" % (arm, kind, path)
@@ -418,18 +478,55 @@ def check_supplements(summary, parity=(), online=(), probes=(), stage="_all"):
             if os.path.basename(str(recorded).rstrip("/")) != expected_name:
                 problems.append("%s: the report was written for %r, not this arm's %s"
                                 % (label, recorded, expected_name))
-            if arm in run_dirs and not same_path(recorded, run_dirs[arm]):
+            if arm not in run_dirs:
+                problems.append("%s: the summary has no inputs entry for %s, so the report "
+                                "cannot be bound to the run it was summarised from"
+                                % (label, arm))
+                continue
+            if not same_path(recorded, run_dirs[arm]):
                 problems.append("%s: the report's run %r is not the run this summary "
                                 "summarised for %s (%s)"
                                 % (label, recorded, arm, run_dirs[arm]))
+                continue            # a report about another run: there is nothing to bind
+            meta = _live_identity(problems, label, run_dirs[arm], inputs.get(arm),
+                                  "the report")
+            _report, probs, _binding = bind_report(path, run_dirs[arm], meta, kind,
+                                                   require_ok=False, label=label)
+            problems.extend(probs)
     for arm, path in probes or []:
         label = "%s probe summary (%s)" % (arm, path)
         if arm not in arms:
             problems.append("%s: %r is not an arm of this summary (%s)"
                             % (label, arm, ", ".join(str(a) for a in arms)))
             continue
-        _summary, probs, _binding = check_probe_summary(path, arm, None,
-                                                       require_controls_ok=False)
+        if not os.path.isfile(path):
+            problems.append("%s: the probe summary is missing" % label)
+            continue
+        try:
+            probe = read_json(path)
+        except ValueError as exc:
+            problems.append("%s: not readable JSON (%s)" % (label, exc))
+            continue
+        probe_dir = summary_run_dir(probe, arm)
+        probe_meta = None
+        if probe_dir is None:
+            problems.append("%s: it names no run directory for %s, so its controls cannot "
+                            "be bound to a probe run" % (label, arm))
+        else:
+            probe_inputs = {i.get("arm"): i for i in probe.get("inputs") or []}
+            probe_meta = _live_identity(problems, label, probe_dir,
+                                        probe_inputs.get(arm), "the probe summary")
+            if probe_meta is not None:
+                if probe_meta.get("arm") != arm:
+                    problems.append("%s: the run it names is arm %r, not %r"
+                                    % (label, probe_meta.get("arm"), arm))
+                if probe_meta.get("batches_arg") != "probe":
+                    problems.append("%s: the run it names has batches_arg %r, not 'probe'; "
+                                    "its controls are not a probe run's"
+                                    % (label, probe_meta.get("batches_arg")))
+        _summary, probs, _binding = check_probe_summary(path, arm, probe_meta,
+                                                        probe_dir=probe_dir,
+                                                        require_controls_ok=False)
         problems.extend(probs)
     return problems
 
