@@ -3189,3 +3189,1548 @@ tests/test_exp11_approval_enforcement.py:108:def test_an_incorrect_legacy_receip
 tests/test_exp11_approval_enforcement.py:125:def test_the_reused_check_is_skipped_where_exp11s_record_was_not_read():
 tests/test_exp11_approval_enforcement.py:137:def test_the_pipeline_checks_exp11s_own_exp04_pin_before_resolving_K():
 
+exec
+/bin/bash -lc "env CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/home/yixunhu/codespace/xRIR_code_wt NUMBA_CACHE_DIR=/tmp/exp11-close-root-numba XDG_CACHE_HOME=/tmp/exp11-close-root-cache MPLCONFIGDIR=/tmp/exp11-close-root-mpl TMPDIR=/tmp /home/yixunhu/miniconda3/envs/xRIR/bin/python - <<'PY'
+import copy, hashlib, json, subprocess, tempfile
+from pathlib import Path
+from tools import exp06_summarize_haa as s, exp06_approvals_api as api, exp04_profiles as p4, exp11_profiles as p11
+repo = Path.cwd()
+sha = lambda p: hashlib.sha256(Path(p).read_bytes()).hexdigest()
+receipt_path = repo / 'ckpt/exp06/legacy_receipt.json'
+receipt = {'sha256': sha(receipt_path)}
+identity = s.source_identity(repo, strict=True)
+v = json.loads(p11.TEMPLATE_PATH.read_text())
+v['code'] = {k: '1'*64 for k in p11.CODE_KEYS}
+v['code']['summarize_haa'] = identity['sha256']
+v['reused'] = {'approved_digests_exp04': sha(p4.APPROVED_DIGESTS_PATH), 'approved_digests_exp06': sha(api.approved_path_default()), 'legacy_receipt': {'path': str(receipt_path), 'sha256': receipt['sha256']}}
+mutations = [('producer_zero', ('code','summarize_haa'), '0'*64), ('exp04_wrong', ('reused','approved_digests_exp04'), 'f'*64), ('exp06_wrong', ('reused','approved_digests_exp06'), '0'*64), ('receipt_digest_wrong', ('reused','legacy_receipt','sha256'), 'f'*64), ('receipt_nonexistent', ('reused','legacy_receipt','path'), str(repo/'ckpt/exp06/no_such_receipt.json'))]
+with tempfile.TemporaryDirectory(prefix='exp11-close-approvals-') as tmp:
+    root = Path(tmp)
+    def git(*args):
+        return subprocess.check_output(['git', '-C', tmp, *args], stderr=subprocess.DEVNULL, text=True).strip()
+    git('init'); git('config','user.name','Review fixture'); git('config','user.email','review-fixture@example.invalid')
+    for name, keys, value in [('control', (), None)] + mutations:
+        candidate=copy.deepcopy(v)
+        cursor=candidate
+        for k in keys[:-1]: cursor=cursor[k]
+        if keys: cursor[keys[-1]]=value
+        path=root/'approvals.json'; path.write_text(json.dumps(candidate, indent=2)+'\\n')
+        git('add','approvals.json'); git('commit','-m',name)
+        loaded, binding=s.exp11_approvals(False,s.EXPERIMENTS['exp11_phase1b'],path,git('rev-parse','HEAD'),root)
+        try:
+            s.check_exp11_producer(loaded,identity)
+            extra={}; s.check_exp11_reused(loaded,receipt,str(receipt_path),repo,extra)
+        except ValueError as e:
+            assert name "'!= '"'control'
+            print(name, 'REFUSED:', str(e))
+        else:
+            assert name == 'control', name+' INCORRECTLY ADMITTED'
+            final_inputs=s.arm_inputs({},receipt,str(receipt_path))
+            for path,digest in extra.items(): s.bind(final_inputs,path,digest)
+            assert all(str(Path(p).resolve()) in final_inputs for p in (p4.APPROVED_DIGESTS_PATH, api.approved_path_default(), receipt_path))
+            print('control ACCEPTED; all three consumed records bound')
+    # A different committed --approved record can be consumed while exp_11's pin
+    # still names the default file: prove the new gate never checks that identity.
+    alt=json.loads(Path(api.approved_path_default()).read_text())
+    alt['code']['summarize_haa']=identity['sha256']
+    alt['artifacts']['epoch_012']['sha256']='e'*64
+    altpath=root/'alternate_exp06.json'; altpath.write_text(json.dumps(alt,indent=2)+'\\n')
+    git('add','alternate_exp06.json'); git('commit','-m','alternate-exp06')
+    admitted, consumed_identity, deviations=s.approvals(False,altpath,'summarize_haa',git('rev-parse','HEAD'),root)
+    s.check_producer_identity(admitted,'summarize_haa',identity)
+    s.check_exp11_producer(v,identity)
+    extra={}; s.check_exp11_reused(v,receipt,str(receipt_path),repo,extra)
+    selected=s.expected_inits(admitted,('cyl_or',),extra,v)
+    assert consumed_identity['sha256'] "'!= v['"'reused']['approved_digests_exp06']
+    assert selected['cyl_or'] == 'e'*64
+    print('ALT_EXP06 GAP: committed alternate exp06 consumed SHA',consumed_identity['sha256'])
+    print('ALT_EXP06 GAP: exp11 pinned default SHA',v['reused']['approved_digests_exp06'])
+    print('ALT_EXP06 GAP: both producer gates and reused gate ACCEPTED; selected cyl_or init',selected['cyl_or'])
+PY" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 7291ms:
+control ACCEPTED; all three consumed records bound
+producer_zero REFUSED: this producer ran the closure 2868e66c116752f205af1299408998b0c3fcebbfc61e26878a0f4a7ac1ff614f, not the approved exp_11 code.summarize_haa 0000000000000000000000000000000000000000000000000000000000000000
+exp04_wrong REFUSED: the record /home/yixunhu/codespace/xRIR_code_wt/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results_assets/approved_digests.json consumed for reused.approved_digests_exp04 hashes to 2e4521173bb230fc8114116ba0c94b4afd0ccdd3b0b034faaf54516461ee0314, not the approved ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+exp06_wrong REFUSED: the record /home/yixunhu/codespace/xRIR_code_wt/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_results_assets/approved_digests.json consumed for reused.approved_digests_exp06 hashes to eb6e58e856bd915955fc008aef52ad6bd50142f8c52b125ccfa4e28ff6807f6a, not the approved 0000000000000000000000000000000000000000000000000000000000000000
+receipt_digest_wrong REFUSED: the legacy receipt consumed hashes to 5a12494657665d336cf5f952c6ef918abbeae44e451f28821790ac5c46232540, not the approved reused.legacy_receipt.sha256 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+receipt_nonexistent REFUSED: the receipt exp_11 pins as reused.legacy_receipt is missing: /home/yixunhu/codespace/xRIR_code_wt/ckpt/exp06/no_such_receipt.json
+ALT_EXP06 GAP: committed alternate exp06 consumed SHA a99f44f91802b9d567eee0209c0b2e1246a3d3eb6e883a0d6fc8815ab7682353
+ALT_EXP06 GAP: exp11 pinned default SHA eb6e58e856bd915955fc008aef52ad6bd50142f8c52b125ccfa4e28ff6807f6a
+ALT_EXP06 GAP: both producer gates and reused gate ACCEPTED; selected cyl_or init eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+
+ succeeded in 115686ms:
+........................................................................ [ 75%]
+........................                                                 [100%]
+=============================== warnings summary ===============================
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+    from pkg_resources import resource_filename
+
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154: DeprecationWarning: Deprecated call to `pkg_resources.declare_namespace('mpl_toolkits')`.
+  Implementing implicit namespace packages (as specified in PEP 420) is preferred to `pkg_resources.declare_namespace`. See https://setuptools.pypa.io/en/latest/references/keywords.html#keyword-namespace-packages
+    declare_namespace(pkg)
+
+tests/test_exp11_summarize_haa.py::test_a_numerically_broken_interval_is_not_an_unavailable_statement
+tests/test_exp11_summarize_haa.py::test_a_refusal_raised_for_another_bootstrap_seed_is_not_unavailable
+tests/test_exp11_summarize_haa.py::test_an_unrelated_failure_with_finite_equal_seed_zero_endpoints_propagates
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/numpy/lib/function_base.py:550: RuntimeWarning: overflow encountered in multiply
+    avg = np.multiply(a, wgt,
+
+tests/test_exp11_summarize_haa.py::test_a_numerically_broken_interval_is_not_an_unavailable_statement
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/numpy/core/_methods.py:48: RuntimeWarning: overflow encountered in reduce
+    return umr_sum(a, axis, dtype, out, keepdims, initial, where)
+
+tests/test_exp11_summarize_haa.py::test_a_numerically_broken_interval_is_not_an_unavailable_statement
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/numpy/core/_methods.py:180: RuntimeWarning: overflow encountered in reduce
+    ret = umr_sum(arr, axis, dtype, out, keepdims, where=where)
+
+tests/test_exp11_summarize_haa.py::test_a_numerically_broken_interval_is_not_an_unavailable_statement
+tests/test_exp11_summarize_haa.py::test_a_refusal_raised_for_another_bootstrap_seed_is_not_unavailable
+tests/test_exp11_summarize_haa.py::test_an_unrelated_failure_with_finite_equal_seed_zero_endpoints_propagates
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/numpy/lib/function_base.py:4527: RuntimeWarning: invalid value encountered in subtract
+    diff_b_a = subtract(b, a)
+
+tests/test_exp11_summarize_haa.py::test_a_numerically_broken_interval_is_not_an_unavailable_statement
+tests/test_exp11_summarize_haa.py::test_a_refusal_raised_for_another_bootstrap_seed_is_not_unavailable
+tests/test_exp11_summarize_haa.py::test_an_unrelated_failure_with_finite_equal_seed_zero_endpoints_propagates
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/numpy/lib/nanfunctions.py:1740: RuntimeWarning: invalid value encountered in subtract
+    np.subtract(arr, avg, out=arr, casting='unsafe', where=where)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+96 passed, 13 warnings in 115.04s (0:01:55)
+
+codex
+The actual 266-parameter checkpoints now pass J/K zero-shot admission, and both arms refuse missing adapter state when the checkpoint differs from the declared initialization. Receipt mutations also refuse.
+
+Three gaps remain: the ceiling overflow, recovery aliases that pass validation but can produce a dangling or self-referencing `final` link, and a summarizer `--approved` override that consumes a different exp_06 record while the new check hashes the default record. The selected tests completed so far are green; these gaps came from additional reproductions.
+exec
+/bin/bash -lc "env CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/home/yixunhu/codespace/xRIR_code_wt NUMBA_CACHE_DIR=/tmp/exp11-close-root-numba XDG_CACHE_HOME=/tmp/exp11-close-root-cache MPLCONFIGDIR=/tmp/exp11-close-root-mpl TMPDIR=/tmp /home/yixunhu/miniconda3/envs/xRIR/bin/python - <<'PY'
+import copy, hashlib, json, sys
+from pathlib import Path
+from unittest.mock import patch
+from tools import exp11_profiles as p11, exp04_profiles as p4, exp06_approvals_api as api, exp06_finalize as f
+repo=Path.cwd()
+sha=lambda p: hashlib.sha256(Path(p).read_bytes()).hexdigest()
+source=(repo/'tools/exp11_haa_pipeline.sh').read_text().split(\"APPROVALS_PY='\",1)[1].split(\"\\n'\",1)[0]
+# Shell passes this embedded escaped apostrophe as the literal Python escape.
+source=compile(source,'tools/exp11_haa_pipeline.sh:APPROVALS_PY','exec')
+approved=json.loads(p11.TEMPLATE_PATH.read_text())
+approved['code']={
+ 'train':'d9cbb9de8eb0ec85ac85664d9e0da7afe156e5b169bbe89096953d863cf15571',
+ 'finalize':'3eb15b59b672d97ac257054e66f8bc835abd27b85e24f9a417a5a1aaa9e25b9e',
+ 'haa_finetune':'bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150',
+ 'haa_eval':'f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20',
+ 'haa_pipeline_sh':'3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4',
+ 'launch_sh':'0bdbb5d3d5c291bb2d0e10a9cb09d3ebd66c7078b28f56118e697c4eef4b44cd',
+ 'smoke':'62133ba07a35d42026c19fd1484b37c6c06ace0ebedc1cdd8484690df323450e',
+ 'summarize_haa':'2868e66c116752f205af1299408998b0c3fcebbfc61e26878a0f4a7ac1ff614f'}
+approved['reused']={'approved_digests_exp04':sha(p4.APPROVED_DIGESTS_PATH),'approved_digests_exp06':sha(api.approved_path_default()),'legacy_receipt':{'path':'ckpt/exp06/legacy_receipt.json','sha256':sha('ckpt/exp06/legacy_receipt.json')}}
+a6,_=api.load_approved_digests()
+checkpoint=f.exp04_aug_checkpoint(a6)['checkpoint']['path']
+for key in ('approved_digests_exp06','approved_digests_exp04',None):
+    candidate=copy.deepcopy(approved)
+    if key: candidate['reused'][key]='0'*64
+    with patch.object(p11,'load_approved_digests',return_value=(candidate,{'committed_at':'fixture'})), patch.object(sys,'argv',['queue','yawaug_adapter',checkpoint,str(repo/'ckpt/exp06/heading')]), patch.object(f,'exp04_aug_checkpoint', wraps=f.exp04_aug_checkpoint) as resolve:
+        try: exec(source,{'__name__':'__queue_gate_fixture__'})
+        except SystemExit as e:
+            assert key is not None, str(e)
+            assert key=='approved_digests_exp06' or 'approved_digests_exp04' in str(e)
+            assert resolve.call_count==0
+            print('QUEUE',key,'REFUSED before K resolution:',e)
+        else:
+            assert key is None, 'wrong pin admitted'
+            assert resolve.call_count==1
+            print('QUEUE matching pins ACCEPTED, K resolved once')
+PY" in /home/yixunhu/codespace/xRIR_code_wt
+ exited 1 in 2787ms:
+Traceback (most recent call last):
+  File "<stdin>", line 22, in <module>
+  File "/home/yixunhu/codespace/xRIR_code_wt/tools/exp06_finalize.py", line 1201, in exp04_aug_checkpoint
+    approved_record(provenance.sha256_file(file), 'as read')
+  File "/home/yixunhu/codespace/xRIR_code_wt/tools/exp06_finalize.py", line 1196, in approved_record
+    _require(pinned is not None and digest == pinned,
+  File "/home/yixunhu/codespace/xRIR_code_wt/tools/exp06_finalize.py", line 180, in _require
+    raise ValueError(cause)
+ValueError: the exp_04 approvals /home/yixunhu/codespace/xRIR_code_wt/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results_assets/approved_digests.json (as read) hash to 2e4521173bb230fc8114116ba0c94b4afd0ccdd3b0b034faaf54516461ee0314, not the approved reused.exp04_approved_digests_sha256 None
+
+exec
+/bin/bash -lc "rg -n 'def full_evidence|def check_argument_sources|def check_exp06_bindings|resolve\\(|save_dir|run_dir' tools/exp11_finalize.py | head -110
+sed -n '260,390p' tools/exp11_finalize.py
+rg -n 'def finalize|def existing_completion|run_dir.*resolve|resolve.*run_dir|is_symlink|save_dir' tools/exp06_finalize.py | tail -60
+sed -n '1490,1570p' tools/exp06_finalize.py
+sed -n '1610,1705p' tools/exp06_finalize.py" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+93:REPO = Path(__file__).resolve().parents[1]
+192:def load_provenance(run_dir, run_type, identity=True):
+194:    return base.load_provenance(run_dir, PROVENANCE_RUN_TYPE[run_type], identity=identity)
+221:    current = closure_paths(entry, str(Path(repo).resolve()))
+253:        fresh, _ = exp11_profiles.closure_of(key, str(Path(repo).resolve()), commit)
+284:    path = _resolve(approvals['path'], repo)
+313:def check_argument_sources(record, args, last, rows, meta, profile):
+337:def check_exp11_bindings(record, args, closure, run_dir, run_type, repo, profile):
+352:    _require(_resolve(path, repo).resolve() == (Path(run_dir) / 'provenance.json').resolve(),
+354:                 path, Path(run_dir) / 'provenance.json'))
+357:def full_evidence(run_dir, repo):
+359:    run_dir = Path(run_dir)
+360:    hashes = artifacts(run_dir, FULL_ARTIFACTS)   # every file exists before it is parsed
+361:    record = load_provenance(run_dir, 'exp11_train')
+368:    args = _read_json(run_dir / 'args.json', 'args.json')
+370:    rows = base._history_rows(run_dir / 'history.jsonl', 'history.jsonl')
+371:    last = _load_torch(run_dir / 'last.pth', 'last.pth')
+374:    check_exp11_bindings(record, args, closure, run_dir, 'exp11_train', repo, profile)
+376:    state = _state_dict(_load_torch(run_dir / EPOCH_CHECKPOINT, EPOCH_CHECKPOINT),
+389:    _checkpoint_keys(run_dir / EPOCH_CHECKPOINT, EPOCH_CHECKPOINT, args['backbone'],
+425:    cache = _resolve(root, repo)
+445:        resolved = _resolve(path, repo)
+496:def haa_child_arguments(run_dir, run_type, repo):
+498:    record = load_provenance(run_dir, run_type)
+502:    args = _read_json(Path(run_dir) / 'args.json', 'args.json')
+518:def haa_train_evidence(run_dir, repo):
+520:    hashes = artifacts(run_dir, HAA_TRAIN_ARTIFACTS)
+521:    record, args, admission = haa_child_arguments(run_dir, 'exp11_haa_finetune', repo)
+524:    epochs, summary = base.haa_history(run_dir, args)
+526:        _checkpoint_keys(Path(run_dir) / name, name, args['backbone'], args['num_shot'])
+531:    resolved = _resolve(init, repo)
+542:def haa_eval_evidence(run_dir, repo):
+544:    record, args, admission = haa_child_arguments(run_dir, 'exp11_haa_eval', repo)
+548:    _require(Path(run_dir).resolve().name == room, 'an evaluation child of {} may not claim '
+549:             'the room {!r}'.format(Path(run_dir).resolve().name, room))
+552:    hashes = artifacts(run_dir, names)
+554:    per_sample = _read_json(Path(run_dir) / names[3], names[3])
+585:    resolved = _resolve(checkpoint, repo)
+606:    base.haa_metrics(run_dir, names[2], room, args, per_sample)
+614:CHILD_COMPLETION = ('schema_version', 'run_type', 'run_dir', 'child_exit', 'child_exit_time',
+642:    _require(isinstance(record['run_dir'], str)
+643:             and Path(record['run_dir']).resolve() == Path(path).resolve(),
+644:             'child {} claims the run_dir {!r}'.format(name, record['run_dir']))
+780:def haa_job_evidence(run_dir, children, expect, repo, job_spec):
+782:    expected, job = set(base.expected_children(expect)), Path(run_dir).resolve()
+786:        path = Path(child).resolve()
+799:                job_spec={'path': str(Path(job_spec).resolve()),
+803:def haa_job_completion(run_dir, children, expect, repo, job_spec, log, child_exit, owner_pid):
+805:    _require(not (run_dir / 'child_exit.json').exists(),
+807:    owner = base.refuse_live_launch(run_dir, owner_pid)
+809:             '{} records no launch.pid: a job binds the owner that ran it'.format(run_dir))
+814:    fields = dict(schema_version=1, run_type='exp11_haa_job', run_dir=str(run_dir.resolve()),
+815:                  repo=str(Path(repo).resolve()), child_exit=child_exit,
+818:    fields.update(haa_job_evidence(run_dir, children, expect, repo, job_spec))
+819:    return base.write_completion(run_dir / 'completion.json', fields)
+832:def smoke_run_dir(run_dir, repo):
+834:    root = _resolve(SMOKE_ROOT, repo).resolve()
+835:    path = Path(run_dir).resolve()
+939:def diagnostic_artifacts(run_dir, spec, repo):
+941:    root = smoke_run_dir(run_dir, repo)
+948:    _require(_resolve(args.get('save_dir') or '', repo).resolve() == directory,
+949:             'args.json records the save_dir {!r}, not the {} being finalized'.format(
+950:                 args.get('save_dir'), directory))
+967:def diagnostic_evidence(run_dir, receipt, child_exit, repo, window):
+970:    record = base.load_provenance(run_dir, spec['run_type'],
+981:        hashes = diagnostic_artifacts(run_dir, spec, repo)
+983:                receipt={'path': str(path.resolve()), 'sha256': provenance.sha256_file(path),
+992:def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None, children=(),
+995:    run_dir = Path(run_dir)
+997:    _require(run_dir.is_dir(), 'run directory does not exist: {}'.format(run_dir))
+1000:        return haa_job_completion(run_dir, children, expect, repo, job_spec, log, child_exit,
+1002:    base.refuse_live_launch(run_dir, owner_pid)
+1004:    receipt_record = base.child_exit_receipt(run_dir, child_exit, log_digest, child_exit_time)
+1008:    fields = dict(schema_version=1, run_type=run_type, run_dir=str(run_dir.resolve()),
+1009:                  repo=str(Path(repo).resolve()), child_exit=child_exit,
+1013:    fields.update(diagnostic_evidence(run_dir, receipt, child_exit, repo, receipt_record)
+1015:                  else full_evidence(run_dir, repo) if run_type == 'exp11_train'
+1016:                  else haa_train_evidence(run_dir, repo) if run_type == 'exp11_haa_finetune'
+1017:                  else haa_eval_evidence(run_dir, repo))
+1020:    return base.write_completion(run_dir / 'completion.json', fields)
+1028:    path = _resolve(exp11_profiles.APPROVED_RELATIVE if approved is None else approved, repo)
+1091:        fields = _read_json(Path(args.run_dir) / 'completion.json', 'completion.json')
+1097:                     args.run_dir, fields.get('passed')))
+1101:    print('EXP11_PASSED_OK ' + str(args.run_dir), flush=True)
+1142:        fields = finalize(args.run_dir, args.run_type, args.log, args.child_exit,
+1150:        ('run_type', 'run_dir', 'child_exit', 'admissible_arm')}, sort_keys=True), flush=True)
+                      item['reviewed_blob_sha256'], seen['reviewed_blob_sha256']}
+            _require(len(agreed) == 1, 'orchestration drift at ' + item['path'])
+    return {role: closures[role]['sha256'] for role in closures}
+
+
+def verify_approvals(record, repo, run_type):
+    """exp_11's training-critical code identities, three ways, at the reviewed commit."""
+    exploratory = bool(record.get('exploratory'))
+    _require(not exploratory or run_type in DIAGNOSTIC,
+             'an exploratory run is never admissible as an arm')
+    recorded = record.get('code_digests')
+    _require(isinstance(recorded, dict)
+             and set(recorded) == set(exp11_profiles.TRAINING_KEYS),
+             'provenance.json records no code_digests for exp_11 training-critical keys')
+    commit = record['reviewed_commit']
+    current = exp11_profiles.compute_code_digests(repo, commit,
+                                                  keys=exp11_profiles.TRAINING_KEYS)
+    drift = sorted(key for key in exp11_profiles.TRAINING_KEYS
+                   if current.get(key) != recorded.get(key))
+    _require(not drift, 'code drift since the run started: ' + ', '.join(drift))
+    orchestration = verify_orchestration(record, repo, commit, recorded)
+    approvals = record.get('approvals')
+    _require(isinstance(approvals, dict) and isinstance(approvals.get('path'), str),
+             'provenance.json records no approvals binding')
+    path = _resolve(approvals['path'], repo)
+    _require(path.is_file(), 'missing approvals file: {}'.format(path))
+    _require(provenance.sha256_file(path) == approvals.get('sha256'),
+             'the approvals file {} changed since the run started'.format(path))
+    approved, identity = exp11_profiles.load_approved_digests(
+        path, repo=None if exploratory else repo, commit=None if exploratory else commit)
+    deviations = exp11_profiles.require(approved, exp11_profiles.TRAINING_KEYS, repo=repo,
+                                        commit=commit, exploratory=exploratory,
+                                        current=current)
+    return {'approvals': dict(approvals, git_free_sha256=identity['sha256'],
+                              committed_at=identity.get('committed_at')),
+            'code_digests': dict(recorded), 'orchestration_digests': orchestration,
+            'approval_deviations': deviations, 'exploratory': exploratory}
+
+
+def haa_approvals(closure, run_type, commit, repo, path=None):
+    """The HAA child ran the approved entry point, at its own reviewed commit."""
+    path = Path(repo) / exp11_profiles.APPROVED_RELATIVE if path is None else Path(path)
+    approved, identity = exp11_profiles.approvals_at_commit(path, repo, commit)
+    key = HAA_CODE_KEY[run_type]
+    pinned = approved['code'][key]
+    _require(pinned is not None, 'code.{} is not approved at {}'.format(key, commit))
+    _require(closure['sha256'] == pinned, 'the child ran the {} closure {}, not the approved '
+             'code.{} {}'.format(run_type, closure['sha256'], key, pinned))
+    return {'approvals': {'path': str(path), 'sha256': identity['sha256'],
+                          'committed_at': identity.get('committed_at')},
+            'code_digests': {key: pinned}}
+
+
+def check_argument_sources(record, args, last, rows, meta, profile):
+    """The startup, retained and checkpoint arguments must all agree, type-strictly.
+
+    Each copy is validated on its own against exp_11's schema under the profile the
+    run's own arguments select, then compared field by field with
+    ``exp06_recipe.compare_sources``, which never conflates ``True`` with ``1``.
+    """
+    effective = record.get('effective_args')
+    _require(isinstance(effective, dict),
+             'provenance.json records no effective_args mapping (startup arguments)')
+    checkpoint = last.get('args')
+    _require(isinstance(checkpoint, dict), 'last.pth records no args mapping')
+    sources = {'args.json': args, 'last.pth[args]': checkpoint,
+               'provenance.effective_args': effective}
+    for name in sorted(sources):
+        deviations = exp11_recipe.check_all(sources[name], profile)
+        _require(not deviations, '{} schema deviations: {}'.format(name, '; '.join(deviations)))
+    budget = exp11_recipe.check_budget(rows, meta, epochs=exp11_recipe.NUMERICAL['epochs'])
+    _require(not budget, 'budget deviations: ' + '; '.join(budget))
+    disagreements = exp11_recipe.compare_sources(sources)
+    _require(not disagreements, 'recorded arguments disagree: ' + '; '.join(disagreements))
+    return sources
+
+
+def check_exp11_bindings(record, args, closure, run_dir, run_type, repo, profile):
+    """Every ``exp11_*`` field must equal the execution record it claims to bind."""
+    registry = registry_sha256()
+    _require(record.get('registry_sha256') == registry,
+             'provenance registry_sha256 {!r} is not the {} of BACKBONES_EXP11 at '
+             'finalisation'.format(record.get('registry_sha256'), registry))
+    expected = {'exp11_run_type': PROVENANCE_RUN_TYPE[run_type], 'exp11_profile': profile,
+                'exp11_git_head': record['git_state'].get('HEAD'),
+                'exp11_registry_sha256': registry,
+                'exp11_source_closure_sha256': closure['sha256']}
+    for field in sorted(expected):
+        _require(args.get(field) == expected[field], 'args {} is {!r}, not the {!r} of the '
+                 'execution record'.format(field, args.get(field), expected[field]))
+    path = args.get('exp11_provenance_path')
+    _require(isinstance(path, str) and path, 'args exp11_provenance_path is {!r}'.format(path))
+    _require(_resolve(path, repo).resolve() == (Path(run_dir) / 'provenance.json').resolve(),
+             'args exp11_provenance_path {} is not the validated {}'.format(
+                 path, Path(run_dir) / 'provenance.json'))
+
+
+def full_evidence(run_dir, repo):
+    """exp_11's twelve-epoch pretraining contract, under the profile the run selects."""
+    run_dir = Path(run_dir)
+    hashes = artifacts(run_dir, FULL_ARTIFACTS)   # every file exists before it is parsed
+    record = load_provenance(run_dir, 'exp11_train')
+    _, closure = verify_source_closure(record, 'exp11_train', repo)
+    admission = verify_approvals(record, repo, 'exp11_train')
+    base.verify_train_identity(record)
+    admission.update(base.verify_geometry_identity(record))
+    admission.update(base.verify_heldout_identity(record))
+    base.revalidate_inputs(record, repo)
+    args = _read_json(run_dir / 'args.json', 'args.json')
+    profile = exp11_recipe.select_profile(args)
+    rows = base._history_rows(run_dir / 'history.jsonl', 'history.jsonl')
+    last = _load_torch(run_dir / 'last.pth', 'last.pth')
+    meta = {key: last[key] for key in ('epoch', 'batch_idx') if key in last}
+    check_argument_sources(record, args, last, rows, meta, profile)
+    check_exp11_bindings(record, args, closure, run_dir, 'exp11_train', repo, profile)
+    _require('model' in last, 'last.pth records no "model" state dict')
+    state = _state_dict(_load_torch(run_dir / EPOCH_CHECKPOINT, EPOCH_CHECKPOINT),
+                        EPOCH_CHECKPOINT)
+    model = _state_dict(last['model'], 'last.pth["model"]')
+    _require(set(state) == set(model),
+             EPOCH_CHECKPOINT + ' has a different parameter set than last.pth')
+    for key in sorted(state):
+        _require(state[key].dtype == model[key].dtype and
+                 tuple(state[key].shape) == tuple(model[key].shape),
+                 '{} has {}{} at {}, not the {}{} of last.pth["model"]'.format(
+                     EPOCH_CHECKPOINT, state[key].dtype, tuple(state[key].shape), key,
+                     model[key].dtype, tuple(model[key].shape)))
+    _require(all(torch.equal(state[key], model[key]) for key in state),
+             EPOCH_CHECKPOINT + ' differs tensor-wise from last.pth["model"]')
+    _checkpoint_keys(run_dir / EPOCH_CHECKPOINT, EPOCH_CHECKPOINT, args['backbone'],
+                     args['num_shot'])
+757:    _require(_resolve(path, repo).resolve() == (Path(run_dir) / 'provenance.json').resolve(),
+857:    path = Path(run_dir).resolve()
+878:        _require(not walked.is_symlink(),
+911:    wrapper writes, in the directory its own ``save_dir`` names, inside the disposable
+921:    _require(_resolve(args.get('save_dir') or '', repo).resolve() == directory,
+922:             'args.json records the save_dir {!r}, not the {} being finalized'.format(
+923:                 args.get('save_dir'), directory))
+1417:    _require(Path(run_dir).resolve().name == room, 'an evaluation child of {} may not claim the '
+1418:             'room {!r}'.format(Path(run_dir).resolve().name, room))
+1519:    _require(Path(record['run_dir']).resolve() == Path(path).resolve(),
+1729:    expected, job = set(expected_children(expect)), Path(run_dir).resolve()
+1794:    fields = dict(schema_version=1, run_type='haa_job', run_dir=str(run_dir.resolve()),
+1801:def finalize(run_dir, run_type, log, child_exit, repo=REPO, receipt=None,
+1817:    fields = dict(schema_version=1, run_type=run_type, run_dir=str(run_dir.resolve()),
+JOB_SPEC = ('init', 'backbone', 'frame', 'init_sha256', 'seed', 'rooms', 'expect')
+
+
+def child_role(name):
+    """The run type this finalizer requires at one child path of a pipeline seed."""
+    if name == 'stage1' or (name.startswith('stage2_') and name[len('stage2_'):] in ROOMS):
+        return 'haa_train'
+    for prefix in ('eval/', 'zeroshot/eval/'):
+        if name.startswith(prefix) and name[len(prefix):] in ROOMS:
+            return 'haa_eval'
+    raise ValueError('unexpected child path: ' + name)
+
+
+def child_completion(path, name, role):
+    """Schema and role of one child's record, never its own admission claim."""
+    completion = Path(path) / 'completion.json'
+    _require(completion.is_file(), 'child {} has no completion.json'.format(name))
+    record = _mapping(_read_json(completion, name + '/completion.json'),
+                      name + '/completion.json')
+    missing = [key for key in CHILD_COMPLETION + CHILD_EXTRA[role] if key not in record]
+    _require(not missing, 'child {} completion is incomplete: missing {}'.format(
+        name, ', '.join(missing)))
+    _require(record['schema_version'] == 1,
+             'child {} records schema_version {!r}'.format(name, record['schema_version']))
+    _require(record['run_type'] == role,
+             'child {} has run type {!r}, not the {!r} its path requires'.format(
+                 name, record['run_type'], role))
+    _require(isinstance(record['run_dir'], str) and record['run_dir'],
+             'child {} records no run_dir path: {!r}'.format(name, record['run_dir']))
+    _require(Path(record['run_dir']).resolve() == Path(path).resolve(),
+             'child {} claims the run_dir {}'.format(name, record['run_dir']))
+    _require(record['diagnostic'] is False, 'child {} is a diagnostic run'.format(name))
+    _require(type(record['child_exit']) is int and record['child_exit'] == 0,
+             'child {} records child_exit {!r}'.format(name, record['child_exit']))
+    return record
+
+
+def rehash_bound_evidence(record, name, path, repo):
+    """Re-validate and rehash the log and receipt the child bound to its completion.
+
+    The digests must still be those bytes, and the bytes must still satisfy the closed-log
+    contract: the job never takes a child's word that its writers had gone. Finding 2: the
+    receipt whose bytes are hashed must be the canonical ``<child>/child_exit.json`` that is
+    validated, and the pid, timestamps and ``child_exit_time`` the completion recorded must
+    be the ones that validation produced.
+    """
+    for key in ('log', 'child_exit_receipt'):
+        bound = record[key]
+        _require(isinstance(bound, dict) and isinstance(bound.get('path'), str)
+                 and _is_sha256(bound.get('sha256')),
+                 'child {} records no {} evidence: {!r}'.format(name, key, bound))
+        file = _resolve(bound['path'], repo)
+        _require(file.is_file(), 'child {} {} {} is gone'.format(name, key, bound['path']))
+        _require(provenance.sha256_file(file) == bound['sha256'],
+                 'child {} {} no longer hashes to its recorded digest'.format(name, key))
+    log_record, marker_time, digest = closed_log(_resolve(record['log']['path'], repo),
+                                                 record['child_exit'])
+    _require(log_record['sha256'] == record['log']['sha256'],
+             'child {} log is not the {} it bound'.format(name, record['log']['sha256']))
+    receipt = child_exit_receipt(path, record['child_exit'], digest, marker_time)
+    bound = record['child_exit_receipt']
+    _require(_resolve(bound['path'], repo).resolve() == Path(receipt['path']),
+             'child {} child_exit_receipt binds {}, not its own {}'.format(
+                 name, bound['path'], receipt['path']))
+    for field in ('sha256', 'child_pid', 'started_at', 'ended_at'):
+        _require(exp06_recipe.strict_equal(bound.get(field), receipt[field]),
+                 'child {} child_exit_receipt {} {!r} is not the {!r} of the canonical '
+                 'receipt'.format(name, field, bound.get(field), receipt[field]))
+    _require(record['child_exit_time'] == marker_time == receipt['ended_at'],
+             'child {} records child_exit_time {!r}, not the {!r} of its validated log marker '
+             'and receipt'.format(name, record['child_exit_time'], marker_time))
+
+
+def verify_child(path, name, repo, spec):
+    """Blocker 3c: re-run the child's own validator and bind its record to that result.
+
+    Nothing here trusts the child: its role validator runs again over the directory, and
+    every field of its completion -- artefact hashes, identity, lineage -- must equal what
+    the re-run produced. The log and receipt it bound are rehashed, and the whole child is
+    then checked against the job the pipeline declared.
+
+    """
+    for field, declared in (('job_init', spec['init']), ('job_init_sha256', spec['init_sha256'])):
+        recorded = args.get(field)
+        _require(isinstance(recorded, str) and recorded, 'child {} recorded no {}: it was not '
+                 'launched under a job spec'.format(name, field))
+        _require(recorded == declared, 'child {} was launched under the {} {!r}, not the {!r} '
+                 'of this job spec'.format(name, field, recorded, declared))
+    digest = args.get('job_spec_sha256')
+    _require(isinstance(digest, str) and digest,
+             'child {} recorded no job_spec_sha256: it was not launched under a job '
+             'spec'.format(name))
+    _require(digest == spec['job_spec_sha256'], 'child {} was launched under the job spec '
+             '{}, not the {} being admitted'.format(name, digest, spec['job_spec_sha256']))
+
+
+def check_job_spec(name, role, evidence, spec, args):
+    """Every child must have run the job the pipeline declared, not one of its own."""
+    for field in ('backbone', 'frame', 'seed'):
+        _require(evidence[field] == spec[field], 'child {} ran {} {!r}, not the {!r} of the '
+                 'job spec'.format(name, field, evidence[field], spec[field]))
+    rooms = evidence['rooms'] if role == 'haa_train' else [evidence['room']]
+    outside = sorted(set(rooms) - set(spec['rooms']))
+    _require(not outside, 'child {} covers rooms outside the job: {}'.format(name, outside))
+    room = name.split('/')[-1] if role == 'haa_eval' else name[len('stage2_'):]
+    _require(not name.startswith(('stage2_', 'eval/', 'zeroshot/')) or rooms == [room],
+             'child {} records rooms {}, not the {!r} of its path'.format(name, rooms, room))
+    if spec['frame'] == 'heading':
+        for bound, binding in sorted((evidence['heading'] or {}).items()):
+            _require(binding.get('k') == spec['heading'].get(bound),
+                     'child {} rolls the {} heading to {!r}, not the {!r} of the job '
+                     'spec'.format(name, bound, binding.get('k'), spec['heading'].get(bound)))
+    else:
+        _require(not evidence['heading'], 'child {} records a heading in the room frame'.format(name))
+    check_job_identity(name, args, spec)
+
+
+def load_job_spec(path, expect):
+    """The pipeline's declaration of one seed: what every child of it must agree with.
+
+    Finding 5: every nested value is typed before it is used, so a malformed spec is a
+    named refusal (CLI exit 2, nothing written) and never a TypeError out of ``sorted``.
+
+    Round-3b finding 6: the bytes are read once and both the declaration and its digest
+    come from that one buffer, as ``closed_log`` does for a log. Parsing one read and
+    hashing another admitted a spec substituted in between under a digest that identified
+    the bytes nobody had validated; every later consumer compares against the digest
+    returned here, so no second read of the file can supply the evidence. The file is read
+    a second time only to refuse: as ``finalize`` re-hashes the log it validated, a
+    declaration that no longer holds the bytes that were parsed is stale, not certifiable.
+    """
+    _require(path, 'a job needs the pipeline --job-spec it was run from')
+    try:
+        data = Path(path).read_bytes()
+    except OSError as error:
+        raise ValueError('unreadable job spec: {}'.format(error)) from error
+    try:
+        value = json.loads(data.decode('utf-8'))
+    except (UnicodeDecodeError, ValueError) as error:
+        raise ValueError('unreadable job spec: {}'.format(error)) from error
+    _require(isinstance(value, dict), 'job spec is not a JSON object')
+    spec = _mapping(value, 'job spec')
+    missing = [key for key in JOB_SPEC if key not in spec]
+    _require(not missing, 'job spec is incomplete: missing ' + ', '.join(missing))
+    _require(spec['expect'] == expect,
+             'job spec declares {!r}, not the --expect {!r}'.format(spec['expect'], expect))
+    _require(spec['backbone'] in BACKBONES, 'job spec backbone {!r}'.format(spec['backbone']))
+    _require(spec['frame'] in FRAMES, 'job spec frame {!r}'.format(spec['frame']))
+    _require(_is_sha256(spec['init_sha256']),
+             'job spec init_sha256 {!r} is not a sha256'.format(spec['init_sha256']))
+    _require(type(spec['seed']) is int, 'job spec seed {!r} is not an integer'.format(spec['seed']))
+    _require(isinstance(spec['init'], str) and spec['init'],
+             'job spec init {!r} is not an initialisation name'.format(spec['init']))
+    _require(isinstance(spec['rooms'], list)
+             and all(isinstance(room, str) for room in spec['rooms'])
+             and sorted(spec['rooms']) == sorted(ROOMS),
+             'job spec rooms {!r} are not the pipeline rooms'.format(spec['rooms']))
+    if spec['frame'] == 'heading':
+        heading = _mapping(spec.get('heading'), 'job spec heading')
+        absent = [room for room in spec['rooms'] if type(heading.get(room)) is not int
+                  or not 0 <= heading[room] < WIDTH]
+        _require(not absent, 'job spec records no heading roll in [0, {}) for {}'.format(
+            WIDTH, ', '.join(absent)))
+    else:
+        _require(not spec.get('heading'), 'a room-frame job spec declares no heading')
+    # Finding 3: the declaration's own digest, which every child must have recorded at
+    # launch -- taken from the snapshot above, never from a second read of the file.
+    spec['job_spec_sha256'] = hashlib.sha256(data).hexdigest()
+    _require(provenance.sha256_file(path) == spec['job_spec_sha256'],
+             'job spec {} changed while it was being validated: what it holds now is not '
+             'the bytes that were parsed'.format(path))
+    return spec
+
+
+def job_lineage(records, expect, spec):
+    """The init -> stage1 -> stage2 -> evaluation chain the job spec declares."""
+    fields = dict(backbone=spec['backbone'], frame=spec['frame'], seed=spec['seed'],
+
+exec
+/bin/bash -lc "env CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/home/yixunhu/codespace/xRIR_code_wt NUMBA_CACHE_DIR=/tmp/exp11-close-root-numba XDG_CACHE_HOME=/tmp/exp11-close-root-cache MPLCONFIGDIR=/tmp/exp11-close-root-mpl TMPDIR=/tmp /home/yixunhu/miniconda3/envs/xRIR/bin/python - <<'PY'
+import copy, hashlib, json, sys, subprocess
+from pathlib import Path
+from unittest.mock import patch
+from tools import exp11_profiles as p11, exp04_profiles as p4, exp06_approvals_api as api, exp06_finalize as f
+repo=Path.cwd(); sha=lambda p: hashlib.sha256(Path(p).read_bytes()).hexdigest()
+source=compile((repo/'tools/exp11_haa_pipeline.sh').read_text().split(\"APPROVALS_PY='\",1)[1].split(\"\\n'\",1)[0],'queue gate','exec')
+head=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+approved=json.loads(p11.TEMPLATE_PATH.read_text()); approved['code']={k:'1'*64 for k in p11.CODE_KEYS}
+approved['code'].update(p11.compute_code_digests(repo,head,keys=p11.PRODUCER_CODE_KEYS['haa_yawaug_adapter']))
+approved['reused']={'approved_digests_exp04':sha(p4.APPROVED_DIGESTS_PATH),'approved_digests_exp06':sha(api.approved_path_default()),'legacy_receipt':{'path':'ckpt/exp06/legacy_receipt.json','sha256':sha('ckpt/exp06/legacy_receipt.json')}}
+a6,_=api.load_approved_digests(api.approved_path_default())
+checkpoint=f.exp04_aug_checkpoint(a6)['checkpoint']['path']
+for key in ('approved_digests_exp06','approved_digests_exp04',None):
+    candidate=copy.deepcopy(approved)
+    if key: candidate['reused'][key]='0'*64
+    with patch.object(p11,'load_approved_digests',return_value=(candidate,{'committed_at':'fixture'})), patch.object(sys,'argv',['queue','yawaug_adapter',checkpoint,str(repo/'ckpt/exp06/heading')]), patch.object(f,'exp04_aug_checkpoint',wraps=f.exp04_aug_checkpoint) as resolve:
+        try: exec(source,{'__name__':'__queue_gate_fixture__'})
+        except SystemExit as e:
+            assert key is not None, str(e)
+            assert key=='approved_digests_exp06' or 'approved_digests_exp04' in str(e)
+            assert resolve.call_count==0
+            print('QUEUE',key,'REFUSED before K resolution:',e)
+        else:
+            assert key is None, 'wrong pin admitted'
+            assert resolve.call_count==1
+            print('QUEUE matching pins ACCEPTED, K resolved once')
+PY" in /home/yixunhu/codespace/xRIR_code_wt
+exec
+/bin/bash -lc "nl -ba tools/exp06_summarize_haa.py | sed -n '1433,1470p;2267,2276p;2285,2314p'
+nl -ba tests/test_exp11_shell.py | sed -n '164,220p'
+git diff --check c8acda2 2c64a2a -- tools model tests
+bash -n tools/exp11_launch.sh tools/exp11_haa_pipeline.sh
+git status --short
+git rev-parse HEAD" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+  1433	def check_exp11_reused(exp11_approved, receipt, receipt_path, repo=REPO, inputs=None):
+  1434	    """exp_11's three ``reused`` identities against the records this run consumed.
+  1435	
+  1436	    ``approved_digests_exp04`` names the record ``exp04_aug_checkpoint`` reads to resolve
+  1437	    the initialisation of arms E, G and K; ``approved_digests_exp06`` names the record
+  1438	    that supplies the heading artefacts and arm C's epoch; ``legacy_receipt`` names the
+  1439	    hash receipt the legacy branch was admitted through, by **path and digest**. A value
+  1440	    that is populated but wrong is exactly the case a null-field check cannot see, so
+  1441	    each is compared with the bytes actually read and bound into ``inputs``.
+  1442	    """
+  1443	    if exp11_approved is None:
+  1444	        return {}
+  1445	    reused = exp11_approved['reused']
+  1446	    bound = {}
+  1447	    for key, path in (('approved_digests_exp04', exp04_profiles.APPROVED_DIGESTS_PATH),
+  1448	                      ('approved_digests_exp06', approvals_api.approved_path_default())):
+  1449	        file = _repo_path(path, repo)
+  1450	        _require(file.is_file(), 'the record exp_11 pins as reused.{} is missing: '
+  1451	                 '{}'.format(key, file))
+  1452	        digest = provenance.sha256_file(file)
+  1453	        _require(digest == reused[key], 'the record {} consumed for reused.{} hashes to '
+  1454	                 '{}, not the approved {}'.format(file, key, digest, reused[key]))
+  1455	        bound[str(file.resolve())] = digest
+  1456	        if inputs is not None:
+  1457	            bind(inputs, file, digest)
+  1458	    pinned = reused['legacy_receipt']
+  1459	    declared = _repo_path(pinned['path'], repo)
+  1460	    _require(declared.is_file(), 'the receipt exp_11 pins as reused.legacy_receipt is '
+  1461	             'missing: {}'.format(declared))
+  1462	    _require(declared.resolve() == Path(receipt_path).resolve(),
+  1463	             'exp_11 approves the legacy receipt {}, but this run was admitted through '
+  1464	             '{}'.format(declared, receipt_path))
+  1465	    _require(receipt['sha256'] == pinned['sha256'], 'the legacy receipt consumed hashes '
+  1466	             'to {}, not the approved reused.legacy_receipt.sha256 {}'.format(
+  1467	                 receipt['sha256'], pinned['sha256']))
+  1468	    bound[str(declared.resolve())] = receipt['sha256']
+  1469	    return bound
+  1470	
+  2267	def main(argv=None):
+  2268	    """0 on success; a refusal exits 1 and an argparse usage error exits 2."""
+  2269	    args = build_parser().parse_args(argv)
+  2270	    producer = 'legacy_receipt' if args.write_legacy_receipt else 'summarize_haa'
+  2271	    approved, approvals_receipt, deviations = approvals(args.exploratory, args.approved,
+  2272	                                                        producer, args.approved_commit)
+  2273	    identity = source_identity(REPO, strict=not args.exploratory)
+  2274	    deviations = list(deviations) + check_producer_identity(approved, producer, identity,
+  2275	                                                            args.exploratory)
+  2276	    if args.write_legacy_receipt:      # finding 3: the receipt is a producer, and gated
+  2285	    config = EXPERIMENTS[key]
+  2286	    roots = {'exp06': args.new_root, 'exp09': args.exp09_root,
+  2287	             'exp11': args.exp11_root}
+  2288	    new_arms = tuple(arm for arm in config['arms'] if ARMS[arm]['branch'] == 'new')
+  2289	    binding = approved['reused']['legacy_receipt'] if approved else None
+  2290	    if binding is not None and binding.get('sha256') is None:
+  2291	        binding = None
+  2292	    arms, receipt = load_legacy(args.legacy_root, args.legacy_receipt, binding)
+  2293	    extra = check_reused_identities(None if args.exploratory else approved, receipt,
+  2294	                                    args.gate_g1)
+  2295	    exp11_approved, exp11_identity = exp11_approvals(
+  2296	        args.exploratory, config, args.exp11_approved, args.approved_commit)
+  2297	    # Blocker 2: an approval value is evidence only where it is compared with what ran.
+  2298	    deviations = deviations + check_exp11_producer(exp11_approved, identity,
+  2299	                                                   args.exploratory)
+  2300	    check_exp11_reused(exp11_approved, receipt, args.legacy_receipt, REPO, extra)
+  2301	    inits = ({} if args.exploratory
+  2302	             else expected_inits(approved, new_arms, extra, exp11_approved))
+  2303	    for arm in new_arms:
+  2304	        arms[arm] = load_new_arm(roots, arm, inits.get(arm), REPO,
+  2305	                                 None if args.exploratory else approved, args.sensitivity,
+  2306	                                 exp11_approved=exp11_approved)
+  2307	        deviations = deviations + list(arms[arm].get('recipe_deviations') or ())
+  2308	    result = analyse(arms, args.n_boot, args.n_boot_adjusted, args.cache_root,
+  2309	                     args.exploratory, receipt, args.legacy_receipt, approved, deviations,
+  2310	                     approvals_receipt, identity, extra, args.sensitivity, key,
+  2311	                     exp11_approvals=exp11_identity)
+  2312	    record, digest, text = write_outputs(result, args.json, args.summary)
+  2313	    print(text)
+  2314	    published = {'json': args.json, 'sha256': digest,
+   164	                env={}, train_batches_per_epoch=exp11_recipe.TRAIN_BATCHES_PER_EPOCH,
+   165	                tier='M', param_counts={}, exp11_run_type='full', exp11_profile=profile,
+   166	                exp11_registry_sha256='a' * 64, exp11_source_closure_sha256='b' * 64,
+   167	                exp11_git_head='c' * 40, exp11_provenance_path='p')
+   168	    directory = tmp_path / root / 'attempt_20260927T000000'
+   169	    directory.mkdir(parents=True)
+   170	    (directory / 'args.json').write_text(json.dumps(args))
+   171	    return directory
+   172	
+   173	
+   174	def recovery(attempt, arm, tmp_path):
+   175	    return launch(['finalize', '--arm', arm, '--gpu', '1', '--reviewed-commit', COMMIT,
+   176	                   '--attempt', str(attempt), '--log', 'L.log', '--child-exit', '0',
+   177	                   '--dry-run'], {'EXP11_PRETRAIN_ROOT': str(tmp_path)})
+   178	
+   179	
+   180	def test_recovery_refuses_an_attempt_of_another_arm(tmp_path):
+   181	    """A valid H attempt may not be promoted under I's root."""
+   182	    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+   183	    status, out, err = recovery(attempt, 'I', tmp_path)
+   184	    assert status == 2, out
+   185	    assert 'refusing' in err
+   186	    assert 'PROMOTE' not in out and 'EXP11_FINALIZE' not in out
+   187	
+   188	
+   189	def test_recovery_refuses_an_attempt_whose_profile_is_not_the_arms(tmp_path):
+   190	    """The directory can be right and the recipe still be the other arm's."""
+   191	    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'I_RECIPE', tmp_path)
+   192	    status, out, err = recovery(attempt, 'H', tmp_path)
+   193	    assert status == 2, out
+   194	    assert 'refusing' in err and 'PROMOTE' not in out
+   195	
+   196	
+   197	def test_recovery_accepts_the_arms_own_attempt(tmp_path):
+   198	    """The accepted path also pins the recovery argv the golden set no longer carries.
+   199	
+   200	    ``launch_finalize_I`` left the golden set when this check began running in dry-run:
+   201	    a golden of a *nonexistent* attempt would now be a golden of a refusal. The argv it
+   202	    used to pin is asserted here instead, on an attempt that really is arm I's.
+   203	    """
+   204	    attempt = attempt_with('xRIR_simpor_yawaug_8_shot', 'I', 'I_RECIPE', tmp_path)
+   205	    status, out, err = recovery(attempt, 'I', tmp_path)
+   206	    assert status == 0, err[-600:]
+   207	    assert 'ATTEMPT ok {} arm=I profile=I_RECIPE'.format(attempt) in out
+   208	    assert ('tools/exp11_finalize.py --run-dir {} --run-type exp11_train --log L.log '
+   209	            '--child-exit 0'.format(attempt)) in out
+   210	    assert 'preflight --mode finalize' in out
+   211	    assert 'PROMOTE {}/final -> {}'.format(attempt.parent, attempt.name) in out
+   212	
+   213	
+   214	# --- process item 6: the bundled smoke covers the adapter route too -----------------
+   215	
+   216	
+   217	def test_the_smoke_mode_carries_adapter_training_and_evaluation_commands():
+   218	    """J/K must have a reviewed smoke before their queue, not only a fixture.
+   219	
+   220	    The oriented route's smokes prove nothing about ``simple_adapter``: a different
+?? worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/codex_code_round2_close_prompt.md
+2c64a2a2c327a75eedfd0a5b408f62d9bea8e78b
+
+ succeeded in 18500ms:
+QUEUE approved_digests_exp06 REFUSED before K resolution: refusing: exp_06 approvals /home/yixunhu/codespace/xRIR_code_wt/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_results_assets/approved_digests.json are not the approved bytes
+QUEUE approved_digests_exp04 REFUSED before K resolution: refusing: exp_04 approvals /home/yixunhu/codespace/xRIR_code_wt/worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results_assets/approved_digests.json are not the bytes exp_11 approved as reused.approved_digests_exp04
+APPROVALS ok producer=haa_yawaug_adapter commit=fixture keys=haa_finetune,haa_eval,haa_pipeline_sh,launch_sh,finalize,smoke
+QUEUE matching pins ACCEPTED, K resolved once
+
+codex
+Closure hygiene checks pass: only exp_06’s `summarize_haa` digest changed, all eight exp_11 digests match the report, the four simulated-evaluation closures are unchanged, and the pinned oracles reproduce byte-for-byte.
+
+The history replay qualifies the red-first claim: the committed recovery RED tests failed on a missing `json` import before exercising recovery. Adding only that import in a temporary copy exposes the intended failures. The adapter smoke additions and replacement recovery acceptance test are otherwise appropriate.
+exec
+/bin/bash -lc "git log --format='%h %s' --reverse c8acda2..2c64a2a
+nl -ba worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_02:35:15_coder_round2_fix_opus_report.md | sed -n '7,35p;115,155p'
+rg -n 'EXP11_PRETRAIN_ROOT|attempt-root' tools/exp11_finalize.py tools/exp11_launch.sh tests/test_exp11_shell.py
+sed -n '1018,1080p' tools/exp11_finalize.py" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+2b02035 exp11 bookkeeping: round-2 Codex review and the round-2 prompts (record only)
+c7a4602 exp11 fix 1 (RED): the adapter arms' zero-shot evaluations must be finalizable
+3e64f6f exp11 fix 1 (GREEN): the contextual checkpoint contract at evaluation admission
+441db03 exp11 fix 2 (RED): exp_11's approval values must be enforced at their gates
+c8e6c4e exp11 fix 2 (GREEN): enforce every exp_11 approval value at its consuming gate
+ddfdfad exp11 fix 3 (RED): the diagnostic receipt must be bound to its own provenance
+eea0cca exp11 fix 3 (GREEN): restore the diagnostic receipt bindings
+e98b490 exp11 fixes 4 and 5 (RED): the ceiling may only tighten; recovery must match its arm
+72839af exp11 fixes 4 and 5 (GREEN): validate the ceiling; recovery must be its arm's own
+ef0dd3a exp11 fix 6 (RED): the bundled smoke must cover the adapter route
+fca7a4f exp11 fix 6 (GREEN): adapter training and evaluation smokes in the bundled shell
+58bd991 exp11 bookkeeping: Coder round-2 fix report (record only)
+0e2bde0 exp11 bookkeeping: fix-cycle digests (record only)
+231af50 exp11 bookkeeping: fix-cycle targeted and summariser test results (record only)
+2c64a2a exp11 bookkeeping: fix-cycle full CPU suite result (record only)
+     7	**Input:** `orientation_cue_fairness_codex_code_round2_review.md` (request changes, five blockers) and `coder_prompts/round2_fix_opus_prompt.md`
+     8	
+     9	**Red-first is evidenced in history this time**: every blocker has a RED commit whose
+    10	tests fail against the code as it then stood, followed by a GREEN commit.
+    11	
+    12	## Commits
+    13	
+    14	| SHA | Subject |
+    15	|---|---|
+    16	| `2b02035` | exp11 bookkeeping: round-2 Codex review and the round-2 prompts (record only) |
+    17	| `c7a4602` | **fix 1 (RED)** the adapter arms' zero-shot evaluations must be finalizable |
+    18	| `3e64f6f` | **fix 1 (GREEN)** the contextual checkpoint contract at evaluation admission |
+    19	| `441db03` | **fix 2 (RED)** exp_11's approval values must be enforced at their gates |
+    20	| `c8e6c4e` | **fix 2 (GREEN)** enforce every exp_11 approval value at its consuming gate |
+    21	| `ddfdfad` | **fix 3 (RED)** the diagnostic receipt must be bound to its own provenance |
+    22	| `eea0cca` | **fix 3 (GREEN)** restore the diagnostic receipt bindings |
+    23	| `e98b490` | **fixes 4 and 5 (RED)** the ceiling may only tighten; recovery must match its arm |
+    24	| `72839af` | **fixes 4 and 5 (GREEN)** validate the ceiling; recovery must be its arm's own |
+    25	| `ef0dd3a` | **fix 6 (RED)** the bundled smoke must cover the adapter route |
+    26	| `fca7a4f` | **fix 6 (GREEN)** adapter training and evaluation smokes in the bundled shell |
+    27	
+    28	## Blocker 1 [P1] — J/K zero-shot evaluations could not finalize
+    29	
+    30	`tools/exp11_finalize.py` demanded the complete `simple_adapter` state (268 tensors) of
+    31	every evaluation checkpoint, but the J/K queue's zero-shot job legitimately evaluates the
+    32	historical A/E **base** checkpoint (266), which the loader reads through
+    33	`load_base_checkpoint`. Phase 1b and the final publication were therefore unreachable.
+    34	
+    35	**The contract admission now applies** (`checkpoint_contract` + `verify_evaluation_checkpoint`,
+   115	`tools/exp11_launch.sh` smoke mode gains rungs (e) and (f): `simple_adapter` fine-tuning
+   116	from the committed fixture with `--adapter-heading-json-dir`, then the evaluation of its
+   117	`best.pth`, gated on the fine-tuning rung's own completion certifying it passed. The
+   118	oriented rungs prove nothing about the adapter route — a different backbone, a different
+   119	cue flag, and the contextual loading mode blocker 1 added — so J and K now reach their
+   120	queue with a reviewed smoke of their own. The `launch_smoke_H` golden was regenerated in
+   121	the same commit and a test pins both adapter commands.
+   122	
+   123	## Process item 6 — the ten production commits over 200 lines
+   124	
+   125	Recorded as exceptions, in full, as the review asked. Round 2's `.md` accounted for four;
+   126	these are all ten (test-only and generated-record commits excluded):
+   127	
+   128	| SHA | Subject | insertions |
+   129	|---|---|---|
+   130	| `769a6ef` | `tools/exp11_recipe.py` — H_RECIPE and I_RECIPE | 216 |
+   131	| `b59e234` | `tools/exp11_train.py` — the exp_06 loop on BACKBONES_EXP11 | 275 |
+   132	| `3458146` | finalizer part 1 — run types, closures, orchestration, approvals | 260 |
+   133	| `b39b7d0` | finalizer part 3 — HAA children and the adapter-heading binding | 203 |
+   134	| `216aef3` | finalizer part 4 — job admission, spec, lineage and children | 208 |
+   135	| `c7b1d7b` | `tools/exp11_smoke.py` — enumerated diagnostic kinds with budgets | 236 |
+   136	| `c0b10a9` | HAA entry points with the faithful orchestration loop and cue routing | 442 |
+   137	| `8f5ff9a` | `tools/exp11_launch.sh` — smoke/probe/full/finalize, `--arm H\|I` | 283 |
+   138	| `e978c2e` | `tools/exp11_haa_pipeline.sh` and golden dry-run tests | 970 |
+   139	| `e7cb7f4` | summariser arms H/I/J/K, admission adapter, phases and A′ | 351 |
+   140	
+   141	Reasons, briefly: `e978c2e` is dominated by ten **generated** golden files; `c0b10a9`,
+   142	`b59e234` and `8f5ff9a` are single entry points/launchers mirroring exp_06 modules of the
+   143	same size whose `main` is one unit; `3458146`, `b39b7d0`, `216aef3` and `c7b1d7b` are the
+   144	finalizer and smoke runner split as far as they could be while each state still imports;
+   145	`769a6ef` and `e7cb7f4` are single schema/registry units whose parts reference one
+   146	another. No history was rewritten; the exceptions stand recorded rather than hidden.
+   147	
+   148	The fix cycle itself kept every production commit under the limit.
+   149	
+   150	## Frozen files
+   151	
+   152	Unchanged. The only exp_06 module this round touches remains `tools/exp06_summarize_haa.py`
+   153	(its `summarize_haa` key moves, as the round-2 scope allows); `tools/exp06_finalize.py`,
+   154	`tools/exp06_launch.sh`, `tools/exp06_smoke.py`, `tools/exp06_profiles.py`,
+   155	`tools/exp06_approvals_api.py` and every other pinned file are imported or sourced, never
+tests/test_exp11_shell.py:177:                   '--dry-run'], {'EXP11_PRETRAIN_ROOT': str(tmp_path)})
+tools/exp11_launch.sh:27:PRETRAIN_ROOT="${EXP11_PRETRAIN_ROOT:-ckpt/exp11/pretrain}"
+tools/exp11_launch.sh:90:    echo "       [--attempt-root <dir>] [--approved <json>] [--exploratory]" >&2
+tools/exp11_launch.sh:113:        --reviewed-commit "$COMMIT" --attempt-root "$SIMPOR_ROOT" \
+tools/exp11_launch.sh:114:        --attempt-root "$SIMPOR_YAW_ROOT" --attempt-root "$SMOKE_DIR" \
+tools/exp11_finalize.py:1067:    parser.add_argument('--attempt-root', action='append', default=[])
+    _require(provenance.sha256_file(log) == log_digest,
+             'stale log: {} changed while its completion was being validated'.format(log))
+    return base.write_completion(run_dir / 'completion.json', fields)
+
+
+def approval_gate(mode, reviewed_commit, approved, exploratory, repo):
+    """No confirmatory launch on code exp_11's approvals do not pin."""
+    _require(not (exploratory and mode == 'full'),
+             'an exploratory launch is a diagnostic; mode full must match the approvals')
+    bind = not (exploratory and mode in ('smoke', 'probe'))
+    path = _resolve(exp11_profiles.APPROVED_RELATIVE if approved is None else approved, repo)
+    _require(path.is_file(), 'missing approvals file: {}'.format(path))
+    value, identity = exp11_profiles.load_approved_digests(
+        path, repo=repo if bind else None, commit=reviewed_commit if bind else None)
+    deviations = exp11_profiles.require(value, exp11_profiles.TRAINING_KEYS, repo=repo,
+                                        commit=reviewed_commit, exploratory=exploratory)
+    return {'approved': identity, 'approval_deviations': deviations,
+            'exploratory': bool(exploratory)}
+
+
+def preflight(mode, gpu, reviewed_commit, attempt_root=None, repo=REPO, approved=None,
+              exploratory=False, min_free_gb=None):
+    """Gate a launch: reviewed commit, clean tree, no live launch, approvals, a free card."""
+    _require(mode in LAUNCH_MODES, 'unknown launch mode: {!r}'.format(mode))
+    state = provenance.checked_git_state(repo, confirmatory=True)
+    _require(state['HEAD'] == reviewed_commit,
+             'HEAD {} is not the reviewed commit {!r} (full 40-hex sha required)'.format(
+                 state['HEAD'], reviewed_commit))
+    running = base.live_launches(attempt_root)
+    _require(not running, 'another exp_11 launch is alive: {}'.format(running))
+    admission = approval_gate(mode, reviewed_commit, approved, exploratory, repo)
+    apps = base.gpu_compute_apps(gpu) if mode in EXCLUSIVE_GPU_MODES else None
+    _require(not apps, 'GPU {} is busy with compute apps {}'.format(gpu, apps))
+    free = None if min_free_gb is None else base.gpu_free_gib(gpu)
+    _require(free is None or free >= min_free_gb,
+             'GPU {} has {:.2f} GiB free, below the {} GiB this launch may allocate'.format(
+                 gpu, free or 0.0, min_free_gb))
+    return dict(mode=mode, gpu=gpu, reviewed_commit=reviewed_commit, git_state=state,
+                attempt_root=[str(root) for root in base.launch_roots(attempt_root)],
+                gpu_compute_apps=apps, live_launches=running, min_free_gb=min_free_gb,
+                gpu_free_gib=free, **admission)
+
+
+def preflight_main(argv):
+    """Exit 0 with the record on stdout, 2 with the named cause on stderr."""
+    parser = argparse.ArgumentParser(description='Gate one exp_11 launch.')
+    parser.add_argument('--mode', choices=LAUNCH_MODES, required=True)
+    parser.add_argument('--gpu', type=int, required=True)
+    parser.add_argument('--reviewed-commit', required=True)
+    parser.add_argument('--attempt-root', action='append', default=[])
+    parser.add_argument('--repo', default=str(REPO))
+    parser.add_argument('--approved', default=None)
+    parser.add_argument('--exploratory', action='store_true')
+    parser.add_argument('--min-free-gb', type=float, default=None)
+    args = parser.parse_args(argv)
+    try:
+        record = preflight(args.mode, args.gpu, args.reviewed_commit, args.attempt_root,
+                           args.repo, approved=args.approved, exploratory=args.exploratory,
+                           min_free_gb=args.min_free_gb)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print('EXP11_PREFLIGHT_REFUSED ' + str(error), file=sys.stderr, flush=True)
+        return 2
+    print('EXP11_PREFLIGHT_OK ' + json.dumps(record, sort_keys=True), flush=True)
+
+exec
+/bin/bash -lc "rg -n -A 45 'def test_exp06_and_exp09_publish_exactly|def test_exp11_phase1_publishes_exactly|def test_the_pinned_oracle|ORACLE|BASE_COMMIT' tests/test_exp11_summarize_haa.py tests/test_exp11_admission.py
+sed -n '1,65p' tests/test_exp11_shell.py
+sed -n '30,80p' tests/test_exp11_zeroshot_adapter.py" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+tests/test_exp11_admission.py:304:def test_exp11_phase1_publishes_exactly_what_round_one_published(arms, round1):
+tests/test_exp11_admission.py-305-    """Phase 1b and phase 2 change no phase-1 statistic and no phase-1 summary."""
+tests/test_exp11_admission.py-306-    # The oracle is imported from a temp file, so its own REPO is not the checkout: the
+tests/test_exp11_admission.py-307-    # historical records R1 copies are named explicitly for both modules.
+tests/test_exp11_admission.py-308-    settings = dict(n_boot=200, adjusted_n_boot=200, experiment='exp11',
+tests/test_exp11_admission.py-309-                    historical_root=subject.REPO)
+tests/test_exp11_admission.py-310-    selected = {name: arms[name] for name in round1.EXPERIMENTS['exp11']['arms']}
+tests/test_exp11_admission.py-311-    before = round1.analyse(selected, **settings)
+tests/test_exp11_admission.py-312-    after = subject.analyse(selected, **settings)
+tests/test_exp11_admission.py-313-    assert list(after) == list(before)
+tests/test_exp11_admission.py-314-    assert json.dumps(after, sort_keys=True) == json.dumps(before, sort_keys=True)
+tests/test_exp11_admission.py-315-    assert subject.render(after) == round1.render(before)
+tests/test_exp11_admission.py-316-    assert 'external' not in after and 'exp11_approved_digests' not in after
+--
+tests/test_exp11_summarize_haa.py:677:BASE_COMMIT = 'c6233e3'      # the tip this round branched from; it never moves
+tests/test_exp11_summarize_haa.py-678-
+tests/test_exp11_summarize_haa.py-679-
+tests/test_exp11_summarize_haa.py-680-@pytest.fixture(scope='module')
+tests/test_exp11_summarize_haa.py-681-def oracle(tmp_path_factory):
+tests/test_exp11_summarize_haa.py-682-    """The summariser as it stood BEFORE exp_11 touched it, pinned to a commit.
+tests/test_exp11_summarize_haa.py-683-
+tests/test_exp11_summarize_haa.py-684-    Loading the oracle from `main` would compare the implementation with itself once this
+tests/test_exp11_summarize_haa.py-685-    branch merges, so the comparison is pinned to the base commit instead.
+tests/test_exp11_summarize_haa.py-686-    """
+tests/test_exp11_summarize_haa.py-687-    import importlib.util
+tests/test_exp11_summarize_haa.py-688-    import subprocess
+tests/test_exp11_summarize_haa.py:689:    probe = subprocess.run(['git', 'show', BASE_COMMIT + ':tools/exp06_summarize_haa.py'],
+tests/test_exp11_summarize_haa.py-690-                           cwd=str(subject.REPO), capture_output=True)
+tests/test_exp11_summarize_haa.py-691-    if probe.returncode != 0:
+tests/test_exp11_summarize_haa.py-692-        pytest.skip('the base commit is not in this checkout')
+tests/test_exp11_summarize_haa.py-693-    path = tmp_path_factory.mktemp('oracle') / 'base_summarize_haa.py'
+tests/test_exp11_summarize_haa.py-694-    path.write_bytes(probe.stdout)
+tests/test_exp11_summarize_haa.py-695-    spec = importlib.util.spec_from_file_location('exp06_summarize_haa_base', str(path))
+tests/test_exp11_summarize_haa.py-696-    module = importlib.util.module_from_spec(spec)
+tests/test_exp11_summarize_haa.py-697-    spec.loader.exec_module(module)
+tests/test_exp11_summarize_haa.py-698-    return module
+tests/test_exp11_summarize_haa.py-699-
+tests/test_exp11_summarize_haa.py-700-
+tests/test_exp11_summarize_haa.py-701-@pytest.mark.parametrize('experiment', ['exp06', 'exp09'])
+tests/test_exp11_summarize_haa.py-702-@pytest.mark.parametrize('exploratory', [False, True])
+tests/test_exp11_summarize_haa.py:703:def test_exp06_and_exp09_publish_exactly_what_the_base_commit_published(
+tests/test_exp11_summarize_haa.py-704-        arms, oracle, experiment, exploratory):
+tests/test_exp11_summarize_haa.py-705-    """The schema extension changes no historical statistic and no historical summary,
+tests/test_exp11_summarize_haa.py-706-    in production as well as in draft mode."""
+tests/test_exp11_summarize_haa.py-707-    settings = dict(n_boot=200, adjusted_n_boot=200, exploratory=exploratory)
+tests/test_exp11_summarize_haa.py-708-    if experiment != 'exp06':
+tests/test_exp11_summarize_haa.py-709-        settings['experiment'] = experiment
+tests/test_exp11_summarize_haa.py-710-    selected = {name: arms[name] for name in oracle.EXPERIMENTS[experiment]['arms']}
+tests/test_exp11_summarize_haa.py-711-    before, after = oracle.analyse(selected, **settings), subject.analyse(selected,
+tests/test_exp11_summarize_haa.py-712-                                                                         **settings)
+tests/test_exp11_summarize_haa.py-713-    assert list(after) == list(before), experiment
+tests/test_exp11_summarize_haa.py-714-    assert json.dumps(after, sort_keys=True) == json.dumps(before, sort_keys=True)
+tests/test_exp11_summarize_haa.py-715-    assert subject.render(after) == oracle.render(before), experiment
+tests/test_exp11_summarize_haa.py-716-    assert 'phase' not in after and 'screens' not in after
+tests/test_exp11_summarize_haa.py-717-    assert 'historical' not in after and 'decisions' not in after
+tests/test_exp11_summarize_haa.py-718-
+tests/test_exp11_summarize_haa.py-719-
+tests/test_exp11_summarize_haa.py:720:def test_the_pinned_oracle_really_predates_this_round(oracle):
+tests/test_exp11_summarize_haa.py-721-    """It must be the module without arm G, or it is not an oracle at all."""
+tests/test_exp11_summarize_haa.py-722-    assert 'yawaug_hf' not in oracle.ARMS and 'exp11' not in oracle.EXPERIMENTS
+tests/test_exp11_summarize_haa.py-723-    assert not hasattr(oracle, 'decision_fields') and not hasattr(oracle, 'exp11_cell')
+tests/test_exp11_summarize_haa.py-724-    assert 'yawaug_hf' in subject.ARMS and 'exp11' in subject.EXPERIMENTS
+tests/test_exp11_summarize_haa.py-725-
+tests/test_exp11_summarize_haa.py-726-
+tests/test_exp11_summarize_haa.py-727-# --- the unavailable path is the degenerate interval, and nothing else ------------------
+tests/test_exp11_summarize_haa.py-728-
+tests/test_exp11_summarize_haa.py-729-
+tests/test_exp11_summarize_haa.py-730-def test_a_convergence_refusal_that_is_not_degenerate_still_aborts(arms, monkeypatch):
+tests/test_exp11_summarize_haa.py-731-    """Only the zero-width case of the plan becomes a defined cell; every other refusal
+tests/test_exp11_summarize_haa.py-732-    of the frozen helper is an error, not a quietly unavailable statement."""
+tests/test_exp11_summarize_haa.py-733-    def refuse(rows, alpha, n_boot):
+tests/test_exp11_summarize_haa.py-734-        raise ValueError('the interval function did not return endpoints: broken')
+tests/test_exp11_summarize_haa.py-735-    monkeypatch.setattr(subject, 'converged_two_way', refuse)
+tests/test_exp11_summarize_haa.py-736-    with pytest.raises(ValueError, match='did not return endpoints'):
+tests/test_exp11_summarize_haa.py-737-        contrast_cell(arms, G, D)
+tests/test_exp11_summarize_haa.py-738-
+tests/test_exp11_summarize_haa.py-739-
+tests/test_exp11_summarize_haa.py-740-def test_the_zero_width_predicate_is_finite_and_equal_endpoints():
+tests/test_exp11_summarize_haa.py-741-    """The registered cancellation is two finite, equal endpoints -- nothing else."""
+tests/test_exp11_summarize_haa.py-742-    assert subject.zero_width({'lo': 1.0, 'hi': 1.0}) is True
+tests/test_exp11_summarize_haa.py-743-    assert subject.zero_width({'lo': 0.0, 'hi': 0.0}) is True
+tests/test_exp11_summarize_haa.py-744-    assert subject.zero_width({'lo': -1.0, 'hi': 1.0}) is False
+tests/test_exp11_summarize_haa.py-745-    assert subject.zero_width({'lo': 1.0, 'hi': -1.0}) is False          # reversed
+tests/test_exp11_summarize_haa.py-746-    assert subject.zero_width({'lo': float('nan'), 'hi': float('nan')}) is False
+tests/test_exp11_summarize_haa.py-747-    assert subject.zero_width({'lo': float('inf'), 'hi': float('inf')}) is False
+tests/test_exp11_summarize_haa.py-748-    assert subject.zero_width({'lo': float('-inf'), 'hi': float('inf')}) is False
+tests/test_exp11_summarize_haa.py-749-    assert subject.zero_width(None) is False
+tests/test_exp11_summarize_haa.py-750-
+tests/test_exp11_summarize_haa.py-751-
+tests/test_exp11_summarize_haa.py-752-def test_a_numerically_broken_interval_is_not_an_unavailable_statement():
+tests/test_exp11_summarize_haa.py-753-    """Six finite values of 1e308 against zero: the mean overflows, the frozen helper
+tests/test_exp11_summarize_haa.py-754-    refuses a non-finite interval, and that is a fault -- not the cancellation the plan
+tests/test_exp11_summarize_haa.py-755-    registers. It must never be published as diff inf with a NaN interval."""
+tests/test_exp11_summarize_haa.py-756-    rows = flat_rows(difference=1e308)
+tests/test_exp11_summarize_haa.py-757-    with pytest.raises(ValueError, match='non-finite or reversed'):
+tests/test_exp11_summarize_haa.py-758-        subject.exp11_cell(rows, [], {'name': 'N1i', 'kind': 'interaction'}, M,
+tests/test_exp11_summarize_haa.py-759-                           ALL_FIELDS, n_boot=200)
+tests/test_exp11_summarize_haa.py-760-
+tests/test_exp11_summarize_haa.py-761-
+tests/test_exp11_summarize_haa.py-762-def test_a_reversed_interval_is_not_an_unavailable_statement(monkeypatch):
+tests/test_exp11_summarize_haa.py-763-    real = subject.intervals
+tests/test_exp11_summarize_haa.py-764-    monkeypatch.setattr(subject, 'intervals', lambda rows, alpha, n_boot, seed=0: dict(
+tests/test_exp11_summarize_haa.py-765-        real(rows, alpha, n_boot, seed), two_way={'lo': 1.0, 'hi': -1.0}))
+"""Golden dry runs of exp_11's launcher and HAA pipeline (plan v3 items 10 and 12).
+
+Every argv the two shells would issue is frozen in
+``orientation_cue_fairness_results_assets/golden/``. A deliberate change regenerates the
+files in the same commit; an accidental one -- a flag, a path, a run type, a cue -- fails
+here. The refusals (unknown init, malformed job, unknown arm) are checked directly.
+"""
+import json
+import os
+from pathlib import Path
+import subprocess
+
+import pytest
+
+REPO = Path(__file__).resolve().parents[1]
+GOLD = (REPO / 'worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude'
+        / 'orientation_cue_fairness_results_assets/golden')
+PYTHON = '/home/yixunhu/miniconda3/envs/xRIR/bin/python'
+COMMIT = 'c' * 40
+LAUNCH = ['bash', 'tools/exp11_launch.sh']
+PIPELINE = ['bash', 'tools/exp11_haa_pipeline.sh']
+CASES = {
+    'launch_full_H': LAUNCH + ['full', '--arm', 'H', '--gpu', '1',
+                               '--reviewed-commit', COMMIT, '--dry-run'],
+    'launch_full_I': LAUNCH + ['full', '--arm', 'I', '--gpu', '1',
+                               '--reviewed-commit', COMMIT, '--dry-run'],
+    'launch_probe_H': LAUNCH + ['probe', '--arm', 'H', '--gpu', '1',
+                                '--reviewed-commit', COMMIT, '--dry-run'],
+    'launch_smoke_H': LAUNCH + ['smoke', '--arm', 'H', '--gpu', '1',
+                                '--reviewed-commit', COMMIT, '--dry-run'],
+    'pipeline_simple_or_seed0': PIPELINE + ['1', 'simple_or:0', '--dry-run'],
+    'pipeline_simple_or_yaw_seed1': PIPELINE + ['1', 'simple_or_yaw:1', '--dry-run'],
+    'pipeline_control_adapter_seed2': PIPELINE + ['1', 'control_adapter:2', '--dry-run'],
+    'pipeline_yawaug_adapter_zeroshot': PIPELINE + ['1', 'yawaug_adapter:zeroshot',
+                                                    '--dry-run'],
+    'pipeline_mixed_queue': PIPELINE + ['0', 'simple_or:0', 'control_adapter:zeroshot',
+                                        'simple_or_yaw:2', '--dry-run'],
+}
+
+
+def shell(command):
+    """Run one shell with no GPU and normalise the machine-specific paths."""
+    result = subprocess.run(command, cwd=str(REPO), capture_output=True, text=True,
+                            env=dict(os.environ, CUDA_VISIBLE_DEVICES=''))
+    text = (result.stdout.replace(PYTHON, '<PYTHON>')
+            .replace(str(Path.home()), '<HOME>').replace(str(REPO), '<REPO>'))
+    return result.returncode, text, result.stderr
+
+
+@pytest.mark.parametrize('name', sorted(CASES))
+def test_golden_dry_run(name):
+    status, text, stderr = shell(CASES[name])
+    assert status == 0, stderr[-800:]
+    golden = GOLD / (name + '.txt')
+    assert golden.is_file(), 'missing golden {}'.format(golden)
+    assert text == golden.read_text(), (
+        'the {} dry run changed; regenerate {} in the same commit if deliberate'.format(
+            name, golden.name))
+
+
+def test_static_syntax():
+    for script in ('tools/exp11_launch.sh', 'tools/exp11_haa_pipeline.sh'):
+        assert subprocess.run(['bash', '-n', script], cwd=str(REPO)).returncode == 0
+
+
+def checkpoint(tmp_path, backbone, name):
+    """A checkpoint carrying exactly one model's parameter names.
+
+    The contract reads the parameter *set*, so the tensors are placeholders; the salt
+    only makes two checkpoints of the same model hash differently, as a real stage-2
+    checkpoint differs from the initialisation it started from. The names come from the
+    factory at the production tier, which is what ``expected_state_keys`` builds.
+    """
+    _SALT[0] += 1
+    path = tmp_path / name
+    keys = sorted(final.expected_state_keys(backbone, NUM_SHOT))
+    torch.save({key: torch.full((1,), float(_SALT[0])) for key in keys}, str(path))
+    return path, provenance.sha256_file(path)
+
+
+def args_for(checkpoint_path, init_digest, backbone='simple_adapter'):
+    """The fields the evaluation admission reads when it decides the contract."""
+    return {'backbone': backbone, 'num_shot': NUM_SHOT,
+            'checkpoint': str(checkpoint_path), 'job_init': 'control_adapter',
+            'job_init_sha256': init_digest, 'job_spec_sha256': 'a' * 64}
+
+
+def test_the_pinned_base_and_adapter_parameter_sets_really_differ():
+    base = final.expected_state_keys('simple', 8)
+    adapter = final.expected_state_keys('simple_adapter', 8)
+    assert len(adapter) == len(base) + len(ADAPTER_KEYS)
+    assert set(ADAPTER_KEYS) <= set(adapter) and not set(ADAPTER_KEYS) & set(base)
+
+
+@pytest.mark.parametrize('arm_init', ['control_adapter', 'yawaug_adapter'])
+def test_an_adapter_zero_shot_evaluation_is_admitted(tmp_path, arm_init):
+    """J and K both evaluate the A/E base checkpoint before any fine-tuning."""
+    path, digest = checkpoint(tmp_path, 'simple', 'epoch_012.pth')
+    args = dict(args_for(path, digest), job_init=arm_init)
+    assert final.checkpoint_contract(args, digest) == 'base'
+    final.verify_evaluation_checkpoint(path, 'checkpoint', args, digest)
+
+
+def test_a_fine_tuned_adapter_evaluation_requires_the_whole_adapter(tmp_path):
+    """A stage-2 checkpoint that lost its adapter is refused, not quietly admitted."""
+    init, init_digest = checkpoint(tmp_path, 'simple', 'epoch_012.pth')
+    stage2, stage2_digest = checkpoint(tmp_path, 'simple', 'best.pth')
+    args = args_for(stage2, init_digest)
+    assert final.checkpoint_contract(args, stage2_digest) == 'adapter'
+    with pytest.raises(ValueError, match='build_xrir_exp11'):
+        final.verify_evaluation_checkpoint(stage2, 'checkpoint', args, stage2_digest)
+
+
+def test_a_fine_tuned_adapter_evaluation_with_its_adapter_is_admitted(tmp_path):
+    init, init_digest = checkpoint(tmp_path, 'simple', 'epoch_012.pth')
+    stage2, stage2_digest = checkpoint(tmp_path, 'simple_adapter', 'best.pth')
+
+exec
+/bin/bash -lc 'git status --short && git rev-parse HEAD' in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+?? worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/codex_code_round2_close_prompt.md
+2c64a2a2c327a75eedfd0a5b408f62d9bea8e78b
+
+codex
+**Reviewer:** OpenAI Codex, GPT-6 per available metadata. The exact invocation model identifier and reasoning-effort setting are not exposed; I cannot attest to more specific values.
+
+**Environment:** Read-only repository review; authorized fixture/cache writes confined to `/tmp`; CUDA disabled; CPU concurrency ≤4; no process signals. Selected pytest runs used `-p no:cacheprovider`, disabled bytecode writes, and `PYTHONPATH` set to the worktree.
+
+**Tree:** `/home/yixunhu/codespace/xRIR_code_wt`, branch `exp11-cue`.  
+**HEAD:** `2c64a2a2c327a75eedfd0a5b408f62d9bea8e78b`.  
+**Time:** 2026-09-27, 03:54:30–04:00:16 EDT (07:54:30–08:00:16 UTC).  
+**Range:** `c8acda2..2c64a2a`, **15 commits**, not 13. The pre-existing untracked close-review prompt remained unchanged.
+
+**Verdict: request changes. Round 2 cannot be CLOSED, and `2c64a2a` should not be merged.** Three blockers remain.
+
+1. **[P1] The exp_06 reuse check hashes the default record rather than the record selected by `--approved`.**  
+   [tools/exp06_summarize_haa.py:1448](/home/yixunhu/codespace/xRIR_code_wt/tools/exp06_summarize_haa.py:1448), [tools/exp06_summarize_haa.py:2300](/home/yixunhu/codespace/xRIR_code_wt/tools/exp06_summarize_haa.py:2300)
+
+   `main()` loads `args.approved`, but `check_exp11_reused()` independently hashes `approvals_api.approved_path_default()`. Consequently, exp_11’s pin can match the default file while the summarizer consumes different committed approvals.
+
+   My temporary committed fixture demonstrated:
+
+   ```text
+   Consumed alternate exp06 SHA: a99f44f91802…
+   exp11-pinned default SHA:     eb6e58e856bd…
+   Both producer checks:        accepted
+   check_exp11_reused:           accepted
+   expected_inits['cyl_or']:     alternate record's changed checkpoint digest
+   ```
+
+   This was a gate reproduction, not a complete publication run. It establishes that the newly added binding does not enforce the identity of the consumed record.
+
+   Pass the loaded `approvals_receipt` into this check, compare its digest with `reused.approved_digests_exp06`, and bind that same consumed identity. Add a regression using an alternate committed `--approved` record with differing bytes.
+
+2. **[P2] The ceiling check fails open on integers outside Bash’s numeric range.**  
+   [tools/exp11_launch.sh:47](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:47)
+
+   Independent full dry-runs with `EXP11_FULL_CEILING_S=9223372036854775808` and a 39-digit integer returned **0**, emitted `integer expression expected`, and printed:
+
+   ```text
+   timeout --kill-after=60 9223372036854775808 …
+   ```
+
+   Both comparisons error, so the `if` condition is false and validation succeeds. Zero, empty, and ordinary over-limit values now refuse correctly, but the required `(0,129600]` contract remains incomplete.
+
+   Use bounded decimal-string validation or arbitrary-precision integer parsing, and make parsing errors refuse. Add an overflow regression.
+
+3. **[P2] Recovery validates the resolved attempt but promotes the original path’s basename.**  
+   [tools/exp11_launch.sh:65](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:65), [tools/exp11_launch.sh:345](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:345)
+
+   The original cross-arm reproduction now refuses. However, a symlink resolving to a valid direct-child attempt passes `check_attempt`, after which promotion uses the unresolved basename.
+
+   With `H-root/final -> attempt_review`, recovery through `--attempt H-root/final` returned **0** and printed:
+
+   ```text
+   ATTEMPT ok …/final arm=H profile=H_RECIPE
+   PROMOTE …/final -> final
+   ```
+
+   Real promotion would replace `final` with a self-referencing link. An external alias to the same valid attempt similarly produced a dangling target under the arm root.
+
+   Preserve the canonical resolved attempt through finalization and promotion, or reject aliases. Cover both existing-`final` and external-alias inputs.
+
+   Also, [tools/exp11_launch.sh:27](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:27) reads `EXP11_PRETRAIN_ROOT` unconditionally. “Only for tests” is currently a convention: it changes real launch roots and preflight scan roots too. Restrict this override to the intended test/dry-run context.
+
+The five original blockers were checked as follows:
+
+| Original blocker | Verification and disposition |
+|---|---|
+| **1. Adapter zero-shot admission** | **Resolved.** Base mode requires `simple_adapter` and a valid declared initialization digest equal to the evaluated checkpoint digest. It requires exactly the pinned base parameter set, with no adapter state. Other cases remain strict. `checkpoint_mode` is recorded and required in child completion. |
+| **2. Approval enforcement** | **Partially resolved.** Wrong producer, reused-record and receipt identities now refuse on the default path; the alternate exp_06 record gap above remains. |
+| **3. Diagnostic receipt identity** | **Resolved.** `git_head` is required; runner closure, HEAD and exploratory status are compared with provenance through `diagnostic_evidence`. |
+| **4. Ceiling** | **Partially resolved.** Only an unset variable defaults; empty, zero, negative, non-integer and ordinary excessive values refuse. Overflow still passes. |
+| **5. Recovery arm/profile** | **Partially resolved.** Cross-arm and wrong-profile attempts refuse before finalization/promotion; canonical-path promotion remains incorrect. |
+
+For blocker 1, the independent reproduction used the **actual historical checkpoints**, at `num_shot=8`:
+
+```text
+Parameter counts: base=266, adapter=268
+
+J: 651e3a377e110022fbd89332ff1f1c2648ef398bd83840bf369b05eb5decbedf
+   admitted, checkpoint_mode=base
+
+K: f8e640523892154fe744b60e2fe99178b68a522ee3947758812aa5a7dc15b299
+   admitted, checkpoint_mode=base
+```
+
+For both J and K, base-only evaluation payloads whose digests differed from their declared initialization were refused with the original **266-versus-268** mismatch. Tests also cover adapter state supplied in base mode, complete strict adapter checkpoints, missing initialization declarations, mode recording and job lineage. Relevant implementation: [tools/exp11_finalize.py:153](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_finalize.py:153).
+
+For blocker 2, committed temporary fixtures independently confirmed rejection of an all-zero exp_11 producer digest, incorrect exp_04/exp_06 digests, an incorrect receipt digest, and a nonexistent receipt path. Matching records passed and all three consumed identities appeared in the assembled input bindings. The existing exp_06 producer check remains active.
+
+I also executed the embedded K queue gate with controlled approval fixtures. Incorrect exp_04 and exp_06 pins refused **before** `exp04_aug_checkpoint` ran; matching pins resolved K once and passed. The approval loader was redirected to the fixture; the embedded gate and closure checks executed normally.
+
+For blocker 3, separate mutations exercised the diagnostic dispatcher: wrong runner closure, wrong HEAD, missing HEAD and contradictory exploratory status each refused; the matching control passed. Relevant implementation: [tools/exp11_finalize.py:889](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_finalize.py:889).
+
+**Process evidence is substantially improved, with one qualification.** Historical test/module replays produced:
+
+| Change | RED commit and result | GREEN commit and result |
+|---|---|---|
+| Adapter admission | `c7a4602`: 8 failed, 2 passed | `3e64f6f`: 10 passed |
+| Approval enforcement | `441db03`: 7 failed, 1 passed | `c8e6c4e`: 8 passed |
+| Receipt identity | `ddfdfad`: 5 failed, 1 passed | `eea0cca`: 6 passed |
+| Ceiling/recovery selection | `e98b490`: 9 failed, 5 passed | `72839af`: 14 passed |
+| Adapter smoke assertion | `ef0dd3a`: 1 failed | `fca7a4f`: 1 passed |
+
+These were historical changed modules/tests replayed against otherwise current dependencies, not complete historical installations.
+
+The **three recovery tests in committed RED `e98b490` fail on `NameError: json is not defined` before exercising recovery**. The import arrives in GREEN. Adding only that import in a temporary historical copy exposes the intended cross-arm and wrong-profile failures. Thus the report’s blanket claim of meaningful red-first evidence for every blocker needs qualification. The other pairs establish the expected transitions; several begin with missing-API failures.
+
+Both requested coder prompts are now tracked. All ten oversized production commits are explicitly recorded as exceptions:
+
+`769a6ef`, `b59e234`, `3458146`, `b39b7d0`, `216aef3`, `c7b1d7b`, `c0b10a9`, `8f5ff9a`, `e978c2e`, `e7cb7f4`.
+
+That disclosure is acceptable. Some reported counts mix production changes with tests/generated records; notably, `e978c2e` contains **401 production insertions**, independently exceeding the limit. The last production commit is `fca7a4f`; `58bd991` is report-only.
+
+The bundled adapter rungs **(e)/(f)** are acceptable additions: they use `simple_adapter`, the adapter-heading flag, the training checkpoint, and a passed-completion gate before evaluation. Regenerating the H golden is appropriate. Replacing `launch_finalize_I`’s nonexistent-attempt golden with the real acceptance fixture is also appropriate; [tests/test_exp11_shell.py:204](/home/yixunhu/codespace/xRIR_code_wt/tests/test_exp11_shell.py:204) checks preflight, finalization arguments and promotion.
+
+Those adapter smokes start from a **complete adapter fixture**, so they exercise strict adapter loading. They do not themselves demonstrate the base initialization path; that path has the separate admission reproductions above.
+
+**Closure hygiene passes at this tip.**
+
+- Against `9f98bbb`, exactly **one of 20 exp_06 keys** changed: `code.summarize_haa`. Its computed value is `2868e66c116752f205af1299408998b0c3fcebbfc61e26878a0f4a7ac1ff614f`.
+- The other nineteen exp_06 keys match, including the four simulated-evaluation closures: `eval`, `eval_launch`, `compare`, `mirror_probe`.
+- Frozen production files are untouched. The only modified existing production source is `tools/exp06_summarize_haa.py`; the other production additions are exp_11 modules.
+- `BACKBONES_EXP06` remains unchanged, with registry digest `f9852f8568fb62aad5ec39a955b8e254dad6b5f53bbde71c69b048efa8b3e169`.
+- `tests/test_exp09_sim_eval_closures.py` passes, including checks of the ten actual simulated-evaluation manifests.
+- Pinned exp_06/exp_09 oracle comparisons against `c6233e3` and exp_11 Phase-1 comparisons against `c491396` reproduce serialized analysis payloads and rendered summaries byte-for-byte.
+
+Current-tip selected verification totaled **165 passed, no skips**:
+
+| Selection | Result |
+|---|---:|
+| Approval enforcement, profiles, exp_11 summarizer | 96 passed |
+| Adapter zero-shot and finalizer | 31 passed |
+| Shell | 27 passed |
+| Sim-eval closures, registry, Phase-1 oracle | 11 passed |
+
+Both shells pass `bash -n`; production/test changes pass `git diff --check`. The whole-range whitespace check reports only copied prior-review Markdown whitespace and its trailing blank line. That record also contains duplicated review text.
+
+I did not rerun the full suite or signaling tests. The coder’s full-suite result remains reported evidence.
+
+The following is the **exact candidate-tree refill manifest**, independently computed at `2c64a2a`. Because this candidate requires changes, these values are **not authorization to fill approvals or merge**. Recompute them after the fixes at the actual reviewed merge.
+
+Exp_06: replace only `code.summarize_haa` with:
+
+```text
+2868e66c116752f205af1299408998b0c3fcebbfc61e26878a0f4a7ac1ff614f
+```
+
+Preserving every other byte of the current exp_06 record yields SHA-256:
+
+```text
+e19f022762dacf36128bdb073d8252982ddf5c243873fb26ba87cd4004eee7eb
+```
+
+That is the refilled-record digest used below. Reserializing the record with different whitespace requires hashing the resulting bytes again.
+
+Exp_11’s complete candidate fill is:
+
+```json
+{
+  "schema_version": 1,
+  "code": {
+    "train": "d9cbb9de8eb0ec85ac85664d9e0da7afe156e5b169bbe89096953d863cf15571",
+    "finalize": "3eb15b59b672d97ac257054e66f8bc835abd27b85e24f9a417a5a1aaa9e25b9e",
+    "haa_finetune": "bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150",
+    "haa_eval": "f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20",
+    "haa_pipeline_sh": "3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4",
+    "launch_sh": "0bdbb5d3d5c291bb2d0e10a9cb09d3ebd66c7078b28f56118e697c4eef4b44cd",
+    "smoke": "62133ba07a35d42026c19fd1484b37c6c06ace0ebedc1cdd8484690df323450e",
+    "summarize_haa": "2868e66c116752f205af1299408998b0c3fcebbfc61e26878a0f4a7ac1ff614f"
+  },
+  "reused": {
+    "approved_digests_exp04": "2e4521173bb230fc8114116ba0c94b4afd0ccdd3b0b034faaf54516461ee0314",
+    "approved_digests_exp06": "e19f022762dacf36128bdb073d8252982ddf5c243873fb26ba87cd4004eee7eb",
+    "legacy_receipt": {
+      "path": "ckpt/exp06/legacy_receipt.json",
+      "sha256": "5a12494657665d336cf5f952c6ef918abbeae44e451f28821790ac5c46232540"
+    }
+  },
+  "artifacts": {
+    "simpor_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    },
+    "simpor_yaw_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    }
+  }
+}
+```
+
+HEAD and repository status remained unchanged. No review file or repository changes were saved.
+tokens used
+97,592
+**Reviewer:** OpenAI Codex, GPT-6 per available metadata. The exact invocation model identifier and reasoning-effort setting are not exposed; I cannot attest to more specific values.
+
+**Environment:** Read-only repository review; authorized fixture/cache writes confined to `/tmp`; CUDA disabled; CPU concurrency ≤4; no process signals. Selected pytest runs used `-p no:cacheprovider`, disabled bytecode writes, and `PYTHONPATH` set to the worktree.
+
+**Tree:** `/home/yixunhu/codespace/xRIR_code_wt`, branch `exp11-cue`.  
+**HEAD:** `2c64a2a2c327a75eedfd0a5b408f62d9bea8e78b`.  
+**Time:** 2026-09-27, 03:54:30–04:00:16 EDT (07:54:30–08:00:16 UTC).  
+**Range:** `c8acda2..2c64a2a`, **15 commits**, not 13. The pre-existing untracked close-review prompt remained unchanged.
+
+**Verdict: request changes. Round 2 cannot be CLOSED, and `2c64a2a` should not be merged.** Three blockers remain.
+
+1. **[P1] The exp_06 reuse check hashes the default record rather than the record selected by `--approved`.**  
+   [tools/exp06_summarize_haa.py:1448](/home/yixunhu/codespace/xRIR_code_wt/tools/exp06_summarize_haa.py:1448), [tools/exp06_summarize_haa.py:2300](/home/yixunhu/codespace/xRIR_code_wt/tools/exp06_summarize_haa.py:2300)
+
+   `main()` loads `args.approved`, but `check_exp11_reused()` independently hashes `approvals_api.approved_path_default()`. Consequently, exp_11’s pin can match the default file while the summarizer consumes different committed approvals.
+
+   My temporary committed fixture demonstrated:
+
+   ```text
+   Consumed alternate exp06 SHA: a99f44f91802…
+   exp11-pinned default SHA:     eb6e58e856bd…
+   Both producer checks:        accepted
+   check_exp11_reused:           accepted
+   expected_inits['cyl_or']:     alternate record's changed checkpoint digest
+   ```
+
+   This was a gate reproduction, not a complete publication run. It establishes that the newly added binding does not enforce the identity of the consumed record.
+
+   Pass the loaded `approvals_receipt` into this check, compare its digest with `reused.approved_digests_exp06`, and bind that same consumed identity. Add a regression using an alternate committed `--approved` record with differing bytes.
+
+2. **[P2] The ceiling check fails open on integers outside Bash’s numeric range.**  
+   [tools/exp11_launch.sh:47](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:47)
+
+   Independent full dry-runs with `EXP11_FULL_CEILING_S=9223372036854775808` and a 39-digit integer returned **0**, emitted `integer expression expected`, and printed:
+
+   ```text
+   timeout --kill-after=60 9223372036854775808 …
+   ```
+
+   Both comparisons error, so the `if` condition is false and validation succeeds. Zero, empty, and ordinary over-limit values now refuse correctly, but the required `(0,129600]` contract remains incomplete.
+
+   Use bounded decimal-string validation or arbitrary-precision integer parsing, and make parsing errors refuse. Add an overflow regression.
+
+3. **[P2] Recovery validates the resolved attempt but promotes the original path’s basename.**  
+   [tools/exp11_launch.sh:65](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:65), [tools/exp11_launch.sh:345](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:345)
+
+   The original cross-arm reproduction now refuses. However, a symlink resolving to a valid direct-child attempt passes `check_attempt`, after which promotion uses the unresolved basename.
+
+   With `H-root/final -> attempt_review`, recovery through `--attempt H-root/final` returned **0** and printed:
+
+   ```text
+   ATTEMPT ok …/final arm=H profile=H_RECIPE
+   PROMOTE …/final -> final
+   ```
+
+   Real promotion would replace `final` with a self-referencing link. An external alias to the same valid attempt similarly produced a dangling target under the arm root.
+
+   Preserve the canonical resolved attempt through finalization and promotion, or reject aliases. Cover both existing-`final` and external-alias inputs.
+
+   Also, [tools/exp11_launch.sh:27](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:27) reads `EXP11_PRETRAIN_ROOT` unconditionally. “Only for tests” is currently a convention: it changes real launch roots and preflight scan roots too. Restrict this override to the intended test/dry-run context.
+
+The five original blockers were checked as follows:
+
+| Original blocker | Verification and disposition |
+|---|---|
+| **1. Adapter zero-shot admission** | **Resolved.** Base mode requires `simple_adapter` and a valid declared initialization digest equal to the evaluated checkpoint digest. It requires exactly the pinned base parameter set, with no adapter state. Other cases remain strict. `checkpoint_mode` is recorded and required in child completion. |
+| **2. Approval enforcement** | **Partially resolved.** Wrong producer, reused-record and receipt identities now refuse on the default path; the alternate exp_06 record gap above remains. |
+| **3. Diagnostic receipt identity** | **Resolved.** `git_head` is required; runner closure, HEAD and exploratory status are compared with provenance through `diagnostic_evidence`. |
+| **4. Ceiling** | **Partially resolved.** Only an unset variable defaults; empty, zero, negative, non-integer and ordinary excessive values refuse. Overflow still passes. |
+| **5. Recovery arm/profile** | **Partially resolved.** Cross-arm and wrong-profile attempts refuse before finalization/promotion; canonical-path promotion remains incorrect. |
+
+For blocker 1, the independent reproduction used the **actual historical checkpoints**, at `num_shot=8`:
+
+```text
+Parameter counts: base=266, adapter=268
+
+J: 651e3a377e110022fbd89332ff1f1c2648ef398bd83840bf369b05eb5decbedf
+   admitted, checkpoint_mode=base
+
+K: f8e640523892154fe744b60e2fe99178b68a522ee3947758812aa5a7dc15b299
+   admitted, checkpoint_mode=base
+```
+
+For both J and K, base-only evaluation payloads whose digests differed from their declared initialization were refused with the original **266-versus-268** mismatch. Tests also cover adapter state supplied in base mode, complete strict adapter checkpoints, missing initialization declarations, mode recording and job lineage. Relevant implementation: [tools/exp11_finalize.py:153](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_finalize.py:153).
+
+For blocker 2, committed temporary fixtures independently confirmed rejection of an all-zero exp_11 producer digest, incorrect exp_04/exp_06 digests, an incorrect receipt digest, and a nonexistent receipt path. Matching records passed and all three consumed identities appeared in the assembled input bindings. The existing exp_06 producer check remains active.
+
+I also executed the embedded K queue gate with controlled approval fixtures. Incorrect exp_04 and exp_06 pins refused **before** `exp04_aug_checkpoint` ran; matching pins resolved K once and passed. The approval loader was redirected to the fixture; the embedded gate and closure checks executed normally.
+
+For blocker 3, separate mutations exercised the diagnostic dispatcher: wrong runner closure, wrong HEAD, missing HEAD and contradictory exploratory status each refused; the matching control passed. Relevant implementation: [tools/exp11_finalize.py:889](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_finalize.py:889).
+
+**Process evidence is substantially improved, with one qualification.** Historical test/module replays produced:
+
+| Change | RED commit and result | GREEN commit and result |
+|---|---|---|
+| Adapter admission | `c7a4602`: 8 failed, 2 passed | `3e64f6f`: 10 passed |
+| Approval enforcement | `441db03`: 7 failed, 1 passed | `c8e6c4e`: 8 passed |
+| Receipt identity | `ddfdfad`: 5 failed, 1 passed | `eea0cca`: 6 passed |
+| Ceiling/recovery selection | `e98b490`: 9 failed, 5 passed | `72839af`: 14 passed |
+| Adapter smoke assertion | `ef0dd3a`: 1 failed | `fca7a4f`: 1 passed |
+
+These were historical changed modules/tests replayed against otherwise current dependencies, not complete historical installations.
+
+The **three recovery tests in committed RED `e98b490` fail on `NameError: json is not defined` before exercising recovery**. The import arrives in GREEN. Adding only that import in a temporary historical copy exposes the intended cross-arm and wrong-profile failures. Thus the report’s blanket claim of meaningful red-first evidence for every blocker needs qualification. The other pairs establish the expected transitions; several begin with missing-API failures.
+
+Both requested coder prompts are now tracked. All ten oversized production commits are explicitly recorded as exceptions:
+
+`769a6ef`, `b59e234`, `3458146`, `b39b7d0`, `216aef3`, `c7b1d7b`, `c0b10a9`, `8f5ff9a`, `e978c2e`, `e7cb7f4`.
+
+That disclosure is acceptable. Some reported counts mix production changes with tests/generated records; notably, `e978c2e` contains **401 production insertions**, independently exceeding the limit. The last production commit is `fca7a4f`; `58bd991` is report-only.
+
+The bundled adapter rungs **(e)/(f)** are acceptable additions: they use `simple_adapter`, the adapter-heading flag, the training checkpoint, and a passed-completion gate before evaluation. Regenerating the H golden is appropriate. Replacing `launch_finalize_I`’s nonexistent-attempt golden with the real acceptance fixture is also appropriate; [tests/test_exp11_shell.py:204](/home/yixunhu/codespace/xRIR_code_wt/tests/test_exp11_shell.py:204) checks preflight, finalization arguments and promotion.
+
+Those adapter smokes start from a **complete adapter fixture**, so they exercise strict adapter loading. They do not themselves demonstrate the base initialization path; that path has the separate admission reproductions above.
+
+**Closure hygiene passes at this tip.**
+
+- Against `9f98bbb`, exactly **one of 20 exp_06 keys** changed: `code.summarize_haa`. Its computed value is `2868e66c116752f205af1299408998b0c3fcebbfc61e26878a0f4a7ac1ff614f`.
+- The other nineteen exp_06 keys match, including the four simulated-evaluation closures: `eval`, `eval_launch`, `compare`, `mirror_probe`.
+- Frozen production files are untouched. The only modified existing production source is `tools/exp06_summarize_haa.py`; the other production additions are exp_11 modules.
+- `BACKBONES_EXP06` remains unchanged, with registry digest `f9852f8568fb62aad5ec39a955b8e254dad6b5f53bbde71c69b048efa8b3e169`.
+- `tests/test_exp09_sim_eval_closures.py` passes, including checks of the ten actual simulated-evaluation manifests.
+- Pinned exp_06/exp_09 oracle comparisons against `c6233e3` and exp_11 Phase-1 comparisons against `c491396` reproduce serialized analysis payloads and rendered summaries byte-for-byte.
+
+Current-tip selected verification totaled **165 passed, no skips**:
+
+| Selection | Result |
+|---|---:|
+| Approval enforcement, profiles, exp_11 summarizer | 96 passed |
+| Adapter zero-shot and finalizer | 31 passed |
+| Shell | 27 passed |
+| Sim-eval closures, registry, Phase-1 oracle | 11 passed |
+
+Both shells pass `bash -n`; production/test changes pass `git diff --check`. The whole-range whitespace check reports only copied prior-review Markdown whitespace and its trailing blank line. That record also contains duplicated review text.
+
+I did not rerun the full suite or signaling tests. The coder’s full-suite result remains reported evidence.
+
+The following is the **exact candidate-tree refill manifest**, independently computed at `2c64a2a`. Because this candidate requires changes, these values are **not authorization to fill approvals or merge**. Recompute them after the fixes at the actual reviewed merge.
+
+Exp_06: replace only `code.summarize_haa` with:
+
+```text
+2868e66c116752f205af1299408998b0c3fcebbfc61e26878a0f4a7ac1ff614f
+```
+
+Preserving every other byte of the current exp_06 record yields SHA-256:
+
+```text
+e19f022762dacf36128bdb073d8252982ddf5c243873fb26ba87cd4004eee7eb
+```
+
+That is the refilled-record digest used below. Reserializing the record with different whitespace requires hashing the resulting bytes again.
+
+Exp_11’s complete candidate fill is:
+
+```json
+{
+  "schema_version": 1,
+  "code": {
+    "train": "d9cbb9de8eb0ec85ac85664d9e0da7afe156e5b169bbe89096953d863cf15571",
+    "finalize": "3eb15b59b672d97ac257054e66f8bc835abd27b85e24f9a417a5a1aaa9e25b9e",
+    "haa_finetune": "bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150",
+    "haa_eval": "f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20",
+    "haa_pipeline_sh": "3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4",
+    "launch_sh": "0bdbb5d3d5c291bb2d0e10a9cb09d3ebd66c7078b28f56118e697c4eef4b44cd",
+    "smoke": "62133ba07a35d42026c19fd1484b37c6c06ace0ebedc1cdd8484690df323450e",
+    "summarize_haa": "2868e66c116752f205af1299408998b0c3fcebbfc61e26878a0f4a7ac1ff614f"
+  },
+  "reused": {
+    "approved_digests_exp04": "2e4521173bb230fc8114116ba0c94b4afd0ccdd3b0b034faaf54516461ee0314",
+    "approved_digests_exp06": "e19f022762dacf36128bdb073d8252982ddf5c243873fb26ba87cd4004eee7eb",
+    "legacy_receipt": {
+      "path": "ckpt/exp06/legacy_receipt.json",
+      "sha256": "5a12494657665d336cf5f952c6ef918abbeae44e451f28821790ac5c46232540"
+    }
+  },
+  "artifacts": {
+    "simpor_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    },
+    "simpor_yaw_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    }
+  }
+}
+```
+
+HEAD and repository status remained unchanged. No review file or repository changes were saved.
