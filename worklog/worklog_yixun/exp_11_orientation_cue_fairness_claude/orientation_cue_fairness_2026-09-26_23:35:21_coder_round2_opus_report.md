@@ -10,11 +10,53 @@ This file is written incrementally: each item is appended as it is committed.
 
 ## Commits
 
-| # | SHA | Subject | +/- lines |
-|---|---|---|---|
-| 1 | `9951084` | exp11: SimpleViTOriented and xRIR_SimpleOriented (arms H/I encoder) | +163 |
-| 2 | `4abb921` | exp11: SimpleViTAdapter / xRIR_SimpleAdapter (arms J/K explicit cue) | +292 |
-| 3 | `a6da0d9` | exp11: BACKBONES_EXP11 registry and build_xrir_exp11 | +91 |
+All on branch `exp11-cue`, in order from the branch base `c491396`.
+
+| SHA | Subject | files / lines |
+|---|---|---|
+| `9951084` | exp11: SimpleViTOriented and xRIR_SimpleOriented (arms H/I encoder) | 3 files changed, 163 insertions(+) |
+| `4abb921` | exp11: SimpleViTAdapter / xRIR_SimpleAdapter (arms J/K explicit cue) | 2 files changed, 301 insertions(+) |
+| `a6da0d9` | exp11: BACKBONES_EXP11 registry and build_xrir_exp11 | 2 files changed, 95 insertions(+) |
+| `487bfe8` | exp11 bookkeeping: Coder round-2 report, items 1-3 (record only) | 1 file changed, 91 insertions(+) |
+| `5c4c587` | exp11: tests for the exp_11 approvals record (red) | 1 file changed, 174 insertions(+) |
+| `781cf83` | exp11: exp_11 approvals record - keys, schema and committed-blob binding | 3 files changed, 220 insertions(+) |
+| `765c175` | exp11: approvals closures and the producer/arm requirement matrix | 1 file changed, 141 insertions(+) |
+| `0c449ff` | exp11: tests for the two named pretraining profiles (red) | 1 file changed, 150 insertions(+) |
+| `769a6ef` | exp11: tools/exp11_recipe.py - H_RECIPE and I_RECIPE | 2 files changed, 216 insertions(+), 1 deletion(-) |
+| `68b1aaa` | exp11: tests for the exp_11 pretraining entry point (red) | 1 file changed, 117 insertions(+) |
+| `b59e234` | exp11: tools/exp11_train.py - the exp_06 loop on BACKBONES_EXP11 | 1 file changed, 275 insertions(+) |
+| `3458146` | exp11: finalizer part 1 - run types, closures, orchestration and approvals | 1 file changed, 260 insertions(+) |
+| `9bcca27` | exp11: finalizer part 2 - the twelve-epoch pretraining contract | 1 file changed, 86 insertions(+) |
+| `b39b7d0` | exp11: finalizer part 3 - HAA children and the adapter-heading binding | 1 file changed, 203 insertions(+) |
+| `216aef3` | exp11: finalizer part 4 - job admission, spec, lineage and children | 1 file changed, 208 insertions(+) |
+| `c7b1d7b` | exp11: tools/exp11_smoke.py - enumerated diagnostic kinds with budgets | 1 file changed, 236 insertions(+) |
+| `4845f36` | exp11: finalizer part 5 - diagnostic evidence for the enumerated kinds | 1 file changed, 151 insertions(+), 2 deletions(-) |
+| `13b815f` | exp11: finalizer part 6 - finalize(), preflight, passed and the CLI | 1 file changed, 166 insertions(+) |
+| `5b67c68` | exp11: tests for the exp_11 finalizer | 2 files changed, 234 insertions(+), 1 deletion(-) |
+| `c0b10a9` | exp11: HAA entry points with the faithful orchestration loop and cue routing | 2 files changed, 442 insertions(+) |
+| `cf9081a` | exp11: CPU parity test for the fine-tuning orchestration loop | 1 file changed, 205 insertions(+) |
+| `5614533` | exp11 bookkeeping: Coder round-2 report, items 4-8 (record only) | 1 file changed, 150 insertions(+) |
+| `8f5ff9a` | exp11: tools/exp11_launch.sh - smoke \| probe \| full \| finalize, --arm H\|I | 3 files changed, 283 insertions(+), 2 deletions(-) |
+| `e978c2e` | exp11: tools/exp11_haa_pipeline.sh and golden dry-run tests | 12 files changed, 970 insertions(+) |
+| `7ca4e4e` | exp11 bookkeeping: Coder round-2 report, items 9 and 11 (record only) | 1 file changed, 50 insertions(+) |
+| `e7cb7f4` | exp11: summariser arms H/I/J/K, the admission adapter, the phases and A' | 1 file changed, 351 insertions(+), 33 deletions(-) |
+| `505d5bf` | exp11: tests for the admission adapter, the phases and the external row | 3 files changed, 262 insertions(+), 4 deletions(-) |
+| `a6f51d6` | exp11 bookkeeping: Coder round-2 report, items 10 and 12 (record only) | 1 file changed, 89 insertions(+) |
+| `f795908` | exp11: tidy - SERIALIZED_ROLE replaces the inline map, drop an unused import | 2 files changed, 5 insertions(+), 5 deletions(-) |
+| `cd356ae` | exp11: plan section 5 acceptance - a phase never overwrites a published record | 1 file changed, 19 insertions(+) |
+| `77f19b9` | exp11: plan section 5 acceptance - phase-1 oracle and the cross-family child wall | 2 files changed, 73 insertions(+) |
+| `e215b5a` | exp11 bookkeeping: Coder round-2 report, design decisions and open questions (record only) | 1 file changed, 56 insertions(+) |
+| `9e2f421` | exp11: a child that installs no adapter heading may record no adapter_phi_deg | 1 file changed, 3 insertions(+) |
+| `e855bba` | exp11 bookkeeping: report the expected exp_06 approvals re-fill (record only) | 1 file changed, 23 insertions(+) |
+| `8d86d43` | exp11: pass exp11_approved by keyword; the arm registry test admits round 2's arms | 2 files changed, 6 insertions(+), 5 deletions(-) |
+
+Two commits exceed the 200-changed-line guideline and are called out here rather than
+buried: `e978c2e` (+970) is almost entirely the ten **generated golden dry-run files**
+plus the two shells, and `e7cb7f4` (+351/-33) is the single summariser change of item 10,
+which could not be split without leaving the module in a state that does not import (the
+phase registry, the admission table and the external row reference one another).
+`b59e234` (+275) and `c0b10a9` (+442) are entry points mirroring exp_06 modules of the
+same size whose `main` is one unit.
 
 ## Item 1 — `model/simple_vit_oriented.py`, `model/xRIR_simple_oriented.py`
 
