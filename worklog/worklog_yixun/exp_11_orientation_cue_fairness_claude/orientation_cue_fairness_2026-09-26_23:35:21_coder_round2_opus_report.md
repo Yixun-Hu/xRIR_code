@@ -89,3 +89,153 @@ tensor equal under the prefix remap). Nothing downstream of `source_network` dif
 every completed exp_06/exp_09 child) against `exp06_finalize`, `exp06_train` and
 `exp06_haa_finetune`, assert the inherited routes are the *same class objects* (`is`) and
 that models built through either factory produce bit-identical encoder outputs.
+
+## Item 4 — `tools/exp11_profiles.py` (+ the all-null approvals record)
+
+Commits `781cf83` (schema and binding, 154 lines) and `765c175` (closures and matrix).
+
+Eight code keys: `train`, `finalize`, `haa_finetune`, `haa_eval`, `haa_pipeline_sh`,
+`launch_sh`, `smoke`, `summarize_haa`. The two shell orchestrators have no Python import
+closure and are bound as files alone (`(None, ('tools/exp11_launch.sh',))`), which is
+Codex round-2 change 5's `launch_sh` requirement. `summarize_haa` points at
+`tools.exp06_summarize_haa` — the one shared producer — so exp_11 pins the closure **it**
+runs rather than reusing exp_06's pin.
+
+`reused` = `approved_digests_exp04`, `approved_digests_exp06` (sha256 of those records)
+and `legacy_receipt` (`{path, sha256}` of `ckpt/exp06/legacy_receipt.json`).
+`artifacts` = `simpor_epoch_012`, `simpor_yaw_epoch_012`, each `{epoch, path, sha256}`.
+
+**Committed-blob binding** mirrors exp_06 exactly: `load_approved_digests(path, repo,
+commit)` refuses bytes that differ from the blob committed at that commit and refuses a
+path outside the repository, and `approvals_at_commit` parses a private copy of a child's
+own reviewed blob (so re-filling the approvals for a later producer never invalidates an
+already certified child). `tools/exp06_profiles.py` is imported **read-only** for
+`committed_bytes` and the test asserts both exp_06 approvals modules are byte-identical
+to their committed blobs.
+
+**Requirement matrix** (`PRODUCER_REQUIREMENTS` / `PRODUCER_OUTPUTS` / `PRODUCER_CODE_KEYS`):
+
+| producer | requires | produces |
+|---|---|---|
+| `pretrain_simple_or`, `pretrain_simple_or_yaw` | `code.{train,finalize,launch_sh,smoke}` | its own `artifacts.simpor*` |
+| `haa_control_adapter`, `haa_yawaug_adapter` | the HAA code keys + all `reused` | — |
+| `haa_simple_or` | the above + `artifacts.simpor_epoch_012` | — |
+| `haa_simple_or_yaw` | the above + `artifacts.simpor_yaw_epoch_012` | — |
+| `summarize_phase1b` | `code.summarize_haa` + HAA code keys + `reused` | — |
+| `summarize_final` | every code, reused and artifact leaf | — |
+
+A parametrised test asserts no producer requires its own output; another asserts the
+adapter queues, both pretrainings and the phase-1b summary all pass on a record whose
+**both** H/I pins are null, that `haa_simple_or` passes with only H's pin filled, and
+that `summarize_final` names exactly the missing arm leaf.
+
+## Item 5 — `tools/exp11_recipe.py` (commit `769a6ef`)
+
+One shared `NUMERICAL` recipe (exp_01's: lr 1e-3, wd 1e-4, decay 3, gamma 0.1, 12 epochs,
+batch 32 × accum 2, seed 0, TF32, 512/12/8/512) and two profiles:
+
+* `H_RECIPE` — `yaw_aug 0`, `save_every 500`, `epoch_ckpt_every 1`; `yaw_aug_seed`/
+  `yaw_aug_width` recorded but **inert** (integers only).
+* `I_RECIPE` — exp_04's: `yaw_aug 1`, `yaw_aug_seed 0`, `yaw_aug_width 512`,
+  `save_every 0`, `resume None`, plus `check_counter` enforcing
+  `epochs × batches < 2**20`.
+
+The profile is chosen by `select_profile(args)` from the run's **own** record (backbone +
+`yaw_aug`), never from a caller's claim, and `check_all` additionally refuses an
+`exp11_profile` field that disagrees with that selection — so a mixture (I's augmentation
+with H's saving cadence, or the reverse) is a named deviation. A test reads the real
+`ckpt/xRIR_simple_8_shot/args.json` and `ckpt/xRIR_simple_yawaug_8_shot/final/args.json`
+and asserts each profile agrees with the historical record it is taken from. Derived
+parameter counts come from `build_xrir_exp11`; `strict_equal`, `compare_sources` and
+`check_budget` are imported from the unedited `tools/exp06_recipe.py`.
+
+## Item 6 — `tools/exp11_train.py` (commits `68b1aaa`, `b59e234`)
+
+exp_06's training entry point on `BACKBONES_EXP11`. The pinned trainer's
+`seed_everything`/`seed_worker`/`train_epoch`/`test_epoch`/`save_checkpoint` and exp_06's
+`resolve_data_root`/`data_identity`/`geometry_identity`/`heldout_wav_identity` are
+imported unchanged. `--yaw-aug` accepts 0 **and** 1 and re-applies exp_04's post-conditions
+(`--save-every 0`, no `--resume`, the 2**20 counter bound, re-checked once the loader
+length is known). `prepare_args` records six `exp11_*` fields including
+`exp11_profile`, refuses a capacity outside tier M and deletes the launcher-only flags, so
+`args.json` holds exactly the trainer's fields plus exp_11's provenance class. Note: 275
+lines in one commit — the module is a single entry point mirroring `tools/exp06_train.py`
+(382 lines) and its `main` is one loop, so it was not split.
+
+## Item 7 — `tools/exp11_finalize.py` (six commits, 1 072 lines)
+
+`tools/exp06_finalize.py` is **imported, never monkeypatched**: log closing, exit
+receipts, liveness, identity schemas, `haa_history`, `haa_metrics`, `child_identity`,
+`rehash_bound_evidence`, `check_job_identity`, `expected_children`, `job_log`,
+`write_completion`, `confined`, the GPU census and `child-exit` all come from it. exp_11
+re-owns exactly the functions that read exp_06's module globals.
+
+**Serialized run types vs semantic roles** (Codex change 4): `--run-type` takes
+`exp11_train | exp11_smoke | exp11_haa_finetune | exp11_haa_eval | exp11_haa_job`; the HAA
+children record `exp11_haa_train` / `exp11_haa_eval` in their own `provenance.json`, so
+neither finalizer's CLI or validators accept the other's children (tested both ways).
+`child_role` maps a path's semantic role (`stage1`, `eval/<room>`) onto exp_11's run type.
+
+**Heading binding.** `heading_records(args, field, rooms, repo)` is exp_06's per-room
+validator with the record field as a parameter. `frame_binding` is fail-closed:
+heading-frame children may install no adapter; only the `simple_adapter` backbone may bind
+an `adapter_heading`; **all bound records must declare the same `phi_deg`** and
+`adapter_phi_deg` must equal it. Tested against the four real confirmatory records in
+`ckpt/exp06/heading` and the live HAA cache, plus a stubbed mixed cohort (all four real
+records declare −90, so a genuine mix cannot be constructed).
+
+**Completion contract** — enumerated in full in the module docstring and identical to
+exp_06's: child exit 0, a closed log with the end marker, the exit receipt binding those
+bytes, a stale-log re-hash, three-way closure agreement, input revalidation, approvals
+committed at the child's reviewed commit, the recipe schema on all three argument copies,
+epochs 1–12 exactly once with finite history, `epoch_012.pth` equal to `last.pth["model"]`
+in keys/dtypes/shapes/values, artifact hashes, and (for HAA) validation-based selection,
+`summary.json` agreement, full test indices via the summariser, protocol meta and job
+completeness.
+
+**Diagnostics.** The receipt names its `kind`; the kind decides the entry, the provenance
+run type, the ceiling a receipt may claim and the artifact contract inside
+`ckpt/exp11/_smoke`. `diagnostic: true` and `admissible_arm: false` are required of both
+the receipt and the diagnostic provenance.
+
+## Item 11 (partial) — `tools/exp11_smoke.py`
+
+Three enumerated kinds with explicit budgets and artifact contracts: `probe`
+(`tools.exp11_train`, 900 s, 40 GiB, `--no-save` enforced), `haa_train_smoke`
+(1800 s, 40 GiB, the stage files) and `haa_eval_smoke` (1800 s, 40 GiB, the room files).
+A caller may tighten a budget but never loosen it. The bounded machinery (budget check,
+peak allocation, watchdog, publication) is imported from the pinned `tools/exp06_smoke.py`.
+`--make-fixture` writes a CPU `simple_oriented`/`simple_adapter` state dict, because the
+exp_01 checkpoints cannot load into the five-channel patch embedding.
+
+## Item 8 — `tools/exp11_haa_finetune.py`, `tools/exp11_haa_eval.py` + parity test
+
+`fine_tune()` is exp_06's embedded loop transcribed step for step, with the **pinned
+numerical helpers as the module-level defaults** of its keyword arguments
+(`train_xRIR_backbone.compute_loss`, `sim_to_real.finetune_haa.evaluate`, `torch.save`,
+`ExponentialLR`) — a test asserts the defaults **are** those objects, so production never
+runs a substitute.
+
+**Parity-test design.** Neither loop can run end-to-end on CPU (`xRIR.forward` and exp_06's
+`main` call `.cuda()` unconditionally), and monkeypatching exp_06's module globals is
+forbidden. So the test carries `reference_loop`, a line-for-line transcription of exp_06's
+`main` epoch loop with only the device moves and record writing removed, runs both loops
+on one tiny synthetic problem (a `Linear(4,1)`, three batches, `accum_steps 2` so the
+accumulation boundary and the last-batch step both fire) with a scripted validation
+sequence `(5, 4, 4, 6, 3)` that exercises improvement, a **tie** (not an improvement), a
+rise and a final-epoch best, and compares: every `history.jsonl` row, the evaluate-call
+trace, the summary fields and the **sha256 of `best.pth` and `last.pth`**. The source
+digest of exp_06's `main` (`88973e01…`) is pinned, so a change to the old loop fails the
+parity guard instead of letting the transcription drift.
+
+`select_frame` returns `(frame, k_by_room, heading, adapter_heading, adapter_phi_deg)` and
+is fail-closed: never both cues; `simple_oriented`/`cylindrical_oriented` require
+`--heading-json-dir`; `simple_adapter` requires `--adapter-heading-json-dir`; a cohort whose
+records declare different headings is refused. `load_init` picks between the two strict
+loading modes by what the checkpoint carries (`base` for an exp_01/exp_04 init, `adapter`
+for a later stage), and records which mode it used.
+
+`tools/exp11_haa_eval.py` **imports** exp_06's `evaluate_room`, `room_summary` and
+`write_room_outputs` unchanged — the published numbers come from the very code exp_06 and
+exp_09 published theirs from — and owns only the parser, the records and the per-sample
+`meta` (which adds `adapter_heading`, `adapter_phi_deg` and `exp11_source_closure_sha256`).
