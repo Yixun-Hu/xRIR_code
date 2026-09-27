@@ -1190,3 +1190,73 @@ def test_the_figure_footers_never_overlap_each_other_or_the_panels(tmp_path):
 
         for figure in figures:
             plt.close(figure)
+
+
+# ------ round 3, finding 3: one grey band per arm is not one band, so a shared legend
+#        may not name one arm's model for all of them
+
+def test_the_combined_legend_names_no_model_and_each_row_names_its_own_band(tmp_path):
+    cyl = _fixture_run(tmp_path, "cyl", n=8, ks=(0, 128),
+                       meta_overrides={"arm": "cyl_k8", "backbone": "cylindrical"})
+    simple = _fixture_run(tmp_path, "simple", n=8, ks=(0, 128),
+                          protocol_overrides={"checkpoint_sha256": "d" * 64},
+                          meta_overrides={"arm": "simple_k8", "backbone": "simple"})
+    summary = summarize.build_summary([cyl, simple], n_boot=50)
+
+    figure = summarize.make_combined_figure(summary, str(tmp_path / "combined.png"))
+    try:
+        labels = [text.get_text() for legend in figure.legends
+                  for text in legend.get_texts()]
+        bands = [label for label in labels if "historical baseline" in label]
+        assert bands == [summarize.BAND_LEGEND_LABEL]
+        assert "SimpleViT" not in " ".join(labels)
+        assert "CylindricalViT" not in " ".join(labels)
+
+        rows = [ax.get_ylabel() for ax in figure.axes if ax.get_ylabel()]
+        cyl_row = next(label for label in rows if label.startswith("cyl_k8"))
+        simple_row = next(label for label in rows if label.startswith("simple_k8"))
+        assert "CylindricalViT" in cyl_row and "SimpleViT" not in cyl_row
+        assert "SimpleViT" in simple_row and "CylindricalViT" not in simple_row
+    finally:
+        import matplotlib.pyplot as plt
+
+        plt.close(figure)
+
+    # A one-arm figure has nothing to confuse: its legend keeps naming the model.
+    single = summarize.make_figure(summary, "cyl_k8", str(tmp_path / "single.png"))
+    try:
+        labels = [text.get_text() for legend in single.legends
+                  for text in legend.get_texts()]
+        assert any("CylindricalViT" in label for label in labels), labels
+    finally:
+        import matplotlib.pyplot as plt
+
+        plt.close(single)
+
+
+def test_an_arm_without_a_context_band_says_nothing_about_one(tmp_path):
+    """A K = 1 cylindrical arm has no historical SD: its row must not borrow another's."""
+    cyl_k1 = _fixture_run(tmp_path, "cyl_k1", n=8, ks=(0, 128),
+                          protocol_overrides={"num_shot": 1},
+                          meta_overrides={"arm": "cyl_k1", "backbone": "cylindrical",
+                                          "num_shot": 1})
+    simple = _fixture_run(tmp_path, "simple_k1", n=8, ks=(0, 128),
+                          protocol_overrides={"num_shot": 1,
+                                              "checkpoint_sha256": "d" * 64},
+                          meta_overrides={"arm": "simple_k1", "backbone": "simple",
+                                          "num_shot": 1})
+    summary = summarize.build_summary([cyl_k1, simple], n_boot=50)
+    assert summarize.band_source(summary["arms"][0]["meta"]) is None
+    assert summarize.band_source(summary["arms"][1]["meta"]) == "SimpleViT, exp_04"
+
+    figure = summarize.make_combined_figure(summary, str(tmp_path / "k1.png"))
+    try:
+        rows = [ax.get_ylabel() for ax in figure.axes if ax.get_ylabel()]
+        cyl_row = next(label for label in rows if label.startswith("cyl_k1"))
+        assert "band" not in cyl_row
+        simple_row = next(label for label in rows if label.startswith("simple_k1"))
+        assert "SimpleViT, exp_04" in simple_row
+    finally:
+        import matplotlib.pyplot as plt
+
+        plt.close(figure)

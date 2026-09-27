@@ -701,6 +701,11 @@ BAND_SOURCE = {("simple", 8): "SimpleViT, exp_04", ("simple", 1): "SimpleViT, ex
                ("cylindrical", 8): "CylindricalViT, exp_04"}
 BAND_LABEL = ("historical baseline evaluation variability "
               "(references and phases redrawn), context only")
+#: How the band is named in the legend of a figure that carries several arms.  Each arm's
+#: band is the same *kind* of quantity but not the same numbers, so one shared entry
+#: cannot name a model: the legend says what the grey band is and each row says which
+#: model its own band came from (see :func:`make_combined_figure`).
+BAND_LEGEND_LABEL = "historical baseline evaluation variability, context only"
 COLOR_DEGRADATION = "#0072B2"   # Okabe-Ito blue
 COLOR_SHIFT = "#E69F00"         # Okabe-Ito orange
 #: Short codes for the R2 status, printed under each angle so a bar is never read as a
@@ -759,6 +764,19 @@ def band_label(meta):
     if source is None or _band_key(meta) not in HISTORICAL_BAND:
         return None
     return "historical baseline evaluation variability ({}), context only".format(source)
+
+
+def band_source(meta):
+    """Which historical model this arm's context band describes (``None`` when it has none).
+
+    The long label is what a single-arm figure and the tables print; a figure that stacks
+    several arms needs the model on its own, to set beside that arm's row while the shared
+    legend stays model-free.
+    """
+    key = _band_key(meta)
+    if key not in HISTORICAL_BAND:
+        return None
+    return BAND_SOURCE.get(key)
 
 
 def build_summary(run_dirs, n_boot=N_BOOT, alpha=ALPHA, seeds=SEEDS):
@@ -987,8 +1005,26 @@ def _panel(ax, rows, metric, band, annotate_n=True, band_label=BAND_LABEL):
     return handles
 
 
+def _legend_handles(handles, drawn):
+    """Accumulate one legend handle per distinct label, in the order the panels drew them.
+
+    Keeping the *first panel's* handles instead would drop the band whenever the leftmost
+    panel happens to have none, and -- on a multi-arm figure -- would label every arm's
+    band with the first arm's (round-2 review, finding 3).
+    """
+    labels = [handle.get_label() for handle in handles]
+    for handle in drawn or ():
+        if handle.get_label() not in labels:
+            handles.append(handle)
+            labels.append(handle.get_label())
+    return handles
+
+
 def make_figure(summary, arm_name, path):
-    """The FLAC-style four-panel figure for one arm (T60, C50, EDT, GL-free shift)."""
+    """The FLAC-style four-panel figure for one arm (T60, C50, EDT, GL-free shift).
+
+    One arm means one band, so the legend names the model it came from.
+    """
     plt = _pyplot()
     rows = [row for row in figure_data(summary) if row["arm"] == arm_name]
     if not rows:
@@ -1001,7 +1037,7 @@ def make_figure(summary, arm_name, path):
     for ax, metric in zip(axes, FIGURE_PANELS):
         band = next((row["band"] for row in rows if row["metric"] == metric), None)
         drawn = _panel(ax, rows, metric, band, band_label=label)
-        handles = handles or drawn
+        handles = _legend_handles(handles, drawn)
     figure.suptitle("exp_10 yaw pilot -- {}".format(arm_name), fontsize=10)
     _figure_legend(figure, handles)
     figure.savefig(path, dpi=300, bbox_inches="tight")
@@ -1067,27 +1103,36 @@ def _figure_legend(figure, handles):
 
 
 def make_combined_figure(summary, path):
-    """One row of panels per arm, so the arms can be read against each other."""
+    """One row of panels per arm, so the arms can be read against each other.
+
+    Every row's grey band is the same *kind* of quantity but not the same numbers -- a
+    cylindrical arm's band is CylindricalViT's five-seed SD, a SimpleViT arm's is
+    SimpleViT's -- so the one shared legend entry names no model and each row carries the
+    model its own band came from beside it.  Naming the first arm's model in the legend
+    labelled every row with it (round-2 review, finding 3).
+    """
     plt = _pyplot()
     rows = figure_data(summary)
-    arms = [arm["arm"] for arm in summary["arms"]]
     plt.rcParams.update({"font.size": 8, "axes.linewidth": 0.6})
-    figure, axes = plt.subplots(len(arms), len(FIGURE_PANELS),
-                                figsize=(11.0, 3.0 * len(arms)), squeeze=False,
-                                constrained_layout=True)
+    figure, axes = plt.subplots(len(summary["arms"]), len(FIGURE_PANELS),
+                                figsize=(11.0, 3.0 * len(summary["arms"])),
+                                squeeze=False, constrained_layout=True)
     handles = []
-    for row_index, arm in enumerate(arms):
+    for row_index, entry in enumerate(summary["arms"]):
+        arm = entry["arm"]
         arm_rows = [row for row in rows if row["arm"] == arm]
-        label = next((row["band_label"] for row in arm_rows if row["band_label"]),
-                     BAND_LABEL)
+        source = band_source(entry["meta"])
         for column, metric in enumerate(FIGURE_PANELS):
             band = next((row["band"] for row in arm_rows if row["metric"] == metric),
                         None)
             ax = axes[row_index][column]
-            drawn = _panel(ax, arm_rows, metric, band, band_label=label)
-            handles = handles or drawn
+            drawn = _panel(ax, arm_rows, metric, band, band_label=BAND_LEGEND_LABEL)
+            handles = _legend_handles(handles, drawn)
             if column == 0:
-                ax.set_ylabel("{}\n{}".format(arm, ax.get_ylabel()), fontsize=7)
+                parts = [arm, ax.get_ylabel()]
+                if source is not None:
+                    parts.append("band: {}".format(source))
+                ax.set_ylabel("\n".join(parts), fontsize=7)
             if row_index:
                 ax.set_title("")
     _figure_legend(figure, handles)
