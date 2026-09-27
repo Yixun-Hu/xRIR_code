@@ -524,3 +524,38 @@ def make_chain_repo(root, assets_src):
     subprocess.check_call(["git", "-C", root, "add", "-A"], env=env)
     subprocess.check_call(["git", "-C", root, "commit", "-q", "-m", "scratch"], env=env)
     return built
+
+
+STUB_ARM_CHAIN = '''#!/bin/bash
+# Stand-in for exp10_arm_chain.sh in the queue-script tests: records its argv and exits with
+# the status the test asked for (EXP10_STUB_RC_<arm>).
+echo "STUB CHAIN $*"
+if [ -n "${EXP10_STUB_CHAIN_LOG:-}" ]; then echo "$*" >> "$EXP10_STUB_CHAIN_LOG"; fi
+eval "rc=\\${EXP10_STUB_RC_$1:-0}"
+echo "stub chain for $1 exiting $rc"
+exit "$rc"
+'''
+
+FAKE_NVIDIA_SMI = '''#!/bin/bash
+# A GPU with plenty of free memory, so the queue's resource guard is not what a test measures.
+echo 40000
+'''
+
+
+def make_queue_repo(root, assets_src):
+    """A scratch repository for the queue wrappers: the real queues, a stub arm chain.
+
+    Returns:
+        ``{"root", "assets", "scripts", "record", "bin"}`` — ``bin`` holds a fake ``nvidia-smi``.
+    """
+    built = make_scratch_repo(root, assets_src, arms=(), cpu=False)
+    with open(os.path.join(built["scripts"], "exp10_arm_chain.sh"), "w") as fout:
+        fout.write(STUB_ARM_CHAIN)
+    os.chmod(os.path.join(built["scripts"], "exp10_arm_chain.sh"), 0o755)
+    bin_dir = os.path.join(root, "fakebin")
+    os.makedirs(bin_dir)
+    with open(os.path.join(bin_dir, "nvidia-smi"), "w") as fout:
+        fout.write(FAKE_NVIDIA_SMI)
+    os.chmod(os.path.join(bin_dir, "nvidia-smi"), 0o755)
+    built["bin"] = bin_dir
+    return built

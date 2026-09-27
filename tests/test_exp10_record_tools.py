@@ -1072,3 +1072,64 @@ def test_chain_refuses_when_a_tool_changes_between_the_probe_and_the_full_stage(
     assert "ARM DONE" not in out(done)
     assert not os.path.exists(run_path(chain, "control_k8_all"))
     assert "exp10_yaw_pilot.py" in out(done)
+
+
+# --------------------------------------------------------------------------------------
+# Finding 13 -- the queue wrappers must not hide a child's failure.
+# --------------------------------------------------------------------------------------
+
+@pytest.fixture
+def queue(tmp_path):
+    root = str(tmp_path / "repo")
+    os.makedirs(root)
+    return fx.make_queue_repo(root, ASSETS)
+
+
+def run_script(queue, name, args=(), env=None):
+    e = dict(os.environ)
+    e.update({"EXP10_REPO_ROOT": queue["root"],
+              "PATH": queue["bin"] + os.pathsep + os.environ.get("PATH", ""),
+              "EXP10_STUB_CHAIN_LOG": os.path.join(queue["root"], "chain_calls.txt")})
+    e.update(env or {})
+    return subprocess.run(["bash", os.path.join(queue["scripts"], name)] + [str(a) for a in args],
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=e, cwd=queue["root"])
+
+
+def test_queue_exits_zero_when_every_arm_succeeds(queue):
+    done = run_script(queue, "exp10_gpu_queue.sh", ["1"])
+    assert done.returncode == 0, out(done)
+    assert "QUEUE DONE" in out(done)
+    calls = open(os.path.join(queue["root"], "chain_calls.txt")).read()
+    for arm in ("released_k1", "control_k8", "cyl_k8"):
+        assert arm in calls
+
+
+def test_queue_runs_every_arm_but_exits_nonzero_when_one_fails(queue):
+    """Finding 13: the queue returned success after all its mocked arms had failed."""
+    done = run_script(queue, "exp10_gpu_queue.sh", ["1"], env={"EXP10_STUB_RC_control_k8": "7"})
+    assert done.returncode != 0
+    assert "QUEUE DONE" in out(done)               # the remaining arms still ran
+    calls = open(os.path.join(queue["root"], "chain_calls.txt")).read()
+    assert "cyl_k8" in calls
+    assert "failure" in out(done).lower()
+
+
+def test_queue_exits_nonzero_when_all_arms_fail(queue):
+    done = run_script(queue, "exp10_gpu_queue.sh", ["1"],
+                      env={"EXP10_STUB_RC_released_k1": "3", "EXP10_STUB_RC_control_k8": "3",
+                           "EXP10_STUB_RC_cyl_k8": "3"})
+    assert done.returncode != 0
+
+
+def test_after_queue_wrapper_preserves_the_chain_status(queue):
+    """Finding 13: the wrapper logged the failure and returned success."""
+    qlog = os.path.join(queue["root"], "queue.log")
+    with open(qlog, "w") as fout:
+        fout.write("[00:00:00] QUEUE DONE (arms attempted 3, failures 0)\n")
+    ok = run_script(queue, "exp10_released_k1_after_queue.sh", ["1", qlog])
+    assert ok.returncode == 0, out(ok)
+    assert "RELEASED_K1_EXIT=0" in open(qlog).read()
+    bad = run_script(queue, "exp10_released_k1_after_queue.sh", ["1", qlog],
+                     env={"EXP10_STUB_RC_released_k1": "5"})
+    assert bad.returncode == 5
+    assert "RELEASED_K1_EXIT=5" in open(qlog).read()
