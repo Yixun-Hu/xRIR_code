@@ -21,7 +21,10 @@
 #     published yet* and marked complete only then, because `started` used to precede the
 #     report copies: a `cp` that failed half-way left a truncated backup whose existence
 #     restore() took for proof of completeness, so it deleted the intact published report and
-#     installed the truncation (finding 1).
+#     installed the truncation (finding 1). And a rollback, once entered, always deals with
+#     all three artefacts, with TERM / INT / HUP ignored for its whole duration, because
+#     SIGTERM inside an explicit rollback used to leave old assets + new HTML + old Markdown
+#     (finding 2).
 #
 # Every validation report is bound by the run directory it names, with no exception: the
 # relocation alias this script used to pass for the CPU record accepted the GPU arm's
@@ -71,6 +74,14 @@ REPORTS="yaw_pilot_01_results.html yaw_pilot_results.md"
 # state went to `started` first, and the mere existence of a truncated backup was taken for
 # proof of completeness). The markers are files under `$PREVR`, never inside `$PREV`, whose
 # contents become the published asset set again the moment it is restored.
+#
+# And a rollback, once entered, runs to its end: TERM / INT / HUP are ignored for its whole
+# duration — on every entry path, the explicit restore() after a failed publication as much as
+# the trap-driven one — and the state becomes `rolled_back` only after the last of the three
+# artefacts (round-6 review, finding 2: an explicit rollback marked itself done first and kept
+# the handlers armed, so SIGTERM during it left three generations mixed). A signal delivered
+# inside a rollback is therefore discarded, not queued, and the status reports what actually
+# triggered the rollback: the failure's own code, or 128 + the signal that arrived first.
 PUB_STATE=idle                         # idle | started | committed | rolled_back
 PRE_G=0                                # did the asset directory exist before this run?
 declare -A PRE_REPORT=()               # ... and each of the two reports?
@@ -79,7 +90,7 @@ restore() {   # <what failed> — put all three artefacts back exactly as they w
   # Nothing here hides why an operation failed: whatever `rm` / `mv` print is the diagnosis
   # for the KEPT list below, so it is left on stderr rather than discarded.
   local what=$1 restored="" kept="" pre f
-  PUB_STATE=rolled_back
+  trap '' HUP INT TERM                           # a rollback is never cut in half (finding 2)
   if [ -d "$PREV" ] && [ -f "$PREVR/generated$DONE" ]; then   # a whole copy of the old set
     rm -rf "$G" || true
     if [ ! -e "$G" ] && mv "$PREV" "$G"; then restored="$restored $G"
@@ -105,6 +116,7 @@ restore() {   # <what failed> — put all three artefacts back exactly as they w
       else kept="$kept $E/$f (this run created it and it could not be removed)"; fi
     fi
   done
+  PUB_STATE=rolled_back                          # all three are dealt with (finding 2)
   if [ -z "$kept" ]; then
     rm -rf "$PREVR" || true
     say "REFUSED: publishing $what failed; restored:$restored"

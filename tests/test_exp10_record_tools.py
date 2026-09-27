@@ -1543,6 +1543,29 @@ def test_finish_keeps_the_publication_when_it_is_terminated_while_backing_it_up(
     assert_generated_untouched(scratch)
 
 
+def test_finish_completes_the_rollback_when_it_is_terminated_during_it(scratch):
+    """Round-6 finding 2: the explicit rollback marked itself ``rolled_back`` before it had put
+    anything back and left TERM / INT / HUP armed, so SIGTERM during the asset restoration
+    exited 143 with the old assets, the *new* HTML page and the old Markdown -- three
+    generations mixed -- while the EXIT trap, seeing ``rolled_back``, did no more."""
+    before = publication_snapshot(scratch)
+    env = shim(scratch, "mv", '"$1"', [
+        ("*/.finish_tmp.*/yaw_pilot_results.md",        # the last publication fails ...
+         'echo "simulated mv I/O error on $1" >&2\n    exit 43'),
+        ("*/generated.previous.*",                      # ... and a signal arrives inside the
+         'echo "the test terminates the script inside the rollback" >&2\n'
+         '    kill -TERM "$PPID"')])                    # rollback; the rename still happens
+    done = run_finish(scratch, env=env)
+    # A failure triggered this rollback, so the failure's status is what is reported: TERM was
+    # ignored (SIG_IGN) for the whole rollback, so the signal is discarded rather than queued.
+    assert done.returncode == 9, out(done)
+    assert "FINISH DONE" not in out(done)
+    assert "restored" in out(done)
+    assert "could NOT be put back" not in out(done)
+    assert publication_snapshot(scratch) == before      # all three artefacts, byte for byte
+    assert_generated_untouched(scratch)                 # ... and the backups are then removed
+
+
 def test_finish_leaves_the_published_assets_alone_when_a_stage_fails(scratch):
     """Finding 2: a failed stage used to leave stale destination contents certified."""
     done = run_finish(scratch, env={"STUB_FAIL_ON_CPU": "1"})
