@@ -181,4 +181,9 @@ exp_11's approvals record remains all-null and every exp_11 producer refuses tod
 * **Full CPU suite** — run detached at `5fcb17c` (the same tree as the last code commit
   `d255d28`; `5fcb17c` adds only this report) to
   `orientation_cue_fairness_2026-09-27_13:15_suite_full_cpu_5fcb17c.log` in this record.
-  FIX8_SUITE_RESULT
+  **1 failed, 3714 passed, 55 skipped** in 3474 s (57:53). The one
+  failure is the standing, expected
+  `tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes`:
+  `code.summarize_haa` has moved and the record is re-filled at the reviewed merge, as
+  round 1 did with `9f98bbb`, not on this branch. Fix 7 was 3701 passed; the 13 new
+  passes are this cycle's regressions. Nothing else regressed.
