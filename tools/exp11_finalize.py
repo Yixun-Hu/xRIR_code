@@ -102,8 +102,10 @@ ENTRY_MODULES = {'exp11_train': 'tools.exp11_train',
                  'exp11_haa_eval': 'tools.exp11_haa_eval',
                  'exp11_smoke': exp11_smoke.RUNNER}
 HAA_CODE_KEY = {'exp11_haa_finetune': 'haa_finetune', 'exp11_haa_eval': 'haa_eval'}
-# The semantic role each serialized type plays in the protocol checks.
-ROLE_OF = {'exp11_haa_finetune': 'haa_train', 'exp11_haa_eval': 'haa_eval'}
+# The exp_11 run type each *semantic* role serialises to. The protocol checks keep using
+# the path-derived semantic roles ('haa_train'/'haa_eval'); only the recorded run type
+# and the validator are exp_11's (Codex round-2 change 4).
+SERIALIZED_ROLE = {'haa_train': 'exp11_haa_finetune', 'haa_eval': 'exp11_haa_eval'}
 FRAMES = ('room', 'heading')
 HEADING_FIELDS = ('heading', 'adapter_heading')
 WIDTH = 512
@@ -561,8 +563,7 @@ EVIDENCE_OF = {'exp11_haa_finetune': haa_train_evidence, 'exp11_haa_eval': haa_e
 
 def child_role(name):
     """The exp_11 run type this finalizer requires at one child path of a pipeline seed."""
-    return {'haa_train': 'exp11_haa_finetune',
-            'haa_eval': 'exp11_haa_eval'}[base.child_role(name)]
+    return SERIALIZED_ROLE[base.child_role(name)]
 
 
 def child_completion(path, name, role):
