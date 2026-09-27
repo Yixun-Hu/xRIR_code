@@ -1,0 +1,6 @@
+EXP11_LAUNCH mode=finalize arm=I gpu=1 commit=cccccccccccccccccccccccccccccccccccccccc root=ckpt/exp11/pretrain/xRIR_simpor_yawaug_8_shot stamp=<UTC> dry_run=1
+ENV CUDA_VISIBLE_DEVICES=1 PYTHONHASHSEED=0 OMP_NUM_THREADS=8 XRIR_DATA_PATH=<HOME>/data_cache/AcousticRooms
+RUN <PYTHON> tools/exp11_finalize.py preflight --mode finalize --gpu 1 --reviewed-commit cccccccccccccccccccccccccccccccccccccccc --attempt-root ckpt/exp11/pretrain/xRIR_simpor_8_shot --attempt-root ckpt/exp11/pretrain/xRIR_simpor_yawaug_8_shot --attempt-root ckpt/exp11/_smoke --approved worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_results_assets/approved_digests.json
+ABORT ckpt/exp11/pretrain/xRIR_simpor_yawaug_8_shot/attempt_X_ABORTED_finalize_refused
+RUN <PYTHON> tools/exp11_finalize.py --run-dir ckpt/exp11/pretrain/xRIR_simpor_yawaug_8_shot/attempt_X --run-type exp11_train --log L.log --child-exit 0
+PROMOTE ckpt/exp11/pretrain/xRIR_simpor_yawaug_8_shot/final -> attempt_X
