@@ -1222,13 +1222,14 @@ def test_a_dependency_that_contradicts_an_earlier_binding_is_refused(real_job, c
 
 
 def test_the_arm_registry_carries_arm_e_and_the_experiment_that_produced_it():
-    assert tuple(subject.ARMS) == ('control', 'cyl', 'cyl_or', 'control_hf', 'cyl_hf',
-                                   'yawaug', 'yawaug_hf')
-    assert subject.NEW_ARMS == ('cyl_or', 'control_hf', 'cyl_hf', 'yawaug', 'yawaug_hf')
+    """The historical registry, in order and unchanged; exp_11's round-2 arms follow it."""
+    historical = ('control', 'cyl', 'cyl_or', 'control_hf', 'cyl_hf', 'yawaug', 'yawaug_hf')
+    assert tuple(subject.ARMS)[:len(historical)] == historical
+    assert subject.NEW_ARMS[:5] == ('cyl_or', 'control_hf', 'cyl_hf', 'yawaug', 'yawaug_hf')
     arm = subject.ARMS['yawaug']
     assert (arm['label'], arm['backbone'], arm['frame']) == ('E', 'simple', 'room')
     assert arm['root'] == 'ckpt/exp09/sim2real/yawaug' and arm['init_sha256'] is None
-    assert [subject.ARMS[name]['experiment'] for name in subject.NEW_ARMS] == [
+    assert [subject.ARMS[name]['experiment'] for name in subject.NEW_ARMS[:5]] == [
         'exp06', 'exp06', 'exp06', 'exp09', 'exp11']
 
 

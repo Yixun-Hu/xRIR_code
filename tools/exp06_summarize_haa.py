@@ -2239,7 +2239,7 @@ def main(argv=None):
     for arm in new_arms:
         arms[arm] = load_new_arm(roots, arm, inits.get(arm), REPO,
                                  None if args.exploratory else approved, args.sensitivity,
-                                 exp11_approved)
+                                 exp11_approved=exp11_approved)
         deviations = deviations + list(arms[arm].get('recipe_deviations') or ())
     result = analyse(arms, args.n_boot, args.n_boot_adjusted, args.cache_root,
                      args.exploratory, receipt, args.legacy_receipt, approved, deviations,
