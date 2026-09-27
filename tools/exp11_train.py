@@ -184,10 +184,53 @@ def provenance_fields(argv, run_type, identity=None, repo=REPO, approved=None,
                 command=list(argv))
 
 
+def register_trainer(save_dir):
+    """Name this process in its own run directory, before anything else can fail.
+
+    The launcher's ``child.pid`` is written by the frozen lifecycle only *after* it has
+    forked this process, so a launcher that dies in between leaves a trainer nothing in
+    the arm can see (close review 7, blocker 2). This file is the trainer's own answer:
+    it exists from the first moment there is a process to name. The directory is never
+    created here -- a run with nothing to write into has nothing to register.
+    """
+    directory = Path(save_dir)
+    if not directory.is_dir():
+        return None
+    path = directory / 'train.pid'
+    path.write_text('{} {}\n'.format(os.getpid(), time.time()))
+    return path
+
+
+def record_trainer_exit(path, code):
+    """Say how this trainer left, on every path it controls."""
+    if path is None:
+        return
+    try:
+        with open(str(path.parent / 'train.exit'), 'a') as stream:
+            stream.write('train.exit {}\n'.format(code))
+    except OSError:                       # a vanished run directory is not the trainer's
+        pass                              # problem to report; the scan reads the pid file
+
+
 def main(argv=None):
+    """Register, run, and record how it ended -- whatever ends it."""
+    args = parse_args(argv)
+    registration = register_trainer(args.save_dir)
+    code = 0
+    try:
+        run(list(sys.argv[1:] if argv is None else argv), check_admission(args))
+    except SystemExit as exit_request:
+        code = exit_request.code if isinstance(exit_request.code, int) else 1
+        raise
+    except BaseException:
+        code = 'exception'
+        raise
+    finally:
+        record_trainer_exit(registration, code)
+
+
+def run(command, args):
     """The trainer's main, step for step, with the exp_11 registry and provenance."""
-    command = list(sys.argv[1:] if argv is None else argv)
-    args = check_admission(parse_args(argv))
     trainer.seed_everything(args.seed)
     torch.backends.cuda.matmul.allow_tf32 = args.tf32
     torch.backends.cudnn.allow_tf32 = args.tf32
