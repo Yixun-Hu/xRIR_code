@@ -24,7 +24,7 @@ export PYTHONPATH="$PWD"
 RECORD=worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude
 APPROVED_DEFAULT="$RECORD/orientation_cue_fairness_results_assets/approved_digests.json"
 SMOKE_DIR=ckpt/exp11/_smoke
-PRETRAIN_ROOT=ckpt/exp11/pretrain
+PRETRAIN_ROOT="${EXP11_PRETRAIN_ROOT:-ckpt/exp11/pretrain}"
 SIMPOR_ROOT="$PRETRAIN_ROOT/xRIR_simpor_8_shot"          # arm H
 SIMPOR_YAW_ROOT="$PRETRAIN_ROOT/xRIR_simpor_yawaug_8_shot"   # arm I
 HEADING_DIR="${EXP06_HEADING_DIR:-ckpt/exp06/heading}"
@@ -32,8 +32,54 @@ SMOKE_FLAGS="--epochs 1 --max-train-batches 3 --max-test-batches 2 --batch-size 
 SMOKE_ALARM_S="${EXP11_SMOKE_ALARM_S:-300}"
 SMOKE_MAX_GB="${EXP11_SMOKE_MAX_GB:-6}"
 # Plan section 7 reserves 36 h per pretraining; the child runs under that hard ceiling, so
-# a stalled attempt fails and is aborted instead of holding the card indefinitely.
-FULL_CEILING_S="${EXP11_FULL_CEILING_S:-129600}"
+# a stalled attempt fails and is aborted instead of holding the card indefinitely. The
+# value goes straight to GNU timeout, where 0 means "no timeout", so an override is
+# validated before anything starts and may only TIGHTEN the registered ceiling.
+FULL_CEILING_MAX=129600
+FULL_CEILING_S="${EXP11_FULL_CEILING_S-$FULL_CEILING_MAX}"
+
+check_ceiling() {
+    case "$FULL_CEILING_S" in
+        ''|*[!0-9]*)
+            echo "refusing: EXP11_FULL_CEILING_S must be a positive whole number of" \
+                 "seconds, not '$FULL_CEILING_S'" >&2; return 1 ;;
+    esac
+    if [ "$FULL_CEILING_S" -le 0 ] || [ "$FULL_CEILING_S" -gt "$FULL_CEILING_MAX" ]; then
+        echo "refusing: EXP11_FULL_CEILING_S $FULL_CEILING_S is not in (0," \
+             "$FULL_CEILING_MAX]; an override may only tighten the 36 h ceiling" >&2
+        return 1
+    fi
+}
+
+# check_attempt <attempt> <root> <arm>: recovery may promote only this arm's own attempt.
+# The basename is linked under the root --arm selects, so an attempt of the other arm
+# would leave a dangling or wrong `final`; the directory AND the profile its recorded
+# arguments select must both be the selected arm's.
+CHECK_ATTEMPT_PY='
+import json, sys
+from pathlib import Path
+from tools import exp11_recipe
+attempt, root, arm = sys.argv[1:4]
+expected = {"H": "H_RECIPE", "I": "I_RECIPE"}[arm]
+try:
+    directory, base = Path(attempt).resolve(), Path(root).resolve()
+    if directory.parent != base:
+        raise ValueError("attempt {} is not an attempt of the arm {} root {}".format(
+            directory, arm, base))
+    args = json.loads((directory / "args.json").read_text())
+    profile = exp11_recipe.select_profile(args)
+    if profile != expected:
+        raise ValueError("attempt {} recorded the profile {}, not the {} of arm {}".format(
+            directory, profile, expected, arm))
+except (OSError, ValueError, KeyError) as error:
+    raise SystemExit("refusing: " + str(error))
+print("ATTEMPT ok {} arm={} profile={}".format(attempt, arm, expected))
+'
+
+check_attempt() {  # check_attempt <attempt>
+    say "ATTEMPTCHECK $1 arm=$ARM root=$ARM_ROOT"
+    CUDA_VISIBLE_DEVICES="" "$PYTHON" -c "$CHECK_ATTEMPT_PY" "$1" "$ARM_ROOT" "$ARM"
+}
 ARM=""
 ARM_BACKBONE=simple_oriented
 ARM_YAW=0
@@ -156,6 +202,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$GPU" ] && [ -n "$COMMIT" ] || usage
 arm_of "$ARM" || exit 2
+check_ceiling || exit 2
 [ "$MODE" != finalize ] || { [ -n "$ATTEMPT" ] && [ -n "$LOG" ] && [ -n "$CHILD_EXIT" ]; } || usage
 
 if [ "$DRY" -eq 1 ]; then STAMP='<UTC>'; else STAMP="$(date -u +%Y%m%dT%H%M%S)"; fi
@@ -267,6 +314,7 @@ smoke)
     ;;
 finalize)
     preflight   # recovery is gated by the same reviewed commit, clean tree and pid checks
+    check_attempt "$ATTEMPT" || exit 2
     [ "$DRY" -eq 0 ] || abort "$ATTEMPT" "$LOG" finalize_refused
     if ! finalize "$ATTEMPT" "$LOG" "$CHILD_EXIT" exp11_train; then
         abort "$ATTEMPT" "$LOG" finalize_refused

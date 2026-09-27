@@ -5,6 +5,7 @@ Every argv the two shells would issue is frozen in
 files in the same commit; an accidental one -- a flag, a path, a run type, a cue -- fails
 here. The refusals (unknown init, malformed job, unknown arm) are checked directly.
 """
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -27,10 +28,6 @@ CASES = {
                                 '--reviewed-commit', COMMIT, '--dry-run'],
     'launch_smoke_H': LAUNCH + ['smoke', '--arm', 'H', '--gpu', '1',
                                 '--reviewed-commit', COMMIT, '--dry-run'],
-    'launch_finalize_I': LAUNCH + ['finalize', '--arm', 'I', '--gpu', '1',
-                                   '--reviewed-commit', COMMIT, '--attempt',
-                                   'ckpt/exp11/pretrain/xRIR_simpor_yawaug_8_shot/attempt_X',
-                                   '--log', 'L.log', '--child-exit', '0', '--dry-run'],
     'pipeline_simple_or_seed0': PIPELINE + ['1', 'simple_or:0', '--dry-run'],
     'pipeline_simple_or_yaw_seed1': PIPELINE + ['1', 'simple_or_yaw:1', '--dry-run'],
     'pipeline_control_adapter_seed2': PIPELINE + ['1', 'control_adapter:2', '--dry-run'],
@@ -198,7 +195,17 @@ def test_recovery_refuses_an_attempt_whose_profile_is_not_the_arms(tmp_path):
 
 
 def test_recovery_accepts_the_arms_own_attempt(tmp_path):
+    """The accepted path also pins the recovery argv the golden set no longer carries.
+
+    ``launch_finalize_I`` left the golden set when this check began running in dry-run:
+    a golden of a *nonexistent* attempt would now be a golden of a refusal. The argv it
+    used to pin is asserted here instead, on an attempt that really is arm I's.
+    """
     attempt = attempt_with('xRIR_simpor_yawaug_8_shot', 'I', 'I_RECIPE', tmp_path)
     status, out, err = recovery(attempt, 'I', tmp_path)
     assert status == 0, err[-600:]
-    assert 'PROMOTE' in out and str(attempt.name) in out
+    assert 'ATTEMPT ok {} arm=I profile=I_RECIPE'.format(attempt) in out
+    assert ('tools/exp11_finalize.py --run-dir {} --run-type exp11_train --log L.log '
+            '--child-exit 0'.format(attempt)) in out
+    assert 'preflight --mode finalize' in out
+    assert 'PROMOTE {}/final -> {}'.format(attempt.parent, attempt.name) in out
