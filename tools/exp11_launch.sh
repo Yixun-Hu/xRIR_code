@@ -269,6 +269,18 @@ pid_alive() {  # pid_alive <file>: the first field of <file> names a living proc
     kill -0 "$pid" 2>/dev/null
 }
 
+# registration_complete <attempt>: child.pid exists AND its whole content is a pid.
+# The shell creates that file by redirection before the pid reaches it, so existence
+# alone proves nothing; what makes a launch *registered* is a number to look for. Whether
+# that number is still alive is a separate question, asked by pid_alive.
+registration_complete() {
+    local text=""
+    [ -f "$1/child.pid" ] || return 1
+    text="$(tr -d '\n' < "$1/child.pid" 2>/dev/null || true)"
+    case "$text" in ''|*[!0-9]*) return 1 ;; esac
+    return 0
+}
+
 # scan_arm <arm root> [<attempt being resolved>]: 0 when every attempt of the arm is
 # finished and accounted for. SCAN_REASON names the first one that is not.
 scan_arm() {
@@ -284,9 +296,10 @@ scan_arm() {
         if pid_alive "$attempt/train.pid"; then
             SCAN_REASON="$name has a live trainer (train.pid)"; return 1; fi
         [ "$attempt" != "$resolving" ] || continue
-        if [ -f "$attempt/launching" ] && [ ! -f "$attempt/child.pid" ]; then
+        if [ -f "$attempt/launching" ] && ! registration_complete "$attempt"; then
             SCAN_REASON="$name has an unresolved launch: a launching marker and no"\
-" child.pid, so a trainer of it may be running without having registered. Resolve it"\
+" complete child.pid, so a trainer of it may be running without having registered."\
+" Resolve it"\
 " with --resolve-unregistered $attempt once nothing of the arm is alive and the marker"\
 " is older than ${UNRESOLVED_GRACE_S}s"
             return 1; fi
@@ -314,7 +327,7 @@ mark_launching() {  # mark_launching <attempt>
 }
 
 clear_launching() {  # clear_launching <attempt>: only once the child really is recorded
-    [ -f "$1/child.pid" ] || return 0
+    registration_complete "$1" || return 0
     rm -f -- "$1/launching"
 }
 
@@ -327,10 +340,11 @@ resolve_unregistered() {
     [ -f "$attempt/launching" ] || {
         echo "refusing: $attempt has no launching marker; nothing is unresolved" >&2
         return 1; }
-    [ ! -f "$attempt/child.pid" ] || {
+    if registration_complete "$attempt"; then
         echo "refusing: $attempt recorded a child; it is a finished or running launch," \
              "not an unresolved one" >&2
-        return 1; }
+        return 1
+    fi
     scan_arm "$ARM_ROOT" "$attempt" || {
         echo "refusing: $SCAN_REASON" >&2; return 1; }
     now="$(date -u +%s)"
