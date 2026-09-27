@@ -168,7 +168,20 @@ stays all-null and every exp_11 producer refuses today.
   rendered summaries byte for byte.
 * `bash -n` on both shells, `py_compile` on every exp_11 module and test, and
   `git diff --check 86b1a46..HEAD`: clean.
-* **Full CPU suite** — FULL_SUITE_PLACEHOLDER
+* **Full CPU suite** — **1 failed, 3683 passed, 55 skipped** in 3042 s (50:42), run on the
+  frozen fix-6 tree at `94efbc2`. The one failure is the standing, expected
+  `tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes`:
+  `code.summarize_haa` has moved and the record is re-filled at the reviewed merge, as
+  round 1 did with `9f98bbb`, not on this branch.
+
+  The Planner's independent run at the same commit
+  (`orientation_cue_fairness_2026-09-27_10:59_suite_full_cpu_94efbc2.log`, 3277 s) reports
+  **2 failed, 3682 passed, 55 skipped**. Its second failure,
+  `tests/test_exp11_shell.py::test_the_lock_file_is_a_file_and_the_launcher_knows_no_stale_lock`,
+  is an artefact of overlap, not of `94efbc2`: that test reads `tools/exp11_launch.sh` from
+  disk when it runs, and fix cycle 7 was rewriting that file in the same worktree while the
+  run was in flight. Nothing else in the suite reads production files at call time, which is
+  why it is the only difference between the two runs.
 
 ## Report corrections carried over
 
