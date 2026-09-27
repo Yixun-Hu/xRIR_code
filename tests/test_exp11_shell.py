@@ -945,6 +945,62 @@ def test_the_scan_ignores_a_tombstone(tmp_path):
     assert 'PROMOTE' in out
 
 
+def test_a_trainer_that_wakes_after_the_resolution_trains_nothing(tmp_path):
+    """The whole path, end to end, with the trainer's own registration in the stub.
+
+    The launcher dies before ``child.pid``; the trainer has not woken yet, so nothing
+    names it. The operator waits out the grace and resolves the launch. Only then does
+    the trainer start -- and it must find its directory gone, refuse with exit 3,
+    create nothing, and leave the arm open for the next launch.
+    """
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    root = old.parent
+    gate = tmp_path / 'wake-the-trainer'
+    attempt = root / 'attempt_20260927T777777'
+    # Double quotes inside: the whole stub travels through a single-quoted shell word.
+    stub = ('import os, sys, time; sys.path.insert(0, "{repo}");'
+            'from tools.exp11_train import register_trainer;'
+            '[time.sleep(0.05) for _ in iter(lambda: os.path.exists("{gate}"), True)];'
+            'register_trainer("{attempt}"); time.sleep(20)').format(
+                repo=str(REPO), gate=str(gate), attempt=str(attempt))
+    script = ('ARM_ROOT={root}\nDRY=0\nARM=H\n'
+              'hold_arm_lock full || exit 2\n'
+              'attempt={attempt}\nmkdir -p -- "$attempt"\n'
+              'own_launch "$attempt"\nmark_launching "$attempt"\n'
+              'log="$attempt/child.log"\n: > "$log"\n'
+              'pipe="$attempt/child.pipe"\nmkfifo -m 600 -- "$pipe"\n'
+              'cat >> "$log" < "$pipe" &\n'
+              'nohup setsid {python} -c \'{stub}\' > "$pipe" 2>&1 &\n'
+              'handler="$(trap -p TERM | sed -n "s/^trap -- \'\\(.*\\)\' SIGTERM$/\\1/p")"\n'
+              'eval "$handler"\n').format(root=root, attempt=attempt,
+                                           python=PYTHON, stub=stub)
+    status, out, err = detached_lib(script, tmp_path, {'EXP11_TEST_ROOTS': '1'})
+    assert status == 143, out[-300:] + err[-300:]
+    assert not (attempt / 'child.pid').exists() and not (attempt / 'train.pid').exists()
+
+    assert recovery(old, 'H', tmp_path)[0] == 2, 'the arm is closed by the marker'
+    old_enough = time.time() - 10_000                       # age the marker past a grace
+    os.utime(str(attempt / 'launching'), (old_enough, old_enough))
+    result = resolve(attempt, grace='3600')
+    assert result.returncode == 0, result.stderr[-500:]
+    assert (root / (attempt.name + '.resolved')).is_file()
+
+    gate.touch()                                            # only now does it wake
+    log = root / (attempt.name + '_ABORTED_unregistered/child.log')
+    for _ in range(400):
+        if 'refusing' in log.read_text():
+            break
+        time.sleep(0.05)
+    assert 'refusing' in log.read_text(), (
+        'the trainer ran on instead of failing closed: {!r}'.format(log.read_text()))
+    assert 'resolved' in log.read_text()
+    assert not attempt.exists(), 'a refused trainer may not recreate its attempt'
+    assert not (root / (attempt.name + '_ABORTED_unregistered/train.pid')).exists()
+    status, out, err = recovery(old, 'H', tmp_path)          # the arm is open again
+    assert status == 0, err[-500:]
+    assert 'PROMOTE' in out
+
+
 def pid_of(pidfile):
     """The pid in a registration file, if it still names a living process."""
     try:
