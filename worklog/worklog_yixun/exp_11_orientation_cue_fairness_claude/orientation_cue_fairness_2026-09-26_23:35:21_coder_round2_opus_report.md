@@ -289,3 +289,92 @@ the root `_ABORTED_prepare_<reason>` only when this attempt created it.
 Golden dry runs (`orientation_cue_fairness_results_assets/golden/`) freeze every argv for
 both shells: the launcher's four modes and both arms, each pipeline init at a seed, a
 zero-shot set, and a three-job mixed queue (asserted to run one census per job).
+
+## Item 10 — `tools/exp06_summarize_haa.py` (the only exp_06 file this round touches)
+
+**Arms.** `simple_or` (H) and `simple_or_yaw` (I) — `simple_oriented`, heading frame,
+`cue: 'planes'`; `control_adapter` (J) and `yawaug_adapter` (K) — `simple_adapter`, **room**
+frame, `cue: 'adapter'`. All four carry `'admission': 'exp11'` and roots
+`ckpt/exp11/sim2real/<init>`. `EXP04_AUG_ARMS` gains K (its init is exp_04's approved
+`checkpoints.aug`); J's init is the `exp04_profiles.CONTROL` literal, as `control_hf`'s is.
+
+**Admission adapter shape.** A module-level `ADMISSION` table maps each family to
+`{finalizer, job_run_type, extra_job_fields}`, and `arm_admission(arm)` picks it from the
+arm's own `'admission'` key (default `exp06`, so every historical arm is untouched, G
+included). The dispatch covers all four calls Codex named:
+
+* `job_completion` requires the arm's own **serialized** run type (`haa_job` vs
+  `exp11_haa_job`) and the extra job fields (`adapter_heading`, `adapter_phi_deg`) of
+  exp_11's families;
+* `verify_job` calls `validators.load_job_spec`, `validators.verify_child` and
+  `validators.job_lineage` where `validators = admission['finalizer']`;
+* the **semantic** role used by `child_protocol`, `child_recipe`, `arm_closures` and
+  `ROLE_CODE_KEY` stays exp_06's path-derived `haa_train`/`haa_eval` for both families —
+  the serialized/semantic distinction Codex asked for.
+
+`check_arm_identities` now reads **each arm's own** approvals for the `code` keys (exp_06's
+record for historical arms, exp_11's for H/I/J/K) while the heading records stay checked
+against exp_06's `artifacts.heading` for every arm that binds one, because those records
+are exp_06's approved artefacts whoever consumes them. No historical key is replaced or
+disabled.
+
+**Adapter-heading admission.** `child_per_sample` permits `adapter_heading` /
+`adapter_phi_deg` **only** for arms registered with `cue == 'adapter'`, requires the rolls
+to be the registered `HEADING_K` with a json identity per room, requires
+`adapter_phi_deg` to be finite and to equal the single heading the bound records declare,
+and refuses an adapter cue on any other arm — while the historical room-frame rejection of
+a frame `heading` stands unchanged for A, B and E. `arm_adapter_headings` then requires one
+record per room and **one installed heading across every child of the arm**.
+
+**Phases.** `EXPERIMENTS` gains `exp11_phase1b` (arms A–G + J, K; Q1–Q4; screen families
+J−A, C−J, K−E, C−K; outputs `ckpt/exp11/phase1b/…`) and `exp11_final` (all eleven arms;
+N1, N1i, N2, N3, Q1–Q4, P3, P3′, P1, P2, P4, P4′ — fourteen statements; thirteen screen
+families; outputs `ckpt/exp11/{stats.json,summary.txt}`). `--phase {phase1,phase1b,final}`
+selects one through `experiment_key`, `--experiment` keeps its three public names, and
+`check_output_paths` now also stops a phase from writing another phase's canonical record.
+exp_06, exp_09 and exp_11 phase 1 publish exactly what they always did: `external` is only
+set where a config declares it, and `exp11_approved_digests` only where exp_11's approvals
+were actually read.
+
+**A′.** `external_rows` copies exp_02's `released|fine-tuned|<room>|<metric>` means and sd
+from `ckpt/sim2real/stats.json` through `historical_source` (which re-verifies the
+sibling `summary.txt` against the record's own `summary_sha256`), recording the source
+path, its sha256 and the per-cell selector, with `paired: False` and
+`inference: 'none (external reference row)'`. It is not in `ARMS`, so no decision, screen
+or interval can read it.
+
+**exp_11's approvals in the summariser.** `exp11_approvals(...)` reads exp_11's record
+only when the selected configuration actually carries an exp_11-admitted arm, binds it to
+the blob committed at the reviewed commit, and runs the producer matrix for that phase
+(`summarize_phase1b` / `summarize_final`).
+
+## Item 12 — static checks, digests and the suite
+
+`bash -n` on both shells, `py_compile` on every new module and test, `git diff --check`:
+all clean; the tree is clean outside `worklog/`.
+
+**exp_06 code digests recomputed at this branch's HEAD** — exactly **one** key moved
+against the record re-filled at `9f98bbb`, as the round-2 scope allows:
+
+| key | approved at 9f98bbb | now |
+|---|---|---|
+| `summarize_haa` | `645e74c03e20…` | `eb15923411b0…` |
+
+The other nineteen exp_06 keys are unchanged.
+
+**exp_11 code digests at HEAD** (all eight keys present in this checkout):
+
+| key | digest |
+|---|---|
+| `train` | `25b93f6477931fef65cd06a9669d788518434bf62969d51249340867195f8af6` |
+| `finalize` | `454643d516a9c4b39a80080420b80093b61339320136f160a582f4ea8c6cb1ec` |
+| `haa_finetune` | `bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150` |
+| `haa_eval` | `ee768244a25c0a2bdd64512b1aaad599952e74464d9f54aa5d29a50b1dba901a` |
+| `haa_pipeline_sh` | `26f26de1ff32b50da3d9cd00bf991c8f420f734ae9a846fc63dcbb16f18ea5f7` |
+| `launch_sh` | `5e950c224e212c6f932a2068ad2083be8ceb2792c09cca546e762154b5a6d9ab` |
+| `smoke` | `ceb65408aa2bbc971692c84e5aaf6ae9640a6ebf85f68629efd2ef9f0139279a` |
+| `summarize_haa` | `eb15923411b0b8cb23b7e754d46a8541e4b5a584b17526d44dd5501f1513ed07` |
+
+These are the values a reviewer fills into
+`orientation_cue_fairness_results_assets/approved_digests.json` at the **second** reviewed
+commit; the committed record is still all-null, so every exp_11 producer refuses today.
