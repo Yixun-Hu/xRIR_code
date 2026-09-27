@@ -71,7 +71,7 @@ def test_code_keys_are_exactly_the_eight_the_plan_registers():
     # holder that owns the arm's publication lock; all three files are bound.
     assert profiles.CODE_SPECS['launch_sh'] == (
         None, ('tools/exp11_launch.sh', 'tools/exp06_launch.sh',
-               'tools/exp11_lock_holder.py'))
+               'tools/exp11_lock_holder.py', 'tools/exp11_pidrecord.py'))
     assert profiles.CODE_SPECS['haa_pipeline_sh'] == (None, ('tools/exp11_haa_pipeline.sh',))
     assert profiles.CODE_SPECS['summarize_haa'] == ('tools.exp06_summarize_haa', ())
 

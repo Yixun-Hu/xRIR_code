@@ -47,9 +47,12 @@ CODE_SPECS = MP({
     'haa_eval': ('tools.exp11_haa_eval', ()),
     'haa_pipeline_sh': (None, ('tools/exp11_haa_pipeline.sh',)),
     # The launcher sources the pinned exp_06 lifecycle library, so both files are
-    # bound: what decides an exp_11 launch is the pair, not the new file alone.
+    # bound: what decides an exp_11 launch is the pair, not the new file alone. A shell
+    # has no imports for the closure walker to follow, so the helpers it runs as
+    # subprocesses are listed here too -- the lock holder that owns the arm's
+    # publication lock, and the reader that decides what every pid file in the arm means.
     'launch_sh': (None, ('tools/exp11_launch.sh', 'tools/exp06_launch.sh',
-                         'tools/exp11_lock_holder.py')),
+                         'tools/exp11_lock_holder.py', 'tools/exp11_pidrecord.py')),
     'smoke': ('tools.exp11_smoke', ()),
     # The summariser is the one shared producer; exp_11 pins the closure it runs itself.
     'summarize_haa': ('tools.exp06_summarize_haa', ()),
