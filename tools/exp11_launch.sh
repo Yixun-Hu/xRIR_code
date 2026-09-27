@@ -197,7 +197,8 @@ promote() {  # promote <attempt basename>: atomic, so `final` never points at no
 # held by a HOLDER PROCESS whose life is leased to this launcher's -- it exits as soon as
 # its parent changes -- so **the lock vanishes within a second of this launcher's exit or
 # death**, on every path including a signal and SIGKILL, and is never inherited by the
-# trainer or the log sink. `-n` refuses immediately rather than waiting.
+# trainer or the log sink. The attempt is non-blocking: it refuses at once,
+# never waits.
 LOCK_FILE=""
 HOLDER_PID=""
 
@@ -236,10 +237,16 @@ hold_arm_lock() {  # hold_arm_lock <mode>
 
 # drop_arm_lock: end our own holder, so the ordinary path releases at once instead of
 # waiting out the lease. Every other path -- a signal, a crash, a kill -9 -- is covered
-# by the lease itself, which is why this needs no error handling of its own.
+# by the lease itself, which is why this needs no error handling of its own. A recorded
+# pid is not a licence to signal it: if that holder is already gone the number belongs to
+# whoever the kernel gave it to next, so nothing is sent unless the process is still this
+# shell's child.
 drop_arm_lock() {
     [ -n "$HOLDER_PID" ] || return 0
-    kill -TERM "$HOLDER_PID" 2>/dev/null || true
+    local parent=""
+    parent="$(sed -n 's/^.*) [A-Za-z] \([0-9][0-9]*\).*/\1/p' \
+              "/proc/$HOLDER_PID/stat" 2>/dev/null || true)"
+    [ "$parent" = "$$" ] && { kill -TERM "$HOLDER_PID" 2>/dev/null || true; }
     wait "$HOLDER_PID" 2>/dev/null || true
     HOLDER_PID=""
 }
