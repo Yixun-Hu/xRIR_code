@@ -67,6 +67,40 @@ _ARTIFACT = MP({key: tuple('artifacts.{}.{}'.format(key, leaf) for leaf in ARTIF
                 for key in ARTIFACT_KEYS})
 
 
+def _haa(arm):
+    """One HAA queue's leaves: its entry points, the reused pins, and its own init."""
+    artifact = ARM_ARTIFACT[arm]
+    return (tuple('code.' + key for key in HAA_KEYS) + _REUSED
+            + (_ARTIFACT[artifact] if artifact else ()))
+
+
+# The matrix. Each producer requires the listed leaves and never its own outputs.
+PRODUCER_REQUIREMENTS = MP({
+    'pretrain_simple_or': tuple('code.' + key for key in TRAINING_KEYS),
+    'pretrain_simple_or_yaw': tuple('code.' + key for key in TRAINING_KEYS),
+    'haa_control_adapter': _haa('control_adapter'),
+    'haa_yawaug_adapter': _haa('yawaug_adapter'),
+    'haa_simple_or': _haa('simple_or'),
+    'haa_simple_or_yaw': _haa('simple_or_yaw'),
+    'summarize_phase1b': ('code.summarize_haa',) + tuple('code.' + k for k in HAA_KEYS) + _REUSED,
+    'summarize_final': _CODE + _REUSED + _ARTIFACT['simpor_epoch_012']
+                       + _ARTIFACT['simpor_yaw_epoch_012'],
+})
+PRODUCER_OUTPUTS = MP({
+    'pretrain_simple_or': _ARTIFACT['simpor_epoch_012'],
+    'pretrain_simple_or_yaw': _ARTIFACT['simpor_yaw_epoch_012'],
+    'haa_control_adapter': (), 'haa_yawaug_adapter': (),
+    'haa_simple_or': (), 'haa_simple_or_yaw': (),
+    'summarize_phase1b': (), 'summarize_final': (),
+})
+PRODUCER_CODE_KEYS = MP({
+    'pretrain_simple_or': TRAINING_KEYS, 'pretrain_simple_or_yaw': TRAINING_KEYS,
+    'haa_control_adapter': HAA_KEYS, 'haa_yawaug_adapter': HAA_KEYS,
+    'haa_simple_or': HAA_KEYS, 'haa_simple_or_yaw': HAA_KEYS,
+    'summarize_phase1b': ('summarize_haa',), 'summarize_final': ('summarize_haa',),
+})
+
+
 def _require(ok, cause):
     if not ok:
         raise ValueError(cause)
@@ -152,3 +186,110 @@ def approvals_at_commit(path, repo, commit):
         approved, _ = load_approved_digests(copy)
     return approved, {'path': str(path), 'repo_relative': relative,
                       'sha256': hashlib.sha256(blob).hexdigest(), 'committed_at': commit}
+
+
+@functools.lru_cache(maxsize=None)
+def _paths_of(name, repo):
+    """The file list one key's digest is taken over; a missing module is reported."""
+    module, extra = CODE_SPECS[name]
+    files = list(provenance.source_closure(module, repo)) if module else []
+    return tuple(files) + tuple(extra)
+
+
+@functools.lru_cache(maxsize=None)
+def _closure_of(name, repo, commit, stamp):
+    return provenance.closure_record(list(_paths_of(name, repo)), commit, repo)
+
+
+def _stamp(files, repo):
+    """Stat validation of the cache: a file edited mid-process invalidates its answer."""
+    return tuple((name, (Path(repo) / name).stat().st_size,
+                  (Path(repo) / name).stat().st_mtime_ns) for name in files)
+
+
+def closure_of(name, repo, commit):
+    """``(file records, digest)`` for one code key: what a producer records at spawn."""
+    _require(name in CODE_SPECS, 'unknown approval key: {!r}'.format(name))
+    repo = str(Path(repo).resolve())
+    files = _paths_of(name, repo)
+    records, digest = _closure_of(name, repo, commit, _stamp(files, repo))
+    return [dict(record) for record in records], digest
+
+
+def code_digest(name, repo, commit):
+    """The approved identity of one code key at one reviewed commit."""
+    return closure_of(name, repo, commit)[1]
+
+
+def present_keys(repo=REPO):
+    """The keys whose module and shell files exist in this checkout."""
+    repo, names = Path(repo), []
+    for name, (module, extra) in CODE_SPECS.items():
+        relative = (module.replace('.', '/') + '.py') if module else None
+        if relative is not None and not (repo / relative).is_file():
+            continue
+        if any(not (repo / path).is_file() for path in extra):
+            continue
+        names.append(name)
+    return tuple(names)
+
+
+def compute_code_digests(repo=REPO, commit=None, keys=None, notes=None):
+    """Recompute ``{key: digest}`` for every requested key that exists in this checkout."""
+    repo = Path(repo).resolve()
+    commit = provenance.git_state(repo)['HEAD'] if commit is None else commit
+    available = set(present_keys(repo))
+    digests = {}
+    for name in (CODE_KEYS if keys is None else keys):
+        _require(name in CODE_SPECS, 'unknown approval key: {!r}'.format(name))
+        if name not in available:
+            if notes is not None:
+                notes.append('{}: not in this checkout yet'.format(name))
+            continue
+        digests[name] = code_digest(name, str(repo), commit)
+    return digests
+
+
+def _leaf(approved, path):
+    value = approved
+    for part in path.split('.'):
+        _require(isinstance(value, (dict, MP)) and part in value,
+                 'approved digests record no ' + path)
+        value = value[part]
+    return value
+
+
+def producer_leaves(producer):
+    """The approvals leaves one producer consumes; an unknown producer is refused."""
+    _require(producer in PRODUCER_REQUIREMENTS, 'unknown producer: {}'.format(producer))
+    return PRODUCER_REQUIREMENTS[producer]
+
+
+def require_producer(approved, producer, exploratory=False):
+    """The requirement matrix for one producer; production raises, exploratory reports."""
+    deviations = ['not approved: ' + path for path in producer_leaves(producer)
+                  if _leaf(approved, path) is None]
+    _require(not deviations or exploratory,
+             'approvals incomplete: ' + '; '.join(deviations))
+    return deviations
+
+
+def require(approved, keys, repo=REPO, commit=None, exploratory=False, current=None):
+    """Fail-closed admission: every named code key is approved and is what is here now."""
+    code = approved['code'] if 'code' in approved else approved
+    unknown = sorted(key for key in keys if key not in CODE_SPECS)
+    _require(not unknown, 'unknown approval key: ' + ', '.join(unknown))
+    if current is None:
+        current = compute_code_digests(repo, commit, keys=keys)
+    deviations = []
+    for key in keys:
+        if code.get(key) is None:
+            deviations.append('code.{}: not approved (null in approvals)'.format(key))
+        elif key not in current:
+            deviations.append('code.{}: approved but absent from this checkout'.format(key))
+        elif current[key] != code[key]:
+            deviations.append('code.{}: {} is not the approved {}'.format(
+                key, current[key], code[key]))
+    _require(not deviations or exploratory,
+             'approved code digests do not admit this run: ' + '; '.join(deviations))
+    return deviations
