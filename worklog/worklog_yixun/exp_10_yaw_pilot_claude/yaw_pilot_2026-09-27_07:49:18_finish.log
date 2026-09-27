@@ -1,0 +1,3 @@
+[07:49:18] HEAD 97ede1954cd10d9b93c5fc7d692eba8914de1c8b; repo /home/yixunhu/codespace/xRIR_code; expect n=6337
+validate_runs: 4 arms + the CPU record validated and bound under /home/yixunhu/codespace/xRIR_code/ckpt/exp10
+[07:49:19] preflight passed: four GPU arms + the CPU record validated and bound

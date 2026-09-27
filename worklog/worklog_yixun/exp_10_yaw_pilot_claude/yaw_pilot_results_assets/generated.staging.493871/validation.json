@@ -1,0 +1,357 @@
+{
+  "arms": {
+    "control_k8": {
+      "arm": "control_k8",
+      "check_online": {
+        "bound_by": [
+          "run_dir",
+          "meta.per_sample_sha256"
+        ],
+        "kind": "check_online",
+        "ok": true,
+        "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/control_k8_all/check_online.json",
+        "per_sample_sha256": "c5c4b2089a1748bd603b63529dc3f58c2c9c5cbf800ba80926c12c37dc759109",
+        "sha256": "6bff799664312f0b85bb42119b68bb42def9e0402e281748c9807232bbb5c9cb"
+      },
+      "full": {
+        "arm": "control_k8",
+        "batches_arg": "all",
+        "device": "cuda",
+        "execution_id": "20260927T025953876010Z-4b35102e25014d87875828367b73a0ff",
+        "meta_sha256": "b0813cc93f3fce3313b8fd48462de71d67e53408f1d591c1bfeeb1ca033978aa",
+        "n_queries": 6337,
+        "per_sample_sha256": "c5c4b2089a1748bd603b63529dc3f58c2c9c5cbf800ba80926c12c37dc759109",
+        "protocol_id": "e138ca2d081353ec6676aa4f4d9c1ea7ffaf4df91b7ff147fa20f16c16023339",
+        "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/control_k8_all"
+      },
+      "parity_all": {
+        "bound_by": [
+          "run_dir",
+          "meta.per_sample_sha256"
+        ],
+        "exp03_path": "/home/yixunhu/codespace/xRIR_code/ckpt/yaw_rotation/sweep_control/per_sample_yaw.json",
+        "exp03_sha256": "43b9211f290094b742fdeb78aae037d51499f404eb5a6b1601e0667306ad58ac",
+        "kind": "parity_exp03",
+        "n_rows": 6337,
+        "ok": true,
+        "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/control_k8_all/parity_exp03.json",
+        "per_sample_sha256": "c5c4b2089a1748bd603b63529dc3f58c2c9c5cbf800ba80926c12c37dc759109",
+        "sha256": "1b5152104f41615ad97a9c2e4e5b013f3129480205106daab111d2ac8e0f22fd"
+      },
+      "parity_probe": {
+        "bound_by": [
+          "run_dir",
+          "meta.per_sample_sha256"
+        ],
+        "exp03_path": "/home/yixunhu/codespace/xRIR_code/ckpt/yaw_rotation/sweep_control/per_sample_yaw.json",
+        "exp03_sha256": "43b9211f290094b742fdeb78aae037d51499f404eb5a6b1601e0667306ad58ac",
+        "kind": "parity_exp03",
+        "n_rows": 272,
+        "ok": true,
+        "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/control_k8_probe/parity_exp03.json",
+        "per_sample_sha256": "cf3ea20167969401ffd258e7cfd58518cb543302bacc9083f3e4858b8aca2fe4",
+        "sha256": "188a19413f04ac690cb0dd1b8453760b0b84ef99498814b9f1484477717c4d46"
+      },
+      "probe": {
+        "arm": "control_k8",
+        "batches_arg": "probe",
+        "device": "cuda",
+        "execution_id": "20260927T023813895915Z-6b0a883b52604bb090477542219691c4",
+        "meta_sha256": "655e0a8706cd778052cb119074a906622a4600e3079fffad58f7f310897b7729",
+        "n_queries": 272,
+        "per_sample_sha256": "cf3ea20167969401ffd258e7cfd58518cb543302bacc9083f3e4858b8aca2fe4",
+        "protocol_id": "e138ca2d081353ec6676aa4f4d9c1ea7ffaf4df91b7ff147fa20f16c16023339",
+        "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/control_k8_probe"
+      },
+      "probe_check_online": {
+        "bound_by": [
+          "run_dir",
+          "meta.per_sample_sha256"
+        ],
+        "kind": "check_online",
+        "ok": true,
+        "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/control_k8_probe/check_online.json",
+        "per_sample_sha256": "cf3ea20167969401ffd258e7cfd58518cb543302bacc9083f3e4858b8aca2fe4",
+        "sha256": "1120420b8bbae8c5bd23f122f6cb3cb15fff1e554f509a7c6f837c1f256dd240"
+      },
+      "probe_summary": {
+        "controls_ok": true,
+        "execution_id": "20260927T023813895915Z-6b0a883b52604bb090477542219691c4",
+        "n_queries": 272,
+        "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/control_k8_probe/summary/yaw_pilot_summary.json",
+        "sha256": "0341ff9a206e2c3feb1d8bdf096e3f2e0af8722988f6b2086f478d13992ee06c"
+      },
+      "problems": []
+    },
+    "cyl_k8": {
+      "arm": "cyl_k8",
+      "check_online": {
+        "bound_by": [
+          "run_dir",
+          "meta.per_sample_sha256"
+        ],
+        "kind": "check_online",
+        "ok": true,
+        "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/cyl_k8_all/check_online.json",
+        "per_sample_sha256": "b34ced778523ba048a3beefaecebd2a6f60e3149366bebf9311c39fa865c133a",
+        "sha256": "5bd4ebcbb9575fa84f741c07959feb4d42eae324a9f67308914b3e9c8986fa7f"
+      },
+      "full": {
+        "arm": "cyl_k8",
+        "batches_arg": "all",
+        "device": "cuda",
+        "execution_id": "20260927T051017740231Z-7d2e7e6db2994f4fa57533077c4c80a0",
+        "meta_sha256": "3cb247bfdc88b3d3b3094d637538c231a2254693995c1f40af2a7236af21afb1",
+        "n_queries": 6337,
+        "per_sample_sha256": "b34ced778523ba048a3beefaecebd2a6f60e3149366bebf9311c39fa865c133a",
+        "protocol_id": "de0bf584f061b9e05fe421b100619f1f15d5d27457f1f81552a271fb3dd8ec38",
+        "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/cyl_k8_all"
+      },
+      "parity_all": {
+        "bound_by": [
+          "run_dir",
+          "meta.per_sample_sha256"
+        ],
+        "exp03_path": "/home/yixunhu/codespace/xRIR_code/ckpt/yaw_rotation/sweep_cyl/per_sample_yaw.json",
+        "exp03_sha256": "04a073efac560238adde9f1c1a3559d1c60db22493ae338ea1704439c15325b0",
+        "kind": "parity_exp03",
+        "n_rows": 6337,
+        "ok": true,
+        "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/cyl_k8_all/parity_exp03.json",
+        "per_sample_sha256": "b34ced778523ba048a3beefaecebd2a6f60e3149366bebf9311c39fa865c133a",
+        "sha256": "91b98e1dd9f3eea434afcbad63e491745befaa21005b452b6ba1110e45cf835b"
+      },
+      "parity_probe": {
+        "bound_by": [
+          "run_dir",
+          "meta.per_sample_sha256"
+        ],
+        "exp03_path": "/home/yixunhu/codespace/xRIR_code/ckpt/yaw_rotation/sweep_cyl/per_sample_yaw.json",
+        "exp03_sha256": "04a073efac560238adde9f1c1a3559d1c60db22493ae338ea1704439c15325b0",
+        "kind": "parity_exp03",
+        "n_rows": 272,
+        "ok": true,
+        "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/cyl_k8_probe/parity_exp03.json",
+        "per_sample_sha256": "70f53f66cb578d95d748133f1d350757bc5c8d3cfcdd66176b49d8206127ef5b",
+        "sha256": "a1d46b309f139141eb94a06acf24c0ced40f9a31240ca48bb3065250a1fb2600"
+      },
+      "probe": {
+        "arm": "cyl_k8",
+        "batches_arg": "probe",
+        "device": "cuda",
+        "execution_id": "20260927T050438791078Z-ab38c2dced99479889a63425c95c9cd5",
+        "meta_sha256": "b1058385cd58df12f1f93e90d29755bd6174ceb3dd53f7070f42d0cccc0edd5e",
+        "n_queries": 272,
+        "per_sample_sha256": "70f53f66cb578d95d748133f1d350757bc5c8d3cfcdd66176b49d8206127ef5b",
+        "protocol_id": "de0bf584f061b9e05fe421b100619f1f15d5d27457f1f81552a271fb3dd8ec38",
+        "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/cyl_k8_probe"
+      },
+      "probe_check_online": {
+        "bound_by": [
+          "run_dir",
+          "meta.per_sample_sha256"
+        ],
+        "kind": "check_online",
+        "ok": true,
+        "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/cyl_k8_probe/check_online.json",
+        "per_sample_sha256": "70f53f66cb578d95d748133f1d350757bc5c8d3cfcdd66176b49d8206127ef5b",
+        "sha256": "881a888538f3a33f5c9674f2d466599725be6333ecd3ebb58cd984c2213058d8"
+      },
+      "probe_summary": {
+        "controls_ok": true,
+        "execution_id": "20260927T050438791078Z-ab38c2dced99479889a63425c95c9cd5",
+        "n_queries": 272,
+        "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/cyl_k8_probe/summary/yaw_pilot_summary.json",
+        "sha256": "f77d3c884366514cf1646ef3dcafc81e6cba6072b0e7217b5a3e46fba8b29858"
+      },
+      "problems": []
+    },
+    "released_k1": {
+      "arm": "released_k1",
+      "check_online": {
+        "bound_by": [
+          "run_dir",
+          "meta.per_sample_sha256"
+        ],
+        "kind": "check_online",
+        "ok": true,
+        "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/released_k1_all/check_online.json",
+        "per_sample_sha256": "098838cf5cb39ba775d8772d12540370cc24083680af58a26f99e5dff09d8511",
+        "sha256": "a3fe176ff0dec96d22b9a1b3f174f643bc3c65243a399805fea916df0a80af32"
+      },
+      "full": {
+        "arm": "released_k1",
+        "batches_arg": "all",
+        "device": "cuda",
+        "execution_id": "20260927T062839218781Z-93fc61b3802c4e01bb2aa2d55e76c591",
+        "meta_sha256": "1331242a8cf5125da6d51d9a631b38b01c419372697aeccdf77018d0b20492bd",
+        "n_queries": 6337,
+        "per_sample_sha256": "098838cf5cb39ba775d8772d12540370cc24083680af58a26f99e5dff09d8511",
+        "protocol_id": "95d453169f37768666065956727e598f141c9ccc60c02a134ae4a09bceb1113c",
+        "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/released_k1_all"
+      },
+      "parity_all": null,
+      "parity_probe": null,
+      "probe": {
+        "arm": "released_k1",
+        "batches_arg": "probe",
+        "device": "cuda",
+        "execution_id": "20260927T062510342040Z-080109365da74a318a0424ba1f6fed8d",
+        "meta_sha256": "9ac21dd09bb028e52649371ead95ec45b592b75e67789e2f4c5af9e0dd1ec4c6",
+        "n_queries": 272,
+        "per_sample_sha256": "4ec7cad4757c2917f8257694232752744d12128382b6472427547e2501bd8d39",
+        "protocol_id": "95d453169f37768666065956727e598f141c9ccc60c02a134ae4a09bceb1113c",
+        "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/released_k1_probe"
+      },
+      "probe_check_online": {
+        "bound_by": [
+          "run_dir",
+          "meta.per_sample_sha256"
+        ],
+        "kind": "check_online",
+        "ok": true,
+        "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/released_k1_probe/check_online.json",
+        "per_sample_sha256": "4ec7cad4757c2917f8257694232752744d12128382b6472427547e2501bd8d39",
+        "sha256": "485520921f2371e8feae502822898f91a628919fa60551779c863c6063a52174"
+      },
+      "probe_summary": {
+        "controls_ok": true,
+        "execution_id": "20260927T062510342040Z-080109365da74a318a0424ba1f6fed8d",
+        "n_queries": 272,
+        "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/released_k1_probe/summary/yaw_pilot_summary.json",
+        "sha256": "dcd366910c112dcb1bd064323829282ac550261a38860b1815745500338e9071"
+      },
+      "problems": []
+    },
+    "released_k8": {
+      "arm": "released_k8",
+      "check_online": {
+        "bound_by": [
+          "run_dir",
+          "meta.per_sample_sha256"
+        ],
+        "kind": "check_online",
+        "ok": true,
+        "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/released_k8_all/check_online.json",
+        "per_sample_sha256": "e8332e702ce4ed922d1a69cd5e2776e239c7ccf128609be357f05ae77a180500",
+        "sha256": "dcf17eecb2029bacc1f3c54bbeb029e89d630f287a546c008deca7b5ec167dfd"
+      },
+      "full": {
+        "arm": "released_k8",
+        "batches_arg": "all",
+        "device": "cuda",
+        "execution_id": "20260927T073313236199Z-45c485084fee44f6b795b4f2f5a71ff4",
+        "meta_sha256": "e9dcdb36ed608273ea4bab67bb9a00a541ab06f5931f217141f3ef2396fb35d7",
+        "n_queries": 6337,
+        "per_sample_sha256": "e8332e702ce4ed922d1a69cd5e2776e239c7ccf128609be357f05ae77a180500",
+        "protocol_id": "ece07c70be992c8bff8b27a862933ea19702b665fd47b46c0f1f4957fd04aaee",
+        "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/released_k8_all"
+      },
+      "parity_all": {
+        "bound_by": [
+          "run_dir",
+          "meta.per_sample_sha256"
+        ],
+        "exp03_path": "/home/yixunhu/codespace/xRIR_code/ckpt/yaw_rotation/sweep_released/per_sample_yaw.json",
+        "exp03_sha256": "3e58f9bb35ca3cf3620884725a592d516c3fd52e393af9d03e6cb00a554d15f2",
+        "kind": "parity_exp03",
+        "n_rows": 6337,
+        "ok": true,
+        "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/released_k8_all/parity_exp03.json",
+        "per_sample_sha256": "e8332e702ce4ed922d1a69cd5e2776e239c7ccf128609be357f05ae77a180500",
+        "sha256": "8e1b613196afa33a196e9a09393fc3fadfddb08bd00717a7954fca6883ba9276"
+      },
+      "parity_probe": {
+        "bound_by": [
+          "run_dir",
+          "meta.per_sample_sha256"
+        ],
+        "exp03_path": "/home/yixunhu/codespace/xRIR_code/ckpt/yaw_rotation/sweep_released/per_sample_yaw.json",
+        "exp03_sha256": "3e58f9bb35ca3cf3620884725a592d516c3fd52e393af9d03e6cb00a554d15f2",
+        "kind": "parity_exp03",
+        "n_rows": 272,
+        "ok": true,
+        "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/released_k8_probe/parity_exp03.json",
+        "per_sample_sha256": "0ab6027142d598c992f03c308eb063bafa1543949df3e7f1d09cac84005c2bb1",
+        "sha256": "b635ad9e824832708787181e02c6cb90fc18a4a7ce177d519e0f1b52a86d35a6"
+      },
+      "probe": {
+        "arm": "released_k8",
+        "batches_arg": "probe",
+        "device": "cuda",
+        "execution_id": "20260927T072809041814Z-bbd9dec45b8547f1a6fbd9a171c76e38",
+        "meta_sha256": "3c1f1728569b6dfd6929cd4eac1a5980fb8a7cca7f1e11041149b4ca5031eb7c",
+        "n_queries": 272,
+        "per_sample_sha256": "0ab6027142d598c992f03c308eb063bafa1543949df3e7f1d09cac84005c2bb1",
+        "protocol_id": "ece07c70be992c8bff8b27a862933ea19702b665fd47b46c0f1f4957fd04aaee",
+        "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/released_k8_probe"
+      },
+      "probe_check_online": {
+        "bound_by": [
+          "run_dir",
+          "meta.per_sample_sha256"
+        ],
+        "kind": "check_online",
+        "ok": true,
+        "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/released_k8_probe/check_online.json",
+        "per_sample_sha256": "0ab6027142d598c992f03c308eb063bafa1543949df3e7f1d09cac84005c2bb1",
+        "sha256": "6f8eb7783b186676552f1f18fff066bec2f07ece8b3f5b83a03af022e59a62ca"
+      },
+      "probe_summary": {
+        "controls_ok": true,
+        "execution_id": "20260927T072809041814Z-bbd9dec45b8547f1a6fbd9a171c76e38",
+        "n_queries": 272,
+        "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/released_k8_probe/summary/yaw_pilot_summary.json",
+        "sha256": "44c871b4bdeb207135ad362c6d86e68daa804102e936919bfb670f80daf28c61"
+      },
+      "problems": []
+    }
+  },
+  "array_check": "size",
+  "cpu": {
+    "arm": "released_k8",
+    "check_online": {
+      "bound_by": [
+        "run_dir",
+        "meta.per_sample_sha256"
+      ],
+      "kind": "check_online",
+      "ok": true,
+      "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/cpu_protocol/released_k8_all/check_online.json",
+      "per_sample_sha256": "efc102a5eada862ee7f11ee140e2e59fec999231e3db36f3131fa24e95e94fe1",
+      "sha256": "f41fb34fa6cfd3e27f971eb2618d9700748244c433831438508b49254645ba9f"
+    },
+    "full": {
+      "arm": "released_k8",
+      "batches_arg": "all",
+      "device": "cpu",
+      "execution_id": "20260927T004009003970Z-8796b160e3a84e97b43774e2d4aac00e",
+      "meta_sha256": "4697d7377fde8202bae05af248a34a99da6bfca246fcbe4990b856f25db41733",
+      "n_queries": 6337,
+      "per_sample_sha256": "efc102a5eada862ee7f11ee140e2e59fec999231e3db36f3131fa24e95e94fe1",
+      "protocol_id": "06d5d3f72f5a566d7d87fd14d6bc0845ed44bfa9d98a5b532dfc7081e28b261a",
+      "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/cpu_protocol/released_k8_all"
+    },
+    "parity_all": {
+      "bound_by": [
+        "run_dir",
+        "meta.per_sample_sha256"
+      ],
+      "exp03_path": "/home/yixunhu/codespace/xRIR_code/ckpt/yaw_rotation/sweep_released/per_sample_yaw.json",
+      "exp03_sha256": "3e58f9bb35ca3cf3620884725a592d516c3fd52e393af9d03e6cb00a554d15f2",
+      "kind": "parity_exp03",
+      "n_rows": 6337,
+      "ok": false,
+      "path": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/cpu_protocol/released_k8_all/parity_exp03.json",
+      "per_sample_sha256": "efc102a5eada862ee7f11ee140e2e59fec999231e3db36f3131fa24e95e94fe1",
+      "sha256": "b0ce25397eac1f06db25d5bbaa5bda4c21dd95383d3cf178972a6ee9cfffbd6f"
+    },
+    "problems": [],
+    "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/cpu_protocol/released_k8_all"
+  },
+  "device": "cuda",
+  "expect_n": 6337,
+  "ok": true,
+  "problems": [],
+  "root": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10"
+}

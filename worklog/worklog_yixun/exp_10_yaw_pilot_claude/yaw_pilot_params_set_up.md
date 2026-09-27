@@ -13,3 +13,21 @@
 | Outputs | `ckpt/exp10/<arm>_<probe|all>/{per_sample.json, metrics.json, meta.json, wav_k{0,64,128,256,384}.npy}` |
 | Statistics | paired query-level percentile bootstrap, 10 000 replicates, seed 0 (convergence seed 1), 95 % two-sided; room-cluster bootstrap over 17 rooms; historical band = exp_04 five-seed SDs (SimpleViT K = 8 EDT 0.186 ms / C50 0.0053 dB / T60 0.009 %; K = 1 0.609 / 0.0133 / 0.101; CylindricalViT K = 8 0.253 / 0.0059 / 0.014), context only |
 | Parity gate vs exp_03 | `ckpt/yaw_rotation/sweep_{released,control,cyl}/per_sample_yaw.json`; criteria plan §7 (a)–(c) + A1 identical validity masks |
+
+
+## Executed runs (from each run's `meta.json`)
+
+| arm | stage | device | n | launch commit | execution_id | protocol_id | wall time |
+|---|---|---|---|---|---|---|---|
+| released_k8 | probe | cuda | 272 | 5016b63 | `20260927T072809041814Z-bbd9dec45b8547f1a6fbd9a171c76e38` | `ece07c70be99…` | 4.7 min (inference 152 s, inversion 114 s) |
+| released_k8 | all | cuda | 6337 | bc0b9df | `20260927T073313236199Z-45c485084fee44f6b795b4f2f5a71ff4` | `ece07c70be99…` | 66.6 min (inference 2140 s, inversion 1708 s) |
+| released_k1 | probe | cuda | 272 | f31d8e6 | `20260927T062510342040Z-080109365da74a318a0424ba1f6fed8d` | `95d453169f37…` | 3.1 min (inference 40 s, inversion 131 s) |
+| released_k1 | all | cuda | 6337 | f31d8e6 | `20260927T062839218781Z-93fc61b3802c4e01bb2aa2d55e76c591` | `95d453169f37…` | 45.1 min (inference 543 s, inversion 1998 s) |
+| control_k8 | probe | cuda | 272 | af49827 | `20260927T023813895915Z-6b0a883b52604bb090477542219691c4` | `e138ca2d0813…` | 20.6 min (inference 189 s, inversion 1025 s) |
+| control_k8 | all | cuda | 6337 | 0a2a2e6 | `20260927T025953876010Z-4b35102e25014d87875828367b73a0ff` | `e138ca2d0813…` | 124.0 min (inference 2182 s, inversion 5080 s) |
+| cyl_k8 | probe | cuda | 272 | f290f42 | `20260927T050438791078Z-ab38c2dced99479889a63425c95c9cd5` | `de0bf584f061…` | 5.2 min (inference 159 s, inversion 136 s) |
+| cyl_k8 | all | cuda | 6337 | d9c8130 | `20260927T051017740231Z-7d2e7e6db2994f4fa57533077c4c80a0` | `de0bf584f061…` | 73.7 min (inference 2259 s, inversion 2000 s) |
+| released_k8 (CPU protocol) | all | cpu | 6337 | f31d8e6 | `20260927T004009003970Z-8796b160e3a84e97b43774e2d4aac00e` | `06d5d3f72f5a…` | 405.6 min (inference 21381 s, inversion 2830 s) |
+| released_k8 (CPU protocol) | probe | cpu | 272 | 33d4f75 | `20260927T002126828803Z-f4eccdf1a8c94d4883d9279ab1fc6057` | `06d5d3f72f5a…` | 18.3 min |
+
+Checkpoint sha256s (from meta): released `6cdb02767b4c11e1be78c3438e1b67bfb9351db4e07ee9c72125f68e337325c5`; control / cyl as recorded per run. Tool sha256 (`tools/exp10_yaw_pilot.py`) identical for all runs (merged `2408fb9`). Exp_03 pin verification recorded in every meta (`verify_exp03_pins.ok = true`, 12 files at `62c9107b…`).
