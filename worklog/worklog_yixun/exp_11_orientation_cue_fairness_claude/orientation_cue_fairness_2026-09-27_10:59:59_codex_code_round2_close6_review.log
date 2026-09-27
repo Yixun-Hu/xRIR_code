@@ -1,0 +1,149 @@
+Reading additional input from stdin...
+OpenAI Codex v0.154.0
+--------
+workdir: /home/yixunhu/codespace/xRIR_code_wt
+model: gpt-6-astra
+provider: openai
+approval: on-request
+sandbox: read-only
+reasoning effort: ultra
+reasoning summaries: none
+session id: 01a0e361-4e5a-7662-9ff6-dae51017ed66
+--------
+user
+You are the code REVIEWER (OpenAI Codex) for experiment exp_11 `orientation_cue_fairness` of the xRIR repository. CLOSE review 6 of ROUND 2, in the git worktree /home/yixunhu/codespace/xRIR_code_wt on branch `exp11-cue` (read-only; CPU ≤ 4 threads; CUDA_VISIBLE_DEVICES=''; never signal processes — a full pytest suite started by the Planner runs on this worktree, leave it alone; pytest on selected files with `-p no:cacheprovider`, PYTHONPATH = the worktree, writes only under /tmp). Context: your close reviews 2–5 found five successive interleaving defects in the hand-rolled `mkdir` publication lock of `tools/exp11_launch.sh`. The Planner amended the plan (§11 A1 in `worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/plan_orientation_cue_fairness.md`): the lock is now a **kernel advisory lock** — `flock -n` on `<arm-root>/.publish.lock` held by one process for the whole protected section (recovery: alias resolution → validation → finalization → promotion; full mode: from before the child launch through promotion), released by the kernel when the holder exits or dies; no owner file, nonce, grace, meta-lock, stale-lock breaking or `--break-lock` remain. The Coder implemented it in 7 commits on `86b1a46` → `94efbc2` (`git log --oneline 86b1a46..94efbc2`, `git diff 86b1a46 94efbc2`; report `orientation_cue_fairness_2026-09-27_09:27:14_coder_round2_fix6_opus_report.md`, present in the worktree record as a modified file whose full-suite line is a placeholder because the Coder's session ended; the suite is running now). The only production change is `tools/exp11_launch.sh` (`launch_sh` → 3d432c1d…).
+
+Verify by reading the code and replaying functions with the real `flock` (no signals to other processes; you may start and end your own helper subprocesses): (1) one acquisition per invocation — `exec {fd}>lockfile; flock -n $fd` (or equivalent) taken once before the protected section in BOTH modes and held to promotion; refusal immediate with a clear message; the lock file is opened, never written; full mode takes it once (not twice); (2) release semantics — the kernel releases on exit/death: after a holder subprocess ends, acquisition succeeds; a refusing invocation leaves attempt, `final` and the lock file untouched; a held lock (helper `flock lockfile sleep 60` you start) makes recovery AND full-mode dry-runs under `EXP11_TEST_ROOTS=1` refuse immediately; (3) nothing of the old mechanism remains (`take_lock`/`release_lock`/`break_lock`/`release_breaking`, owner/nonce/generation, `LOCK_GRACE_S`, `.breaking`, `--break-lock`, `EXP11_LOCK_BARRIER`, `EXP11_ACQUIRE_BARRIER`, their tests, usage/header mentions); (4) unchanged behaviours still hold — canonical attempt resolution, ownership-preserving `abort_recovery`, idempotent `already_published`, `check_final_conflict`/`--replace-final`, `check_ceiling`, `EXP11_PRETRAIN_ROOT` only with `EXP11_TEST_ROOTS=1` + `--dry-run`, terminating INT/TERM handlers (registered-body replay → 143/130, no continuation) and the `not_interrupted` guards before finalization and promotion in both modes; dry-run announces `LOCK` and takes none except under `EXP11_TEST_ROOTS=1`; (5) is the fd-based flock correct across the launcher's `nohup setsid` child launch (the child must not inherit and thereby extend the lock after the launcher exits, or if it does, state whether that is acceptable) and across `exec`/subshells used by the launcher; is there any path where the protected section runs without the lock; (6) RED evidence of this cycle (replay one RED commit: 811de75, 04c703e or 76d82f3); the report's line-count corrections; (7) closure hygiene at `94efbc2`: vs 9f98bbb only exp_06 `summarize_haa` moved (report it); the eight exp_11 keys (report all); sim-eval closures unchanged; frozen files untouched; `BACKBONES_EXP06` unchanged; `tests/test_exp09_sim_eval_closures.py` green; pinned oracles byte-identical; (8) anything new. State whether round 2 can be CLOSED and `94efbc2` merged (verdict "approve", "approve with changes" listed with file:line, or "request changes" with blockers numbered), and give the exact fill manifest at the merge commit (exp_06 `code.summarize_haa`; the re-filled exp_06 record digest with only that key replaced; exp_11's eight `code.*`, `reused.*`; `artifacts.*` null). Identity header (model, reasoning effort as the invocation metadata states it, sandbox, tree, HEAD, date/time); print the review in full; save nothing.
+codex
+I’ll inspect the lock’s scope and child-process behavior, replay the key cases with real `flock`, and verify the closure manifest. I’ll keep the review read-only, use temporary files under `/tmp`, and leave the Planner’s pytest run alone.
+exec
+/bin/bash -lc "pwd; git status --short; git rev-parse HEAD; git branch --show-current; rg --files -g 'AGENTS.md' -g '*fix6*' -g '*orientation*' -g '*closure*' -g '*manifest*' -g '*exp11*' -g '*exp_11*' -g '*exp06*' -g '*exp_06*'" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+/home/yixunhu/codespace/xRIR_code_wt
+ M worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_09:27:14_coder_round2_fix6_opus_report.md
+?? worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_10:59_suite_full_cpu_94efbc2.log
+?? worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/codex_code_round2_close6_prompt.md
+94efbc2b75c64e8ab8927bad0173adb549ae540e
+exp11-cue
+model/xrir_exp11_registry.py
+tools/exp11_smoke.py
+tools/exp11_profiles.py
+tools/exp06_smoke.py
+tools/exp06_eval_launch.py
+tools/exp06_train.py
+tools/exp06_mirror_probe.py
+tools/exp06_legacy_train_receipt.py
+tools/exp11_finalize.py
+tools/exp06_profiles.py
+tools/exp06_probe_align.py
+tools/reference_manifest.py
+tools/exp06_haa_eval.py
+tools/exp07_manifests.py
+tools/exp06_finalize.py
+tools/exp11_haa_pipeline.sh
+tools/exp06_approved_digests_template.json
+tools/exp11_approved_digests_template.json
+tools/exp11_train.py
+tools/exp11_haa_finetune.py
+tools/exp11_haa_eval.py
+tools/exp06_bootstrap.py
+tools/exp06_haa_finetune.py
+tools/exp06_eval.py
+tools/exp11_recipe.py
+tools/exp06_compare.py
+tools/exp06_haa_pipeline.sh
+tools/exp06_summarize_haa.py
+tools/exp06_train_evidence.py
+tools/exp06_recipe.py
+tools/exp06_approvals_api.py
+tools/exp06_launch.sh
+tools/exp06_heading.py
+tools/exp11_launch.sh
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_code_manifest_stats_metrics_review.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-18_12:05:05_suite_exp06_cpu.log
+tests/test_exp06_profiles.py
+tests/test_reference_manifest.py
+tests/test_exp06_approvals_api.py
+tests/test_exp11_zeroshot_adapter.py
+tests/test_exp11_models.py
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_18:26:47_coder_round1_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:14:38_suite_full_cpu_91fbd8b_captured.log
+tests/test_exp07_manifests.py
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/plan_orientation_cue_fairness.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/plan_orientation_cue_fairness_v1_superseded.md
+tests/test_exp06_finalize_haa_consumer.py
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_command.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_params_set_up.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:14:01_codex_code_round1_close2_review.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close3_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_plan_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_17:31:52_codex_plan_review.log
+tests/test_exp11_admission.py
+tests/test_exp06_eval_launch.py
+tests/test_exp06_recipe.py
+tests/test_exp11_shell.py
+tests/test_exp06_finalize_gate.py
+tests/test_exp06_factory.py
+tests/test_exp06_legacy_train_receipt.py
+tests/test_exp11_haa_parity.py
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:21:56_suite_full_cpu.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close4_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/commits_orientation_cue_fairness.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_worklog.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close5_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:14:24_suite_full_cpu_91fbd8b_captured.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_17:44:43_codex_plan_round2_review.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_04:10:40_coder_round2_fix2_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:19:35_refill.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_yixun_query.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round1_close2_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_20:50_suite_full_cpu_af052c0.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:21:56_suite_launcher.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_plan_round2_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_10:59_suite_full_cpu_94efbc2.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_09:27:14_coder_round2_fix6_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:35:21_coder_round2_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_08:10:41_coder_round2_fix5_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_02:35:15_coder_round2_fix_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close2_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round1_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_20:24:52_codex_code_round1_review.log
+tests/test_exp11_approval_enforcement.py
+tests/test_exp06_heading.py
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_results_assets/planner_probes/exp11_runbook.sh
+tests/test_exp06_haa.py
+tests/test_exp06_bootstrap.py
+tests/test_exp11_recipe.py
+tests/test_exp06_eval.py
+tests/test_exp11_train.py
+tests/test_exp06_sim_evidence.py
+tests/test_exp11_profiles.py
+tests/test_exp09_sim_eval_closures.py
+tests/test_exp11_adapter.py
+tests/test_exp11_summarize_haa.py
+tests/test_exp06_probe_align.py
+tests/test_exp06_compare.py
+tests/test_exp06_train.py
+tests/test_exp06_summarize_haa.py
+tests/test_exp06_haa_pipeline.py
+tests/test_exp06_finalize.py
+tests/test_exp06_smoke.py
+tests/test_exp06_encoder.py
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_05:35:56_coder_round2_fix3_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round1_close_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:21:56_suite.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:19:34_merge.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_19:20_suite_full_cpu_5db0c82.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_22:21:54_codex_code_round1_close_review.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_20:47:07_coder_round1_fix_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_06:52:49_coder_round2_fix4_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/coder_prompts/round2_fix6_opus_prompt.md
+tests/test_exp06_launch.py
+tests/test_exp06_mirror_probe.py
+tests/test_exp11_finalize.py
+tests/test_exp11_registry.py
+worklog/worklog_yixun/qualitative_figure_claude/joint_export/manifest.json
+worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_2026-09-15_13:33:09_manifests.log
+
