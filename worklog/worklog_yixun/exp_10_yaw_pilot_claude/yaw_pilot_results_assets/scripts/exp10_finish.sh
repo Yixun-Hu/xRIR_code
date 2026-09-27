@@ -121,7 +121,14 @@ cleanup() {
       fi
     done
   fi
-  if [ "$rc" -ne 0 ]; then say "FINISH FAILED rc=$rc — $G, the Markdown report and the HTML page are the publication that was there before"; fi
+  # The closing line may only claim the previous publication is back when it *is* back: the
+  # round-4 review's finding 2 was a cleanup that said nothing had changed while three
+  # generations were mixed, and a failed rollback is that same claim.
+  if [ "$rc" -ne 0 ] && [ "$KEEP_BACKUPS" = 1 ]; then
+    say "FINISH FAILED rc=$rc — the publication could NOT be put back in full; the KEPT paths above hold what was there before"
+  elif [ "$rc" -ne 0 ]; then
+    say "FINISH FAILED rc=$rc — $G, the Markdown report and the HTML page are the publication that was there before"
+  fi
 }
 on_signal() {   # <name> <number> — roll back through the EXIT trap; never re-raise the signal
   trap '' HUP INT TERM

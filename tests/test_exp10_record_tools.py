@@ -805,7 +805,7 @@ def test_a_rendered_arm_payload_that_contradicts_its_run_is_refused(render_case,
     fx.write_json(render_case["summary"], summary)
     done = renderer(render_case)
     assert done.returncode == 2, out(done)
-    assert field[-1] in out(done) or "control_k8" in out(done)
+    assert field[-1] in out(done), out(done)
 
 
 @pytest.mark.parametrize("renderer", [render_html, render_md])
@@ -1455,6 +1455,9 @@ def test_finish_keeps_the_backups_when_the_rollback_itself_fails(scratch):
         assert kept[0] in out(done)              # what remains is named
         for name in ("yaw_pilot_01_results.html", "yaw_pilot_results.md"):
             assert os.path.isfile(os.path.join(scratch["assets"], kept[0], name)), name
+        # ... and the closing line must not claim the previous publication is back in place
+        closing = [line for line in out(done).splitlines() if "FINISH FAILED" in line]
+        assert closing and "could NOT be put back" in closing[-1], closing
     finally:
         os.chmod(record, 0o755)
 
