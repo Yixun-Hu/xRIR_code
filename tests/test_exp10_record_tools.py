@@ -837,12 +837,75 @@ def test_md_renders_the_note_values_not_their_keys(render_case):
 
 
 def test_md_renders_the_metric_qualifications_with_both_t60_denominators(render_case):
+    """The values are read back through a pipe-table split: T60_abs quotes absolute values,
+    so its cells only carry their definition when the pipes are escaped (finding 7)."""
     assert render_md(render_case).returncode == 0
-    page = rendered(render_case, "page.md")
-    assert fx.METRIC_QUALIFICATIONS["T60"]["delta"] in page
-    assert fx.METRIC_QUALIFICATIONS["T60"]["gap"] in page
-    assert fx.METRIC_QUALIFICATIONS["T60_abs"]["gap"] in page
-    assert fx.METRIC_QUALIFICATIONS["EDT"]["delta"] in page
+    rows = {cells[0]: cells for cells in md_rows(rendered(render_case, "page.md"))
+            if cells and cells[0] in fx.METRIC_QUALIFICATIONS}
+    assert rows["T60"][1] == fx.METRIC_QUALIFICATIONS["T60"]["delta"]
+    assert rows["T60"][2] == fx.METRIC_QUALIFICATIONS["T60"]["gap"]
+    assert rows["T60_abs"][2] == fx.METRIC_QUALIFICATIONS["T60_abs"]["gap"]
+    assert rows["EDT"][1] == fx.METRIC_QUALIFICATIONS["EDT"]["delta"]
+
+
+def split_md_row(line):
+    """Split one Markdown pipe-table row into its cells, honouring ``\\|`` escapes.
+
+    This is what a Markdown renderer does, and it is the only way to tell whether a cell
+    that *contains* a pipe survived: reading the raw line cannot.
+    """
+    body = line.strip()
+    assert body.startswith("|") and body.endswith("|"), body
+    cells, current, i = [], "", 1
+    while i < len(body) - 1:
+        if body[i] == "\\" and body[i + 1] == "|":
+            current += "|"
+            i += 2
+        elif body[i] == "|":
+            cells.append(current.strip())
+            current = ""
+            i += 1
+        else:
+            current += body[i]
+            i += 1
+    cells.append(current.strip())
+    return cells
+
+
+def md_rows(page):
+    """Every pipe-table row of a Markdown page, split into cells."""
+    return [split_md_row(line) for line in page.splitlines() if line.strip().startswith("|")]
+
+
+def test_md_qualification_cells_survive_a_pipe_table_split(render_case):
+    """Round-4 finding 7: T60_abs quotes absolute values (``|T60(P_alpha) - T60(P_0)|``) and
+    the unescaped pipes split the cell, so the rendered table showed the delta as "change in"
+    and the gap as "T60(prediction) - T60(GT)" -- the definition and its units disappeared."""
+    assert render_md(render_case).returncode == 0
+    rows = {cells[0]: cells for cells in md_rows(rendered(render_case, "page.md"))
+            if cells and cells[0] in fx.METRIC_QUALIFICATIONS}
+    assert sorted(rows) == sorted(fx.METRIC_QUALIFICATIONS)
+    for metric, entry in sorted(fx.METRIC_QUALIFICATIONS.items()):
+        cells = rows[metric]
+        assert len(cells) == 3, cells
+        assert cells[1] == entry["delta"], metric
+        assert cells[2] == entry["gap"], metric
+
+
+def test_md_metric_rows_survive_a_pipe_in_a_status_cell(render_case):
+    """Every cell is escaped, not only the qualifications: a reason or status that quotes an
+    absolute value must not split its row either."""
+    summary = fx.read_json(render_case["summary"])
+    cell = summary["arms"][0]["angles"]["64"]["EDT"]
+    cell["headline"]["reportable"] = False
+    cell["headline"]["reason"] = "|T60(P) - T60(GT)| moved"
+    fx.write_json(render_case["summary"], summary)
+    assert render_md(render_case).returncode == 0
+    rows = [cells for cells in md_rows(rendered(render_case, "page.md"))
+            if cells and cells[-1] == "|T60(P) - T60(GT)| moved"]
+    assert rows, rendered(render_case, "page.md")
+    for cells in rows:
+        assert len(cells) == 10, cells
 
 
 def test_html_renders_the_note_values_and_qualifications(render_case):

@@ -7,8 +7,13 @@ Only the headline metrics (EDT, C50, T60, T60_abs, logspec_mad) go into the comp
 summariser's own `yaw_pilot_tables.md` (copied into the assets) carries everything else.
 
 As in the HTML page, nothing is written unbound (Codex tooling review, finding 4): the
-summary's `inputs` hashes are re-verified against the live runs and every supplemental report
-has to belong to the arm it is attached to.
+summary's `inputs` hashes are re-verified against the live runs (exactly one entry per
+rendered arm) and every supplemental report has to belong to the arm it is attached to and
+agree with the identity of the run it names.
+
+Every table cell goes through `cell()`, which escapes `|`: the T60 qualifications quote
+absolute values and unescaped pipes split the cell, so a Markdown renderer dropped the very
+definitions the report is required to carry (round-4 review, finding 7).
 """
 import argparse
 import hashlib
@@ -30,6 +35,23 @@ def sha(path):
         for c in iter(lambda: f.read(1 << 20), b""):
             h.update(c)
     return h.hexdigest()
+
+
+def cell(value):
+    """One table cell, safe inside a Markdown pipe table (round-4 review, finding 7).
+
+    A ``|`` ends a cell, so it has to be escaped: the T60 qualifications quote absolute
+    values (``|T60(P_alpha) - T60(P_0)|, seconds``) and unescaped they split the cell, which
+    dropped the definition and its unit from the rendered table. A newline would end the
+    *row*, so it becomes a space.
+    """
+    text = "–" if value is None else str(value)
+    return text.replace("|", "\\|").replace("\r", " ").replace("\n", " ")
+
+
+def row(cells):
+    """One Markdown table row, every cell escaped."""
+    return "| %s |" % " | ".join(cell(c) for c in cells)
 
 
 def n3(x, s=1.0):
@@ -74,10 +96,9 @@ def note_lines(summary):
                   "|---|---|---|"]
         for metric, entry in sorted(qualifications.items()):
             if isinstance(entry, dict):
-                lines.append("| %s | %s | %s |" % (metric, entry.get("delta", "–"),
-                                                   entry.get("gap", "–")))
+                lines.append(row([metric, entry.get("delta", "–"), entry.get("gap", "–")]))
             else:
-                lines.append("| %s | %s | – |" % (metric, entry))
+                lines.append(row([metric, entry, "–"]))
         lines.append("")
     return lines
 
@@ -141,9 +162,13 @@ def main():
                 if k == "0" or key not in arm["angles"][k]:
                     continue
                 c = arm["angles"][k][key]; q = c["query"]; r = c.get("room", {})
-                rows.append("| %s | %s | %s | %s | %s | %s | %s | %d | %s / %s | %s |" % (
-                    DEG.get(k, k), n3(q.get("mean_0"), sc), n3(q.get("mean_alpha"), sc), ci(q.get("delta"), sc), ci(r.get("delta"), sc),
-                    ci(q.get("gap"), sc), ci(r.get("gap"), sc), q.get("n", 0), q.get("ratio", {}).get("status", "–"), c.get("room_status", "–"), multiple(c)))
+                rows.append(row([
+                    DEG.get(k, k), n3(q.get("mean_0"), sc), n3(q.get("mean_alpha"), sc),
+                    ci(q.get("delta"), sc), ci(r.get("delta"), sc), ci(q.get("gap"), sc),
+                    ci(r.get("gap"), sc), q.get("n", 0),
+                    "%s / %s" % (q.get("ratio", {}).get("status", "–"),
+                                 c.get("room_status", "–")),
+                    multiple(c)]))
             if rows:
                 L += ["### %s (%s)" % (label, unit or "dimensionless"), "",
                       "| angle | mean 0° | mean α | Δ query CI | Δ room CI | G query CI | G room CI | n | status query / room | multiple or reason |",
