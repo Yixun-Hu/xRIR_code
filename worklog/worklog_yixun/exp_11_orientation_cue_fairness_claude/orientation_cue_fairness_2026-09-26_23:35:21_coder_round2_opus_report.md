@@ -434,3 +434,26 @@ commit; the committed record is still all-null, so every exp_11 producer refuses
    commit; they will move again if the reviewer asks for changes.
 6. **No GPU work was done.** Every check in this round ran with `CUDA_VISIBLE_DEVICES=''`;
    the bounded card smokes of plan §5 rung 2 remain to be run before the first queue.
+
+## Expected failure inside the branch: the exp_06 approvals re-fill
+
+`tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes`
+**fails on this branch, by design and exactly as in round 1.** It asserts that every
+*filled* digest in exp_06's approvals record equals what the checkout computes; editing
+`tools/exp06_summarize_haa.py` (item 10, the one exp_06 file this round is allowed to
+touch) moves `code.summarize_haa`, so the record is stale until it is re-filled. Round 1
+met the same thing and resolved it with commit `9f98bbb`
+("approvals re-fill after the exp_11 round-1 merge (haa_pipeline_sh,
+summarize_haa:645e74c0)").
+
+The re-fill belongs **after** the reviewed merge, not here: `code.summarize_haa`'s closure
+now contains `tools/exp11_finalize.py` and `tools/exp11_profiles.py`, so the digest moves
+again with every exp_11 module change — including any review fix cycle. The keys to
+re-fill after this round's merge are exactly:
+
+* exp_06's record: `code.summarize_haa` (one key; the other nineteen are unchanged);
+* exp_11's record: all eight `code` keys, at the second reviewed commit.
+
+Everything else in `tests/test_exp06_profiles.py`, `tests/test_exp06_approvals_api.py` and
+`tests/test_exp09_sim_eval_closures.py` (the pinned `eval` / `eval_launch` / `compare` /
+`mirror_probe` closures) is green: **76 passed, 1 failed** in that group.
