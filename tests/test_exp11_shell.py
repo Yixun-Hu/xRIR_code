@@ -447,8 +447,12 @@ def flock_holder(lockfile):
     """
     lockfile.parent.mkdir(parents=True, exist_ok=True)
     lockfile.touch()
-    holder = subprocess.Popen(['flock', str(lockfile), 'sleep', '60'],
-                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    # bash itself holds the descriptor; the keep-alive child has it closed, so
+    # terminating this process really drops the lock.
+    holder = subprocess.Popen(
+        ['bash', '-c', 'exec 9>"$1"; flock -n 9 || exit 1; echo HELD; '
+                       'while :; do sleep 1 9>&-; done', '_', str(lockfile)],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     for _ in range(100):                     # wait until the kernel really holds it
         probe = subprocess.run(['flock', '-n', str(lockfile), 'true'])
         if probe.returncode != 0:
@@ -521,7 +525,7 @@ def test_the_lock_file_is_a_file_and_the_launcher_knows_no_stale_lock():
     for gone in ('break_lock', 'take_lock', 'release_lock', 'release_breaking',
                  '--break-lock', 'BREAK_LOCK', 'EXP11_LOCK_BARRIER',
                  'EXP11_ACQUIRE_BARRIER', 'LOCK_GRACE', '.breaking', 'BREAKLOCK',
-                 'LOCK_NONCE'):
+                 'LOCK_NONCE', 'take_lock'):
         assert gone not in text, '{} survived the replacement'.format(gone)
     assert 'flock' in text and 'a lock vanishes with its holder' in text
     usage = subprocess.run(['bash', 'tools/exp11_launch.sh'], cwd=str(REPO),

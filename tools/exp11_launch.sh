@@ -14,6 +14,12 @@
 # script overrides is everything that names an experiment: the finalizer it calls
 # (tools/exp11_finalize.py), the approvals, the attempt roots, the record and the arms.
 #
+# Publishing one arm is serialised by an `flock` on a per-arm lock FILE, held on a
+# descriptor this process owns: **a lock vanishes with its holder**. The kernel drops it
+# when the launcher exits or dies, on every path including a signal, so there is no
+# cleanup code, no owner record and no stale-lock concept -- nothing to clear by hand
+# and nothing to get wrong (plan section 11 amendment A1).
+#
 # EXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh defines the functions and returns, so
 # the pipeline can reuse them without a mode.
 set -euo pipefail
@@ -128,7 +134,7 @@ usage() {
     echo "usage: $0 <smoke|probe|full|finalize> --arm <H|I> --gpu <g> --reviewed-commit <sha40>" >&2
     echo "       [--attempt-root <dir>] [--approved <json>] [--exploratory]" >&2
     echo "       [--attempt <dir> --log <path> --child-exit <n>] [--dry-run]" >&2
-    echo "       finalize also takes [--replace-final] [--break-lock]" >&2
+    echo "       finalize also takes [--replace-final]" >&2
     exit 2
 }
 
@@ -178,132 +184,46 @@ promote() {  # promote <attempt basename>: atomic, so `final` never points at no
     fi
 }
 
-# --- publishing one arm is serialised -----------------------------------------------
-# Close review 2: recovery had no ownership at all, so two invocations could interleave
-# -- one finalising while the other renamed the shared attempt out from under it -- and
-# report success over a dangling `final`. Every path that validates, finalises or
-# promotes an attempt of an arm takes this lock first. `mkdir` is the atomic primitive:
-# it succeeds for exactly one caller. A held lock REFUSES immediately, it never waits,
-# and a stale one is evidence of an interrupted publication, so it is cleared only by an
-# explicit --break-lock and never on a timer.
-LOCK_DIR=""
-LOCK_HELD=0
-# The GENERATION of the lock this invocation holds. A lock directory is not identity
-# enough: it can be retired and re-created between two statements of one shell, so a
-# process-local flag would let an earlier owner remove its successor's lock. The owner
-# file carries this nonce, and cleanup acts only where the nonce is still ours.
-LOCK_NONCE=""
-INTERRUPTED=0
-# A lock whose owner file has not landed yet is an acquisition in progress, not a stale
-# lock; only one older than this may be broken.
-LOCK_GRACE_S="${EXP11_LOCK_GRACE_S:-30}"
-BREAKING_DIR=""
-BREAKING_HELD=0
-LOCK_NONCE_CANDIDATE=""
+# --- publishing one arm is serialised, by the kernel --------------------------------
+# Plan section 11 amendment A1. Publishing one arm admits exactly one invocation at a
+# time: recovery from alias resolution through promotion, and a full run from before it
+# launches its child through promotion, so a recovery is refused while a training run
+# still owns the arm. The lock is an `flock` on a per-arm FILE held on a descriptor this
+# process opens, which means **a lock vanishes with its holder**: the kernel drops it
+# when the process exits or dies, on every path including a signal, so there is no
+# cleanup code, no owner record and no stale-lock concept to get wrong. `-n` refuses
+# immediately rather than waiting.
+LOCK_FILE=""
+LOCK_FD=""
 
-# Every reader of an owner file ends in `|| true`: an absent or unreadable owner is
-# explicit NON-ownership, and `sed`'s failure must never propagate under `set -e` --
-# that is what pre-empted the signal handler's own exit.
-lock_nonce_of() {  # the generation recorded in one lock directory, or nothing
-    sed -n 's/^pid [0-9][0-9]* nonce \([^ ][^ ]*\).*/\1/p' "$1/owner" 2>/dev/null || true
-}
-
-lock_pid_of() {
-    sed -n 's/^pid \([0-9][0-9]*\).*/\1/p' "$1/owner" 2>/dev/null || true
-}
-
-lock_owner_line() {
-    cat -- "$1/owner" 2>/dev/null | tr -d '\n' || true
-}
-
-lock_inode_of() {
-    stat -c %i -- "$1" 2>/dev/null || true
-}
-
-# Older than the initialisation grace? `mkdir` publishes the pathname before the owner
-# file lands, so a lock without an owner is an acquisition in progress until it is old
-# enough to be an abandoned one.
-lock_older_than_grace() {
-    local age
-    age="$(( $(date +%s) - $(stat -c %Y -- "$1" 2>/dev/null || echo 0) ))"
-    [ "$age" -ge "$LOCK_GRACE_S" ]
-}
-
-lock_is_live() {  # a pid that is gone does not hold a lock; a live one is never overridden
-    local pid
-    pid="$(lock_pid_of "$1")"
-    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
-}
-
-# A test-only ordering hook: wait (bounded) for a file to appear. It takes a PATH, never
-# a command, so nothing here evaluates anything the environment supplies.
-lock_barrier() { lock_wait_for "${EXP11_LOCK_BARRIER:-}"; }
-
-# The same hook at the one point inside acquisition the schedules need to interleave at:
-# after the owner file has landed and before self-verification.
-lock_acquire_barrier() { lock_wait_for "${EXP11_ACQUIRE_BARRIER:-}"; }
-
-lock_wait_for() {
-    local file="$1" waited=0
-    [ -n "$file" ] || return 0
-    while [ ! -e "$file" ] && [ "$waited" -lt 100 ]; do sleep 0.1; waited=$((waited + 1)); done
-}
-
-release_lock() {
-    release_breaking
-    [ "$LOCK_HELD" -eq 1 ] || return 0
-    LOCK_HELD=0
-    local now=""
-    if [ -f "$LOCK_DIR/owner" ]; then
-        now="$(lock_nonce_of "$LOCK_DIR")"
-    else
-        say "UNLOCK SKIPPED $LOCK_DIR has no owner: this invocation owns nothing there"
-        return 0
-    fi
-    if [ -n "$LOCK_NONCE" ] && [ "$now" != "$LOCK_NONCE" ]; then
-        say "UNLOCK SKIPPED $LOCK_DIR holds the generation ${now:-none}, not $LOCK_NONCE"
-        return 0
-    fi
-    rm -f -- "$LOCK_DIR/owner"
-    rmdir -- "$LOCK_DIR" 2>/dev/null || true
-    say "UNLOCK $LOCK_DIR"
-}
-
-# The BREAKING META-LOCK. Retirement exposes the lock pathname for as long as it takes
-# to re-create it, and nothing may acquire it in that window -- which is what let a
-# breaker and an ordinary caller both end up holding. `take_lock` refuses while this
-# exists, and a second breaker refuses on it rather than racing the first.
-take_breaking() {
-    BREAKING_DIR="$LOCK_DIR.breaking"
-    if ! mkdir -- "$BREAKING_DIR" 2>/dev/null; then
-        echo "refusing: a break of $LOCK_DIR is already in progress" \
-             "($(lock_owner_line "$BREAKING_DIR"))" >&2
+hold_arm_lock() {  # hold_arm_lock <mode>
+    LOCK_FILE="$ARM_ROOT/.publish.lock"
+    say "LOCK $LOCK_FILE"
+    # A dry run touches nothing outside the test roots, so the lock is real exactly
+    # where the tests exercise it and announced everywhere else.
+    if [ "$DRY" -eq 1 ] && [ "${EXP11_TEST_ROOTS:-0}" != 1 ]; then return 0; fi
+    mkdir -p -- "$ARM_ROOT" || return 1
+    : > "$LOCK_FILE" 2>/dev/null || [ -f "$LOCK_FILE" ] || {
+        echo "refusing: cannot create the arm lock file $LOCK_FILE" >&2; return 1; }
+    exec {LOCK_FD}>>"$LOCK_FILE" || {
+        echo "refusing: cannot open the arm lock file $LOCK_FILE" >&2; return 1; }
+    if ! flock -n "$LOCK_FD"; then
+        echo "refusing: $LOCK_FILE is held by another invocation publishing this arm;" \
+             "one publication per arm at a time. The kernel releases it when that" \
+             "process ends, so there is nothing to clear by hand" >&2
         return 1
     fi
-    BREAKING_HELD=1
-    printf 'pid %s nonce %s arm %s at %s\n' "$$" "$LOCK_NONCE_CANDIDATE" "$ARM" \
-        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$BREAKING_DIR/owner"
-}
-
-release_breaking() {
-    [ "$BREAKING_HELD" -eq 1 ] || return 0
-    BREAKING_HELD=0
-    local now=""
-    [ ! -f "$BREAKING_DIR/owner" ] || now="$(lock_nonce_of "$BREAKING_DIR")"
-    if [ -n "$now" ] && [ "$now" != "$LOCK_NONCE_CANDIDATE" ]; then
-        say "UNBREAKING SKIPPED $BREAKING_DIR is not this invocation's"
-        return 0
-    fi
-    rm -f -- "$BREAKING_DIR/owner"
-    rmdir -- "$BREAKING_DIR" 2>/dev/null || true
+    trap 'on_signal INT 2' INT
+    trap 'on_signal TERM 15' TERM
+    say "LOCKED $LOCK_FILE mode=$1"
 }
 
 # A signal handler must END this invocation. A cleanup-only handler returns, and bash
-# resumes -- which would let finalization and promotion continue with the lock released.
+# resumes -- which would let finalization and promotion continue after the interruption.
+# The lock needs no releasing here: the kernel drops it when this process exits.
 on_signal() {  # on_signal <NAME> <number>
     INTERRUPTED=1
     say "SIGNAL $1"
-    release_lock
     exit $((128 + $2))
 }
 
@@ -313,116 +233,6 @@ not_interrupted() {
     [ "$INTERRUPTED" -eq 0 ] && return 0
     echo "refusing: a signal handler has fired; this invocation does not continue" >&2
     return 1
-}
-
-# break_lock <observed-nonce>: retire the SPECIFIC stale lock this invocation observed,
-# under the breaking meta-lock so nothing can acquire the exposed pathname meanwhile.
-#
-# The two schedules the close review demonstrated are closed as follows. (1) An acquirer
-# paused between `mkdir` and its owner write leaves an owner-less lock: that is an
-# acquisition in progress until it is older than the grace, so the breaker refuses rather
-# than retiring it. (2) A breaker whose observation is out of date fails the generation
-# comparison, and because the meta-lock is held for the whole break, no third caller can
-# slip into the exposed pathname even in the defensive restore branch.
-break_lock() {
-    local observed="$1" retired="$LOCK_DIR.broken.${1:-empty}" now
-    [ -d "$LOCK_DIR" ] || return 0
-    take_breaking || return 1
-    if lock_is_live "$LOCK_DIR"; then
-        echo "refusing: --break-lock will not override the live owner of $LOCK_DIR" \
-             "($(lock_owner_line "$LOCK_DIR"))" >&2
-        return 1
-    fi
-    if [ ! -f "$LOCK_DIR/owner" ]; then
-        if ! lock_older_than_grace "$LOCK_DIR"; then
-            echo "refusing: $LOCK_DIR has no owner file yet and is younger than the" \
-                 "${LOCK_GRACE_S}s grace: that is an acquisition in progress, not a" \
-                 "stale lock" >&2
-            return 1
-        fi
-    fi
-    now="$(lock_nonce_of "$LOCK_DIR")"
-    if [ "$now" != "$observed" ]; then
-        echo "refusing: $LOCK_DIR now holds the generation ${now:-none}, not the" \
-             "${observed:-none} this invocation observed; another publication has" \
-             "taken it" >&2
-        return 1
-    fi
-    lock_barrier
-    if ! mv -T -- "$LOCK_DIR" "$retired" 2>/dev/null; then
-        echo "refusing: could not retire the stale lock $LOCK_DIR as $retired;" \
-             "another --break-lock reached it first" >&2
-        return 1
-    fi
-    # Defensive: with the meta-lock held nothing else can have replaced the directory
-    # between the comparison and the rename, so this branch should be unreachable.
-    now="$(lock_nonce_of "$retired")"
-    if [ "$now" != "$observed" ]; then
-        mv -T -- "$retired" "$LOCK_DIR" 2>/dev/null \
-            || say "UNRESTORED $retired could not be put back as $LOCK_DIR"
-        echo "refusing: the lock changed generation while it was being retired" >&2
-        return 1
-    fi
-    say "BREAKLOCK $LOCK_DIR retired as $retired owner=$(lock_owner_line "$retired")"
-}
-
-take_lock() {  # take_lock <mode>
-    LOCK_DIR="$ARM_ROOT/.publish.lock"
-    say "LOCK $LOCK_DIR"
-    # A dry run touches nothing outside the test roots, so the lock is real exactly
-    # where the tests exercise it and announced everywhere else.
-    if [ "$DRY" -eq 1 ] && [ "${EXP11_TEST_ROOTS:-0}" != 1 ]; then return 0; fi
-    mkdir -p -- "$ARM_ROOT" || return 1
-    # The generation is chosen BEFORE anything is created, so the meta-lock and the lock
-    # itself carry the same invocation identity.
-    LOCK_NONCE_CANDIDATE="$$-$(date -u +%s%N)-${RANDOM}${RANDOM}"
-    if [ "$BREAK_LOCK" -eq 1 ] && [ -d "$LOCK_DIR" ]; then
-        break_lock "$(lock_nonce_of "$LOCK_DIR")" || { release_breaking; return 1; }
-    fi
-    if [ -d "$LOCK_DIR.breaking" ] && [ "$BREAKING_HELD" -eq 0 ]; then
-        echo "refusing: a break of $LOCK_DIR is in progress; the lock pathname is not" \
-             "available while it is being retired" >&2
-        return 1
-    fi
-    if ! mkdir -- "$LOCK_DIR" 2>/dev/null; then
-        local live=no
-        lock_is_live "$LOCK_DIR" && live=yes
-        echo "refusing: another publication holds the lock $LOCK_DIR (owner:" \
-             "$(lock_owner_line "$LOCK_DIR"), live=$live)." \
-             "Publishing one arm is serialised; a stale lock is cleared only with" \
-             "--break-lock, never automatically" >&2
-        return 1
-    fi
-    local inode
-    inode="$(lock_inode_of "$LOCK_DIR")"
-    LOCK_NONCE="$LOCK_NONCE_CANDIDATE"
-    LOCK_HELD=1
-    trap release_lock EXIT
-    trap 'on_signal INT 2' INT
-    trap 'on_signal TERM 15' TERM
-    # The owner file lands atomically inside the directory this invocation created: a
-    # write into a retired directory fails here rather than appearing in somebody else's.
-    if ! { printf 'pid %s nonce %s mode %s arm %s at %s\n' "$$" "$LOCK_NONCE" "$1" \
-               "$ARM" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK_DIR/.owner.$$" \
-           && mv -- "$LOCK_DIR/.owner.$$" "$LOCK_DIR/owner"; }; then
-        LOCK_HELD=0
-        echo "refusing: could not record ownership of $LOCK_DIR; it was retired while" \
-             "this invocation was acquiring it" >&2
-        return 1
-    fi
-    lock_acquire_barrier
-    # SELF-VERIFICATION. Between `mkdir` and now the directory may have been retired and
-    # re-created by somebody else; this invocation then owns nothing and must remove
-    # nothing. Same inode, our own generation, and no break in progress.
-    if [ "$(lock_inode_of "$LOCK_DIR")" != "$inode" ] \
-       || [ "$(lock_nonce_of "$LOCK_DIR")" != "$LOCK_NONCE" ] \
-       || { [ -d "$LOCK_DIR.breaking" ] && [ "$BREAKING_HELD" -eq 0 ]; }; then
-        LOCK_HELD=0
-        echo "refusing: $LOCK_DIR is no longer the lock this invocation created" \
-             "(inode or generation changed, or a break began); nothing was removed" >&2
-        return 1
-    fi
-    release_breaking
 }
 
 # published_target: what `final` resolves to under this arm root, or nothing.
@@ -510,9 +320,7 @@ COMMIT="${COMMIT:-}"
 EXPLORATORY="${EXPLORATORY:-0}"
 ARM_ROOT="${ARM_ROOT:-$SIMPOR_ROOT}"
 CANONICAL_ATTEMPT="${CANONICAL_ATTEMPT:-}"
-BREAK_LOCK="${BREAK_LOCK:-0}"
 INTERRUPTED="${INTERRUPTED:-0}"
-LOCK_NONCE_CANDIDATE="${LOCK_NONCE_CANDIDATE:-}"
 REPLACE_FINAL="${REPLACE_FINAL:-0}"
 DRY="${DRY:-0}"
 ARM="${ARM:-H}"
@@ -533,7 +341,6 @@ while [ $# -gt 0 ]; do
         --child-exit) CHILD_EXIT="${2:-}"; shift 2 ;;
         --approved) APPROVED="${2:-}"; shift 2 ;;
         --exploratory) EXPLORATORY=1; shift ;;
-        --break-lock) BREAK_LOCK=1; shift ;;
         --replace-final) REPLACE_FINAL=1; shift ;;
         --dry-run) DRY=1; shift ;;
         *) usage ;;
@@ -563,6 +370,9 @@ CHILD_EXPLORATORY=()
 case "$MODE" in
 full)
     preflight
+    # From before the child launch through promotion: a recovery on this arm is refused
+    # while this run owns it.
+    hold_arm_lock full || exit 2
     attempt="$ARM_ROOT/attempt_$STAMP"
     log="$RECORD/orientation_cue_fairness_${STAMP}_train_full_${ARM}.log"
     say "MKDIR $attempt"
@@ -577,13 +387,12 @@ full)
            --epoch-ckpt-every 1 --yaw-aug "$ARM_YAW" --yaw-aug-seed 0 --yaw-aug-width 512
            --run-type full --approved "$APPROVED" --reviewed-commit "$COMMIT")
     say "RUN nohup setsid ${child[*]}"
-    take_lock full || exit 2   # publishing this arm is serialised with any recovery
+    hold_arm_lock full || exit 2   # publishing this arm is serialised with any recovery
     if [ "$DRY" -eq 1 ]; then
         say "MARKER EXP06_CHILD_EXIT <code> <iso> >> $log"
         abort "$attempt" "$log" 'child_exit_<code>'
         finalize "$attempt" "$log" '<code>' exp11_train
         promote "attempt_$STAMP"
-        release_lock
         exit 0
     fi
     mkdir -p -- "$ARM_ROOT"
@@ -680,7 +489,7 @@ smoke)
     ;;
 finalize)
     preflight   # recovery is gated by the same reviewed commit, clean tree and pid checks
-    take_lock finalize || exit 2   # alias resolution, validation and publication
+    hold_arm_lock finalize || exit 2   # alias resolution, validation and publication
     check_attempt "$ATTEMPT" || exit 2
     # Everything below uses the canonical directory, never the path as it was typed.
     if already_published "$CANONICAL_ATTEMPT"; then
