@@ -190,12 +190,19 @@ def test_the_consumed_exp06_record_is_the_one_the_pin_is_compared_with():
     assert inputs[str(Path(paths['exp06']).resolve())] == sha(paths['exp06'])
 
 
-def test_an_alternate_committed_exp06_record_is_refused(tmp_path):
+def test_an_alternate_exp06_record_is_refused(tmp_path):
     """The reviewer's fixture: the pin matches the default file, the run consumed another.
 
     The alternate record differs only in bytes -- a changed artefact digest is enough --
     and the run that loaded it must be refused, whatever the default file happens to hash
     to.
+
+    The alternate is written to ``tmp_path`` and is **not** git-committed: this test
+    isolates the digest comparison this gate owns. That a consumed record must also be a
+    *tracked path whose blob at the reviewed commit is byte-identical* is enforced
+    elsewhere and tested elsewhere -- ``exp06_profiles.load_approved_digests(repo,
+    commit)`` on the exp_06 side and ``exp11_profiles.approvals_at_commit`` on exp_11's
+    (``tests/test_exp11_profiles.py::test_committed_blob_binding``).
     """
     paths = consumed()
     alternate = tmp_path / 'approved_digests.json'
@@ -210,7 +217,11 @@ def test_an_alternate_committed_exp06_record_is_refused(tmp_path):
 
 
 def test_the_matching_record_is_admitted_whichever_path_it_was_loaded_from(tmp_path):
-    """A copy of the approved bytes at another path is the approved record."""
+    """A copy of the approved bytes at another path is the approved record.
+
+    Identity, not location, is what this gate approves; the committed-blob requirement
+    is a separate contract, checked where the record is loaded.
+    """
     paths = consumed()
     copy = tmp_path / 'approved_digests.json'
     copy.write_bytes(Path(paths['exp06']).read_bytes())
