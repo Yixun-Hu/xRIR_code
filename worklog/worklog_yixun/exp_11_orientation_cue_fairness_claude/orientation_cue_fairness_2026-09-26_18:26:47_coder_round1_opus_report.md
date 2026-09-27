@@ -14,8 +14,13 @@ untracked and was not touched).
 
 ## 1. Commits
 
-Base `c6233e3` → HEAD `5db0c82`. Fourteen commits, each with its tests in the same commit
-(tests written first and run red before the implementation in every case).
+Base `c6233e3` → HEAD `5db0c82`. Fourteen commits, each with its tests in the same commit.
+**Wording narrowed after the Codex review:** every *behavioural* change was preceded by a
+failing test; the two acceptance-only commits at the end (`73a8732`, `5db0c82`) add
+characterisation tests for guards that already held, so they did not go red first. The
+round-1 fix cycle continues in
+`orientation_cue_fairness_2026-09-26_20:47:07_coder_round1_fix_opus_report.md`, which
+supersedes the suite result and the `summarize_haa` digest below.
 
 | SHA | Subject | changed lines |
 |---|---|---|
