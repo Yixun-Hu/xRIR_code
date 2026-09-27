@@ -49,10 +49,12 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--parity", nargs="*", default=[])
     ap.add_argument("--check-online", nargs="*", default=[])
+    ap.add_argument("--probe", nargs="*", default=[], help="<arm>=<probe summary JSON>: controls are rendered from the probe run")
     a = ap.parse_args()
     s = json.load(open(a.summary))
     parity = {kv.split("=", 1)[0]: (kv.split("=", 1)[1], json.load(open(kv.split("=", 1)[1]))) for kv in a.parity}
     online = {kv.split("=", 1)[0]: (kv.split("=", 1)[1], json.load(open(kv.split("=", 1)[1]))) for kv in a.check_online}
+    probes = {kv.split("=", 1)[0]: (kv.split("=", 1)[1], json.load(open(kv.split("=", 1)[1]))) for kv in a.probe}
     L = ["# Results — exp_10 yaw_pilot", "",
          "Descriptive pilot (plan v3.1). Per arm and angle: Δ = paired mean change of the error vs ground truth (α − 0°); G = mean shift of the prediction at α relative to the prediction at 0° (no ground truth); both on the shared comparison mask, %d bootstrap replicates (seeds %s), %.0f %% percentile intervals; query-level CI first, room-cluster CI (17 rooms) second. A multiple G/Δ is printed only where the headline is reportable (Δ interval excludes 0, convergence passed, seed statuses agree); otherwise the cell shows its status. Canonical JSON: `%s` (sha256 `%s`)." % (
              s.get("n_boot", 0), s.get("seeds"), 100 * (1 - s.get("alpha", 0.05)), a.summary, sha(a.summary)), ""]
@@ -79,6 +81,12 @@ def main():
                       "| angle | mean 0° | mean α | Δ query CI | Δ room CI | G query CI | G room CI | n | status query / room | multiple or reason |",
                       "|---|---|---|---|---|---|---|---|---|---|"] + rows + [""]
         ctr = arm.get("controls", {})
+        if arm["arm"] in probes:
+            ppath, ps = probes[arm["arm"]]
+            parm = [x for x in ps["arms"] if x["arm"] == arm["arm"]]
+            if parm:
+                ctr = parm[0].get("controls", {})
+                L += ["Probe run: `%s` (%d queries, execution `%s`, sha256 of its summary `%s…`)." % (parm[0].get("run_dir"), parm[0].get("n_queries", 0), parm[0].get("execution_id"), sha(ppath)[:12]), ""]
         if ctr:
             L += ["**Controls:** ok = %s; " % ctr.get("ok") + "; ".join("%s (k=%s) max|Δwave| %s, max|Δlogspec| %s" % (
                 n, c.get("k"), n3(c.get("wave_max_abs_diff")), n3(c.get("logspec_max_abs_diff"))) for n, c in sorted(ctr.get("controls", {}).items())), ""]

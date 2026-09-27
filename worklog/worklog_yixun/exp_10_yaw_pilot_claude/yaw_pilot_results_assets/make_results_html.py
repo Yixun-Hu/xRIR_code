@@ -74,7 +74,7 @@ def ratio_text(h, q, cell):
     return "%s%s" % (esc(reason), (" (room: %s)" % esc(rs)) if rs else "")
 
 
-def arm_section(arm, parity, online):
+def arm_section(arm, parity, online, probe=None):
     out = ["<h2 id='%s'>%s</h2>" % (esc(arm["arm"]), esc(arm["arm"]))]
     m = arm["meta"]
     out.append("<p class='meta'>checkpoint <code>%s</code> (sha256 <code>%s…</code>), backbone %s, K = %s, device %s, %d queries, batches %s, manifest <code>%s…</code>, gl_seed %s, execution <code>%s</code>, protocol <code>%s…</code>.</p>" % (
@@ -89,6 +89,11 @@ def arm_section(arm, parity, online):
         out.append("<h3>%s <span class='unit'>(%s)</span></h3>" % (esc(label), esc(shown or unit or "dimensionless")))
         out.append("<div class='scroll'><table><thead><tr><th>angle</th><th>mean at 0°</th><th>mean at α</th><th>Δ (query CI)</th><th>Δ (room CI)</th><th>G (query CI)</th><th>G (room CI)</th><th>n</th><th>ratio status</th><th>multiple / reason</th></tr></thead><tbody>%s</tbody></table></div>" % rows)
     ctr = arm.get("controls", {})
+    if probe:
+        parm = [x for x in probe["arms"] if x["arm"] == arm["arm"]]
+        if parm:
+            ctr = parm[0].get("controls", {})
+            out.append("<p class='meta'>Controls from the probe run <code>%s</code> (%d queries, execution <code>%s</code>).</p>" % (esc(parm[0].get("run_dir")), parm[0].get("n_queries", 0), esc(parm[0].get("execution_id"))))
     if ctr:
         rows = "".join("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>" % (
             esc(n), esc(c.get("k")), num(c.get("wave_max_abs_diff"), 1, 2), num(c.get("logspec_max_abs_diff"), 1, 2), "ok" if c.get("ok") else "<b>FAIL</b>")
@@ -117,6 +122,7 @@ def main():
     ap.add_argument("--assets", required=True)
     ap.add_argument("--parity", nargs="*", default=[])
     ap.add_argument("--check-online", nargs="*", default=[])
+    ap.add_argument("--probe", nargs="*", default=[], help="<arm>=<probe summary JSON>: controls are rendered from the probe run")
     ap.add_argument("--title", default="exp_10 yaw_pilot — results")
     args = ap.parse_args()
     s = json.load(open(args.summary))
@@ -129,6 +135,9 @@ def main():
             copied[fn] = sha(os.path.join(args.assets, fn))
     parity = {kv.split("=", 1)[0]: json.load(open(kv.split("=", 1)[1])) for kv in args.parity}
     online = {kv.split("=", 1)[0]: json.load(open(kv.split("=", 1)[1])) for kv in args.check_online}
+    probes = {kv.split("=", 1)[0]: json.load(open(kv.split("=", 1)[1])) for kv in args.probe}
+    for kv in args.probe:
+        input_shas[os.path.abspath(kv.split("=", 1)[1])] = sha(kv.split("=", 1)[1])
     input_shas = {os.path.abspath(args.summary): sha(args.summary)}
     for kv in args.parity + args.check_online:
         p = kv.split("=", 1)[1]
@@ -146,7 +155,7 @@ def main():
     if "yaw_pilot_gaps_all_arms.png" in copied:
         parts.append("<h2>All arms</h2><img src='%s/yaw_pilot_gaps_all_arms.png' alt='all arms'>" % esc(rel))
     for arm in s["arms"]:
-        parts.append(arm_section(arm, parity.get(arm["arm"]), online.get(arm["arm"])))
+        parts.append(arm_section(arm, parity.get(arm["arm"]), online.get(arm["arm"]), probes.get(arm["arm"])))
         fig = "yaw_pilot_gaps_%s.png" % arm["arm"]
         if fig in copied:
             parts.append("<img src='%s/%s' alt='%s'>" % (esc(rel), esc(fig), esc(arm["arm"])))
