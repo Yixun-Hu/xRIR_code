@@ -208,14 +208,16 @@ values are for the eventual reviewed merge.
 
 * **Targeted set** — all fourteen `tests/test_exp11_*.py` (the new
   `tests/test_exp11_lock_holder.py` included) plus `tests/test_exp06_summarize_haa.py` and
-  `tests/test_exp09_sim_eval_closures.py`: **369 passed** in 502 s
-  (`tests/test_exp11_shell.py` alone: **63**, `tests/test_exp11_lock_holder.py`: **7**).
-  Fix 6 ended at 353; the restored behaviours and the new lifecycle and holder tests
-  account for the 16.
+  `tests/test_exp09_sim_eval_closures.py`: **371 passed** in 507 s at the final tree `63c1bed`
+  (`tests/test_exp11_shell.py` alone: **65**, `tests/test_exp11_lock_holder.py`: **7**).
+  Fix 6 ended at 353; the restored behaviours, the lifecycle regressions, the holder unit
+  tests and the two late fixes account for the 18.
 * `bash -n` on both shells, `py_compile` on every changed module and test, and
   `git diff --check 94efbc2..HEAD`: clean. `tools/exp06_launch.sh` is byte-identical to
   `94efbc2`, as are every other frozen file.
-* **Full CPU suite** — run detached at `ad50998` (same tree as the last code commit
-  `3db254a`) to
-  `orientation_cue_fairness_2026-09-27_11:45_suite_full_cpu_ad50998.log` in this record.
+* **Full CPU suite** — run detached at `814fbec` (the same tree as the last code
+  commit `63c1bed`) to
+  `orientation_cue_fairness_2026-09-27_12:05_suite_full_cpu_814fbec.log` in this record.
   FIX7_SUITE_RESULT
+  (An earlier detached run at `ad50998` was stopped when the two late fixes landed; its
+  log is the truncated `…_11:45_suite_full_cpu_ad50998.log` and it stands for nothing.)
