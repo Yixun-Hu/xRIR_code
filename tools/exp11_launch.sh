@@ -342,7 +342,12 @@ resolve_unregistered() {
         return 1
     fi
     say "ABORT $attempt -> ${attempt}_ABORTED_unregistered"
-    [ "$DRY" -eq 1 ] || mv -- "$attempt" "${attempt}_ABORTED_unregistered"
+    if [ "$DRY" -eq 0 ]; then
+        mv -- "$attempt" "${attempt}_ABORTED_unregistered"
+        # The marker has been answered; leaving it would close the arm for good, since
+        # the scan reads every attempt_* directory, retired ones included.
+        rm -f -- "${attempt}_ABORTED_unregistered/launching"
+    fi
     say "RESOLVED $attempt registered no child and nothing of it is alive;" \
         "it can never be published"
 }

@@ -801,6 +801,95 @@ def test_a_launch_that_recorded_its_child_blocks_the_arm_too(tmp_path):
         drain(attempt / 'child.pipe')
 
 
+def pid_of(pidfile):
+    """The pid in a registration file, if it still names a living process."""
+    try:
+        pid = int(pidfile.read_text().split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+    try:
+        os.kill(pid, 0)          # a probe, never a signal: signal 0 delivers nothing
+    except OSError:
+        return None
+    return pid
+
+
+def resolve(attempt, grace='0', dry=0):
+    """``resolve_unregistered`` through the sourced library, as the mutation tests do.
+
+    EXP11_PRETRAIN_ROOT is dry-run-only on purpose, and this resolution really renames a
+    directory, so the real roots are never involved: the library is handed the tmp root.
+    """
+    return lib('ARM_ROOT={root}\nDRY={dry}\nARM=H\nUNRESOLVED_GRACE_S={grace}\n'
+               'resolve_unregistered {attempt}\n'.format(
+                   root=attempt.parent, dry=dry, grace=grace, attempt=attempt))
+
+
+def test_an_unresolved_launch_is_resolved_only_once_nothing_is_alive(tmp_path):
+    """The resolution is an operator's answer, not a timeout the launcher takes itself.
+
+    While the trainer still runs, the marker may not be cleared at any age; while it is
+    younger than the grace, a trainer that has not registered yet is still possible.
+    Only when both are settled does the attempt go aside -- and it goes aside *aborted*,
+    because without a child.pid it has no exit receipt and can never be published.
+    """
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    gate = tmp_path / 'let-the-stub-register'
+    attempt = unregistered_launch(old.parent, tmp_path, gate)
+    try:
+        gate.touch()                                   # the stub registers and runs on
+        for _ in range(200):
+            if (attempt / 'train.pid').exists():
+                break
+            time.sleep(0.05)
+        result = resolve(attempt)
+        assert result.returncode != 0 and 'live trainer' in result.stderr
+        assert attempt.is_dir()
+    finally:
+        drain(attempt / 'child.pipe')
+    for _ in range(600):                               # let the stub finish on its own
+        if pid_of(attempt / 'train.pid') is None:
+            break
+        time.sleep(0.05)
+    result = resolve(attempt, grace='100000')
+    assert result.returncode != 0 and 's old' in result.stderr
+    assert attempt.is_dir(), 'nothing moves inside the grace'
+    result = resolve(attempt)
+    assert result.returncode == 0, result.stderr[-500:]
+    assert not attempt.exists()
+    assert (attempt.parent / (attempt.name + '_ABORTED_unregistered')).is_dir()
+    status, out, err = recovery(old, 'H', tmp_path)     # the arm is open again
+    assert status == 0, err[-500:]
+    assert 'PROMOTE' in out
+
+
+def test_resolving_refuses_an_attempt_that_is_not_unresolved(tmp_path):
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    result = resolve(attempt)
+    assert result.returncode != 0 and 'no launching marker' in result.stderr
+    (attempt / 'launching').write_text('launcher 1\n')
+    (attempt / 'child.pid').write_text('1\n')
+    result = resolve(attempt)
+    assert result.returncode != 0 and 'recorded a child' in result.stderr
+    assert attempt.is_dir()
+
+
+def test_the_launcher_takes_the_resolution_only_as_an_explicit_request(tmp_path):
+    """The flag exists on finalize, and a dry run announces without moving anything."""
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    (attempt / 'launching').write_text('launcher 1\nat 2026-09-27T00:00:00+00:00\n')
+    status, out, err = launch(
+        ['finalize', '--arm', 'H', '--gpu', '1', '--reviewed-commit', COMMIT,
+         '--resolve-unregistered', str(attempt), '--dry-run'],
+        {'EXP11_PRETRAIN_ROOT': str(tmp_path), 'EXP11_TEST_ROOTS': '1',
+         'EXP11_UNRESOLVED_GRACE_S': '0'})
+    assert status == 0, err[-500:]
+    assert 'ABORT {} -> {}_ABORTED_unregistered'.format(attempt, attempt) in out
+    assert 'RESOLVED' in out and 'PROMOTE' not in out
+    assert attempt.is_dir(), 'a dry run moves nothing'
+    assert 'LOCKED' in out, 'the resolution happens under the arm lock'
+
+
 # --- close review 6: the lock may never reach the log sink or the training child ----
 
 SINK_LINE = 'cat >> "$log" < "$pipe" &'
