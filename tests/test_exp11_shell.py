@@ -534,3 +534,131 @@ def test_the_lock_is_a_real_mutual_exclusion(tmp_path):
     assert 'another publication holds the lock' in second.stderr
     assert '--break-lock' in second.stderr
     assert (root / LOCK).is_dir(), 'a refused caller never removes a lock it does not own'
+
+
+# --- close review 3: signal handlers must terminate; locks need generations ---------
+
+
+def lock_with(root, nonce='n0', pid='999999', mode='finalize'):
+    """A lock directory owned by a given pid and generation nonce."""
+    lock = root / LOCK
+    lock.mkdir(parents=True, exist_ok=True)
+    (lock / 'owner').write_text(
+        'pid {} nonce {} mode {} arm H at 2026-09-27T00:00:00Z\n'.format(nonce and pid or pid,
+                                                                        nonce, mode))
+    return lock
+
+
+def test_the_term_handler_terminates_instead_of_resuming(tmp_path):
+    """A handler that only cleans up lets the protected work continue unlocked.
+
+    The registered body is replayed directly -- no signal is ever sent -- and execution
+    must not return to the caller: the handler cleans up, says so, and exits 128+n.
+    """
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
+    script = ('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\n'
+              'handler="$(trap -p TERM | sed -n "s/^trap -- \'\\(.*\\)\' SIGTERM$/\\1/p")"\n'
+              '[ -n "$handler" ] || {{ echo NO_TERM_TRAP; exit 9; }}\n'
+              'eval "$handler"\n'
+              'echo "CONTINUED_AFTER_HANDLER LOCK_HELD=$LOCK_HELD"\n'
+              'promote attempt_X\n').format(root=root)
+    result = lib(script)
+    assert 'CONTINUED_AFTER_HANDLER' not in result.stdout, (
+        'the TERM handler returned and execution resumed without the lock')
+    assert 'PROMOTE' not in result.stdout
+    assert result.returncode == 143, result.stdout[-400:]
+    assert 'SIGNAL TERM' in result.stdout
+
+
+def test_the_int_handler_terminates_too(tmp_path):
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
+    script = ('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\n'
+              'handler="$(trap -p INT | sed -n "s/^trap -- \'\\(.*\\)\' SIGINT$/\\1/p")"\n'
+              'eval "$handler"\necho CONTINUED\n').format(root=root)
+    result = lib(script)
+    assert 'CONTINUED' not in result.stdout and result.returncode == 130
+
+
+def test_the_protected_steps_refuse_once_a_handler_has_fired():
+    """A guard, not only an exit: nothing downstream may run after an interruption."""
+    text = (REPO / 'tools/exp11_launch.sh').read_text()
+    assert 'INTERRUPTED' in text, (
+        'the launcher needs a guard the protected steps check, so finalization and '
+        'promotion can never run after a signal handler fired')
+    result = lib('INTERRUPTED=1\nif not_interrupted; then echo REACHED; else echo REFUSED; fi\n')
+    assert 'REFUSED' in result.stdout and 'REACHED' not in result.stdout
+    ok = lib('INTERRUPTED=0\nif not_interrupted; then echo REACHED; fi\n')
+    assert 'REACHED' in ok.stdout
+
+
+def test_release_removes_only_this_invocations_generation(tmp_path):
+    """An earlier owner's exit must never remove its successor's lock."""
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
+    script = ('ARM_ROOT={root}\nDRY=0\nARM=H\ntake_lock finalize\n'
+              # a successor replaces the generation while this shell is still alive
+              'printf "pid 424242 nonce successor mode finalize arm H at x\\n" '
+              '> "$LOCK_DIR/owner"\n').format(root=root)
+    result = lib(script)
+    assert result.returncode == 0, result.stderr[-300:]
+    assert (root / LOCK).is_dir(), (
+        "the exit trap removed a lock generation this invocation did not own")
+    assert 'successor' in (root / LOCK / 'owner').read_text()
+
+
+def test_a_breaker_refuses_once_the_lock_it_observed_has_changed(tmp_path):
+    """Two breakers that saw the same stale lock: the second must not delete the first's.
+
+    The observation is passed to ``break_lock``, so a breaker that acts on a generation
+    which is no longer there refuses instead of retiring whatever it now finds.
+    """
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
+    lock_with(root, nonce='stale')
+    first = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nBREAK_LOCK=1\ntake_lock finalize\n'
+                'cat "$LOCK_DIR/owner"\nLOCK_HELD=0\n'.format(root=root))
+    assert first.returncode == 0, first.stderr[-300:]
+    assert (root / LOCK).is_dir() and 'stale' not in (root / LOCK / 'owner').read_text()
+    fresh = (root / LOCK / 'owner').read_text()
+    second = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nLOCK_DIR="$ARM_ROOT/{lock}"\n'
+                 'break_lock stale\n'.format(root=root, lock=LOCK))
+    assert second.returncode != 0, second.stdout[-300:]
+    assert (root / LOCK).is_dir(), "a late breaker retired a generation it never observed"
+    assert (root / LOCK / 'owner').read_text() == fresh
+
+
+def test_break_lock_refuses_a_live_owner(tmp_path):
+    """--break-lock is for an interrupted publication, not for overriding a running one."""
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
+    lock = lock_with(root, nonce='live')
+    (lock / 'owner').write_text('pid {} nonce live mode finalize arm H at x\n'.format(os.getpid()))
+    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nBREAK_LOCK=1\ntake_lock finalize\n'.format(
+        root=root))
+    assert result.returncode != 0
+    assert 'live' in result.stderr
+    assert lock.is_dir() and 'nonce live' in (lock / 'owner').read_text()
+
+
+def test_two_interleaved_breakers_leave_exactly_one_holder(tmp_path):
+    """The real race, with a file barrier inside break_lock to order the two readers."""
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
+    lock_with(root, nonce='stale')
+    gate = tmp_path / 'gate'
+    slow = subprocess.Popen(
+        ['bash', '-c',
+         'set -euo pipefail\nEXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh\n'
+         'ARM_ROOT={root}\nDRY=0\nARM=H\nBREAK_LOCK=1\ntake_lock finalize\n'
+         'echo SLOW_ACQUIRED\nsleep 3\n'.format(root=root)],
+        cwd=str(REPO), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        env=dict(os.environ, CUDA_VISIBLE_DEVICES='', EXP11_LOCK_BARRIER=str(gate)))
+    fast = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nBREAK_LOCK=1\ntake_lock finalize\n'
+               'echo FAST_ACQUIRED\nLOCK_HELD=0\n'.format(root=root))
+    gate.write_text('go\n')
+    slow_out, slow_err = slow.communicate(timeout=60)
+    acquired = ('FAST_ACQUIRED' in fast.stdout) + ('SLOW_ACQUIRED' in slow_out)
+    assert acquired == 1, (fast.stdout, fast.stderr, slow_out, slow_err)
+    assert (root / LOCK).is_dir(), 'the loser removed the winner\'s lock'
