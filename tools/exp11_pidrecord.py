@@ -15,8 +15,18 @@ imported by ``tools/exp11_train.py`` and executed by the launcher as
 
     python -m tools.exp11_pidrecord <file>
 
-which prints the pid and exits 0, or exits 1 and prints nothing. It never raises: an
-absent, unreadable or impossible file is simply not a record.
+**The CLI answers, or it does not answer at all** (close review 11). Both answers are
+answers, and both are exit 0 with one line on stdout:
+
+    record <pid>     this file holds that pid record
+    norecord         it holds no record -- missing, unreadable, a directory, bad bytes
+
+Anything else is the reader FAILING, not a verdict about the file: a missing
+interpreter, an unimportable module, a crash, a signal, an empty stdout, a different
+first word. Those used to be indistinguishable from "not a record", because an
+ImportError also exits 1 -- and a caller that reads a failure as "nothing is alive"
+retires the attempt of a running trainer. The caller must therefore treat everything
+that is not one of the two lines as **unknown** and refuse to decide.
 """
 import re
 import sys
@@ -34,14 +44,15 @@ def pid_record(path):
     return int(data.decode('ascii')) if PID_RECORD.fullmatch(data) else None
 
 
+USAGE_EXIT = 2          # not 1: a misuse is not a verdict about any file
+
+
 def main(argv):
     if len(argv) != 2:
         print('usage: python -m tools.exp11_pidrecord <file>', file=sys.stderr)
-        return 1
+        return USAGE_EXIT
     record = pid_record(argv[1])
-    if record is None:
-        return 1
-    print(record)
+    print('norecord' if record is None else 'record {}'.format(record))
     return 0
 
 

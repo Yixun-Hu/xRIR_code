@@ -260,21 +260,40 @@ drop_arm_lock() {
 # is a probe and sends no signal.
 UNRESOLVED_GRACE_S="${EXP11_UNRESOLVED_GRACE_S:-120}"
 SCAN_REASON=""
+NEWLINE=$'\n'   # a real newline: a verdict that is two lines is not a verdict
 
-# pid_record <file>: print the pid <file> holds, or return 1. The grammar lives in
-# tools/exp11_pidrecord.py and nowhere else -- this shell does NOT read pid files. Bash
-# command substitution drops NUL bytes, so a reader written here answered "that is a
-# pid" for `<digits>\0` while the trainer's reader said it was not, and a dead pid with
-# a NUL made an arm read quiet with a trainer in it (close review 10, blocker 1). Only
-# the module's stdout crosses back, and that is digits by construction.
+# THREE answers, never two (close review 11). The grammar lives in
+# tools/exp11_pidrecord.py and nowhere else -- this shell does NOT read pid files, since
+# Bash command substitution drops NUL bytes (close review 10, blocker 1). But a reader
+# that cannot run -- no interpreter, an unimportable module, a crash -- used to be
+# indistinguishable from "this file holds no record": both were exit 1. Read as "no
+# record", a broken reader makes every pid file in the arm look dead, and a resolution
+# then retires the attempt of a registered, running trainer. So the reader now answers
+# `record <pid>` or `norecord` on stdout with exit 0, and everything else is UNKNOWN.
+#
+# pid_record <file>: 0 and the pid on stdout | 1 no record | 2 the reader failed.
+READER_UNKNOWN=2
 pid_record() {
+    local answer="" status=0
+    # A missing or non-regular path is a definite `norecord` -- and this guard is also
+    # what keeps the reader from blocking on a FIFO someone left in an attempt.
     [ -f "$1" ] || return 1
-    "$PYTHON" -m tools.exp11_pidrecord "$1" 2>/dev/null
+    answer="$("$PYTHON" -m tools.exp11_pidrecord "$1" 2>/dev/null)" || status=$?
+    [ "$status" -eq 0 ] || return "$READER_UNKNOWN"
+    case "$answer" in
+        *"$NEWLINE"*) return "$READER_UNKNOWN" ;;   # a verdict is ONE line
+        'record '*) printf '%s\n' "${answer#record }"; return 0 ;;
+        norecord) return 1 ;;
+        *) return "$READER_UNKNOWN" ;;
+    esac
 }
 
-pid_alive() {  # pid_alive <file>: the pid <file> records names a living process
-    local pid=""
-    pid="$(pid_record "$1")" || return 1
+# pid_alive <file>: 0 the recorded pid is alive | 1 it is not | 2 nobody can say.
+pid_alive() {
+    local pid="" status=0
+    pid="$(pid_record "$1")" || status=$?
+    [ "$status" -ne "$READER_UNKNOWN" ] || return "$READER_UNKNOWN"
+    [ "$status" -eq 0 ] || return 1
     kill -0 "$pid" 2>/dev/null
 }
 
@@ -282,6 +301,7 @@ pid_alive() {  # pid_alive <file>: the pid <file> records names a living process
 # shell creates that file by redirection before the pid reaches it, so existence alone
 # proves nothing; what makes a launch *registered* is a number to look for. Whether that
 # number is still alive is a separate question, asked by pid_alive of the same bytes.
+# 0 complete | 1 not complete | 2 unknown -- the unknown is never folded into "not".
 registration_complete() {
     pid_record "$1/child.pid" >/dev/null
 }
