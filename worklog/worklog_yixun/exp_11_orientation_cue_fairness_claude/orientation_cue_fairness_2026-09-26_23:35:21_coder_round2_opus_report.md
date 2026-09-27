@@ -395,27 +395,32 @@ the blob committed at the reviewed commit, and runs the producer matrix for that
 `bash -n` on both shells, `py_compile` on every new module and test, `git diff --check`:
 all clean; the tree is clean outside `worklog/`.
 
-**exp_06 code digests recomputed at this branch's HEAD** — exactly **one** key moved
-against the record re-filled at `9f98bbb`, as the round-2 scope allows:
+**exp_06 code digests recomputed at this branch's HEAD (`7b1a7af`)** — exactly **one**
+key moved against the record re-filled at `9f98bbb`, as the round-2 scope allows:
 
 | key | approved at 9f98bbb | now |
 |---|---|---|
-| `summarize_haa` | `645e74c03e20…` | `eb15923411b0…` |
+| `summarize_haa` | `645e74c03e20…` | `e10d7aa3c75d…` |
 
 The other nineteen exp_06 keys are unchanged.
 
-**exp_11 code digests at HEAD** (all eight keys present in this checkout):
+**exp_11 code digests at `7b1a7af`** (all eight keys present in this checkout):
 
 | key | digest |
 |---|---|
-| `train` | `25b93f6477931fef65cd06a9669d788518434bf62969d51249340867195f8af6` |
-| `finalize` | `454643d516a9c4b39a80080420b80093b61339320136f160a582f4ea8c6cb1ec` |
+| `train` | `d9cbb9de8eb0ec85ac85664d9e0da7afe156e5b169bbe89096953d863cf15571` |
+| `finalize` | `baea4d94ac72ae42497791b8ed72e59cbdb6a5bdb47adbf15f9e440ad0e8f99f` |
 | `haa_finetune` | `bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150` |
-| `haa_eval` | `ee768244a25c0a2bdd64512b1aaad599952e74464d9f54aa5d29a50b1dba901a` |
-| `haa_pipeline_sh` | `26f26de1ff32b50da3d9cd00bf991c8f420f734ae9a846fc63dcbb16f18ea5f7` |
+| `haa_eval` | `f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20` |
+| `haa_pipeline_sh` | `163d1fda1bc5700c3faf7812d9f924972a76e172e335a90254c4fd4e7c08ee14` |
 | `launch_sh` | `5e950c224e212c6f932a2068ad2083be8ceb2792c09cca546e762154b5a6d9ab` |
-| `smoke` | `ceb65408aa2bbc971692c84e5aaf6ae9640a6ebf85f68629efd2ef9f0139279a` |
-| `summarize_haa` | `eb15923411b0b8cb23b7e754d46a8541e4b5a584b17526d44dd5501f1513ed07` |
+| `smoke` | `62133ba07a35d42026c19fd1484b37c6c06ace0ebedc1cdd8484690df323450e` |
+| `summarize_haa` | `e10d7aa3c75db2e2ea18cc4ba7ff91135232681ae865546f612a0b67811a9e86` |
+
+(An earlier draft of this report listed the values at `505d5bf`; four keys moved again
+with the last three commits — the `launch_sh` binding of the HAA producer, the heading
+gate in the pipeline and the disjoint diagnostic run types — which is exactly why the
+re-fill belongs at the reviewed commit and not here.)
 
 These are the values a reviewer fills into
 `orientation_cue_fairness_results_assets/approved_digests.json` at the **second** reviewed
