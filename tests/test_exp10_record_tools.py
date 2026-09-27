@@ -633,11 +633,75 @@ def test_html_does_not_copy_a_foreign_figure(render_case):
     assert "yaw_pilot_gaps_released_k8.png" not in page
 
 
-def test_html_refuses_a_summary_whose_figures_are_missing(render_case):
-    os.remove(os.path.join(render_case["summary_dir"], "yaw_pilot_gaps_cyl_k8.png"))
+FIGURES = ("yaw_pilot_gaps_all_arms.png", "yaw_pilot_gaps_control_k8.png",
+           "yaw_pilot_gaps_cyl_k8.png")
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def test_html_regenerates_the_figures_from_the_summary(render_case):
+    """Round-4 finding 3, the original substitution: filtering the *names* of the files
+    copied out of the summariser's directory does not bind their *contents* to this
+    summary, so replacing the combined PNG with another run's published it under "All
+    arms" beside this summary's tables.  The figures are now drawn from the validated
+    summary by the approved summariser's own functions; nothing is copied."""
+    substituted = {}
+    for name in FIGURES:
+        path = os.path.join(render_case["summary_dir"], name)
+        with open(path, "wb") as fout:
+            fout.write(b"\x89PNG\r\nanother run's figure " + name.encode("utf-8"))
+        substituted[name] = fx.file_sha256(path)
+    done = render_html(render_case)
+    assert done.returncode == 0, out(done)
+    for name in FIGURES:
+        published = os.path.join(render_case["assets"], name)
+        assert os.path.isfile(published), name
+        assert fx.file_sha256(published) != substituted[name], name
+        with open(published, "rb") as fin:
+            assert fin.read(8) == PNG_MAGIC, name
+    page = rendered(render_case, "page.html")
+    assert "regenerated" in page
+    assert fx.file_sha256(render_case["summary"]) in page
+
+
+def test_the_regenerated_figures_are_deterministic(render_case):
+    """Finding 3: a regenerated figure is only evidence if it is reproducible byte for byte
+    from the same summary."""
+    assert render_html(render_case).returncode == 0
+    first = {name: fx.file_sha256(os.path.join(render_case["assets"], name))
+             for name in FIGURES}
+    for name in FIGURES:
+        os.remove(os.path.join(render_case["assets"], name))
+    assert render_html(render_case).returncode == 0
+    second = {name: fx.file_sha256(os.path.join(render_case["assets"], name))
+              for name in FIGURES}
+    assert first == second
+
+
+def test_html_regenerates_a_figure_the_summary_directory_does_not_have(render_case):
+    """The summariser's own PNGs are no longer an input, so a directory without them still
+    renders -- from the summary, which is the binding that matters."""
+    for name in FIGURES + ("yaw_pilot_gaps_all_arms.pdf", "yaw_pilot_gaps_cyl_k8.pdf",
+                           "yaw_pilot_gaps_control_k8.pdf"):
+        path = os.path.join(render_case["summary_dir"], name)
+        if os.path.isfile(path):
+            os.remove(path)
+    done = render_html(render_case)
+    assert done.returncode == 0, out(done)
+    for name in FIGURES:
+        assert os.path.isfile(os.path.join(render_case["assets"], name)), name
+
+
+def test_html_refuses_a_summary_whose_figures_cannot_be_drawn(render_case):
+    """A summary the approved figure code cannot plot is refused, not published without
+    the figure the page promises."""
+    summary = fx.read_json(render_case["summary"])
+    for angles in (arm["angles"] for arm in summary["arms"]):
+        for cells in angles.values():
+            cells.clear()
+    fx.write_json(render_case["summary"], summary)
     done = render_html(render_case)
     assert done.returncode != 0
-    assert "yaw_pilot_gaps_cyl_k8.png" in out(done)
+    assert "figure" in out(done).lower()
 
 
 # --------------------------------------------------------------------------------------
@@ -1023,6 +1087,25 @@ def test_finish_does_not_certify_a_foreign_figure(scratch):
     assert done.returncode == 0, out(done)
     listed = open(os.path.join(scratch["generated"], "SHA256SUMS")).read()
     assert "someone_else" not in listed
+
+
+def test_finish_publishes_regenerated_figures_not_the_summarisers_files(scratch):
+    """Round-4 finding 3, end to end: a PNG substituted in the summariser's output
+    directory under the *right* name never reaches the published asset set."""
+    marker = "another run's combined figure"
+    done = run_finish(scratch, env={"STUB_SUBSTITUTE_COMBINED": marker})
+    assert done.returncode == 0, out(done)
+    published = os.path.join(scratch["generated"], "yaw_pilot_gaps_all_arms.png")
+    with open(published, "rb") as fin:
+        head = fin.read(8)
+    assert head == PNG_MAGIC
+    assert marker.encode("utf-8") != open(published, "rb").read()
+    page = open(os.path.join(scratch["record"], "yaw_pilot_01_results.html")).read()
+    assert "regenerated" in page
+    check = subprocess.run(["sha256sum", "-c", "--quiet", "SHA256SUMS"],
+                           cwd=scratch["generated"], stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT)
+    assert check.returncode == 0, check.stdout.decode()
 
 
 # --------------------------------------------------------------------------------------

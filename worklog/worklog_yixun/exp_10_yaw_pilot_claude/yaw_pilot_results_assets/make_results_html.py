@@ -4,17 +4,22 @@
 usage: make_results_html.py --summary <yaw_pilot_summary.json> --out <page.html> --assets <dir>
        [--parity <arm>=<parity_exp03.json> ...] [--check-online <arm>=<check_online.json> ...]
 
-Copies the summariser's figures / CSV / JSON next to the page (relative links) and records
-every input's sha256 in the page footer. Statuses and wording rules follow plan v3.1 §1 / §12:
+Copies the summariser's tables / CSV / JSON next to the page, regenerates its figures there
+(see below), and records every input's sha256 in the page footer. Statuses and wording rules follow plan v3.1 §1 / §12:
 a multiple is printed only when the headline is `reportable`; otherwise the cell shows its
 status (denominator uncertain / improvement / undefined / unresolved Monte Carlo uncertainty).
 
 Nothing is rendered unbound (Codex tooling review, finding 4): the summary's own `inputs`
-hashes are re-verified against the live runs first, every `--parity` / `--check-online` /
-`--probe` input has to belong to the arm it is attached to, and the only files copied out of
-the summariser's directory are the ones *this* summary names — a figure for another arm, or
-any other neighbouring file, is left behind, because hashing arbitrary copied bytes does not
-make them this summary's figures.
+hashes are re-verified against the live runs first (exactly one entry per rendered arm), and
+every `--parity` / `--check-online` / `--probe` input has to belong to the arm it is attached
+to *and* agree with the identity of the run its `run_dir` names.
+
+The figures are **regenerated** from the validated summary by the approved summariser's own
+`make_figure` / `make_combined_figure` (round-4 review, finding 3), never copied out of the
+summariser's output directory: filtering copied *names* bound nothing, so a PNG put there
+under the right name was published under "All arms" beside another run's tables. Only the
+tables, the CSV and the summary JSON are copied, and the provenance names both digests the
+figures are a function of.
 """
 import argparse
 import hashlib
@@ -26,6 +31,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate_runs as vr                                          # noqa: E402
+
+#: The summariser's output files that are *copied* (the figures are regenerated instead).
+TABLE_FILES = ("yaw_pilot_summary.json", "yaw_pilot_tables.md", "yaw_pilot_gaps.csv")
 
 METRICS = [("EDT", "EDT", "s", 1000.0, "ms"), ("C50", "C50", "dB", 1.0, "dB"), ("T60", "T60", "%", 1.0, "pp / %"),
            ("T60_abs", "T60 (absolute)", "s", 1000.0, "ms"), ("logspec_mad", "log-spec MAD (GL-free)", "", 1.0, ""),
@@ -40,6 +48,68 @@ def sha(path):
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def repo_root():
+    """The repository this record lives in (…/worklog/worklog_yixun/<record>/<assets>/…)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    return os.path.abspath(os.path.join(here, os.pardir, os.pardir, os.pardir, os.pardir))
+
+
+def summarizer():
+    """The approved summariser, imported unmodified for its figure drawing.
+
+    The module is `tools/exp10_summarize.py` of the repository this record belongs to — the
+    same file the canonical summary was produced with, and the one the provenance hashes.
+    """
+    root = repo_root()
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    import importlib
+
+    return importlib.import_module("tools.exp10_summarize")
+
+
+def summarizer_path():
+    return os.path.join(repo_root(), "tools", "exp10_summarize.py")
+
+
+def regenerate_figures(summary, assets_dir):
+    """Draw this summary's figures into ``assets_dir``; returns ``{basename: sha256}``.
+
+    Copying the summariser's PNG/PDF files bound nothing to this summary (round-4 review,
+    finding 3).  Regenerating is the binding: the bytes are a function of the validated
+    summary dict and of the approved summariser, and the provenance names both digests.
+    The figure set produced has to be exactly the set this summary names.
+    """
+    module = summarizer()
+    # matplotlib stamps a PDF with the time it was written unless SOURCE_DATE_EPOCH says
+    # otherwise; pinning it makes a second regeneration byte-identical (PNG already is).
+    os.environ.setdefault("SOURCE_DATE_EPOCH", "0")
+    import matplotlib
+
+    matplotlib.use("Agg")               # as the summariser's own _pyplot() does
+    import matplotlib.pyplot as plt
+
+    written = {}
+
+    def _save(figure, base):
+        figure.savefig(base + ".pdf", bbox_inches="tight")
+        plt.close(figure)
+        for ext in (".png", ".pdf"):
+            written[os.path.basename(base + ext)] = sha(base + ext)
+
+    for arm in summary.get("arms") or []:
+        base = os.path.join(assets_dir, "yaw_pilot_gaps_%s" % arm.get("arm"))
+        _save(module.make_figure(summary, arm.get("arm"), base + ".png"), base)
+    base = os.path.join(assets_dir, "yaw_pilot_gaps_all_arms")
+    _save(module.make_combined_figure(summary, base + ".png"), base)
+    expected = sorted(vr.figure_names(summary))
+    vr.assert_ok([] if sorted(written) == expected else
+                 ["regenerated %s, but this summary names %s"
+                  % (", ".join(sorted(written)), ", ".join(expected))],
+                 "refusing to render: the regenerated figure set is not this summary's")
+    return written
 
 
 def num(x, scale=1.0, digits=3):
@@ -198,24 +268,21 @@ def main():
                  "refusing to render supplemental reports that are not this arm's")
     os.makedirs(args.assets, exist_ok=True)
     sdir = os.path.dirname(os.path.abspath(args.summary))
-    # Only what this summary names: its own JSON, its tables, its CSV and its figures.
-    figures = vr.figure_names(s)
-    wanted = ["yaw_pilot_summary.json", "yaw_pilot_tables.md", "yaw_pilot_gaps.csv"] + figures
-    required = [n for n in wanted if not n.endswith(".pdf")]
+    # The tables, the CSV and the summary JSON are copied; the figures are regenerated from
+    # the summary itself, so nothing in `sdir` decides what the page's plots show.
     vr.assert_ok(["%s: the summariser's directory has no %s" % (sdir, n)
-                  for n in required if not os.path.isfile(os.path.join(sdir, n))],
+                  for n in TABLE_FILES if not os.path.isfile(os.path.join(sdir, n))],
                  "refusing to render: this summary's own outputs are incomplete")
-    copied = {}
-    for fn in wanted:
-        src = os.path.join(sdir, fn)
-        if not os.path.isfile(src):
-            continue                       # the .pdf companions are optional
-        shutil.copy2(src, os.path.join(args.assets, fn))
-        copied[fn] = sha(os.path.join(args.assets, fn))
+    assets = {}
+    for fn in TABLE_FILES:
+        shutil.copy2(os.path.join(sdir, fn), os.path.join(args.assets, fn))
+        assets[fn] = sha(os.path.join(args.assets, fn))
+    assets.update(regenerate_figures(s, args.assets))
     left = [fn for fn in sorted(os.listdir(sdir))
-            if fn not in wanted and os.path.isfile(os.path.join(sdir, fn))]
+            if fn not in TABLE_FILES and os.path.isfile(os.path.join(sdir, fn))]
     if left:
-        print("not copied (not named by this summary):", ", ".join(left))
+        print("not copied (regenerated from the summary, or not named by it):",
+              ", ".join(left))
     parity = {arm: json.load(open(path)) for arm, path in parity_pairs}
     online = {arm: json.load(open(path)) for arm, path in online_pairs}
     probes = {arm: json.load(open(path)) for arm, path in probe_pairs}
@@ -258,22 +325,29 @@ def main():
     if links:
         parts.append("<h2>Supplementary results and data</h2><ul class='meta'>%s</ul>"
                      % "".join(links))
-    if "yaw_pilot_gaps_all_arms.png" in copied:
+    if "yaw_pilot_gaps_all_arms.png" in assets:
         parts.append("<h2>All arms</h2><img src='%s/yaw_pilot_gaps_all_arms.png' alt='all arms'>" % esc(rel))
     for arm in s["arms"]:
         parts.append(arm_section(arm, parity.get(arm["arm"]), online.get(arm["arm"]), probes.get(arm["arm"])))
         fig = "yaw_pilot_gaps_%s.png" % arm["arm"]
-        if fig in copied:
+        if fig in assets:
             parts.append("<img src='%s/%s' alt='%s'>" % (esc(rel), esc(fig), esc(arm["arm"])))
     parts.append("<h2>Provenance</h2><ul class='meta'>%s</ul><ul class='meta'>%s</ul>" % (
         "".join("<li><code>%s</code> sha256 <code>%s</code></li>" % (esc(p), esc(h)) for p, h in sorted(input_shas.items())),
-        "".join("<li>asset <code>%s</code> sha256 <code>%s</code></li>" % (esc(p), esc(h)) for p, h in sorted(copied.items()))))
+        "".join("<li>asset <code>%s</code> sha256 <code>%s</code></li>" % (esc(p), esc(h)) for p, h in sorted(assets.items()))))
+    parts.append("<ul class='meta'><li>Every figure on this page was <b>regenerated</b> from "
+                 "the canonical summary <code>%s</code> (sha256 <code>%s</code>) by "
+                 "<code>tools/exp10_summarize.py</code> (sha256 <code>%s</code>), through its "
+                 "own <code>make_figure</code> / <code>make_combined_figure</code>; no PNG or "
+                 "PDF was copied from the summariser's output directory.</li></ul>" % (
+                     esc(shown(args.summary)), esc(sha(args.summary)),
+                     esc(sha(summarizer_path()))))
     parts.append("<ul class='meta'>%s</ul>" % "".join("<li>%s: execution <code>%s</code>, per_sample sha256 <code>%s</code>, meta sha256 <code>%s</code></li>" % (
         esc(i["arm"]), esc(i["execution_id"]), esc(i["per_sample_sha256"]), esc(i["meta_sha256"])) for i in s.get("inputs", [])))
     parts.append("</body></html>")
     with open(args.out, "w") as f:
         f.write("\n".join(parts))
-    print("wrote", args.out, "assets", len(copied))
+    print("wrote", args.out, "assets", len(assets))
 
 
 if __name__ == "__main__":

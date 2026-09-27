@@ -348,37 +348,80 @@ STUB_SUMMARIZE = '''#!/usr/bin/env python3
 """Stand-in for tools/exp10_summarize.py in the finish-script tests.
 
 The real summariser needs the runs' waveforms, 10 000 bootstrap replicates and matplotlib;
-what the finish script needs from it is a canonical summary directory.  This writes one from
-the fixture builders, and honours a few environment flags so a test can make one stage fail.
+what the finish script needs from it is a canonical summary directory.  Run as a script,
+this writes one from the fixture builders and honours a few environment flags so a test can
+make one stage fail.
+
+*Imported* as a module it is not a stub at all: the record's HTML renderer regenerates the
+page's figures by calling this module's ``make_figure`` / ``make_combined_figure``, so those
+come from the real summariser, copied into the scratch repository as
+``exp10_summarize_approved.py``.  A stub that drew its own figures could not tell a
+regenerated figure from a copied one, which is the very thing the test has to distinguish.
 """
-import argparse
-import json
 import os
 import sys
 
-sys.path.insert(0, os.environ["EXP10_FIXTURE_DIR"])
-import exp10_record_fixture as fx
+_APPROVED = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "exp10_summarize_approved.py")
 
-ap = argparse.ArgumentParser()
-ap.add_argument("--runs", nargs="+", required=True)
-ap.add_argument("--out", required=True)
-ap.add_argument("--n-boot", type=int, default=0)
-args = ap.parse_args()
-if os.environ.get("STUB_FAIL_ON_CPU") and any("cpu_protocol" in r for r in args.runs):
-    sys.stderr.write("stub summariser: refusing the CPU run (test)\\n")
-    sys.exit(9)
-runs = [(r, fx.read_json(os.path.join(r, "meta.json"))) for r in args.runs]
-path, summary = fx.write_summary_dir(args.out, runs)
-if os.environ.get("STUB_BREAK_BINDING"):
-    broken = fx.read_json(path)
-    broken["inputs"][0]["per_sample_sha256"] = "0" * 64
-    fx.write_json(path, broken)
-if os.environ.get("STUB_DROP_CSV"):
-    os.remove(os.path.join(args.out, "yaw_pilot_gaps.csv"))
-if os.environ.get("STUB_FOREIGN_FIGURE"):
-    with open(os.path.join(args.out, "yaw_pilot_gaps_someone_else.png"), "wb") as fout:
-        fout.write(b"\\x89PNG\\r\\nforeign")
-print("wrote", path, len(summary["arms"]), "arms")
+
+def _approved():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("exp10_summarize_approved", _APPROVED)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+if __name__ != "__main__":
+    _real = _approved()
+    figure_data = _real.figure_data
+    make_figure = _real.make_figure
+    make_combined_figure = _real.make_combined_figure
+else:
+    import argparse
+    import time
+
+    sys.path.insert(0, os.environ["EXP10_FIXTURE_DIR"])
+    import exp10_record_fixture as fx
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--runs", nargs="+", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--n-boot", type=int, default=0)
+    args = ap.parse_args()
+    if os.environ.get("STUB_FAIL_ON_CPU") and any("cpu_protocol" in r for r in args.runs):
+        sys.stderr.write("stub summariser: refusing the CPU run (test)\\n")
+        sys.exit(9)
+    runs = [(r, fx.read_json(os.path.join(r, "meta.json"))) for r in args.runs]
+    path, summary = fx.write_summary_dir(args.out, runs)
+    if os.environ.get("STUB_BREAK_BINDING"):
+        broken = fx.read_json(path)
+        broken["inputs"][0]["per_sample_sha256"] = "0" * 64
+        fx.write_json(path, broken)
+    if os.environ.get("STUB_DROP_CSV"):
+        os.remove(os.path.join(args.out, "yaw_pilot_gaps.csv"))
+    if os.environ.get("STUB_FOREIGN_FIGURE"):
+        with open(os.path.join(args.out, "yaw_pilot_gaps_someone_else.png"), "wb") as fout:
+            fout.write(b"\\x89PNG\\r\\nforeign")
+    if os.environ.get("STUB_SUBSTITUTE_COMBINED"):
+        with open(os.path.join(args.out, "yaw_pilot_gaps_all_arms.png"), "wb") as fout:
+            fout.write(os.environ["STUB_SUBSTITUTE_COMBINED"].encode("utf-8"))
+    pause = os.environ.get("STUB_PAUSE_UNTIL")
+    if pause and args.out.rstrip("/").endswith(os.path.join("_probe", "summary")):
+        # The chain's probe summary is the boundary the concurrent-chain test needs: the
+        # probe directory (and its source pins) exist, the full stage has not started.
+        with open(pause + ".paused", "w") as fout:
+            fout.write("paused\\n")
+        for _retry in range(600):
+            if os.path.exists(pause):
+                break
+            time.sleep(0.1)
+        else:
+            sys.stderr.write("stub summariser: pause was never released (test)\\n")
+            sys.exit(11)
+    print("wrote", path, len(summary["arms"]), "arms")
 '''
 
 
@@ -415,6 +458,14 @@ def make_scratch_repo(root, assets_src, arms=ARMS, n_queries=32, drop=(), cpu=Tr
         shutil.copy2(os.path.join(assets_src, "scripts", name), os.path.join(scripts, name))
     with open(os.path.join(root, "tools", "exp10_summarize.py"), "w") as fout:
         fout.write(STUB_SUMMARIZE)
+    # The approved summariser's figure drawing, which the HTML renderer calls by import
+    # (STUB_SUMMARIZE delegates to it): the stub replaces the statistics, not the figures.
+    real_repo = os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(assets_src)))))
+    approved = os.path.join(real_repo, "tools", "exp10_summarize.py")
+    if not os.path.isfile(approved):
+        raise AssertionError("the approved summariser is not at %s" % approved)
+    shutil.copy2(approved, os.path.join(root, "tools", "exp10_summarize_approved.py"))
     exp10 = os.path.join(root, "ckpt", "exp10")
     os.makedirs(exp10)
     tree = write_record_tree(exp10, arms=arms, n_queries=n_queries, cpu=cpu)
