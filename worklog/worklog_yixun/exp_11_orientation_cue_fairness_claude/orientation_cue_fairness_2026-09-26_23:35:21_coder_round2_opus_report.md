@@ -239,3 +239,53 @@ for a later stage), and records which mode it used.
 `write_room_outputs` unchanged — the published numbers come from the very code exp_06 and
 exp_09 published theirs from — and owns only the parser, the records and the per-sample
 `meta` (which adds `adapter_heading`, `adapter_phi_deg` and `exp11_source_closure_sha256`).
+
+## Item 11 — `tools/exp11_launch.sh`
+
+`smoke | probe | full | finalize`, `--arm H|I`. It **sources** `tools/exp06_launch.sh`
+as a library (the drained pipe, the end marker, the exit receipt, `abort`, `own_launch`)
+because that lifecycle is shared evidence, not an exp_11 decision — forking it would fork
+the very bytes `closed_log` re-validates — and overrides everything that names an
+experiment: `preflight`/`finalize`/`require_passed` call `tools/exp11_finalize.py`,
+`APPROVED` is exp_11's record (re-assigned unconditionally, because the sourced library
+had already resolved exp_06's), the attempt roots are
+`ckpt/exp11/pretrain/xRIR_simpor_8_shot` and `…/xRIR_simpor_yawaug_8_shot`, the record and
+log prefix are exp_11's, and `arm_of` fixes the arm's recipe (H: `--yaw-aug 0
+--save-every 500`; I: `--yaw-aug 1 --save-every 0`). Because of that override the
+`launch_sh` approvals key binds **both** shell files.
+
+`full` runs the child under `timeout --kill-after=60 $EXP11_FULL_CEILING_S` (default
+129 600 s = **36 h**, plan §7's reservation), so a stalled attempt fails and is aborted
+rather than holding the card. Promotion is the atomic `ln -s` + `mv -Tf` of
+`final → attempt_<UTC>`. `preflight` passes all three roots (both attempt roots and the
+smoke tree) so no live `launch.pid`/`child.pid` anywhere admits a second launch.
+
+## Item 9 — `tools/exp11_haa_pipeline.sh`
+
+Inits `simple_or` / `simple_or_yaw` (heading frame; `${EXP11_SIMPOR_CKPT:-…}`,
+`${EXP11_SIMPOR_YAW_CKPT:-…}`) and `control_adapter` / `yawaug_adapter` (room frame with
+`--adapter-heading-json-dir`). `cue_args` picks the flag from the frame, reset on every
+`init_of`, so a mixed queue never inherits the previous job's cue. Roots
+`ckpt/exp11/sim2real/<init>/`, record log prefix `orientation_cue_fairness_haa`,
+`<init>:<seed>` and `<init>:zeroshot`, and the whole queue is refused before anything runs
+if any job names an unknown init or a malformed seed.
+
+The job spec declares `heading` (heading frame) **or** `adapter_heading` +
+`adapter_phi_deg` (adapter arms, with the shared-heading check), and is validated by the
+very loader that will admit the job (`exp11_finalize.load_job_spec`).
+
+The identity gate resolves each init through `tools/exp11_profiles.py`'s producer matrix:
+`simple_or`/`simple_or_yaw` against exp_11's artifact keys, `control_adapter` against
+`exp04_profiles.CONTROL['sha256']`, `yawaug_adapter` against
+`exp06_finalize.exp04_aug_checkpoint` — and before doing so it checks that exp_06's
+approvals file is the `reused.approved_digests_exp06` bytes exp_11 approved.
+
+`prepare_job` runs an **explicit exclusive-card census** (`nvidia-smi --query-compute-apps`
+must be empty) before every job, because the pipeline does not inherit the launcher's
+preflight; then the approvals gate, then the exclusive job root, then the spec and its
+validation. A refused preparation writes a `preparation_failure.json` receipt and renames
+the root `_ABORTED_prepare_<reason>` only when this attempt created it.
+
+Golden dry runs (`orientation_cue_fairness_results_assets/golden/`) freeze every argv for
+both shells: the launcher's four modes and both arms, each pipeline init at a seed, a
+zero-shot set, and a three-job mixed queue (asserted to run one census per job).
