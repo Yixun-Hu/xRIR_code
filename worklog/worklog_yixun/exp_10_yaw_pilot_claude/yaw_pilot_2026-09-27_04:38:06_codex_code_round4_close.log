@@ -5633,3 +5633,2746 @@ def test_released_k1_needs_no_parity(validate, tree):
     assert not os.path.exists(os.path.join(built["released_k1"]["all"][0], "parity_exp03.json"))
     report = validate_tree(validate, root)
 
+exec
+/bin/bash -lc "mkdir -p .review-round4/root .review-round4/root/tmp .review-round4/root/mpl
+CUDA_VISIBLE_DEVICES='' PYTHONDONTWRITEBYTECODE=1 TMPDIR=\""'$PWD/.review-round4/root/tmp" MPLCONFIGDIR="$PWD/.review-round4/root/mpl" /home/yixunhu/miniconda3/envs/xRIR/bin/python -m pytest tests/test_exp10_record_tools.py -q -p no:cacheprovider --basetemp="$PWD/.review-round4/root/pytest" > .review-round4/root/pytest.log 2>&1' in /home/yixunhu/codespace/xRIR_code_wt10
+exec
+/bin/bash -lc "sed -n '332,700p' worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/validate_runs.py" in /home/yixunhu/codespace/xRIR_code_wt10
+ succeeded in 0ms:
+def check_probe_summary(path, arm, probe_meta, probe_dir=None, require_controls_ok=True):
+    """Validate a probe run's own summary: exactly that arm, that execution, controls ok."""
+    label = "%s probe summary" % arm
+    problems, binding = [], {"path": os.path.abspath(path)}
+    if not os.path.isfile(path):
+        return None, ["%s: %s is missing" % (label, path)], binding
+    try:
+        summary = read_json(path)
+    except ValueError as exc:
+        return None, ["%s: not readable JSON (%s)" % (label, exc)], binding
+    binding["sha256"] = file_sha256(path)
+    arms = summary.get("arms") or []
+    if len(arms) != 1 or arms[0].get("arm") != arm:
+        problems.append("%s: the summary covers %r, not exactly the one arm %r"
+                        % (label, [a.get("arm") for a in arms], arm))
+        return summary, problems, binding
+    entry = arms[0]
+    binding["execution_id"] = entry.get("execution_id")
+    binding["n_queries"] = entry.get("n_queries")
+    binding["controls_ok"] = (entry.get("controls") or {}).get("ok")
+    if probe_meta and entry.get("execution_id") != probe_meta.get("execution_id"):
+        problems.append("%s: the summary's execution %r is not the probe run's %r"
+                        % (label, entry.get("execution_id"), probe_meta.get("execution_id")))
+    if (entry.get("meta") or {}).get("batches_arg") != "probe":
+        problems.append("%s: the summarised run's batches_arg is %r, not 'probe'"
+                        % (label, (entry.get("meta") or {}).get("batches_arg")))
+    if probe_dir is not None and not same_path(entry.get("run_dir") or "", probe_dir):
+        # run_dir is recorded relative to the repository root, so resolve both ways.
+        inputs = [i.get("run_dir") for i in summary.get("inputs") or []]
+        if not any(same_path(p or "", probe_dir) for p in inputs):
+            problems.append("%s: the summary's run %r is not the probe directory %s"
+                            % (label, entry.get("run_dir"), os.path.abspath(probe_dir)))
+    if require_controls_ok and binding["controls_ok"] is not True:
+        problems.append("%s: controls.ok is %r, not true" % (label, binding["controls_ok"]))
+    problems.extend(verify_summary_inputs(summary, label=label))
+    return summary, problems, binding
+
+
+def link_href(path, assets_dir, assets_href, out_path):
+    """The relative href both renderers use for a copied asset (finding 12).
+
+    A file inside the assets directory is linked through ``assets_href`` (the *published*
+    location of that directory, which the finish script stages elsewhere and renames into
+    place); anything else is linked relative to the page itself.
+    """
+    target = os.path.abspath(str(path))
+    assets = os.path.abspath(str(assets_dir)) if assets_dir else None
+    if assets and (target == assets or target.startswith(assets + os.sep)):
+        inside = os.path.relpath(target, assets).replace(os.sep, "/")
+        return "%s/%s" % (str(assets_href).rstrip("/"), inside) if inside != "." else str(assets_href)
+    return os.path.relpath(target, os.path.dirname(os.path.abspath(str(out_path)))).replace(os.sep, "/")
+
+
+def parse_pairs(items, flag):
+    """``["<arm>=<path>", ...]`` → ``[(arm, path), ...]``, refusing a malformed entry."""
+    pairs, problems = [], []
+    for item in items or []:
+        if "=" not in item:
+            problems.append("%s %r is not <arm>=<path>" % (flag, item))
+            continue
+        arm, path = item.split("=", 1)
+        if not arm or not path:
+            problems.append("%s %r is not <arm>=<path>" % (flag, item))
+            continue
+        pairs.append((arm, path))
+    assert_ok(problems, "bad %s argument" % flag)
+    return pairs
+
+
+def check_supplements(summary, parity=(), online=(), probes=(), stage="_all"):
+    """Check that every supplemental report belongs to the arm it is attached to.
+
+    A report is accepted for ``arm`` only when the arm is in this summary, the report's
+    ``run_dir`` resolves to the very run directory the summary was built from for that arm,
+    and its last path component is that arm's stage directory.  A probe summary must cover
+    exactly that arm, have ``batches_arg == "probe"`` and bind its own inputs.  (Codex's
+    review attached the cylindrical parity report to the control arm and it was rendered.)
+    """
+    problems = []
+    arms = [a.get("arm") for a in summary.get("arms") or []]
+    run_dirs = {i.get("arm"): i.get("run_dir") for i in summary.get("inputs") or []}
+    for kind, items in (("parity_exp03", parity), ("check_online", online)):
+        for arm, path in items or []:
+            label = "%s %s (%s)" % (arm, kind, path)
+            if arm not in arms:
+                problems.append("%s: %r is not an arm of this summary (%s)"
+                                % (label, arm, ", ".join(str(a) for a in arms)))
+                continue
+            if not os.path.isfile(path):
+                problems.append("%s: the report is missing" % label)
+                continue
+            try:
+                report = read_json(path)
+            except ValueError as exc:
+                problems.append("%s: not readable JSON (%s)" % (label, exc))
+                continue
+            recorded = report.get("run_dir")
+            if recorded is None:
+                problems.append("%s: the report has no run_dir; it cannot be bound to an arm"
+                                % label)
+                continue
+            expected_name = "%s%s" % (arm, stage)
+            if os.path.basename(str(recorded).rstrip("/")) != expected_name:
+                problems.append("%s: the report was written for %r, not this arm's %s"
+                                % (label, recorded, expected_name))
+            if arm in run_dirs and not same_path(recorded, run_dirs[arm]):
+                problems.append("%s: the report's run %r is not the run this summary "
+                                "summarised for %s (%s)"
+                                % (label, recorded, arm, run_dirs[arm]))
+    for arm, path in probes or []:
+        label = "%s probe summary (%s)" % (arm, path)
+        if arm not in arms:
+            problems.append("%s: %r is not an arm of this summary (%s)"
+                            % (label, arm, ", ".join(str(a) for a in arms)))
+            continue
+        _summary, probs, _binding = check_probe_summary(path, arm, None,
+                                                       require_controls_ok=False)
+        problems.extend(probs)
+    return problems
+
+
+def figure_names(summary):
+    """The figure basenames a summariser output directory may contribute to the page.
+
+    Only the combined figure and one per arm *in this summary*: a figure named for another
+    arm in the same directory belongs to another run and is not copied (finding 4).
+    """
+    names = ["yaw_pilot_gaps_all_arms.png", "yaw_pilot_gaps_all_arms.pdf"]
+    for arm in summary.get("arms") or []:
+        names.append("yaw_pilot_gaps_%s.png" % arm.get("arm"))
+        names.append("yaw_pilot_gaps_%s.pdf" % arm.get("arm"))
+    return names
+
+
+def validate_arm(root, arm, expect_n=EXPECTED_N_QUERIES, device="cuda",
+                 require_parity=True, array_check="size"):
+    """Validate one arm's full run, probe, reports and probe summary."""
+    entry = {"arm": arm, "problems": [], "full": None, "probe": None,
+             "check_online": None, "parity_all": None, "parity_probe": None,
+             "probe_summary": None}
+    full_dir = os.path.join(root, "%s_all" % arm)
+    probe_dir = os.path.join(root, "%s_probe" % arm)
+    full_meta, problems, binding = check_run(
+        full_dir, arm=arm, expect_device=device, expect_n=expect_n,
+        expect_batches_arg="all", array_check=array_check,
+        label="%s_all" % arm)
+    entry["full"] = binding
+    entry["problems"].extend(problems)
+
+    report, problems, binding = bind_report(
+        os.path.join(full_dir, "check_online.json"), full_dir, full_meta, "check_online",
+        require_ok=True, label="%s_all check_online" % arm)
+    entry["check_online"] = binding
+    entry["problems"].extend(problems)
+
+    probe_meta, problems, binding = check_run(
+        probe_dir, arm=arm, expect_device=device, expect_batches_arg="probe",
+        array_check=array_check, label="%s_probe" % arm)
+    entry["probe"] = binding
+    entry["problems"].extend(problems)
+
+    report, problems, binding = bind_report(
+        os.path.join(probe_dir, "check_online.json"), probe_dir, probe_meta, "check_online",
+        require_ok=True, label="%s_probe check_online" % arm)
+    entry["probe_check_online"] = binding
+    entry["problems"].extend(problems)
+
+    summary, problems, binding = check_probe_summary(
+        os.path.join(probe_dir, "summary", "yaw_pilot_summary.json"), arm, probe_meta,
+        probe_dir=probe_dir)
+    entry["probe_summary"] = binding
+    entry["problems"].extend(problems)
+
+    for key, stage_dir, stage_meta, label in (
+            ("parity_all", full_dir, full_meta, "%s_all parity_exp03" % arm),
+            ("parity_probe", probe_dir, probe_meta, "%s_probe parity_exp03" % arm)):
+        path = os.path.join(stage_dir, "parity_exp03.json")
+        if not require_parity and not os.path.isfile(path):
+            entry[key] = None            # released_k1: no exp_03 predecessor to compare to
+            continue
+        report, problems, binding = bind_report(path, stage_dir, stage_meta, "parity_exp03",
+                                                require_ok=True, label=label)
+        entry[key] = binding
+        entry["problems"].extend(problems)
+    return entry
+
+
+def validate_cpu_record(run_dir, expect_n=EXPECTED_N_QUERIES, arm="released_k8",
+                        array_check="size", recorded_run_dir=None):
+    """Validate the CPU-protocol record, preserving its documented parity failure.
+
+    ``recorded_run_dir`` declares the path this run's reports were written under, for the
+    documented relocation into ``cpu_protocol/`` (see ``bind_report``).
+    """
+    entry = {"arm": arm, "run_dir": os.path.abspath(run_dir), "problems": [],
+             "recorded_run_dir": recorded_run_dir}
+    meta, problems, binding = check_run(run_dir, arm=arm, expect_device="cpu",
+                                        expect_n=expect_n, expect_batches_arg="all",
+                                        array_check=array_check,
+                                        label="cpu_protocol/%s_all" % arm)
+    entry["full"] = binding
+    entry["problems"].extend(problems)
+    report, problems, binding = bind_report(
+        os.path.join(run_dir, "check_online.json"), run_dir, meta, "check_online",
+        require_ok=True, label="cpu_protocol/%s_all check_online" % arm,
+        also_accept=recorded_run_dir)
+    entry["check_online"] = binding
+    entry["problems"].extend(problems)
+    # Parity must be *present* — the plan's CPU-protocol decision rests on it — but its
+    # ok is recorded, not required: exp_10's CPU run fails criterion (a) by design.
+    report, problems, binding = bind_report(
+        os.path.join(run_dir, "parity_exp03.json"), run_dir, meta, "parity_exp03",
+        require_ok=False, label="cpu_protocol/%s_all parity_exp03" % arm,
+        also_accept=recorded_run_dir)
+    entry["parity_all"] = binding
+    entry["problems"].extend(problems)
+    return entry
+
+
+def validate_record(root, arms=ARMS, expect_n=EXPECTED_N_QUERIES, device="cuda",
+                    cpu_run=None, array_check="size", parity_arms=PARITY_ARMS,
+                    cpu_recorded_run_dir=None):
+    """Validate the whole evidence tree; returns a report whose ``ok`` decides the finish.
+
+    Args:
+        root: the directory holding ``<arm>_all`` / ``<arm>_probe`` (``ckpt/exp10``).
+        arms: the arms the record prescribes.
+        expect_n: the full runs' query count.
+        device: the device the GPU arms must have run on.
+        cpu_run: the CPU-protocol run directory; ``None`` → ``<root>/cpu_protocol/released_k8_all``;
+            ``False`` → do not validate a CPU record.
+        cpu_recorded_run_dir: the path the CPU record's reports name, if the directory was
+            moved after they were written (a declared relocation, recorded in the report).
+        array_check: ``size`` (default), ``full`` or ``none``.
+        parity_arms: the arms with an exp_03 predecessor (parity required).
+
+    Returns:
+        ``{"ok", "root", "arms", "cpu", "problems"}``.
+    """
+    report = {"ok": False, "root": os.path.abspath(root), "expect_n": int(expect_n),
+              "device": device, "array_check": array_check,
+              "arms": {}, "cpu": None, "problems": []}
+    for arm in arms:
+        entry = validate_arm(root, arm, expect_n=expect_n, device=device,
+                             require_parity=arm in parity_arms, array_check=array_check)
+        report["arms"][arm] = entry
+        report["problems"].extend(entry["problems"])
+    for field in ("execution_id", "protocol_id"):
+        seen = {}
+        for arm, entry in sorted(report["arms"].items()):
+            value = (entry.get("full") or {}).get(field)
+            if not value:
+                continue
+            if value in seen:
+                report["problems"].append(
+                    "%s and %s share one %s (%s): that is one execution presented twice, "
+                    "not two arms" % (seen[value], arm, field, value))
+            seen[value] = arm
+    if cpu_run is not False:
+        cpu_run = cpu_run or os.path.join(root, "cpu_protocol", "released_k8_all")
+        entry = validate_cpu_record(cpu_run, expect_n=expect_n, array_check=array_check,
+                                    recorded_run_dir=cpu_recorded_run_dir)
+        report["cpu"] = entry
+        report["problems"].extend(entry["problems"])
+    report["ok"] = not report["problems"]
+    return report
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--root", default="ckpt/exp10")
+    parser.add_argument("--arms", nargs="+", default=list(ARMS))
+    parser.add_argument("--expect-n", type=int, default=EXPECTED_N_QUERIES)
+    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--cpu-run", default=None)
+    parser.add_argument("--cpu-recorded-run-dir", default=None,
+                        help="the run_dir the CPU record's reports name, if its directory "
+                             "was moved after they were written (declared relocation)")
+    parser.add_argument("--no-cpu", action="store_true",
+                        help="do not validate a CPU-protocol record")
+    parser.add_argument("--array-check", choices=("none", "size", "full"), default="size")
+    parser.add_argument("--json", default=None, help="write the validation report here")
+    args = parser.parse_args(argv)
+    report = validate_record(args.root, arms=tuple(args.arms), expect_n=args.expect_n,
+                             device=args.device,
+                             cpu_run=False if args.no_cpu else args.cpu_run,
+                             array_check=args.array_check,
+                             cpu_recorded_run_dir=args.cpu_recorded_run_dir)
+    if args.json:
+        parent = os.path.dirname(os.path.abspath(args.json))
+        if parent and not os.path.isdir(parent):
+            os.makedirs(parent)
+        with open(args.json, "w") as fout:
+            json.dump(report, fout, indent=2, sort_keys=True)
+    for problem in report["problems"]:
+        print("REFUSED: %s" % problem)
+    if report["ok"]:
+        print("validate_runs: %d arms + %s validated and bound under %s"
+              % (len(args.arms), "the CPU record" if report["cpu"] else "no CPU record",
+                 report["root"]))
+        return 0
+    print("validate_runs: %d requirement(s) failed" % len(report["problems"]))
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+
+exec
+/bin/bash -lc 'cat worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/make_results_html.py' in /home/yixunhu/codespace/xRIR_code_wt10
+ succeeded in 0ms:
+#!/usr/bin/env python3
+"""Render exp_10's results page from the canonical summariser JSON (numbers appear nowhere else first).
+
+usage: make_results_html.py --summary <yaw_pilot_summary.json> --out <page.html> --assets <dir>
+       [--parity <arm>=<parity_exp03.json> ...] [--check-online <arm>=<check_online.json> ...]
+
+Copies the summariser's figures / CSV / JSON next to the page (relative links) and records
+every input's sha256 in the page footer. Statuses and wording rules follow plan v3.1 §1 / §12:
+a multiple is printed only when the headline is `reportable`; otherwise the cell shows its
+status (denominator uncertain / improvement / undefined / unresolved Monte Carlo uncertainty).
+
+Nothing is rendered unbound (Codex tooling review, finding 4): the summary's own `inputs`
+hashes are re-verified against the live runs first, every `--parity` / `--check-online` /
+`--probe` input has to belong to the arm it is attached to, and the only files copied out of
+the summariser's directory are the ones *this* summary names — a figure for another arm, or
+any other neighbouring file, is left behind, because hashing arbitrary copied bytes does not
+make them this summary's figures.
+"""
+import argparse
+import hashlib
+import html
+import json
+import os
+import shutil
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import validate_runs as vr                                          # noqa: E402
+
+METRICS = [("EDT", "EDT", "s", 1000.0, "ms"), ("C50", "C50", "dB", 1.0, "dB"), ("T60", "T60", "%", 1.0, "pp / %"),
+           ("T60_abs", "T60 (absolute)", "s", 1000.0, "ms"), ("logspec_mad", "log-spec MAD (GL-free)", "", 1.0, ""),
+           ("mag_rel_l2", "magnitude rel-L2 (GL-free)", "", 1.0, ""), ("wave_rel_l2", "waveform rel-L2", "", 1.0, ""),
+           ("wave_mad", "waveform MAD", "", 1.0, ""), ("log_mse", "log-STFT MSE", "", 1.0, ""), ("loss", "test loss", "", 1.0, "")]
+ANGLE_DEG = {"0": "0°", "64": "45°", "128": "90°", "256": "180°", "384": "270°"}
+
+
+def sha(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def num(x, scale=1.0, digits=3):
+    if x is None:
+        return "–"
+    return ("%%.%dg" % digits) % (x * scale)
+
+
+def ci(d, scale=1.0, digits=3):
+    if not d or d.get("point") is None:
+        return "–"
+    lo, hi = d.get("lo"), d.get("hi")
+    if lo is None or hi is None:
+        return "%s (no interval)" % num(d["point"], scale, digits)
+    return "%s [%s, %s]" % (num(d["point"], scale, digits), num(lo, scale, digits), num(hi, scale, digits))
+
+
+def esc(s):
+    return html.escape(str(s))
+
+
+def metric_rows(arm, key, scale):
+    rows = []
+    for k in sorted(arm["angles"], key=int):
+        if k == "0":
+            continue
+        cell = arm["angles"][k].get(key)
+        if not cell:
+            continue
+        q, r, h = cell["query"], cell.get("room", {}), cell.get("headline", {})
+        rows.append("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%s</td><td>%s</td></tr>" % (
+            ANGLE_DEG.get(k, k), num(q.get("mean_0"), scale), num(q.get("mean_alpha"), scale), ci(q.get("delta"), scale),
+            ci(r.get("delta"), scale) if r else "–", ci(q.get("gap"), scale), ci(r.get("gap"), scale) if r else "–",
+            q.get("n", 0), esc(q.get("ratio", {}).get("status", "–")),
+            esc(cell.get("room_status") or "–"), ratio_text(h, q, cell)))
+    return "\n".join(rows)
+
+
+def ratio_text(h, q, cell):
+    """The multiple where the headline is reportable, otherwise its reason.
+
+    The room status has its own column (finding 6): it used to be appended here, which meant
+    a reportable cell -- the very cell whose multiple is quoted -- showed no room status at
+    all (control EDT at 90 degrees: 17.8x with the canonical "denominator uncertain" lost).
+    """
+    if h.get("reportable"):
+        return "<b>%s×</b> [%s, %s]" % (num(h["point"], 1, 3), num(h.get("lower_bound"), 1, 3), num(h.get("upper_bound"), 1, 3))
+    return esc(h.get("reason") or q.get("ratio", {}).get("reason") or "–")
+
+
+def arm_section(arm, parity, online, probe=None):
+    out = ["<h2 id='%s'>%s</h2>" % (esc(arm["arm"]), esc(arm["arm"]))]
+    m = arm["meta"]
+    out.append("<p class='meta'>checkpoint <code>%s</code> (sha256 <code>%s…</code>), backbone %s, K = %s, device %s, %d queries, batches %s, manifest <code>%s…</code>, gl_seed %s, execution <code>%s</code>, protocol <code>%s…</code>.</p>" % (
+        esc(m.get("checkpoint")), esc(str(m.get("checkpoint_sha256"))[:12]), esc(m.get("backbone")), esc(m.get("num_shot")), esc(m.get("device")),
+        arm.get("n_queries", 0), esc(m.get("batches_arg")), esc(str(m.get("manifest_hash"))[:12]), esc(m.get("gl_seed")), esc(arm.get("execution_id")), esc(str(arm.get("protocol_id"))[:12])))
+    if arm.get("historical_band_label"):
+        out.append("<p class='meta'>Figure band: %s (%s).</p>" % (esc(arm["historical_band_label"]), esc(json.dumps(arm.get("historical_band")))))
+    for key, label, unit, scale, shown in METRICS:
+        rows = metric_rows(arm, key, scale)
+        if not rows:
+            continue
+        out.append("<h3>%s <span class='unit'>(%s)</span></h3>" % (esc(label), esc(shown or unit or "dimensionless")))
+        out.append("<div class='scroll'><table><thead><tr><th>angle</th><th>mean at 0°</th><th>mean at α</th><th>Δ (query CI)</th><th>Δ (room CI)</th><th>G (query CI)</th><th>G (room CI)</th><th>n</th><th>status (query)</th><th>status (room)</th><th>multiple / reason</th></tr></thead><tbody>%s</tbody></table></div>" % rows)
+    ctr = arm.get("controls", {})
+    if probe:
+        parm = [x for x in probe["arms"] if x["arm"] == arm["arm"]]
+        if parm:
+            ctr = parm[0].get("controls", {})
+            out.append("<p class='meta'>Controls from the probe run <code>%s</code> (%d queries, execution <code>%s</code>).</p>" % (esc(parm[0].get("run_dir")), parm[0].get("n_queries", 0), esc(parm[0].get("execution_id"))))
+    if ctr:
+        rows = "".join("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>" % (
+            esc(n), esc(c.get("k")), num(c.get("wave_max_abs_diff"), 1, 2), num(c.get("logspec_max_abs_diff"), 1, 2), "ok" if c.get("ok") else "<b>FAIL</b>")
+            for n, c in sorted(ctr.get("controls", {}).items()))
+        out.append("<h3>Controls (probe)</h3><table><thead><tr><th>control</th><th>k</th><th>max |Δ wave|</th><th>max |Δ log-spec|</th><th>ok</th></tr></thead><tbody>%s</tbody></table><p class='meta'>controls table ok = %s</p>" % (rows, ctr.get("ok")))
+    if parity:
+        cells = []
+        for k in sorted(parity.get("angles", {}), key=int):
+            for mkey in ("edt_err", "c50_err", "t60_err", "logspec_mad"):
+                c = parity["angles"][k].get(mkey)
+                if c:
+                    cells.append("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>" % (
+                        ANGLE_DEG.get(k, k), mkey, num(c.get("max_abs_diff"), 1, 2), "%.4g" % c.get("fraction_within_tolerance", float("nan")),
+                        num(c.get("paired_delta_run"), 1, 4), num(c.get("paired_delta_exp03"), 1, 4), esc(c.get("status"))))
+        out.append("<h3>Parity vs exp_03 (%s)</h3><p class='meta'>ok = %s; rows %s; missing required %s; exp_03 file sha256 <code>%s…</code></p><div class='scroll'><table><thead><tr><th>angle</th><th>metric</th><th>max |Δ|</th><th>within tol.</th><th>paired Δ (run)</th><th>paired Δ (exp_03)</th><th>status</th></tr></thead><tbody>%s</tbody></table></div>" % (
+            esc(os.path.basename(os.path.dirname(parity.get("exp03_path", "")))), parity.get("ok"), parity.get("n_rows"), esc(parity.get("missing_required")), esc(str(parity.get("exp03_sha256"))[:12]), "".join(cells)))
+    if online is not None:
+        out.append("<p class='meta'>check_online ok = %s</p>" % online.get("ok"))
+    return "\n".join(out)
+
+
+def note_blocks(summary):
+    """The canonical ``notes`` rendered as their *values* (finding 5).
+
+    ``notes`` is a dict whose keys are labels (``band``, ``gl_free``, ``pipeline``,
+    ``broader_population``); printing the keys, as this page used to, dropped every
+    qualification the plan requires the report to carry.
+    """
+    notes = summary.get("notes") or {}
+    items = (sorted(notes.items()) if isinstance(notes, dict)
+             else [(None, text) for text in notes])
+    return ["<div class='note'>%s%s</div>" % (("<b>%s:</b> " % esc(key)) if key else "",
+                                              esc(text)) for key, text in items]
+
+
+def qualification_table(summary):
+    """``metric_qualifications``: what Δ and G mean per metric, T60's denominators included."""
+    qualifications = summary.get("metric_qualifications") or {}
+    if not qualifications:
+        return []
+    rows = []
+    for metric, entry in sorted(qualifications.items()):
+        if isinstance(entry, dict):
+            rows.append("<tr><td>%s</td><td>%s</td><td>%s</td></tr>"
+                        % (esc(metric), esc(entry.get("delta", "–")), esc(entry.get("gap", "–"))))
+        else:
+            rows.append("<tr><td>%s</td><td>%s</td><td>–</td></tr>" % (esc(metric), esc(entry)))
+    return ["<h2>Metric qualifications</h2><p class='meta'>Canonical, from the summariser: "
+            "what a Δ and a G mean for each metric — T60's two denominators included.</p>"
+            "<div class='scroll'><table><thead><tr><th>metric</th>"
+            "<th>Δ (change in the error vs ground truth)</th>"
+            "<th>G (shift from the 0° prediction)</th></tr></thead><tbody>%s</tbody></table></div>"
+            % "".join(rows)]
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--summary", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--assets", required=True)
+    ap.add_argument("--parity", nargs="*", default=[])
+    ap.add_argument("--check-online", nargs="*", default=[])
+    ap.add_argument("--probe", nargs="*", default=[], help="<arm>=<probe summary JSON>: controls are rendered from the probe run")
+    ap.add_argument("--title", default="exp_10 yaw_pilot — results")
+    ap.add_argument("--assets-href", default=None,
+                    help="the published location of --assets, for the relative links (the "
+                         "finish script stages the assets and renames them into place)")
+    ap.add_argument("--backend-table", default=None,
+                    help="the GPU-vs-CPU backend-sensitivity Markdown, linked from the page")
+    ap.add_argument("--cpu-record", default=None,
+                    help="the CPU-protocol record (its tables), linked from the page")
+    args = ap.parse_args()
+    vr.assert_ok(["%s: %s is missing" % (flag, path)
+                  for flag, path in (("--backend-table", args.backend_table),
+                                     ("--cpu-record", args.cpu_record))
+                  if path and not os.path.exists(path)],
+                 "refusing to link a supplementary file that is not there")
+    s = json.load(open(args.summary))
+    vr.assert_ok(vr.verify_summary_inputs(s, label="the canonical summary (%s)" % args.summary),
+                 "refusing to render a summary that is not bound to the runs it came from")
+    parity_pairs = vr.parse_pairs(args.parity, "--parity")
+    online_pairs = vr.parse_pairs(args.check_online, "--check-online")
+    probe_pairs = vr.parse_pairs(args.probe, "--probe")
+    vr.assert_ok(vr.check_supplements(s, parity=parity_pairs, online=online_pairs,
+                                      probes=probe_pairs),
+                 "refusing to render supplemental reports that are not this arm's")
+    os.makedirs(args.assets, exist_ok=True)
+    sdir = os.path.dirname(os.path.abspath(args.summary))
+    # Only what this summary names: its own JSON, its tables, its CSV and its figures.
+    figures = vr.figure_names(s)
+    wanted = ["yaw_pilot_summary.json", "yaw_pilot_tables.md", "yaw_pilot_gaps.csv"] + figures
+    required = [n for n in wanted if not n.endswith(".pdf")]
+    vr.assert_ok(["%s: the summariser's directory has no %s" % (sdir, n)
+                  for n in required if not os.path.isfile(os.path.join(sdir, n))],
+                 "refusing to render: this summary's own outputs are incomplete")
+    copied = {}
+    for fn in wanted:
+        src = os.path.join(sdir, fn)
+        if not os.path.isfile(src):
+            continue                       # the .pdf companions are optional
+        shutil.copy2(src, os.path.join(args.assets, fn))
+        copied[fn] = sha(os.path.join(args.assets, fn))
+    left = [fn for fn in sorted(os.listdir(sdir))
+            if fn not in wanted and os.path.isfile(os.path.join(sdir, fn))]
+    if left:
+        print("not copied (not named by this summary):", ", ".join(left))
+    parity = {arm: json.load(open(path)) for arm, path in parity_pairs}
+    online = {arm: json.load(open(path)) for arm, path in online_pairs}
+    probes = {arm: json.load(open(path)) for arm, path in probe_pairs}
+    rel = args.assets_href or os.path.relpath(args.assets,
+                                              os.path.dirname(os.path.abspath(args.out)))
+
+    def href(path):
+        return vr.link_href(path, args.assets, rel, args.out)
+
+    def shown(path):
+        """An input inside the asset directory is named by its *published* location: the
+        finish script stages the assets under another name and renames them into place."""
+        target = os.path.abspath(path)
+        assets = os.path.abspath(args.assets)
+        return href(path) if target.startswith(assets + os.sep) else target
+
+    input_shas = {shown(args.summary): sha(args.summary)}
+    for _arm, p in parity_pairs + online_pairs + probe_pairs:
+        input_shas[shown(p)] = sha(p)
+    for p in (args.backend_table, args.cpu_record):
+        if p:
+            input_shas[shown(p)] = sha(p)
+
+    parts = ["<!doctype html><html><head><meta charset='utf-8'><title>%s</title><style>body{font-family:system-ui,sans-serif;max-width:1400px;margin:2em auto;padding:0 1em;color:#222}table{border-collapse:collapse;font-size:13px}th,td{border:1px solid #ccc;padding:3px 7px;text-align:right}th{background:#f3f3f3}td:first-child,th:first-child{text-align:left}.meta{color:#555;font-size:13px}.unit{color:#777;font-weight:normal}.scroll{overflow-x:auto}.note{background:#fff8e1;border-left:4px solid #e69f00;padding:.6em 1em;margin:1em 0}img{max-width:100%%}code{font-size:12px}</style></head><body>" % esc(args.title)]
+    parts.append("<h1>%s</h1>" % esc(args.title))
+    parts.append("<p class='meta'>Descriptive pilot (plan v3.1): per arm and angle, Δ = paired mean change of the error vs ground truth (α minus 0°), G = mean shift of the prediction at α relative to the prediction at 0° (no ground truth), on the shared comparison mask; %d bootstrap replicates, seeds %s, %.0f %% intervals; query-level and room-cluster (17 rooms) intervals shown separately. Generated %s by %s.</p>" % (
+        s.get("n_boot", 0), esc(s.get("seeds")), 100 * (1 - s.get("alpha", 0.05)), esc(s.get("generated_at")), esc(s.get("tool"))))
+    parts.extend(note_blocks(s))
+    parts.extend(qualification_table(s))
+    links = []
+    for label, path in (("full tables (every angle, every metric, exclusions, broader-population G)",
+                         os.path.join(args.assets, "yaw_pilot_tables.md")),
+                        ("canonical summary JSON (the source of every number on this page)",
+                         os.path.join(args.assets, "yaw_pilot_summary.json")),
+                        ("figure data (CSV)", os.path.join(args.assets, "yaw_pilot_gaps.csv")),
+                        ("backend sensitivity: GPU (primary) vs CPU protocol", args.backend_table),
+                        ("CPU-protocol record", args.cpu_record)):
+        if path and os.path.exists(path):
+            links.append("<li><a href='%s'>%s</a></li>" % (esc(href(path)), esc(label)))
+    if links:
+        parts.append("<h2>Supplementary results and data</h2><ul class='meta'>%s</ul>"
+                     % "".join(links))
+    if "yaw_pilot_gaps_all_arms.png" in copied:
+        parts.append("<h2>All arms</h2><img src='%s/yaw_pilot_gaps_all_arms.png' alt='all arms'>" % esc(rel))
+    for arm in s["arms"]:
+        parts.append(arm_section(arm, parity.get(arm["arm"]), online.get(arm["arm"]), probes.get(arm["arm"])))
+        fig = "yaw_pilot_gaps_%s.png" % arm["arm"]
+        if fig in copied:
+            parts.append("<img src='%s/%s' alt='%s'>" % (esc(rel), esc(fig), esc(arm["arm"])))
+    parts.append("<h2>Provenance</h2><ul class='meta'>%s</ul><ul class='meta'>%s</ul>" % (
+        "".join("<li><code>%s</code> sha256 <code>%s</code></li>" % (esc(p), esc(h)) for p, h in sorted(input_shas.items())),
+        "".join("<li>asset <code>%s</code> sha256 <code>%s</code></li>" % (esc(p), esc(h)) for p, h in sorted(copied.items()))))
+    parts.append("<ul class='meta'>%s</ul>" % "".join("<li>%s: execution <code>%s</code>, per_sample sha256 <code>%s</code>, meta sha256 <code>%s</code></li>" % (
+        esc(i["arm"]), esc(i["execution_id"]), esc(i["per_sample_sha256"]), esc(i["meta_sha256"])) for i in s.get("inputs", [])))
+    parts.append("</body></html>")
+    with open(args.out, "w") as f:
+        f.write("\n".join(parts))
+    print("wrote", args.out, "assets", len(copied))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (ValueError, vr.ValidationError) as exc:      # a refusal, not a crash
+        sys.stderr.write("REFUSED: %s\n" % exc)
+        sys.exit(2)
+
+exec
+/bin/bash -lc 'cat worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/make_results_md.py' in /home/yixunhu/codespace/xRIR_code_wt10
+ succeeded in 0ms:
+#!/usr/bin/env python3
+"""Write exp_10's `_results.md` from the canonical summariser JSON (+ optional parity / check-online JSONs).
+
+usage: make_results_md.py --summary <yaw_pilot_summary.json> --out <yaw_pilot_results.md>
+       [--parity <arm>=<parity_exp03.json> ...] [--check-online <arm>=<check_online.json> ...]
+Only the headline metrics (EDT, C50, T60, T60_abs, logspec_mad) go into the compact tables; the
+summariser's own `yaw_pilot_tables.md` (copied into the assets) carries everything else.
+
+As in the HTML page, nothing is written unbound (Codex tooling review, finding 4): the
+summary's `inputs` hashes are re-verified against the live runs and every supplemental report
+has to belong to the arm it is attached to.
+"""
+import argparse
+import hashlib
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import validate_runs as vr                                          # noqa: E402
+
+HEAD = [("EDT", "EDT", 1000.0, "ms"), ("C50", "C50", 1.0, "dB"), ("T60", "T60", 1.0, "pp (Δ) / % (G)"),
+        ("T60_abs", "T60 absolute", 1000.0, "ms"), ("logspec_mad", "log-spec MAD (GL-free)", 1.0, "")]
+DEG = {"0": "0°", "64": "45°", "128": "90°", "256": "180°", "384": "270°"}
+
+
+def sha(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for c in iter(lambda: f.read(1 << 20), b""):
+            h.update(c)
+    return h.hexdigest()
+
+
+def n3(x, s=1.0):
+    return "–" if x is None else "%.3g" % (x * s)
+
+
+def ci(d, s=1.0):
+    if not d or d.get("point") is None:
+        return "–"
+    if d.get("lo") is None or d.get("hi") is None:
+        return "%s (no CI)" % n3(d["point"], s)
+    return "%s [%s, %s]" % (n3(d["point"], s), n3(d["lo"], s), n3(d["hi"], s))
+
+
+def multiple(cell):
+    h = cell.get("headline", {})
+    if h.get("reportable"):
+        return "**%s×** [%s, %s]" % (n3(h["point"]), n3(h.get("lower_bound")), n3(h.get("upper_bound")))
+    return h.get("reason") or cell["query"].get("ratio", {}).get("reason") or "–"
+
+
+def note_lines(summary):
+    """The canonical qualifications, rendered as their *values* (finding 5).
+
+    ``notes`` is a dict (``band`` / ``broader_population`` / ``gl_free`` / ``pipeline``): the
+    keys are labels, the values are the sentences the report has to carry.  The
+    ``metric_qualifications`` block says what a Δ and a G mean per metric -- including T60's
+    two different denominators -- and belongs in the Markdown as much as in the page.
+    """
+    lines = []
+    notes = summary.get("notes") or {}
+    items = (sorted(notes.items()) if isinstance(notes, dict)
+             else [(None, text) for text in notes])
+    for key, text in items:
+        lines.append("> **%s:** %s" % (key, text) if key else "> %s" % text)
+    lines.append("")
+    qualifications = summary.get("metric_qualifications") or {}
+    if qualifications:
+        lines += ["**Metric qualifications** (canonical, from the summariser): what a Δ and a "
+                  "G mean for each metric, including T60's two denominators.", "",
+                  "| metric | Δ (change in the error vs ground truth) | G (shift from the 0° prediction) |",
+                  "|---|---|---|"]
+        for metric, entry in sorted(qualifications.items()):
+            if isinstance(entry, dict):
+                lines.append("| %s | %s | %s |" % (metric, entry.get("delta", "–"),
+                                                   entry.get("gap", "–")))
+            else:
+                lines.append("| %s | %s | – |" % (metric, entry))
+        lines.append("")
+    return lines
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--summary", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--parity", nargs="*", default=[])
+    ap.add_argument("--check-online", nargs="*", default=[])
+    ap.add_argument("--probe", nargs="*", default=[], help="<arm>=<probe summary JSON>: controls are rendered from the probe run")
+    ap.add_argument("--assets", default=None,
+                    help="the directory the summariser's tables / JSON / CSV are copied to; "
+                         "the supplementary links point into it")
+    ap.add_argument("--assets-href", default=None,
+                    help="the published location of --assets, for the relative links")
+    ap.add_argument("--backend-table", default=None,
+                    help="the GPU-vs-CPU backend-sensitivity Markdown, linked and hashed here")
+    ap.add_argument("--cpu-record", default=None, help="the CPU-protocol record (its tables)")
+    a = ap.parse_args()
+    vr.assert_ok(["%s: %s is missing" % (flag, path)
+                  for flag, path in (("--backend-table", a.backend_table),
+                                     ("--cpu-record", a.cpu_record))
+                  if path and not os.path.exists(path)],
+                 "refusing to link a supplementary file that is not there")
+    if a.assets:
+        # The links this report promises have to exist: make_results_html.py assembles the
+        # asset directory, so it runs first (a dangling link is worse than no link).
+        vr.assert_ok(["%s: the asset directory has no %s" % (a.assets, name)
+                      for name in ("yaw_pilot_tables.md", "yaw_pilot_summary.json",
+                                   "yaw_pilot_gaps.csv")
+                      if not os.path.isfile(os.path.join(a.assets, name))],
+                     "refusing to link assets that have not been assembled yet (run "
+                     "make_results_html.py --assets first)")
+    s = json.load(open(a.summary))
+    vr.assert_ok(vr.verify_summary_inputs(s, label="the canonical summary (%s)" % a.summary),
+                 "refusing to write a results page from a summary that is not bound to the "
+                 "runs it came from")
+    parity_pairs = vr.parse_pairs(a.parity, "--parity")
+    online_pairs = vr.parse_pairs(a.check_online, "--check-online")
+    probe_pairs = vr.parse_pairs(a.probe, "--probe")
+    vr.assert_ok(vr.check_supplements(s, parity=parity_pairs, online=online_pairs,
+                                      probes=probe_pairs),
+                 "refusing to render supplemental reports that are not this arm's")
+    parity = {arm: (path, json.load(open(path))) for arm, path in parity_pairs}
+    online = {arm: (path, json.load(open(path))) for arm, path in online_pairs}
+    probes = {arm: (path, json.load(open(path))) for arm, path in probe_pairs}
+    L = ["# Results — exp_10 yaw_pilot", "",
+         "Descriptive pilot (plan v3.1). Per arm and angle: Δ = paired mean change of the error vs ground truth (α − 0°); G = mean shift of the prediction at α relative to the prediction at 0° (no ground truth); both on the shared comparison mask, %d bootstrap replicates (seeds %s), %.0f %% percentile intervals; query-level CI first, room-cluster CI (17 rooms) second. A multiple G/Δ is printed only where the headline is reportable (Δ interval excludes 0, convergence passed, seed statuses agree); otherwise the cell shows its status. Canonical JSON: `%s` (sha256 `%s`)." % (
+             s.get("n_boot", 0), s.get("seeds"), 100 * (1 - s.get("alpha", 0.05)), a.summary, sha(a.summary)), ""]
+    L += note_lines(s)
+    for arm in s["arms"]:
+        m = arm["meta"]
+        L += ["## %s" % arm["arm"], "",
+              "`%s` (sha256 `%s…`), backbone %s, K = %s, device %s, %d queries (batches `%s`), manifest `%s…`, gl_seed %s, execution `%s`." % (
+                  m.get("checkpoint"), str(m.get("checkpoint_sha256"))[:12], m.get("backbone"), m.get("num_shot"), m.get("device"),
+                  arm.get("n_queries", 0), m.get("batches_arg"), str(m.get("manifest_hash"))[:12], m.get("gl_seed"), arm.get("execution_id")), ""]
+        for key, label, sc, unit in HEAD:
+            rows = []
+            for k in sorted(arm["angles"], key=int):
+                if k == "0" or key not in arm["angles"][k]:
+                    continue
+                c = arm["angles"][k][key]; q = c["query"]; r = c.get("room", {})
+                rows.append("| %s | %s | %s | %s | %s | %s | %s | %d | %s / %s | %s |" % (
+                    DEG.get(k, k), n3(q.get("mean_0"), sc), n3(q.get("mean_alpha"), sc), ci(q.get("delta"), sc), ci(r.get("delta"), sc),
+                    ci(q.get("gap"), sc), ci(r.get("gap"), sc), q.get("n", 0), q.get("ratio", {}).get("status", "–"), c.get("room_status", "–"), multiple(c)))
+            if rows:
+                L += ["### %s (%s)" % (label, unit or "dimensionless"), "",
+                      "| angle | mean 0° | mean α | Δ query CI | Δ room CI | G query CI | G room CI | n | status query / room | multiple or reason |",
+                      "|---|---|---|---|---|---|---|---|---|---|"] + rows + [""]
+        ctr = arm.get("controls", {})
+        if arm["arm"] in probes:
+            ppath, ps = probes[arm["arm"]]
+            parm = [x for x in ps["arms"] if x["arm"] == arm["arm"]]
+            if parm:
+                ctr = parm[0].get("controls", {})
+                L += ["Probe run: `%s` (%d queries, execution `%s`, sha256 of its summary `%s…`)." % (parm[0].get("run_dir"), parm[0].get("n_queries", 0), parm[0].get("execution_id"), sha(ppath)[:12]), ""]
+        if ctr:
+            L += ["**Controls:** ok = %s; " % ctr.get("ok") + "; ".join("%s (k=%s) max|Δwave| %s, max|Δlogspec| %s" % (
+                n, c.get("k"), n3(c.get("wave_max_abs_diff")), n3(c.get("logspec_max_abs_diff"))) for n, c in sorted(ctr.get("controls", {}).items())), ""]
+        if arm["arm"] in parity:
+            path, p = parity[arm["arm"]]
+            worst = {}
+            for k, cells in p.get("angles", {}).items():
+                for mk, c in cells.items():
+                    if isinstance(c, dict) and c.get("max_abs_diff") is not None:
+                        worst[mk] = max(worst.get(mk, 0.0), c["max_abs_diff"])
+            L += ["**Parity vs exp_03** (`%s`, sha256 `%s…`): ok = %s, rows %s, missing required %s; largest per-query |Δ|: %s." % (
+                path, sha(path)[:12], p.get("ok"), p.get("n_rows"), p.get("missing_required"), ", ".join("%s %s" % (k, n3(v)) for k, v in sorted(worst.items()))), ""]
+        if arm["arm"] in online:
+            path, o = online[arm["arm"]]
+            L += ["**check_online** (`%s`): ok = %s." % (path, o.get("ok")), ""]
+    rel = a.assets_href or (os.path.relpath(a.assets, os.path.dirname(os.path.abspath(a.out)))
+                            if a.assets else None)
+
+    def shown(path):
+        """An input inside the asset directory is named by its *published* location (the
+        finish script stages the assets under another name and renames them into place)."""
+        target = os.path.abspath(path)
+        if a.assets and target.startswith(os.path.abspath(a.assets) + os.sep):
+            return vr.link_href(path, a.assets, rel, a.out)
+        return path
+    links = []
+    for label, path in ((("full tables (every angle, every metric, exclusions, "
+                          "broader-population G)"),
+                         os.path.join(a.assets, "yaw_pilot_tables.md") if a.assets else None),
+                        ("canonical summary JSON (the source of every number here)",
+                         os.path.join(a.assets, "yaw_pilot_summary.json") if a.assets else None),
+                        ("figure data (CSV)",
+                         os.path.join(a.assets, "yaw_pilot_gaps.csv") if a.assets else None),
+                        ("backend sensitivity: GPU (primary) vs CPU protocol", a.backend_table),
+                        ("CPU-protocol record", a.cpu_record)):
+        if path and os.path.exists(path):
+            links.append("- [%s](%s)" % (label, vr.link_href(path, a.assets, rel, a.out)))
+    if links:
+        L += ["## Supplementary results and data", ""] + links + [""]
+    # Finding 11: the full sha256 of every input this report was built from, matching the
+    # HTML footer -- truncated hashes cannot be re-verified.
+    inputs = [("canonical summary", a.summary)]
+    inputs += [("%s probe summary" % arm, path) for arm, path in sorted(probe_pairs)]
+    inputs += [("%s parity_exp03" % arm, path) for arm, path in sorted(parity_pairs)]
+    inputs += [("%s check_online" % arm, path) for arm, path in sorted(online_pairs)]
+    if a.backend_table:
+        inputs.append(("backend sensitivity table", a.backend_table))
+    if a.cpu_record:
+        inputs.append(("CPU-protocol record", a.cpu_record))
+    L += ["## Provenance", "",
+          "Every input of this report, with its full sha256 (the HTML page's footer lists the "
+          "same values):", ""]
+    L += ["- %s: `%s` sha256 `%s`" % (label, shown(path), sha(path))
+          for label, path in inputs] + [""]
+    L += ["Runs the canonical summary was computed from:", ""]
+    L += ["- %s: execution `%s`, per_sample sha256 `%s`, meta sha256 `%s`, run dir `%s`" % (
+        i["arm"], i["execution_id"], i["per_sample_sha256"], i["meta_sha256"], i["run_dir"])
+        for i in s.get("inputs", [])] + [""]
+    with open(a.out, "w") as f:
+        f.write("\n".join(L))
+    print("wrote", a.out)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (ValueError, vr.ValidationError) as exc:      # a refusal, not a crash
+        sys.stderr.write("REFUSED: %s\n" % exc)
+        sys.exit(2)
+
+exec
+/bin/bash -lc "sed -n '240,350p' tests/exp10_record_fixture.py
+sed -n '400,670p' tests/test_exp10_record_tools.py
+cat .review-round4/root/pytest.log" in /home/yixunhu/codespace/xRIR_code_wt10
+ succeeded in 0ms:
+    for k in meta["ks"]:
+        if int(k) == 0:
+            angles["0"] = {}
+            continue
+        angles[str(int(k))] = {m: make_cell(reportable=reportable and m in ("EDT", "C50"))
+                               for m in METRICS}
+    return {"arm": meta["arm"], "run_dir": run_dir, "meta": meta,
+            "execution_id": meta["execution_id"], "protocol_id": meta["protocol_id"],
+            "n_queries": meta["n_queries"], "angles": angles,
+            "controls": controls_table(run_dir, ok=controls_ok),
+            "historical_band": {"EDT": 0.186, "C50": 0.0053, "T60": 0.009},
+            "historical_band_label": "historical baseline evaluation variability, context only",
+            "rooms": ["Cat/Room_idx_0", "Cat/Room_idx_1", "Cat/Room_idx_2"]}
+
+
+def build_summary(runs, controls_ok=True, reportable=True, notes=None,
+                  metric_qualifications=None):
+    """The canonical summariser dict over ``runs`` = [(run_dir, meta), ...]."""
+    inputs = []
+    for run_dir, meta in runs:
+        inputs.append({"arm": meta["arm"], "run_dir": os.path.abspath(run_dir),
+                       "execution_id": meta["execution_id"],
+                       "protocol_id": meta["protocol_id"],
+                       "per_sample_sha256": file_sha256(os.path.join(run_dir, "per_sample.json")),
+                       "meta_sha256": file_sha256(os.path.join(run_dir, "meta.json"))})
+    return {"tool": "tools/exp10_summarize.py", "generated_at": "2026-09-27T07:33:17Z",
+            "n_boot": 10000, "alpha": 0.05, "seeds": [0, 1],
+            "convergence_tolerance": 0.1,
+            "band_label": NOTES["band"],
+            "notes": dict(NOTES if notes is None else notes),
+            "metric_qualifications": dict(METRIC_QUALIFICATIONS if metric_qualifications is None
+                                          else metric_qualifications),
+            "inputs": inputs,
+            "arms": [summary_arm(run_dir, meta, controls_ok=controls_ok, reportable=reportable)
+                     for run_dir, meta in runs]}
+
+
+def write_summary_dir(out_dir, runs, controls_ok=True, reportable=True, figures=True,
+                      notes=None, metric_qualifications=None):
+    """Write a summariser output directory (JSON + tables + CSV + the figures it names)."""
+    if not os.path.isdir(out_dir):
+        os.makedirs(out_dir)
+    summary = build_summary(runs, controls_ok=controls_ok, reportable=reportable,
+                           notes=notes, metric_qualifications=metric_qualifications)
+    path = write_json(os.path.join(out_dir, "yaw_pilot_summary.json"), summary)
+    with open(os.path.join(out_dir, "yaw_pilot_tables.md"), "w") as fout:
+        fout.write("# yaw_pilot full tables\n\nevery angle, every metric\n")
+    with open(os.path.join(out_dir, "yaw_pilot_gaps.csv"), "w") as fout:
+        fout.write("arm,k,metric,value\n")
+        for _, meta in runs:
+            fout.write("%s,64,EDT,0.014\n" % meta["arm"])
+    if figures:
+        names = ["yaw_pilot_gaps_all_arms"] + ["yaw_pilot_gaps_%s" % meta["arm"] for _, meta in runs]
+        for name in names:
+            for ext in (".png", ".pdf"):
+                with open(os.path.join(out_dir, name + ext), "wb") as fout:
+                    fout.write(b"\x89PNG\r\n" + name.encode("utf-8"))
+    return path, summary
+
+
+def write_arm_tree(root, arm, device="cuda", n_queries=6337, probe_queries=272,
+                   parity=True, probe_parity=None, full_ok=True, probe_controls_ok=True,
+                   complete=True, padded_len=16, probe_check_ok=True):
+    """Write one arm's probe + full directories with their reports and the probe summary.
+
+    Returns:
+        ``{"all": (dir, meta), "probe": (dir, meta)}``.
+    """
+    full_dir = os.path.join(root, "%s_all" % arm)
+    probe_dir = os.path.join(root, "%s_probe" % arm)
+    full_meta = write_run(full_dir, arm=arm, device=device, n_queries=n_queries,
+                          batches_arg="all", complete=complete, padded_len=padded_len)
+    probe_meta = write_run(probe_dir, arm=arm, device=device, n_queries=probe_queries,
+                           batches_arg="probe", padded_len=padded_len)
+    write_check_online(full_dir, full_meta, ok=full_ok)
+    write_check_online(probe_dir, probe_meta, ok=probe_check_ok)
+    if parity:
+        write_parity(full_dir, full_meta, arm=arm)
+    if probe_parity if probe_parity is not None else parity:
+        write_parity(probe_dir, probe_meta, arm=arm)
+    write_summary_dir(os.path.join(probe_dir, "summary"), [(probe_dir, probe_meta)],
+                      controls_ok=probe_controls_ok)
+    return {"all": (full_dir, full_meta), "probe": (probe_dir, probe_meta)}
+
+
+def write_record_tree(root, arms=ARMS, n_queries=6337, padded_len=16, cpu=True):
+    """The whole evidence tree the finish script validates: four GPU arms + the CPU record.
+
+    Returns:
+        ``{arm: {"all": (dir, meta), "probe": (dir, meta)}, "cpu": {...}}``.
+    """
+    tree = {}
+    for arm in arms:
+        tree[arm] = write_arm_tree(root, arm, device="cuda", n_queries=n_queries,
+                                   parity=arm in PARITY_ARMS, padded_len=padded_len)
+    if cpu:
+        cpu_root = os.path.join(root, "cpu_protocol")
+        cpu_dir = os.path.join(cpu_root, "released_k8_all")
+        cpu_meta = write_run(cpu_dir, arm="released_k8", device="cpu", n_queries=n_queries,
+                             batches_arg="all", padded_len=padded_len)
+        write_check_online(cpu_dir, cpu_meta, ok=True)
+        write_parity(cpu_dir, cpu_meta, arm="released_k8", ok=False)
+        write_summary_dir(os.path.join(cpu_root, "summary"), [(cpu_dir, cpu_meta)])
+        tree["cpu"] = {"all": (cpu_dir, cpu_meta)}
+    return tree
+
+
+STUB_SUMMARIZE = '''#!/usr/bin/env python3
+"""Stand-in for tools/exp10_summarize.py in the finish-script tests.
+
+The real summariser needs the runs' waveforms, 10 000 bootstrap replicates and matplotlib;
+                                          [(cpu_dir, cpu_meta)])
+    return {"root": root, "gpu": (gpu_dir, gpu_meta, gpu_summary),
+            "cpu": (cpu_dir, cpu_meta, cpu_summary)}
+
+
+def backend_table(pair, tmp_path, gpu=None, cpu=None):
+    return run_python(os.path.join(ASSETS, "make_backend_table.py"),
+                      "--gpu", gpu or pair["gpu"][2], "--cpu", cpu or pair["cpu"][2],
+                      "--arm", "released_k8",
+                      "--out-md", str(tmp_path / "backend.md"),
+                      "--out-json", str(tmp_path / "backend.json"))
+
+
+def test_backend_table_accepts_a_matched_gpu_cpu_pair(backend_pair, tmp_path):
+    done = backend_table(backend_pair, tmp_path)
+    assert done.returncode == 0, out(done)
+    record = json.load(open(str(tmp_path / "backend.json")))
+    assert record["gpu"]["device"] == "cuda" and record["cpu"]["device"] == "cpu"
+    assert record["gpu"]["execution_id"] != record["cpu"]["execution_id"]
+    assert record["verified"]["query_list_sha256"] == backend_pair["gpu"][1]["query_list_sha256"]
+    assert "GPU (primary) vs CPU protocol" in open(str(tmp_path / "backend.md")).read()
+
+
+def test_backend_table_refuses_the_same_execution_twice(backend_pair, tmp_path):
+    """Finding 3: supplying the same CPU execution twice was accepted."""
+    done = backend_table(backend_pair, tmp_path, gpu=backend_pair["cpu"][2])
+    assert done.returncode != 0
+    assert "device" in out(done) or "execution" in out(done)
+
+
+def test_backend_table_refuses_a_probe_against_a_full_run(backend_pair, tmp_path):
+    """Finding 3: a 272-query probe was compared against a 6337-query full run."""
+    root = backend_pair["root"]
+    probe_dir = os.path.join(root, "released_k8_probe")
+    probe_meta = fx.write_run(probe_dir, arm="released_k8", device="cuda", n_queries=8,
+                              batches_arg="probe")
+    probe_summary, _ = fx.write_summary_dir(os.path.join(probe_dir, "summary"),
+                                            [(probe_dir, probe_meta)])
+    done = backend_table(backend_pair, tmp_path, gpu=probe_summary)
+    assert done.returncode != 0
+    assert "n_queries" in out(done) or "query" in out(done)
+
+
+def test_backend_table_refuses_a_batch_size_mismatch(backend_pair, tmp_path):
+    cpu_dir, cpu_meta, cpu_summary = backend_pair["cpu"]
+    summary = fx.read_json(cpu_summary)
+    summary["arms"][0]["meta"]["batch_size"] = 8
+    fx.write_json(cpu_summary, summary)
+    done = backend_table(backend_pair, tmp_path)
+    assert done.returncode != 0
+    assert "batch_size" in out(done)
+
+
+def test_backend_table_refuses_a_different_implementation(backend_pair, tmp_path):
+    cpu_dir, cpu_meta, cpu_summary = backend_pair["cpu"]
+    summary = fx.read_json(cpu_summary)
+    summary["arms"][0]["meta"]["tool_sha256"] = "f" * 64
+    fx.write_json(cpu_summary, summary)
+    done = backend_table(backend_pair, tmp_path)
+    assert done.returncode != 0
+    assert "tool_sha256" in out(done)
+
+
+def test_backend_table_refuses_a_different_query_population(backend_pair, tmp_path):
+    cpu_dir, cpu_meta, cpu_summary = backend_pair["cpu"]
+    summary = fx.read_json(cpu_summary)
+    summary["arms"][0]["meta"]["query_list_sha256"] = "a" * 64
+    fx.write_json(cpu_summary, summary)
+    done = backend_table(backend_pair, tmp_path)
+    assert done.returncode != 0
+    assert "query_list_sha256" in out(done)
+
+
+def test_backend_table_refuses_an_unbound_summary(backend_pair, tmp_path):
+    """Finding 3: each summary's inputs[].per_sample_sha256 must match the live run."""
+    cpu_dir = backend_pair["cpu"][0]
+    with open(os.path.join(cpu_dir, "per_sample.json"), "a") as fout:
+        fout.write("\n")
+    done = backend_table(backend_pair, tmp_path)
+    assert done.returncode != 0
+    assert "per_sample.json" in out(done)
+
+
+def test_backend_table_refuses_an_embedded_meta_that_is_not_the_runs(backend_pair, tmp_path):
+    """The summary's embedded meta is compared to the live meta.json of the run it names."""
+    cpu_summary = backend_pair["cpu"][2]
+    summary = fx.read_json(cpu_summary)
+    summary["arms"][0]["meta"]["gl_seed"] = 7
+    fx.write_json(cpu_summary, summary)
+    done = backend_table(backend_pair, tmp_path)
+    assert done.returncode != 0
+    assert "gl_seed" in out(done)
+
+
+# --------------------------------------------------------------------------------------
+# Finding 4 -- the renderers must bind their summary, supplements and figures.
+# --------------------------------------------------------------------------------------
+
+RENDER_ARMS = ("control_k8", "cyl_k8")
+
+
+@pytest.fixture
+def render_case(tmp_path):
+    """A two-arm canonical summary with each arm's probe summary, parity and online report."""
+    root = str(tmp_path / "exp10")
+    tree = fx.write_record_tree(root, arms=RENDER_ARMS, n_queries=32, cpu=False)
+    runs = [tree[arm]["all"] for arm in RENDER_ARMS]
+    summary_dir = os.path.join(root, "summary")
+    summary_path, summary = fx.write_summary_dir(summary_dir, runs)
+    case = {"root": root, "tree": tree, "summary": summary_path, "summary_dir": summary_dir,
+            "out_dir": str(tmp_path / "page"), "assets": str(tmp_path / "page" / "generated")}
+    os.makedirs(case["out_dir"])
+    case["parity"] = ["%s=%s" % (arm, os.path.join(tree[arm]["all"][0], "parity_exp03.json"))
+                      for arm in RENDER_ARMS]
+    case["online"] = ["%s=%s" % (arm, os.path.join(tree[arm]["all"][0], "check_online.json"))
+                      for arm in RENDER_ARMS]
+    case["probe"] = ["%s=%s" % (arm, os.path.join(tree[arm]["probe"][0], "summary",
+                                                  "yaw_pilot_summary.json"))
+                     for arm in RENDER_ARMS]
+    return case
+
+
+def render_html(case, parity=None, online=None, probe=None, extra=()):
+    args = ["--summary", case["summary"], "--out", os.path.join(case["out_dir"], "page.html"),
+            "--assets", case["assets"]]
+    for flag, values in (("--parity", parity if parity is not None else case["parity"]),
+                         ("--check-online", online if online is not None else case["online"]),
+                         ("--probe", probe if probe is not None else case["probe"])):
+        if values:
+            args += [flag] + list(values)
+    return run_python(os.path.join(ASSETS, "make_results_html.py"), *(args + list(extra)))
+
+
+def render_md(case, parity=None, online=None, probe=None, extra=()):
+    args = ["--summary", case["summary"], "--out", os.path.join(case["out_dir"], "page.md")]
+    for flag, values in (("--parity", parity if parity is not None else case["parity"]),
+                         ("--check-online", online if online is not None else case["online"]),
+                         ("--probe", probe if probe is not None else case["probe"])):
+        if values:
+            args += [flag] + list(values)
+    return run_python(os.path.join(ASSETS, "make_results_md.py"), *(args + list(extra)))
+
+
+def test_both_renderers_render_the_happy_path(render_case):
+    assert render_html(render_case).returncode == 0
+    assert render_md(render_case).returncode == 0
+    assert os.path.isfile(os.path.join(render_case["out_dir"], "page.html"))
+    assert os.path.isfile(os.path.join(render_case["out_dir"], "page.md"))
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_a_summary_whose_input_hash_fails_is_refused(render_case, renderer):
+    """Finding 4: both renderers accepted a deliberately incorrect summary input hash."""
+    summary = fx.read_json(render_case["summary"])
+    summary["inputs"][0]["per_sample_sha256"] = "0" * 64
+    fx.write_json(render_case["summary"], summary)
+    done = renderer(render_case)
+    assert done.returncode != 0
+    assert "per_sample.json" in out(done)
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_parity_attached_to_the_wrong_arm_is_refused(render_case, renderer):
+    """Finding 4: attaching the cylindrical parity report to the control arm succeeded."""
+    wrong = ["control_k8=%s" % os.path.join(render_case["tree"]["cyl_k8"]["all"][0],
+                                            "parity_exp03.json")]
+    done = renderer(render_case, parity=wrong)
+    assert done.returncode != 0
+    assert "parity" in out(done) and "control_k8" in out(done)
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_check_online_attached_to_the_wrong_arm_is_refused(render_case, renderer):
+    wrong = ["cyl_k8=%s" % os.path.join(render_case["tree"]["control_k8"]["all"][0],
+                                        "check_online.json")]
+    done = renderer(render_case, online=wrong)
+    assert done.returncode != 0
+    assert "check_online" in out(done)
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_a_supplement_for_an_arm_outside_the_summary_is_refused(render_case, renderer):
+    wrong = ["released_k8=%s" % os.path.join(render_case["tree"]["cyl_k8"]["all"][0],
+                                             "check_online.json")]
+    done = renderer(render_case, online=wrong)
+    assert done.returncode != 0
+    assert "released_k8" in out(done)
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_a_full_run_summary_passed_as_a_probe_is_refused(render_case, renderer):
+    """Finding 4: the probe controls must come from a probe run of that arm."""
+    done = renderer(render_case, probe=["control_k8=%s" % render_case["summary"]])
+    assert done.returncode != 0
+    assert "probe" in out(done)
+
+
+@pytest.mark.parametrize("renderer", [render_html, render_md])
+def test_another_arms_probe_summary_is_refused(render_case, renderer):
+    wrong = ["control_k8=%s" % os.path.join(render_case["tree"]["cyl_k8"]["probe"][0],
+                                            "summary", "yaw_pilot_summary.json")]
+    done = renderer(render_case, probe=wrong)
+    assert done.returncode != 0
+    assert "control_k8" in out(done)
+
+
+def test_html_does_not_copy_a_foreign_figure(render_case):
+    """Finding 4: neighbouring figures were copied without binding them to the summary.
+
+    A figure named for an arm that is not in this summary belongs to another run: replacing
+    the combined figure with the CPU one produced GPU tables under a CPU plot.
+    """
+    foreign = os.path.join(render_case["summary_dir"], "yaw_pilot_gaps_released_k8.png")
+    with open(foreign, "wb") as fout:
+        fout.write(b"\x89PNG\r\nforeign")
+    stale = os.path.join(render_case["summary_dir"], "stale_summary_interim.json")
+    with open(stale, "w") as fout:
+        fout.write("{}")
+    done = render_html(render_case)
+    assert done.returncode == 0, out(done)
+    copied = sorted(os.listdir(render_case["assets"]))
+    assert "yaw_pilot_gaps_released_k8.png" not in copied
+    assert "stale_summary_interim.json" not in copied
+    assert "yaw_pilot_gaps_control_k8.png" in copied
+    assert "yaw_pilot_gaps_all_arms.png" in copied
+    page = open(os.path.join(render_case["out_dir"], "page.html")).read()
+    assert "yaw_pilot_gaps_released_k8.png" not in page
+
+
+def test_html_refuses_a_summary_whose_figures_are_missing(render_case):
+    os.remove(os.path.join(render_case["summary_dir"], "yaw_pilot_gaps_cyl_k8.png"))
+    done = render_html(render_case)
+    assert done.returncode != 0
+    assert "yaw_pilot_gaps_cyl_k8.png" in out(done)
+
+
+# --------------------------------------------------------------------------------------
+# Finding 5 -- the canonical notes and metric qualifications must appear, as values.
+# Finding 6 -- the HTML page must always show query *and* room status.
+# --------------------------------------------------------------------------------------
+
+def rendered(case, name):
+    return open(os.path.join(case["out_dir"], name)).read()
+
+
+def test_md_renders_the_note_values_not_their_keys(render_case):
+    """Finding 5: the renderers iterated the notes dict and printed band / gl_free / pipeline."""
+    assert render_md(render_case).returncode == 0
+    page = rendered(render_case, "page.md")
+    for text in fx.NOTES.values():
+        assert text in page
+    assert "\n> band\n" not in page and "\n> pipeline\n" not in page
+
+
+def test_md_renders_the_metric_qualifications_with_both_t60_denominators(render_case):
+    assert render_md(render_case).returncode == 0
+    page = rendered(render_case, "page.md")
+    assert fx.METRIC_QUALIFICATIONS["T60"]["delta"] in page
+    assert fx.METRIC_QUALIFICATIONS["T60"]["gap"] in page
+    assert fx.METRIC_QUALIFICATIONS["T60_abs"]["gap"] in page
+    assert fx.METRIC_QUALIFICATIONS["EDT"]["delta"] in page
+
+
+def test_html_renders_the_note_values_and_qualifications(render_case):
+    assert render_html(render_case).returncode == 0
+    page = rendered(render_case, "page.html")
+    for text in fx.NOTES.values():
+        assert html_escaped(text) in page
+    assert html_escaped(fx.METRIC_QUALIFICATIONS["T60"]["delta"]) in page
+    assert html_escaped(fx.METRIC_QUALIFICATIONS["T60"]["gap"]) in page
+    assert "{'delta'" not in page and "&#x27;delta&#x27;" not in page
+.......................................................................
+exec
+/bin/bash -lc "git diff --stat 1ef60f0..HEAD
+git log --oneline --merges -5
+git -C /home/yixunhu/codespace/xRIR_code rev-parse HEAD
+ls -ld ckpt
+sed -n '75,145p' worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/make_results_md.py
+rg -n '"'^def |''^class '"' eval_yaw_rotation.py tools/yaw_rotation.py tools/per_sample_metrics.py tools/reference_manifest.py
+sed -n '1,110p' /home/yixunhu/codespace/FLAC/worklog/worklog_yixun/exp_02_yaw_noninvariance_claude/compare_predictions.py
+sed -n '1,110p' /home/yixunhu/codespace/FLAC/analysis/pilot_study/plot_pilot_yaw_gaps.py" in /home/yixunhu/codespace/xRIR_code_wt10
+ succeeded in 0ms:
+ tests/exp10_record_fixture.py                      |  561 ++++++++++
+ tests/test_exp10_record_tools.py                   | 1150 ++++++++++++++++++++
+ .../yaw_pilot_results_assets/make_backend_table.py |  164 ++-
+ .../yaw_pilot_results_assets/make_results_html.py  |  160 ++-
+ .../yaw_pilot_results_assets/make_results_md.py    |  131 ++-
+ .../scripts/exp10_arm_chain.sh                     |   70 +-
+ .../scripts/exp10_finish.sh                        |  155 ++-
+ .../scripts/exp10_gpu_queue.sh                     |   19 +-
+ .../scripts/exp10_released_k1_after_queue.sh       |   12 +-
+ .../yaw_pilot_results_assets/validate_runs.py      |  638 +++++++++++
+ 10 files changed, 2968 insertions(+), 92 deletions(-)
+bb1b59d exp11: merge round 1 — arm G yawaug_hf (heading-frame init), exp_11 phase-1 summariser (generic decision fields, N1i interaction cell, screen families, R1 copied rows) at 91fbd8b
+2408fb9 Merge exp10-yaw-pilot rounds 1-3: tools/exp10_{yaw_pilot,compare,summarize}.py + tests (Codex-approved)
+ea24dd1 Merge branch 'main' into exp10-yaw-pilot
+02b567a Merge branch 'main' into exp10-yaw-pilot
+2b9cb6d Merge exp07-window round 13b: independent profile-digest assertion in the positive table test (Codex-approved)
+bc0b9df0330c1287742e225056d8ab5ab07b01ce
+lrwxrwxrwx 1 yixunhu yixunhu 38 Sep 26 17:25 ckpt -> /home/yixunhu/codespace/xRIR_code/ckpt
+        for metric, entry in sorted(qualifications.items()):
+            if isinstance(entry, dict):
+                lines.append("| %s | %s | %s |" % (metric, entry.get("delta", "–"),
+                                                   entry.get("gap", "–")))
+            else:
+                lines.append("| %s | %s | – |" % (metric, entry))
+        lines.append("")
+    return lines
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--summary", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--parity", nargs="*", default=[])
+    ap.add_argument("--check-online", nargs="*", default=[])
+    ap.add_argument("--probe", nargs="*", default=[], help="<arm>=<probe summary JSON>: controls are rendered from the probe run")
+    ap.add_argument("--assets", default=None,
+                    help="the directory the summariser's tables / JSON / CSV are copied to; "
+                         "the supplementary links point into it")
+    ap.add_argument("--assets-href", default=None,
+                    help="the published location of --assets, for the relative links")
+    ap.add_argument("--backend-table", default=None,
+                    help="the GPU-vs-CPU backend-sensitivity Markdown, linked and hashed here")
+    ap.add_argument("--cpu-record", default=None, help="the CPU-protocol record (its tables)")
+    a = ap.parse_args()
+    vr.assert_ok(["%s: %s is missing" % (flag, path)
+                  for flag, path in (("--backend-table", a.backend_table),
+                                     ("--cpu-record", a.cpu_record))
+                  if path and not os.path.exists(path)],
+                 "refusing to link a supplementary file that is not there")
+    if a.assets:
+        # The links this report promises have to exist: make_results_html.py assembles the
+        # asset directory, so it runs first (a dangling link is worse than no link).
+        vr.assert_ok(["%s: the asset directory has no %s" % (a.assets, name)
+                      for name in ("yaw_pilot_tables.md", "yaw_pilot_summary.json",
+                                   "yaw_pilot_gaps.csv")
+                      if not os.path.isfile(os.path.join(a.assets, name))],
+                     "refusing to link assets that have not been assembled yet (run "
+                     "make_results_html.py --assets first)")
+    s = json.load(open(a.summary))
+    vr.assert_ok(vr.verify_summary_inputs(s, label="the canonical summary (%s)" % a.summary),
+                 "refusing to write a results page from a summary that is not bound to the "
+                 "runs it came from")
+    parity_pairs = vr.parse_pairs(a.parity, "--parity")
+    online_pairs = vr.parse_pairs(a.check_online, "--check-online")
+    probe_pairs = vr.parse_pairs(a.probe, "--probe")
+    vr.assert_ok(vr.check_supplements(s, parity=parity_pairs, online=online_pairs,
+                                      probes=probe_pairs),
+                 "refusing to render supplemental reports that are not this arm's")
+    parity = {arm: (path, json.load(open(path))) for arm, path in parity_pairs}
+    online = {arm: (path, json.load(open(path))) for arm, path in online_pairs}
+    probes = {arm: (path, json.load(open(path))) for arm, path in probe_pairs}
+    L = ["# Results — exp_10 yaw_pilot", "",
+         "Descriptive pilot (plan v3.1). Per arm and angle: Δ = paired mean change of the error vs ground truth (α − 0°); G = mean shift of the prediction at α relative to the prediction at 0° (no ground truth); both on the shared comparison mask, %d bootstrap replicates (seeds %s), %.0f %% percentile intervals; query-level CI first, room-cluster CI (17 rooms) second. A multiple G/Δ is printed only where the headline is reportable (Δ interval excludes 0, convergence passed, seed statuses agree); otherwise the cell shows its status. Canonical JSON: `%s` (sha256 `%s`)." % (
+             s.get("n_boot", 0), s.get("seeds"), 100 * (1 - s.get("alpha", 0.05)), a.summary, sha(a.summary)), ""]
+    L += note_lines(s)
+    for arm in s["arms"]:
+        m = arm["meta"]
+        L += ["## %s" % arm["arm"], "",
+              "`%s` (sha256 `%s…`), backbone %s, K = %s, device %s, %d queries (batches `%s`), manifest `%s…`, gl_seed %s, execution `%s`." % (
+                  m.get("checkpoint"), str(m.get("checkpoint_sha256"))[:12], m.get("backbone"), m.get("num_shot"), m.get("device"),
+                  arm.get("n_queries", 0), m.get("batches_arg"), str(m.get("manifest_hash"))[:12], m.get("gl_seed"), arm.get("execution_id")), ""]
+        for key, label, sc, unit in HEAD:
+            rows = []
+            for k in sorted(arm["angles"], key=int):
+                if k == "0" or key not in arm["angles"][k]:
+                    continue
+                c = arm["angles"][k][key]; q = c["query"]; r = c.get("room", {})
+                rows.append("| %s | %s | %s | %s | %s | %s | %s | %d | %s / %s | %s |" % (
+                    DEG.get(k, k), n3(q.get("mean_0"), sc), n3(q.get("mean_alpha"), sc), ci(q.get("delta"), sc), ci(r.get("delta"), sc),
+tools/reference_manifest.py:33:def select_references(candidates, num_shot, seed, query_key):
+tools/reference_manifest.py:61:def candidate_references(ir_path, listdir_cache=None):
+tools/reference_manifest.py:99:def build_manifest(dataset, seed, num_shot=8):
+tools/reference_manifest.py:133:def manifest_hash(manifest):
+tools/reference_manifest.py:145:def save_manifest(manifest, path):
+tools/reference_manifest.py:155:def load_manifest(path):
+tools/reference_manifest.py:161:class ManifestDataset(torch.utils.data.Dataset):
+eval_yaw_rotation.py:59:def rotated_views(depth_coord, src_loc, ref_locs, k):
+eval_yaw_rotation.py:79:def forward_conditions(model, depth_coord, ref_irs, src_loc, ref_locs, tgt_wav, k, aligned0):
+eval_yaw_rotation.py:108:def spectral_metrics(out_k, out_0, tgt_spec):
+eval_yaw_rotation.py:138:def acoustic_metrics_batch(out_k, tgt_wav, query_keys, evaluator, gl_seed):
+eval_yaw_rotation.py:175:def delay_flip_counts(src_loc, ref_locs, cols):
+eval_yaw_rotation.py:203:def _rel_change(rotated, base):
+eval_yaw_rotation.py:209:def decomposition_at(model, depth_coord, ref_irs, src_loc, ref_locs, tgt_wav, aligned0, k=32):
+eval_yaw_rotation.py:273:class SubsetManifestDataset(torch.utils.data.Dataset):
+eval_yaw_rotation.py:307:def build_manifest_dataset(manifest, max_samples=0, max_len=9600):
+eval_yaw_rotation.py:329:def pad_batch(batch, batch_size):
+eval_yaw_rotation.py:364:def evaluate_batch(model, batch, evaluator, cols, acoustic_cols=(), e_acoustic_cols=(),
+eval_yaw_rotation.py:431:def set_precision(tf32):
+eval_yaw_rotation.py:447:def load_checked_manifest(path, expected_hash):
+eval_yaw_rotation.py:464:def _decomposition_for_batch(model, batch, k=32):
+eval_yaw_rotation.py:475:def _check_cols(yaw_cols, acoustic_cols, e_acoustic_cols):
+eval_yaw_rotation.py:492:def _write_json(payload, path):
+eval_yaw_rotation.py:512:def _json_values(values):
+eval_yaw_rotation.py:523:def _summarize(values):
+eval_yaw_rotation.py:531:def run(args):
+eval_yaw_rotation.py:652:def main(argv=None):
+tools/per_sample_metrics.py:29:def per_sample_losses(out_spec, tgt_spec):
+tools/per_sample_metrics.py:61:def sample_seed(base_seed, query_key):
+tools/per_sample_metrics.py:78:def griffin_lim_seeded(mag_spec, seed):
+tools/per_sample_metrics.py:112:def acoustic_metrics(pred_ir, gt_ir, evaluator, want_t60=True, window=8000):
+tools/yaw_rotation.py:38:def _check_k_and_width(k, W) -> None:
+tools/yaw_rotation.py:54:def _require_float(t: torch.Tensor, name: str) -> None:
+tools/yaw_rotation.py:60:def yaw_angle_rad(k: int, W: int = 512) -> float:
+tools/yaw_rotation.py:75:def rotate_vectors_z(v: torch.Tensor, angle: float) -> torch.Tensor:
+tools/yaw_rotation.py:102:def rotate_scene_yaw(
+tools/yaw_rotation.py:148:def integer_delays(
+tools/yaw_rotation.py:177:def fixed_alignment(model, aligned_refs: torch.Tensor):
+"""Offline Metric-1 (invariance gap) comparison between two stored prediction tensors.
+
+Both ``.pt`` files are produced by ``eval_FLAC.py --store_predictions`` (the
+``decoded_samples_all`` tensor, saved at ``eval_FLAC.py:192-194``): a single
+``[N, 1, T]`` float32 CPU tensor of *decoded, un-clamped* RIR waveforms in
+dataloader order. A reference run (``P_ref``, unrotated baseline) and an
+alternative run (``P_alt``, yaw-rotated conditioning) share dataset config,
+batch size and seed, so sample ``i`` corresponds across the two files.
+
+Reported quantities:
+
+* Waveform gap: per-sample mean-absolute-difference and relative L2
+  ``||alt - ref|| / (||ref|| + 1e-8)`` over the common minimum length, averaged
+  over the dataset.
+* Acoustic gap: T60 / C50 / EDT from :class:`AcousticMetricsCallback`, treating
+  ``P_ref`` as the ground truth and ``P_alt`` as the prediction (e.g. a relative
+  T60 error of ``alt`` w.r.t. ``ref``). FD / retrieval / env stay disabled so no
+  AGREE checkpoint is needed.
+* Exact-match: max absolute difference between the two tensors, the
+  rot0-vs-baseline determinism control (should be ~0 for identical runs).
+"""
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Any, Dict
+
+# The repo ships a `src` package that also has a stale copy installed in
+# site-packages; prepend the real repo root (three levels up:
+# worklog/exp_02_.../compare_predictions.py -> repo root) so `src.*` resolves
+# to the working tree, not the stale install.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+import torch  # noqa: E402
+
+from src.metrics.metric_callback import AcousticMetricsCallback  # noqa: E402
+
+
+def _to_float(value: Any) -> Any:
+    """Convert a scalar tensor to a Python float, passing other types through."""
+    if isinstance(value, torch.Tensor):
+        return value.item() if value.numel() == 1 else value.tolist()
+    return value
+
+
+def waveform_gap(ref: torch.Tensor, alt: torch.Tensor, batch_size: int) -> Dict[str, float]:
+    """Per-sample waveform mean-abs-diff and relative L2, averaged over the dataset.
+
+    Parameters
+    ----------
+    ref, alt : torch.Tensor
+        Prediction tensors ``[N, 1, T]`` (already trimmed to a common length).
+    batch_size : int
+        Mini-batch size used to bound memory.
+
+    Returns
+    -------
+    dict
+        ``mean_abs_diff``, ``mean_rel_l2`` and ``max_abs_diff`` over all samples.
+    """
+    n = ref.shape[0]
+    mad_sum, rel_l2_sum, max_abs = 0.0, 0.0, 0.0
+    for start in range(0, n, batch_size):
+        r = ref[start:start + batch_size].float().flatten(1)
+        a = alt[start:start + batch_size].float().flatten(1)
+        diff = a - r
+        mad_sum += diff.abs().mean(dim=1).sum().item()
+        rel_l2_sum += (diff.norm(dim=1) / (r.norm(dim=1) + 1e-8)).sum().item()
+        max_abs = max(max_abs, diff.abs().max().item())
+    return {
+        "mean_abs_diff": mad_sum / n,
+        "mean_rel_l2": rel_l2_sum / n,
+        "max_abs_diff": max_abs,
+    }
+
+
+def acoustic_gap(
+    ref: torch.Tensor, alt: torch.Tensor, batch_size: int, sample_rate: int, device: str
+) -> Dict[str, Any]:
+    """T60 / C50 / EDT of ``alt`` w.r.t. ``ref`` via AcousticMetricsCallback.
+
+    ``P_ref`` is passed as the ground truth and ``P_alt`` as the prediction, so
+    the returned errors quantify how far the rotated run drifts from baseline.
+    FD / retrieval / env are disabled; no AGREE checkpoint is required.
+    """
+    callback = AcousticMetricsCallback(
+        dataset_name="AcousticRooms",
+        sample_rate=sample_rate,
+        sample_size=sample_rate,
+        audio_channels=1,
+        eval_per_scene=False,
+        device=device,
+        eval_T60=True,
+        eval_C50=True,
+        eval_EDT=True,
+        AGREE_ckpt=None,
+    )
+    n = ref.shape[0]
+    for start in range(0, n, batch_size):
+        pred = alt[start:start + batch_size].float().to(device)
+        gt = ref[start:start + batch_size].float().to(device)
+        # scene=None follows the non-per-scene AR path; T60 then includes every sample.
+        callback.update_metrics("test", pred, gt, scene=None)
+    metrics = callback.compute_metrics("test")
+    return {key: _to_float(val) for key, val in metrics.items()}
+
+
+def _load_raw(path: str):
+#!/usr/bin/env python3
+"""Pilot-study figure: T60 / EDT differences under C4 conditioning rotation.
+
+Data source (verbatim): exp-09 checkout,
+worklog/worklog_yixun/exp_02_yaw_noninvariance_claude/yaw_noninvariance_results.md
+(released FLAC_EMA, unseen K=1 split, 6337 items / 17 rooms, seed 42).
+
+Two panels (T60, EDT). For each rotation angle, two bars:
+  - "accuracy degradation": Metric-2 error minus the alpha=0 baseline error (vs GT)
+  - "prediction shift": Metric-1 gap of P_alpha vs P_0 (no GT involved)
+The contrast IS the finding: predictions move ~5x more than net accuracy loses,
+because rotation scatters predictions around GT in both directions.
+
+Outputs analysis/pilot_study/generated_paper/pilot_yaw_gaps.{pdf,png} + a CSV
+of the plotted values for the paper record.
+"""
+import csv
+import os
+
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+ANGLES = [90, 180, 270]
+
+# Metric-2 (vs GT): degradation relative to alpha=0 baseline (T60 %, EDT ms).
+DEG_T60 = [10.38 - 9.99, 10.72 - 9.99, 10.44 - 9.99]
+DEG_EDT = [43.58 - 40.11, 46.39 - 40.11, 44.07 - 40.11]
+# Metric-1 (vs P_0): invariance gap of the prediction itself.
+GAP_T60 = [3.34, 3.33, 3.41]
+GAP_EDT = [18.65, 20.11, 19.98]
+# exp_01 single-eval noise floor (1 sigma).
+SIGMA_T60 = 0.04
+SIGMA_EDT = 0.37
+
+C_DEG = "#0072B2"  # Okabe-Ito blue
+C_GAP = "#E69F00"  # Okabe-Ito orange
+
+OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "generated_paper")
+
+
+def _panel(ax, deg, gap, sigma, title, ylabel):
+    x = range(len(ANGLES))
+    w = 0.38
+    b1 = ax.bar([i - w / 2 for i in x], deg, w, color=C_DEG,
+                label="accuracy degradation (vs GT)")
+    b2 = ax.bar([i + w / 2 for i in x], gap, w, color=C_GAP,
+                label=r"prediction shift (vs $P_0$)")
+    ax.axhspan(0, 2 * sigma, color="0.85", zorder=0)
+    for bars in (b1, b2):
+        for r in bars:
+            ax.annotate(f"{r.get_height():.2f}", (r.get_x() + r.get_width() / 2,
+                        r.get_height()), textcoords="offset points", xytext=(0, 2),
+                        ha="center", fontsize=7)
+    ax.set_xticks(list(x))
+    ax.set_xticklabels([f"{a}°" for a in ANGLES])
+    ax.set_xlabel("conditioning yaw rotation")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title, fontsize=9)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.margins(y=0.15)
+    return b1, b2
+
+
+def main():
+    os.makedirs(OUT_DIR, exist_ok=True)
+    plt.rcParams.update({"font.size": 8, "axes.linewidth": 0.6})
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(5.5, 2.1))
+    _panel(ax1, DEG_T60, GAP_T60, SIGMA_T60, "T60", r"$\Delta$T60 (%)")
+    b1, b2 = _panel(ax2, DEG_EDT, GAP_EDT, SIGMA_EDT, "EDT", r"$\Delta$EDT (ms)")
+    fig.legend(handles=[b1, b2], loc="upper center", ncol=2, frameon=False,
+               fontsize=7.5, bbox_to_anchor=(0.5, 1.06))
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    for ext in ("pdf", "png"):
+        fig.savefig(os.path.join(OUT_DIR, f"pilot_yaw_gaps.{ext}"), dpi=300,
+                    bbox_inches="tight")
+    with open(os.path.join(OUT_DIR, "pilot_yaw_gaps.csv"), "w", newline="") as f:
+        wcsv = csv.writer(f)
+        wcsv.writerow(["angle_deg", "deg_T60_pct", "gap_T60_pct",
+                       "deg_EDT_ms", "gap_EDT_ms"])
+        for i, a in enumerate(ANGLES):
+            wcsv.writerow([a, round(DEG_T60[i], 2), GAP_T60[i],
+                           round(DEG_EDT[i], 2), GAP_EDT[i]])
+    print("wrote", OUT_DIR)
+
+
+if __name__ == "__main__":
+    main()
+
+ succeeded in 29393ms:
+exec
+/bin/bash -lc "tail -10 .review-round4/root/pytest.log
+/home/yixunhu/miniconda3/envs/xRIR/bin/python --version
+sed -n '210,275p' /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/plan_yaw_pilot.md" in /home/yixunhu/codespace/xRIR_code_wt10
+ succeeded in 0ms:
+........................................................................ [ 76%]
+......................                                                   [100%]
+94 passed in 29.06s
+Python 3.8.20
+
+codex
+All 94 new tests pass under Python 3.8.20. The code review suggests two gaps to test directly: figures are selected by filename without checking their contents, and renderer supplements appear to be checked by path without enforcing supplied execution IDs.
+
+exec
+/bin/bash -lc "cat > .review-round4/root/static_merge.py <<'PY'
+import os, pathlib, subprocess, json, py_compile, shutil
+root=pathlib.Path.cwd(); scratch=root/'.review-round4/root'; assets=root/'worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets'
+records=[]
+def run(args,cwd=root):
+ p=subprocess.run(args,cwd=str(cwd),stdout=subprocess.PIPE,stderr=subprocess.STDOUT,encoding='utf8'); records.append({'cmd':args,'cwd':str(cwd),'exit':p.returncode,'output':p.stdout}); return p
+for path in sorted(assets.glob('*.py')):
+ if path.stem in ('make_results_md','make_results_html','make_backend_table','validate_runs'):
+  py_compile.compile(str(path),cfile=str(scratch/(path.name+'c')),doraise=True)
+for path in (root/'tests/test_exp10_record_tools.py',root/'tests/exp10_record_fixture.py'):
+ py_compile.compile(str(path),cfile=str(scratch/(path.name+'c')),doraise=True)
+for name in ('exp10_arm_chain','exp10_gpu_queue','exp10_released_k1_after_queue','exp10_finish'):
+ assert run(['bash','-n',str(assets/'scripts'/(name+'.sh'))]).returncode==0
+assert run(['git','diff','--check','1ef60f0..HEAD']).returncode==0
+assert run(['git','diff','--check']).returncode==0
+source='/home/yixunhu/codespace/xRIR_code'; clone=scratch/'merge-clone'
+main=run(['git','-C',source,'rev-parse','main']).stdout.strip(); head=run(['git','rev-parse','HEAD']).stdout.strip()
+assert run(['git','clone','--no-hardlinks','--no-checkout',source,str(clone)]).returncode==0
+try:
+ assert run(['git','checkout','--detach',main],clone).returncode==0
+ p=run(['git','-c','user.name=Round4 review','-c','user.email=review@example.invalid','merge','--no-ff','--no-commit',head],clone)
+ assert p.returncode==0,p.stdout
+ paths=run(['git','diff','--cached','--name-only',main],clone).stdout.splitlines()
+ allowed={str((assets/'scripts'/(n+'.sh')).relative_to(root)) for n in ('exp10_arm_chain','exp10_gpu_queue','exp10_released_k1_after_queue','exp10_finish')}
+ allowed.update(str((assets/(n+'.py')).relative_to(root)) for n in ('make_results_md','make_results_html','make_backend_table','validate_runs'))
+ allowed.update(('tests/test_exp10_record_tools.py','tests/exp10_record_fixture.py'))
+ assert set(paths)<=allowed,paths
+ assert run(['git','diff','--cached','--check'],clone).returncode==0
+ records.append({'main':main,'reviewed_head':head,'changed_files':paths,'only_scope':True})
+finally:
+ shutil.rmtree(str(clone)); records.append({'clone_deleted':not clone.exists()})
+(scratch/'static_merge.json').write_text(json.dumps(records,indent=2)); print(json.dumps(records[-2:],indent=2))
+PY
+PYTHONDONTWRITEBYTECODE=1 CUDA_VISIBLE_DEVICES='' /home/yixunhu/miniconda3/envs/xRIR/bin/python .review-round4/root/static_merge.py" in /home/yixunhu/codespace/xRIR_code_wt10
+exec
+/bin/bash -lc "python3 - <<'PY'
+import json, pathlib
+p=pathlib.Path('ckpt/exp10/summary_interim/yaw_pilot_summary.json'); s=json.loads(p.read_text()); print('inputs',json.dumps(s['inputs'],indent=2)); print('notes',s['notes']); print('metric_qualifications',s['metric_qualifications'])
+for a in s['arms']: print('arm',a['arm'],a['run_dir'],a['execution_id'],a['meta']['device'])
+print('cpu files', [x.name for x in pathlib.Path('ckpt/exp10/cpu_protocol/summary').iterdir()])
+PY" in /home/yixunhu/codespace/xRIR_code_wt10
+ succeeded in 0ms:
+inputs [
+  {
+    "arm": "control_k8",
+    "execution_id": "20260927T025953876010Z-4b35102e25014d87875828367b73a0ff",
+    "meta_sha256": "b0813cc93f3fce3313b8fd48462de71d67e53408f1d591c1bfeeb1ca033978aa",
+    "per_sample_sha256": "c5c4b2089a1748bd603b63529dc3f58c2c9c5cbf800ba80926c12c37dc759109",
+    "protocol_id": "e138ca2d081353ec6676aa4f4d9c1ea7ffaf4df91b7ff147fa20f16c16023339",
+    "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/control_k8_all"
+  },
+  {
+    "arm": "cyl_k8",
+    "execution_id": "20260927T051017740231Z-7d2e7e6db2994f4fa57533077c4c80a0",
+    "meta_sha256": "3cb247bfdc88b3d3b3094d637538c231a2254693995c1f40af2a7236af21afb1",
+    "per_sample_sha256": "b34ced778523ba048a3beefaecebd2a6f60e3149366bebf9311c39fa865c133a",
+    "protocol_id": "de0bf584f061b9e05fe421b100619f1f15d5d27457f1f81552a271fb3dd8ec38",
+    "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/cyl_k8_all"
+  },
+  {
+    "arm": "released_k1",
+    "execution_id": "20260927T062839218781Z-93fc61b3802c4e01bb2aa2d55e76c591",
+    "meta_sha256": "1331242a8cf5125da6d51d9a631b38b01c419372697aeccdf77018d0b20492bd",
+    "per_sample_sha256": "098838cf5cb39ba775d8772d12540370cc24083680af58a26f99e5dff09d8511",
+    "protocol_id": "95d453169f37768666065956727e598f141c9ccc60c02a134ae4a09bceb1113c",
+    "run_dir": "/home/yixunhu/codespace/xRIR_code/ckpt/exp10/released_k1_all"
+  }
+]
+notes {'band': 'historical baseline evaluation variability (references and phases redrawn), context only', 'broader_population': 'every query with a finite g_alpha (not the paired mask)', 'gl_free': "logspec_mad and mag_rel_l2 are the Griffin-Lim-free readout of the same shift, computed on the model's direct log-magnitude output", 'pipeline': 'waveform and acoustic gaps measure the sensitivity of the model-plus-Griffin-Lim pipeline, conditional on the per-query phase seed; the shared phase initialisation removes initialisation noise, but Griffin-Lim is a nonlinear inverse and can amplify a magnitude change'}
+metric_qualifications {'C50': {'delta': 'change in the C50 error against the ground truth, dB', 'gap': 'C50 distance from the k = 0 prediction, dB'}, 'EDT': {'delta': 'change in the EDT error against the ground truth, seconds', 'gap': 'EDT distance from the k = 0 prediction, seconds'}, 'T60': {'delta': 'change in the GT-normalised error, percentage points', 'gap': "percent of the baseline prediction's T60"}, 'T60_abs': {'delta': 'change in |T60(prediction) - T60(GT)|, seconds', 'gap': '|T60(P_alpha) - T60(P_0)|, seconds'}}
+arm control_k8 ckpt/exp10/control_k8_all 20260927T025953876010Z-4b35102e25014d87875828367b73a0ff cuda
+arm cyl_k8 ckpt/exp10/cyl_k8_all 20260927T051017740231Z-7d2e7e6db2994f4fa57533077c4c80a0 cuda
+arm released_k1 ckpt/exp10/released_k1_all 20260927T062839218781Z-93fc61b3802c4e01bb2aa2d55e76c591 cuda
+cpu files ['yaw_pilot_gaps_released_k8.png', 'yaw_pilot_gaps_released_k8.pdf', 'yaw_pilot_gaps.csv', 'yaw_pilot_tables.md', 'yaw_pilot_gaps_all_arms.pdf', 'yaw_pilot_gaps_all_arms.png', 'yaw_pilot_summary.json']
+
+ succeeded in 1635ms:
+[
+  {
+    "main": "bc0b9df0330c1287742e225056d8ab5ab07b01ce",
+    "reviewed_head": "1507e05148a22b3a93f0beadc6255b94cec7b2c9",
+    "changed_files": [
+      "tests/exp10_record_fixture.py",
+      "tests/test_exp10_record_tools.py",
+      "worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/make_backend_table.py",
+      "worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/make_results_html.py",
+      "worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/make_results_md.py",
+      "worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/scripts/exp10_arm_chain.sh",
+      "worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/scripts/exp10_finish.sh",
+      "worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/scripts/exp10_gpu_queue.sh",
+      "worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/scripts/exp10_released_k1_after_queue.sh",
+      "worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/validate_runs.py"
+    ],
+    "only_scope": true
+  },
+  {
+    "clone_deleted": true
+  }
+]
+
+exec
+/bin/bash -lc "cat > .review-round4/root/render_repros.py <<'PY'
+import os, sys, json, shutil, pathlib, subprocess, html, re, hashlib
+root=pathlib.Path.cwd(); base=root/'.review-round4/root/render'; base.mkdir(exist_ok=True)
+assets=root/'worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets'
+summary_dir=root/'ckpt/exp10/summary_interim'; summary=summary_dir/'yaw_pilot_summary.json'; s=json.loads(summary.read_text())
+env=dict(os.environ,CUDA_VISIBLE_DEVICES='',PYTHONDONTWRITEBYTECODE='1'); records=[]
+inputs=[summary]
+common=[]
+for flag,filename,arms in [('--parity','parity_exp03.json',['control_k8','cyl_k8']),('--check-online','check_online.json',['control_k8','cyl_k8','released_k1']),('--probe','summary/yaw_pilot_summary.json',['control_k8','cyl_k8','released_k1'])]:
+ common.append(flag)
+ for arm in arms:
+  p=root/'ckpt/exp10'/(arm+('_probe' if flag=='--probe' else '_all'))/filename
+  common.append(arm+'='+str(p)); inputs.append(p)
+cpu=base/'cpu_protocol_tables.md'; shutil.copy2(root/'ckpt/exp10/cpu_protocol/summary/yaw_pilot_tables.md',cpu)
+def render(name,sp=summary,args=None):
+ d=base/name; d.mkdir(exist_ok=True); outputs={}
+ for kind in ['html','md']:
+  cmd=[sys.executable,str(assets/('make_results_'+kind+'.py')),'--summary',str(sp),'--out',str(d/('page.'+kind)),'--assets',str(d/'generated'),'--cpu-record',str(cpu)]+(common if args is None else args)
+  p=subprocess.run(cmd,cwd=str(root),env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,encoding='utf8')
+  (d/(kind+'.log')).write_text(p.stdout); outputs[kind]=p.returncode
+ records.append({'case':name,'exit_codes':outputs}); return d,outputs
+normal,codes=render('interim'); assert set(codes.values())=={0},codes
+hp=(normal/'page.html').read_text(); mp=(normal/'page.md').read_text()
+checks={}
+checks['notes_values']=all(html.escape(t) in hp and t in mp for t in s['notes'].values())
+checks['metric_qualifications']=all(html.escape(t) in hp and t in mp for q in s['metric_qualifications'].values() for t in q.values())
+checks['full_input_hashes']=all(hashlib.sha256(p.read_bytes()).hexdigest() in hp and hashlib.sha256(p.read_bytes()).hexdigest() in mp for p in inputs)
+control=hp.split(\"id='control_k8'\")[1].split(\"id='cyl_k8'\")[0]
+row=next(r for r in control.split('</tr>') if '<td>90°</td>' in r)
+checks['control_edt_90_room_status_and_multiple']='denominator uncertain' in row and '17.8×' in row
+checks['html_links_exist']=all((normal/html.unescape(p)).exists() for p in re.findall(r\"href='(["'^'"']+)'\",hp))
+checks['md_links_exist']=all((normal/p).exists() for p in re.findall(r'\\]\\((["'^)]+)'"\\)',mp))
+records.append({'real_interim_checks':checks,'control_edt_90_row':row})
+assert all(checks.values()),checks
+# Re-run the original figure-substitution reproduction using a real CPU-only image.
+copied=base/'input'; copied.mkdir(exist_ok=True)
+for n in ['yaw_pilot_summary.json','yaw_pilot_tables.md','yaw_pilot_gaps.csv','yaw_pilot_gaps_all_arms.png','yaw_pilot_gaps_all_arms.pdf'] + ['yaw_pilot_gaps_'+a['arm']+e for a in s['arms'] for e in ['.png','.pdf']]:
+ shutil.copy2(summary_dir/n,copied/n)
+foreign=root/'ckpt/exp10/cpu_protocol/summary/yaw_pilot_gaps_all_arms.png'
+shutil.copy2(foreign,copied/'yaw_pilot_gaps_all_arms.png')
+d,c=render('cpu_figure_substitution',copied/'yaw_pilot_summary.json')
+records.append({'original_foreign_figure_reproduction':c,'cpu_image_published':(d/'generated/yaw_pilot_gaps_all_arms.png').read_bytes()==foreign.read_bytes(),'cpu_image_sha256':hashlib.sha256(foreign.read_bytes()).hexdigest()})
+# Wrong-arm supplements must be refused; optional identity fields must also agree.
+for flag,name in [('--parity','parity_exp03.json'),('--check-online','check_online.json')]:
+ d,c=render('wrong_arm_'+name,args=[flag,'control_k8='+str(root/'ckpt/exp10/cyl_k8_all'/name)])
+ assert set(c.values())=={2},c
+ original=root/'ckpt/exp10/control_k8_all'/name
+ for field in ['execution_id','protocol_id','per_sample_sha256']:
+  altered=json.loads(original.read_text()); altered[field]='wrong-execution-or-hash'
+  p=base/(name+'-'+field+'.json'); p.write_text(json.dumps(altered))
+  render('wrong_'+field+'_'+name,args=[flag,'control_k8='+str(p)])
+# Input hash refusal and incomplete coverage.
+for kind in ['bad_hash','missing_arm_input']:
+ ss=json.loads(summary.read_text())
+ if kind=='bad_hash': ss['inputs'][0]['per_sample_sha256']='0'*64
+ else: ss['inputs']=[ss['inputs'][0]]
+ (copied/'yaw_pilot_summary.json').write_text(json.dumps(ss))
+ d,c=render(kind,copied/'yaw_pilot_summary.json')
+ if kind=='bad_hash': assert set(c.values())=={2},c
+# Foreign basename correctly excluded.
+shutil.copy2(summary,copied/'yaw_pilot_summary.json')
+shutil.copy2(foreign,copied/'yaw_pilot_gaps_released_k8.png')
+d,c=render('foreign_basename',copied/'yaw_pilot_summary.json')
+records.append({'foreign_basename_excluded':not (d/'generated/yaw_pilot_gaps_released_k8.png').exists()})
+(base/'results.json').write_text(json.dumps(records,indent=2)); print(json.dumps(records,indent=2))
+PY
+PYTHONDONTWRITEBYTECODE=1 CUDA_VISIBLE_DEVICES='' /home/yixunhu/miniconda3/envs/xRIR/bin/python .review-round4/root/render_repros.py" in /home/yixunhu/codespace/xRIR_code_wt10
+ succeeded in 3970ms:
+[
+  {
+    "case": "interim",
+    "exit_codes": {
+      "html": 0,
+      "md": 0
+    }
+  },
+  {
+    "real_interim_checks": {
+      "notes_values": true,
+      "metric_qualifications": true,
+      "full_input_hashes": true,
+      "control_edt_90_room_status_and_multiple": true,
+      "html_links_exist": true,
+      "md_links_exist": true
+    },
+    "control_edt_90_row": "\n<tr><td>90\u00b0</td><td>47</td><td>47.6</td><td>0.588 [0.0527, 1.1]</td><td>0.588 [-0.277, 1.28]</td><td>10.5 [9.95, 11]</td><td>10.5 [4.42, 16.5]</td><td>6337</td><td>defined</td><td>denominator uncertain</td><td><b>17.8\u00d7</b> [8.81, 95.3]</td>"
+  },
+  {
+    "case": "cpu_figure_substitution",
+    "exit_codes": {
+      "html": 0,
+      "md": 0
+    }
+  },
+  {
+    "original_foreign_figure_reproduction": {
+      "html": 0,
+      "md": 0
+    },
+    "cpu_image_published": true,
+    "cpu_image_sha256": "e0127bf6533891b6f3635d70810478fb223449c9e0bdaf267e482dcfc69a6307"
+  },
+  {
+    "case": "wrong_arm_parity_exp03.json",
+    "exit_codes": {
+      "html": 2,
+      "md": 2
+    }
+  },
+  {
+    "case": "wrong_execution_id_parity_exp03.json",
+    "exit_codes": {
+      "html": 0,
+      "md": 0
+    }
+  },
+  {
+    "case": "wrong_protocol_id_parity_exp03.json",
+    "exit_codes": {
+      "html": 0,
+      "md": 0
+    }
+  },
+  {
+    "case": "wrong_per_sample_sha256_parity_exp03.json",
+    "exit_codes": {
+      "html": 0,
+      "md": 0
+    }
+  },
+  {
+    "case": "wrong_arm_check_online.json",
+    "exit_codes": {
+      "html": 2,
+      "md": 2
+    }
+  },
+  {
+    "case": "wrong_execution_id_check_online.json",
+    "exit_codes": {
+      "html": 0,
+      "md": 0
+    }
+  },
+  {
+    "case": "wrong_protocol_id_check_online.json",
+    "exit_codes": {
+      "html": 0,
+      "md": 0
+    }
+  },
+  {
+    "case": "wrong_per_sample_sha256_check_online.json",
+    "exit_codes": {
+      "html": 0,
+      "md": 0
+    }
+  },
+  {
+    "case": "bad_hash",
+    "exit_codes": {
+      "html": 2,
+      "md": 2
+    }
+  },
+  {
+    "case": "missing_arm_input",
+    "exit_codes": {
+      "html": 0,
+      "md": 0
+    }
+  },
+  {
+    "case": "foreign_basename",
+    "exit_codes": {
+      "html": 0,
+      "md": 0
+    }
+  },
+  {
+    "foreign_basename_excluded": true
+  }
+]
+
+codex
+The direct reproductions found remaining failures despite the passing suite. A CPU-only plot can still appear under the GPU tables; finish can accept GPU reports through the CPU relocation alias; and a publication failure can leave new assets beside an old report. A concurrent chain invocation also bypassed the source-change guard. The scratch merge was clean and changed only the ten scoped files.
+
+exec
+/bin/bash -lc "nl -ba worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/scripts/exp10_finish.sh
+nl -ba worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/scripts/exp10_arm_chain.sh
+nl -ba worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/make_backend_table.py | sed -n '1,190p'" in /home/yixunhu/codespace/xRIR_code_wt10
+ succeeded in 0ms:
+     1	#!/bin/bash
+     2	# exp_10 yaw_pilot — end-game after all four GPU arms are complete: validate and bind the run
+     3	# evidence, canonical summary (4 arms), CPU-protocol summary, backend-sensitivity table, results
+     4	# Markdown + HTML, then an explicitly listed asset set with SHA256SUMS published atomically.
+     5	#
+     6	# Two blockers from the Codex tooling review shape this script:
+     7	#   finding 1 — the preflight now *validates and binds* the prescribed evidence for every arm
+     8	#     (validate_runs.py: full + probe meta, check_online bound and ok, probe controls ok, probe
+     9	#     and full parity for the K = 8 arms, the CPU record with its documented parity failure).
+    10	#     Its report is published as `validation.json`.
+    11	#   finding 2 — the asset set is built in a fresh staging directory from an EXPLICIT list (no
+    12	#     globs of neighbouring files), every expected file is verified present, nothing unexpected
+    13	#     is allowed in, SHA256SUMS is written and `sha256sum -c`-verified there, and only then does
+    14	#     `generated/` get replaced by a rename. Any error at any point leaves `generated/` and the
+    15	#     published Markdown / HTML exactly as they were.
+    16	#
+    17	# The CPU record's two reports name its pre-move path (it was relocated into `cpu_protocol/`
+    18	# when the headline arm was re-run on the GPU), so that relocation is declared explicitly.
+    19	#
+    20	# usage: exp10_finish.sh          (no arguments)
+    21	# env:   EXP10_REPO_ROOT, EXP10_EXPECT_N — overrides for the tests; the production defaults are
+    22	#        the repository path and 6337 queries, and both are logged.
+    23	set -euo pipefail
+    24	REPO=${EXP10_REPO_ROOT:-/home/yixunhu/codespace/xRIR_code}
+    25	EXPECT_N=${EXP10_EXPECT_N:-6337}
+    26	cd "$REPO"
+    27	source ~/miniconda3/etc/profile.d/conda.sh; conda activate xRIR
+    28	export PYTHONPATH=${PYTHONPATH:-}:$(pwd); export CUDA_VISIBLE_DEVICES=""
+    29	E=worklog/worklog_yixun/exp_10_yaw_pilot_claude; A=$E/yaw_pilot_results_assets; G=$A/generated
+    30	LOG=$E/yaw_pilot_$(date +%Y-%m-%d_%H:%M:%S)_finish.log
+    31	say() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; }
+    32	ARMS="released_k8 released_k1 control_k8 cyl_k8"
+    33	CPU=ckpt/exp10/cpu_protocol
+    34	STAGE=$A/generated.staging.$$
+    35	TMPOUT=$A/.finish_tmp.$$
+    36	cleanup() {
+    37	  rc=$?
+    38	  if [ -d "$STAGE" ]; then rm -rf "$STAGE"; fi
+    39	  if [ -d "$TMPOUT" ]; then rm -rf "$TMPOUT"; fi
+    40	  if [ "$rc" -ne 0 ]; then say "FINISH FAILED rc=$rc — $G and the published report are unchanged"; fi
+    41	}
+    42	trap cleanup EXIT
+    43	mkdir -p "$STAGE" "$TMPOUT"
+    44	say "HEAD $(git rev-parse HEAD 2>/dev/null || echo unknown); repo $REPO; expect n=$EXPECT_N"
+    45	
+    46	# ---- preflight: the evidence, validated and bound (finding 1) -------------------------------
+    47	python "$A/validate_runs.py" --root ckpt/exp10 --arms $ARMS --expect-n "$EXPECT_N" \
+    48	  --device cuda --cpu-run "$CPU/released_k8_all" \
+    49	  --cpu-recorded-run-dir ckpt/exp10/released_k8_all \
+    50	  --json "$STAGE/validation.json" 2>&1 | tee -a "$LOG"
+    51	say "preflight passed: four GPU arms + the CPU record validated and bound"
+    52	
+    53	# ---- canonical summaries, then the backend table -------------------------------------------
+    54	python tools/exp10_summarize.py --runs ckpt/exp10/released_k8_all ckpt/exp10/released_k1_all \
+    55	  ckpt/exp10/control_k8_all ckpt/exp10/cyl_k8_all --out ckpt/exp10/summary 2>&1 | tee -a "$LOG"
+    56	python tools/exp10_summarize.py --runs "$CPU/released_k8_all" --out "$CPU/summary" 2>&1 | tee -a "$LOG"
+    57	python "$A/make_backend_table.py" --gpu ckpt/exp10/summary/yaw_pilot_summary.json \
+    58	  --cpu "$CPU/summary/yaw_pilot_summary.json" --arm released_k8 \
+    59	  --out-md "$STAGE/backend_sensitivity_released_k8.md" \
+    60	  --out-json "$STAGE/backend_sensitivity_released_k8.json" 2>&1 | tee -a "$LOG"
+    61	
+    62	# ---- the asset set, copied file by file (finding 2) ----------------------------------------
+    63	EXPECTED="validation.json backend_sensitivity_released_k8.md backend_sensitivity_released_k8.json"
+    64	PAR=""; ONL=""; PRB=""
+    65	for a in $ARMS; do
+    66	  mkdir -p "$STAGE/runs/$a"
+    67	  cp "ckpt/exp10/${a}_all/meta.json"                          "$STAGE/runs/$a/meta_all.json"
+    68	  cp "ckpt/exp10/${a}_all/check_online.json"                  "$STAGE/runs/$a/check_online_all.json"
+    69	  cp "ckpt/exp10/${a}_probe/meta.json"                        "$STAGE/runs/$a/meta_probe.json"
+    70	  cp "ckpt/exp10/${a}_probe/summary/yaw_pilot_summary.json"   "$STAGE/runs/$a/probe_summary.json"
+    71	  EXPECTED="$EXPECTED runs/$a/meta_all.json runs/$a/check_online_all.json runs/$a/meta_probe.json runs/$a/probe_summary.json"
+    72	  ONL="$ONL $a=ckpt/exp10/${a}_all/check_online.json"
+    73	  PRB="$PRB $a=ckpt/exp10/${a}_probe/summary/yaw_pilot_summary.json"
+    74	  if [ -f "ckpt/exp10/${a}_all/parity_exp03.json" ]; then   # released_k1 has no predecessor
+    75	    cp "ckpt/exp10/${a}_all/parity_exp03.json"    "$STAGE/runs/$a/parity_exp03_all.json"
+    76	    cp "ckpt/exp10/${a}_probe/parity_exp03.json"  "$STAGE/runs/$a/parity_exp03_probe.json"
+    77	    EXPECTED="$EXPECTED runs/$a/parity_exp03_all.json runs/$a/parity_exp03_probe.json"
+    78	    PAR="$PAR $a=ckpt/exp10/${a}_all/parity_exp03.json"
+    79	  fi
+    80	done
+    81	mkdir -p "$STAGE/cpu_protocol"
+    82	cp "$CPU/released_k8_all/meta.json"          "$STAGE/cpu_protocol/meta_all.json"
+    83	cp "$CPU/released_k8_all/check_online.json"  "$STAGE/cpu_protocol/check_online_all.json"
+    84	cp "$CPU/released_k8_all/parity_exp03.json"  "$STAGE/cpu_protocol/parity_exp03_all.json"
+    85	cp "$CPU/summary/yaw_pilot_summary.json"     "$STAGE/cpu_protocol/yaw_pilot_summary.json"
+    86	cp "$CPU/summary/yaw_pilot_tables.md"        "$STAGE/cpu_protocol/yaw_pilot_tables.md"
+    87	cp "$CPU/summary/yaw_pilot_gaps.csv"         "$STAGE/cpu_protocol/yaw_pilot_gaps.csv"
+    88	cp "$CPU/summary/yaw_pilot_gaps_released_k8.png" "$STAGE/cpu_protocol/yaw_pilot_gaps_released_k8_cpu.png"
+    89	cp "$CPU/summary/yaw_pilot_gaps_released_k8.pdf" "$STAGE/cpu_protocol/yaw_pilot_gaps_released_k8_cpu.pdf"
+    90	EXPECTED="$EXPECTED cpu_protocol/meta_all.json cpu_protocol/check_online_all.json cpu_protocol/parity_exp03_all.json"
+    91	EXPECTED="$EXPECTED cpu_protocol/yaw_pilot_summary.json cpu_protocol/yaw_pilot_tables.md cpu_protocol/yaw_pilot_gaps.csv"
+    92	EXPECTED="$EXPECTED cpu_protocol/yaw_pilot_gaps_released_k8_cpu.png cpu_protocol/yaw_pilot_gaps_released_k8_cpu.pdf"
+    93	
+    94	# ---- the report: HTML first (it copies this summary's own outputs into the staging set) -----
+    95	HREF=$(python -c "import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))" "$G" "$E")
+    96	BACKEND="$STAGE/backend_sensitivity_released_k8.md"
+    97	CPUREC="$STAGE/cpu_protocol/yaw_pilot_tables.md"
+    98	python "$A/make_results_html.py" --summary ckpt/exp10/summary/yaw_pilot_summary.json \
+    99	  --out "$TMPOUT/yaw_pilot_01_results.html" --assets "$STAGE" --assets-href "$HREF" \
+   100	  --backend-table "$BACKEND" --cpu-record "$CPUREC" \
+   101	  --parity $PAR --check-online $ONL --probe $PRB 2>&1 | tee -a "$LOG"
+   102	python "$A/make_results_md.py" --summary ckpt/exp10/summary/yaw_pilot_summary.json \
+   103	  --out "$TMPOUT/yaw_pilot_results.md" --assets "$STAGE" --assets-href "$HREF" \
+   104	  --backend-table "$BACKEND" --cpu-record "$CPUREC" \
+   105	  --parity $PAR --check-online $ONL --probe $PRB 2>&1 | tee -a "$LOG"
+   106	EXPECTED="$EXPECTED yaw_pilot_summary.json yaw_pilot_tables.md yaw_pilot_gaps.csv"
+   107	EXPECTED="$EXPECTED yaw_pilot_gaps_all_arms.png yaw_pilot_gaps_all_arms.pdf"
+   108	for a in $ARMS; do EXPECTED="$EXPECTED yaw_pilot_gaps_${a}.png yaw_pilot_gaps_${a}.pdf"; done
+   109	
+   110	# ---- the staged set is exactly the expected set, and it verifies --------------------------
+   111	MISSING=""
+   112	for f in $EXPECTED; do
+   113	  if [ ! -f "$STAGE/$f" ]; then MISSING="$MISSING $f"; fi
+   114	done
+   115	if [ -n "$MISSING" ]; then say "REFUSED: the staged asset set is incomplete:$MISSING"; exit 8; fi
+   116	EXTRA=""
+   117	while IFS= read -r f; do
+   118	  case " $EXPECTED " in
+   119	    *" $f "*) ;;
+   120	    *) EXTRA="$EXTRA $f" ;;
+   121	  esac
+   122	done < <(cd "$STAGE" && find . -type f ! -name SHA256SUMS -printf '%P\n' | sort)
+   123	if [ -n "$EXTRA" ]; then say "REFUSED: unexpected files in the staged asset set:$EXTRA"; exit 8; fi
+   124	( cd "$STAGE" && find . -type f ! -name SHA256SUMS -printf '%P\0' | sort -z | xargs -0 sha256sum > SHA256SUMS )
+   125	( cd "$STAGE" && sha256sum -c --quiet SHA256SUMS ) 2>&1 | tee -a "$LOG"
+   126	say "staged $(wc -l < "$STAGE/SHA256SUMS") assets; SHA256SUMS verifies"
+   127	
+   128	# ---- publish: rename the old set aside, move the new one in, then drop the old ------------
+   129	PREV=$A/generated.previous.$$
+   130	if [ -d "$G" ]; then mv "$G" "$PREV"; fi
+   131	if ! mv "$STAGE" "$G"; then
+   132	  say "REFUSED: could not publish the staged assets"
+   133	  if [ -d "$PREV" ]; then mv "$PREV" "$G"; fi
+   134	  exit 9
+   135	fi
+   136	if [ -d "$PREV" ]; then rm -rf "$PREV"; fi
+   137	mv "$TMPOUT/yaw_pilot_01_results.html" "$E/yaw_pilot_01_results.html"
+   138	mv "$TMPOUT/yaw_pilot_results.md" "$E/yaw_pilot_results.md"
+   139	say "FINISH DONE: $(wc -l < "$G/SHA256SUMS") assets published in $G; report in $E"
+     1	#!/bin/bash
+     2	# exp_10 yaw_pilot — one arm end to end: probe (+controls) → check-online → parity vs exp_03 → gate → full run → check-online → parity (full).
+     3	# usage: exp10_arm_chain.sh <arm> <backbone> <checkpoint> <manifest> <manifest_hash> <num_shot> <device cpu|cuda> [gpu_index] [exp03_per_sample]
+     4	# Gate = comparator `ok` on the probe parity (all §7 criteria + A1 masks) AND probe controls ok (summariser controls table).
+     5	#
+     6	# The predecessor is NOT a free argument (Codex tooling review, finding 8): it comes from the
+     7	# arm table below, `none` is only released_k1's entry, and a 9th argument is accepted only if it
+     8	# repeats the table's path. Every comparator report is read back and required to say `ok: true`
+     9	# (finding 7) — the comparator exits 0 while reporting a failure, which is how a failed online
+    10	# check reached the full launch. Each stage's output directory must not exist and is reserved
+    11	# with `mkdir` before the evaluator starts (finding 9). The clean-tree check exempts only
+    12	# worklog narrative (`*.md`) and logs (`*.log`), and the three tools plus this script are hashed
+    13	# at the probe stage and re-verified before the full stage (finding 10).
+    14	#
+    15	# env: EXP10_REPO_ROOT — repository root override for the tests (default: the repository path).
+    16	set -uo pipefail
+    17	SELF=$(readlink -f "$0")
+    18	ARM=$1; BB=$2; CK=$3; MAN=$4; HASH=$5; K=$6; DEV=$7; GPU=${8:-1}; EXP03_ARG=${9:-}
+    19	REPO=${EXP10_REPO_ROOT:-/home/yixunhu/codespace/xRIR_code}
+    20	cd "$REPO"
+    21	source ~/miniconda3/etc/profile.d/conda.sh; conda activate xRIR
+    22	export PYTHONPATH=${PYTHONPATH:-}:$(pwd); export XRIR_DATA_PATH=/home/yixunhu/data_cache/AcousticRooms
+    23	if [ "$DEV" = "cuda" ]; then export CUDA_VISIBLE_DEVICES=$GPU; else export CUDA_VISIBLE_DEVICES=""; fi
+    24	E=worklog/worklog_yixun/exp_10_yaw_pilot_claude
+    25	LOG=$E/yaw_pilot_$(date +%Y-%m-%d_%H:%M:%S)_${ARM}_chain_${DEV}.log
+    26	say() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; }
+    27	PINS=ckpt/exp10/${ARM}_source_pins.sha256
+    28	SOURCES="tools/exp10_yaw_pilot.py tools/exp10_compare.py tools/exp10_summarize.py $SELF"
+    29	
+    30	# The tree may carry this experiment's narrative and its logs, nothing else: a dirty script or
+    31	# module — under worklog/ as much as anywhere else — is a different program from the reviewed
+    32	# one (finding 10).
+    33	DIRTY=$(git status --porcelain | awk '{p = substr($0, 4); if (p ~ /^worklog\/.*\.(md|log)$/) next; print}')
+    34	if [ -n "$DIRTY" ]; then say "REFUSED: tree dirty outside worklog narrative/logs:"; echo "$DIRTY" | tee -a "$LOG"; exit 3; fi
+    35	
+    36	case "$ARM" in                                   # finding 8: the predecessor table
+    37	  released_k8) EXP03=ckpt/yaw_rotation/sweep_released/per_sample_yaw.json ;;
+    38	  control_k8)  EXP03=ckpt/yaw_rotation/sweep_control/per_sample_yaw.json ;;
+    39	  cyl_k8)      EXP03=ckpt/yaw_rotation/sweep_cyl/per_sample_yaw.json ;;
+    40	  released_k1) EXP03=none ;;                     # no exp_03 predecessor: controls only
+    41	  *) say "REFUSED: unknown arm $ARM (the record's arms are released_k8, released_k1, control_k8, cyl_k8)"; exit 3 ;;
+    42	esac
+    43	if [ -n "$EXP03_ARG" ] && [ "$EXP03_ARG" != "$EXP03" ]; then
+    44	  say "REFUSED: arm $ARM's exp_03 predecessor is $EXP03, not the $EXP03_ARG given"; exit 3
+    45	fi
+    46	say "HEAD $(git rev-parse HEAD) arm=$ARM backbone=$BB ckpt=$CK manifest=$MAN K=$K device=$DEV gpu=$GPU exp03=$EXP03"
+    47	
+    48	require_ok() {  # <report json> <label> — the comparator exits 0 even when it reports ok=false
+    49	  local path=$1 label=$2 ok
+    50	  ok=$(python -c "import json,sys; print(json.load(open(sys.argv[1])).get('ok') is True)" "$path" 2>/dev/null || echo unreadable)
+    51	  if [ "$ok" != "True" ]; then say "REFUSED: $label reports ok=$ok ($path)"; return 1; fi
+    52	  say "$label ok"
+    53	  return 0
+    54	}
+    55	run_stage() {  # <batches> <controls-flag>
+    56	  local B=$1 CF=$2 OUT=ckpt/exp10/${ARM}_$1
+    57	  if [ -e "$OUT" ]; then say "REFUSED: $OUT already exists (a partial or previous run)"; return 2; fi
+    58	  mkdir -p ckpt/exp10
+    59	  if ! mkdir "$OUT"; then say "REFUSED: could not reserve $OUT (a concurrent chain?)"; return 2; fi
+    60	  say "stage $B → $OUT (reserved)"
+    61	  python tools/exp10_yaw_pilot.py --arm "$ARM" --backbone "$BB" --checkpoint "$CK" --manifest "$MAN" --manifest-hash "$HASH" --num-shot "$K" \
+    62	    --ks 0,64,128,256,384 --batches "$B" $CF --device "$DEV" --threads 16 --out-dir "$OUT" 2>&1 | tee -a "$LOG"; local rc=${PIPESTATUS[0]}
+    63	  if [ $rc -ne 0 ]; then say "stage $B FAILED rc=$rc"; return $rc; fi
+    64	  python tools/exp10_compare.py check-online "$OUT" --json "$OUT/check_online.json" 2>&1 | tee -a "$LOG" || { say "check-online FAILED to run"; return 4; }
+    65	  require_ok "$OUT/check_online.json" "check-online ($B)" || return 4
+    66	  if [ "$EXP03" != "none" ]; then
+    67	    python tools/exp10_compare.py parity-exp03 "$OUT" "$EXP03" --json "$OUT/parity_exp03.json" 2>&1 | tee -a "$LOG" || { say "parity FAILED to run"; return 5; }
+    68	    require_ok "$OUT/parity_exp03.json" "parity vs exp_03 ($B)" || return 5
+    69	  fi
+    70	  return 0
+    71	}
+    72	
+    73	mkdir -p ckpt/exp10
+    74	sha256sum $SOURCES > "$PINS" || { say "REFUSED: could not pin the sources"; exit 3; }
+    75	say "source pins ($PINS): $(awk '{printf "%s %s; ", substr($1,1,12), $2}' "$PINS")"
+    76	run_stage probe --controls || exit $?
+    77	PROBE=ckpt/exp10/${ARM}_probe
+    78	python tools/exp10_summarize.py --runs "$PROBE" --out "$PROBE/summary" --n-boot 2000 2>&1 | tee -a "$LOG" || { say "probe summary FAILED"; exit 6; }
+    79	CTRL_OK=$(python -c "import json,sys; s=json.load(open('$PROBE/summary/yaw_pilot_summary.json')); a=s['arms'][0] if isinstance(s.get('arms'),list) else list(s['arms'].values())[0]; print(a['controls']['ok'])" 2>/dev/null || echo unknown)
+    80	if [ "$EXP03" != "none" ]; then PAR_OK=$(python -c "import json; print(json.load(open('$PROBE/parity_exp03.json'))['ok'])"); else PAR_OK=n/a; fi
+    81	say "GATE: controls_ok=$CTRL_OK parity_ok=$PAR_OK"
+    82	if [ "$CTRL_OK" != "True" ] || { [ "$EXP03" != "none" ] && [ "$PAR_OK" != "True" ]; }; then say "GATE FAILED — full run NOT launched"; exit 7; fi
+    83	# finding 10: the full stage has to run the same program the probe validated.
+    84	if ! sha256sum -c --quiet "$PINS" 2>&1 | tee -a "$LOG"; then
+    85	  say "REFUSED: a pinned source changed since the probe (see $PINS) — full run NOT launched"; exit 8
+    86	fi
+    87	say "GATE PASSED — sources unchanged since the probe; launching full run"
+    88	run_stage all "" || exit $?
+    89	say "ARM DONE"
+     1	#!/usr/bin/env python3
+     2	"""Side-by-side Δ / G / status of one arm evaluated on two backends (GPU primary vs CPU protocol),
+     3	from two summariser JSONs. Descriptive; no decision. Writes Markdown + JSON (with input sha256s).
+     4	
+     5	The table's claim is "only the inference device differs", so that is *checked*, not assumed
+     6	(Codex tooling review, finding 3): the GPU summary must be a CUDA run and the CPU summary a
+     7	CPU run, they must be two different executions, and everything that would otherwise explain
+     8	a difference must be identical -- the query population (``query_list_sha256`` and
+     9	``n_queries``), the checkpoint, the reference manifest, the Griffin-Lim seed, K, the batch
+    10	shape, the precision flags, the evaluator implementation (``tool_sha256``) and the torch /
+    11	numpy versions. Both summaries' ``inputs`` bindings are re-verified against the live runs,
+    12	and each summary's embedded arm meta is compared with the live ``meta.json`` of the run it
+    13	names, so the fields above are the run's own and not an edited copy.
+    14	
+    15	usage: make_backend_table.py --gpu <summary.json> --cpu <summary.json> --arm released_k8
+    16	                             --out-md <md> --out-json <json>
+    17	                             [--gpu-meta <meta.json>] [--cpu-meta <meta.json>]
+    18	"""
+    19	import argparse
+    20	import json
+    21	import os
+    22	import sys
+    23	
+    24	sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    25	import validate_runs as vr                                          # noqa: E402
+    26	
+    27	KEYS = [("EDT", 1000.0, "ms"), ("C50", 1.0, "dB"), ("T60", 1.0, "pp / %"), ("T60_abs", 1000.0, "ms"),
+    28	        ("logspec_mad", 1.0, ""), ("mag_rel_l2", 1.0, ""), ("wave_rel_l2", 1.0, ""), ("wave_mad", 1.0, "")]
+    29	DEG = {"64": "45°", "128": "90°", "256": "180°", "384": "270°"}
+    30	# Everything the two runs must agree on for "only the inference device differs" to hold.
+    31	PROTOCOL_FIELDS = [("query_list_sha256", "the query population"),
+    32	                   ("n_queries", "the number of queries"),
+    33	                   ("checkpoint_sha256", "the checkpoint"),
+    34	                   ("manifest_hash", "the reference manifest"),
+    35	                   ("manifest_seed", "the manifest seed"),
+    36	                   ("gl_seed", "the Griffin-Lim seed"),
+    37	                   ("num_shot", "K"),
+    38	                   ("batch_size", "the batch size"),
+    39	                   ("batch_canonical", "canonical batching"),
+    40	                   ("ks", "the angles"),
+    41	                   ("split", "the split"),
+    42	                   ("padded_len", "the padded length"),
+    43	                   ("metric_window", "the metric window"),
+    44	                   ("sample_rate", "the sample rate"),
+    45	                   ("cudnn_deterministic", "cuDNN determinism"),
+    46	                   ("cudnn_allow_tf32", "cuDNN TF32"),
+    47	                   ("matmul_allow_tf32", "matmul TF32"),
+    48	                   ("tf32", "the TF32 flag"),
+    49	                   ("tool_sha256", "the evaluator implementation"),
+    50	                   ("torch_version", "the torch version"),
+    51	                   ("numpy_version", "the numpy version")]
+    52	
+    53	
+    54	def sha(p):
+    55	    return vr.file_sha256(p)
+    56	
+    57	
+    58	def ci(d, s):
+    59	    if not d or d.get("point") is None:
+    60	        return "–"
+    61	    if d.get("lo") is None:
+    62	        return "%.3g" % (d["point"] * s)
+    63	    return "%.3g [%.3g, %.3g]" % (d["point"] * s, d["lo"] * s, d["hi"] * s)
+    64	
+    65	
+    66	def arm_of(summary, label):
+    67	    arms = [a for a in summary["arms"] if a["arm"] == label]
+    68	    if len(arms) != 1:
+    69	        raise ValueError("arm %s not found exactly once" % label)
+    70	    return arms[0]
+    71	
+    72	
+    73	def live_meta(summary, arm, override=None):
+    74	    """The ``meta.json`` of the run this summary names for ``arm`` (or ``--*-meta``)."""
+    75	    if override:
+    76	        return override, vr.read_json(override)
+    77	    for entry in summary.get("inputs") or []:
+    78	        if entry.get("arm") == arm:
+    79	            path = os.path.join(str(entry.get("run_dir")), "meta.json")
+    80	            if not os.path.isfile(path):
+    81	                raise ValueError("%s: the run this summary names has no meta.json; pass "
+    82	                                 "--gpu-meta / --cpu-meta if the run directory moved" % path)
+    83	            return path, vr.read_json(path)
+    84	    raise ValueError("the summary has no inputs entry for arm %s" % arm)
+    85	
+    86	
+    87	def check_pair(gpu_arm, cpu_arm, gpu_summary, cpu_summary, gpu_meta_path, cpu_meta_path,
+    88	               gpu_live, cpu_live, arm):
+    89	    """Every requirement the "same protocol up to the backend" claim rests on.
+    90	
+    91	    Returns:
+    92	        The protocol fields that were verified equal (they go into the record and the caption).
+    93	
+    94	    Raises:
+    95	        ValueError: listing every failed requirement.
+    96	    """
+    97	    problems = []
+    98	    problems.extend(vr.verify_summary_inputs(gpu_summary, label="GPU summary"))
+    99	    problems.extend(vr.verify_summary_inputs(cpu_summary, label="CPU summary"))
+   100	    for role, entry, live, path in (("GPU", gpu_arm, gpu_live, gpu_meta_path),
+   101	                                    ("CPU", cpu_arm, cpu_live, cpu_meta_path)):
+   102	        meta = entry.get("meta") or {}
+   103	        for field, _label in PROTOCOL_FIELDS + [("device", "the device"),
+   104	                                               ("execution_id", "the execution"),
+   105	                                               ("protocol_id", "the protocol")]:
+   106	            if field in meta and field in live and meta[field] != live[field]:
+   107	                problems.append("the %s summary's embedded meta.%s is %r, but the run it "
+   108	                                "names (%s) has %r" % (role, field, meta[field], path,
+   109	                                                       live[field]))
+   110	    if (gpu_arm.get("meta") or {}).get("device") != "cuda":
+   111	        problems.append("the --gpu summary's device is %r, not cuda: the primary backend's "
+   112	                        "role is not filled" % (gpu_arm.get("meta") or {}).get("device"))
+   113	    if (cpu_arm.get("meta") or {}).get("device") != "cpu":
+   114	        problems.append("the --cpu summary's device is %r, not cpu"
+   115	                        % (cpu_arm.get("meta") or {}).get("device"))
+   116	    for field in ("execution_id", "protocol_id"):
+   117	        if gpu_arm.get(field) == cpu_arm.get(field):
+   118	            problems.append("both summaries report the same %s (%s): that is one execution "
+   119	                            "compared with itself, not two backends"
+   120	                            % (field, gpu_arm.get(field)))
+   121	    if int(gpu_arm.get("n_queries", -1)) != int(cpu_arm.get("n_queries", -2)):
+   122	        problems.append("the summaries cover %s and %s queries; a backend comparison needs "
+   123	                        "the same query population" % (gpu_arm.get("n_queries"),
+   124	                                                       cpu_arm.get("n_queries")))
+   125	    verified = {}
+   126	    for field, label in PROTOCOL_FIELDS:
+   127	        left = (gpu_arm.get("meta") or {}).get(field)
+   128	        right = (cpu_arm.get("meta") or {}).get(field)
+   129	        if left is None and right is None:
+   130	            problems.append("neither run records %s (%s); the protocols cannot be compared"
+   131	                            % (field, label))
+   132	            continue
+   133	        if left != right:
+   134	            problems.append("the runs differ in %s (%s): %r vs %r; only the inference "
+   135	                            "device may differ" % (field, label, left, right))
+   136	        else:
+   137	            verified[field] = left
+   138	    if problems:
+   139	        raise ValueError("refusing to build the backend table for %s:\n  - %s"
+   140	                         % (arm, "\n  - ".join(problems)))
+   141	    return verified
+   142	
+   143	
+   144	def main():
+   145	    ap = argparse.ArgumentParser()
+   146	    ap.add_argument("--gpu", required=True)
+   147	    ap.add_argument("--cpu", required=True)
+   148	    ap.add_argument("--arm", required=True)
+   149	    ap.add_argument("--out-md", required=True)
+   150	    ap.add_argument("--out-json", required=True)
+   151	    ap.add_argument("--gpu-meta", default=None,
+   152	                    help="the GPU run's meta.json, if its directory moved since the summary")
+   153	    ap.add_argument("--cpu-meta", default=None)
+   154	    a = ap.parse_args()
+   155	    G, C = json.load(open(a.gpu)), json.load(open(a.cpu))
+   156	    g, c = arm_of(G, a.arm), arm_of(C, a.arm)
+   157	    gpu_meta_path, gpu_live = live_meta(G, a.arm, a.gpu_meta)
+   158	    cpu_meta_path, cpu_live = live_meta(C, a.arm, a.cpu_meta)
+   159	    verified = check_pair(g, c, G, C, gpu_meta_path, cpu_meta_path, gpu_live, cpu_live, a.arm)
+   160	    rows, rec = [], {"arm": a.arm, "verified": verified,
+   161	                     "gpu": {"path": a.gpu, "sha256": sha(a.gpu), "execution_id": g["execution_id"],
+   162	                             "protocol_id": g["protocol_id"], "device": g["meta"]["device"],
+   163	                             "n": g["n_queries"], "meta_path": gpu_meta_path,
+   164	                             "meta_sha256": sha(gpu_meta_path)},
+   165	                     "cpu": {"path": a.cpu, "sha256": sha(a.cpu), "execution_id": c["execution_id"],
+   166	                             "protocol_id": c["protocol_id"], "device": c["meta"]["device"],
+   167	                             "n": c["n_queries"], "meta_path": cpu_meta_path,
+   168	                             "meta_sha256": sha(cpu_meta_path)}, "cells": []}
+   169	    for key, s, unit in KEYS:
+   170	        for k in ("64", "128", "256", "384"):
+   171	            cg, cc = g["angles"].get(k, {}).get(key), c["angles"].get(k, {}).get(key)
+   172	            if not cg or not cc:
+   173	                continue
+   174	            qg, qc = cg["query"], cc["query"]
+   175	            rows.append("| %s | %s | %s | %s | %s | %s | %s / %s |" % (key + ((" (%s)" % unit) if unit else ""), DEG[k], ci(qg.get("delta"), s), ci(qc.get("delta"), s), ci(qg.get("gap"), s), ci(qc.get("gap"), s), qg["ratio"]["status"], qc["ratio"]["status"]))
+   176	            rec["cells"].append({"metric": key, "k": int(k), "delta_gpu": qg.get("delta"), "delta_cpu": qc.get("delta"), "gap_gpu": qg.get("gap"), "gap_cpu": qc.get("gap"),
+   177	                                 "status_gpu": qg["ratio"]["status"], "status_cpu": qc["ratio"]["status"], "n_gpu": qg.get("n"), "n_cpu": qc.get("n")})
+   178	    md = ["# Backend sensitivity — %s: GPU (primary) vs CPU protocol" % a.arm, "",
+   179	          "Same checkpoint, query population (`query_list_sha256` `%s`), references (manifest "
+   180	          "`%s`), Griffin-Lim seed, K, batch shape, precision flags, evaluator implementation "
+   181	          "(`tool_sha256` `%s`) and torch / numpy versions — every one of them verified equal; only "
+   182	          "the inference device differs (GPU run: %s, execution `%s`, n = %d; CPU run: %s, "
+   183	          "execution `%s`, n = %d). Query-level bootstrap intervals; descriptive only." % (
+   184	              verified.get("query_list_sha256"), verified.get("manifest_hash"),
+   185	              verified.get("tool_sha256"), g["meta"]["device"], g["execution_id"],
+   186	              g["n_queries"], c["meta"]["device"], c["execution_id"], c["n_queries"]), "",
+   187	          "| metric | angle | Δ GPU | Δ CPU | G GPU | G CPU | status GPU / CPU |", "|---|---|---|---|---|---|---|"] + rows + ["",
+   188	          "Inputs: `%s` sha256 `%s`; `%s` sha256 `%s`; live metas `%s` sha256 `%s` and `%s` sha256 `%s`." % (
+   189	              a.gpu, rec["gpu"]["sha256"], a.cpu, rec["cpu"]["sha256"], gpu_meta_path,
+   190	              rec["gpu"]["meta_sha256"], cpu_meta_path, rec["cpu"]["meta_sha256"]), ""]
+
+exec
+/bin/bash -lc 'cat .review-round4/finish/results.json
+cat .review-round4/finish/11_gpu_reports_in_cpu/results.json
+cat .review-round4/shell/pin_race_results.json
+cat .review-round4/backend/canonical_alpha/evidence.json
+tail -22 /home/yixunhu/codespace/xRIR_code/worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_worklog.md' in /home/yixunhu/codespace/xRIR_code_wt10
+ succeeded in 0ms:
+[
+  {
+    "name": "01_missing",
+    "exit": 2,
+    "generated_unchanged": true,
+    "md_unchanged": true,
+    "html_unchanged": true,
+    "stale_exists": true,
+    "finish_done": false,
+    "cleanup_claims_unchanged": true
+  },
+  {
+    "name": "02_incomplete",
+    "exit": 2,
+    "generated_unchanged": true,
+    "md_unchanged": true,
+    "html_unchanged": true,
+    "stale_exists": true,
+    "finish_done": false,
+    "cleanup_claims_unchanged": true
+  },
+  {
+    "name": "03_unbound_online",
+    "exit": 2,
+    "generated_unchanged": true,
+    "md_unchanged": true,
+    "html_unchanged": true,
+    "stale_exists": true,
+    "finish_done": false,
+    "cleanup_claims_unchanged": true
+  },
+  {
+    "name": "04_failed_controls",
+    "exit": 2,
+    "generated_unchanged": true,
+    "md_unchanged": true,
+    "html_unchanged": true,
+    "stale_exists": true,
+    "finish_done": false,
+    "cleanup_claims_unchanged": true
+  },
+  {
+    "name": "05_missing_parity",
+    "exit": 2,
+    "generated_unchanged": true,
+    "md_unchanged": true,
+    "html_unchanged": true,
+    "stale_exists": true,
+    "finish_done": false,
+    "cleanup_claims_unchanged": true
+  },
+  {
+    "name": "06_success",
+    "exit": 0,
+    "generated_unchanged": false,
+    "md_unchanged": false,
+    "html_unchanged": false,
+    "stale_exists": false,
+    "finish_done": true,
+    "cleanup_claims_unchanged": false,
+    "checksums_exit": 0,
+    "asset_count": 46,
+    "cpu_parity_ok": false
+  },
+  {
+    "name": "07_cpu_summarizer_fails",
+    "exit": 9,
+    "generated_unchanged": true,
+    "md_unchanged": true,
+    "html_unchanged": true,
+    "stale_exists": true,
+    "finish_done": false,
+    "cleanup_claims_unchanged": true
+  },
+  {
+    "name": "08_copy_fails",
+    "exit": 42,
+    "generated_unchanged": true,
+    "md_unchanged": true,
+    "html_unchanged": true,
+    "stale_exists": true,
+    "finish_done": false,
+    "cleanup_claims_unchanged": true
+  },
+  {
+    "name": "09_missing_csv",
+    "exit": 1,
+    "generated_unchanged": true,
+    "md_unchanged": true,
+    "html_unchanged": true,
+    "stale_exists": true,
+    "finish_done": false,
+    "cleanup_claims_unchanged": true
+  },
+  {
+    "name": "10_final_publication_fails",
+    "exit": 43,
+    "generated_unchanged": false,
+    "md_unchanged": true,
+    "html_unchanged": false,
+    "stale_exists": false,
+    "finish_done": false,
+    "cleanup_claims_unchanged": true,
+    "checksums_exit": 0,
+    "asset_count": 46,
+    "cpu_parity_ok": false
+  }
+]{
+  "exit": 0,
+  "cpu_report_replaced_by_gpu": true,
+  "cpu_parity": {
+    "bound_by": [
+      "run_dir (declared relocation)",
+      "meta.per_sample_sha256"
+    ],
+    "exp03_path": "/home/yixunhu/codespace/xRIR_code_wt10/ckpt/yaw_rotation/sweep_released/per_sample_yaw.json",
+    "exp03_sha256": "e056e38b7bdf131a167e70e082ebb9a73e658cc0fadb59e18396bfce85a56448",
+    "kind": "parity_exp03",
+    "n_rows": 32,
+    "ok": true,
+    "path": "/home/yixunhu/codespace/xRIR_code_wt10/.review-round4/finish/11_gpu_reports_in_cpu/repo/ckpt/exp10/cpu_protocol/released_k8_all/parity_exp03.json",
+    "per_sample_sha256": "560682da8b08fdc245ebe82cdfec98cbe9b8d5016b9338967a0158d03b78aab4",
+    "relocated_from": "/home/yixunhu/codespace/xRIR_code_wt10/.review-round4/finish/11_gpu_reports_in_cpu/repo/ckpt/exp10/released_k8_all",
+    "sha256": "650d95b8f5ddc8b1dea352d6b7930c4e2430bdd8947ab896d7ebe96cff384d1e"
+  },
+  "cpu_online": {
+    "bound_by": [
+      "run_dir (declared relocation)",
+      "meta.per_sample_sha256"
+    ],
+    "kind": "check_online",
+    "ok": true,
+    "path": "/home/yixunhu/codespace/xRIR_code_wt10/.review-round4/finish/11_gpu_reports_in_cpu/repo/ckpt/exp10/cpu_protocol/released_k8_all/check_online.json",
+    "per_sample_sha256": "560682da8b08fdc245ebe82cdfec98cbe9b8d5016b9338967a0158d03b78aab4",
+    "relocated_from": "/home/yixunhu/codespace/xRIR_code_wt10/.review-round4/finish/11_gpu_reports_in_cpu/repo/ckpt/exp10/released_k8_all",
+    "sha256": "b6a84e881088f6dd01abe6ff8a434e1cd4aa2dc94becf49a65f50aa8f6128e72"
+  }
+}{
+  "first_rc": 0,
+  "second_rc": 2,
+  "full_launched": true,
+  "old_evaluator_sha256": "62ae476446335a3e47ab65418896340245b1b31a5cd5c5dc85a7c20e5be7d6e7",
+  "new_evaluator_sha256": "0f4db3cf2e991f4d5c00a583f82324a0dea1ad0dd74dfce9c5baa64280e45221",
+  "pins_changed": true,
+  "first_log": "/home/yixunhu/codespace/xRIR_code_wt10/.review-round4/shell/pin_race_first.log",
+  "second_log": "/home/yixunhu/codespace/xRIR_code_wt10/.review-round4/shell/pin_race_second.log"
+}
+[
+  {
+    "alpha": 0.05,
+    "delta": {
+      "hi": 0.12687745045073076,
+      "lo": -0.04785447405769824,
+      "point": 0.039999999999999994
+    },
+    "device": "cuda",
+    "status": "denominator uncertain"
+  },
+  {
+    "alpha": 0.5,
+    "delta": {
+      "hi": 0.06995106005252988,
+      "lo": 0.009753315433000575,
+      "point": 0.039999999999999994
+    },
+    "device": "cpu",
+    "status": "defined"
+  },
+  {
+    "output": "wrote /home/yixunhu/codespace/xRIR_code_wt10/.review-round4/backend/canonical_alpha/backend.md /home/yixunhu/codespace/xRIR_code_wt10/.review-round4/backend/canonical_alpha/backend.json 4 rows\n",
+    "returncode": 0
+  }
+]- **Result** — `cyl_k8`: probe 5.2 min → gate PASSED; full 73.7 min (inference 2 259 s, inversion 2 000 s — the CPU contention had eased after xrir-code-6e's suite ended) → `ckpt/exp10/cyl_k8_all` complete, `check_online` OK, **parity vs exp_03 `sweep_cyl` on all 6 337 rows: every cell replicates (EDT / C50 / T60 / loss terms exactly 0, logspec_mad max |Δ| 1.1e-7)**. Queue finished 02:24; `released_k1` chain (controls only, no exp_03 predecessor) started 02:25 on GPU 1 (ETA ≈ 04:15). released_k8 CPU at 5 040 / 6 337 (ETA ≈ 03:55).
+
+## 2026-09-27T03:27:45-04:00 — released_k1 ARM DONE (GPU 1, 03:14); released_k8 CPU full run done (03:26) but NOT an exp_03 replication
+- **released_k1** — probe 3.1 min, controls ok (parity n/a: no predecessor) → full 45.1 min → `ckpt/exp10/released_k1_all` complete, `check_online` OK.
+- **released_k8 (CPU)** — full run 405.6 min (inference 21 381 s, inversion 2 830 s) → complete, `check_online` OK; `parity_exp03` on 6 337 rows: **acoustic Metric-2 cells replicate at every angle** (EDT / C50 / T60: criteria (b) ≥ 99.6–99.9 % within tolerance and (c) paired Δ equal to ≤ 3e-6 s / 1.2e-5 dB / 6e-5 pp with the same sign; masks identical), **but `logspec_mad` fails criterion (a)** (per-query |Δ| ≤ 1e-5 for every query) at all four non-zero angles: 0.11–0.14 % of queries (7–9 of 6 337) differ by up to 0.0095 (paired Δ agrees to ≤ 2e-6). The probe's 272 queries did not contain any of them. Per plan §7 (v3.1) the arm is therefore a **separate CPU protocol**, not a replication: its Δ/G/R come from the CPU run only and exp_03's values enter only a labelled historical table. **Decision:** since the primary backend (GPU 1) is now free, re-run `released_k8` on GPU 1 (≈ 75 min, like cyl_k8) so the headline arm is on the same backend as exp_03 and the other arms; the CPU run is kept as a backend-sensitivity record (CPU vs GPU Δ/G on identical inputs). Message sent to cylindrical-dinov3-0a (overrun of the agreed window by ≈ 1 h; they may say stop).
+
+## 2026-09-27T03:35:35-04:00 — released_k8 GPU probe gate PASSED (03:33); interim summaries; end-game tooling written
+- **Result** — GPU re-run probe: 4.7 min, controls ok, parity ok → full run launched 03:33 (ETA ≈ 04:50). Interim summariser (10 000 draws) on control_k8 / cyl_k8 / released_k1 (`ckpt/exp10/summary_interim`, to be superseded by the four-arm `ckpt/exp10/summary`) and on the CPU-protocol released_k8 (`ckpt/exp10/cpu_protocol/summary`). First reading (full split): prediction shift G is large and tight everywhere (GPU arms EDT 8–16 ms, C50 0.23–0.44 dB, T60 1.2–2.5 %; released K = 8 on CPU ≈ 25 ms / 0.6 dB / 3.2–3.8 %), accuracy change Δ small — many cells "denominator uncertain", several "improvement" (T60 for the control at 90/180/270°, EDT for released K = 1 at 90/180°); where defined, multiples 5–25× (e.g. control C50 45° 7.0× [5.4, 10.2] query+room defined; cyl EDT 45° 12.4× [8.0, 27.4] both defined). Cyl shifts ≈ 10–15 % less than the control (logspec_mad 0.114 vs 0.127 at 45°) yet its EDT Δ is "defined" at all four angles (+0.4 to +1.1 ms).
+- **Change** — Planner tooling (to be Codex-reviewed before the record closes): `make_results_md.py` / `make_results_html.py` (+ `--probe` for the probe-run controls), `make_backend_table.py` (GPU vs CPU side-by-side for released_k8), `scripts/exp10_finish.sh` (refuses incomplete arms; 4-arm summary, CPU-protocol summary, backend table, results MD/HTML, assets + SHA256SUMS). Tested on interim data.
+
+## 2026-09-27T03:43:01-04:00 — Codex tooling review: request changes (findings 1–11 before closure) → Coder round 4
+- **Result** — `yaw_pilot_codex_tooling_review.md`: 2 blockers in `exp10_finish.sh` (validation evidence not bound; stale assets could be certified), should-fixes in the backend table (protocol/population checks), renderers (binding of supplemental inputs and figures; notes values; room status beside multiples; full hashes; links), and the chain/queue scripts (online-check ok not inspected; predecessor bypass; partial outputs; worklog/ exempt from the clean check; wrapper exit codes). Reviewer verified: manifest hashes, queue parameters and the 12 pins match; plan §3's checkpoint prefix was wrong (`1762c702…` is the seen checkpoint; actual/bound `6cdb0276…`) → plan A5; A6 records that the executed chain v1.1 gaps did not bite (all `check_online.json` ok = true; predecessors passed explicitly; fresh output dirs; no source change during a chain).
+- **Process deviation to disclose** — at 22:4x I edited `exp10_gpu_queue.sh` (v1.1 hash fix) while the v1 queue was still running (SOP: never edit a running script). Evidence that the running instance was unaffected: its log shows the intended sequence (`control_k8` exit 0 → `cyl_k8` with the correct arguments → `QUEUE DONE`), the `cyl_k8` chain log carries the correct checkpoint/manifest/hash, and its outputs passed parity; the bug fix only took effect for the re-queued `released_k1` run via the separate after-queue script.
+- **Next** — Coder round 4 (`coder_prompts/round4_prompt.md`) in wt10, then Codex close review, then the finish script on the four complete GPU arms.
+
+## 2026-09-27T04:38:08-04:00 — Coder round 4 delivered → Codex close review launched
+- **Result** — 11 commits `ad2edf9..1507e05` (10 files in scope: 7 tooling files + new `validate_runs.py`, `tests/test_exp10_record_tools.py`, `tests/exp10_record_fixture.py`): evidence-binding preflight; staged/atomic finish with verified SHA256SUMS; backend table protocol/population guards; renderers bind inputs and supplementals, render note values and qualifications, both status columns, full hashes, links; chain ok-gates, predecessor table, atomic reservation, source pins re-verified; wrappers preserve failure. 94 new tests; regression 193/1. Dry runs: refusal without released_k8, success on a synthetic complete tree (46 assets, SHA256SUMS verifies); live tree validated with three arms + CPU record.
+- **Decision on Coder deviation 1** — the CPU record's `check_online.json` / `parity_exp03.json` still name the pre-move directory (written before the move). These are derived reports, so they are regenerated in place from the unchanged run (old files kept as `*_premove.json`) rather than declared relocated; see the next entry.
+- **Command / Validation** — Codex close review at ultra: log `yaw_pilot_2026-09-27_04:38:06_codex_code_round4_close.log`.
+
+## 2026-09-27T04:39:07-04:00 — CPU-protocol derived reports regenerated in place
+- **Result** — `ckpt/exp10/cpu_protocol/released_k8_all/{check_online,parity_exp03}.json` regenerated from the unchanged run (`tools/exp10_compare.py` at main `e9ae3c4`; log `yaw_pilot_2026-09-27_04:3x_cpu_protocol_reports_regen.log`): byte-identical to the pre-move reports apart from `run_dir` (kept as `*_premove.json`); check_online ok = true, parity ok = false (criterion (a) on 0.1 % of queries, as before). The finish script's preflight can now bind the CPU record without a declared relocation.
+
+exec
+/bin/bash -lc "sed -n '1,115p' .review-round4/root/render/interim/page.md
+sed -n '1,115p' worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/make_backend_table.py
+cat .review-round4/shell/pin_race_first.log
+cat .review-round4/shell/pin_race_second.log" in /home/yixunhu/codespace/xRIR_code_wt10
+ succeeded in 0ms:
+# Results — exp_10 yaw_pilot
+
+Descriptive pilot (plan v3.1). Per arm and angle: Δ = paired mean change of the error vs ground truth (α − 0°); G = mean shift of the prediction at α relative to the prediction at 0° (no ground truth); both on the shared comparison mask, 10000 bootstrap replicates (seeds [0, 1]), 95 % percentile intervals; query-level CI first, room-cluster CI (17 rooms) second. A multiple G/Δ is printed only where the headline is reportable (Δ interval excludes 0, convergence passed, seed statuses agree); otherwise the cell shows its status. Canonical JSON: `/home/yixunhu/codespace/xRIR_code_wt10/ckpt/exp10/summary_interim/yaw_pilot_summary.json` (sha256 `3b8d4c4d3abbdc527d005d9c3463ec70facaefca8a23677cdb3d6ac555f18165`).
+
+> **band:** historical baseline evaluation variability (references and phases redrawn), context only
+> **broader_population:** every query with a finite g_alpha (not the paired mask)
+> **gl_free:** logspec_mad and mag_rel_l2 are the Griffin-Lim-free readout of the same shift, computed on the model's direct log-magnitude output
+> **pipeline:** waveform and acoustic gaps measure the sensitivity of the model-plus-Griffin-Lim pipeline, conditional on the per-query phase seed; the shared phase initialisation removes initialisation noise, but Griffin-Lim is a nonlinear inverse and can amplify a magnitude change
+
+**Metric qualifications** (canonical, from the summariser): what a Δ and a G mean for each metric, including T60's two denominators.
+
+| metric | Δ (change in the error vs ground truth) | G (shift from the 0° prediction) |
+|---|---|---|
+| C50 | change in the C50 error against the ground truth, dB | C50 distance from the k = 0 prediction, dB |
+| EDT | change in the EDT error against the ground truth, seconds | EDT distance from the k = 0 prediction, seconds |
+| T60 | change in the GT-normalised error, percentage points | percent of the baseline prediction's T60 |
+| T60_abs | change in |T60(prediction) - T60(GT)|, seconds | |T60(P_alpha) - T60(P_0)|, seconds |
+
+## control_k8
+
+`ckpt/xRIR_simple_8_shot/epoch_12.pth` (sha256 `651e3a377e11…`), backbone simple, K = 8, device cuda, 6337 queries (batches `all`), manifest `47637a55ccc5…`, gl_seed 0, execution `20260927T025953876010Z-4b35102e25014d87875828367b73a0ff`.
+
+### EDT (ms)
+
+| angle | mean 0° | mean α | Δ query CI | Δ room CI | G query CI | G room CI | n | status query / room | multiple or reason |
+|---|---|---|---|---|---|---|---|---|---|
+| 45° | 47 | 47.6 | 0.63 [-0.117, 1.36] | 0.63 [-0.129, 1.49] | 16.4 [15.7, 17.1] | 16.4 [5.51, 27.5] | 6337 | denominator uncertain / denominator uncertain | denominator uncertain |
+| 90° | 47 | 47.6 | 0.588 [0.0527, 1.1] | 0.588 [-0.277, 1.28] | 10.5 [9.95, 11] | 10.5 [4.42, 16.5] | 6337 | defined / denominator uncertain | **17.8×** [8.81, 95.3] |
+| 180° | 47 | 47 | -0.0271 [-0.555, 0.501] | -0.0271 [-0.866, 0.521] | 10.1 [9.61, 10.6] | 10.1 [4.14, 15.5] | 6337 | denominator uncertain / denominator uncertain | denominator uncertain |
+| 270° | 47 | 47.3 | 0.317 [-0.208, 0.844] | 0.317 [-0.611, 1.1] | 10.5 [10, 11] | 10.5 [4.57, 16.4] | 6337 | denominator uncertain / denominator uncertain | denominator uncertain |
+
+### C50 (dB)
+
+| angle | mean 0° | mean α | Δ query CI | Δ room CI | G query CI | G room CI | n | status query / room | multiple or reason |
+|---|---|---|---|---|---|---|---|---|---|
+| 45° | 1.24 | 1.3 | 0.0629 [0.0434, 0.0816] | 0.0629 [0.00927, 0.13] | 0.442 [0.423, 0.462] | 0.442 [0.154, 0.683] | 6337 | defined / defined | **7.03×** [5.43, 10.2] |
+| 90° | 1.24 | 1.26 | 0.024 [0.0104, 0.0374] | 0.024 [-0.014, 0.0679] | 0.3 [0.286, 0.314] | 0.3 [0.12, 0.452] | 6337 | defined / denominator uncertain | **12.5×** [8.01, 28.8] |
+| 180° | 1.24 | 1.23 | -0.00334 [-0.0188, 0.0116] | -0.00334 [-0.0384, 0.0309] | 0.308 [0.293, 0.325] | 0.308 [0.114, 0.479] | 6337 | denominator uncertain / denominator uncertain | denominator uncertain |
+| 270° | 1.24 | 1.25 | 0.0116 [-0.00284, 0.0262] | 0.0116 [-0.0164, 0.0462] | 0.302 [0.288, 0.317] | 0.302 [0.124, 0.452] | 6337 | denominator uncertain / denominator uncertain | denominator uncertain |
+
+### T60 (pp (Δ) / % (G))
+
+| angle | mean 0° | mean α | Δ query CI | Δ room CI | G query CI | G room CI | n | status query / room | multiple or reason |
+|---|---|---|---|---|---|---|---|---|---|
+| 45° | 9.56 | 9.59 | 0.0278 [-0.0766, 0.132] | 0.0278 [-0.23, 0.291] | 2.48 [2.39, 2.57] | 2.48 [1.41, 3.19] | 6337 | denominator uncertain / denominator uncertain | denominator uncertain |
+| 90° | 9.56 | 9.44 | -0.12 [-0.201, -0.0395] | -0.12 [-0.303, 0.032] | 1.67 [1.6, 1.74] | 1.67 [1.02, 2.21] | 6337 | improvement / denominator uncertain | predictions shift while net error improves |
+| 180° | 9.56 | 9.22 | -0.341 [-0.421, -0.263] | -0.341 [-0.736, -0.0633] | 1.54 [1.47, 1.6] | 1.54 [0.871, 2.11] | 6337 | improvement / improvement | predictions shift while net error improves |
+| 270° | 9.56 | 9.39 | -0.171 [-0.246, -0.0976] | -0.171 [-0.375, -0.00568] | 1.66 [1.59, 1.72] | 1.66 [1.05, 2.11] | 6337 | improvement / improvement | predictions shift while net error improves |
+
+### T60 absolute (ms)
+
+| angle | mean 0° | mean α | Δ query CI | Δ room CI | G query CI | G room CI | n | status query / room | multiple or reason |
+|---|---|---|---|---|---|---|---|---|---|
+| 45° | 48.7 | 48.8 | 0.0658 [-0.503, 0.629] | 0.0658 [-1.37, 1.48] | 14.6 [14.1, 15.2] | 14.6 [7.4, 19.7] | 6337 | undefined / denominator uncertain | unresolved Monte Carlo uncertainty |
+| 90° | 48.7 | 48.1 | -0.579 [-0.991, -0.175] | -0.579 [-1.52, 0.242] | 9.64 [9.26, 10] | 9.64 [5.41, 12.9] | 6337 | improvement / denominator uncertain | predictions shift while net error improves |
+| 180° | 48.7 | 46.9 | -1.76 [-2.18, -1.35] | -1.76 [-3.86, -0.315] | 8.92 [8.54, 9.31] | 8.92 [4.7, 12.3] | 6337 | improvement / improvement | predictions shift while net error improves |
+| 270° | 48.7 | 47.8 | -0.907 [-1.31, -0.497] | -0.907 [-2.01, -0.0285] | 9.59 [9.23, 9.95] | 9.59 [5.62, 12.4] | 6337 | improvement / improvement | predictions shift while net error improves |
+
+### log-spec MAD (GL-free) (dimensionless)
+
+| angle | mean 0° | mean α | Δ query CI | Δ room CI | G query CI | G room CI | n | status query / room | multiple or reason |
+|---|---|---|---|---|---|---|---|---|---|
+| 45° | – | – | – | – | 0.127 [0.124, 0.131] | 0.127 [0.0611, 0.189] | 6337 | undefined / undefined | no paired error for this metric |
+| 90° | – | – | – | – | 0.0769 [0.0751, 0.0788] | 0.0769 [0.0446, 0.106] | 6337 | undefined / undefined | no paired error for this metric |
+| 180° | – | – | – | – | 0.0712 [0.0694, 0.073] | 0.0712 [0.0388, 0.0986] | 6337 | undefined / undefined | no paired error for this metric |
+| 270° | – | – | – | – | 0.0768 [0.0749, 0.0787] | 0.0768 [0.045, 0.106] | 6337 | undefined / undefined | no paired error for this metric |
+
+Probe run: `ckpt/exp10/control_k8_probe` (272 queries, execution `20260927T023813895915Z-6b0a883b52604bb090477542219691c4`, sha256 of its summary `0341ff9a206e…`).
+
+**Controls:** ok = True; ctrl_full_turn (k=512) max|Δwave| 0, max|Δlogspec| 0; ctrl_k128_repeat (k=128) max|Δwave| 0, max|Δlogspec| 0; ctrl_zero_repeat (k=0) max|Δwave| 0, max|Δlogspec| 0
+
+**Parity vs exp_03** (`/home/yixunhu/codespace/xRIR_code_wt10/ckpt/exp10/control_k8_all/parity_exp03.json`, sha256 `1b5152104f41…`): ok = True, rows 6337, missing required []; largest per-query |Δ|: c50_err 0, decay 0, edt_err 0, log_mse 0, logspec_mad 1.42e-07, loss 0, stft 0, t60_err 0.
+
+**check_online** (`/home/yixunhu/codespace/xRIR_code_wt10/ckpt/exp10/control_k8_all/check_online.json`): ok = True.
+
+## cyl_k8
+
+`ckpt/xRIR_cyl_8_shot/epoch_12.pth` (sha256 `8ba344ad25d4…`), backbone cylindrical, K = 8, device cuda, 6337 queries (batches `all`), manifest `47637a55ccc5…`, gl_seed 0, execution `20260927T051017740231Z-7d2e7e6db2994f4fa57533077c4c80a0`.
+
+### EDT (ms)
+
+| angle | mean 0° | mean α | Δ query CI | Δ room CI | G query CI | G room CI | n | status query / room | multiple or reason |
+|---|---|---|---|---|---|---|---|---|---|
+| 45° | 44.9 | 46.1 | 1.15 [0.518, 1.78] | 1.15 [0.564, 1.55] | 14.3 [13.6, 14.9] | 14.3 [4.74, 23.6] | 6337 | defined / defined | **12.4×** [8.01, 27.4] |
+| 90° | 44.9 | 45.9 | 0.919 [0.488, 1.35] | 0.919 [0.0283, 1.85] | 8.69 [8.26, 9.12] | 8.69 [2.77, 14.7] | 6337 | defined / defined | **9.46×** [6.47, 17.7] |
+| 180° | 44.9 | 45.4 | 0.422 [0.0114, 0.839] | 0.422 [-0.00873, 0.818] | 7.81 [7.43, 8.21] | 7.81 [2.46, 13.2] | 6337 | defined / denominator uncertain | **18.5×** [7.77, 112] |
+| 270° | 44.9 | 45.8 | 0.888 [0.471, 1.3] | 0.888 [-0.0994, 1.94] | 8.52 [8.12, 8.94] | 8.52 [2.82, 14.2] | 6337 | defined / denominator uncertain | **9.6×** [6.56, 18.2] |
+
+### C50 (dB)
+
+| angle | mean 0° | mean α | Δ query CI | Δ room CI | G query CI | G room CI | n | status query / room | multiple or reason |
+|---|---|---|---|---|---|---|---|---|---|
+| 45° | 1.23 | 1.29 | 0.0636 [0.0474, 0.0797] | 0.0636 [0.012, 0.12] | 0.381 [0.366, 0.397] | 0.381 [0.12, 0.597] | 6337 | defined / defined | **5.99×** [4.8, 7.96] |
+| 90° | 1.23 | 1.26 | 0.032 [0.0206, 0.0437] | 0.032 [-0.00368, 0.0862] | 0.251 [0.24, 0.263] | 0.251 [0.0717, 0.406] | 6337 | defined / denominator uncertain | **7.85×** [5.76, 12.2] |
+| 180° | 1.23 | 1.23 | 0.00337 [-0.00871, 0.0157] | 0.00337 [-0.0156, 0.026] | 0.235 [0.222, 0.248] | 0.235 [0.0631, 0.391] | 6337 | denominator uncertain / denominator uncertain | denominator uncertain |
+| 270° | 1.23 | 1.25 | 0.0224 [0.0115, 0.0335] | 0.0224 [-0.0064, 0.0595] | 0.234 [0.223, 0.244] | 0.234 [0.0726, 0.37] | 6337 | defined / denominator uncertain | **10.4×** [7.02, 20.3] |
+
+### T60 (pp (Δ) / % (G))
+
+| angle | mean 0° | mean α | Δ query CI | Δ room CI | G query CI | G room CI | n | status query / room | multiple or reason |
+|---|---|---|---|---|---|---|---|---|---|
+| 45° | 9.44 | 9.59 | 0.157 [0.0555, 0.258] | 0.157 [-0.0906, 0.483] | 2.32 [2.23, 2.4] | 2.32 [1.33, 2.93] | 6337 | defined / denominator uncertain | **14.8×** [9, 41.8] |
+| 90° | 9.44 | 9.39 | -0.0416 [-0.107, 0.0241] | -0.0416 [-0.139, 0.0417] | 1.45 [1.4, 1.5] | 1.45 [0.789, 1.97] | 6337 | denominator uncertain / denominator uncertain | denominator uncertain |
+| 180° | 9.44 | 9.13 | -0.305 [-0.369, -0.241] | -0.305 [-0.688, -0.0158] | 1.23 [1.18, 1.28] | 1.23 [0.604, 1.79] | 6337 | improvement / improvement | predictions shift while net error improves |
+| 270° | 9.44 | 9.36 | -0.0715 [-0.135, -0.00775] | -0.0715 [-0.284, 0.113] | 1.42 [1.37, 1.47] | 1.42 [0.795, 1.88] | 6337 | improvement / denominator uncertain | unresolved Monte Carlo uncertainty |
+
+### T60 absolute (ms)
+
+| angle | mean 0° | mean α | Δ query CI | Δ room CI | G query CI | G room CI | n | status query / room | multiple or reason |
+|---|---|---|---|---|---|---|---|---|---|
+| 45° | 47.8 | 48.7 | 0.822 [0.277, 1.36] | 0.822 [-0.555, 2.63] | 13.7 [13.2, 14.2] | 13.7 [7.14, 17.9] | 6337 | defined / denominator uncertain | **16.6×** [10.1, 49] |
+| 90° | 47.8 | 47.6 | -0.259 [-0.615, 0.0962] | -0.259 [-0.726, 0.13] | 8.5 [8.19, 8.82] | 8.5 [4.03, 11.7] | 6337 | denominator uncertain / denominator uncertain | denominator uncertain |
+| 180° | 47.8 | 46.2 | -1.62 [-1.96, -1.28] | -1.62 [-3.56, -0.0707] | 7.31 [6.99, 7.64] | 7.31 [3.09, 10.8] | 6337 | improvement / improvement | predictions shift while net error improves |
+| 270° | 47.8 | 47.4 | -0.465 [-0.812, -0.121] | -0.465 [-1.55, 0.403] | 8.33 [8.02, 8.64] | 8.33 [4.18, 11.1] | 6337 | improvement / denominator uncertain | predictions shift while net error improves |
+
+#!/usr/bin/env python3
+"""Side-by-side Δ / G / status of one arm evaluated on two backends (GPU primary vs CPU protocol),
+from two summariser JSONs. Descriptive; no decision. Writes Markdown + JSON (with input sha256s).
+
+The table's claim is "only the inference device differs", so that is *checked*, not assumed
+(Codex tooling review, finding 3): the GPU summary must be a CUDA run and the CPU summary a
+CPU run, they must be two different executions, and everything that would otherwise explain
+a difference must be identical -- the query population (``query_list_sha256`` and
+``n_queries``), the checkpoint, the reference manifest, the Griffin-Lim seed, K, the batch
+shape, the precision flags, the evaluator implementation (``tool_sha256``) and the torch /
+numpy versions. Both summaries' ``inputs`` bindings are re-verified against the live runs,
+and each summary's embedded arm meta is compared with the live ``meta.json`` of the run it
+names, so the fields above are the run's own and not an edited copy.
+
+usage: make_backend_table.py --gpu <summary.json> --cpu <summary.json> --arm released_k8
+                             --out-md <md> --out-json <json>
+                             [--gpu-meta <meta.json>] [--cpu-meta <meta.json>]
+"""
+import argparse
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import validate_runs as vr                                          # noqa: E402
+
+KEYS = [("EDT", 1000.0, "ms"), ("C50", 1.0, "dB"), ("T60", 1.0, "pp / %"), ("T60_abs", 1000.0, "ms"),
+        ("logspec_mad", 1.0, ""), ("mag_rel_l2", 1.0, ""), ("wave_rel_l2", 1.0, ""), ("wave_mad", 1.0, "")]
+DEG = {"64": "45°", "128": "90°", "256": "180°", "384": "270°"}
+# Everything the two runs must agree on for "only the inference device differs" to hold.
+PROTOCOL_FIELDS = [("query_list_sha256", "the query population"),
+                   ("n_queries", "the number of queries"),
+                   ("checkpoint_sha256", "the checkpoint"),
+                   ("manifest_hash", "the reference manifest"),
+                   ("manifest_seed", "the manifest seed"),
+                   ("gl_seed", "the Griffin-Lim seed"),
+                   ("num_shot", "K"),
+                   ("batch_size", "the batch size"),
+                   ("batch_canonical", "canonical batching"),
+                   ("ks", "the angles"),
+                   ("split", "the split"),
+                   ("padded_len", "the padded length"),
+                   ("metric_window", "the metric window"),
+                   ("sample_rate", "the sample rate"),
+                   ("cudnn_deterministic", "cuDNN determinism"),
+                   ("cudnn_allow_tf32", "cuDNN TF32"),
+                   ("matmul_allow_tf32", "matmul TF32"),
+                   ("tf32", "the TF32 flag"),
+                   ("tool_sha256", "the evaluator implementation"),
+                   ("torch_version", "the torch version"),
+                   ("numpy_version", "the numpy version")]
+
+
+def sha(p):
+    return vr.file_sha256(p)
+
+
+def ci(d, s):
+    if not d or d.get("point") is None:
+        return "–"
+    if d.get("lo") is None:
+        return "%.3g" % (d["point"] * s)
+    return "%.3g [%.3g, %.3g]" % (d["point"] * s, d["lo"] * s, d["hi"] * s)
+
+
+def arm_of(summary, label):
+    arms = [a for a in summary["arms"] if a["arm"] == label]
+    if len(arms) != 1:
+        raise ValueError("arm %s not found exactly once" % label)
+    return arms[0]
+
+
+def live_meta(summary, arm, override=None):
+    """The ``meta.json`` of the run this summary names for ``arm`` (or ``--*-meta``)."""
+    if override:
+        return override, vr.read_json(override)
+    for entry in summary.get("inputs") or []:
+        if entry.get("arm") == arm:
+            path = os.path.join(str(entry.get("run_dir")), "meta.json")
+            if not os.path.isfile(path):
+                raise ValueError("%s: the run this summary names has no meta.json; pass "
+                                 "--gpu-meta / --cpu-meta if the run directory moved" % path)
+            return path, vr.read_json(path)
+    raise ValueError("the summary has no inputs entry for arm %s" % arm)
+
+
+def check_pair(gpu_arm, cpu_arm, gpu_summary, cpu_summary, gpu_meta_path, cpu_meta_path,
+               gpu_live, cpu_live, arm):
+    """Every requirement the "same protocol up to the backend" claim rests on.
+
+    Returns:
+        The protocol fields that were verified equal (they go into the record and the caption).
+
+    Raises:
+        ValueError: listing every failed requirement.
+    """
+    problems = []
+    problems.extend(vr.verify_summary_inputs(gpu_summary, label="GPU summary"))
+    problems.extend(vr.verify_summary_inputs(cpu_summary, label="CPU summary"))
+    for role, entry, live, path in (("GPU", gpu_arm, gpu_live, gpu_meta_path),
+                                    ("CPU", cpu_arm, cpu_live, cpu_meta_path)):
+        meta = entry.get("meta") or {}
+        for field, _label in PROTOCOL_FIELDS + [("device", "the device"),
+                                               ("execution_id", "the execution"),
+                                               ("protocol_id", "the protocol")]:
+            if field in meta and field in live and meta[field] != live[field]:
+                problems.append("the %s summary's embedded meta.%s is %r, but the run it "
+                                "names (%s) has %r" % (role, field, meta[field], path,
+                                                       live[field]))
+    if (gpu_arm.get("meta") or {}).get("device") != "cuda":
+        problems.append("the --gpu summary's device is %r, not cuda: the primary backend's "
+                        "role is not filled" % (gpu_arm.get("meta") or {}).get("device"))
+    if (cpu_arm.get("meta") or {}).get("device") != "cpu":
+        problems.append("the --cpu summary's device is %r, not cpu"
+                        % (cpu_arm.get("meta") or {}).get("device"))
+[04:40:33] HEAD d9c2c3cc4c7333054cece003fb9e5a3a11458b1f arm=control_k8 backbone=simple ckpt=unused.pth manifest=unused.json K=8 device=cpu gpu=0 exp03=ckpt/yaw_rotation/sweep_control/per_sample_yaw.json
+[04:40:33] source pins (ckpt/exp10/control_k8_source_pins.sha256): 62ae47644633 tools/exp10_yaw_pilot.py; 1e3fcaeaf4c1 tools/exp10_compare.py; 7c6a615f80b5 tools/exp10_summarize.py; f1d6832f84c8 /home/yixunhu/codespace/xRIR_code_wt10/.review-round4/shell/pin_race/worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/scripts/exp10_arm_chain.sh; 
+[04:40:33] stage probe → ckpt/exp10/control_k8_probe (reserved)
+stub run written to ckpt/exp10/control_k8_probe
+stub check-online wrote ckpt/exp10/control_k8_probe/check_online.json ok = True
+[04:40:34] check-online (probe) ok
+stub parity-exp03 wrote ckpt/exp10/control_k8_probe/parity_exp03.json ok = True
+[04:40:34] parity vs exp_03 (probe) ok
+wrote ckpt/exp10/control_k8_probe/summary/yaw_pilot_summary.json 1 arms
+[04:40:35] GATE: controls_ok=True parity_ok=True
+[04:40:35] GATE PASSED — sources unchanged since the probe; launching full run
+[04:40:35] stage all → ckpt/exp10/control_k8_all (reserved)
+stub run written to ckpt/exp10/control_k8_all
+stub check-online wrote ckpt/exp10/control_k8_all/check_online.json ok = True
+[04:40:35] check-online (all) ok
+stub parity-exp03 wrote ckpt/exp10/control_k8_all/parity_exp03.json ok = True
+[04:40:35] parity vs exp_03 (all) ok
+[04:40:35] ARM DONE
+[04:40:34] HEAD 2f6282f37f2837ed3c506000cffcdbc11fe4f956 arm=control_k8 backbone=simple ckpt=unused.pth manifest=unused.json K=8 device=cpu gpu=0 exp03=ckpt/yaw_rotation/sweep_control/per_sample_yaw.json
+[04:40:34] source pins (ckpt/exp10/control_k8_source_pins.sha256): 0f4db3cf2e99 tools/exp10_yaw_pilot.py; 1e3fcaeaf4c1 tools/exp10_compare.py; 7c6a615f80b5 tools/exp10_summarize.py; f1d6832f84c8 /home/yixunhu/codespace/xRIR_code_wt10/.review-round4/shell/pin_race/worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/scripts/exp10_arm_chain.sh; 
+[04:40:34] REFUSED: ckpt/exp10/control_k8_probe already exists (a partial or previous run)
+

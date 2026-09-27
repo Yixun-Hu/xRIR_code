@@ -98,3 +98,6 @@
 
 ## 2026-09-27T04:39:07-04:00 — CPU-protocol derived reports regenerated in place
 - **Result** — `ckpt/exp10/cpu_protocol/released_k8_all/{check_online,parity_exp03}.json` regenerated from the unchanged run (`tools/exp10_compare.py` at main `e9ae3c4`; log `yaw_pilot_2026-09-27_04:3x_cpu_protocol_reports_regen.log`): byte-identical to the pre-move reports apart from `run_dir` (kept as `*_premove.json`); check_online ok = true, parity ok = false (criterion (a) on 0.1 % of queries, as before). The finish script's preflight can now bind the CPU record without a declared relocation.
+
+## 2026-09-27T04:41:27-04:00 — released_k8 GPU re-run ARM DONE (primary arm complete on the primary backend)
+- **Result** — `ckpt/exp10/released_k8_all` (GPU 1): 66.6 min (inference 2 140 s, inversion 1 708 s, metrics 136 s), complete, `check_online` OK, **parity vs exp_03 `sweep_released` on all 6 337 rows: every cell replicates (EDT / C50 / T60 / loss terms exactly 0, logspec_mad max |Δ| 1.5e-7)**. All four arms are now complete on GPU 1 with the pre-registered gates passed; the three arms with an exp_03 predecessor replicate it exactly on the full split. GPU 1 released (only the cylindrical-dinov3 stock-L training remains on it); a stale idle shell wrapper from the 20:20 failed launch was killed.
