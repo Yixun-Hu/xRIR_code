@@ -1,0 +1,104 @@
+Reading additional input from stdin...
+OpenAI Codex v0.154.0
+--------
+workdir: /home/yixunhu/codespace/xRIR_code_wt
+model: gpt-6-astra
+provider: openai
+approval: on-request
+sandbox: read-only
+reasoning effort: ultra
+reasoning summaries: none
+session id: 01a0e22a-4e93-77c2-8360-7e92300cec19
+--------
+user
+You are the code REVIEWER (OpenAI Codex) for experiment exp_11 `orientation_cue_fairness` of the xRIR repository. CLOSE review 2 of ROUND 2, in the git worktree /home/yixunhu/codespace/xRIR_code_wt on branch `exp11-cue` (read-only; CPU ≤ 4 threads; CUDA_VISIBLE_DEVICES=''; never signal processes; pytest on selected files with `-p no:cacheprovider`, PYTHONPATH = the worktree, writes only under /tmp). Your close review 1 (`orientation_cue_fairness_codex_code_round2_close_review.md`, worktree record) left three blockers: (1) `check_exp11_reused` hashed the default exp_06 record instead of the consumed `--approved` one; (2) the ceiling check failed open on integers outside Bash's range; (3) recovery promoted the unresolved alias basename, and `EXP11_PRETRAIN_ROOT` was honoured unconditionally. The Coder added 8 commits on the reviewed tip `2c64a2a` → `612e3dd` (`git log --oneline 2c64a2a..612e3dd`, `git diff 2c64a2a 612e3dd`; report `orientation_cue_fairness_2026-09-27_04:10:40_coder_round2_fix2_opus_report.md`).
+
+Verify each by reading the code and re-running your own reproductions: (1) `check_exp11_reused(…, exp06_receipt=…)` compares the digest of the record `main()` loaded from `--approved` (required argument; no fallback to `approved_path_default()`), binds that consumed identity into the published inputs; your alternate committed record now refused, a byte-identical copy at another path admitted, `main()`'s call site asserted; (2) `check_ceiling` — bounded decimal string first (no leading zeros, ≤ 6 digits) then range (0, 129600]; your 2^63 and 39-digit dry-runs refused, 129600 accepted, 129601 refused, no `integer expression expected`; (3) `check_attempt` → `CANONICAL_ATTEMPT` (realpath, parent = arm root, basename `attempt_*`) carried through abort/finalization/promotion; the chosen behaviour "aliases are resolved, not rejected": an existing-`final` alias and an external alias both promote the real attempt with `--run-dir <canonical>` — is that safe (consider a `final` that already points at a DIFFERENT valid attempt, and concurrent recovery)?; `EXP11_PRETRAIN_ROOT` honoured only with `EXP11_TEST_ROOTS=1` AND `--dry-run`, refused otherwise; (4) the record-scoped `.gitattributes` marking `*codex*review*.md` as `-whitespace` — acceptable?; the qualified red-first account (e98b490 recovery tests failed on NameError; this cycle's RED runs failed for the intended reason — verify one or two by replay); (5) closure hygiene at `612e3dd`: vs 9f98bbb only exp_06 `summarize_haa` moved (report its digest); the eight exp_11 keys (report all); the four sim-eval closures unchanged; frozen files untouched; `BACKBONES_EXP06` unchanged; `tests/test_exp09_sim_eval_closures.py` green; the pinned oracles byte-identical; (6) anything new the fix introduced. State whether round 2 can be CLOSED and `612e3dd` merged (verdict "approve", "approve with changes" listed with file:line, or "request changes" with blockers numbered), and give the exact fill manifest at the merge commit: exp_06 `code.summarize_haa`; the re-filled exp_06 record's digest (only that key replaced, other bytes preserved); exp_11's eight `code.*`, `reused.approved_digests_exp04`, `reused.approved_digests_exp06`, `reused.legacy_receipt.{path,sha256}`; `artifacts.*` null. Identity header (model, reasoning effort as the invocation metadata states it, sandbox, tree, HEAD, date/time); print the review in full; save nothing.
+codex
+I’ll inspect `612e3dd`, replay the blocker reproductions in `/tmp`, and verify the closure digests and fill manifest. I’ll keep the worktree read-only, disable CUDA, and limit CPU threads to four.
+exec
+/bin/bash -lc 'pwd; git status --short; git branch --show-current; git rev-parse HEAD; git log --oneline 2c64a2a..612e3dd' in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+/home/yixunhu/codespace/xRIR_code_wt
+?? worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/codex_code_round2_close2_prompt.md
+exp11-cue
+612e3dd023eb390b8a818d307a1b85d821b8ed4f
+612e3dd exp11 bookkeeping: fix2 full CPU suite result (record only)
+e471ccc exp11 bookkeeping: fix2 targeted tests and digests (record only)
+3119e22 exp11 bookkeeping: Coder round-2 fix-cycle-2 report (record only)
+1c4498e exp11 fix2 4: exempt the copied Codex reviews from the whitespace check
+0b10d7c exp11 fix2 2 and 3 (GREEN): bounded ceiling; canonical attempt; scoped root override
+a6b3200 exp11 fix2 2 and 3 (RED): overflow ceilings pass; promotion uses the unresolved path
+6b02824 exp11 fix2 1 (GREEN): the exp_06 pin names the record this run actually loaded
+8506456 exp11 fix2 1 (RED): the exp_06 pin must name the record main() actually loaded
+
+exec
+/bin/bash -lc "rg --files -g 'AGENTS.md' -g '*orientation_cue_fairness*' -g '*exp11*' -g '*exp09_sim_eval*' -g '*approved*' -g '.gitattributes'" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+model/xrir_exp11_registry.py
+tools/exp11_launch.sh
+tools/exp11_recipe.py
+tools/exp11_approved_digests_template.json
+tools/exp11_train.py
+tools/exp11_haa_finetune.py
+tools/exp11_haa_eval.py
+tools/exp11_finalize.py
+tools/exp11_haa_pipeline.sh
+tools/exp06_approved_digests_template.json
+tools/exp11_smoke.py
+tools/exp11_profiles.py
+tests/test_exp11_approval_enforcement.py
+tests/test_exp11_haa_parity.py
+tests/test_exp11_shell.py
+tests/test_exp11_admission.py
+tests/test_exp11_models.py
+tests/test_exp11_zeroshot_adapter.py
+tests/test_exp11_recipe.py
+tests/test_exp11_train.py
+tests/test_exp11_profiles.py
+tests/test_exp11_adapter.py
+tests/test_exp11_summarize_haa.py
+tests/test_exp09_sim_eval_closures.py
+tests/test_exp11_registry.py
+tests/test_exp11_finalize.py
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_18:26:47_coder_round1_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/plan_orientation_cue_fairness.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:14:38_suite_full_cpu_91fbd8b_captured.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/plan_orientation_cue_fairness_v1_superseded.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/.gitattributes
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:14:01_codex_code_round1_close2_review.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_plan_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_command.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_17:31:52_codex_plan_review.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_params_set_up.md
+worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_results_assets/approved_digests.json
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:19:35_refill.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_yixun_query.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:21:56_suite_full_cpu.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/commits_orientation_cue_fairness.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_worklog.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round1_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_02:35:15_coder_round2_fix_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_20:24:52_codex_code_round1_review.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:35:21_coder_round2_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round1_close2_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_20:50_suite_full_cpu_af052c0.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:21:56_suite_launcher.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_plan_round2_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:14:24_suite_full_cpu_91fbd8b_captured.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_17:44:43_codex_plan_round2_review.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_04:10:40_coder_round2_fix2_opus_report.md
+worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/approved_digests.json
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round1_close_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:21:56_suite.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:19:34_merge.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_19:20_suite_full_cpu_5db0c82.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_20:47:07_coder_round1_fix_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_22:21:54_codex_code_round1_close_review.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_results_assets/approved_digests.json
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_results_assets/planner_probes/exp11_runbook.sh
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_results_assets/approved_digests.json
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results_assets/approved_digests.json
+
