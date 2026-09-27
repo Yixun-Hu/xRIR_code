@@ -1,0 +1,59 @@
+# exp_10 yaw_pilot — commits
+
+- c6233e3 exp_10: code-review briefing; arm launcher draft
+- 585804d exp_11 record opened: orientation-cue fairness ablation — plan v1→v3, Codex plan reviews (rounds 1–2), Coder round-1 prompt, params, query log (record only)
+- 31170e2 exp_11: commit index (585804d)
+- 3343454 exp_10: Coder round 1 logged; Codex full code review launched
+- 807a301 exp_10: Codex round-1 full review (request changes); Coder round-2 fix prompt
+- e755792 exp_10: params set-up draft
+- 200d34b exp_10: Coder round 2 logged; Codex close review launched
+- 9c7dd1c exp_10: arm chain script (probe+gate+full) replaces the single-arm draft
+- 9188028 exp_10: Codex round-2 close review; Coder round-3 (figure) prompt
+- f3c6125 exp_10: Coder round 3 logged; Codex close review launched
+- 51a256b exp_10: Codex round-3 close review (approved for merge)
+- 2408fb9 Merge exp10-yaw-pilot rounds 1-3: tools/exp10_{yaw_pilot,compare,summarize}.py + tests (Codex-approved)
+
+## exp10-yaw-pilot branch (Coder, Claude Opus 5)
+- c6233e3 exp_10: code-review briefing; arm launcher draft
+- 52a5d5f exp_10 round 1: Metric-1 waveform and spectrogram gaps
+- 585804d exp_11 record opened: orientation-cue fairness ablation — plan v1→v3, Codex plan reviews (rounds 1–2), Coder round-1 prompt, params, query log (record only)
+- 31170e2 exp_11: commit index (585804d)
+- df8b39b exp_10 round 1: acoustic gaps and raw EDT/C50/T60 measures
+- bcc2bbe exp_10 round 1: device-agnostic apply_delay and its patch point
+- f300bbd exp_10 round 1: angle_logspec, the pinned-alignment rotated forward
+- 061a05c exp_10 round 1: invert, the stored-waveform Griffin-Lim step
+- b16b4ec exp_10 round 1: evaluate_batch, both metric families plus the controls
+- dfeeae4 exp_10 round 1: select_probe_batches, one intact canonical batch per room
+- fb5b594 exp_10 round 1: protocol/execution identity and strict JSON writing (A2)
+- 57d59c2 exp_10 round 1: verify_exp03_pins against the bound reviewed closure
+- 5dbbb3c exp_10 round 1: run and the CLI, with the plan's output and identity contract
+- 2d513e3 exp_10 round 1: run identity guard and the offline Metric-1 check
+- b599d65 exp_10 round 1: parity_exp03 with A1's identical-validity-mask rule
+- 31554e9 exp_10 round 1: the paired-bootstrap contract of plan section 4
+- b754c71 exp_10 round 1: room-cluster bootstrap, query-weighted with multiplicities
+- 3dd1501 exp_10 round 1: A2 run-identity guard, per-arm cells and the controls table
+- 31eea2f exp_10 round 1: canonical JSON, Markdown tables, FLAC-style figures and CSV
+- 222f1fe exp_10 round 1: refuse two arms that share a label
+- 27b5fc5 exp_10 round 1: legible figure layout (constrained, one legend, status codes)
+- 26562f0 exp_10 round 1: record how many rooms a cluster interval resampled
+- 3343454 exp_10: Coder round 1 logged; Codex full code review launched
+- 807a301 exp_10: Codex round-1 full review (request changes); Coder round-2 fix prompt
+- e755792 exp_10: params set-up draft
+- 6bfd393 exp_10 round 2: bind per_sample.json and the waveform set before reading them
+- 6685344 exp_10 round 2: an uncomparable parity cell is a failure, not a footnote
+- e19a6f5 exp_10 round 2: a control cannot pass on evidence that is missing
+- 8202d22 exp_10 round 2: unresolved Monte Carlo uncertainty outranks every wording
+- 08ece38 exp_10 round 2: report the standalone G on the broader gap population
+- c5c349e exp_10 round 2: say what T60 is a percentage of, and what a gap measures
+- 3781f7a exp_10 round 2: an unavailable estimate gets no bar, not a zero bar
+- 4ac265b exp_10 round 2: write the comparator's reports as strict JSON
+- a4d0584 exp_10 round 2: print the results the JSON already carries
+- 941ad2f exp_10 round 2: synchronise the device at every timed stage boundary
+- 4b33da1 exp_10 round 2: a controls header with as many cells as the rows, and a real assertion
+- d3e927b exp_10 round 2: the cylindrical arm gets its own context band
+- 200d34b exp_10: Coder round 2 logged; Codex close review launched
+- 9c7dd1c exp_10: arm chain script (probe+gate+full) replaces the single-arm draft
+- 9188028 exp_10: Codex round-2 close review; Coder round-3 (figure) prompt
+- 128f0d8 exp_10 round 3: an interval is drawn only where both of its bounds exist
+- c2b6817 exp_10 round 3: the footer blocks get measured space of their own
+- 1ebb87d exp_10 round 3: a multi-arm legend names no model, each row names its own band
