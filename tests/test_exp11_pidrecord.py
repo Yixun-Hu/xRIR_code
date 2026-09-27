@@ -56,17 +56,44 @@ def test_the_module_reads_the_grammar(tmp_path, content, valid):
         assert record == int(content)
 
 
+def cli(path):
+    return subprocess.run([PYTHON, '-m', 'tools.exp11_pidrecord', str(path)],
+                          cwd=str(REPO), capture_output=True, text=True,
+                          env=dict(os.environ, PYTHONPATH=str(REPO),
+                                   CUDA_VISIBLE_DEVICES=''))
+
+
 @pytest.mark.parametrize('content,valid', PID_RECORDS, ids=IDS)
-def test_the_cli_says_the_same(tmp_path, content, valid):
-    """The launcher has no reader of its own; it asks this one."""
-    result = subprocess.run([PYTHON, '-m', 'tools.exp11_pidrecord',
-                             str(write(tmp_path, content))],
-                            cwd=str(REPO), capture_output=True, text=True,
-                            env=dict(os.environ, PYTHONPATH=str(REPO),
-                                     CUDA_VISIBLE_DEVICES=''))
-    assert (result.returncode == 0) is valid, (content, result.stdout, result.stderr)
-    if valid:
-        assert result.stdout.strip() == content.decode().strip()
+def test_the_cli_returns_a_definite_verdict(tmp_path, content, valid):
+    """Both answers are answers (close review 11).
+
+    Exit 1 used to mean "not a record" -- and it is also what a missing interpreter, an
+    unimportable module and a crash return. The launcher could not tell a verdict from a
+    failure, so a broken reader read as "nothing is alive" and a resolution retired a
+    live trainer's attempt. A verdict is now a line on stdout AND exit 0; anything else
+    is the reader failing, never an answer about the file.
+    """
+    result = cli(write(tmp_path, content))
+    assert result.returncode == 0, (content, result.stdout, result.stderr)
+    expected = 'record {}'.format(int(content)) if valid else 'norecord'
+    assert result.stdout == expected + '\n', (content, result.stdout)
+    assert result.stderr == ''
+
+
+def test_a_verdict_is_one_line_and_nothing_else(tmp_path):
+    """One line: the launcher reads the whole answer, so a second line is not a verdict."""
+    for content, expected in ((b'1457170\n', 'record 1457170\n'), (b'', 'norecord\n')):
+        assert cli(write(tmp_path, content)).stdout == expected
+
+
+def test_a_misuse_is_not_a_verdict(tmp_path):
+    """No file, or too many: the reader says nothing about a file it was not given."""
+    for argv in ([], [str(tmp_path / 'a'), str(tmp_path / 'b')]):
+        result = subprocess.run([PYTHON, '-m', 'tools.exp11_pidrecord'] + argv,
+                                cwd=str(REPO), capture_output=True, text=True,
+                                env=dict(os.environ, PYTHONPATH=str(REPO)))
+        assert result.returncode not in (0, 1), result.stdout
+        assert result.stdout == '', result.stdout
 
 
 @pytest.mark.parametrize('content,valid', PID_RECORDS, ids=IDS)
@@ -80,23 +107,26 @@ def test_the_two_callers_never_disagree(tmp_path, content, valid):
     path = write(tmp_path, content)
     shell = subprocess.run(
         ['bash', '-c', 'set -euo pipefail\nEXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh\n'
-                       'if pid_record "$1"; then echo " RECORD_OK"; else echo RECORD_BAD; fi',
+                       'status=0\npid_record "$1" || status=$?\necho "STATUS $status"',
          '_', str(path)],
         cwd=str(REPO), capture_output=True, text=True,
         env=dict(os.environ, CUDA_VISIBLE_DEVICES=''))
     assert shell.returncode == 0, shell.stderr[-400:]
-    shell_says = 'RECORD_OK' in shell.stdout
+    # 2 is "the reader failed"; no row of the table may ever produce it.
+    assert 'STATUS 2' not in shell.stdout, (content, shell.stdout)
+    shell_says = 'STATUS 0' in shell.stdout
     python_says = exp11_train.pid_record(path) is not None
     assert shell_says == python_says == valid, (content, shell.stdout)
 
 
-def test_an_unreadable_file_is_not_a_record_and_raises_nothing(tmp_path):
+def test_an_unreadable_file_is_a_definite_norecord(tmp_path):
+    """Missing, a directory, unreadable: all of them are answers, not failures."""
     assert exp11_pidrecord.pid_record(tmp_path / 'absent') is None
     assert exp11_pidrecord.pid_record(tmp_path) is None        # a directory
-    result = subprocess.run([PYTHON, '-m', 'tools.exp11_pidrecord', str(tmp_path / 'absent')],
-                            cwd=str(REPO), capture_output=True, text=True,
-                            env=dict(os.environ, PYTHONPATH=str(REPO)))
-    assert result.returncode == 1 and 'Traceback' not in result.stderr
+    for path in (tmp_path / 'absent', tmp_path):
+        result = cli(path)
+        assert result.returncode == 0 and result.stdout == 'norecord\n'
+        assert 'Traceback' not in result.stderr
 
 
 def test_the_launcher_reads_no_file_content_itself():
