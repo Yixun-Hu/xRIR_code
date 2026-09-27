@@ -1,0 +1,43 @@
+af052c0 exp11: the interaction's pairing and joint-cohort cases
+
+tests/test_exp06_mirror_probe.py::test_the_recomposed_forward_mixes_the_reference_log_spectrograms
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:641: UserWarning: stft with return_complex=False is deprecated. In a future pytorch release, stft will return complex tensors for all inputs, and return_complex=False will raise an error.
+  Note: you can still call torch.view_as_real on the complex output to recover the old return format. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:862.)
+    return _VF.stft(input, n_fft, hop_length, win_length, window,  # type: ignore[attr-defined]
+
+tests/test_exp11_summarize_haa.py::test_a_numerically_broken_interval_is_not_an_unavailable_statement
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/numpy/lib/function_base.py:550: RuntimeWarning: overflow encountered in multiply
+    avg = np.multiply(a, wgt,
+
+tests/test_exp11_summarize_haa.py::test_a_numerically_broken_interval_is_not_an_unavailable_statement
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/numpy/core/_methods.py:48: RuntimeWarning: overflow encountered in reduce
+    return umr_sum(a, axis, dtype, out, keepdims, initial, where)
+
+tests/test_exp11_summarize_haa.py::test_a_numerically_broken_interval_is_not_an_unavailable_statement
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/numpy/core/_methods.py:180: RuntimeWarning: overflow encountered in reduce
+    ret = umr_sum(arr, axis, dtype, out, keepdims, where=where)
+
+tests/test_exp11_summarize_haa.py::test_a_numerically_broken_interval_is_not_an_unavailable_statement
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/numpy/lib/function_base.py:4527: RuntimeWarning: invalid value encountered in subtract
+    diff_b_a = subtract(b, a)
+
+tests/test_exp11_summarize_haa.py::test_a_numerically_broken_interval_is_not_an_unavailable_statement
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/numpy/lib/nanfunctions.py:1740: RuntimeWarning: invalid value encountered in subtract
+    np.subtract(arr, avg, out=arr, casting='unsafe', where=where)
+
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[paired_compare-RuntimeError]
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[paired_compare-KeyError]
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/runpy.py:127: RuntimeWarning: 'tools.paired_compare' found in sys.modules after import of package 'tools', but prior to execution of 'tools.paired_compare'; this may result in unpredictable behaviour
+    warn(RuntimeWarning(msg))
+
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[results_table-RuntimeError]
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[results_table-KeyError]
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/runpy.py:127: RuntimeWarning: 'tools.results_table' found in sys.modules after import of package 'tools', but prior to execution of 'tools.results_table'; this may result in unpredictable behaviour
+    warn(RuntimeWarning(msg))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes
+1 failed, 3341 passed, 50 skipped, 253 warnings in 5325.22s (1:28:45)
+
+[exited with code 0]
