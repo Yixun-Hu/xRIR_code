@@ -251,6 +251,66 @@ drop_arm_lock() {
     HOLDER_PID=""
 }
 
+# --- what the lock protects is a quiet arm -------------------------------------------
+# The lock says "one publication at a time"; it does not say "no trainer is running".
+# That is this scan's job, and it has to run UNDER the lock: a scan taken before
+# acquisition can go stale in the window between, which is exactly how a recovery could
+# promote an older attempt while a newer trainer of the same arm kept writing
+# (close review 7, blocker 1). `kill -0` asks the kernel whether a pid still exists; it
+# is a probe and sends no signal.
+UNRESOLVED_GRACE_S="${EXP11_UNRESOLVED_GRACE_S:-120}"
+SCAN_REASON=""
+
+pid_alive() {  # pid_alive <file>: the first field of <file> names a living process
+    local pid=""
+    [ -f "$1" ] || return 1
+    read -r pid _ < "$1" 2>/dev/null || return 1
+    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+    kill -0 "$pid" 2>/dev/null
+}
+
+# scan_arm <arm root> [<attempt being resolved>]: 0 when every attempt of the arm is
+# finished and accounted for. SCAN_REASON names the first one that is not.
+scan_arm() {
+    local root="$1" resolving="${2:-}" attempt="" name=""
+    SCAN_REASON=""
+    for attempt in "$root"/attempt_*; do
+        [ -d "$attempt" ] || continue
+        name="$(basename -- "$attempt")"
+        if pid_alive "$attempt/launch.pid"; then
+            SCAN_REASON="$name has a live launcher (launch.pid)"; return 1; fi
+        if pid_alive "$attempt/child.pid"; then
+            SCAN_REASON="$name has a live trainer (child.pid)"; return 1; fi
+        if pid_alive "$attempt/train.pid"; then
+            SCAN_REASON="$name has a live trainer (train.pid)"; return 1; fi
+        [ "$attempt" != "$resolving" ] || continue
+        if [ -f "$attempt/launching" ] && [ ! -f "$attempt/child.pid" ]; then
+            SCAN_REASON="$name has an unresolved launch: a launching marker and no"\
+" child.pid, so a trainer of it may be running without having registered. Resolve it"\
+" with --resolve-unregistered $attempt once nothing of the arm is alive and the marker"\
+" is older than ${UNRESOLVED_GRACE_S}s"
+            return 1; fi
+    done
+    return 0
+}
+
+require_quiet_arm() {  # require_quiet_arm [<attempt being resolved>]
+    say "SCAN $ARM_ROOT"
+    if [ "$DRY" -eq 1 ] && [ "${EXP11_TEST_ROOTS:-0}" != 1 ]; then return 0; fi
+    scan_arm "$ARM_ROOT" "${1:-}" && return 0
+    echo "refusing: $SCAN_REASON" >&2
+    return 1
+}
+
+# A deterministic pause, so a regression can hold this invocation open between two
+# launchers. It exists only inside the test roots and costs a real launch nothing.
+scan_barrier() {
+    local file="${EXP11_SCAN_BARRIER:-}"
+    [ -n "$file" ] && [ "${EXP11_TEST_ROOTS:-0}" = 1 ] || return 0
+    : > "$file.at"
+    while [ -e "$file" ]; do sleep 0.05; done
+}
+
 # A signal handler must END this invocation. A cleanup-only handler returns, and bash
 # resumes -- which would let finalization and promotion continue after the interruption.
 # The lock needs no releasing here: the EXIT trap ends the holder, and if anything went
@@ -403,10 +463,12 @@ CHILD_EXPLORATORY=()
 
 case "$MODE" in
 full)
-    preflight
+    scan_barrier
     # From before the child launch through promotion: a recovery on this arm is refused
-    # while this run owns it.
+    # while this run owns it. The arm-wide scan runs under the lock, never before it.
     hold_arm_lock full || exit 2
+    require_quiet_arm || exit 2
+    preflight
     attempt="$ARM_ROOT/attempt_$STAMP"
     log="$RECORD/orientation_cue_fairness_${STAMP}_train_full_${ARM}.log"
     say "MKDIR $attempt"
@@ -521,8 +583,10 @@ smoke)
         --save-dir "$a2/run" --seed 0
     ;;
 finalize)
-    preflight   # recovery is gated by the same reviewed commit, clean tree and pid checks
+    scan_barrier
     hold_arm_lock finalize || exit 2   # alias resolution, validation and publication
+    require_quiet_arm || exit 2        # arm-wide, under the lock: nothing may be running
+    preflight   # recovery is gated by the same reviewed commit, clean tree and pid checks
     check_attempt "$ATTEMPT" || exit 2
     # Everything below uses the canonical directory, never the path as it was typed.
     if already_published "$CANONICAL_ATTEMPT"; then

@@ -1,7 +1,8 @@
 EXP11_LAUNCH mode=full arm=I gpu=1 commit=cccccccccccccccccccccccccccccccccccccccc root=ckpt/exp11/pretrain/xRIR_simpor_yawaug_8_shot stamp=<UTC> dry_run=1
 ENV CUDA_VISIBLE_DEVICES=1 PYTHONHASHSEED=0 OMP_NUM_THREADS=8 XRIR_DATA_PATH=<HOME>/data_cache/AcousticRooms
-RUN <PYTHON> tools/exp11_finalize.py preflight --mode full --gpu 1 --reviewed-commit cccccccccccccccccccccccccccccccccccccccc --attempt-root ckpt/exp11/pretrain/xRIR_simpor_8_shot --attempt-root ckpt/exp11/pretrain/xRIR_simpor_yawaug_8_shot --attempt-root ckpt/exp11/_smoke --approved worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_results_assets/approved_digests.json
 LOCK ckpt/exp11/pretrain/xRIR_simpor_yawaug_8_shot/.publish.lock
+SCAN ckpt/exp11/pretrain/xRIR_simpor_yawaug_8_shot
+RUN <PYTHON> tools/exp11_finalize.py preflight --mode full --gpu 1 --reviewed-commit cccccccccccccccccccccccccccccccccccccccc --attempt-root ckpt/exp11/pretrain/xRIR_simpor_8_shot --attempt-root ckpt/exp11/pretrain/xRIR_simpor_yawaug_8_shot --attempt-root ckpt/exp11/_smoke --approved worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_results_assets/approved_digests.json
 MKDIR ckpt/exp11/pretrain/xRIR_simpor_yawaug_8_shot/attempt_<UTC>
 SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_<UTC>_train_full_I.log
 PIDFILE ckpt/exp11/pretrain/xRIR_simpor_yawaug_8_shot/attempt_<UTC>/launch.pid
