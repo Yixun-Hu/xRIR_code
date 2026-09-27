@@ -218,6 +218,12 @@ values are for the eventual reviewed merge.
 * **Full CPU suite** — run detached at `814fbec` (the same tree as the last code
   commit `63c1bed`) to
   `orientation_cue_fairness_2026-09-27_12:05_suite_full_cpu_814fbec.log` in this record.
-  FIX7_SUITE_RESULT
+  **1 failed, 3701 passed, 55 skipped** in 3208 s (53:27). The one
+  failure is the standing, expected
+  `tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes`
+  — `code.summarize_haa` has moved and the record is re-filled at the reviewed merge, as
+  round 1 did with `9f98bbb`, not on this branch. Fix 6 was 3683 passed; the 18 new
+  passes are this cycle's tests.
+  Nothing else in the suite regressed, and no other exp_06 or exp_09 closure moved.
   (An earlier detached run at `ad50998` was stopped when the two late fixes landed; its
   log is the truncated `…_11:45_suite_full_cpu_ad50998.log` and it stands for nothing.)
