@@ -270,3 +270,47 @@ def test_a_phase_never_overwrites_a_published_record(tmp_path):
     assert not (tmp_path / 'other.json').exists()
     with pytest.raises(FileExistsError):      # and the two paths must be distinct
         subject.write_outputs(result, tmp_path / 'same.txt', tmp_path / 'same.txt')
+
+
+# --- the phase-1 payload is exactly what round 1 published -------------------------
+
+ROUND1_COMMIT = 'c491396'      # the tip this round branched from; it never moves
+
+
+@pytest.fixture(scope='module')
+def round1(tmp_path_factory):
+    """The summariser as it stood after round 1, pinned to the commit this round began at."""
+    import importlib.util
+    import subprocess
+    probe = subprocess.run(['git', 'show', ROUND1_COMMIT + ':tools/exp06_summarize_haa.py'],
+                           cwd=str(subject.REPO), capture_output=True)
+    if probe.returncode != 0:
+        pytest.skip('the round-1 commit is not in this checkout')
+    path = tmp_path_factory.mktemp('round1') / 'round1_summarize_haa.py'
+    path.write_bytes(probe.stdout)
+    spec = importlib.util.spec_from_file_location('exp06_summarize_haa_round1', str(path))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_round_one_oracle_really_predates_this_round(round1):
+    assert set(round1.EXPERIMENTS) == {'exp06', 'exp09', 'exp11'}
+    assert not any(name in round1.ARMS for name in (H, I, J, K))
+    assert not hasattr(round1, 'arm_admission') and not hasattr(round1, 'external_rows')
+    assert 'exp11_final' in subject.EXPERIMENTS and J in subject.ARMS
+
+
+def test_exp11_phase1_publishes_exactly_what_round_one_published(arms, round1):
+    """Phase 1b and phase 2 change no phase-1 statistic and no phase-1 summary."""
+    # The oracle is imported from a temp file, so its own REPO is not the checkout: the
+    # historical records R1 copies are named explicitly for both modules.
+    settings = dict(n_boot=200, adjusted_n_boot=200, experiment='exp11',
+                    historical_root=subject.REPO)
+    selected = {name: arms[name] for name in round1.EXPERIMENTS['exp11']['arms']}
+    before = round1.analyse(selected, **settings)
+    after = subject.analyse(selected, **settings)
+    assert list(after) == list(before)
+    assert json.dumps(after, sort_keys=True) == json.dumps(before, sort_keys=True)
+    assert subject.render(after) == round1.render(before)
+    assert 'external' not in after and 'exp11_approved_digests' not in after

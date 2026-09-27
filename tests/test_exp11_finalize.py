@@ -231,3 +231,32 @@ def test_the_approval_gate_refuses_the_all_null_record():
                             False, REPO)
     with pytest.raises(ValueError, match='exploratory launch is a diagnostic'):
         final.approval_gate('full', 'a' * 40, None, True, REPO)
+
+
+def test_neither_family_certifies_the_others_child(tmp_path):
+    """The serialized run type is the wall: a child record of one family is refused by
+    the other's ``child_completion``, both ways. The completion records the *finalizer's*
+    run type (``exp11_haa_finetune``); the child's own provenance records
+    ``exp11_haa_train``, which is what ``load_provenance`` compares."""
+    def record(run_type, extra):
+        body = {key: 'x' for key in legacy.CHILD_COMPLETION}
+        body.update(schema_version=1, run_type=run_type, run_dir=str(tmp_path.resolve()),
+                    child_exit=0, diagnostic=False, admissible_arm=True, artifacts={},
+                    rooms=['hallway'], init_sha256='a' * 64, best_epoch=1, seed=0,
+                    adapter_heading=None, adapter_phi_deg=None, **extra)
+        (tmp_path / 'completion.json').write_text(json.dumps(body))
+    record('exp11_haa_finetune', {})
+    assert final.child_completion(tmp_path, 'stage1', 'exp11_haa_finetune')['seed'] == 0
+    with pytest.raises(ValueError, match="not the 'haa_train' its path requires"):
+        legacy.child_completion(tmp_path, 'stage1', 'haa_train')
+    record('haa_train', {})
+    assert legacy.child_completion(tmp_path, 'stage1', 'haa_train')['seed'] == 0
+    with pytest.raises(ValueError, match="not the 'exp11_haa_finetune' its path requires"):
+        final.child_completion(tmp_path, 'stage1', 'exp11_haa_finetune')
+    # exp_11's own completion schema additionally requires the adapter fields.
+    body = json.loads((tmp_path / 'completion.json').read_text())
+    body.update(run_type='exp11_haa_finetune')
+    body.pop('adapter_heading')
+    (tmp_path / 'completion.json').write_text(json.dumps(body))
+    with pytest.raises(ValueError, match='missing adapter_heading'):
+        final.child_completion(tmp_path, 'stage1', 'exp11_haa_finetune')
