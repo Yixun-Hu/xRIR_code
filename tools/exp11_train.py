@@ -24,7 +24,6 @@ import json
 import contextlib
 import fcntl
 import os
-import re
 from pathlib import Path
 import sys
 import time
@@ -36,7 +35,8 @@ from torch.utils.data import DataLoader, Subset
 
 import train_xRIR_backbone as trainer
 from model.xrir_exp11_registry import BACKBONES_EXP11, build_xrir_exp11, registry_sha256
-from tools import exp06_train, exp11_profiles, exp11_recipe, provenance
+from tools import (exp06_train, exp11_pidrecord, exp11_profiles, exp11_recipe,
+                   provenance)
 from tools.exp05_params import TIERS, count_parameters, tier_of
 from treble_multi_room_dataset.treble_xRIR_dataset import xRIR_Dataset
 from utils.lr_scheduler import ExponentialLR
@@ -188,21 +188,9 @@ def provenance_fields(argv, run_type, identity=None, repo=REPO, approved=None,
                 command=list(argv))
 
 
-PID_RECORD = re.compile(rb'[0-9]{1,10}\n?')
-
-
-def pid_record(path):
-    """The pid a pid file holds, or None -- the launcher's grammar, byte for byte.
-
-    A valid record is the WHOLE file: ``^[0-9]{1,10}\n?$``. Not stripped, not split, not
-    scanned for a first field: two readers that disagree about the bytes disagree about
-    whether a trainer exists (close review 9, blocker 1).
-    """
-    try:
-        data = Path(path).read_bytes()          # bytes: text mode would turn CRLF into LF
-    except OSError:
-        return None
-    return int(data.decode('ascii')) if PID_RECORD.fullmatch(data) else None
+# The one reader, shared with the launcher, which executes the same module rather than
+# reading pid files in Bash (close review 10, blocker 1).
+pid_record = exp11_pidrecord.pid_record
 
 
 def registration_complete(attempt):

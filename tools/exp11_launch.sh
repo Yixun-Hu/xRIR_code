@@ -261,24 +261,15 @@ drop_arm_lock() {
 UNRESOLVED_GRACE_S="${EXP11_UNRESOLVED_GRACE_S:-120}"
 SCAN_REASON=""
 
-# pid_record <file>: print the pid <file> holds, or return 1. The grammar is the WHOLE
-# file and it is written once, here: `^[0-9]{1,10}\n?$` -- digits, at most one trailing
-# newline, nothing else. No leading blank, no second record, no CR, no other bytes.
-# Both readers below use it, so "is a trainer registered" and "is that pid alive" can
-# never be answered from two different readings of the same bytes (close review 9).
+# pid_record <file>: print the pid <file> holds, or return 1. The grammar lives in
+# tools/exp11_pidrecord.py and nowhere else -- this shell does NOT read pid files. Bash
+# command substitution drops NUL bytes, so a reader written here answered "that is a
+# pid" for `<digits>\0` while the trainer's reader said it was not, and a dead pid with
+# a NUL made an arm read quiet with a trainer in it (close review 10, blocker 1). Only
+# the module's stdout crosses back, and that is digits by construction.
 pid_record() {
-    local text="" size=0
     [ -f "$1" ] || return 1
-    size="$(wc -c < "$1" 2>/dev/null)" || return 1
-    case "$size" in ''|*[!0-9]*) return 1 ;; esac
-    [ "$size" -ge 1 ] && [ "$size" -le 11 ] || return 1
-    text="$(cat -- "$1" 2>/dev/null)" || return 1   # $() strips trailing newlines
-    case "$text" in ''|*[!0-9]*) return 1 ;; esac   # digits only, so no CR and no blank
-    [ "${#text}" -le 10 ] || return 1
-    # Exactly the digits, or the digits and ONE newline; two trailing newlines are not
-    # a record, and `$()` would otherwise have hidden the second.
-    [ "${#text}" -eq "$size" ] || [ $(( ${#text} + 1 )) -eq "$size" ] || return 1
-    printf '%s' "$text"
+    "$PYTHON" -m tools.exp11_pidrecord "$1" 2>/dev/null
 }
 
 pid_alive() {  # pid_alive <file>: the pid <file> records names a living process
