@@ -153,7 +153,7 @@ def test_the_default_ceiling_is_the_registered_thirty_six_hours():
 # --- blocker 5: recovery may not promote an attempt of another arm ------------------
 
 
-def attempt_with(root, arm, profile, tmp_path):
+def attempt_with(root, arm, profile, tmp_path, name='attempt_20260927T000000'):
     """One attempt directory under a pretraining root, with the args a profile selects."""
     from tools import exp11_recipe
     spec = exp11_recipe.PROFILES[profile]
@@ -165,17 +165,28 @@ def attempt_with(root, arm, profile, tmp_path):
                 tier='M', param_counts={}, exp11_run_type='full', exp11_profile=profile,
                 exp11_registry_sha256='a' * 64, exp11_source_closure_sha256='b' * 64,
                 exp11_git_head='c' * 40, exp11_provenance_path='p')
-    directory = tmp_path / root / 'attempt_20260927T000000'
+    directory = tmp_path / root / name
     directory.mkdir(parents=True)
     (directory / 'args.json').write_text(json.dumps(args))
     return directory
 
 
-def recovery(attempt, arm, tmp_path):
+def recovery(attempt, arm, tmp_path, extra=(), log='L.log'):
     return launch(['finalize', '--arm', arm, '--gpu', '1', '--reviewed-commit', COMMIT,
-                   '--attempt', str(attempt), '--log', 'L.log', '--child-exit', '0',
-                   '--dry-run'], {'EXP11_PRETRAIN_ROOT': str(tmp_path),
-                                  'EXP11_TEST_ROOTS': '1'})
+                   '--attempt', str(attempt), '--log', log, '--child-exit', '0',
+                   '--dry-run'] + list(extra),
+                  {'EXP11_PRETRAIN_ROOT': str(tmp_path), 'EXP11_TEST_ROOTS': '1'})
+
+
+def publish(attempt, target=None, completed=True):
+    """Make ``final`` point at an attempt, as a finished run leaves the root."""
+    if completed:
+        (attempt / 'completion.json').write_text('{"run_type": "exp11_train"}')
+    link = attempt.parent / 'final'
+    if link.is_symlink() or link.exists():
+        link.unlink()
+    link.symlink_to((target or attempt).name)
+    return link
 
 
 def test_recovery_refuses_an_attempt_of_another_arm(tmp_path):
@@ -352,3 +363,111 @@ def test_the_override_is_honoured_only_alongside_a_dry_run(tmp_path):
     status, out, err = launch(args + ['--dry-run'], env)
     assert status == 0, err[-600:]
     assert str(tmp_path) in out
+
+
+# --- close review 2: recovery safety -----------------------------------------------
+
+LOCK = '.publish.lock'
+
+
+def test_a_refused_recovery_never_aborts_a_published_attempt(tmp_path):
+    """A malformed recovery does not establish that a finished run failed.
+
+    With ``final -> attempt_A`` and a completion in place, a refusal must leave the
+    directory, its completion and the link exactly as they were.
+    """
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    publish(attempt)
+    status, out, err = recovery(attempt, 'H', tmp_path, log='/nonexistent/L.log')
+    assert status == 2, out
+    assert 'PRESERVED' in out, 'a published attempt is preserved, never aborted'
+    assert '_ABORTED_' not in out
+
+
+def test_a_refused_recovery_never_aborts_a_completed_attempt(tmp_path):
+    """Completion alone is enough: the run finished, whatever this invocation did."""
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    (attempt / 'completion.json').write_text('{"run_type": "exp11_train"}')
+    status, out, _ = recovery(attempt, 'H', tmp_path, log='/nonexistent/L.log')
+    assert status == 2 and 'PRESERVED' in out and '_ABORTED_' not in out
+
+
+def test_recovery_of_an_unpublished_incomplete_attempt_still_aborts(tmp_path):
+    """The ownership rule narrows the abort path; it does not remove it."""
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    status, out, _ = recovery(attempt, 'H', tmp_path, log='/nonexistent/L.log')
+    assert '_ABORTED_finalize_refused' in out and 'PRESERVED' not in out
+
+
+def test_same_target_recovery_is_idempotent(tmp_path):
+    """``final`` already resolves to this attempt and it is complete: nothing to do."""
+    attempt = attempt_with('xRIR_simpor_yawaug_8_shot', 'I', 'I_RECIPE', tmp_path)
+    publish(attempt)
+    status, out, err = recovery(attempt, 'I', tmp_path)
+    assert status == 0, err[-500:]
+    assert 'already published' in out.lower()
+    assert 'PROMOTE' not in out and 'EXP11_FINALIZE' not in out
+
+
+def test_a_different_existing_final_is_a_conflict(tmp_path):
+    """Silent replacement is not a recovery policy; it must be asked for."""
+    published = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    other = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path,
+                         name='attempt_20260927T111111')
+    publish(published)
+    status, out, err = recovery(other, 'H', tmp_path)
+    assert status == 2, out
+    assert '--replace-final' in err and 'PROMOTE' not in out
+    status, out, err = recovery(other, 'H', tmp_path, extra=['--replace-final'])
+    assert status == 0, err[-500:]
+    assert 'REPLACING' in out and published.name in out
+    assert 'PROMOTE {}/final -> {}'.format(other.parent, other.name) in out
+
+
+def test_a_held_lock_refuses_recovery_immediately(tmp_path):
+    """One publication per arm at a time; a held lock refuses rather than waits."""
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    (attempt.parent / LOCK).mkdir()
+    (attempt.parent / LOCK / 'owner').write_text('pid 999999 mode finalize\n')
+    status, out, err = recovery(attempt, 'H', tmp_path)
+    assert status == 2, out
+    assert 'lock' in err.lower() and 'PROMOTE' not in out
+
+
+def test_a_held_lock_refuses_full_mode_promotion(tmp_path):
+    """Full-mode promotion takes part in the same coordination."""
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    (root / LOCK).mkdir(parents=True)
+    (root / LOCK / 'owner').write_text('pid 999999 mode finalize\n')
+    status, out, err = launch(['full', '--arm', 'H', '--gpu', '1', '--reviewed-commit',
+                               COMMIT, '--dry-run'],
+                              {'EXP11_PRETRAIN_ROOT': str(tmp_path),
+                               'EXP11_TEST_ROOTS': '1'})
+    assert status == 2 and 'lock' in err.lower()
+    assert 'PROMOTE' not in out
+
+
+def test_a_stale_lock_is_never_cleared_automatically(tmp_path):
+    """Only an explicit --break-lock may clear one, and it says so."""
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    lock = attempt.parent / LOCK
+    lock.mkdir()
+    (lock / 'owner').write_text('pid 999999 mode finalize\n')
+    os.utime(lock, (0, 0))                       # older than any plausible ceiling
+    status, _, err = recovery(attempt, 'H', tmp_path)
+    assert status == 2 and 'lock' in err.lower()
+    assert lock.is_dir(), 'a stale lock is evidence, not litter'
+    status, out, err = recovery(attempt, 'H', tmp_path, extra=['--break-lock'])
+    assert status == 0, err[-500:]
+    assert 'BREAKLOCK' in out
+
+
+def test_the_lock_is_released_on_every_exit_path(tmp_path):
+    """A refusal after the lock was taken must not leave the arm locked."""
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    status, _, _ = recovery(attempt, 'H', tmp_path, log='/nonexistent/L.log')
+    assert status == 2
+    assert not (attempt.parent / LOCK).exists(), 'the lock outlived its invocation'
+    status, _, err = recovery(attempt, 'H', tmp_path)
+    assert status == 0, err[-500:]
+    assert not (attempt.parent / LOCK).exists()
