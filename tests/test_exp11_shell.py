@@ -1126,6 +1126,76 @@ def test_the_scans_do_not_take_the_registration_lock(tmp_path):
     assert 'scans do not take it: an' in text, 'say why in the launcher'
 
 
+# --- close review 10 blocker 2: the wrapper's pid is not the trainer's ---------------
+# Full mode runs the trainer under GNU `timeout`, and the frozen lifecycle records the
+# WRAPPER's pid in child.pid. A complete-but-dead child.pid therefore says nothing about
+# the trainer; only `train.pid` does, and only `train.exit` says it finished.
+
+
+def launched(root, name='attempt_20260927T999999', child_pid=None, train_pid=None,
+             train_exit=None, launching=True):
+    """An attempt in a named state of the launch lifecycle."""
+    attempt = root / name
+    attempt.mkdir(parents=True, exist_ok=True)
+    if launching:
+        (attempt / 'launching').write_text('launcher 1\nat 2026-09-27T00:00:00+00:00\n')
+    for filename, value in (('child.pid', child_pid), ('train.pid', train_pid),
+                            ('train.exit', train_exit)):
+        if value is not None:
+            (attempt / filename).write_text(value)
+    return attempt
+
+
+DEAD = '4194303\n'
+
+
+def test_a_dead_wrapper_pid_does_not_account_for_the_trainer(tmp_path):
+    """The reviewer's wrapper loss, in its narrowest form.
+
+    `timeout` exited and its pid is what child.pid holds. The trainer may still be
+    running and has not registered. Nothing here is alive, and the old rule called that
+    quiet -- publishing over a trainer nobody could see.
+    """
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    stalled = launched(old.parent, child_pid=DEAD)        # complete, dead, no train.pid
+    status, out, err = recovery(old, 'H', tmp_path)
+    assert status == 2, out
+    assert 'PROMOTE' not in out and 'unresolved' in err
+    assert stalled.name in err
+    assert (stalled / 'launching').is_file()
+
+
+def test_a_trainer_that_left_no_exit_leaves_the_arm_unresolved(tmp_path):
+    """It registered, then vanished: registering is not finishing."""
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    stalled = launched(old.parent, child_pid=DEAD, train_pid=DEAD)
+    status, out, err = recovery(old, 'H', tmp_path)
+    assert status == 2, out
+    assert 'unresolved' in err and stalled.name in err
+
+
+def test_a_finished_trainer_leaves_the_arm_quiet(tmp_path):
+    """child.pid complete, train.pid dead, train.exit written: that launch is over."""
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    launched(old.parent, child_pid=DEAD, train_pid=DEAD, train_exit='train.exit 0\n')
+    status, out, err = recovery(old, 'H', tmp_path)
+    assert status == 0, err[-500:]
+    assert 'PROMOTE' in out
+
+
+@pytest.mark.parametrize('kwargs,cleared', [
+    (dict(child_pid=DEAD, train_exit='train.exit 0\n'), True),      # the ordinary run
+    (dict(child_pid=DEAD), False),                                   # no trainer record
+    (dict(child_pid=DEAD, train_pid=DEAD), False),                   # never finished
+    (dict(child_pid='', train_exit='train.exit 0\n'), False),        # no wrapper record
+])
+def test_the_marker_is_withdrawn_only_when_the_trainer_finished(tmp_path, kwargs, cleared):
+    attempt = launched(tmp_path / 'xRIR_simpor_8_shot', **kwargs)
+    result = lib('clear_launching {}\n'.format(attempt))
+    assert result.returncode == 0, result.stderr[-300:]
+    assert (attempt / 'launching').is_file() is not cleared
+
+
 def pid_of(pidfile):
     """The pid in a registration file, if it still names a living process."""
     try:
