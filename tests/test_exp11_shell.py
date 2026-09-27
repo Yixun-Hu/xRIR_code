@@ -115,3 +115,90 @@ def test_every_init_and_every_cue_appears_in_the_golden_queues():
         assert 'JOB {} '.format(init) in mixed
     assert mixed.count('CENSUS gpu=0') == 3   # one census per job, never inherited
     assert 'QUEUE_DONE gpu=0' in mixed
+
+
+# --- blocker 4: the 36 h ceiling may only be tightened ------------------------------
+
+CEILING = 129600
+
+
+def launch(args, env=None):
+    result = subprocess.run(LAUNCH + args, cwd=str(REPO), capture_output=True, text=True,
+                            env=dict(os.environ, CUDA_VISIBLE_DEVICES='', **(env or {})))
+    return result.returncode, result.stdout, result.stderr
+
+
+@pytest.mark.parametrize('value', ['0', '-1', '36h', '', '129601', '1000000'])
+def test_an_override_that_disables_or_loosens_the_ceiling_is_refused(value):
+    """GNU timeout treats 0 as 'no timeout', and anything above 36 h exceeds the plan."""
+    status, out, err = launch(['full', '--arm', 'H', '--gpu', '1', '--reviewed-commit',
+                               COMMIT, '--dry-run'], {'EXP11_FULL_CEILING_S': value})
+    assert status == 2, (value, out)
+    assert 'EXP11_FULL_CEILING_S' in err and 'refusing' in err
+    assert 'nohup setsid' not in out
+
+
+@pytest.mark.parametrize('value', ['1', '3600', str(CEILING)])
+def test_an_override_that_tightens_the_ceiling_is_accepted(value):
+    status, out, err = launch(['full', '--arm', 'H', '--gpu', '1', '--reviewed-commit',
+                               COMMIT, '--dry-run'], {'EXP11_FULL_CEILING_S': value})
+    assert status == 0, err[-500:]
+    assert 'CEILING {}s'.format(value) in out
+    assert 'timeout --kill-after=60 {} '.format(value) in out
+
+
+def test_the_default_ceiling_is_the_registered_thirty_six_hours():
+    status, out, _ = launch(['full', '--arm', 'I', '--gpu', '1', '--reviewed-commit',
+                             COMMIT, '--dry-run'])
+    assert status == 0 and 'CEILING {}s'.format(CEILING) in out
+
+
+# --- blocker 5: recovery may not promote an attempt of another arm ------------------
+
+
+def attempt_with(root, arm, profile, tmp_path):
+    """One attempt directory under a pretraining root, with the args a profile selects."""
+    from tools import exp11_recipe
+    spec = exp11_recipe.PROFILES[profile]
+    args = dict(spec['recipe'], yaw_aug_seed=0, yaw_aug_width=512)
+    args.update(spec['production'])
+    args.update(backbone=spec['backbone'], save_dir='x', num_workers=12, log_interval=50,
+                save_every=spec['save_every'], epoch_ckpt_every=spec['epoch_ckpt_every'],
+                env={}, train_batches_per_epoch=exp11_recipe.TRAIN_BATCHES_PER_EPOCH,
+                tier='M', param_counts={}, exp11_run_type='full', exp11_profile=profile,
+                exp11_registry_sha256='a' * 64, exp11_source_closure_sha256='b' * 64,
+                exp11_git_head='c' * 40, exp11_provenance_path='p')
+    directory = tmp_path / root / 'attempt_20260927T000000'
+    directory.mkdir(parents=True)
+    (directory / 'args.json').write_text(json.dumps(args))
+    return directory
+
+
+def recovery(attempt, arm, tmp_path):
+    return launch(['finalize', '--arm', arm, '--gpu', '1', '--reviewed-commit', COMMIT,
+                   '--attempt', str(attempt), '--log', 'L.log', '--child-exit', '0',
+                   '--dry-run'], {'EXP11_PRETRAIN_ROOT': str(tmp_path)})
+
+
+def test_recovery_refuses_an_attempt_of_another_arm(tmp_path):
+    """A valid H attempt may not be promoted under I's root."""
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    status, out, err = recovery(attempt, 'I', tmp_path)
+    assert status == 2, out
+    assert 'refusing' in err
+    assert 'PROMOTE' not in out and 'EXP11_FINALIZE' not in out
+
+
+def test_recovery_refuses_an_attempt_whose_profile_is_not_the_arms(tmp_path):
+    """The directory can be right and the recipe still be the other arm's."""
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'I_RECIPE', tmp_path)
+    status, out, err = recovery(attempt, 'H', tmp_path)
+    assert status == 2, out
+    assert 'refusing' in err and 'PROMOTE' not in out
+
+
+def test_recovery_accepts_the_arms_own_attempt(tmp_path):
+    attempt = attempt_with('xRIR_simpor_yawaug_8_shot', 'I', 'I_RECIPE', tmp_path)
+    status, out, err = recovery(attempt, 'I', tmp_path)
+    assert status == 0, err[-600:]
+    assert 'PROMOTE' in out and str(attempt.name) in out
