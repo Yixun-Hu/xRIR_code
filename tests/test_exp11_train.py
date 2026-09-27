@@ -281,3 +281,58 @@ def test_registration_completeness_follows_that_grammar(tmp_path, content, valid
 def test_a_missing_pid_file_is_simply_not_a_record(tmp_path):
     assert exp11_train.pid_record(tmp_path / 'nothing') is None
     assert exp11_train.registration_complete(tmp_path) is False
+
+
+# --- close review 9 blocker 2: registration and resolution may not interleave -------
+# The trainer's checks and its write must be one step. Otherwise the resolver can run
+# scan -> tombstone -> rename between them, and the trainer's open descriptor survives
+# the rename: the retired directory receives a registration after the arm was reopened.
+
+
+def test_the_registration_lock_is_the_arm_roots(tmp_path):
+    attempt = registered(tmp_path)
+    assert exp11_train.registration_lock_path(attempt) == tmp_path / '.registration.lock'
+
+
+def test_registration_takes_the_lock_before_it_looks_at_anything(tmp_path):
+    """Held elsewhere, registration waits -- it does not read, decide, or write."""
+    attempt = registered(tmp_path)
+    lock = exp11_train.registration_lock_path(attempt)
+    lock.touch()
+    holder = subprocess.Popen(['flock', str(lock), 'sleep', '30'])
+    try:
+        for _ in range(100):
+            if subprocess.run(['flock', '-n', str(lock), 'true']).returncode != 0:
+                break
+            time.sleep(0.05)
+        started = time.time()
+        with pytest.raises(SystemExit) as exit_request:
+            exp11_train.register_trainer(str(attempt), wait_seconds=1)
+        assert exit_request.value.code == 3
+        assert time.time() - started >= 1, 'it must have waited for the lock'
+        assert not (attempt / 'train.pid').exists(), 'a timeout writes nothing'
+    finally:
+        holder.terminate()
+        holder.wait(timeout=30)
+
+
+def test_registration_writes_atomically(tmp_path):
+    """No reader ever sees a half-written train.pid: a temp file, then one rename."""
+    attempt = registered(tmp_path)
+    source = (Path(exp11_train.__file__).read_text())
+    assert 'os.replace' in source, 'the write has to be a rename'
+    path = exp11_train.register_trainer(str(attempt))
+    assert exp11_train.pid_record(path) == os.getpid()
+    assert not list(attempt.glob('*.tmp*')), 'the temp file is gone'
+
+
+def test_registration_refuses_an_attempt_outside_its_arm(tmp_path):
+    """The lock is the arm root's, so the attempt has to belong to that arm."""
+    elsewhere = tmp_path / 'elsewhere'
+    attempt = elsewhere / 'attempt_20260927T000000'
+    attempt.mkdir(parents=True)
+    (attempt / 'launching').write_text('launcher 1\n')
+    with pytest.raises(SystemExit) as exit_request:
+        exp11_train.register_trainer(str(attempt), arm_root=str(tmp_path))
+    assert exit_request.value.code == 3
+    assert not (attempt / 'train.pid').exists()
