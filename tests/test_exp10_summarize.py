@@ -1260,3 +1260,100 @@ def test_an_arm_without_a_context_band_says_nothing_about_one(tmp_path):
         import matplotlib.pyplot as plt
 
         plt.close(figure)
+
+
+# ------ round 8 (record review, finding 2): in the figures too, the Monte Carlo
+#        qualification outranks the substantive wording of the ratio status
+
+
+def test_status_annotation_prefers_the_unresolved_monte_carlo_qualification():
+    """A3's precedence rule, applied to the abbreviation printed under an angle.
+
+    ``headline_multiple`` already withholds a multiple whose bounds did not converge, or
+    whose two seeds disagree about the denominator: which substantive statement the pilot
+    would have made is then itself unresolved, so the figure may not annotate the angle
+    with that statement either.
+    """
+    assert summarize.status_annotation({"ratio_status": "improvement",
+                                        "headline_reason": None}) == "impr"
+    assert summarize.status_annotation(
+        {"ratio_status": "improvement",
+         "headline_reason": summarize.MC_UNRESOLVED_REASON}) == summarize.MC_STATUS_CODE
+    assert summarize.MC_STATUS_CODE == "mc?"
+    for status, code in summarize.STATUS_CODES.items():
+        assert summarize.status_annotation({"ratio_status": status,
+                                            "headline_reason": None}) == code
+        assert summarize.status_annotation(
+            {"ratio_status": status,
+             "headline_reason": summarize.MC_UNRESOLVED_REASON}) == "mc?"
+
+
+def test_the_figure_mc_code_uses_the_reason_the_statistics_produce():
+    """The figure's precedence test and ``headline_multiple``'s wording may not drift."""
+    cell = {"ratio": {"status": "improvement", "point": 2.0, "lo": 1.0, "hi": 3.0}}
+    report = {"converged": False, "status_agrees": True,
+              "status_seed_0": "improvement", "status_seed_1": "improvement"}
+    headline = summarize.headline_multiple(cell, report)
+    assert headline["reportable"] is False
+    assert headline["reason"] == summarize.MC_UNRESOLVED_REASON
+    assert summarize.status_annotation(
+        {"ratio_status": cell["ratio"]["status"],
+         "headline_reason": headline["reason"]}) == "mc?"
+
+
+def _t60_axis(figure):
+    axes = [ax for ax in figure.axes if ax.get_title() == "T60"]
+    assert axes, [ax.get_title() for ax in figure.axes]
+    return axes[0]
+
+
+def _footer_text(figure):
+    return " ".join(" ".join(text.get_text().split()) for text in figure.texts)
+
+
+def test_a_figure_annotates_an_unresolved_cell_mc_and_not_its_ratio_status(tmp_path):
+    """Finding 2: ``cyl_k8`` T60 at 270 degrees -- ratio-bound movement 0.109 > 0.1, so
+    the headline was withheld as unresolved -- was annotated ``impr``, "net error
+    improves", which is exactly the statement the summariser had refused to make."""
+    run_dir = _fixture_run(tmp_path, "unresolved", n=12, ks=(0, 384))
+    summary = summarize.build_summary([run_dir], n_boot=100)
+    cell = summary["arms"][0]["angles"]["384"]["T60"]
+    cell["query"]["ratio"]["status"] = "improvement"
+    cell["convergence"]["converged"] = False
+    cell["headline"].update({"reportable": False, "point": None, "lower_bound": None,
+                             "upper_bound": None,
+                             "reason": summarize.MC_UNRESOLVED_REASON})
+    row = next(row for row in summarize.figure_data(summary) if row["metric"] == "T60")
+    assert row["ratio_status"] == "improvement"          # the JSON is not rewritten ...
+    assert row["headline_reason"] == summarize.MC_UNRESOLVED_REASON
+
+    figure = summarize.make_figure(summary, "fixture", str(tmp_path / "unresolved.png"))
+    try:
+        labels = [text.get_text() for text in _t60_axis(figure).get_xticklabels()]
+        assert any("mc?" in label for label in labels), labels
+        assert not any("impr" in label for label in labels), labels
+        assert ("mc? = unresolved Monte Carlo uncertainty (convergence or seed-status "
+                "disagreement)") in _footer_text(figure)
+    finally:
+        import matplotlib.pyplot as plt
+
+        plt.close(figure)
+
+
+def test_a_resolved_cell_keeps_the_abbreviation_of_its_ratio_status(tmp_path):
+    """The precedence changes nothing where the Monte Carlo question is settled."""
+    run_dir = _fixture_run(tmp_path, "resolved", n=12, ks=(0, 384))
+    summary = summarize.build_summary([run_dir], n_boot=100)
+    cell = summary["arms"][0]["angles"]["384"]["T60"]
+    cell["query"]["ratio"]["status"] = "improvement"
+    cell["headline"].update({"reportable": False,
+                             "reason": "predictions shift while net error improves"})
+    figure = summarize.make_figure(summary, "fixture", str(tmp_path / "resolved.png"))
+    try:
+        labels = [text.get_text() for text in _t60_axis(figure).get_xticklabels()]
+        assert any("impr" in label for label in labels), labels
+        assert not any("mc?" in label for label in labels), labels
+    finally:
+        import matplotlib.pyplot as plt
+
+        plt.close(figure)

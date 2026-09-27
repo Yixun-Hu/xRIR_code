@@ -712,6 +712,14 @@ COLOR_SHIFT = "#E69F00"         # Okabe-Ito orange
 #: multiple when its denominator is uncertain.
 STATUS_CODES = {"defined": "def", "improvement": "impr",
                 "denominator uncertain": "den?", "undefined": "und"}
+#: The reason :func:`headline_multiple` withholds a multiple for when the Monte Carlo
+#: question is itself unsettled (bounds that did not converge, or two seeds that disagree
+#: about the denominator).  Plan A3 gives it **precedence** over every substantive
+#: wording, so the figures annotate such an angle with :data:`MC_STATUS_CODE` instead of
+#: the code of its ratio status; ``test_the_figure_mc_code_uses_the_reason_the_statistics
+#: _produce`` pins this string to the one the statistics actually produce.
+MC_UNRESOLVED_REASON = "unresolved Monte Carlo uncertainty"
+MC_STATUS_CODE = "mc?"
 #: What a room-level interval is, and is not.  exp_03 found query-level intervals that
 #: exclude 0 whose room-level intervals do not, so the two are always printed side by side.
 ROOM_QUALIFICATION = (
@@ -719,8 +727,11 @@ ROOM_QUALIFICATION = (
     "drawn room with its multiplicity (query-weighted, never averaged per room). With so "
     "few clusters they are wide, and a room-level ratio inherits its denominator's status: "
     "they qualify the query-level intervals, they do not replace them.")
-STATUS_FOOTNOTE = ("ratio status under each angle: def = defined, impr = net error "
-                   "improves, den? = denominator uncertain (no ratio), und = undefined; "
+STATUS_FOOTNOTE = ("status under each angle: def = defined, impr = net error improves, "
+                   "den? = denominator uncertain (no ratio), und = undefined -- the ratio "
+                   "status; mc? = unresolved Monte Carlo uncertainty (convergence or "
+                   "seed-status disagreement), which is printed instead of the ratio "
+                   "status because it outranks it; "
                    "n = queries in the shared comparison mask")
 #: The footer band: the legend, the status footnote and the pipeline/T60 qualification.
 #: Their heights are measured, not guessed (see :func:`_figure_legend`); these are only
@@ -916,6 +927,26 @@ def _pyplot():
     return plt
 
 
+def status_annotation(row):
+    """The abbreviation printed under one angle, Monte Carlo qualification first.
+
+    A cell whose headline the summariser withheld as :data:`MC_UNRESOLVED_REASON` has no
+    settled substantive reading at all: annotating it with its ratio status would print
+    "net error improves" (``impr``) under a cell whose statement the statistics refused to
+    make (record review, finding 2).  Such an angle is annotated :data:`MC_STATUS_CODE`;
+    every other cell keeps the code of its query-level ratio status.
+
+    Args:
+        row: one :func:`figure_data` row (``ratio_status`` and ``headline_reason``).
+
+    Returns:
+        The short code, or ``""`` for a status without one.
+    """
+    if row.get("headline_reason") == MC_UNRESOLVED_REASON:
+        return MC_STATUS_CODE
+    return STATUS_CODES.get(row["ratio_status"], "")
+
+
 def _panel(ax, rows, metric, band, annotate_n=True, band_label=BAND_LABEL):
     """One panel: signed change and shift per angle, with CIs and the context band.
 
@@ -988,8 +1019,7 @@ def _panel(ax, rows, metric, band, annotate_n=True, band_label=BAND_LABEL):
     ax.axhline(0.0, color="0.3", linewidth=0.6, zorder=1)
     ax.set_xticks(positions)
     ax.set_xticklabels(["{:.0f}°\n{}".format(row["angle_deg"],
-                                             STATUS_CODES.get(row["ratio_status"], "")
-                                             if paired else "")
+                                             status_annotation(row) if paired else "")
                         for row in selected], fontsize=7)
     ax.set_ylabel("({})".format(selected[0]["unit"]) if selected else "", fontsize=7)
     ax.set_title(PANEL_TITLES[metric], fontsize=9)
