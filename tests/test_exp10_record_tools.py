@@ -800,3 +800,141 @@ def test_md_refuses_to_link_assets_that_are_not_assembled(render_case):
     done = render_md(render_case, extra=["--assets", render_case["assets"]])
     assert done.returncode != 0
     assert "yaw_pilot_tables.md" in out(done)
+
+
+# --------------------------------------------------------------------------------------
+# Findings 1 + 2 -- the finish script: validated evidence, staged assembly, atomic publish.
+# --------------------------------------------------------------------------------------
+
+@pytest.fixture
+def scratch(tmp_path):
+    """A scratch repository with the real record tooling, a stub summariser and a full tree."""
+    root = str(tmp_path / "repo")
+    os.makedirs(root)
+    built = fx.make_scratch_repo(root, ASSETS, n_queries=32)
+    generated = os.path.join(built["assets"], "generated")
+    os.makedirs(generated)
+    with open(os.path.join(generated, "stale_summary_interim.json"), "w") as fout:
+        fout.write("{}")                       # a previously published asset set
+    with open(os.path.join(built["record"], "yaw_pilot_results.md"), "w") as fout:
+        fout.write("PREVIOUS MARKDOWN\n")
+    with open(os.path.join(built["record"], "yaw_pilot_01_results.html"), "w") as fout:
+        fout.write("PREVIOUS PAGE\n")
+    built["generated"] = generated
+    return built
+
+
+def run_finish(scratch, env=None):
+    e = dict(os.environ)
+    e.update({"EXP10_REPO_ROOT": scratch["root"], "EXP10_EXPECT_N": "32",
+              "EXP10_FIXTURE_DIR": os.path.join(REPO, "tests")})
+    e.update(env or {})
+    return subprocess.run(["bash", os.path.join(scratch["scripts"], "exp10_finish.sh")],
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=e,
+                          cwd=scratch["root"])
+
+
+def staging_dirs(scratch):
+    return [n for n in os.listdir(scratch["assets"])
+            if n.startswith("generated.staging") or n.startswith("generated.previous")
+            or n.startswith(".finish_tmp")]
+
+
+def assert_generated_untouched(scratch):
+    assert os.path.isfile(os.path.join(scratch["generated"], "stale_summary_interim.json"))
+    assert not os.path.isfile(os.path.join(scratch["generated"], "SHA256SUMS"))
+    assert staging_dirs(scratch) == []
+    assert open(os.path.join(scratch["record"], "yaw_pilot_results.md")).read() == \
+        "PREVIOUS MARKDOWN\n"
+
+
+def test_finish_refuses_when_released_k8_is_absent(tmp_path):
+    """Findings 1 + 2: FINISH DONE was reached without the headline arm's evidence."""
+    root = str(tmp_path / "repo")
+    os.makedirs(root)
+    built = fx.make_scratch_repo(root, ASSETS, n_queries=32, drop=("released_k8_all",))
+    built["generated"] = os.path.join(built["assets"], "generated")
+    os.makedirs(built["generated"])
+    with open(os.path.join(built["generated"], "stale_summary_interim.json"), "w") as fout:
+        fout.write("{}")
+    with open(os.path.join(built["record"], "yaw_pilot_results.md"), "w") as fout:
+        fout.write("PREVIOUS MARKDOWN\n")
+    done = run_finish(built)
+    assert done.returncode != 0
+    assert "released_k8_all" in out(done)
+    assert "FINISH DONE" not in out(done)
+    assert_generated_untouched(built)
+
+
+def test_finish_refuses_an_incomplete_released_k8(scratch):
+    run_dir, meta = scratch["tree"]["released_k8"]["all"]
+    meta["complete"] = False
+    fx.write_json(os.path.join(run_dir, "meta.json"), meta)
+    done = run_finish(scratch)
+    assert done.returncode != 0
+    assert "complete" in out(done) and "FINISH DONE" not in out(done)
+    assert_generated_untouched(scratch)
+
+
+def test_finish_refuses_a_failed_probe_control(scratch):
+    probe_dir, probe_meta = scratch["tree"]["cyl_k8"]["probe"]
+    fx.write_summary_dir(os.path.join(probe_dir, "summary"), [(probe_dir, probe_meta)],
+                         controls_ok=False)
+    done = run_finish(scratch)
+    assert done.returncode != 0
+    assert "controls" in out(done)
+    assert_generated_untouched(scratch)
+
+
+def test_finish_publishes_a_verified_asset_set(scratch):
+    done = run_finish(scratch)
+    assert done.returncode == 0, out(done)
+    assert "FINISH DONE" in out(done)
+    generated = scratch["generated"]
+    sums = os.path.join(generated, "SHA256SUMS")
+    assert os.path.isfile(sums)
+    check = subprocess.run(["sha256sum", "-c", "--quiet", "SHA256SUMS"], cwd=generated,
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    assert check.returncode == 0, check.stdout.decode()
+    listed = [line.split(None, 1)[1].strip() for line in open(sums) if line.strip()]
+    for expected in ("validation.json", "backend_sensitivity_released_k8.md",
+                     "backend_sensitivity_released_k8.json", "yaw_pilot_summary.json",
+                     "yaw_pilot_tables.md", "yaw_pilot_gaps.csv",
+                     "yaw_pilot_gaps_all_arms.png", "runs/released_k8/meta_all.json",
+                     "runs/released_k8/parity_exp03_probe.json",
+                     "runs/released_k1/probe_summary.json",
+                     "cpu_protocol/parity_exp03_all.json", "cpu_protocol/yaw_pilot_tables.md"):
+        assert any(name.lstrip("./") == expected for name in listed), expected
+    # the previous asset set is gone, not reused
+    assert not os.path.isfile(os.path.join(generated, "stale_summary_interim.json"))
+    assert not any(name.lstrip("./") == "stale_summary_interim.json" for name in listed)
+    assert staging_dirs(scratch) == []
+    # released_k1 has no parity report, so none is certified for it
+    assert not any("released_k1/parity" in name for name in listed)
+    page = open(os.path.join(scratch["record"], "yaw_pilot_01_results.html")).read()
+    assert "yaw_pilot_results_assets/generated/backend_sensitivity_released_k8.md" in page
+    md = open(os.path.join(scratch["record"], "yaw_pilot_results.md")).read()
+    assert "yaw_pilot_results_assets/generated/yaw_pilot_tables.md" in md
+
+
+def test_finish_leaves_the_published_assets_alone_when_a_stage_fails(scratch):
+    """Finding 2: a failed stage used to leave stale destination contents certified."""
+    done = run_finish(scratch, env={"STUB_FAIL_ON_CPU": "1"})
+    assert done.returncode != 0
+    assert "FINISH DONE" not in out(done)
+    assert_generated_untouched(scratch)
+
+
+def test_finish_refuses_when_the_summariser_output_is_incomplete(scratch):
+    done = run_finish(scratch, env={"STUB_DROP_CSV": "1"})
+    assert done.returncode != 0
+    assert "yaw_pilot_gaps.csv" in out(done)
+    assert_generated_untouched(scratch)
+
+
+def test_finish_does_not_certify_a_foreign_figure(scratch):
+    """Finding 2/4: only this summary's own files may enter the published set."""
+    done = run_finish(scratch, env={"STUB_FOREIGN_FIGURE": "1"})
+    assert done.returncode == 0, out(done)
+    listed = open(os.path.join(scratch["generated"], "SHA256SUMS")).read()
+    assert "someone_else" not in listed
