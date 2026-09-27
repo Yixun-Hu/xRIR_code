@@ -136,10 +136,8 @@ def main():
     parity = {kv.split("=", 1)[0]: json.load(open(kv.split("=", 1)[1])) for kv in args.parity}
     online = {kv.split("=", 1)[0]: json.load(open(kv.split("=", 1)[1])) for kv in args.check_online}
     probes = {kv.split("=", 1)[0]: json.load(open(kv.split("=", 1)[1])) for kv in args.probe}
-    for kv in args.probe:
-        input_shas[os.path.abspath(kv.split("=", 1)[1])] = sha(kv.split("=", 1)[1])
     input_shas = {os.path.abspath(args.summary): sha(args.summary)}
-    for kv in args.parity + args.check_online:
+    for kv in args.parity + args.check_online + args.probe:
         p = kv.split("=", 1)[1]
         input_shas[os.path.abspath(p)] = sha(p)
     rel = os.path.relpath(args.assets, os.path.dirname(os.path.abspath(args.out)))
