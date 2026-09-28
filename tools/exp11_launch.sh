@@ -314,32 +314,60 @@ NEWLINE=$'\n'   # a real newline: a verdict that is two lines is not a verdict
 # Only the digits of an accepted pid cross back, and digits survive intact.
 READER_UNKNOWN=2
 
+# one_line <file>: print the single line <file> holds, or fail. The line is read back
+# and reprinted, and the result must equal the file BYTE FOR BYTE -- which is what
+# refuses padding, a second line, NULs and trailing junk, none of which survive a shell
+# variable intact (close review 12's lesson, applied to every verdict).
+one_line() {
+    local line="" check="$1.line"
+    IFS= read -r line < "$1" || return 1
+    printf '%s\n' "$line" > "$check" || return 1
+    if cmp -s "$1" "$check"; then printf '%s\n' "$line"; rm -f -- "$check"; return 0; fi
+    rm -f -- "$check"
+    return 1
+}
+
+# probe_verdict <probe|link> <path>: run the path probe and print the one line it
+# answered, or fail. Failing means UNKNOWN to every caller.
+probe_verdict() {
+    local out="" line="" status=0
+    out="$(mktemp "$EXP11_TEMPDIR/probe.XXXXXX")" || return 1
+    timeout --kill-after=5 "$READER_TIMEOUT_S" \
+        "$PYTHON" -m tools.exp11_pathprobe "$1" "$2" > "$out" 2>/dev/null || status=$?
+    if [ "$status" -ne 0 ]; then rm -f -- "$out"; return 1; fi
+    line="$(one_line "$out")" || { rm -f -- "$out"; return 1; }
+    rm -f -- "$out"
+    printf '%s\n' "$line"
+}
+
 # --- three states for every path this launcher asks about (close review 14) ----------
 # `[ -f x ]` answers "no" for a file that is not there AND for one nobody was allowed to
-# look at, and every lifecycle guard that used it turned the second into the first: a
-# marker behind a mode-000 door read as no marker, a completion receipt behind one read
-# as no receipt, a `final` through an inaccessible directory read as nothing published.
+# look at, and every lifecycle guard that used it turned the second into the first. Bash
+# cannot do better on its own: `stat` carries no errno, so ENAMETOOLONG, EIO and an ACL
+# that hides a name all come back the same way (close review 15). The classification
+# therefore comes from tools/exp11_pathprobe.py, and what crosses back is one verdict
+# line, validated here byte for byte -- exactly as the pid reader's verdicts are.
 #
-# probe_path <path>: 0 it is there (PROBE_MODE holds its %f mode) | 1 it is NOT there |
-# 2 nobody could say. An absence is a CLAIM, made only about a directory we could look
-# into; a name that exists as a link we cannot follow is not an absence at all.
+# probe_path <path>: 0 it is there (PROBE_MODE holds its mode in hex) | 1 it is NOT
+# there | 2 nobody could say.
 PROBE_MODE=""
 probe_path() {
-    local parent=""
+    local line=""
     PROBE_MODE=""
-    if PROBE_MODE="$(stat -L -c %f -- "$1" 2>/dev/null)"; then
-        case "$PROBE_MODE" in ''|*[!0-9a-fA-F]*) PROBE_MODE=""; return "$READER_UNKNOWN" ;; esac
-        return 0
-    fi
-    PROBE_MODE=""
-    # The name may still BE there, as a symlink that dangles or loops or whose target we
-    # may not reach. That is not "there is nothing here".
-    stat -c %f -- "$1" >/dev/null 2>&1 && return "$READER_UNKNOWN"
-    parent="$(dirname -- "$1")"
-    # ... and an absence may only be claimed about a directory we could enter.
-    stat -L -c %f -- "$parent/." >/dev/null 2>&1 || return "$READER_UNKNOWN"
-    [ -x "$parent" ] || return "$READER_UNKNOWN"
-    return 1
+    line="$(probe_verdict probe "$1")" || return "$READER_UNKNOWN"
+    case "$line" in
+        absent) return 1 ;;
+        'present '*)
+            PROBE_MODE="${line#present }"
+            PROBE_MODE="${PROBE_MODE%% *}"
+            case "$PROBE_MODE" in ''|*[!0-9a-f]*) PROBE_MODE=""; return "$READER_UNKNOWN" ;; esac
+            [ "${#PROBE_MODE}" -le 8 ] || { PROBE_MODE=""; return "$READER_UNKNOWN"; }
+            # ... and a canonical path must follow the mode, or this is not the verdict.
+            case "$line" in "present $PROBE_MODE "?*) return 0 ;; esac
+            PROBE_MODE=""
+            return "$READER_UNKNOWN" ;;
+        *) return "$READER_UNKNOWN" ;;
+    esac
 }
 
 # file_present <path>: 0 a regular file is there | 1 no regular file is there (absent, or
@@ -353,20 +381,16 @@ file_present() {
 }
 
 # probe_link_target <path>: 0 and the canonical target on stdout | 1 there is no such
-# link | 2 it is there and cannot be resolved, or nobody could look. `readlink -f`
-# answered "nothing" for both of the last two.
+# link (no name, or a name that is not one) | 2 it is there and cannot be resolved, or
+# nobody could look. `readlink -f` answered "nothing" for the last two alike.
 probe_link_target() {
-    local mode="" parent="" target=""
-    if ! mode="$(stat -c %f -- "$1" 2>/dev/null)"; then       # the LINK, not its target
-        parent="$(dirname -- "$1")"
-        stat -L -c %f -- "$parent/." >/dev/null 2>&1 || return "$READER_UNKNOWN"
-        [ -x "$parent" ] || return "$READER_UNKNOWN"
-        return 1
-    fi
-    case "$mode" in ''|*[!0-9a-fA-F]*) return "$READER_UNKNOWN" ;; esac
-    [ $(( 0x$mode & 0xF000 )) -eq $(( 0xA000 )) ] || return 1   # not a symlink at all
-    target="$(realpath -e -- "$1" 2>/dev/null)" || return "$READER_UNKNOWN"
-    printf '%s\n' "$target"
+    local line=""
+    line="$(probe_verdict link "$1")" || return "$READER_UNKNOWN"
+    case "$line" in
+        nolink|notlink) return 1 ;;
+        'link '?*) printf '%s\n' "${line#link }"; return 0 ;;
+        *) return "$READER_UNKNOWN" ;;
+    esac
 }
 
 pid_record() {
@@ -452,12 +476,20 @@ check_pid_reader() {
     probe_reader "$dir/one" "$dir/want_one" "$dir/got_one" || bad="a file holding 1"
     probe_reader "$dir/empty" "$dir/want_empty" "$dir/got_empty" ||
         bad="${bad:+$bad and }an empty file"
+    # The path probe answers two questions whose answers are known too: this file is
+    # there, that name is not (close review 15).
+    local state=0
+    probe_path "$dir/one" || state=$?
+    [ "$state" -eq 0 ] || bad="${bad:+$bad and }a path that is there"
+    state=0
+    probe_path "$dir/absent" || state=$?
+    [ "$state" -eq 1 ] || bad="${bad:+$bad and }a path that is not there"
     rm -rf -- "$dir"
     [ -z "$bad" ] && return 0
-    echo "refusing: pid reader unhealthy: $PYTHON -m tools.exp11_pidrecord did not" \
-         "answer byte for byte on $bad -- 'record 1' and 'norecord', one line each and" \
-         "nothing more, no padding and no NULs. Nothing of this arm can be decided by a" \
-         "reader that cannot say what a pid file holds" >&2
+    echo "refusing: reader unhealthy: the pid reader or the path probe did not answer" \
+         "byte for byte on $bad -- one verdict line each and nothing more, no padding" \
+         "and no NULs. Nothing of this arm can be decided by a reader that cannot say" \
+         "what a pid file holds or whether a path is there" >&2
     return 1
 }
 
