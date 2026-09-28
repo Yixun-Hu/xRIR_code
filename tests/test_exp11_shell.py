@@ -935,11 +935,15 @@ def test_the_resolution_writes_a_tombstone_before_it_retires_the_attempt(tmp_pat
     assert result.returncode == 0, result.stderr[-500:]
     tombstone = root / (attempt.name + '.resolved')
     assert tombstone.is_file(), 'the answer must survive the rename'
-    # It has to say what was actually established, not "no complete child.pid": the
-    # attempt may carry a complete, dead wrapper record (close review 11, wording).
+    # It has to say what was actually CHECKED -- the locks, the quiet scan, the grace,
+    # the absence of a receipt -- and nothing more. Not "no complete child.pid" (the
+    # attempt may carry a complete, dead wrapper record) and not "no train.exit", which
+    # this resolution does not require (close reviews 11 and 12, wording).
     written = tombstone.read_text()
     assert 'resolved-by' in written and 'unresolved launch' in written
-    assert 'no finished trainer' in written and 'never registered' in written
+    assert 'no recorded pid of this arm alive' in written
+    assert 'no completion receipt' in written and 'never registered' in written
+    assert 'train.exit' not in written, 'it does not check that, so it may not claim it'
     assert not attempt.exists()
     assert (root / (attempt.name + '_ABORTED_unregistered')).is_dir()
 

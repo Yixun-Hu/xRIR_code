@@ -294,26 +294,42 @@ NEWLINE=$'\n'   # a real newline: a verdict that is two lines is not a verdict
 # `record <pid>` or `norecord` on stdout with exit 0, and everything else is UNKNOWN.
 #
 # pid_record <file>: 0 and the pid on stdout | 1 no record | 2 the reader failed.
+#
+# The verdict is checked as RAW BYTES, in a file, before anything of it passes through a
+# shell expansion: command substitution deletes trailing newlines and NUL bytes, so
+# `norecord\n\n` and `norecord\0\n` -- neither of which is the protocol -- arrived here
+# as clean verdicts and retired a live trainer's attempt (close review 12, blocker 2).
+# Only the digits of an accepted pid cross back, and digits survive intact.
 READER_UNKNOWN=2
 pid_record() {
-    local answer="" status=0
-    # A missing or non-regular path is a definite `norecord` -- and this guard is also
-    # what keeps the reader from blocking on a FIFO someone left in an attempt.
-    [ -f "$1" ] || return 1
-    answer="$("$PYTHON" -m tools.exp11_pidrecord "$1" 2>/dev/null)" || status=$?
-    [ "$status" -eq 0 ] || return "$READER_UNKNOWN"
-    case "$answer" in
-        *"$NEWLINE"*) return "$READER_UNKNOWN" ;;   # a verdict is ONE line
-        'record '*)
-            # The digits are the protocol's, not this shell's reading of a file -- but a
-            # verdict that is not digits is not a verdict, and `kill -0 <word>` would
-            # fail and read as "not alive".
-            answer="${answer#record }"
-            case "$answer" in ''|*[!0-9]*) return "$READER_UNKNOWN" ;; esac
-            printf '%s\n' "$answer"; return 0 ;;
-        norecord) return 1 ;;
-        *) return "$READER_UNKNOWN" ;;
-    esac
+    local out="" pid="" kind="" status=0
+    # What the path IS, decided before anything opens it: a directory, FIFO, socket or
+    # device is definitely not a pid record, and opening a FIFO would wait for a writer
+    # forever. A stat that FAILS decides nothing here -- the module tells a confirmed
+    # absence from a path it was not allowed to inspect (close review 12, blocker 1),
+    # which is why this is no longer `[ -f ]`: that reads an unreadable parent as "gone".
+    if kind="$(stat -L -c %F -- "$1" 2>/dev/null)"; then
+        case "$kind" in
+            regular*) ;;                      # the module reads it
+            *) return 1 ;;                    # definite: not a pid record, unopened
+        esac
+    fi
+    out="$(mktemp "${TMPDIR:-/tmp}/exp11_verdict.XXXXXX")" || return "$READER_UNKNOWN"
+    "$PYTHON" -m tools.exp11_pidrecord "$1" > "$out" 2>/dev/null || status=$?
+    if [ "$status" -ne 0 ]; then rm -f -- "$out"; return "$READER_UNKNOWN"; fi
+    if cmp -s "$out" <(printf 'norecord\n'); then rm -f -- "$out"; return 1; fi
+    # Digits only -- a candidate, not yet a verdict: the bytes must then match the whole
+    # line exactly, which is what refuses padding, NULs, CR and trailing junk.
+    pid="$(tr -cd '0-9' < "$out")"
+    case "$pid" in ''|*[!0-9]*) rm -f -- "$out"; return "$READER_UNKNOWN" ;; esac
+    [ "${#pid}" -le 10 ] || { rm -f -- "$out"; return "$READER_UNKNOWN"; }
+    if cmp -s "$out" <(printf 'record %s\n' "$pid"); then
+        rm -f -- "$out"
+        printf '%s\n' "$pid"
+        return 0
+    fi
+    rm -f -- "$out"
+    return "$READER_UNKNOWN"
 }
 
 # pid_alive <file>: 0 the recorded pid is alive | 1 it is not | 2 nobody can say.
@@ -339,21 +355,31 @@ registration_complete() {
 # everything makes every pid file a registration, "norecord" for everything makes every
 # trainer dead -- so only a probe catches it. The probes go through the same $PYTHON and
 # the same invocation as every real read.
+# probe_reader <file> <expected bytes> <where the answer goes>: 0 when the reader exited
+# 0 and printed EXACTLY those bytes. Byte for byte, like every real read.
+probe_reader() {
+    "$PYTHON" -m tools.exp11_pidrecord "$1" > "$3" 2>/dev/null || return 1
+    cmp -s "$3" "$2"
+}
+
 check_pid_reader() {
-    local dir="" one="" empty="" failed='(the reader failed)'
+    local dir="" bad=""
     dir="$(mktemp -d "${TMPDIR:-/tmp}/exp11_pidreader.XXXXXX")" || {
         echo "refusing: cannot create a probe directory for the pid reader" >&2
         return 1; }
     printf '1\n' > "$dir/one"
     : > "$dir/empty"
-    one="$("$PYTHON" -m tools.exp11_pidrecord "$dir/one" 2>/dev/null)" || one="$failed"
-    empty="$("$PYTHON" -m tools.exp11_pidrecord "$dir/empty" 2>/dev/null)" || empty="$failed"
+    printf 'record 1\n' > "$dir/want_one"
+    printf 'norecord\n' > "$dir/want_empty"
+    probe_reader "$dir/one" "$dir/want_one" "$dir/got_one" || bad="a file holding 1"
+    probe_reader "$dir/empty" "$dir/want_empty" "$dir/got_empty" ||
+        bad="${bad:+$bad and }an empty file"
     rm -rf -- "$dir"
-    [ "$one" = "record 1" ] && [ "$empty" = "norecord" ] && return 0
-    echo "refusing: pid reader unhealthy: $PYTHON -m tools.exp11_pidrecord answered" \
-         "'$one' for a file holding 1 and '$empty' for an empty file, not 'record 1'" \
-         "and 'norecord'. Nothing of this arm can be decided by a reader that cannot" \
-         "say what a pid file holds" >&2
+    [ -z "$bad" ] && return 0
+    echo "refusing: pid reader unhealthy: $PYTHON -m tools.exp11_pidrecord did not" \
+         "answer byte for byte on $bad -- 'record 1' and 'norecord', one line each and" \
+         "nothing more, no padding and no NULs. Nothing of this arm can be decided by a" \
+         "reader that cannot say what a pid file holds" >&2
     return 1
 }
 
@@ -473,6 +499,15 @@ resolve_unregistered() {
         *) echo "refusing: $name is not an attempt directory of this arm" >&2
            return 1 ;;
     esac
+    # A directory we cannot look INTO says nothing about what is in it -- least of all
+    # that there is no marker and no live pid file. Not being able to look is never an
+    # answer (close review 12, blocker 1).
+    if ! stat -L -c %F -- "$attempt/." >/dev/null 2>&1; then
+        echo "refusing: liveness unknown: $attempt cannot be inspected, so neither its" \
+             "launching marker nor its pid files nor its receipts can be read; nothing" \
+             "of this arm is retired on that" >&2
+        return "$READER_UNKNOWN"
+    fi
     [ -f "$attempt/launching" ] || {
         echo "refusing: $attempt has no launching marker; nothing is unresolved" >&2
         return 1; }
@@ -535,9 +570,12 @@ resolve_unregistered() {
         # wakes after this can no longer find its directory, and if it somehow can, this
         # is what tells it the launch was answered. The scan ignores it -- it is a
         # record, not a claim (close review 8, blocker 2).
+        # Exactly the conditions this resolution checked -- nothing else is asserted.
+        # `train.exit` is NOT among them: a stale marker beside a finished trainer is
+        # resolvable too (close review 12, wording).
         printf 'resolved-by %s\nat %s\nreason %s\n' "$$" \
             "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" \
-            'unresolved launch: a launching marker with no finished trainer (no train.exit), and no recorded pid of this arm alive. A trainer that never registered may still exist; this tombstone is what refuses it.' \
+            "unresolved launch, retired under this arm's publication and registration locks: a launching marker older than ${UNRESOLVED_GRACE_S}s, no recorded pid of this arm alive, no completion receipt, and not the published final. A trainer that never registered cannot be seen at all; this tombstone is what refuses it." \
             > "$root/$name.resolved"
         mv -- "$attempt" "${attempt}_ABORTED_unregistered"
         # The marker has been answered; leaving it would close the arm for good, since
@@ -545,13 +583,14 @@ resolve_unregistered() {
         rm -f -- "${attempt}_ABORTED_unregistered/launching"
     fi
     exec {reg_fd}>&-   # the whole critical section is done: scan, tombstone, rename
-    # Precisely what was established: no *recorded* pid of the arm answered a liveness
-    # probe and this attempt's trainer never said it finished. A trainer that never
-    # registered cannot be seen at all -- that is why the tombstone above is written
-    # first and never removed (close review 11, wording).
-    say "RESOLVED $attempt has no finished trainer and no recorded pid of this arm was" \
-        "alive; it can never be published, and the tombstone refuses any trainer of it" \
-        "that is still to come"
+    # Precisely what was established, and only that: both locks were held, no recorded
+    # pid of the arm answered a liveness probe, the attempt has no completion receipt and
+    # is not the published `final`, and its marker was older than the grace. A trainer
+    # that never registered cannot be seen at all -- which is why the tombstone above is
+    # written first and never removed (close review 11 and 12, wording).
+    say "RESOLVED $attempt: marker older than ${UNRESOLVED_GRACE_S}s, no recorded pid of" \
+        "this arm alive, no completion receipt, not the published final. It can never be" \
+        "published, and the tombstone refuses any trainer of it that is still to come"
 }
 
 # A deterministic pause, so a regression can hold this invocation open between two
