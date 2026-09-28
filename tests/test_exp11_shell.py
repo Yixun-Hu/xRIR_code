@@ -1839,6 +1839,27 @@ def test_an_entry_the_scan_cannot_stat_is_unknown(tmp_path):
         stub.wait(timeout=30)
 
 
+def test_a_flood_of_verdict_bytes_is_unknown_and_never_materialised(tmp_path):
+    """A rogue reader's output must never become a shell variable.
+
+    A verdict is at most eighteen bytes; anything longer cannot match. The shell must
+    therefore refuse it on the file's size and read at most a bounded prefix, rather
+    than pulling megabytes through a command substitution to find that out.
+    """
+    text = (REPO / 'tools/exp11_launch.sh').read_text()
+    assert 'head -c 64' in text, 'the digit extraction must read a bounded prefix'
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    try:
+        flood = b'record ' + b'1' * (2 * 1024 * 1024) + b'\n'
+        result = resolve_with_reader(attempt, byte_reader(tmp_path, flood,
+                                                         only_on='train.pid'))
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert attempt.is_dir() and (attempt / 'launching').is_file()
+    finally:
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
 def pid_of(pidfile):
     """The pid in a registration file, if it still names a living process."""
     try:
