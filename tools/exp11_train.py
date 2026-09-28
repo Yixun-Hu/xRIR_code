@@ -306,7 +306,12 @@ def register_trainer(save_dir, no_save=False, arm_root=None,
     given = Path(save_dir)
     # `realpath` resolves what it can and leaves the rest: a --no-save diagnostic has no
     # run directory at all, and asking for one would refuse every diagnostic.
-    directory = Path(os.path.realpath(str(given)))
+    directory = Path(exp11_pathprobe.canonical(given))
+    # The containment below is derived from this path, so it is checked the way the
+    # launcher checks every path field it is handed (close review 16).
+    if not exp11_pathprobe.valid_path(str(directory)):
+        refuse('{} does not canonicalise to an absolute, normalized path ({}); this '
+               'trainer registers against nothing it cannot name'.format(given, directory))
     arm = directory.parent
     tombstone = arm / (directory.name + '.resolved')
     if no_save:                       # a diagnostic no scan reads: only a tombstone speaks
@@ -321,7 +326,11 @@ def register_trainer(save_dir, no_save=False, arm_root=None,
     if not demand_known(*directory_state(root), path=root, what='the arm root'):
         refuse('{} does not exist; this trainer registers only in the arm whose lock '
                'it holds'.format(root))
-    if str(arm) != os.path.realpath(str(root)):
+    canonical_root = exp11_pathprobe.canonical(root)
+    if not exp11_pathprobe.valid_path(canonical_root):
+        refuse('{} does not canonicalise to an absolute, normalized path ({})'
+               .format(root, canonical_root))
+    if str(arm) != canonical_root:
         refuse('{} is an attempt of {}, not of the {} this trainer was given; the '
                'directory, the lock and the tombstone must be of one arm'
                .format(given, arm, root))
