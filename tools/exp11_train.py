@@ -25,6 +25,7 @@ import contextlib
 import fcntl
 import os
 from pathlib import Path
+import stat
 import sys
 import time
 
@@ -193,6 +194,66 @@ def provenance_fields(argv, run_type, identity=None, repo=REPO, approved=None,
 pid_record = exp11_pidrecord.pid_record
 
 
+# --- three states for every path this trainer asks about (close review 14) -----------
+# ``Path.is_file()`` answers False both for a path that is not there and for one it
+# could not inspect: a self-referential ``<attempt>.resolved`` raises ELOOP inside it and
+# comes back "no tombstone", so a trainer whose launch had been retired registered
+# anyway. Nothing here decides on ``is_file``.
+PRESENT, ABSENT, UNSURE = 'present', 'absent', 'unsure'
+
+
+def probe_path(path):
+    """``(state, detail)``: it is there (with its ``stat``), it is NOT there, or unknown.
+
+    An absence is a claim, and it is made only about a directory that could itself be
+    inspected. A name that exists as a symlink we cannot follow -- dangling, looping,
+    behind a door -- is not an absence at all.
+    """
+    name = str(path)
+    try:
+        return PRESENT, os.stat(name)
+    except FileNotFoundError:
+        pass
+    except OSError as error:                       # EACCES, ELOOP, EIO, ENOTDIR, ...
+        return UNSURE, error
+    try:
+        os.lstat(name)                             # the link itself, unfollowed
+        return UNSURE, 'a symlink that cannot be resolved'
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        return UNSURE, error
+    parent = os.path.dirname(os.path.abspath(name)) or '.'
+    try:
+        os.stat(parent)
+    except OSError as error:
+        return UNSURE, error
+    return ABSENT, None
+
+
+def file_state(path):
+    """PRESENT only for a regular file; ABSENT for no such name or another kind."""
+    state, detail = probe_path(path)
+    if state == PRESENT and not stat.S_ISREG(detail.st_mode):
+        return ABSENT, detail
+    return state, detail
+
+
+def directory_state(path):
+    state, detail = probe_path(path)
+    if state == PRESENT and not stat.S_ISDIR(detail.st_mode):
+        return ABSENT, detail
+    return state, detail
+
+
+def demand_known(state, detail, path, what):
+    """Refuse rather than act on a path this process could not inspect."""
+    if state == UNSURE:
+        refuse('cannot inspect {} ({}: {}); this trainer does not register on a launch '
+               'it cannot verify'.format(path, what, detail))
+    return state == PRESENT
+
+
 def registration_complete(attempt):
     """``child.pid`` holds one pid, by that grammar (the launcher's own test)."""
     return pid_record(Path(attempt) / 'child.pid') is not None
@@ -278,7 +339,7 @@ def register_trainer(save_dir, no_save=False, arm_root=None,
     directory = Path(save_dir)
     tombstone = directory.parent / (directory.name + '.resolved')
     if no_save:                       # a diagnostic no scan reads: only a tombstone speaks
-        if tombstone.is_file():
+        if demand_known(*file_state(tombstone), path=tombstone, what='the tombstone'):
             refuse('{} was resolved as an unregistered launch and retired; this trainer '
                    'has nothing to run in'.format(directory))
         return None
@@ -286,18 +347,32 @@ def register_trainer(save_dir, no_save=False, arm_root=None,
     with registration_lock(directory, wait_seconds):
         # Everything below happens under the lock, so a resolution cannot rename this
         # directory between the checks and the write.
-        if not directory.is_dir():
+        if not demand_known(*directory_state(directory), path=directory,
+                            what='the run directory'):
             refuse('{} does not exist; the launcher creates the attempt and this trainer '
                    'never does'.format(directory))
-        if directory.resolve().parent != root.resolve():
+        if not demand_known(*directory_state(root), path=root, what='the arm root'):
+            refuse('{} does not exist; this trainer registers only in the arm whose lock '
+                   'it holds'.format(root))
+        if os.path.realpath(str(directory.parent)) != os.path.realpath(str(root)):
             refuse('{} is not an attempt of {}; this trainer registers only in the arm '
                    'whose lock it holds'.format(directory, root))
-        if tombstone.is_file():
+        if demand_known(*file_state(tombstone), path=tombstone, what='the tombstone'):
             refuse('{} was resolved as an unregistered launch and retired; this trainer '
                    'has nothing to run in'.format(directory))
-        if not (directory / 'launching').is_file() and not registration_complete(directory):
-            refuse('{} carries no launch record -- no launching marker and no complete '
-                   'child.pid -- so no launch of it is in progress'.format(directory))
+        marker = demand_known(*file_state(directory / 'launching'),
+                              path=directory / 'launching', what='the launching marker')
+        if not marker:
+            # The other half of a launch record. Its reader has the same three states,
+            # and "I could not read child.pid" is not "there is no launch here".
+            verdict, detail = exp11_pidrecord.inspect_record(directory / 'child.pid')
+            if verdict == exp11_pidrecord.UNKNOWN:
+                refuse('cannot inspect {}/child.pid ({}); this trainer does not register '
+                       'on a launch it cannot verify'.format(directory, detail))
+            if verdict != exp11_pidrecord.RECORD:
+                refuse('{} carries no launch record -- no launching marker and no '
+                       'complete child.pid -- so no launch of it is in progress'
+                       .format(directory))
         path = directory / 'train.pid'
         # Atomic: a reader sees the old file or the whole new one, never a partial pid.
         temporary = directory / ('train.pid.{}.tmp'.format(os.getpid()))
@@ -382,13 +457,16 @@ def run(command, args):
     if destination:
         # The attempt directory is the launcher's, and it is this run's proof that a
         # launch is in progress; recreating it would undo a resolution (close review 8).
-        if not args.no_save and not os.path.isdir(args.save_dir):
+        if not args.no_save and not demand_known(
+                *directory_state(args.save_dir), path=args.save_dir,
+                what='the run directory'):
             refuse('{} vanished while this trainer was starting'.format(args.save_dir))
         provenance.write_manifest(destination, fields)  # exclusive; an attempt writes once
     print('XRIR_RUNTIME_ARGS ' + json.dumps(vars(args), sort_keys=True, allow_nan=False),
           flush=True)
     if not args.no_save:
-        if not os.path.isdir(args.save_dir):
+        if not demand_known(*directory_state(args.save_dir), path=args.save_dir,
+                            what='the run directory'):
             refuse('{} vanished while this trainer was starting'.format(args.save_dir))
         with open(os.path.join(args.save_dir, 'args.json'), 'w') as stream:
             json.dump(vars(args), stream, indent=2)
