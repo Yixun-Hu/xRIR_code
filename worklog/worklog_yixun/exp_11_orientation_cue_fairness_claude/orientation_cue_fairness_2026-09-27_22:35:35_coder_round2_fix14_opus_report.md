@@ -145,3 +145,46 @@ The other 19 exp_06 keys are identical to the approved record.
 
 Only `launch_sh`, through its own shell bytes — as the prompt predicted. exp_11's
 approvals record remains all-null and every producer refuses today.
+
+## Test results
+
+Every run CPU-only (`CUDA_VISIBLE_DEVICES=''`), in the `xRIR` env.
+
+| run | result |
+|---|---|
+| every targeted file in one pass — `test_exp11_shell.py` (153), `test_exp11_pidrecord.py`, `test_exp11_train.py`, `test_exp11_lock_holder.py`, the other ten exp_11 files, `test_exp06_summarize_haa.py`, `test_exp09_sim_eval_closures.py` | **577 passed** (788 s) |
+| full CPU suite at the tip `a2b006a`, detached | **1 failed, 3907 passed, 55 skipped** (3443 s) |
+
+The suite was started only after `a2b006a`, the cycle's last production commit.
+
+The full suite ran detached into
+`orientation_cue_fairness_2026-09-27_22:35_suite_full_cpu_a2b006a.log` in this record,
+started after the cycle's last production commit. The **one** failure is the standing,
+expected one:
+
+```
+FAILED tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes
+  {'summarize_haa': '40626dd26bde…'} != {'summarize_haa': '645e74c03e20…'}
+```
+
+— exp_06's approvals record still holds the digest re-filled at `9f98bbb`, and that
+summariser's closure moves with every exp_11 change because it imports `exp11_finalize`
+and `exp11_profiles`. The re-fill belongs at the reviewed merge, as round 1's `9f98bbb`
+did, not on this branch. Every other test in the repository passes.
+
+## Notes for the reviewer
+
+* **Enumeration, classification, verdict, liveness** are now four separate things, each
+  with its own unknown: the arm root must be *listed*, each entry must be *classified* by
+  a stat that succeeded, each pid file's bytes must be a *verdict* the reader produced
+  and the shell matched exactly, and only then is `kill -0` asked about liveness. A
+  failure at any of the four is unknown, and unknown never opens an arm.
+* **Still true and unchanged** (close review 12's qualification): `scan_arm` stops at the
+  first live or unresolved attempt, so an unknown in a later entry may not be reached.
+  It is still a refusal, nothing is retired or published, and both CLI callers normalise
+  either status to exit 2.
+* **The cost** of this cycle is one `find` and one `mktemp` per scan, plus one `stat` per
+  entry — negligible beside the per-pid-file reads already there.
+* `clear_launching` now also needs the arm root listable. On an ordinary run that is
+  always true; where it is not, the marker stays and the operator resolves, which is the
+  same fail-closed direction as every other unknown.
