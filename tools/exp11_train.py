@@ -304,12 +304,13 @@ def register_trainer(save_dir, no_save=False, arm_root=None,
     # canonical attempt -- whose tombstone said it had been retired (close review 15,
     # blocker 3).
     given = Path(save_dir)
-    # `realpath` resolves what it can and leaves the rest: a --no-save diagnostic has no
-    # run directory at all, and asking for one would refuse every diagnostic.
-    # In process, with the filesystem's own meaning of `..` and of every symlink on the
-    # way -- never a string handed over by a subprocess, and never a grammar to validate
-    # (plan §11 A2). `Path` is built from this result and from nothing else.
-    directory = Path(os.path.realpath(str(given)))
+    # Absolute, but NOT normalised: what exists is the kernel's question (close reviews
+    # 16-17). `realpath` then resolves what it can and leaves the rest, so a --no-save
+    # diagnostic -- which has no run directory at all -- is still answered. In process,
+    # with the filesystem's own meaning of `..` and of every symlink on the way; never a
+    # string handed over by a subprocess, and never a grammar to validate (plan §11 A2).
+    given_abs = os.path.join(os.getcwd(), str(given))
+    directory = Path(os.path.realpath(given_abs))
     arm = directory.parent
     tombstone = arm / (directory.name + '.resolved')
     if no_save:                       # a diagnostic no scan reads: only a tombstone speaks
@@ -320,18 +321,34 @@ def register_trainer(save_dir, no_save=False, arm_root=None,
     if not demand_known(*directory_state(given), path=given, what='the run directory'):
         refuse('{} does not exist; the launcher creates the attempt and this trainer '
                'never does'.format(given))
-    root = Path(arm_root) if arm_root is not None else given.parent
-    if not demand_known(*directory_state(root), path=root, what='the arm root'):
-        refuse('{} does not exist; this trainer registers only in the arm whose lock '
-               'it holds'.format(root))
-    # Identity, not spelling: device and inode of the two directories (plan §11 A2).
-    contained, why = exp11_pathprobe.same(arm, root)
+    # The arm this path NAMES -- the parent of the spelling, with `..` collapsed -- must
+    # be the arm the attempt IS IN. Collapsing is safe here and only here: it feeds an
+    # identity comparison, which can never accept a wrong arm, and it is what lets
+    # `arm/attempt_X/sub/..`, `//`, `/./` and a trailing slash register through the
+    # default call while an attempt symlinked into another arm still refuses (close
+    # review 18). Existence is never decided from it.
+    lexical_parent = os.path.dirname(os.path.normpath(given_abs))
+    contained, why = exp11_pathprobe.same(lexical_parent, arm)
     if contained == exp11_pathprobe.UNKNOWN:
-        refuse('cannot establish whether {} is an attempt of {} ({})'.format(given, root, why))
+        refuse('cannot establish whether {} is an attempt of {} ({})'
+               .format(given, lexical_parent, why))
     if contained != exp11_pathprobe.SAME:
-        refuse('{} is an attempt of {}, not of the {} this trainer was given; the '
-               'directory, the lock and the tombstone must be of one arm'
-               .format(given, arm, root))
+        refuse('{} is an attempt of {}, not of the {} it is written as; the directory, '
+               'the lock and the tombstone must be of one arm'
+               .format(given, arm, lexical_parent))
+    if arm_root is not None:                  # a caller that names the arm must name THIS one
+        root = Path(arm_root)
+        if not demand_known(*directory_state(root), path=root, what='the arm root'):
+            refuse('{} does not exist; this trainer registers only in the arm whose lock '
+                   'it holds'.format(root))
+        configured, why = exp11_pathprobe.same(root, arm)
+        if configured == exp11_pathprobe.UNKNOWN:
+            refuse('cannot establish whether {} is an attempt of {} ({})'
+                   .format(given, root, why))
+        if configured != exp11_pathprobe.SAME:
+            refuse('{} is an attempt of {}, not of the {} this trainer was given; the '
+                   'directory, the lock and the tombstone must be of one arm'
+                   .format(given, arm, root))
     with registration_lock(directory, wait_seconds):
         # Everything below happens under the lock, so a resolution cannot rename this
         # directory between the checks and the write. The checks are re-made here: the
