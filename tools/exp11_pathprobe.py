@@ -7,16 +7,30 @@ absent marker leaves an arm quiet, an absent receipt retires a finished run, an 
 `final` is replaced. So the classification lives here, in the one language where the
 errno is available, and the shell asks this module the way it asks the pid reader.
 
-**The CLI answers, or it does not answer at all.** One line on stdout, exit 0:
+**The CLI answers, or it does not answer at all.** One line on stdout, exit 0, and
+**no path ever crosses** (plan §11 amendment A2):
 
-    probe <path>    present <mode-hex> <canonical-path>   it is there
-                    absent                                it is NOT there
-    link <path>     link <canonical-target>               a symlink that resolves
-                    notlink                               the name is there, not a link
-                    nolink                                there is no such name
+    probe <path>          present <mode-hex>   it is there, and this is its mode
+                          absent               it is NOT there
+    link <path>           link                 the name is there and is a symlink
+                          notlink              the name is there and is not one
+                          nolink               there is no such name
+    same <a> <b>          same | different     device and inode of the FOLLOWED stats
+    sameparent <p> <d>    same | different     the same, for p's parent as written
+
+Three close reviews in a row found holes in the grammar of a path field -- relative
+paths, spaces, byte counts against character counts, a terminal `..`, a trailing slash.
+A protocol that carries no paths has no such grammar, and the questions that needed one
+-- "is this the attempt `final` publishes?", "is this attempt in this arm?" -- are
+answered here, where two `os.stat`s and `os.path.samestat` settle them exactly.
 
 Anything else -- a non-zero exit, no line, another first word, a misuse (exit 2) -- is
 **unknown**: the caller must refuse to decide rather than read it as an absence.
+
+The shell defends against a MALFORMED answer, not against a lying module: the module is
+part of the `launch_sh` approvals key, pinned with the launcher it serves, and
+health-checked before every scan and every resolution. What crosses the boundary is a
+keyword from a fixed set and, for `present`, a validated mode.
 
 An absence is the strongest claim here, so it is the most guarded: it needs
 ``FileNotFoundError`` from ``os.stat`` **and** from ``os.lstat`` (a name that lstats but
@@ -32,6 +46,7 @@ import sys
 
 PRESENT, ABSENT, UNKNOWN = 'present', 'absent', 'unknown'
 LINK, NOTLINK, NOLINK = 'link', 'notlink', 'nolink'
+SAME, DIFFERENT = 'same', 'different'
 USAGE_EXIT = 2          # a misuse is not a verdict about any path
 UNKNOWN_EXIT = 2
 
@@ -56,19 +71,6 @@ def valid_mode(text):
     if any(character not in '0123456789abcdef' for character in text):
         return False
     return (int(text, 16) & 0o170000) in FILE_TYPES
-
-
-def valid_path(text):
-    """An absolute, normalized, printable path of a length the kernel would accept."""
-    if not isinstance(text, str) or not text.startswith('/') or len(text) > PATH_MAX:
-        return False
-    if any(character in text for character in ('\n', '\r', '\0')):
-        return False
-    if text == '/':
-        return True
-    if text.endswith('/') or '//' in text:
-        return False
-    return not any(part in ('', '.', '..') for part in text.split('/')[1:])
 
 
 def _absolute(name):
@@ -121,24 +123,6 @@ def probe(path):
     return (ABSENT, None) if inspectable else (UNKNOWN, why)
 
 
-def canonical(name):
-    """The canonical path of ``name``, keeping the name itself when it is not a symlink.
-
-    Only the directory is resolved for an ordinary name, so the basename a caller probed
-    is the basename it gets back -- which is what lets every reader check that the
-    answer is about the path it asked for.
-    """
-    absolute = _absolute(str(name))
-    try:
-        if not stat.S_ISLNK(os.lstat(absolute).st_mode):
-            head, _, tail = absolute.rpartition('/')
-            resolved = os.path.realpath(head or '/')
-            return resolved if tail in ('', '.', '..') else os.path.join(resolved, tail)
-    except OSError:
-        pass
-    return os.path.realpath(absolute)
-
-
 def probe_link(path):
     """``(LINK, target)`` | ``(NOTLINK, None)`` | ``(NOLINK, None)`` | ``(UNKNOWN, why)``."""
     name = str(path)
@@ -158,7 +142,29 @@ def probe_link(path):
         os.stat(name)                      # it must resolve to something we can see
     except OSError as error:
         return UNKNOWN, 'cannot resolve {}: {}'.format(name, _why(error))
-    return LINK, os.path.realpath(_absolute(name))
+    return LINK, None
+
+
+def same(first, second):
+    """Are these two names the same file? Device and inode of the FOLLOWED stats.
+
+    A dangling link, a name that is not there, a parent nobody may enter: none of them
+    make two paths *different*, they make the question unanswerable.
+    """
+    try:
+        first_info = os.stat(str(first))
+    except OSError as error:
+        return UNKNOWN, 'cannot inspect {}: {}'.format(first, _why(error))
+    try:
+        second_info = os.stat(str(second))
+    except OSError as error:
+        return UNKNOWN, 'cannot inspect {}: {}'.format(second, _why(error))
+    return (SAME if os.path.samestat(first_info, second_info) else DIFFERENT), None
+
+
+def same_parent(path, directory):
+    """Is ``path``'s parent -- the dirname of the name AS WRITTEN -- that directory?"""
+    return same(os.path.dirname(_absolute(str(path))) or '/', directory)
 
 
 def file_state(path):
@@ -177,37 +183,33 @@ def directory_state(path):
 
 
 def main(argv):
-    if len(argv) != 3 or argv[1] not in ('probe', 'link'):
-        print('usage: python -m tools.exp11_pathprobe <probe|link> <path>',
+    questions = {'probe': 1, 'link': 1, 'same': 2, 'sameparent': 2}
+    if len(argv) < 2 or argv[1] not in questions or len(argv) != questions[argv[1]] + 2:
+        print('usage: python -m tools.exp11_pathprobe <probe|link> <path>\n'
+              '       python -m tools.exp11_pathprobe <same|sameparent> <path> <path>',
               file=sys.stderr)
         return USAGE_EXIT
-    if argv[1] == 'probe':
+    question = argv[1]
+    if question == 'probe':
         state, detail = probe(argv[2])
-        if state == UNKNOWN:
-            print('cannot decide {}: {}'.format(argv[2], detail), file=sys.stderr)
-            return UNKNOWN_EXIT
-        if state == ABSENT:
-            print(ABSENT)
-            return 0
-        mode, where = '{:x}'.format(detail.st_mode), canonical(argv[2])
-        if not valid_mode(mode) or not valid_path(where):
-            print('refusing to answer about {}: the verdict fields are not valid '
-                  '({} {})'.format(argv[2], mode, where), file=sys.stderr)
-            return UNKNOWN_EXIT
-        print('present {} {}'.format(mode, where))
-        return 0
-    state, detail = probe_link(argv[2])
+    elif question == 'link':
+        state, detail = probe_link(argv[2])
+    elif question == 'same':
+        state, detail = same(argv[2], argv[3])
+    else:
+        state, detail = same_parent(argv[2], argv[3])
     if state == UNKNOWN:
-        print('cannot decide {}: {}'.format(argv[2], detail), file=sys.stderr)
+        print('cannot decide {}: {}'.format(' '.join(argv[2:]), detail), file=sys.stderr)
         return UNKNOWN_EXIT
-    if state != LINK:
+    if state != PRESENT:
         print(state)
         return 0
-    if not valid_path(detail):
-        print('refusing to answer about {}: {} is not a valid target'.format(argv[2], detail),
+    mode = '{:x}'.format(detail.st_mode)
+    if not valid_mode(mode):                  # a mode nobody could act on is no verdict
+        print('refusing to answer about {}: {} is not a file mode'.format(argv[2], mode),
               file=sys.stderr)
         return UNKNOWN_EXIT
-    print('link {}'.format(detail))
+    print('present {}'.format(mode))
     return 0
 
 
