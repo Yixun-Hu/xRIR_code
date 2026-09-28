@@ -302,7 +302,7 @@ NEWLINE=$'\n'   # a real newline: a verdict that is two lines is not a verdict
 # Only the digits of an accepted pid cross back, and digits survive intact.
 READER_UNKNOWN=2
 pid_record() {
-    local out="" pid="" kind="" status=0
+    local out="" pid="" kind="" size="" status=0
     # What the path IS, decided before anything opens it: a directory, FIFO, socket or
     # device is definitely not a pid record, and opening a FIFO would wait for a writer
     # forever. A stat that FAILS decides nothing here -- the module tells a confirmed
@@ -319,10 +319,16 @@ pid_record() {
     out="$(mktemp "${TMPDIR:-/tmp}/exp11_verdict.XXXXXX")" || return "$READER_UNKNOWN"
     "$PYTHON" -m tools.exp11_pidrecord "$1" > "$out" 2>/dev/null || status=$?
     if [ "$status" -ne 0 ]; then rm -f -- "$out"; return "$READER_UNKNOWN"; fi
+    # A verdict is eighteen bytes at most ('record ' + ten digits + a newline), so the
+    # size answers first and no rogue reader's output is ever read, compared or -- worst
+    # of all -- materialised as a shell variable (close review 13, nonblocking).
+    size="$(stat -c %s -- "$out" 2>/dev/null)" || { rm -f -- "$out"; return "$READER_UNKNOWN"; }
+    case "$size" in ''|*[!0-9]*) rm -f -- "$out"; return "$READER_UNKNOWN" ;; esac
+    if [ "$size" -gt 64 ]; then rm -f -- "$out"; return "$READER_UNKNOWN"; fi
     if cmp -s "$out" <(printf 'norecord\n'); then rm -f -- "$out"; return 1; fi
     # Digits only -- a candidate, not yet a verdict: the bytes must then match the whole
     # line exactly, which is what refuses padding, NULs, CR and trailing junk.
-    pid="$(tr -cd '0-9' < "$out")"
+    pid="$(head -c 64 -- "$out" | tr -cd '0-9')"
     case "$pid" in ''|*[!0-9]*) rm -f -- "$out"; return "$READER_UNKNOWN" ;; esac
     [ "${#pid}" -le 10 ] || { rm -f -- "$out"; return "$READER_UNKNOWN"; }
     if cmp -s "$out" <(printf 'record %s\n' "$pid"); then
