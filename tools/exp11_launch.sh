@@ -304,7 +304,13 @@ pid_record() {
     [ "$status" -eq 0 ] || return "$READER_UNKNOWN"
     case "$answer" in
         *"$NEWLINE"*) return "$READER_UNKNOWN" ;;   # a verdict is ONE line
-        'record '*) printf '%s\n' "${answer#record }"; return 0 ;;
+        'record '*)
+            # The digits are the protocol's, not this shell's reading of a file -- but a
+            # verdict that is not digits is not a verdict, and `kill -0 <word>` would
+            # fail and read as "not alive".
+            answer="${answer#record }"
+            case "$answer" in ''|*[!0-9]*) return "$READER_UNKNOWN" ;; esac
+            printf '%s\n' "$answer"; return 0 ;;
         norecord) return 1 ;;
         *) return "$READER_UNKNOWN" ;;
     esac
