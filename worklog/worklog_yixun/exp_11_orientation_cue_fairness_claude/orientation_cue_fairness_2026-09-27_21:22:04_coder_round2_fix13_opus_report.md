@@ -173,3 +173,48 @@ reader its spec binds; `train`, `finalize`, `smoke` and `summarize_haa` because
 `tools/exp11_pidrecord.py` is in all four closures through the trainer's import. The
 three HAA keys are untouched. exp_11's approvals record remains all-null and every
 producer refuses today.
+
+## Test results
+
+Every run CPU-only (`CUDA_VISIBLE_DEVICES=''`), in the `xRIR` env.
+
+| run | result |
+|---|---|
+| every targeted file in one pass — `test_exp11_shell.py`, `test_exp11_pidrecord.py`, `test_exp11_train.py`, `test_exp11_lock_holder.py`, the other ten exp_11 files, `test_exp06_summarize_haa.py`, `test_exp09_sim_eval_closures.py` | **567 passed** (806 s) |
+| full CPU suite at the tip `5593d69`, detached | **1 failed, 3897 passed, 55 skipped** (3472 s) |
+
+The suite was started only after `5593d69`, the cycle's last production commit.
+
+The full suite ran detached into
+`orientation_cue_fairness_2026-09-27_21:21_suite_full_cpu_5593d69.log` in this record.
+The **one** failure is the standing, expected one:
+
+```
+FAILED tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes
+  {'summarize_haa': '40626dd26bde…'} != {'summarize_haa': '645e74c03e20…'}
+```
+
+— exp_06's approvals record still holds the digest re-filled at `9f98bbb`, and that
+summariser's closure moves with every exp_11 change because it imports `exp11_finalize`
+and `exp11_profiles`. The re-fill belongs at the reviewed merge, as round 1's `9f98bbb`
+did, not on this branch. Every other test in the repository passes.
+
+## Notes for the reviewer
+
+* **What each mechanism can prove.** The two health probes prove the reader can tell a
+  record from a non-record at that moment; the per-read byte comparison proves *this*
+  answer is the protocol; the three-way classification proves the verdict is about a
+  path we could actually inspect. They are separate, and each has its own regression —
+  a padding reader passes any check made after command substitution and fails the
+  byte-exact one; a reader healthy on the probes and blind to `train.pid` passes the
+  health check and fails the per-read check.
+* **Cost.** A pid read is now `stat` + the reader + `cmp` (+`tr`, +`cmp`) with a temp
+  file, and a scan does three reads per attempt. On an arm with a dozen attempts that is
+  a few seconds, on a path that runs a handful of times per launch.
+* **Still true from close review 12, and unchanged:** `scan_arm` stops at the first live
+  or unresolved attempt, so an unknown in a later attempt may not be reached; the result
+  is still a refusal (1 instead of 2) and no retirement or publication follows, and both
+  CLI callers normalise either to exit 2.
+* **Not bounded:** a rogue `$PYTHON` could print unlimited bytes into the verdict temp
+  file. Any such reader already fails the comparison; the only exposure is disk, and a
+  substituted interpreter can do anything in any case.
