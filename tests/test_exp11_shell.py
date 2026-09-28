@@ -1901,6 +1901,101 @@ def test_a_dangling_symlink_root_is_unknown(tmp_path):
     assert 'cannot be enumerated' in result.stderr
 
 
+def behind_a_shut_door(tmp_path, name, content='x'):
+    """A path that EXISTS and cannot be inspected: a symlink into a mode-000 directory."""
+    shut = tmp_path / ('shut_' + name.replace('/', '_'))
+    shut.mkdir()
+    (shut / 'target').write_text(content)
+    return shut, shut / 'target'
+
+
+@needs_a_non_root_user
+def test_a_marker_we_cannot_inspect_closes_the_arm(tmp_path):
+    """`-f` says "no" for a marker that is there and cannot be reached.
+
+    Every pid record of the attempt is definitely absent, so nothing else refuses: the
+    marker is the only thing standing between this arm and a promotion, and it was read
+    as missing because the test that looks for it failed.
+    """
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    attempt = old.parent / 'attempt_20260927T191919'
+    attempt.mkdir()
+    shut, target = behind_a_shut_door(tmp_path, 'launching', 'launcher 1\n')
+    (attempt / 'launching').symlink_to(target)
+    shut.chmod(0o000)
+    try:
+        result = scan_under_lock(old.parent)
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert 'unknown' in result.stderr and 'launching' in result.stderr
+    finally:
+        shut.chmod(0o700)
+
+
+@needs_a_non_root_user
+def test_a_receipt_we_cannot_inspect_is_never_retired(tmp_path):
+    """The resolution asserts "no completion receipt"; it may only assert what it saw."""
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    attempt = unresolved_attempt(old.parent)
+    shut, target = behind_a_shut_door(tmp_path, 'completion', '{"run_type": "exp11_train"}')
+    (attempt / 'completion.json').symlink_to(target)
+    shut.chmod(0o000)
+    try:
+        result = resolve_under_lock(attempt, grace='0')
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert 'unknown' in result.stderr, result.stderr
+        assert 'RESOLVED' not in result.stdout and 'TOMBSTONE' not in result.stdout
+        assert attempt.is_dir() and (attempt / 'launching').is_file()
+        assert not (old.parent / (attempt.name + '.resolved')).exists()
+    finally:
+        shut.chmod(0o700)
+
+
+def unreachable_final(root, name='attempt_20260101T000000'):
+    """`final` reaching an old attempt through a directory nobody may enter."""
+    shut = root / 'shut'
+    (shut / name).mkdir(parents=True)
+    link = root / 'final'
+    link.symlink_to(shut / name)
+    shut.chmod(0o000)
+    return shut
+
+
+@needs_a_non_root_user
+def test_a_final_we_cannot_resolve_is_never_replaced(tmp_path):
+    """A lookup that failed is not "nothing is published"."""
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    shut = unreachable_final(old.parent)
+    try:
+        status, out, err = recovery(old, 'H', tmp_path)
+        assert status == 2, out
+        assert 'PROMOTE' not in out and 'REPLACING' not in out
+        assert 'unknown' in err or 'cannot' in err, err
+    finally:
+        shut.chmod(0o700)
+
+
+@needs_a_non_root_user
+@pytest.mark.parametrize('guard', ['already_published', 'check_final_conflict',
+                                   'abort_recovery'])
+def test_the_publication_guards_refuse_an_unresolvable_final(tmp_path, guard):
+    """None of the three may read a failed lookup as "not published"."""
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    canonical = root / 'attempt_20260927T202020'
+    canonical.mkdir(parents=True)
+    shut = unreachable_final(root)
+    arguments = '{} L.log'.format(canonical) if guard == 'abort_recovery' else str(canonical)
+    try:
+        result = lib('ARM_ROOT={root}\nDRY=1\nARM=H\nREPLACE_FINAL=0\n'
+                     'status=0\n{guard} {arguments} || status=$?\necho "STATUS $status"\n'
+                     .format(root=root, guard=guard, arguments=arguments),
+                     {'EXP11_TEST_ROOTS': '1'})
+        assert 'STATUS 2' in result.stdout, (result.stdout, result.stderr)
+        assert 'ABORT' not in result.stdout and 'REPLACING' not in result.stdout
+        assert canonical.is_dir()
+    finally:
+        shut.chmod(0o700)
+
+
 def pid_of(pidfile):
     """The pid in a registration file, if it still names a living process."""
     try:
