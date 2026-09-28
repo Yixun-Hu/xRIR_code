@@ -1821,10 +1821,11 @@ def test_an_entry_the_scan_cannot_stat_is_unknown(tmp_path):
     """The listing succeeded; one of the names in it cannot be looked at.
 
     A name that fails `-d` used to be skipped as "not a directory", which is a verdict
-    about something nobody inspected.
+    about something nobody inspected. The arm holds nothing else, so the answer cannot
+    come from another entry whichever order the listing arrives in.
     """
-    old, attempt, stub = registered_live_attempt(tmp_path)
-    root = old.parent
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
     shut = root / 'shut'
     (shut / 'real').mkdir(parents=True)
     (root / 'attempt_20260927T181818').symlink_to(shut / 'real')
@@ -1832,11 +1833,9 @@ def test_an_entry_the_scan_cannot_stat_is_unknown(tmp_path):
     try:
         result = scan_under_lock(root)
         assert result.returncode == 2, (result.stdout, result.stderr)
-        assert 'unknown' in result.stderr, result.stderr
+        assert 'unknown' in result.stderr and 'attempt_20260927T181818' in result.stderr
     finally:
         shut.chmod(0o700)
-        stub.terminate()
-        stub.wait(timeout=30)
 
 
 def test_a_flood_of_verdict_bytes_is_unknown_and_never_materialised(tmp_path):
@@ -1994,6 +1993,25 @@ def test_the_publication_guards_refuse_an_unresolvable_final(tmp_path, guard):
         assert canonical.is_dir()
     finally:
         shut.chmod(0o700)
+
+
+def test_a_reader_that_never_returns_is_unknown(tmp_path):
+    """A hanging reader is not an answer either -- and must not hang the launcher."""
+    wrapper = tmp_path / 'sleeping_wrapper.sh'
+    wrapper.write_text('#!/bin/sh\ncase " $* " in\n  *" tools.exp11_pidrecord "*)\n'
+                       '    sleep 120\n    ;;\nesac\nexec "{}" "$@"\n'.format(PYTHON))
+    wrapper.chmod(0o755)
+    pidfile = tmp_path / 'train.pid'
+    pidfile.write_text('1457170\n')
+    body = ('set -euo pipefail\n'
+            'EXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh\n'
+            'PYTHON={wrapper}\nstatus=0\npid_record {pidfile} || status=$?\n'
+            'echo "STATUS $status"\n'.format(wrapper=wrapper, pidfile=pidfile))
+    result = subprocess.run(['bash', '-c', body], cwd=str(REPO), capture_output=True,
+                            text=True, timeout=30,
+                            env=dict(os.environ, CUDA_VISIBLE_DEVICES='',
+                                     EXP11_READER_TIMEOUT_S='1'))
+    assert 'STATUS 2' in result.stdout, (result.stdout, result.stderr)
 
 
 def pid_of(pidfile):
