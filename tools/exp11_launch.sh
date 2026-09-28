@@ -42,9 +42,25 @@ EXP11_TEMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/exp11_launch.XXXXXX")" || {
     exit 2; }
 trap 'rm -rf -- "$EXP11_TEMPDIR"' EXIT
 
-# How long the pid reader may take to answer one question. An answer that never comes is
-# not an answer; the launcher does not wait for it forever.
-READER_TIMEOUT_S="${EXP11_READER_TIMEOUT_S:-30}"
+# How long the pid reader or the path probe may take to answer ONE question. An answer
+# that never comes is not an answer; the launcher does not wait for it forever, and it
+# escalates to KILL five seconds after the TERM. The bound is per question: a scan asks
+# several in sequence, so its own worst case is a small multiple of this (the marker,
+# train.pid and train.exit of one attempt are three probes, ~60 s together at the default
+# with two of them hanging). The value is validated -- a bound that is 0, negative,
+# absurdly large or not a number is no bound at all.
+READER_TIMEOUT_S="${EXP11_READER_TIMEOUT_S-30}"   # set-but-empty is refused below
+case "$READER_TIMEOUT_S" in
+    ''|*[!0-9]*|0|0*[!0-9]*)
+        echo "refusing: EXP11_READER_TIMEOUT_S must be a positive whole number of" \
+             "seconds, at most 300; got '$READER_TIMEOUT_S'" >&2
+        exit 2 ;;
+esac
+if [ "$READER_TIMEOUT_S" -lt 1 ] || [ "$READER_TIMEOUT_S" -gt 300 ]; then
+    echo "refusing: EXP11_READER_TIMEOUT_S must be between 1 and 300 seconds; got" \
+         "'$READER_TIMEOUT_S'" >&2
+    exit 2
+fi
 
 RECORD=worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude
 APPROVED_DEFAULT="$RECORD/orientation_cue_fairness_results_assets/approved_digests.json"
@@ -409,7 +425,7 @@ pid_record() {
         fi
     fi
     out="$(mktemp "$EXP11_TEMPDIR/verdict.XXXXXX")" || return "$READER_UNKNOWN"
-    timeout "$READER_TIMEOUT_S" "$PYTHON" -m tools.exp11_pidrecord "$1" \
+    timeout --kill-after=5 "$READER_TIMEOUT_S" "$PYTHON" -m tools.exp11_pidrecord "$1" \
         > "$out" 2>/dev/null || status=$?
     if [ "$status" -ne 0 ]; then rm -f -- "$out"; return "$READER_UNKNOWN"; fi
     # A verdict is eighteen bytes at most ('record ' + ten digits + a newline), so the
@@ -459,7 +475,7 @@ registration_complete() {
 # probe_reader <file> <expected bytes> <where the answer goes>: 0 when the reader exited
 # 0 and printed EXACTLY those bytes. Byte for byte, like every real read.
 probe_reader() {
-    timeout "$READER_TIMEOUT_S" "$PYTHON" -m tools.exp11_pidrecord "$1" \
+    timeout --kill-after=5 "$READER_TIMEOUT_S" "$PYTHON" -m tools.exp11_pidrecord "$1" \
         > "$3" 2>/dev/null || return 1
     cmp -s "$3" "$2"
 }
