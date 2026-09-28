@@ -456,6 +456,23 @@ def test_an_attempt_reached_through_its_own_arms_alias_still_registers(tmp_path)
     assert (attempt / 'train.pid').is_file(), 'written in the canonical attempt'
 
 
+@pytest.mark.parametrize('crafted', ['relative/x', '/abs/../x', '//abs', '/' + 'x' * 5000])
+def test_a_canonical_path_the_trainer_would_not_trust_refuses(tmp_path, monkeypatch,
+                                                              crafted):
+    """The trainer validates the fields it consumes, as the launcher validates its own.
+
+    Canonicalisation is where the arm containment comes from, so a canonical path that
+    is not absolute and normalized is not something to register against (close review
+    16).
+    """
+    attempt = registered(tmp_path)
+    monkeypatch.setattr(exp11_train.exp11_pathprobe, 'canonical', lambda path: crafted)
+    with pytest.raises(SystemExit) as exit_request:
+        exp11_train.register_trainer(str(attempt))
+    assert exit_request.value.code == 3
+    assert not (attempt / 'train.pid').exists()
+
+
 def test_registration_writes_atomically(tmp_path):
     """No reader ever sees a half-written train.pid: a temp file, then one rename."""
     attempt = registered(tmp_path)
