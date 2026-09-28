@@ -2142,6 +2142,102 @@ def test_an_impossible_reader_timeout_is_refused(tmp_path, value):
     assert 'EXP11_READER_TIMEOUT_S' in err, err
 
 
+# --- close review 16: a verdict line is not a verdict until its FIELDS are ----------
+# `link garbage` passed as a published target, so a resolution retired the attempt
+# `final` really pointed at; `present 41ed relative` passed as a marker's verdict and
+# left the arm quiet. Every field is checked now: the mode is hex of a known file type,
+# the path is absolute, normalized, printable and no longer than PATH_MAX, and a
+# `present` verdict must be about the very name that was probed.
+
+CRAFTED_VERDICTS = [
+    'link garbage',                      # a target that is not even a path
+    'link relative/target',
+    'present 41ed relative',
+    'present zzzz /abs',                 # not hex
+    'present f000 /abs',                 # hex, but no known file type
+    'present ffffffff /abs',             # eight digits
+    'present 41ed /abs/../x',            # not normalized
+    'present 41ed //abs',
+    'present 41ed /' + 'x' * 5000,       # longer than PATH_MAX
+    'present 41ed /trailing/',
+]
+CRAFTED_IDS = [v[:28] for v in CRAFTED_VERDICTS]
+SOME_CRAFTED = CRAFTED_VERDICTS[:1] + CRAFTED_VERDICTS[2:3] + CRAFTED_VERDICTS[6:7]
+
+
+def crafted_reader(tmp_path, only_on, verdict, name='crafted_wrapper.sh'):
+    return probe_breaker(tmp_path, only_on, name=name,
+                         body="printf '%s\\n' '{}'; exit 0".format(verdict))
+
+
+@pytest.mark.parametrize('verdict', CRAFTED_VERDICTS, ids=CRAFTED_IDS)
+def test_a_crafted_marker_verdict_leaves_the_arm_closed(tmp_path, verdict):
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    attempt = old.parent / 'attempt_20260928T010101'
+    attempt.mkdir()
+    (attempt / 'launching').write_text('launcher 1\n')
+    result = scan_with_reader(old.parent, crafted_reader(tmp_path, '/launching', verdict))
+    assert result.returncode == 2, (verdict, result.stdout, result.stderr)
+    assert 'PROMOTE' not in result.stdout
+
+
+@pytest.mark.parametrize('verdict', SOME_CRAFTED)
+def test_a_crafted_receipt_verdict_retires_nothing(tmp_path, verdict):
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    attempt = unresolved_attempt(old.parent)
+    result = resolve_with_reader(attempt, crafted_reader(tmp_path, '/completion.json',
+                                                         verdict), grace='0')
+    assert result.returncode == 2, (verdict, result.stdout, result.stderr)
+    assert attempt.is_dir() and (attempt / 'launching').is_file()
+    assert not (old.parent / (attempt.name + '.resolved')).exists()
+
+
+def test_a_crafted_final_verdict_never_retires_the_published_attempt(tmp_path):
+    """The reviewer's schedule: `final` really publishes the attempt being resolved."""
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    attempt = unresolved_attempt(old.parent)
+    link = publish(attempt, completed=False)
+    result = resolve_with_reader(attempt, crafted_reader(tmp_path, '/final', 'link garbage'),
+                                 grace='0')
+    assert result.returncode == 2, (result.stdout, result.stderr)
+    assert attempt.is_dir(), 'the published attempt is still there'
+    assert os.path.realpath(str(link)) == str(attempt), 'and final still publishes it'
+    assert not (old.parent / (attempt.name + '.resolved')).exists()
+
+
+@pytest.mark.parametrize('verdict', SOME_CRAFTED)
+@pytest.mark.parametrize('guard,replace', [('already_published', '0'),
+                                           ('check_final_conflict', '0'),
+                                           ('check_final_conflict', '1'),
+                                           ('abort_recovery', '0')])
+def test_a_crafted_final_verdict_publishes_nothing(tmp_path, verdict, guard, replace):
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    canonical = root / 'attempt_20260928T020202'
+    canonical.mkdir(parents=True)
+    publish(canonical)
+    arguments = '{} L.log'.format(canonical) if guard == 'abort_recovery' else str(canonical)
+    result = lib('ARM_ROOT={root}\nDRY=1\nARM=H\nREPLACE_FINAL={replace}\n'
+                 'PYTHON={python}\nstatus=0\n{guard} {arguments} || status=$?\n'
+                 'echo "STATUS $status"\n'.format(
+                     root=root, replace=replace, guard=guard, arguments=arguments,
+                     python=crafted_reader(tmp_path, '/final', verdict)),
+                 {'EXP11_TEST_ROOTS': '1'})
+    assert 'STATUS 2' in result.stdout, (verdict, guard, result.stdout, result.stderr)
+    assert 'ABORT' not in result.stdout and 'REPLACING' not in result.stdout
+    assert canonical.is_dir() and (root / 'final').is_symlink()
+
+
+def test_an_overflowing_reader_timeout_is_refused(tmp_path):
+    """A 36-digit bound errors bash's comparison, and an errored test is false."""
+    status, out, err = launch(
+        ['finalize', '--arm', 'H', '--gpu', '1', '--reviewed-commit', COMMIT,
+         '--attempt', str(tmp_path), '--log', 'L.log', '--child-exit', '0', '--dry-run'],
+        {'EXP11_READER_TIMEOUT_S': '9' * 36, 'EXP11_TEST_ROOTS': '1',
+         'EXP11_PRETRAIN_ROOT': str(tmp_path)})
+    assert status == 2, out
+    assert 'EXP11_READER_TIMEOUT_S' in err, err
+
+
 def pid_of(pidfile):
     """The pid in a registration file, if it still names a living process."""
     try:
