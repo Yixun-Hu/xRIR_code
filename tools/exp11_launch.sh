@@ -301,6 +301,62 @@ NEWLINE=$'\n'   # a real newline: a verdict that is two lines is not a verdict
 # as clean verdicts and retired a live trainer's attempt (close review 12, blocker 2).
 # Only the digits of an accepted pid cross back, and digits survive intact.
 READER_UNKNOWN=2
+
+# --- three states for every path this launcher asks about (close review 14) ----------
+# `[ -f x ]` answers "no" for a file that is not there AND for one nobody was allowed to
+# look at, and every lifecycle guard that used it turned the second into the first: a
+# marker behind a mode-000 door read as no marker, a completion receipt behind one read
+# as no receipt, a `final` through an inaccessible directory read as nothing published.
+#
+# probe_path <path>: 0 it is there (PROBE_MODE holds its %f mode) | 1 it is NOT there |
+# 2 nobody could say. An absence is a CLAIM, made only about a directory we could look
+# into; a name that exists as a link we cannot follow is not an absence at all.
+PROBE_MODE=""
+probe_path() {
+    local parent=""
+    PROBE_MODE=""
+    if PROBE_MODE="$(stat -L -c %f -- "$1" 2>/dev/null)"; then
+        case "$PROBE_MODE" in ''|*[!0-9a-fA-F]*) PROBE_MODE=""; return "$READER_UNKNOWN" ;; esac
+        return 0
+    fi
+    PROBE_MODE=""
+    # The name may still BE there, as a symlink that dangles or loops or whose target we
+    # may not reach. That is not "there is nothing here".
+    stat -c %f -- "$1" >/dev/null 2>&1 && return "$READER_UNKNOWN"
+    parent="$(dirname -- "$1")"
+    # ... and an absence may only be claimed about a directory we could enter.
+    stat -L -c %f -- "$parent/." >/dev/null 2>&1 || return "$READER_UNKNOWN"
+    [ -x "$parent" ] || return "$READER_UNKNOWN"
+    return 1
+}
+
+# file_present <path>: 0 a regular file is there | 1 no regular file is there (absent, or
+# the name is something else) | 2 nobody could say.
+file_present() {
+    local status=0
+    probe_path "$1" || status=$?
+    [ "$status" -ne "$READER_UNKNOWN" ] || return "$READER_UNKNOWN"
+    [ "$status" -eq 0 ] || return 1
+    [ $(( 0x$PROBE_MODE & 0xF000 )) -eq $(( 0x8000 )) ] || return 1
+}
+
+# probe_link_target <path>: 0 and the canonical target on stdout | 1 there is no such
+# link | 2 it is there and cannot be resolved, or nobody could look. `readlink -f`
+# answered "nothing" for both of the last two.
+probe_link_target() {
+    local mode="" parent="" target=""
+    if ! mode="$(stat -c %f -- "$1" 2>/dev/null)"; then       # the LINK, not its target
+        parent="$(dirname -- "$1")"
+        stat -L -c %f -- "$parent/." >/dev/null 2>&1 || return "$READER_UNKNOWN"
+        [ -x "$parent" ] || return "$READER_UNKNOWN"
+        return 1
+    fi
+    case "$mode" in ''|*[!0-9a-fA-F]*) return "$READER_UNKNOWN" ;; esac
+    [ $(( 0x$mode & 0xF000 )) -eq $(( 0xA000 )) ] || return 1   # not a symlink at all
+    target="$(realpath -e -- "$1" 2>/dev/null)" || return "$READER_UNKNOWN"
+    printf '%s\n' "$target"
+}
+
 pid_record() {
     local out="" pid="" kind="" size="" status=0
     # What the path IS, decided before anything opens it: a directory, FIFO, socket or
@@ -471,9 +527,22 @@ scan_arm() {
         [ "$here" != "$resolving" ] || continue
         # `child.pid` is the WRAPPER's (GNU timeout), not the trainer's, so a complete
         # and dead one accounts for nothing: only train.pid names the trainer and only
-        # train.exit says it finished (close review 10, blocker 2).
-        if [ -f "$attempt/launching" ] &&
-           { [ ! -f "$attempt/train.pid" ] || [ ! -f "$attempt/train.exit" ]; }; then
+        # train.exit says it finished (close review 10, blocker 2). Each of the three is
+        # a three-state question: a marker we could not look at closes the arm, because
+        # the alternative is closing our eyes and calling it quiet (close review 14).
+        local marker=0 recorded=0 finished=0
+        file_present "$attempt/launching" || marker=$?
+        file_present "$attempt/train.pid" || recorded=$?
+        file_present "$attempt/train.exit" || finished=$?
+        if [ "$marker" -eq "$READER_UNKNOWN" ] || [ "$recorded" -eq "$READER_UNKNOWN" ] ||
+           [ "$finished" -eq "$READER_UNKNOWN" ]; then
+            SCAN_REASON="liveness unknown: $name has a launching marker, a train.pid or a"\
+" train.exit that cannot be inspected, so whether a trainer of it is accounted for cannot"\
+" be known"
+            return "$READER_UNKNOWN"
+        fi
+        if [ "$marker" -eq 0 ] &&
+           { [ "$recorded" -ne 0 ] || [ "$finished" -ne 0 ]; }; then
             SCAN_REASON="$name has an unresolved launch: a launching marker and no"\
 " finished trainer (train.pid and train.exit), so a trainer of it may be running or may"\
 " have died unrecorded -- child.pid names the timeout wrapper, not the trainer."\
@@ -525,7 +594,7 @@ clear_launching() {  # clear_launching <attempt>: only once the TRAINER is accou
     if ! list_attempts "$(dirname -- "$1")" "$listing"; then rm -f -- "$listing"; return 0; fi
     rm -f -- "$listing"
     registration_complete "$1" || return 0
-    [ -f "$1/train.exit" ] || return 0
+    file_present "$1/train.exit" || return 0   # absent OR unknown: the marker stays
     rm -f -- "$1/launching"
 }
 
@@ -567,7 +636,14 @@ resolve_unregistered() {
              "of this arm is retired on that" >&2
         return "$READER_UNKNOWN"
     fi
-    [ -f "$attempt/launching" ] || {
+    local marker=0
+    file_present "$attempt/launching" || marker=$?
+    if [ "$marker" -eq "$READER_UNKNOWN" ]; then
+        echo "refusing: liveness unknown: $attempt/launching cannot be inspected; a" \
+             "marker nobody can look at is not a marker that is not there" >&2
+        return "$READER_UNKNOWN"
+    fi
+    [ "$marker" -eq 0 ] || {
         echo "refusing: $attempt has no launching marker; nothing is unresolved" >&2
         return 1; }
     # NOT "child.pid is complete": that file holds the `timeout` wrapper's pid, and a
@@ -577,12 +653,25 @@ resolve_unregistered() {
     # never be retired this way is a run that actually finished: a completion receipt,
     # or the published `final`. Everything else is decided by the quiet scan below --
     # nothing of the arm alive -- and by the marker's age.
-    if [ -f "$attempt/completion.json" ]; then
+    local receipt=0 published=0 target=""
+    file_present "$attempt/completion.json" || receipt=$?
+    if [ "$receipt" -eq "$READER_UNKNOWN" ]; then
+        echo "refusing: liveness unknown: $attempt/completion.json cannot be inspected," \
+             "so whether this run finished cannot be known and nothing of it is retired" >&2
+        return "$READER_UNKNOWN"
+    fi
+    if [ "$receipt" -eq 0 ]; then
         echo "refusing: $attempt has a completion receipt; it is a finished run, not an" \
              "unresolved launch" >&2
         return 1
     fi
-    if [ "$(published_target || true)" = "$attempt" ]; then
+    target="$(probe_link_target "$ARM_ROOT/final")" || published=$?
+    if [ "$published" -eq "$READER_UNKNOWN" ]; then
+        echo "refusing: liveness unknown: $ARM_ROOT/final cannot be resolved, so whether" \
+             "this attempt is the published one cannot be known" >&2
+        return "$READER_UNKNOWN"
+    fi
+    if [ "$published" -eq 0 ] && [ "$target" = "$attempt" ]; then
         echo "refusing: $attempt is published as $ARM_ROOT/final; a published attempt is" \
              "never retired as an unresolved launch" >&2
         return 1
@@ -679,24 +768,35 @@ not_interrupted() {
     return 1
 }
 
-# published_target: what `final` resolves to under this arm root, or nothing.
+# published_target: what `final` resolves to under this arm root | 1 there is no
+# `final` | 2 there is one and nobody can say what it publishes. `readlink -f` answered
+# "nothing" for the last two alike (close review 14).
 published_target() {
-    [ -L "$ARM_ROOT/final" ] || return 1
-    readlink -f -- "$ARM_ROOT/final"
+    probe_link_target "$ARM_ROOT/final"
 }
 
 # already_published <canonical>: this attempt is the published one and it completed.
+# 0 yes | 1 no | 2 unknown -- and unknown is never "no".
 already_published() {
-    local target
-    target="$(published_target)" || return 1
-    [ "$target" = "$1" ] && [ -f "$1/completion.json" ]
+    local target="" status=0
+    target="$(published_target)" || status=$?
+    [ "$status" -ne "$READER_UNKNOWN" ] || return "$READER_UNKNOWN"
+    [ "$status" -eq 0 ] || return 1
+    [ "$target" = "$1" ] || return 1
+    file_present "$1/completion.json"
 }
 
 # check_final_conflict <canonical>: a DIFFERENT existing `final` is never replaced by a
 # recovery unless the operator asks for it, and the replaced target is logged first.
 check_final_conflict() {
-    local target
-    target="$(published_target)" || return 0
+    local target="" status=0
+    target="$(published_target)" || status=$?
+    if [ "$status" -eq "$READER_UNKNOWN" ]; then
+        echo "refusing: $ARM_ROOT/final exists and cannot be resolved, so what it" \
+             "publishes is unknown; nothing replaces a publication nobody can read" >&2
+        return "$READER_UNKNOWN"
+    fi
+    [ "$status" -eq 0 ] || return 0
     [ "$target" != "$1" ] || return 0
     if [ "$REPLACE_FINAL" -eq 0 ]; then
         echo "refusing: $ARM_ROOT/final already publishes $target, not $1; pass" \
@@ -712,9 +812,16 @@ check_final_conflict() {
 # completion and `final` untouched -- and the finalizer's own cause stands on stderr.
 # Full mode keeps aborting unconditionally: it launched the attempt it is aborting.
 abort_recovery() {
-    local canonical="$1" log="$2" why=""
-    [ -f "$canonical/completion.json" ] && why="it has completed"
-    [ "$(published_target || true)" != "$canonical" ] || why="it is published as final"
+    local canonical="$1" log="$2" why="" target="" receipt=0 status=0
+    file_present "$canonical/completion.json" || receipt=$?
+    target="$(published_target)" || status=$?
+    if [ "$receipt" -eq "$READER_UNKNOWN" ] || [ "$status" -eq "$READER_UNKNOWN" ]; then
+        echo "refusing: whether $canonical completed or is published cannot be" \
+             "inspected; an attempt nobody can read is not an attempt to abort" >&2
+        return "$READER_UNKNOWN"
+    fi
+    [ "$receipt" -ne 0 ] || why="it has completed"
+    [ "$status" -ne 0 ] || [ "$target" != "$canonical" ] || why="it is published as final"
     if [ -n "$why" ]; then
         say "PRESERVED $canonical ($why); the refusal is this invocation's, not the run's"
         return 0
@@ -950,13 +1057,20 @@ finalize)
     preflight   # recovery is gated by the same reviewed commit, clean tree and pid checks
     check_attempt "$ATTEMPT" || exit 2
     # Everything below uses the canonical directory, never the path as it was typed.
-    if already_published "$CANONICAL_ATTEMPT"; then
+    PUBLISHED=0
+    already_published "$CANONICAL_ATTEMPT" || PUBLISHED=$?
+    if [ "$PUBLISHED" -eq "$READER_UNKNOWN" ]; then
+        echo "refusing: whether $CANONICAL_ATTEMPT is already published cannot be" \
+             "inspected; this recovery decides nothing" >&2
+        exit 2
+    fi
+    if [ "$PUBLISHED" -eq 0 ]; then
         say "SKIP $CANONICAL_ATTEMPT is already published as final and has completed"
         say "ALREADY PUBLISHED $ARM_ROOT/final -> $(basename -- "$CANONICAL_ATTEMPT")"
         exit 0
     fi
     check_final_conflict "$CANONICAL_ATTEMPT" || exit 2
-    [ "$DRY" -eq 0 ] || abort_recovery "$CANONICAL_ATTEMPT" "$LOG"
+    if [ "$DRY" -eq 1 ]; then abort_recovery "$CANONICAL_ATTEMPT" "$LOG" || exit 2; fi
     not_interrupted || exit 2
     if ! finalize "$CANONICAL_ATTEMPT" "$LOG" "$CHILD_EXIT" exp11_train; then
         abort_recovery "$CANONICAL_ATTEMPT" "$LOG"
