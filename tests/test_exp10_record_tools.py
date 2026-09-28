@@ -1206,8 +1206,13 @@ def shim_bin(request):
     twelve fault-injection tests fail for a reason that has nothing to do with the script.
     The shims live in ``/tmp`` (or ``$TMPDIR`` when that is itself usable as a ``PATH``
     entry) instead, and the test is failed loudly rather than silently if even that is not.
+
+    Round-10: ``$TMPDIR`` is made absolute *before* it is inspected.  A ``PATH`` entry has to
+    survive ``run_finish``'s change of directory, and Python 3.8's ``mkdtemp(dir=...)`` keeps
+    a relative directory relative -- so a relative ``$TMPDIR`` passed the separator check and
+    still produced a shim the finish script could not see.
     """
-    base = os.environ.get("TMPDIR") or "/tmp"
+    base = os.path.abspath(os.environ.get("TMPDIR") or "/tmp")
     if os.pathsep in base or any(ch.isspace() for ch in base):
         base = "/tmp"
     bin_dir = tempfile.mkdtemp(prefix="exp10-shim-", dir=base)
