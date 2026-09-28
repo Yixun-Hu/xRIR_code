@@ -2136,7 +2136,8 @@ def test_an_impossible_reader_timeout_is_refused(tmp_path, value):
     status, out, err = launch(
         ['finalize', '--arm', 'H', '--gpu', '1', '--reviewed-commit', COMMIT,
          '--attempt', str(tmp_path), '--log', 'L.log', '--child-exit', '0', '--dry-run'],
-        {'EXP11_READER_TIMEOUT_S': value, 'EXP11_TEST_ROOTS': '1'})
+        {'EXP11_READER_TIMEOUT_S': value, 'EXP11_TEST_ROOTS': '1',
+         'EXP11_PRETRAIN_ROOT': str(tmp_path)})   # never the real roots, whatever happens
     assert status == 2, out
     assert 'EXP11_READER_TIMEOUT_S' in err, err
 
