@@ -14,3 +14,2932 @@ user
 You are the code REVIEWER (OpenAI Codex) for experiment exp_11 `orientation_cue_fairness` of the xRIR repository. CLOSE review 19 of ROUND 2, in the git worktree /home/yixunhu/codespace/xRIR_code_wt on branch `exp11-cue` (read-only; CPU ≤ 4 threads; CUDA_VISIBLE_DEVICES=''; never signal processes you did not start — your own helper subprocesses may be ended through their handles; pytest on selected files with `-p no:cacheprovider --basetemp=/tmp/codex-close19-<name>`, PYTHONPATH = the worktree, writes only under /tmp; remove your basetemps when done — disk is at ≈ 35 GB free and a peer's trainings stop at 20 GB). Your close review 18 (`orientation_cue_fairness_codex_code_round2_close18_review.md`, worktree record) left two P2, both conservative rejections: an inline `Path.resolve()` containment string comparison before the `same_parent` gate; the trainer's default entry deriving the arm from the lexical parent. The Coder added 6 commits on `f2f6943` → `46f0a76` (`git log --oneline f2f6943..46f0a76`, `git diff f2f6943 46f0a76`; report `orientation_cue_fairness_2026-09-28_06:43:58_coder_round2_fix19_opus_report.md`; last production commit `6597474`). Production changes: `tools/exp11_launch.sh` (the embedded Python no longer compares canonical strings; containment is the `same_parent` identity gate alone; `attempt_<UTC>` name + profile checks kept), `tools/exp11_train.py` (default entry: `given_abs = join(cwd, given)`; `canonical = realpath(given_abs)`; `arm = dirname(canonical)`; `lexical_parent = dirname(normpath(given_abs))`; accept iff `samestat(stat(lexical_parent), stat(arm))`, OSError → refuse; explicit `arm_root` must be identity-equal to `arm`). `tools/exp06_launch.sh` and `tools/exp06_finalize.py` byte-identical.
 
 Verify by reading the code and replaying with the real sourced lifecycle, real locks and a registered live stub trainer: (1) P2-1 — no `.resolve()`/string equality between two names remains in the launcher (grep); the identity gate accepts a symlinked root alias and promotes the real attempt; a different directory is refused; your bind-mount spellings (read-only, existing mount) — does the launcher's containment now accept the second spelling with the first as the configured root (or would, if an attempt existed there — reason from the code if you cannot create one); the skip-unless-present bind-mount test; (2) P2-2 — through the DEFAULT trainer call: `attempt_X/sub/..`, `//`, `/./`, trailing slash, `arm_alias/attempt_X` (alias → arm) register; `arm_other/attempt_X -> arm/attempt_X` refuses with no lock in the wrong arm and no sidecar; a missing lexical parent refuses; is the rule sound — can any spelling make `samestat(lexical_parent, arm)` succeed for a wrong arm (a lexical parent that is itself a symlink to the canonical arm while the attempt symlink points into another arm? construct it: `arm_other/attempt_X -> arm/attempt_X` AND `arm_other -> ?` — enumerate and decide), and does `normpath` collapsing ever accept an attempt whose real parent is not the arm; the explicit `arm_root` identity requirement; (3) the withdrawn timeout bound and per-question wording; (4) RED evidence (replay one RED of this cycle) and the report (+38/−21 production; 213 shell / 65 trainer; the bind-mount skip); (5) closure hygiene at `6597474`/`46f0a76`: vs 9f98bbb only exp_06 `summarize_haa` moved (report the digest); the eight exp_11 keys (five moved; report all); sim-eval closures unchanged; frozen files untouched; `BACKBONES_EXP06` unchanged; `tests/test_exp09_sim_eval_closures.py` green; pinned oracles byte-identical; the production tree under `ckpt/exp11/` clean; the retained suite log's first line is the exact HEAD; (6) anything new. State whether round 2 can be CLOSED and `46f0a76` merged (verdict "approve", "approve with changes" listed with file:line, or "request changes" with blockers numbered), and give the exact fill manifest at the merge commit (exp_06 `code.summarize_haa`; the re-filled exp_06 record digest with only that key replaced; exp_11's eight `code.*`, `reused.*`; `artifacts.*` null). Identity header (model, reasoning effort as the invocation metadata states it, sandbox, tree, HEAD, date/time); print the review in full; save nothing.
+codex
+I’ll check the code, replay both fixes through the sourced lifecycle with real locks and a live stub trainer, and audit the closure digests. I’ll keep writes under `/tmp`, limit CPU threads, and print the review without saving it.
+exec
+/bin/bash -lc "pwd && git status --short && git rev-parse HEAD && git log --oneline f2f6943..46f0a76 && rg --files -g 'AGENTS.md' -g '*close18*' -g '*fix19*' -g '*round2*' | head -80" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+/home/yixunhu/codespace/xRIR_code_wt
+?? worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/codex_code_round2_close19_prompt.md
+46f0a76ce3b1fb3ae0fe5445116cf43c06832e87
+46f0a76 exp_11 bookkeeping: fix-19 full-suite result (record only)
+79bea6b exp_11 bookkeeping: Coder fix-19 report, close review 18 and the fix-19 prompt (record only; suite line pending)
+6597474 exp11 fix19 (GREEN): containment is decided once, by identity
+f251525 exp11 fix19 (GREEN): the arm a path names, and the arm its attempt is in
+44656e1 exp11 fix19 (RED): the default entry refuses `attempt_X/sub/..`
+653bc1d exp11 fix19 (RED): a string comparison still stands in front of the identity gate
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/yaw_rotation_degradation_codex_oneoffs_round2_review.md
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/review_prompts/oneoffs_round2_prompt.md
+worklog/worklog_yixun/exp_03_yaw_rotation_degradation_claude/review_prompts/code_round2_prompt.md
+worklog/worklog_yixun/archive_codex_round2a_superseded_2026-09-15/codex_round2a_commits_a950605..edfacd3.patch
+worklog/worklog_yixun/archive_codex_round2a_superseded_2026-09-15/codex_round2a_commits.txt
+worklog/worklog_yixun/archive_codex_round2a_superseded_2026-09-15/codex_round2a_uncommitted.patch
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round2_review.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_fable_code_round2_close_review.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_round2_closeout_full_suite.log
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/review_prompts/plan_round2_prompt.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_15:43:21_coder_round2.log
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_round2_closeout_rung5.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_plan_review_round2.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_codex_code_round2_close_review.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_2026-09-12_16:31:31_coder_round2fix.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_19:41:48_codex_code_round2_close.log
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_2026-09-26_17:32:32_codex_plan_review_round2.log
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_codex_plan_round2_review.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/coder_prompts/round2_prompt.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/coder_prompts/round2_prompt.md
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/coder_prompts/round2_fix_prompt.md
+worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_plan_round2_review.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round2a_close2_review.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_00:57:18_coder_round2a_opus_report.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_05:07:00_coder_round2a_fix4_opus_report.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_07:28:25_coder_round2b_fix_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_16:14:30_coder_round2_fix10_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close17_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close16_review.md
+worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_codex_code_round2_review.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/plan_round2_prompt.md
+worklog/worklog_yixun/exp_10_yaw_pilot_claude/review_prompts/code_round2_close_prompt.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_06:43:58_coder_round2_fix19_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close10_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_14:35:23_coder_round2_fix9_opus_report.md
+worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/record_review_round2_prompt.md
+worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/plan_round2_prompt.md
+worklog/worklog_yixun/exp_07_seen_protocol_claude/review_prompts/code_round2_prompt.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close18_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close3_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_17:57:59_coder_round2_fix11_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close12_review.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round2a_close3_review.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/coder_prompts/round2a_fix_opus_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/coder_prompts/round2a_gate_fix2_opus_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/coder_prompts/round2b_fix_opus_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/coder_prompts/round2a_opus_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/coder_prompts/round2b_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/coder_prompts/round2a_fix3_opus_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/coder_prompts/round2b_opus_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/coder_prompts/round2a_gate_fix_opus_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/coder_prompts/round2a_fix2_opus_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/coder_prompts/round2a_fix4_opus_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/coder_prompts/round2a_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_07:31:17_codex_code_round2b_close_review.log
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-14_20:39:27_codex_plan_review_round2.log
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round2b_review.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round2a_close4_review.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_codex_code_round2a_review.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_02:00:09_coder_round2a_fix_opus_report.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_03:40:08_codex_code_round2a_close2_review.log
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_03:38:50_coder_round2a_fix2_opus_report.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_04:35:51_coder_round2a_fix3_opus_report.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_00:04:38_coder_round2a.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close4_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_21:22:04_coder_round2_fix13_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close14_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close8_review.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_05:09:41_codex_code_round2a_close4_review.log
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_04:38:18_codex_code_round2a_close3_review.log
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_06:16:57_coder_round2b_opus_report.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_08:12:00_coder_round2a_gate_fix2_opus_report.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_02:14:34_codex_code_round2a_close_review.log
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_2026-09-15_07:29:24_coder_round2a_gate_fix_opus_report.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/review_prompts/codex_code_round2b_close_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/review_prompts/codex_code_round2a_close2_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/review_prompts/codex_code_round2a_close3_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/review_prompts/codex_code_round2a_close_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/review_prompts/codex_code_round2b_prompt.md
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/review_prompts/codex_code_round2a_prompt.md
+
+exec
+/bin/bash -lc 'for p in /AGENTS.md /home/AGENTS.md /home/yixunhu/AGENTS.md /home/yixunhu/codespace/AGENTS.md /home/yixunhu/codespace/xRIR_code_wt/AGENTS.md; do if test -f "$p"; then cat "$p"; fi; done; rg --files -g AGENTS.md -g '"'"'!worklog'"' -g '"'!ckpt'"'" in /home/yixunhu/codespace/xRIR_code_wt
+ exited 1 in 0ms:
+exec
+/bin/bash -lc 'git diff --stat f2f6943 46f0a76 && git diff f2f6943 46f0a76 -- tools/exp11_launch.sh tools/exp11_train.py && cat worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_06:43:58_coder_round2_fix19_opus_report.md && cat worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close18_review.md' in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+ tests/test_exp11_shell.py                          |  84 ++++
+ tests/test_exp11_train.py                          |  45 +-
+ tools/exp11_launch.sh                              |  10 +-
+ tools/exp11_train.py                               |  49 ++-
+ .../coder_prompts/round2_fix19_opus_prompt.md      |   9 +
+ ...9-28_06:43:58_coder_round2_fix19_opus_report.md | 184 ++++++++
+ ...ess_2026-09-28_06:44_suite_full_cpu_6597474.log | 208 +++++++++
+ ...ue_fairness_codex_code_round2_close18_review.md | 477 +++++++++++++++++++++
+ .../codex_code_round2_close18_prompt.md            |   3 +
+ 9 files changed, 1046 insertions(+), 23 deletions(-)
+diff --git a/tools/exp11_launch.sh b/tools/exp11_launch.sh
+index e863dc1..a492c5a 100755
+--- a/tools/exp11_launch.sh
++++ b/tools/exp11_launch.sh
+@@ -140,7 +140,7 @@ apply_root_override() {
+ # would leave a dangling or wrong `final`; the directory AND the profile its recorded
+ # arguments select must both be the selected arm's.
+ CHECK_ATTEMPT_PY='
+-import json, sys
++import json, os, sys
+ from pathlib import Path
+ from tools import exp11_recipe
+ attempt, root, arm = sys.argv[1:4]
+@@ -149,10 +149,10 @@ try:
+     # The path that is VALIDATED must be the path that is finalized and promoted, or an
+     # alias (an existing `final`, or a link from outside) would be validated here and
+     # promoted by its own basename - a self-referencing or dangling link under the root.
+-    directory, base = Path(attempt).resolve(), Path(root).resolve()
+-    if directory.parent != base:
+-        raise ValueError("attempt {} is not an attempt of the arm {} root {}".format(
+-            directory, arm, base))
++    # Containment is NOT decided here: two spellings can be one directory (a read-only
++    # bind mount gives identical st_dev/st_ino with unequal canonical strings), and the
++    # caller asks `same_parent` about this very directory (plan A2, close review 18).
++    directory = Path(os.path.realpath(attempt))
+     if not directory.name.startswith("attempt_"):
+         raise ValueError("{} is not an attempt_<UTC> directory".format(directory))
+     args = json.loads((directory / "args.json").read_text())
+diff --git a/tools/exp11_train.py b/tools/exp11_train.py
+index 7639eb8..2a69cf6 100644
+--- a/tools/exp11_train.py
++++ b/tools/exp11_train.py
+@@ -304,12 +304,13 @@ def register_trainer(save_dir, no_save=False, arm_root=None,
+     # canonical attempt -- whose tombstone said it had been retired (close review 15,
+     # blocker 3).
+     given = Path(save_dir)
+-    # `realpath` resolves what it can and leaves the rest: a --no-save diagnostic has no
+-    # run directory at all, and asking for one would refuse every diagnostic.
+-    # In process, with the filesystem's own meaning of `..` and of every symlink on the
+-    # way -- never a string handed over by a subprocess, and never a grammar to validate
+-    # (plan §11 A2). `Path` is built from this result and from nothing else.
+-    directory = Path(os.path.realpath(str(given)))
++    # Absolute, but NOT normalised: what exists is the kernel's question (close reviews
++    # 16-17). `realpath` then resolves what it can and leaves the rest, so a --no-save
++    # diagnostic -- which has no run directory at all -- is still answered. In process,
++    # with the filesystem's own meaning of `..` and of every symlink on the way; never a
++    # string handed over by a subprocess, and never a grammar to validate (plan §11 A2).
++    given_abs = os.path.join(os.getcwd(), str(given))
++    directory = Path(os.path.realpath(given_abs))
+     arm = directory.parent
+     tombstone = arm / (directory.name + '.resolved')
+     if no_save:                       # a diagnostic no scan reads: only a tombstone speaks
+@@ -320,18 +321,34 @@ def register_trainer(save_dir, no_save=False, arm_root=None,
+     if not demand_known(*directory_state(given), path=given, what='the run directory'):
+         refuse('{} does not exist; the launcher creates the attempt and this trainer '
+                'never does'.format(given))
+-    root = Path(arm_root) if arm_root is not None else given.parent
+-    if not demand_known(*directory_state(root), path=root, what='the arm root'):
+-        refuse('{} does not exist; this trainer registers only in the arm whose lock '
+-               'it holds'.format(root))
+-    # Identity, not spelling: device and inode of the two directories (plan §11 A2).
+-    contained, why = exp11_pathprobe.same(arm, root)
++    # The arm this path NAMES -- the parent of the spelling, with `..` collapsed -- must
++    # be the arm the attempt IS IN. Collapsing is safe here and only here: it feeds an
++    # identity comparison, which can never accept a wrong arm, and it is what lets
++    # `arm/attempt_X/sub/..`, `//`, `/./` and a trailing slash register through the
++    # default call while an attempt symlinked into another arm still refuses (close
++    # review 18). Existence is never decided from it.
++    lexical_parent = os.path.dirname(os.path.normpath(given_abs))
++    contained, why = exp11_pathprobe.same(lexical_parent, arm)
+     if contained == exp11_pathprobe.UNKNOWN:
+-        refuse('cannot establish whether {} is an attempt of {} ({})'.format(given, root, why))
++        refuse('cannot establish whether {} is an attempt of {} ({})'
++               .format(given, lexical_parent, why))
+     if contained != exp11_pathprobe.SAME:
+-        refuse('{} is an attempt of {}, not of the {} this trainer was given; the '
+-               'directory, the lock and the tombstone must be of one arm'
+-               .format(given, arm, root))
++        refuse('{} is an attempt of {}, not of the {} it is written as; the directory, '
++               'the lock and the tombstone must be of one arm'
++               .format(given, arm, lexical_parent))
++    if arm_root is not None:                  # a caller that names the arm must name THIS one
++        root = Path(arm_root)
++        if not demand_known(*directory_state(root), path=root, what='the arm root'):
++            refuse('{} does not exist; this trainer registers only in the arm whose lock '
++                   'it holds'.format(root))
++        configured, why = exp11_pathprobe.same(root, arm)
++        if configured == exp11_pathprobe.UNKNOWN:
++            refuse('cannot establish whether {} is an attempt of {} ({})'
++                   .format(given, root, why))
++        if configured != exp11_pathprobe.SAME:
++            refuse('{} is an attempt of {}, not of the {} this trainer was given; the '
++                   'directory, the lock and the tombstone must be of one arm'
++                   .format(given, arm, root))
+     with registration_lock(directory, wait_seconds):
+         # Everything below happens under the lock, so a resolution cannot rename this
+         # directory between the checks and the write. The checks are re-made here: the
+# Coder report — exp_11 `orientation_cue_fairness`, ROUND 2 **FIX CYCLE 19**
+
+**Coder:** Claude Opus 5 (1M context), Claude Code
+**Worktree:** `/home/yixunhu/codespace/xRIR_code_wt`, branch `exp11-cue`, from the reviewed tip `f2f6943`
+**Interpreter:** `/home/yixunhu/miniconda3/envs/xRIR/bin/python`, `PYTHONPATH=<worktree>`, `CUDA_VISIBLE_DEVICES=''` throughout — no GPU
+**Started:** 2026-09-28 06:3x EDT
+**Input:** `orientation_cue_fairness_codex_code_round2_close18_review.md` via `coder_prompts/round2_fix19_opus_prompt.md`
+
+**Signals:** the only processes signalled are helpers these tests started — `sleep` stubs
+and `flock` holders — through their own `Popen` handles. `kill -0` remains a probe.
+
+**Disk:** every suite in this cycle ran with `--basetemp=/tmp/pytest-exp11-<ts>` and that
+directory was removed afterwards; the root filesystem stayed at ≈ 35 GB free throughout.
+
+Both remaining items were **conservative rejections** — the machinery refusing something
+it should accept — so each fix had to be shown not to loosen the gate it sits in.
+
+## Commits
+
+| SHA | Subject |
+|---|---|
+| `653bc1d` | exp11 fix19 (RED): a string comparison still stands in front of the identity gate |
+| `6597474` | exp11 fix19 (GREEN): containment is decided once, by identity |
+| `44656e1` | exp11 fix19 (RED): the default entry refuses `attempt_X/sub/..` |
+| `f251525` | exp11 fix19 (GREEN): the arm a path names, and the arm its attempt is in |
+
+## P2-1 — the attempt check compared two canonical strings
+
+The embedded Python ran
+
+```python
+directory, base = Path(attempt).resolve(), Path(root).resolve()
+if directory.parent != base: ...
+```
+
+**before** the `same_parent` gate the shell asks about the very same directory. Two
+spellings can be one directory — a read-only bind mount gives identical `st_dev`/`st_ino`
+with unequal canonical strings — so that comparison could only ever reject what the gate
+accepts. It is gone: the embedded Python now resolves the directory it must validate,
+finalize and promote, checks the `attempt_<UTC>` name and the recorded profile, and
+leaves containment to the identity gate. `grep` finds no `.resolve()` and no equality
+between two path names anywhere in the launcher.
+
+Because the case itself cannot be built without mounting something, the regressions are:
+a white-box assertion that no canonical string is derived to be compared; the gate
+exercised on both sides (an arm reached through a symlinked root is accepted and promotes
+the real attempt; an attempt of another directory is refused); and a bind-mount check
+that **skips unless** the system already has a read-only mount with two spellings of one
+inode — it creates and mounts nothing, it reads `/proc/self/mountinfo`. On this machine
+it skips.
+
+## P2-2 — the default trainer entry refused `attempt_X/sub/..`
+
+The arm came from `given.parent`, the string, so the last-component `..` spelling named
+an arm that was the attempt itself. Fix 18's regression passed `arm_root` explicitly and
+so never saw it. The rule is now the reviewer's:
+
+```python
+given_abs      = os.path.join(os.getcwd(), given)   # absolute, NOT normalised
+canonical      = os.path.realpath(given_abs)
+arm            = os.path.dirname(canonical)
+lexical_parent = os.path.dirname(os.path.normpath(given_abs))
+accept iff os.path.samestat(os.stat(lexical_parent), os.stat(arm))
+```
+
+Collapsing `..` is safe **there and only there**: it feeds an identity comparison that
+can never accept a wrong arm, and no existence decision is taken from it. An explicit
+`arm_root`, when supplied, must additionally be identity-equal to the arm.
+
+Through the **default** call: `arm/attempt_X/sub/..`, `arm//attempt_X`, `arm/./attempt_X`
+and `arm/attempt_X/` all register; the NAS layout `arm_alias/attempt_X` (the arm is a
+symlink, the attempt inside it real) registers; an attempt symlinked into another arm
+(`arm_other/attempt_X -> arm/attempt_X`) refuses with exit 3, no lock of the wrong arm
+and no sidecar; and a spelling whose lexical parent is not there refuses.
+
+## Line counts
+
+| commit | production | tests |
+|---|---:|---:|
+| `653bc1d` (RED) | — | +84 |
+| `6597474` (GREEN) | `exp11_launch.sh` +5/−5 | — |
+| `44656e1` (RED) | — | +43/−2 |
+| `f251525` (GREEN) | `exp11_train.py` +33/−16 | — |
+| range `f2f6943..HEAD` | **+38 / −21 = 59 changed** | +127/−2 |
+
+Every commit is under 200 changed lines; no exception this cycle.
+
+## Frozen files
+
+`tools/exp06_launch.sh` and `tools/exp06_finalize.py` are byte-identical to `9f98bbb`.
+No `model/*.py`, no `tools/exp06_*` file, no `tools/exp10_*`, no exp_03-pinned file was
+touched. `bash -n` passes on both shells, `py_compile` on every exp_11 module, and
+`git diff --check f2f6943..HEAD` is silent.
+
+## The timeout statement, corrected
+
+The earlier report gave "six base 30 s budgets per fully scanned attempt, ≈ 180 s".
+That is not a bound and it is withdrawn. What is true is the **per-question** bound:
+every reader and probe invocation runs under `timeout --kill-after=5
+"$READER_TIMEOUT_S"` (30 s by default, validated as 1–300), so each individual question
+ends within that budget plus the five-second kill grace. How many questions an
+invocation asks is not fixed — the health check adds four, each attempt contributes its
+pid records and sidecar probes, a resolution adds the receipt, the link and the identity
+questions, and a scan stops at the first live or unresolved attempt — so no single
+figure bounds a scan, and none is claimed.
+
+## Digests
+
+Taken at `6597474`, the cycle's last production commit.
+
+**exp_06** — one key differs from the record re-filled at `9f98bbb`, the only one allowed
+to move:
+
+| key | approved at `9f98bbb` | fix 18 | now |
+|---|---|---|---|
+| `summarize_haa` | `645e74c03e20…` | `85caf08ce7cb…` | `3956692a6ae3…` |
+
+**exp_11** — all eight keys, against fix 18's tip `f2f6943`:
+
+| key | digest | vs `f2f6943` |
+|---|---|---|
+| `train` | `56004f44a2f88625882904ac622c6179c126cfef89333714eca5ff7ccc6fc0a8` | **moved** |
+| `finalize` | `6a747806cdd5a84809c4f2b2529245e4fb0ca9f777ef4b174287dae653bca574` | **moved** |
+| `haa_finetune` | `bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150` | unchanged |
+| `haa_eval` | `f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20` | unchanged |
+| `haa_pipeline_sh` | `3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4` | unchanged |
+| `launch_sh` | `a932e5bfd087394ee467700e803aa78973037be62cfa0ef9a7fd2d92efd5caac` | **moved** |
+| `smoke` | `22f989b7541c90dfca53420bb775a6c82b6927999d0c430943dff475ced03092` | **moved** |
+| `summarize_haa` | `3956692a6ae37d0c7bb59dcc11941f7e186b110e85937d144bf7cdd128d1de0a` | **moved** |
+
+The familiar five: `launch_sh` through its own bytes, the four Python keys through
+`tools/exp11_train.py`. The three HAA keys are untouched; exp_11's approvals record
+remains all-null.
+
+## Test results
+
+Every run CPU-only, with a throwaway `--basetemp` removed afterwards.
+
+| run | result |
+|---|---|
+| every targeted file in one pass — `test_exp11_shell.py` (213), `test_exp11_pathprobe.py`, `test_exp11_pidrecord.py`, `test_exp11_train.py` (65), `test_exp11_lock_holder.py`, the other ten exp_11 files, `test_exp06_summarize_haa.py`, `test_exp09_sim_eval_closures.py` | **673 passed, 1 skipped** (845 s) |
+| full CPU suite, detached, at **`659747480963eb103f43650a4d15dfd24c6d440e`** | **1 failed, 4003 passed, 56 skipped** (3595 s) |
+
+The one skip is the bind-mount check, which runs only where the system already has a
+read-only mount with two spellings of one inode.
+
+The log is `orientation_cue_fairness_2026-09-28_06:44_suite_full_cpu_6597474.log`, whose
+first line is `HEAD 659747480963eb103f43650a4d15dfd24c6d440e` — written by
+`git rev-parse HEAD` at launch. It ran with `--basetemp=/tmp/pytest-exp11-1790592247`,
+which held 5.1 GB and was removed as soon as the run finished; the root filesystem is
+back at 35 GB free. The 56th skip is the new bind-mount check.
+
+The **one** failure is the standing, expected one:
+
+```
+FAILED tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes
+  {'summarize_haa': '3956692a6ae3…'} != {'summarize_haa': '645e74c03e20…'}
+```
+
+— exp_06's approvals record still holds the digest re-filled at `9f98bbb`, and that
+summariser imports `exp11_finalize` and `exp11_profiles`, so its closure moves with every
+exp_11 change. The re-fill belongs at the reviewed merge, as round 1's `9f98bbb` did.
+Neither the exp_04 threading flake of fix 17 nor any other failure appeared.
+
+## Notes for the reviewer
+
+* **Both fixes loosen a gate, so both are shown from both sides.** The attempt check now
+  accepts an arm reached through a symlinked root *and still refuses* an attempt of
+  another directory; the trainer accepts four odd spellings and the NAS alias layout *and
+  still refuses* an attempt symlinked into another arm, with no lock of the wrong arm and
+  no sidecar written.
+* **Where lexical collapsing is now allowed, and why.** Exactly one place: the trainer's
+  `lexical_parent`, which feeds an identity comparison. It can never *accept* a wrong arm
+  — the comparison is `samestat` against the canonical attempt's real parent — and no
+  existence decision is taken from it. Everywhere else, `..` is still the kernel's
+  business.
+* **The bind-mount regression is honest about its limits.** It reads
+  `/proc/self/mountinfo`, mounts and creates nothing, and skips when the system has no
+  read-only mount with two spellings of one inode — which is the case here. The property
+  it would check is instead asserted white-box: no canonical string is derived to be
+  compared.
+* **Unchanged:** `scan_arm` stops at the first live or unresolved attempt; the shell
+  trusts the pinned, health-checked probe module and defends only against a malformed
+  answer.
+**Close review 18 — exp_11 `orientation_cue_fairness`, round 2**
+
+| Identity | Value |
+|---|---|
+| Model | GPT-6 / OpenAI Codex |
+| Reasoning effort | Not exposed in the supplied invocation metadata |
+| Sandbox | Managed read-only; authorized `/tmp` fixtures and owned helper processes |
+| Worktree | `/home/yixunhu/codespace/xRIR_code_wt` |
+| Branch | `exp11-cue` |
+| HEAD | `f2f69433884c33642c6fd9ed98af67908e0d2c5f` |
+| Last production commit | `d420ddb4443cf3212899b01534608b3f39491165` |
+| Completed | 2026-09-28 10:35:03 UTC / 06:35:03 EDT |
+| Execution | UID 1013; CUDA disabled; numeric worker threads limited to one; at most four concurrent workers; pytest cache disabled; temporary fixtures under `/tmp` |
+
+**Verdict: request changes. Round 2 cannot be CLOSED, and `f2f6943` should not be merged yet.**
+
+The close-17 path-payload vulnerabilities are eliminated from the probe protocol. Two P2 gaps remain.
+
+1. **[P2] Recovery still makes an earlier string-based containment decision.**
+
+   [tools/exp11_launch.sh:152](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:152) retains:
+
+   ```python
+   directory, base = Path(attempt).resolve(), Path(root).resolve()
+   if directory.parent != base:
+   ```
+
+   This runs before the new `same_parent` gate. Therefore the audit’s claim that every pathname comparison uses identity is false, and an identity-equivalent bind alias can be rejected.
+
+   Read-only verification against an existing bind mount showed:
+
+   ```text
+   /usr/share/hunspell
+   /var/snap/firefox/common/host-hunspell
+
+   Both: st_dev=66306, st_ino=8257996
+   exp11_pathprobe.same: same
+   Path.resolve() equality: False
+   ```
+
+   `sameparent` for an attempt pathname beneath the second spelling and the first arm root returns `same`; the inline comparison necessarily rejects that layout before reaching the identity gate. I did not create a mount or an attempt in these protected directories.
+
+   **Required:** replace this comparison with an in-process `samestat`, or remove the redundant comparison and retain the later identity gate. Add a regression covering identity-equivalent parents with different resolved spellings. This is a conservative rejection, not a demonstrated unsafe publication.
+
+2. **[P2] The normal trainer entry point rejects the promised terminal `sub/..` spelling.**
+
+   [tools/exp11_train.py:323](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_train.py:323) derives the default arm root from `given.parent`. For:
+
+   ```text
+   arm/attempt_20260928T010203/sub/..
+   ```
+
+   that parent is `arm/attempt_20260928T010203/sub`, although the canonical attempt’s parent is `arm`.
+
+   Independent replay established:
+
+   ```text
+   same(input, canonical attempt): same
+   sameparent(canonical attempt, actual arm): same
+   register_trainer(input): exit 3
+   register_trainer(input, arm_root=actual_arm): succeeds
+   ```
+
+   The default call creates neither `train.pid` nor a lock. Its diagnostic says the attempt belongs to `arm`, rather than the supplied `…/attempt_…/sub`.
+
+   [main:389](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_train.py:389) supplies no `arm_root`. The new [regression:491](/home/yixunhu/codespace/xRIR_code_wt/tests/test_exp11_train.py:491) supplies it explicitly, masking the runtime refusal.
+
+   **Required:** support this spelling through the default entry point and test without that override, while preserving rejection of an attempt symlink into another arm. Simply trusting the canonical parent would remove that existing protection.
+
+The remaining requested checks produced the following results.
+
+| Check | Finding |
+|---|---|
+| Probe verdict grammar | No pathname or link target appears in a successful verdict. `valid_path` and probe canonical-path output are gone. |
+| Identity spellings | Symlinked arm roots, `//`, `/./`, trailing slash and existing `sub/..` resolve to the same identity. Trainer default-entry qualification is blocker 2. |
+| Hard links | Regular-file hard links return `same`. Correct: this asks inode identity. Ordinary attempt directories cannot be hard-linked this way. |
+| Bind mounts | A bind alias normally retains device/inode identity; the existing mount above returns `same`. Different resolved strings do not imply different identity. |
+| Copies | An independent identical-content copy returns `different`. Appropriate: content equality does not establish attempt identity. |
+| Dangling `final` | Unknown; publication, conflict, abort and resolution guards refuse. |
+| Scan exclusion | Uses `same_path` after all three PID checks. A live registered trainer still refuses even when its directory is the resolution target under another spelling. |
+| Scan cost | One additional probe per reached directory when a resolution target is supplied. Ordinary scans without an exclusion target incur no such identity probes. |
+| Attempt naming | Real `%Y%m%dT%H%M%S` timestamps always match the digits/`T` pattern. The pattern is permissive rather than a calendar validator. |
+| `final` as input | The scan never enumerates literal `final`. Recovery canonicalizes it to its attempt target; resolution recognizes that target as published and refuses before mutation. |
+| Trainer tombstone | `arm/attempt/sub/..` finds the tombstone and exits 3 in both save and `--no-save` modes. |
+| Cross-arm alias | Refuses before creating the wrong arm’s registration lock. |
+| `--no-save` | Remains sidecar-free and lock-free; an absent diagnostic directory is allowed when its tombstone check is answerable. |
+| Trainer/launcher lock identity | No case was found where an accepted registration uses a different arm lock from the launcher’s identity decision. A whole-arm bind alias exposes the same lock inode. |
+| Health check | Four path questions: present, absent, same file, different files; plus the two existing PID-reader questions. |
+| Threat model | Both implementations explicitly defend against malformed answers and trust the pinned module’s truthful answers. |
+
+The probe’s `sameparent` means the parent **as written**. Lifecycle callers canonicalize the attempt before asking that question. The trainer’s default-root discrepancy is why blocker 2 matters.
+
+I independently replayed the real sourced lifecycle with real publication locks and a live helper registered through `register_trainer`. The malformed-answer matrix included:
+
+```text
+present
+present 81a4 /forged parent/x
+present 81a4␠
+absent yes
+link /x
+same different
+yes
+```
+
+All seven returned unknown through each of `probe_path`, `file_present`, `probe_link`, `same_path` and `same_parent`. Injecting them separately into `link` and `same` made `publishes`, `already_published`, both replacement settings of `check_final_conflict`, `abort_recovery` and `resolve_unregistered` refuse with status 2. Malformed containment and scan-exclusion answers also refused.
+
+The attempt, publication, log and registered live helper remained intact; no tombstone was written. Only my own helper was terminated through its subprocess handle. Separate dangling-`final` replays returned unknown across all five publication/recovery checks. A quiet resolution target reached through a symlinked root and `//./…/sub/..` was correctly excluded.
+
+Thus close-17’s space-bearing and overlong path payloads cannot authorize decisions through this protocol: there is no path field to accept. Raw-byte checking still rejects extra lines and NUL padding. This does not imply protection against a pinned module deliberately returning a false but grammatically valid `same`.
+
+`publishes` performs two probes, but all production publication mutations occur under the arm’s publication lock, which the caller holds. The trainer never retargets `final`. Cooperative lifecycle participants therefore cannot change `final` between those probes. An unrelated manual filesystem mutation or mount change can bypass advisory locking; that is outside the stated coordination model.
+
+The audit table is otherwise consistent with the implementation: sidecar decisions use the probe; scan exclusion and publication checks use identity; resolution containment uses `same_parent`; `readlink` is informational. Checked enumeration, classification and rename-path operations remain justified. **The inline comparison in blocker 1 prevents accepting the audit as complete.**
+
+**Validation completed: 304 distinct selected tests passed.**
+
+| Selected checks | Result |
+|---|---:|
+| `tests/test_exp11_shell.py` | 209 passed |
+| `tests/test_exp11_pathprobe.py` | 23 passed |
+| `tests/test_exp11_train.py` | 62 passed |
+| `tests/test_exp09_sim_eval_closures.py` | 3 passed |
+| Registry isolation and pinned-output comparisons | 6 passed |
+| Exact exp_04 `[True-promote]` case | 1 passed |
+
+Shell syntax and `git diff --check 2e109d0 f2f6943` also pass. Passing tests do not cover the two findings above.
+
+For RED evidence, I replayed `test_no_verdict_carries_a_path` using the actual module and test from **`2e76a95`**, extracted under `/tmp`. It failed as expected because stdout still contained:
+
+```text
+present 81b4 /tmp/.../launching
+```
+
+The eight-commit history matches the requested range. Production changes total **+211/−151**; test changes total **+169/−43**. The reported file counts—23 pathprobe, 209 shell and 62 trainer tests—are correct.
+
+The retained full-suite log begins exactly:
+
+```text
+HEAD d420ddb4443cf3212899b01534608b3f39491165
+```
+
+It records **1 failed, 3997 passed, 55 skipped**, in 3454.56 seconds. The sole failure is the stale exp_06 `summarize_haa` approval digest. No superseded `87f4e4d` partial suite log remains in the worktree. I inspected the retained full-suite evidence; I did not rerun the entire suite.
+
+Several record corrections are still needed:
+
+- Fix-17’s actual suite HEAD is correctly amended to `fef89ba`; both retained logs expose that SHA.
+- The revised timeout accounting correctly identifies six ordinary per-attempt calls and approximately 105 seconds for three TERM-ignoring sidecar probes. Approximately 180 seconds is six base 30-second budgets, **not a universal bound**: kill grace, health checks, identity probes, additional entries and early refusal affect actual duration. [Launcher:45](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:45) still contains the obsolete approximately-60-second explanation.
+- The [report:122](/home/yixunhu/codespace/xRIR_code_wt/worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_05:30:00_coder_round2_fix18_opus_report.md:122) still puts the exp_04 completion transaction on a background thread. Only the SIGTERM sender runs there; `execute_attempt` runs on the main thread. “Timing-sensitive” is supported; co-tenancy is unproven. The isolated case passes, and exp_04 files are unchanged since `9f98bbb`.
+- The [report:143](/home/yixunhu/codespace/xRIR_code_wt/worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_05:30:00_coder_round2_fix18_opus_report.md:143) incorrectly says every production/test commit is below 200 changed lines. `87f4e4d` totals **252**: 197 production plus 55 test lines.
+- The earlier oversized record-only commits are named, but their quoted counts are wrong in this checkout. `git show --numstat` totals **672** for `a700a24` and **707** for `cad6018`, rather than 624 and 538. This cycle’s record-only commits are **654** lines for `98c82b3` and **248** for `f2f6943`.
+- [Launcher:552](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:552) says “three questions” although the path health check asks four.
+
+Closure hygiene passes for the reviewed candidate:
+
+- All **28 exp_06/exp_11 code digests** agree between `d420ddb` and `f2f6943`.
+- Against the exp_06 record at `9f98bbb`, only `code.summarize_haa` moves; the other 19 keys match.
+- Five exp_11 keys move versus `2e109d0`: `train`, `finalize`, `launch_sh`, `smoke`, `summarize_haa`. The three HAA keys remain unchanged. All eight exact values appear below.
+- Sim-eval closures remain unchanged; all three closure tests pass.
+- The 28 checked existing frozen files match `9f98bbb`; all 12 exp_03 pinned source records match their reviewed hashes.
+- `BACKBONES_EXP06` is unchanged. Pinned exp_06/exp_09 and exp_11 phase-1 output comparisons are byte-identical.
+- `ckpt/exp11` is entirely absent.
+- Git status is unchanged: only the pre-existing untracked close18 prompt. No review or approval record was saved.
+
+The frozen identities are:
+
+```text
+tools/exp06_launch.sh
+d20ca47a0baabeb9ab799688aa61b16ca1b2bb8837d57e46611b28761e9f8a09
+
+tools/exp06_finalize.py
+9237ed6d4529d6af21127b6d54d1b27d7e339782dfd7781557901dbcd3078479
+
+BACKBONES_EXP06
+f9852f8568fb62aad5ec39a955b8e254dad6b5f53bbde71c69b048efa8b3e169
+```
+
+The exact fill manifest below applies to a merge retaining **the reviewed `f2f6943` production bytes**. It is not authorization to fill or merge this rejected candidate; recompute it after correcting the blockers.
+
+In exp_06’s existing approvals record, replace only `code.summarize_haa`:
+
+```text
+old:
+645e74c03e20425e361c2efcab564f2f2b2557c98574df538cd7dd439f8b3619
+
+new:
+85caf08ce7cbf2d479349fbf67825c8cb0feff9be8822d41ef76f08d2f4716d7
+```
+
+Preserving every other byte produces a **3,190-byte** exp_06 record with SHA256:
+
+```text
+c33e2475da5dbf3ad6d2144d9faac28d140a42f20ba8bfae2d8c514b12c870ac
+```
+
+The corresponding complete exp_11 fill is:
+
+```json
+{
+  "artifacts": {
+    "simpor_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    },
+    "simpor_yaw_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    }
+  },
+  "code": {
+    "finalize": "197f5bdeb6753e48cad1075299f2cd4bd86fd4ba1a7cfe7639ee95a39142c213",
+    "haa_eval": "f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20",
+    "haa_finetune": "bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150",
+    "haa_pipeline_sh": "3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4",
+    "launch_sh": "d4dab1e4a51fcac65b5ea6f307c66f43e601939f9670361219000d24b1202d19",
+    "smoke": "c8710213e7eadf16193e8f664e7dd7c60ecee13fd34ad6ffd01f307eac2a83ff",
+    "summarize_haa": "85caf08ce7cbf2d479349fbf67825c8cb0feff9be8822d41ef76f08d2f4716d7",
+    "train": "d712fa89fc7b35f7785f970cb1562d432c5120cfdab55848e32318ddc5c0dc30"
+  },
+  "reused": {
+    "approved_digests_exp04": "2e4521173bb230fc8114116ba0c94b4afd0ccdd3b0b034faaf54516461ee0314",
+    "approved_digests_exp06": "c33e2475da5dbf3ad6d2144d9faac28d140a42f20ba8bfae2d8c514b12c870ac",
+    "legacy_receipt": {
+      "path": "ckpt/exp06/legacy_receipt.json",
+      "sha256": "5a12494657665d336cf5f952c6ef918abbeae44e451f28821790ac5c46232540"
+    }
+  },
+  "schema_version": 1
+}
+```
+
+With sorted keys, two-space indentation and one final newline, that exp_11 record is **1,316 bytes**, SHA256:
+
+```text
+7459520df0d736bb18882da223f7e57df90a7fbc1c58458e4d1100de3804467e
+```
+tokens used
+104,526
+**Close review 18 — exp_11 `orientation_cue_fairness`, round 2**
+
+| Identity | Value |
+|---|---|
+| Model | GPT-6 / OpenAI Codex |
+| Reasoning effort | Not exposed in the supplied invocation metadata |
+| Sandbox | Managed read-only; authorized `/tmp` fixtures and owned helper processes |
+| Worktree | `/home/yixunhu/codespace/xRIR_code_wt` |
+| Branch | `exp11-cue` |
+| HEAD | `f2f69433884c33642c6fd9ed98af67908e0d2c5f` |
+| Last production commit | `d420ddb4443cf3212899b01534608b3f39491165` |
+| Completed | 2026-09-28 10:35:03 UTC / 06:35:03 EDT |
+| Execution | UID 1013; CUDA disabled; numeric worker threads limited to one; at most four concurrent workers; pytest cache disabled; temporary fixtures under `/tmp` |
+
+**Verdict: request changes. Round 2 cannot be CLOSED, and `f2f6943` should not be merged yet.**
+
+The close-17 path-payload vulnerabilities are eliminated from the probe protocol. Two P2 gaps remain.
+
+1. **[P2] Recovery still makes an earlier string-based containment decision.**
+
+   [tools/exp11_launch.sh:152](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:152) retains:
+
+   ```python
+   directory, base = Path(attempt).resolve(), Path(root).resolve()
+   if directory.parent != base:
+   ```
+
+   This runs before the new `same_parent` gate. Therefore the audit’s claim that every pathname comparison uses identity is false, and an identity-equivalent bind alias can be rejected.
+
+   Read-only verification against an existing bind mount showed:
+
+   ```text
+   /usr/share/hunspell
+   /var/snap/firefox/common/host-hunspell
+
+   Both: st_dev=66306, st_ino=8257996
+   exp11_pathprobe.same: same
+   Path.resolve() equality: False
+   ```
+
+   `sameparent` for an attempt pathname beneath the second spelling and the first arm root returns `same`; the inline comparison necessarily rejects that layout before reaching the identity gate. I did not create a mount or an attempt in these protected directories.
+
+   **Required:** replace this comparison with an in-process `samestat`, or remove the redundant comparison and retain the later identity gate. Add a regression covering identity-equivalent parents with different resolved spellings. This is a conservative rejection, not a demonstrated unsafe publication.
+
+2. **[P2] The normal trainer entry point rejects the promised terminal `sub/..` spelling.**
+
+   [tools/exp11_train.py:323](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_train.py:323) derives the default arm root from `given.parent`. For:
+
+   ```text
+   arm/attempt_20260928T010203/sub/..
+   ```
+
+   that parent is `arm/attempt_20260928T010203/sub`, although the canonical attempt’s parent is `arm`.
+
+   Independent replay established:
+
+   ```text
+   same(input, canonical attempt): same
+   sameparent(canonical attempt, actual arm): same
+   register_trainer(input): exit 3
+   register_trainer(input, arm_root=actual_arm): succeeds
+   ```
+
+   The default call creates neither `train.pid` nor a lock. Its diagnostic says the attempt belongs to `arm`, rather than the supplied `…/attempt_…/sub`.
+
+   [main:389](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_train.py:389) supplies no `arm_root`. The new [regression:491](/home/yixunhu/codespace/xRIR_code_wt/tests/test_exp11_train.py:491) supplies it explicitly, masking the runtime refusal.
+
+   **Required:** support this spelling through the default entry point and test without that override, while preserving rejection of an attempt symlink into another arm. Simply trusting the canonical parent would remove that existing protection.
+
+The remaining requested checks produced the following results.
+
+| Check | Finding |
+|---|---|
+| Probe verdict grammar | No pathname or link target appears in a successful verdict. `valid_path` and probe canonical-path output are gone. |
+| Identity spellings | Symlinked arm roots, `//`, `/./`, trailing slash and existing `sub/..` resolve to the same identity. Trainer default-entry qualification is blocker 2. |
+| Hard links | Regular-file hard links return `same`. Correct: this asks inode identity. Ordinary attempt directories cannot be hard-linked this way. |
+| Bind mounts | A bind alias normally retains device/inode identity; the existing mount above returns `same`. Different resolved strings do not imply different identity. |
+| Copies | An independent identical-content copy returns `different`. Appropriate: content equality does not establish attempt identity. |
+| Dangling `final` | Unknown; publication, conflict, abort and resolution guards refuse. |
+| Scan exclusion | Uses `same_path` after all three PID checks. A live registered trainer still refuses even when its directory is the resolution target under another spelling. |
+| Scan cost | One additional probe per reached directory when a resolution target is supplied. Ordinary scans without an exclusion target incur no such identity probes. |
+| Attempt naming | Real `%Y%m%dT%H%M%S` timestamps always match the digits/`T` pattern. The pattern is permissive rather than a calendar validator. |
+| `final` as input | The scan never enumerates literal `final`. Recovery canonicalizes it to its attempt target; resolution recognizes that target as published and refuses before mutation. |
+| Trainer tombstone | `arm/attempt/sub/..` finds the tombstone and exits 3 in both save and `--no-save` modes. |
+| Cross-arm alias | Refuses before creating the wrong arm’s registration lock. |
+| `--no-save` | Remains sidecar-free and lock-free; an absent diagnostic directory is allowed when its tombstone check is answerable. |
+| Trainer/launcher lock identity | No case was found where an accepted registration uses a different arm lock from the launcher’s identity decision. A whole-arm bind alias exposes the same lock inode. |
+| Health check | Four path questions: present, absent, same file, different files; plus the two existing PID-reader questions. |
+| Threat model | Both implementations explicitly defend against malformed answers and trust the pinned module’s truthful answers. |
+
+The probe’s `sameparent` means the parent **as written**. Lifecycle callers canonicalize the attempt before asking that question. The trainer’s default-root discrepancy is why blocker 2 matters.
+
+I independently replayed the real sourced lifecycle with real publication locks and a live helper registered through `register_trainer`. The malformed-answer matrix included:
+
+```text
+present
+present 81a4 /forged parent/x
+present 81a4␠
+absent yes
+link /x
+same different
+yes
+```
+
+All seven returned unknown through each of `probe_path`, `file_present`, `probe_link`, `same_path` and `same_parent`. Injecting them separately into `link` and `same` made `publishes`, `already_published`, both replacement settings of `check_final_conflict`, `abort_recovery` and `resolve_unregistered` refuse with status 2. Malformed containment and scan-exclusion answers also refused.
+
+The attempt, publication, log and registered live helper remained intact; no tombstone was written. Only my own helper was terminated through its subprocess handle. Separate dangling-`final` replays returned unknown across all five publication/recovery checks. A quiet resolution target reached through a symlinked root and `//./…/sub/..` was correctly excluded.
+
+Thus close-17’s space-bearing and overlong path payloads cannot authorize decisions through this protocol: there is no path field to accept. Raw-byte checking still rejects extra lines and NUL padding. This does not imply protection against a pinned module deliberately returning a false but grammatically valid `same`.
+
+`publishes` performs two probes, but all production publication mutations occur under the arm’s publication lock, which the caller holds. The trainer never retargets `final`. Cooperative lifecycle participants therefore cannot change `final` between those probes. An unrelated manual filesystem mutation or mount change can bypass advisory locking; that is outside the stated coordination model.
+
+The audit table is otherwise consistent with the implementation: sidecar decisions use the probe; scan exclusion and publication checks use identity; resolution containment uses `same_parent`; `readlink` is informational. Checked enumeration, classification and rename-path operations remain justified. **The inline comparison in blocker 1 prevents accepting the audit as complete.**
+
+**Validation completed: 304 distinct selected tests passed.**
+
+| Selected checks | Result |
+|---|---:|
+| `tests/test_exp11_shell.py` | 209 passed |
+| `tests/test_exp11_pathprobe.py` | 23 passed |
+| `tests/test_exp11_train.py` | 62 passed |
+| `tests/test_exp09_sim_eval_closures.py` | 3 passed |
+| Registry isolation and pinned-output comparisons | 6 passed |
+| Exact exp_04 `[True-promote]` case | 1 passed |
+
+Shell syntax and `git diff --check 2e109d0 f2f6943` also pass. Passing tests do not cover the two findings above.
+
+For RED evidence, I replayed `test_no_verdict_carries_a_path` using the actual module and test from **`2e76a95`**, extracted under `/tmp`. It failed as expected because stdout still contained:
+
+```text
+present 81b4 /tmp/.../launching
+```
+
+The eight-commit history matches the requested range. Production changes total **+211/−151**; test changes total **+169/−43**. The reported file counts—23 pathprobe, 209 shell and 62 trainer tests—are correct.
+
+The retained full-suite log begins exactly:
+
+```text
+HEAD d420ddb4443cf3212899b01534608b3f39491165
+```
+
+It records **1 failed, 3997 passed, 55 skipped**, in 3454.56 seconds. The sole failure is the stale exp_06 `summarize_haa` approval digest. No superseded `87f4e4d` partial suite log remains in the worktree. I inspected the retained full-suite evidence; I did not rerun the entire suite.
+
+Several record corrections are still needed:
+
+- Fix-17’s actual suite HEAD is correctly amended to `fef89ba`; both retained logs expose that SHA.
+- The revised timeout accounting correctly identifies six ordinary per-attempt calls and approximately 105 seconds for three TERM-ignoring sidecar probes. Approximately 180 seconds is six base 30-second budgets, **not a universal bound**: kill grace, health checks, identity probes, additional entries and early refusal affect actual duration. [Launcher:45](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:45) still contains the obsolete approximately-60-second explanation.
+- The [report:122](/home/yixunhu/codespace/xRIR_code_wt/worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_05:30:00_coder_round2_fix18_opus_report.md:122) still puts the exp_04 completion transaction on a background thread. Only the SIGTERM sender runs there; `execute_attempt` runs on the main thread. “Timing-sensitive” is supported; co-tenancy is unproven. The isolated case passes, and exp_04 files are unchanged since `9f98bbb`.
+- The [report:143](/home/yixunhu/codespace/xRIR_code_wt/worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_05:30:00_coder_round2_fix18_opus_report.md:143) incorrectly says every production/test commit is below 200 changed lines. `87f4e4d` totals **252**: 197 production plus 55 test lines.
+- The earlier oversized record-only commits are named, but their quoted counts are wrong in this checkout. `git show --numstat` totals **672** for `a700a24` and **707** for `cad6018`, rather than 624 and 538. This cycle’s record-only commits are **654** lines for `98c82b3` and **248** for `f2f6943`.
+- [Launcher:552](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:552) says “three questions” although the path health check asks four.
+
+Closure hygiene passes for the reviewed candidate:
+
+- All **28 exp_06/exp_11 code digests** agree between `d420ddb` and `f2f6943`.
+- Against the exp_06 record at `9f98bbb`, only `code.summarize_haa` moves; the other 19 keys match.
+- Five exp_11 keys move versus `2e109d0`: `train`, `finalize`, `launch_sh`, `smoke`, `summarize_haa`. The three HAA keys remain unchanged. All eight exact values appear below.
+- Sim-eval closures remain unchanged; all three closure tests pass.
+- The 28 checked existing frozen files match `9f98bbb`; all 12 exp_03 pinned source records match their reviewed hashes.
+- `BACKBONES_EXP06` is unchanged. Pinned exp_06/exp_09 and exp_11 phase-1 output comparisons are byte-identical.
+- `ckpt/exp11` is entirely absent.
+- Git status is unchanged: only the pre-existing untracked close18 prompt. No review or approval record was saved.
+
+The frozen identities are:
+
+```text
+tools/exp06_launch.sh
+d20ca47a0baabeb9ab799688aa61b16ca1b2bb8837d57e46611b28761e9f8a09
+
+tools/exp06_finalize.py
+9237ed6d4529d6af21127b6d54d1b27d7e339782dfd7781557901dbcd3078479
+
+BACKBONES_EXP06
+f9852f8568fb62aad5ec39a955b8e254dad6b5f53bbde71c69b048efa8b3e169
+```
+
+The exact fill manifest below applies to a merge retaining **the reviewed `f2f6943` production bytes**. It is not authorization to fill or merge this rejected candidate; recompute it after correcting the blockers.
+
+In exp_06’s existing approvals record, replace only `code.summarize_haa`:
+
+```text
+old:
+645e74c03e20425e361c2efcab564f2f2b2557c98574df538cd7dd439f8b3619
+
+new:
+85caf08ce7cbf2d479349fbf67825c8cb0feff9be8822d41ef76f08d2f4716d7
+```
+
+Preserving every other byte produces a **3,190-byte** exp_06 record with SHA256:
+
+```text
+c33e2475da5dbf3ad6d2144d9faac28d140a42f20ba8bfae2d8c514b12c870ac
+```
+
+The corresponding complete exp_11 fill is:
+
+```json
+{
+  "artifacts": {
+    "simpor_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    },
+    "simpor_yaw_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    }
+  },
+  "code": {
+    "finalize": "197f5bdeb6753e48cad1075299f2cd4bd86fd4ba1a7cfe7639ee95a39142c213",
+    "haa_eval": "f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20",
+    "haa_finetune": "bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150",
+    "haa_pipeline_sh": "3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4",
+    "launch_sh": "d4dab1e4a51fcac65b5ea6f307c66f43e601939f9670361219000d24b1202d19",
+    "smoke": "c8710213e7eadf16193e8f664e7dd7c60ecee13fd34ad6ffd01f307eac2a83ff",
+    "summarize_haa": "85caf08ce7cbf2d479349fbf67825c8cb0feff9be8822d41ef76f08d2f4716d7",
+    "train": "d712fa89fc7b35f7785f970cb1562d432c5120cfdab55848e32318ddc5c0dc30"
+  },
+  "reused": {
+    "approved_digests_exp04": "2e4521173bb230fc8114116ba0c94b4afd0ccdd3b0b034faaf54516461ee0314",
+    "approved_digests_exp06": "c33e2475da5dbf3ad6d2144d9faac28d140a42f20ba8bfae2d8c514b12c870ac",
+    "legacy_receipt": {
+      "path": "ckpt/exp06/legacy_receipt.json",
+      "sha256": "5a12494657665d336cf5f952c6ef918abbeae44e451f28821790ac5c46232540"
+    }
+  },
+  "schema_version": 1
+}
+```
+
+With sorted keys, two-space indentation and one final newline, that exp_11 record is **1,316 bytes**, SHA256:
+
+```text
+7459520df0d736bb18882da223f7e57df90a7fbc1c58458e4d1100de3804467e
+```
+
+
+exec
+/bin/bash -lc "nl -ba tools/exp11_train.py | sed -n '1,455p'" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+     1	"""exp_11 pretraining entry point: the pinned trainer's steps on the exp_11 registry.
+     2	
+     3	Plan v3 item 6. Nothing of ``train_xRIR_backbone`` or of ``tools/exp06_train.py`` is
+     4	modified or monkey patched: the pinned ``seed_everything`` / ``seed_worker`` /
+     5	``train_epoch`` / ``test_epoch`` / ``save_checkpoint`` are called, and exp_06's data,
+     6	geometry and held-out inventories are imported as they stand. What this module owns is a
+     7	parser whose ``--backbone`` ranges over ``BACKBONES_EXP11`` and whose ``--yaw-aug``
+     8	accepts 0 **and** 1 under exp_04's constraints (``--save-every 0``, no ``--resume``,
+     9	``epochs * batches < 2**20``), the ``exp11_*`` provenance class, and a
+    10	``registry_sha256`` over exp_11's own registry.
+    11	
+    12	It writes ``provenance.json`` once, before the epoch loop, and never writes
+    13	``completion.json`` -- completion is the external finalizer's decision
+    14	(``tools/exp11_finalize.py``).
+    15	
+    16	    python tools/exp11_train.py --backbone simple_oriented \
+    17	        --save-dir ckpt/exp11/pretrain/xRIR_simpor_8_shot/attempt_<UTC> --num-shot 8 \
+    18	        --max-len 9600 --lr 1e-3 --weight-decay 1e-4 --decay-epochs 3 --lr-gamma 0.1 \
+    19	        --epochs 12 --batch-size 32 --accum-steps 2 --num-workers 12 --seed 0 --tf32 \
+    20	        --log-interval 50 --save-every 500 --epoch-ckpt-every 1 --run-type full
+    21	"""
+    22	import argparse
+    23	import json
+    24	import contextlib
+    25	import fcntl
+    26	import os
+    27	from pathlib import Path
+    28	import sys
+    29	import time
+    30	
+    31	import numpy as np
+    32	import torch
+    33	import torch.optim as optim
+    34	from torch.utils.data import DataLoader, Subset
+    35	
+    36	import train_xRIR_backbone as trainer
+    37	from model.xrir_exp11_registry import BACKBONES_EXP11, build_xrir_exp11, registry_sha256
+    38	from tools import (exp06_train, exp11_pathprobe, exp11_pidrecord, exp11_profiles,
+    39	                   exp11_recipe, provenance)
+    40	from tools.exp05_params import TIERS, count_parameters, tier_of
+    41	from treble_multi_room_dataset.treble_xRIR_dataset import xRIR_Dataset
+    42	from utils.lr_scheduler import ExponentialLR
+    43	
+    44	REPO = Path(__file__).resolve().parents[1]
+    45	ENTRY_MODULE = 'tools.exp11_train'
+    46	RUN_TYPES = ('full', 'smoke', 'probe')
+    47	RESOLVED_EXIT = 3
+    48	DIAGNOSTIC_RUN_TYPES = ('smoke', 'probe')
+    49	ENV_KEYS = exp06_train.ENV_KEYS
+    50	
+    51	
+    52	def build_parser():
+    53	    """The trainer's flags and defaults, on the exp_11 registry, yaw augmentation allowed."""
+    54	    p = argparse.ArgumentParser(description=__doc__,
+    55	                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    56	    p.add_argument('--backbone', choices=sorted(BACKBONES_EXP11), required=True)
+    57	    p.add_argument('--save-dir', required=True)
+    58	    p.add_argument('--num-shot', type=int, default=8)
+    59	    p.add_argument('--max-len', type=int, default=9600)
+    60	    for key, value in TIERS['M'].items():
+    61	        p.add_argument('--vit-' + key.replace('_', '-'), type=int, default=value)
+    62	    p.add_argument('--lr', type=float, default=1e-3)
+    63	    p.add_argument('--weight-decay', type=float, default=1e-4)
+    64	    p.add_argument('--decay-epochs', type=int, default=50)
+    65	    p.add_argument('--lr-gamma', type=float, default=0.1)
+    66	    p.add_argument('--epochs', type=int, default=200)
+    67	    p.add_argument('--batch-size', type=int, default=64)
+    68	    p.add_argument('--accum-steps', type=int, default=1)
+    69	    p.add_argument('--num-workers', type=int, default=16)
+    70	    p.add_argument('--seed', type=int, default=0)
+    71	    p.add_argument('--yaw-aug', type=int, choices=(0, 1), default=0,
+    72	                   help='I_RECIPE trains with per-sample active yaw (exp_04 port)')
+    73	    p.add_argument('--yaw-aug-seed', type=int, default=None)
+    74	    p.add_argument('--yaw-aug-width', type=int, default=512)
+    75	    p.add_argument('--no-save', action='store_true', help='write nothing to save-dir')
+    76	    p.add_argument('--tf32', action='store_true')
+    77	    p.add_argument('--log-interval', type=int, default=20)
+    78	    p.add_argument('--save-every', type=int, default=500)
+    79	    p.add_argument('--epoch-ckpt-every', type=int, default=5)
+    80	    p.add_argument('--resume', default=None)
+    81	    p.add_argument('--max-train-batches', type=int, default=0)
+    82	    p.add_argument('--max-test-batches', type=int, default=0)
+    83	    p.add_argument('--test-subset', type=int, default=0)
+    84	    p.add_argument('--run-type', choices=RUN_TYPES, default='full')
+    85	    p.add_argument('--provenance-out', default=None)
+    86	    p.add_argument('--approved', default=None,
+    87	                   help='approved_digests.json this run is admitted under (required for full)')
+    88	    p.add_argument('--reviewed-commit', default=None)
+    89	    p.add_argument('--exploratory', action='store_true')
+    90	    return p
+    91	
+    92	
+    93	def parse_args(argv=None):
+    94	    """Parse and apply the trainer's post-conditions, including exp_04's saving rules."""
+    95	    parser = build_parser()
+    96	    args = parser.parse_args(argv)
+    97	    args.yaw_aug_seed = args.seed if args.yaw_aug_seed is None else args.yaw_aug_seed
+    98	    if args.yaw_aug and (args.resume is not None or args.save_every != 0):
+    99	        parser.error('--yaw-aug 1 requires --resume to be None and --save-every exactly 0')
+   100	    if args.provenance_out is not None and not args.no_save:
+   101	        parser.error('--provenance-out applies to --no-save runs')
+   102	    if args.exploratory and args.run_type == 'full':
+   103	        parser.error('--exploratory is a diagnostic mode; a full run must match the approvals')
+   104	    return args
+   105	
+   106	
+   107	def check_admission(args):
+   108	    """A confirmatory run always names the approvals it is admitted under."""
+   109	    if args.approved is not None:
+   110	        return args
+   111	    if args.run_type not in DIAGNOSTIC_RUN_TYPES:
+   112	        raise ValueError('a full run must name the approvals it is admitted under (--approved)')
+   113	    if not args.no_save:
+   114	        raise ValueError('a {} run that writes to its save-dir must name its approvals '
+   115	                         '(--approved), or run with --no-save'.format(args.run_type))
+   116	    return args
+   117	
+   118	
+   119	def check_counter(args, batches_per_epoch):
+   120	    """exp_04's bound, refused here as the pinned trainer refuses it."""
+   121	    if args.yaw_aug and args.epochs * batches_per_epoch >= exp11_recipe.YAW_COUNTER_LIMIT:
+   122	        raise ValueError('--yaw-aug 1 requires epochs * train_batches_per_epoch < 2**20')
+   123	
+   124	
+   125	def build_model_exp11(args):
+   126	    """Construct exactly as the trainer's build_model, on the exp_11 registry."""
+   127	    return build_xrir_exp11(args.backbone, args.num_shot,
+   128	                            **{key: getattr(args, 'vit_' + key) for key in TIERS['M']})
+   129	
+   130	
+   131	def prepare_args(args, model, fields, destination):
+   132	    """Record the derived fields and the six ``exp11_*`` provenance keys."""
+   133	    args.param_counts = (count_parameters(model) if model is not None
+   134	                         else dict(exp11_recipe.expected_param_counts(args.backbone)))
+   135	    tier = tier_of(vars(args))
+   136	    if tier != exp11_recipe.TIER:
+   137	        raise ValueError('exp_11 pretrains at tier {}, not {}'.format(exp11_recipe.TIER, tier))
+   138	    args.tier = tier
+   139	    args.exp11_run_type = args.run_type
+   140	    args.exp11_profile = exp11_recipe.select_profile(vars(args))
+   141	    args.exp11_registry_sha256 = fields.get('registry_sha256')
+   142	    args.exp11_source_closure_sha256 = fields.get('source_closures', {}).get(
+   143	        'training', {}).get('sha256')
+   144	    args.exp11_git_head = fields.get('git_state', {}).get('HEAD')
+   145	    args.exp11_provenance_path = destination
+   146	    for flag in ('run_type', 'provenance_out', 'approved', 'reviewed_commit', 'exploratory'):
+   147	        if hasattr(args, flag):
+   148	            delattr(args, flag)
+   149	    return args
+   150	
+   151	
+   152	def approvals_binding(approved):
+   153	    """Bind the approvals file's own bytes, so a mid-run edit is detectable."""
+   154	    if approved is None:
+   155	        return None
+   156	    value, identity = exp11_profiles.load_approved_digests(approved)
+   157	    return {'path': str(approved), 'sha256': identity['sha256'],
+   158	            'schema_version': value['schema_version']}
+   159	
+   160	
+   161	def orchestration_closures(repo, commit):
+   162	    """The launcher shell and the finalizer that decide this run, bound as exp_06 binds them."""
+   163	    launcher, launcher_digest = exp11_profiles.closure_of('launch_sh', repo, commit)
+   164	    finalizer, finalizer_digest = exp11_profiles.closure_of('finalize', repo, commit)
+   165	    return {'launcher': {'files': launcher, 'sha256': launcher_digest},
+   166	            'finalizer': {'entry_module': 'tools.exp11_finalize',
+   167	                          'files': finalizer, 'sha256': finalizer_digest}}
+   168	
+   169	
+   170	def provenance_fields(argv, run_type, identity=None, repo=REPO, approved=None,
+   171	                      reviewed_commit=None, exploratory=False, geometry=None, heldout=None):
+   172	    """Bind the import closure, HEAD, environment, data inventory and argv of one run."""
+   173	    state = provenance.git_state(repo)
+   174	    commit = state['HEAD'] if reviewed_commit is None else reviewed_commit
+   175	    records, digest = provenance.closure_record(
+   176	        provenance.source_closure(ENTRY_MODULE, repo), commit, repo)
+   177	    return dict(repo=str(repo), reviewed_commit=commit, run_type=run_type,
+   178	                data_root=exp06_train.resolve_data_root(),
+   179	                source_closures={'training': {'entry_module': ENTRY_MODULE,
+   180	                                              'files': records, 'sha256': digest}},
+   181	                orchestration_closures=orchestration_closures(repo, commit),
+   182	                code_digests=exp11_profiles.compute_code_digests(
+   183	                    repo, commit, keys=exp11_profiles.TRAINING_KEYS),
+   184	                approvals=approvals_binding(approved), exploratory=bool(exploratory),
+   185	                geometry_identity=geometry, test_wav_identity=heldout,
+   186	                registry_sha256=registry_sha256(), git_state=state,
+   187	                environment=provenance.environment(), train_data_identity=identity,
+   188	                command=list(argv))
+   189	
+   190	
+   191	# The one reader, shared with the launcher, which executes the same module rather than
+   192	# reading pid files in Bash (close review 10, blocker 1).
+   193	pid_record = exp11_pidrecord.pid_record
+   194	
+   195	
+   196	# --- three states for every path this trainer asks about (close reviews 14, 15) ------
+   197	# ``Path.is_file()`` answers False both for a path that is not there and for one it
+   198	# could not inspect: a self-referential ``<attempt>.resolved`` raises ELOOP inside it and
+   199	# comes back "no tombstone", so a trainer whose launch had been retired registered
+   200	# anyway. Nothing here decides on ``is_file``. The classification is the launcher's --
+   201	# literally: the same tools/exp11_pathprobe.py, where the errno is available.
+   202	PRESENT = exp11_pathprobe.PRESENT
+   203	ABSENT = exp11_pathprobe.ABSENT
+   204	UNSURE = exp11_pathprobe.UNKNOWN
+   205	probe_path = exp11_pathprobe.probe
+   206	file_state = exp11_pathprobe.file_state
+   207	directory_state = exp11_pathprobe.directory_state
+   208	
+   209	
+   210	def demand_known(state, detail, path, what):
+   211	    """Refuse rather than act on a path this process could not inspect."""
+   212	    if state == UNSURE:
+   213	        refuse('cannot inspect {} ({}: {}); this trainer does not register on a launch '
+   214	               'it cannot verify'.format(path, what, detail))
+   215	    return state == PRESENT
+   216	
+   217	
+   218	def registration_complete(attempt):
+   219	    """``child.pid`` holds one pid, by that grammar (the launcher's own test)."""
+   220	    return pid_record(Path(attempt) / 'child.pid') is not None
+   221	
+   222	
+   223	REGISTRATION_LOCK = '.registration.lock'
+   224	REGISTRATION_WAIT_S = 60
+   225	
+   226	
+   227	def registration_lock_path(save_dir):
+   228	    """The arm root's registration lock -- one per arm, beside its attempts."""
+   229	    return Path(save_dir).parent / REGISTRATION_LOCK
+   230	
+   231	
+   232	@contextlib.contextmanager
+   233	def registration_lock(save_dir, wait_seconds=REGISTRATION_WAIT_S):
+   234	    """Hold the arm's REGISTRATION lock, or give up after ``wait_seconds``.
+   235	
+   236	    This is not the publication lock: a full-mode launcher holds that one for its
+   237	    child's whole run, so a trainer could never take it. This one is held only across a
+   238	    registration and across a resolution, which is exactly the pair that must not
+   239	    interleave (close review 9, blocker 2). The wait is blocking but bounded, because a
+   240	    resolution is short and a trainer that waits forever is a trainer nothing can end.
+   241	    """
+   242	    path = registration_lock_path(save_dir)
+   243	    try:
+   244	        handle = open(str(path), 'a')
+   245	    except OSError as error:
+   246	        refuse('cannot open the registration lock {}: {}'.format(path, error))
+   247	    try:
+   248	        # A duration belongs on the clock that only goes forward: NTP corrections and
+   249	        # a resuming VM step time.time() in either direction, which would shorten this
+   250	        # bound to nothing or stretch it past any trainer's patience.
+   251	        deadline = time.monotonic() + wait_seconds
+   252	        while True:
+   253	            try:
+   254	                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+   255	                break
+   256	            except OSError:
+   257	                if time.monotonic() >= deadline:
+   258	                    refuse('the registration lock {} was held for more than {}s; '
+   259	                           'another registration or a resolution is in progress'
+   260	                           .format(path, wait_seconds))
+   261	                time.sleep(0.05)
+   262	        yield
+   263	    finally:
+   264	        handle.close()          # closing the descriptor releases the lock
+   265	
+   266	
+   267	def refuse(reason):
+   268	    print('refusing: ' + reason, file=sys.stderr, flush=True)
+   269	    raise SystemExit(RESOLVED_EXIT)
+   270	
+   271	
+   272	def register_trainer(save_dir, no_save=False, arm_root=None,
+   273	                     wait_seconds=REGISTRATION_WAIT_S):
+   274	    """Name this process in its own run directory, after parsing and before admission.
+   275	
+   276	    The launcher's ``child.pid`` is written by the frozen lifecycle only *after* it has
+   277	    forked this process, so a launcher that dies in between leaves a trainer nothing in
+   278	    the arm can see (close review 7, blocker 2). This file is the trainer's own answer.
+   279	
+   280	    It is also where this trainer finds out whether its launch is still a launch. A
+   281	    delayed trainer can wake long after an operator resolved the attempt as unregistered
+   282	    -- the marker's age proved nothing about it -- so the answer has to be in the state
+   283	    of the directory, and this process **fails closed** (close review 8, blocker 2):
+   284	
+   285	    * the save-dir is gone: the launcher creates it, the trainer never does, so its
+   286	      absence means the launch it belongs to is over;
+   287	    * a ``<attempt>.resolved`` tombstone stands beside it: that launch was answered and
+   288	      retired, permanently;
+   289	    * neither ``launching`` nor a complete ``child.pid`` is there: from the fork onward
+   290	      an ordinary launch always carries one of them.
+   291	
+   292	    All of that, and the write itself, happen under the arm's REGISTRATION lock, so a
+   293	    resolution cannot rename the directory between the checks and the write (close
+   294	    review 9, blocker 2); the write is a temp file and one ``os.replace``, so no reader
+   295	    ever sees half a pid.
+   296	
+   297	    ``--no-save`` runs are diagnostics that no scan reads; they write no sidecars, take
+   298	    no lock, and only the tombstone can refuse them.
+   299	    """
+   300	    # The ATTEMPT is canonicalised first, and its arm is its canonical parent: the
+   301	    # validated directory, the registration lock and the tombstone must all be of ONE
+   302	    # arm. Reached through `arm_alias/attempt_X -> arm_canonical/attempt_X`, the alias's
+   303	    # parent had no tombstone and its own lock, while every write landed in the
+   304	    # canonical attempt -- whose tombstone said it had been retired (close review 15,
+   305	    # blocker 3).
+   306	    given = Path(save_dir)
+   307	    # Absolute, but NOT normalised: what exists is the kernel's question (close reviews
+   308	    # 16-17). `realpath` then resolves what it can and leaves the rest, so a --no-save
+   309	    # diagnostic -- which has no run directory at all -- is still answered. In process,
+   310	    # with the filesystem's own meaning of `..` and of every symlink on the way; never a
+   311	    # string handed over by a subprocess, and never a grammar to validate (plan §11 A2).
+   312	    given_abs = os.path.join(os.getcwd(), str(given))
+   313	    directory = Path(os.path.realpath(given_abs))
+   314	    arm = directory.parent
+   315	    tombstone = arm / (directory.name + '.resolved')
+   316	    if no_save:                       # a diagnostic no scan reads: only a tombstone speaks
+   317	        if demand_known(*file_state(tombstone), path=tombstone, what='the tombstone'):
+   318	            refuse('{} was resolved as an unregistered launch and retired; this trainer '
+   319	                   'has nothing to run in'.format(directory))
+   320	        return None
+   321	    if not demand_known(*directory_state(given), path=given, what='the run directory'):
+   322	        refuse('{} does not exist; the launcher creates the attempt and this trainer '
+   323	               'never does'.format(given))
+   324	    # The arm this path NAMES -- the parent of the spelling, with `..` collapsed -- must
+   325	    # be the arm the attempt IS IN. Collapsing is safe here and only here: it feeds an
+   326	    # identity comparison, which can never accept a wrong arm, and it is what lets
+   327	    # `arm/attempt_X/sub/..`, `//`, `/./` and a trailing slash register through the
+   328	    # default call while an attempt symlinked into another arm still refuses (close
+   329	    # review 18). Existence is never decided from it.
+   330	    lexical_parent = os.path.dirname(os.path.normpath(given_abs))
+   331	    contained, why = exp11_pathprobe.same(lexical_parent, arm)
+   332	    if contained == exp11_pathprobe.UNKNOWN:
+   333	        refuse('cannot establish whether {} is an attempt of {} ({})'
+   334	               .format(given, lexical_parent, why))
+   335	    if contained != exp11_pathprobe.SAME:
+   336	        refuse('{} is an attempt of {}, not of the {} it is written as; the directory, '
+   337	               'the lock and the tombstone must be of one arm'
+   338	               .format(given, arm, lexical_parent))
+   339	    if arm_root is not None:                  # a caller that names the arm must name THIS one
+   340	        root = Path(arm_root)
+   341	        if not demand_known(*directory_state(root), path=root, what='the arm root'):
+   342	            refuse('{} does not exist; this trainer registers only in the arm whose lock '
+   343	                   'it holds'.format(root))
+   344	        configured, why = exp11_pathprobe.same(root, arm)
+   345	        if configured == exp11_pathprobe.UNKNOWN:
+   346	            refuse('cannot establish whether {} is an attempt of {} ({})'
+   347	                   .format(given, root, why))
+   348	        if configured != exp11_pathprobe.SAME:
+   349	            refuse('{} is an attempt of {}, not of the {} this trainer was given; the '
+   350	                   'directory, the lock and the tombstone must be of one arm'
+   351	                   .format(given, arm, root))
+   352	    with registration_lock(directory, wait_seconds):
+   353	        # Everything below happens under the lock, so a resolution cannot rename this
+   354	        # directory between the checks and the write. The checks are re-made here: the
+   355	        # directory may have been retired between the canonicalisation and the lock.
+   356	        if not demand_known(*directory_state(directory), path=directory,
+   357	                            what='the run directory'):
+   358	            refuse('{} does not exist; the launcher creates the attempt and this trainer '
+   359	                   'never does'.format(directory))
+   360	        if demand_known(*file_state(tombstone), path=tombstone, what='the tombstone'):
+   361	            refuse('{} was resolved as an unregistered launch and retired; this trainer '
+   362	                   'has nothing to run in'.format(directory))
+   363	        marker = demand_known(*file_state(directory / 'launching'),
+   364	                              path=directory / 'launching', what='the launching marker')
+   365	        if not marker:
+   366	            # The other half of a launch record. Its reader has the same three states,
+   367	            # and "I could not read child.pid" is not "there is no launch here".
+   368	            verdict, detail = exp11_pidrecord.inspect_record(directory / 'child.pid')
+   369	            if verdict == exp11_pidrecord.UNKNOWN:
+   370	                refuse('cannot inspect {}/child.pid ({}); this trainer does not register '
+   371	                       'on a launch it cannot verify'.format(directory, detail))
+   372	            if verdict != exp11_pidrecord.RECORD:
+   373	                refuse('{} carries no launch record -- no launching marker and no '
+   374	                       'complete child.pid -- so no launch of it is in progress'
+   375	                       .format(directory))
+   376	        path = directory / 'train.pid'
+   377	        # Atomic: a reader sees the old file or the whole new one, never a partial pid.
+   378	        temporary = directory / ('train.pid.{}.tmp'.format(os.getpid()))
+   379	        temporary.write_text('{}\n'.format(os.getpid()))
+   380	        os.replace(str(temporary), str(path))
+   381	    return path
+   382	
+   383	
+   384	def exit_code(exit_request):
+   385	    """``raise SystemExit`` carries None, which is status 0, not 1."""
+   386	    code = exit_request.code
+   387	    if code is None:
+   388	        return 0
+   389	    return code if isinstance(code, int) else 1
+   390	
+   391	
+   392	def record_trainer_exit(path, code):
+   393	    """Say how this trainer left, on every path it controls."""
+   394	    if path is None:
+   395	        return
+   396	    try:
+   397	        with open(str(path.parent / 'train.exit'), 'a') as stream:
+   398	            stream.write('train.exit {}\n'.format(code))
+   399	    except OSError:                       # a vanished run directory is not the trainer's
+   400	        pass                              # problem to report; the scan reads the pid file
+   401	
+   402	
+   403	def main(argv=None):
+   404	    """Register, run, and record how it ended -- whatever ends it."""
+   405	    args = parse_args(argv)
+   406	    registration = register_trainer(args.save_dir, no_save=args.no_save)
+   407	    code = 0
+   408	    try:
+   409	        run(list(sys.argv[1:] if argv is None else argv), check_admission(args))
+   410	    except SystemExit as exit_request:
+   411	        code = exit_code(exit_request)
+   412	        raise
+   413	    except BaseException:
+   414	        code = 'exception'
+   415	        raise
+   416	    finally:
+   417	        record_trainer_exit(registration, code)
+   418	
+   419	
+   420	def run(command, args):
+   421	    """The trainer's main, step for step, with the exp_11 registry and provenance."""
+   422	    trainer.seed_everything(args.seed)
+   423	    torch.backends.cuda.matmul.allow_tf32 = args.tf32
+   424	    torch.backends.cudnn.allow_tf32 = args.tf32
+   425	
+   426	    train_dataset = xRIR_Dataset(split='train', max_len=args.max_len, num_shot=args.num_shot)
+   427	    test_dataset = xRIR_Dataset(split='test', max_len=args.max_len, num_shot=args.num_shot)
+   428	    if args.test_subset and args.test_subset < len(test_dataset):
+   429	        idx = np.random.RandomState(args.seed).permutation(len(test_dataset))[: args.test_subset]
+   430	        test_dataset = Subset(test_dataset, sorted(idx.tolist()))
+   431	    print(f'train samples: {len(train_dataset)}  test samples: {len(test_dataset)}', flush=True)
+   432	
+   433	    loader_kwargs = dict(num_workers=args.num_workers, pin_memory=True,
+   434	                         worker_init_fn=trainer.seed_worker,
+   435	                         persistent_workers=args.num_workers > 0)
+   436	    train_loader = DataLoader(train_dataset, shuffle=True, batch_size=args.batch_size,
+   437	                              **loader_kwargs)
+   438	    test_loader = DataLoader(test_dataset, shuffle=False, batch_size=args.batch_size,
+   439	                             **loader_kwargs)
+   440	    args.train_batches_per_epoch = len(train_loader)
+   441	    check_counter(args, args.train_batches_per_epoch)
+   442	    args.env = {key: os.environ.get(key) for key in ENV_KEYS}
+   443	    model = build_model_exp11(args).cuda()
+   444	
+   445	    destination = args.provenance_out if args.no_save else os.path.join(args.save_dir,
+   446	                                                                        'provenance.json')
+   447	    root = exp06_train.resolve_data_root()
+   448	    fields = provenance_fields(
+   449	        command, args.run_type,
+   450	        identity=exp06_train.data_identity(root) if destination else None,
+   451	        geometry=exp06_train.geometry_identity(root) if destination else None,
+   452	        heldout=exp06_train.heldout_wav_identity(root) if destination else None,
+   453	        approved=args.approved, reviewed_commit=args.reviewed_commit,
+   454	        exploratory=args.exploratory)
+   455	    prepare_args(args, model, fields, destination)
+
+exec
+/bin/bash -lc "rg -n 'timeout|same_parent|canonical|CHECK_ATTEMPT|readlink|check_attempt|register|lock|resolve_unregistered' tools/exp11_launch.sh; rg -n 'freeze|frozen|pin|oracle|BACKBONES_EXP06' worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/*plan* tests/test_exp11*.py tests/test_exp06*.py tests/test_exp09*.py | head -100; df -h /tmp; git diff --check f2f6943 46f0a76" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+17:# Publishing one arm is serialised by an `flock` on a per-arm lock FILE. The lock is held
+21:# and no stale-lock concept -- nothing to clear by hand and nothing to get wrong (plan
+39:# individual `rm`s never run (close review 14, nonblocking).
+85:# value goes straight to GNU timeout, where 0 means "no timeout", so an override is
+86:# validated before anything starts and may only TIGHTEN the registered ceiling.
+92:# running with an overflowing value handed to GNU timeout. Six digits is the whole
+138:# check_attempt <attempt> <root> <arm>: recovery may promote only this arm's own attempt.
+142:CHECK_ATTEMPT_PY='
+153:    # bind mount gives identical st_dev/st_ino with unequal canonical strings), and the
+154:    # caller asks `same_parent` about this very directory (plan A2, close review 18).
+166:print("ATTEMPT canonical {}".format(directory))
+169:# check_attempt <attempt>: sets CANONICAL_ATTEMPT to the resolved directory, which is
+171:check_attempt() {
+174:    output="$(CUDA_VISIBLE_DEVICES="" "$PYTHON" -c "$CHECK_ATTEMPT_PY" "$1" "$ARM_ROOT" \
+177:    CANONICAL_ATTEMPT="${output##*ATTEMPT canonical }"
+180:        *) echo "refusing: no canonical attempt was resolved for $1" >&2; return 1 ;;
+194:    same_parent "$CANONICAL_ATTEMPT" "$ARM_ROOT" || status=$?
+270:# The lock is an `flock` on a per-arm FILE, and it is NOT held by this shell: every
+272:# detached training child, and an orphaned sink would keep an arm locked for good. It is
+274:# its parent changes -- so **the lock vanishes within a second of this launcher's exit or
+276:# trainer or the log sink. The attempt is non-blocking: it refuses at once,
+281:hold_arm_lock() {  # hold_arm_lock <mode>
+282:    LOCK_FILE="$ARM_ROOT/.publish.lock"
+284:    # A dry run touches nothing outside the test roots, so the lock is real exactly
+292:    exec {out}< <(exec "$PYTHON" tools/exp11_lock_holder.py "$LOCK_FILE" $$)
+302:        # Not someone else's lock: the holder never reported one. Say which it is.
+303:        echo "refusing: the lock holder for $LOCK_FILE did not start (no verdict);" \
+310:    trap 'drop_arm_lock; rm -rf -- "$EXP11_TEMPDIR"' EXIT
+314:# drop_arm_lock: end our own holder, so the ordinary path releases at once instead of
+320:drop_arm_lock() {
+330:# --- what the lock protects is a quiet arm -------------------------------------------
+331:# The lock says "one publication at a time"; it does not say "no trainer is running".
+332:# That is this scan's job, and it has to run UNDER the lock: a scan taken before
+335:# (close review 7, blocker 1). `kill -0` asks the kernel whether a pid still exists; it
+344:# Bash command substitution drops NUL bytes (close review 10, blocker 1). But a reader
+348:# then retires the attempt of a registered, running trainer. So the reader now answers
+356:# as clean verdicts and retired a live trainer's attempt (close review 12, blocker 2).
+379:    timeout --kill-after=5 "$READER_TIMEOUT_S" \
+467:# same_parent <path> <directory>: the same question about <path>'s parent as written.
+468:same_parent() {
+485:    timeout --kill-after=5 "$READER_TIMEOUT_S" "$PYTHON" -m tools.exp11_pidrecord "$1" \
+490:    # of all -- materialised as a shell variable (close review 13, nonblocking).
+520:# proves nothing; what makes a launch *registered* is a number to look for. Whether that
+535:    timeout --kill-after=5 "$READER_TIMEOUT_S" "$PYTHON" -m tools.exp11_pidrecord "$1" \
+595:# works -- both lock files open, `stat` answers, the holder starts -- while a glob over
+597:# resolution retired the attempt of a registered, running trainer (close review 13). A
+600:    local root="$1" out="$2" canonical=""
+604:    # trainer in it (close review 14, blocker 1). `realpath -e` is checked: a root that
+606:    canonical="$(realpath -e -- "$root" 2>/dev/null)" || return 1
+607:    [ -d "$canonical" ] || return 1
+608:    [ -r "$canonical" ] && [ -x "$canonical" ] || return 1   # listing needs read AND search
+609:    find "$canonical" -mindepth 1 -maxdepth 1 -name 'attempt_*' -print0 > "$out" 2>/dev/null
+663:        # `child.pid` is the WRAPPER's (GNU timeout), not the trainer's, so a complete
+665:        # train.exit says it finished (close review 10, blocker 2). Each of the three is
+683:" have died unrecorded -- child.pid names the timeout wrapper, not the trainer."\
+685:" with --resolve-unregistered $attempt once nothing of the arm is alive and the marker"\
+708:# train.exit. `child.pid` holds the timeout wrapper's pid, so its death says nothing about
+711:# resolves it: a trainer that crashes before registering fails closed, by design.
+720:    # finished. A trainer that crashed before registering leaves the marker standing and
+736:# resolve_unregistered <attempt>: an operator's explicit answer to a marker nothing can
+739:resolve_unregistered() {
+746:    # Identity is the canonical directory, never the spelling: an operator's path may be
+757:    # One canonical spelling is needed to RENAME the directory and to name the tombstone
+765:    # The lock and the scan are this arm's, so the resolution reaches no further -- and
+768:    same_parent "$attempt" "$ARM_ROOT" || contained=$?
+776:             "invocation locked and scanned that arm and no other" >&2
+788:    # answer (close review 12, blocker 1).
+805:    # NOT "child.pid is complete": that file holds the `timeout` wrapper's pid, and a
+806:    # wrapper that died with its trainer unregistered is precisely the state the scan
+807:    # now calls unresolved (close review 10, blocker 2). Refusing on it would leave the
+836:    # The REGISTRATION lock, distinct from the publication lock this invocation already
+837:    # holds: a full-mode launcher holds the publication lock for its child's whole run,
+841:    # (close review 9, blocker 2). The recovery and full-mode scans do not take it: an
+845:    local registration="$root/.registration.lock" reg_fd=""
+848:        echo "refusing: cannot open the registration lock $registration" >&2; return 1; }
+849:    if ! flock -n "$reg_fd"; then
+868:             "registered yet is still possible; wait until it is ${UNRESOLVED_GRACE_S}s" >&2
+872:    say "ABORT $attempt -> ${attempt}_ABORTED_unregistered"
+877:        # record, not a claim (close review 8, blocker 2).
+883:            "unresolved launch, retired under this arm's publication and registration locks: a launching marker older than ${UNRESOLVED_GRACE_S}s, no recorded pid of this arm alive, no completion receipt, and not the published final. A trainer that never registered cannot be seen at all; this tombstone is what refuses it." \
+885:        mv -- "$attempt" "${attempt}_ABORTED_unregistered"
+888:        rm -f -- "${attempt}_ABORTED_unregistered/launching"
+891:    # Precisely what was established, and only that: both locks were held, no recorded
+894:    # that never registered cannot be seen at all -- which is why the tombstone above is
+912:# The lock needs no releasing here: the EXIT trap ends the holder, and if anything went
+940:# already_published <canonical>: this attempt is the published one and it completed.
+950:# check_final_conflict <canonical>: a DIFFERENT existing `final` is never replaced by a
+973:    # Informational only: `readlink` names what is about to be replaced for the operator
+975:    say "REPLACING $ARM_ROOT/final -> $(readlink -- "$ARM_ROOT/final" 2>/dev/null || printf '?')" \
+979:# abort_recovery <canonical> <log>: the abort path of a REFUSED recovery. A malformed
+985:    local canonical="$1" log="$2" why="" receipt=0 status=0
+986:    file_present "$canonical/completion.json" || receipt=$?
+987:    publishes "$canonical" || status=$?
+989:        echo "refusing: whether $canonical completed or is published cannot be" \
+996:        say "PRESERVED $canonical ($why); the refusal is this invocation's, not the run's"
+999:    abort "$canonical" "$log" finalize_refused
+1068:        --resolve-unregistered) RESOLVE_UNREGISTERED="${2:-}"; shift 2 ;;
+1100:    # while this run owns it. The arm-wide scan runs under the lock, never before it.
+1101:    hold_arm_lock full || exit 2
+1110:    child=(timeout --kill-after=60 "$FULL_CEILING_S"
+1221:    hold_arm_lock finalize || exit 2   # alias resolution, validation and publication
+1223:        resolve_unregistered "$RESOLVE_UNREGISTERED" || exit 2
+1226:    require_quiet_arm || exit 2        # arm-wide, under the lock: nothing may be running
+1228:    check_attempt "$ATTEMPT" || exit 2
+1229:    # Everything below uses the canonical directory, never the path as it was typed.
+tests/test_exp11_haa_parity.py:12:2. The source digest of exp_06's ``main`` is pinned, so a change to the old loop fails
+tests/test_exp11_haa_parity.py:75:    """``evaluate(model, loader)``'s signature, returning the pinned sequence."""
+tests/test_exp11_haa_parity.py:157:        'pin before trusting the parity result'.format(digest))
+tests/test_exp11_haa_parity.py:185:def test_the_pinned_helpers_are_the_loops_defaults():
+tests/test_exp11_haa_parity.py:186:    """Production never substitutes anything: the defaults are the pinned functions."""
+tests/test_exp06_heading.py:190:    for mapping in [{}, {'synthetic': 512}, {'synthetic': 1.5}]:
+tests/test_exp06_heading.py:192:            HeadingFrameDataset(['synthetic'], 'test', root=str(room_cache.parent), k_by_room=mapping)
+tests/test_exp09_sim_eval_closures.py:68:    pinned = profiles.code_digest('eval_launch', str(REPO), head)
+tests/test_exp09_sim_eval_closures.py:71:        assert closures['writer_exp06']['sha256'] == pinned, path
+tests/test_exp06_haa_pipeline.py:347:def test_the_real_approvals_gate_pins_arm_gs_initialisation(tmp_path):
+tests/test_exp06_haa_pipeline.py:806:def test_a_flipped_frozen_field_refuses_the_job(finetune_seed, clone, field, value, cause):
+tests/test_exp06_haa_pipeline.py:917:def test_the_real_approvals_gate_pins_the_historical_initialisations(tmp_path):
+tests/test_exp06_haa_pipeline.py:918:    """control_hf and cyl_hf start from exp_01's published weights, pinned by their sha."""
+tests/test_exp06_haa_pipeline.py:938:def test_the_real_approvals_gate_pins_the_yawaug_initialisation(tmp_path):
+tests/test_exp06_haa_pipeline.py:951:    """The reused pin is what admits exp_04's record, so a rewritten one is refused."""
+tests/test_exp09_aug_checkpoint.py:27:    """A complete exp_06 approvals record: only its reused exp_04 pin matters here."""
+tests/test_exp09_aug_checkpoint.py:68:def approvals_pinning(file, digest='the record itself'):
+tests/test_exp09_aug_checkpoint.py:69:    """exp_06 approvals whose reused exp_04 pin is that file -- or something else."""
+tests/test_exp09_aug_checkpoint.py:80:    record = subject.exp04_aug_checkpoint(approvals_pinning(file), file)
+tests/test_exp09_aug_checkpoint.py:82:    assert record['sha256'] == approvals_pinning(file)['reused']['exp04_approved_digests_sha256']
+tests/test_exp09_aug_checkpoint.py:88:    """The reused pin is what makes an unreviewed file unable to name a checkpoint."""
+tests/test_exp09_aug_checkpoint.py:91:        subject.exp04_aug_checkpoint(approvals_pinning(file, digest), file)
+tests/test_exp09_aug_checkpoint.py:100:        subject.exp04_aug_checkpoint(approvals_pinning(file), file)
+tests/test_exp09_aug_checkpoint.py:104:    """The production path: exp_06's approved reused pin admits exp_04's own record."""
+tests/test_exp09_aug_checkpoint.py:107:    record = subject.exp04_aug_checkpoint(approvals_pinning(file), file)
+tests/test_exp09_aug_checkpoint.py:132:    approved = approvals_pinning(file)
+tests/test_exp09_aug_checkpoint.py:143:    approved = approvals_pinning(file)
+tests/test_exp09_aug_checkpoint.py:144:    pin = approved['reused']['exp04_approved_digests_sha256']
+tests/test_exp09_aug_checkpoint.py:145:    monkeypatch.setattr(exp04_profiles, 'load_approved_digests', replacement('a' * 64, pin))
+tests/test_exp09_aug_checkpoint.py:147:    assert record['sha256'] == pin and record['checkpoint']['sha256'] == 'a' * 64
+tests/test_exp11_zeroshot_adapter.py:14:  checkpoint strictly against the **pinned SimpleViT** parameter set and requires the
+tests/test_exp11_zeroshot_adapter.py:52:def test_the_pinned_base_and_adapter_parameter_sets_really_differ():
+tests/test_exp11_zeroshot_adapter.py:99:    both times, so nothing about the base-mode branch may apply to them. (The pinned
+tests/test_exp06_haa.py:1:"""exp_06 HAA entry points: fail-closed headings, pinned-path parity and the records."""
+tests/test_exp06_haa.py:80:def test_shared_flag_defaults_equal_the_pinned_trainer(monkeypatch):
+tests/test_exp06_haa.py:83:    pinned = vars(finetune_haa.parse_args())
+tests/test_exp06_haa.py:86:    assert set(pinned) <= set(mine)
+tests/test_exp06_haa.py:87:    for key, value in pinned.items():
+tests/test_exp06_haa.py:89:    assert set(mine) - set(pinned) == {'root', 'heading_json_dir', 'run_type',
+tests/test_exp06_haa.py:93:                  if action.dest == 'backbone') == [sorted(trainer.BACKBONES_EXP06)]
+tests/test_exp06_haa.py:102:def test_a_pinned_backbone_without_a_heading_is_the_pinned_dataset(cache):
+tests/test_exp06_haa.py:108:    pinned = HAADataset(['hallway'], 'val', root=cache['root'], num_shot=args.num_shot,
+tests/test_exp06_haa.py:110:    assert context.val_dataset.items == pinned.items
+tests/test_exp06_haa.py:111:    for index in range(len(pinned)):
+tests/test_exp06_haa.py:113:                   for left, right in zip(pinned[index], context.val_dataset[index]))
+tests/test_exp06_haa.py:192:    assert type(context.model) is trainer.BACKBONES_EXP06[ORIENTED]
+tests/test_exp06_haa.py:208:def test_eval_shared_flag_defaults_equal_the_pinned_evaluator(monkeypatch):
+tests/test_exp06_haa.py:213:    pinned = vars(eval_haa.parse_args())
+tests/test_exp06_haa.py:216:    assert set(pinned) <= set(mine)
+tests/test_exp06_haa.py:217:    for key, value in pinned.items():
+tests/test_exp06_haa.py:219:    assert set(mine) - set(pinned) == {'root', 'heading_json_dir', 'seed', 'run_type',
+tests/test_exp06_haa.py:232:def test_eval_preserves_the_pinned_item_order_and_reference_draw(cache):
+tests/test_exp06_haa.py:237:    pinned = HAADataset(['hallway'], 'test', root=cache['root'], num_shot=args.num_shot,
+tests/test_exp06_haa.py:239:    assert type(dataset) is HAADataset and dataset.items == pinned.items
+tests/test_exp06_haa.py:241:    for index, (room, idx) in enumerate(pinned.items):
+tests/test_exp06_haa.py:242:        np.testing.assert_array_equal(dataset._pick_refs(room, idx), pinned._pick_refs(room, idx))
+tests/test_exp06_haa.py:243:        assert all(torch.equal(left, right) for left, right in zip(pinned[index], dataset[index]))
+tests/test_exp06_haa.py:273:def test_the_per_query_griffin_lim_seed_is_the_frozen_formula():
+tests/test_exp06_haa.py:325:def test_the_room_summary_is_the_pinned_writers(cache, room):
+tests/test_exp06_train.py:69:    from model.xRIR_cyl_oriented import BACKBONES_EXP06
+tests/test_exp06_train.py:71:    assert backbone.choices == sorted(BACKBONES_EXP06) and backbone.required
+tests/test_exp06_train.py:127:    from model.xRIR_cyl_oriented import BACKBONES_EXP06
+tests/test_exp06_train.py:128:    mapping = {name: cls.__module__ + '.' + cls.__qualname__ for name, cls in BACKBONES_EXP06.items()}
+tests/test_exp06_train.py:129:    assert set(mapping) == {'simple', 'cylindrical', 'cylindrical_oriented'}
+tests/test_exp06_train.py:130:    expected = hashlib.sha256(json.dumps(mapping, sort_keys=True).encode()).hexdigest()
+tests/test_exp06_train.py:177:def test_main_composes_the_pinned_trainer_and_never_completes_a_run():
+tests/test_exp11_train.py:1:"""exp_11's pretraining entry point: the pinned trainer's steps on the exp_11 registry.
+tests/test_exp11_train.py:3:``train_xRIR_backbone`` and ``tools/exp06_train.py`` are frozen; this module owns a
+tests/test_exp11_train.py:123:# The launcher records `child.pid` only after the frozen lifecycle has already forked
+tests/test_exp11_train.py:338:        def jumping():
+tests/test_exp11_train.py:342:        monkeypatch.setattr(exp11_train.time, 'monotonic', jumping)
+tests/test_exp11_train.py:364:def looping_tombstone(attempt):
+tests/test_exp11_train.py:373:    looping_tombstone(attempt)
+tests/test_exp11_train.py:383:    looping_tombstone(attempt)
+tests/test_exp11_train.py:465:    Resolving the head and keeping the tail called the arm `arm/attempt_X` and looked
+tests/test_exp06_summarize_haa.py:142:def test_the_registered_constants_are_frozen():
+tests/test_exp06_summarize_haa.py:351:# --- the arm's execution identities and the frozen protocol -------------------------------
+tests/test_exp06_summarize_haa.py:405:def test_the_frozen_evaluation_protocol_is_the_one_exp02_registered():
+tests/test_exp06_summarize_haa.py:1236:def test_the_experiments_freeze_their_arms_contrasts_and_outputs():
+tests/test_exp06_summarize_haa.py:1237:    """Two frozen configurations: exp_06's is exactly what it published."""
+tests/test_exp06_summarize_haa.py:1358:    """expected_inits resolves E through 6.4's reused pin and binds that record."""
+tests/test_exp11_summarize_haa.py:4:one arm and a frozen configuration to the very module exp_06 and exp_09 publish through,
+tests/test_exp11_summarize_haa.py:85:def test_a_forged_exp04_pin_refuses_arm_g():
+tests/test_exp11_summarize_haa.py:186:    """Cancellation can give a zero-width interval; the frozen helper refuses it, and the
+tests/test_exp11_summarize_haa.py:229:    """`paired_intervals(g - e, d - a, ...)` through the frozen bootstrap -- never two
+tests/test_exp11_summarize_haa.py:526:# --- the frozen exp_11 configuration and its phase-1 tables ------------------------------
+tests/test_exp11_summarize_haa.py:529:def test_the_experiments_freeze_exp11s_phase_one():
+tests/test_exp11_summarize_haa.py:681:def oracle(tmp_path_factory):
+tests/test_exp11_summarize_haa.py:682:    """The summariser as it stood BEFORE exp_11 touched it, pinned to a commit.
+tests/test_exp11_summarize_haa.py:684:    Loading the oracle from `main` would compare the implementation with itself once this
+tests/test_exp11_summarize_haa.py:685:    branch merges, so the comparison is pinned to the base commit instead.
+tests/test_exp11_summarize_haa.py:693:    path = tmp_path_factory.mktemp('oracle') / 'base_summarize_haa.py'
+tests/test_exp11_summarize_haa.py:704:        arms, oracle, experiment, exploratory):
+tests/test_exp11_summarize_haa.py:710:    selected = {name: arms[name] for name in oracle.EXPERIMENTS[experiment]['arms']}
+tests/test_exp11_summarize_haa.py:711:    before, after = oracle.analyse(selected, **settings), subject.analyse(selected,
+tests/test_exp11_summarize_haa.py:715:    assert subject.render(after) == oracle.render(before), experiment
+tests/test_exp11_summarize_haa.py:720:def test_the_pinned_oracle_really_predates_this_round(oracle):
+tests/test_exp11_summarize_haa.py:721:    """It must be the module without arm G, or it is not an oracle at all."""
+tests/test_exp11_summarize_haa.py:722:    assert 'yawaug_hf' not in oracle.ARMS and 'exp11' not in oracle.EXPERIMENTS
+tests/test_exp11_summarize_haa.py:723:    assert not hasattr(oracle, 'decision_fields') and not hasattr(oracle, 'exp11_cell')
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/nvme0n1p2  3.7T  3.5T   35G 100% /
+
+exec
+/bin/bash -lc "nl -ba tools/exp11_launch.sh | sed -n '1,230p'; nl -ba tools/exp11_pathprobe.py | sed -n '1,280p'; git diff f2f6943 46f0a76 -- tests/test_exp11_shell.py tests/test_exp11_train.py" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+     1	#!/usr/bin/env bash
+     2	# exp_11 launcher (plan v3 items 6 and 12). Certified invocation for a confirmatory run:
+     3	#   nohup setsid tools/exp11_launch.sh full --arm H --gpu 1 --reviewed-commit <sha> \
+     4	#       > <launcher.log> 2>&1 &
+     5	# Recovery after a crashed launcher (the child already exited):
+     6	#   tools/exp11_launch.sh finalize --arm H --gpu 1 --reviewed-commit <sha> \
+     7	#       --attempt <dir> --log <child.log> --child-exit <code>
+     8	# --dry-run prints every command and path (timestamps as <UTC>) and executes nothing.
+     9	#
+    10	# The child lifecycle -- exclusive directory, one drained pipe, the end marker, the exit
+    11	# receipt -- is tools/exp06_launch.sh's and is sourced here as a library; it is shared
+    12	# evidence, not an exp_11 decision, and forking it would fork the very bytes closed_log
+    13	# re-validates. Both files are bound by exp_11's `launch_sh` approvals key. What this
+    14	# script overrides is everything that names an experiment: the finalizer it calls
+    15	# (tools/exp11_finalize.py), the approvals, the attempt roots, the record and the arms.
+    16	#
+    17	# Publishing one arm is serialised by an `flock` on a per-arm lock FILE. The lock is held
+    18	# by a holder process leased to this launcher's life, never on a descriptor of the
+    19	# launcher's own: **it vanishes within ~1 s of the launcher's exit or death and is never
+    20	# inherited by the trainer or the log sink**. There is no cleanup code, no owner record
+    21	# and no stale-lock concept -- nothing to clear by hand and nothing to get wrong (plan
+    22	# section 11 amendment A1, close review 6).
+    23	#
+    24	# Whether anything of an arm is RUNNING is decided from its pid files, and one module
+    25	# reads those: tools/exp11_pidrecord.py, which answers `record <pid>` or `norecord` and
+    26	# is checked against two known files before every scan and every resolution. Anything
+    27	# else it says or does is "unknown", and unknown is not an answer: **a broken reader
+    28	# closes the arm to every automated decision; it never opens it** (close review 11).
+    29	#
+    30	# EXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh defines the functions and returns, so
+    31	# the pipeline can reuse them without a mode.
+    32	set -euo pipefail
+    33	cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+    34	EXP06_LAUNCH_LIB=1 source tools/exp06_launch.sh
+    35	export PYTHONPATH="$PWD"
+    36	
+    37	# Every listing and every verdict this invocation writes lives in one directory, so the
+    38	# EXIT trap can take all of them at once -- including on the abrupt paths, where the
+    39	# individual `rm`s never run (close review 14, nonblocking).
+    40	EXP11_TEMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/exp11_launch.XXXXXX")" || {
+    41	    echo "refusing: no temporary directory could be created for this invocation" >&2
+    42	    exit 2; }
+    43	trap 'rm -rf -- "$EXP11_TEMPDIR"' EXIT
+    44	
+    45	# How long the pid reader or the path probe may take to answer ONE question. An answer
+    46	# that never comes is not an answer; the launcher does not wait for it forever, and it
+    47	# escalates to KILL five seconds after the TERM. The bound is per question: a scan asks
+    48	# several in sequence, so its own worst case is a small multiple of this (the marker,
+    49	# train.pid and train.exit of one attempt are three probes, ~60 s together at the default
+    50	# with two of them hanging). The value is validated -- a bound that is 0, negative,
+    51	# absurdly large or not a number is no bound at all.
+    52	READER_TIMEOUT_S="${EXP11_READER_TIMEOUT_S-30}"   # set-but-empty is refused below
+    53	# The DECIMAL STRING is bounded before any arithmetic: bash errors on a 36-digit
+    54	# comparison, and an errored test is a false one -- which read as "in range" (close
+    55	# review 16). At most three digits, no leading zero, so the `-gt` below cannot overflow.
+    56	case "$READER_TIMEOUT_S" in
+    57	    [1-9]|[1-9][0-9]|[1-9][0-9][0-9]) ;;
+    58	    *)
+    59	        echo "refusing: EXP11_READER_TIMEOUT_S must be a whole number of seconds" \
+    60	             "between 1 and 300, written in decimal; got '$READER_TIMEOUT_S'" >&2
+    61	        exit 2 ;;
+    62	esac
+    63	if [ "$READER_TIMEOUT_S" -gt 300 ]; then
+    64	    echo "refusing: EXP11_READER_TIMEOUT_S must be at most 300 seconds; got" \
+    65	         "'$READER_TIMEOUT_S'" >&2
+    66	    exit 2
+    67	fi
+    68	
+    69	RECORD=worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude
+    70	APPROVED_DEFAULT="$RECORD/orientation_cue_fairness_results_assets/approved_digests.json"
+    71	SMOKE_DIR=ckpt/exp11/_smoke
+    72	# The pretraining roots. EXP11_PRETRAIN_ROOT exists for the dry-run tests alone: it moves
+    73	# the attempt roots AND the roots preflight scans for live pid files, so a real launch may
+    74	# never take it. It is honoured only with EXP11_TEST_ROOTS=1 *and* --dry-run, and is
+    75	# refused outright otherwise (see apply_root_override below).
+    76	PRETRAIN_ROOT=ckpt/exp11/pretrain
+    77	SIMPOR_ROOT="$PRETRAIN_ROOT/xRIR_simpor_8_shot"          # arm H
+    78	SIMPOR_YAW_ROOT="$PRETRAIN_ROOT/xRIR_simpor_yawaug_8_shot"   # arm I
+    79	HEADING_DIR="${EXP06_HEADING_DIR:-ckpt/exp06/heading}"
+    80	SMOKE_FLAGS="--epochs 1 --max-train-batches 3 --max-test-batches 2 --batch-size 4 --num-workers 4 --no-save"
+    81	SMOKE_ALARM_S="${EXP11_SMOKE_ALARM_S:-300}"
+    82	SMOKE_MAX_GB="${EXP11_SMOKE_MAX_GB:-6}"
+    83	# Plan section 7 reserves 36 h per pretraining; the child runs under that hard ceiling, so
+    84	# a stalled attempt fails and is aborted instead of holding the card indefinitely. The
+    85	# value goes straight to GNU timeout, where 0 means "no timeout", so an override is
+    86	# validated before anything starts and may only TIGHTEN the registered ceiling.
+    87	FULL_CEILING_MAX=129600
+    88	FULL_CEILING_S="${EXP11_FULL_CEILING_S-$FULL_CEILING_MAX}"
+    89	
+    90	# The value is validated as a BOUNDED DECIMAL STRING before any arithmetic: bash's
+    91	# integer comparisons error out above 2**63-1, which left the `if` false and the launch
+    92	# running with an overflowing value handed to GNU timeout. Six digits is the whole
+    93	# contract (129600 has six), so the numeric comparison below can never be out of range;
+    94	# leading zeros are refused with everything else that is not a plain decimal.
+    95	check_ceiling() {
+    96	    local why="must be a plain decimal of at most 6 digits in (0, $FULL_CEILING_MAX]"
+    97	    case "$FULL_CEILING_S" in
+    98	        ''|*[!0-9]*|0*|???????*)
+    99	            echo "refusing: EXP11_FULL_CEILING_S '$FULL_CEILING_S' $why" >&2; return 1 ;;
+   100	    esac
+   101	    if [ "$FULL_CEILING_S" -le 0 ] || [ "$FULL_CEILING_S" -gt "$FULL_CEILING_MAX" ]; then
+   102	        echo "refusing: EXP11_FULL_CEILING_S $FULL_CEILING_S $why;" \
+   103	             "an override may only tighten the 36 h ceiling" >&2
+   104	        return 1
+   105	    fi
+   106	}
+   107	
+   108	# apply_reader_override: EXP11_PYTHON lets a regression break the pid reader the way a
+   109	# broken environment would -- a missing interpreter, an unimportable module -- so the
+   110	# fail-closed paths can be exercised against this file rather than a copy of it. Like
+   111	# EXP11_PRETRAIN_ROOT it is a dry-run test affordance and is refused outright otherwise:
+   112	# a real launch decides liveness with the interpreter the pinned library names, and no
+   113	# invocation may swap the interpreter that also finalizes, publishes and trains.
+   114	apply_reader_override() {
+   115	    [ -n "${EXP11_PYTHON:-}" ] || return 0
+   116	    if [ "${EXP11_TEST_ROOTS:-0}" != 1 ] || [ "$DRY" -ne 1 ]; then
+   117	        echo "refusing: EXP11_PYTHON replaces the interpreter that reads every pid file," \
+   118	             "so it is honoured only with EXP11_TEST_ROOTS=1 and --dry-run" >&2
+   119	        return 1
+   120	    fi
+   121	    PYTHON="$EXP11_PYTHON"
+   122	}
+   123	
+   124	# apply_root_override: EXP11_PRETRAIN_ROOT is a dry-run test affordance and nothing else.
+   125	apply_root_override() {
+   126	    [ -n "${EXP11_PRETRAIN_ROOT:-}" ] || return 0
+   127	    if [ "${EXP11_TEST_ROOTS:-0}" != 1 ] || [ "$DRY" -ne 1 ]; then
+   128	        echo "refusing: EXP11_PRETRAIN_ROOT moves the attempt roots and the roots" \
+   129	             "preflight scans, so it is honoured only with EXP11_TEST_ROOTS=1 and" \
+   130	             "--dry-run" >&2
+   131	        return 1
+   132	    fi
+   133	    PRETRAIN_ROOT="$EXP11_PRETRAIN_ROOT"
+   134	    SIMPOR_ROOT="$PRETRAIN_ROOT/xRIR_simpor_8_shot"
+   135	    SIMPOR_YAW_ROOT="$PRETRAIN_ROOT/xRIR_simpor_yawaug_8_shot"
+   136	}
+   137	
+   138	# check_attempt <attempt> <root> <arm>: recovery may promote only this arm's own attempt.
+   139	# The basename is linked under the root --arm selects, so an attempt of the other arm
+   140	# would leave a dangling or wrong `final`; the directory AND the profile its recorded
+   141	# arguments select must both be the selected arm's.
+   142	CHECK_ATTEMPT_PY='
+   143	import json, os, sys
+   144	from pathlib import Path
+   145	from tools import exp11_recipe
+   146	attempt, root, arm = sys.argv[1:4]
+   147	expected = {"H": "H_RECIPE", "I": "I_RECIPE"}[arm]
+   148	try:
+   149	    # The path that is VALIDATED must be the path that is finalized and promoted, or an
+   150	    # alias (an existing `final`, or a link from outside) would be validated here and
+   151	    # promoted by its own basename - a self-referencing or dangling link under the root.
+   152	    # Containment is NOT decided here: two spellings can be one directory (a read-only
+   153	    # bind mount gives identical st_dev/st_ino with unequal canonical strings), and the
+   154	    # caller asks `same_parent` about this very directory (plan A2, close review 18).
+   155	    directory = Path(os.path.realpath(attempt))
+   156	    if not directory.name.startswith("attempt_"):
+   157	        raise ValueError("{} is not an attempt_<UTC> directory".format(directory))
+   158	    args = json.loads((directory / "args.json").read_text())
+   159	    profile = exp11_recipe.select_profile(args)
+   160	    if profile != expected:
+   161	        raise ValueError("attempt {} recorded the profile {}, not the {} of arm {}".format(
+   162	            directory, profile, expected, arm))
+   163	except (OSError, ValueError, KeyError) as error:
+   164	    raise SystemExit("refusing: " + str(error))
+   165	print("ATTEMPT ok {} arm={} profile={}".format(attempt, arm, expected))
+   166	print("ATTEMPT canonical {}".format(directory))
+   167	'
+   168	
+   169	# check_attempt <attempt>: sets CANONICAL_ATTEMPT to the resolved directory, which is
+   170	# what finalization and promotion then use.
+   171	check_attempt() {
+   172	    local output name="" status=0
+   173	    say "ATTEMPTCHECK $1 arm=$ARM root=$ARM_ROOT"
+   174	    output="$(CUDA_VISIBLE_DEVICES="" "$PYTHON" -c "$CHECK_ATTEMPT_PY" "$1" "$ARM_ROOT" \
+   175	              "$ARM")" || return 1
+   176	    printf '%s\n' "$output"
+   177	    CANONICAL_ATTEMPT="${output##*ATTEMPT canonical }"
+   178	    case "$CANONICAL_ATTEMPT" in
+   179	        /*) ;;
+   180	        *) echo "refusing: no canonical attempt was resolved for $1" >&2; return 1 ;;
+   181	    esac
+   182	    # The name, from the slash-stripped basename, and the containment as an IDENTITY
+   183	    # question -- not as a prefix of two strings (plan §11 A2). The directory that was
+   184	    # validated above is the one asked about here, and the one finalized and promoted.
+   185	    name="${CANONICAL_ATTEMPT%/}"
+   186	    name="${name##*/}"
+   187	    case "$name" in
+   188	        attempt_*) case "${name#attempt_}" in ''|*[!0-9T]*)
+   189	            echo "refusing: $name is not an attempt_<UTC> directory of this arm" >&2
+   190	            return 1 ;; esac ;;
+   191	        *) echo "refusing: $name is not an attempt_<UTC> directory of this arm" >&2
+   192	           return 1 ;;
+   193	    esac
+   194	    same_parent "$CANONICAL_ATTEMPT" "$ARM_ROOT" || status=$?
+   195	    if [ "$status" -eq "$READER_UNKNOWN" ]; then
+   196	        echo "refusing: whether $CANONICAL_ATTEMPT is an attempt of $ARM_ROOT cannot be" \
+   197	             "established" >&2
+   198	        return 1
+   199	    fi
+   200	    if [ "$status" -ne 0 ]; then
+   201	        echo "refusing: $CANONICAL_ATTEMPT is not an attempt of $ARM_ROOT" >&2
+   202	        return 1
+   203	    fi
+   204	}
+   205	ARM=""
+   206	ARM_BACKBONE=simple_oriented
+   207	ARM_YAW=0
+   208	ARM_SAVE_EVERY=500
+   209	
+   210	usage() {
+   211	    echo "usage: $0 <smoke|probe|full|finalize> --arm <H|I> --gpu <g> --reviewed-commit <sha40>" >&2
+   212	    echo "       [--attempt-root <dir>] [--approved <json>] [--exploratory]" >&2
+   213	    echo "       [--attempt <dir> --log <path> --child-exit <n>] [--dry-run]" >&2
+   214	    echo "       finalize also takes [--replace-final]" >&2
+   215	    exit 2
+   216	}
+   217	
+   218	# arm_of <H|I>: the attempt root, augmentation and saving cadence of one pretraining arm.
+   219	# H is exp_01's recipe (save_every 500); I is exp_04's, whose constraints the trainer
+   220	# re-applies (--save-every 0 and no --resume).
+   221	arm_of() { case "$1" in
+   222	  H) ARM_ROOT="$SIMPOR_ROOT"; ARM_YAW=0; ARM_SAVE_EVERY=500;;
+   223	  I) ARM_ROOT="$SIMPOR_YAW_ROOT"; ARM_YAW=1; ARM_SAVE_EVERY=0;;
+   224	  *) echo "refusing: unknown arm $1 (H or I)" >&2; return 1;; esac
+   225	  ARM_BACKBONE=simple_oriented; }
+   226	
+   227	# Every gate before a child starts, through exp_11's own finalizer: HEAD at the reviewed
+   228	# commit, a tree clean outside worklog/, no live launch.pid or child.pid under either
+   229	# attempt root or the smoke tree, exp_11's approvals, and -- for probe and full -- a card
+   230	# with no compute apps at all.
+     1	"""Is this path there? One errno-aware answer, for the shell and for the trainer.
+     2	
+     3	`test -e` and `stat` in bash carry no errno. ENAMETOOLONG, EIO, an ACL that hides a name
+     4	and a plain "no such file" all come back the same way, and the launcher read that as a
+     5	confirmed **absence** whenever the parent directory looked fine (close review 15). An
+     6	absent marker leaves an arm quiet, an absent receipt retires a finished run, an absent
+     7	`final` is replaced. So the classification lives here, in the one language where the
+     8	errno is available, and the shell asks this module the way it asks the pid reader.
+     9	
+    10	**The CLI answers, or it does not answer at all.** One line on stdout, exit 0, and
+    11	**no path ever crosses** (plan §11 amendment A2):
+    12	
+    13	    probe <path>          present <mode-hex>   it is there, and this is its mode
+    14	                          absent               it is NOT there
+    15	    link <path>           link                 the name is there and is a symlink
+    16	                          notlink              the name is there and is not one
+    17	                          nolink               there is no such name
+    18	    same <a> <b>          same | different     device and inode of the FOLLOWED stats
+    19	    sameparent <p> <d>    same | different     the same, for p's parent as written
+    20	
+    21	Three close reviews in a row found holes in the grammar of a path field -- relative
+    22	paths, spaces, byte counts against character counts, a terminal `..`, a trailing slash.
+    23	A protocol that carries no paths has no such grammar, and the questions that needed one
+    24	-- "is this the attempt `final` publishes?", "is this attempt in this arm?" -- are
+    25	answered here, where two `os.stat`s and `os.path.samestat` settle them exactly.
+    26	
+    27	Anything else -- a non-zero exit, no line, another first word, a misuse (exit 2) -- is
+    28	**unknown**: the caller must refuse to decide rather than read it as an absence.
+    29	
+    30	The shell defends against a MALFORMED answer, not against a lying module: the module is
+    31	part of the `launch_sh` approvals key, pinned with the launcher it serves, and
+    32	health-checked before every scan and every resolution. What crosses the boundary is a
+    33	keyword from a fixed set and, for `present`, a validated mode.
+    34	
+    35	An absence is the strongest claim here, so it is the most guarded: it needs
+    36	``FileNotFoundError`` from ``os.stat`` **and** from ``os.lstat`` (a name that lstats but
+    37	does not stat is a dangling or looping symlink -- the name IS there), and a parent
+    38	directory that could itself be stat'ed and can be searched. Every other errno is
+    39	unknown.
+    40	"""
+    41	import errno
+    42	import os
+    43	from pathlib import Path
+    44	import stat
+    45	import sys
+    46	
+    47	PRESENT, ABSENT, UNKNOWN = 'present', 'absent', 'unknown'
+    48	LINK, NOTLINK, NOLINK = 'link', 'notlink', 'nolink'
+    49	SAME, DIFFERENT = 'same', 'different'
+    50	USAGE_EXIT = 2          # a misuse is not a verdict about any path
+    51	UNKNOWN_EXIT = 2
+    52	
+    53	
+    54	def _why(error):
+    55	    name = errno.errorcode.get(getattr(error, 'errno', None), 'OSError')
+    56	    return '{}: {}'.format(name, error)
+    57	
+    58	
+    59	# --- what a verdict field may look like (close review 16) ---------------------------
+    60	# Every field is validated before it is printed AND after it is read, so a probe that
+    61	# answers `link garbage` or `present 41ed relative` grants nothing: `garbage` as the
+    62	# published target let a resolution retire the attempt that `final` really pointed at.
+    63	PATH_MAX = 4096
+    64	FILE_TYPES = (0o010000, 0o020000, 0o040000, 0o060000, 0o100000, 0o120000, 0o140000)
+    65	
+    66	
+    67	def valid_mode(text):
+    68	    """A file mode in hex, three to six digits, whose type bits name a known type."""
+    69	    if not isinstance(text, str) or not 3 <= len(text) <= 6:
+    70	        return False
+    71	    if any(character not in '0123456789abcdef' for character in text):
+    72	        return False
+    73	    return (int(text, 16) & 0o170000) in FILE_TYPES
+    74	
+    75	
+    76	def _absolute(name):
+    77	    """Make a path absolute WITHOUT normalizing it: `..` is the kernel's business.
+    78	
+    79	    ``abspath`` collapses `missing/../leaf` to `leaf`, and the parent check then
+    80	    inspects a directory the lookup never reached (close review 16).
+    81	    """
+    82	    return name if name.startswith('/') else os.path.join(os.getcwd(), name)
+    83	
+    84	
+    85	def _parent_is_inspectable(name):
+    86	    """An absence may only be claimed about a directory we could look into."""
+    87	    parent = os.path.dirname(_absolute(name)) or '/'
+    88	    try:
+    89	        info = os.stat(parent)
+    90	    except OSError as error:
+    91	        return False, 'cannot inspect the directory {}: {}'.format(parent, _why(error))
+    92	    if not stat.S_ISDIR(info.st_mode):
+    93	        return False, '{} is not a directory'.format(parent)
+    94	    if not os.access(parent, os.X_OK):
+    95	        return False, '{} cannot be searched'.format(parent)
+    96	    return True, None
+    97	
+    98	
+    99	def probe(path):
+   100	    """``(PRESENT, stat_result)`` | ``(ABSENT, None)`` | ``(UNKNOWN, reason)``."""
+   101	    name = str(path)
+   102	    # A trailing slash demands that the last component be a directory. ENOTDIR and
+   103	    # ENOENT are different news, and only a successful stat of a directory settles it.
+   104	    trailing_slash = name.endswith('/') and name != '/'
+   105	    try:
+   106	        return PRESENT, os.stat(name)
+   107	    except FileNotFoundError:
+   108	        pass
+   109	    except OSError as error:               # EACCES, ELOOP, EIO, ENAMETOOLONG, ENOTDIR...
+   110	        return UNKNOWN, 'cannot inspect {}: {}'.format(name, _why(error))
+   111	    try:
+   112	        os.lstat(name)                     # the name itself, unfollowed
+   113	        return UNKNOWN, ('{} is a symlink whose target cannot be resolved; the name is '
+   114	                         'there'.format(name))
+   115	    except FileNotFoundError:
+   116	        pass
+   117	    except OSError as error:
+   118	        return UNKNOWN, 'cannot inspect {}: {}'.format(name, _why(error))
+   119	    if trailing_slash:
+   120	        return UNKNOWN, ('{} ends in a slash, so its last component must be a directory; '
+   121	                         'what failed here cannot be told apart'.format(name))
+   122	    inspectable, why = _parent_is_inspectable(name)
+   123	    return (ABSENT, None) if inspectable else (UNKNOWN, why)
+   124	
+   125	
+   126	def probe_link(path):
+   127	    """``(LINK, target)`` | ``(NOTLINK, None)`` | ``(NOLINK, None)`` | ``(UNKNOWN, why)``."""
+   128	    name = str(path)
+   129	    if name.endswith('/') and name != '/':
+   130	        return UNKNOWN, ('{} ends in a slash, so it names a directory, not the link '
+   131	                         'itself'.format(name))
+   132	    try:
+   133	        info = os.lstat(name)
+   134	    except FileNotFoundError:
+   135	        inspectable, why = _parent_is_inspectable(name)
+   136	        return (NOLINK, None) if inspectable else (UNKNOWN, why)
+   137	    except OSError as error:
+   138	        return UNKNOWN, 'cannot inspect {}: {}'.format(name, _why(error))
+   139	    if not stat.S_ISLNK(info.st_mode):
+   140	        return NOTLINK, None
+   141	    try:
+   142	        os.stat(name)                      # it must resolve to something we can see
+   143	    except OSError as error:
+   144	        return UNKNOWN, 'cannot resolve {}: {}'.format(name, _why(error))
+   145	    return LINK, None
+   146	
+   147	
+   148	def same(first, second):
+   149	    """Are these two names the same file? Device and inode of the FOLLOWED stats.
+   150	
+   151	    A dangling link, a name that is not there, a parent nobody may enter: none of them
+   152	    make two paths *different*, they make the question unanswerable.
+   153	    """
+   154	    try:
+   155	        first_info = os.stat(str(first))
+   156	    except OSError as error:
+   157	        return UNKNOWN, 'cannot inspect {}: {}'.format(first, _why(error))
+   158	    try:
+   159	        second_info = os.stat(str(second))
+   160	    except OSError as error:
+   161	        return UNKNOWN, 'cannot inspect {}: {}'.format(second, _why(error))
+   162	    return (SAME if os.path.samestat(first_info, second_info) else DIFFERENT), None
+   163	
+   164	
+   165	def same_parent(path, directory):
+   166	    """Is ``path``'s parent -- the dirname of the name AS WRITTEN -- that directory?"""
+   167	    return same(os.path.dirname(_absolute(str(path))) or '/', directory)
+   168	
+   169	
+   170	def file_state(path):
+   171	    """PRESENT only for a regular file; ABSENT for no such name or another kind."""
+   172	    state, detail = probe(path)
+   173	    if state == PRESENT and not stat.S_ISREG(detail.st_mode):
+   174	        return ABSENT, detail
+   175	    return state, detail
+   176	
+   177	
+   178	def directory_state(path):
+   179	    state, detail = probe(path)
+   180	    if state == PRESENT and not stat.S_ISDIR(detail.st_mode):
+   181	        return ABSENT, detail
+   182	    return state, detail
+   183	
+   184	
+   185	def main(argv):
+   186	    questions = {'probe': 1, 'link': 1, 'same': 2, 'sameparent': 2}
+   187	    if len(argv) < 2 or argv[1] not in questions or len(argv) != questions[argv[1]] + 2:
+   188	        print('usage: python -m tools.exp11_pathprobe <probe|link> <path>\n'
+   189	              '       python -m tools.exp11_pathprobe <same|sameparent> <path> <path>',
+   190	              file=sys.stderr)
+   191	        return USAGE_EXIT
+   192	    question = argv[1]
+   193	    if question == 'probe':
+   194	        state, detail = probe(argv[2])
+   195	    elif question == 'link':
+   196	        state, detail = probe_link(argv[2])
+   197	    elif question == 'same':
+   198	        state, detail = same(argv[2], argv[3])
+   199	    else:
+   200	        state, detail = same_parent(argv[2], argv[3])
+   201	    if state == UNKNOWN:
+   202	        print('cannot decide {}: {}'.format(' '.join(argv[2:]), detail), file=sys.stderr)
+   203	        return UNKNOWN_EXIT
+   204	    if state != PRESENT:
+   205	        print(state)
+   206	        return 0
+   207	    mode = '{:x}'.format(detail.st_mode)
+   208	    if not valid_mode(mode):                  # a mode nobody could act on is no verdict
+   209	        print('refusing to answer about {}: {} is not a file mode'.format(argv[2], mode),
+   210	              file=sys.stderr)
+   211	        return UNKNOWN_EXIT
+   212	    print('present {}'.format(mode))
+   213	    return 0
+   214	
+   215	
+   216	if __name__ == '__main__':
+   217	    sys.exit(main(sys.argv))
+diff --git a/tests/test_exp11_shell.py b/tests/test_exp11_shell.py
+index a6a88c5..c4dd550 100644
+--- a/tests/test_exp11_shell.py
++++ b/tests/test_exp11_shell.py
+@@ -2271,6 +2271,90 @@ def test_a_published_final_is_recognised_through_any_spelling(tmp_path):
+         assert 'STATUS 0' in result.stdout, (spelling, result.stdout, result.stderr)
+ 
+ 
++# --- close review 18: containment is decided ONCE, by identity ----------------------
++# The embedded Python of the attempt check compared `Path(attempt).resolve().parent`
++# with `Path(root).resolve()` -- two strings -- before the `same_parent` gate ever ran,
++# so two spellings that ARE one directory (a read-only bind mount; the reviewer's case)
++# were rejected by the string comparison first.
++
++
++def test_no_two_names_are_compared_as_strings(tmp_path):
++    """The containment decision is `same_parent`, and there is no second one.
++
++    Two spellings can be one directory -- a read-only bind mount gives identical
++    st_dev/st_ino with unequal `Path.resolve()` strings -- so a string comparison in
++    front of the identity gate can only ever reject something the gate accepts. This is
++    a white-box check because the case itself cannot be built without mounting anything.
++    """
++    text = (REPO / 'tools/exp11_launch.sh').read_text()
++    assert '.resolve()' not in text, 'no canonical string is derived to be compared'
++    assert 'directory.parent != base' not in text
++    assert 'same_parent' in text
++
++
++def test_the_attempt_check_decides_containment_by_identity_alone(tmp_path):
++    """A root reached by another name is the same root: only dev/ino may decide."""
++    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
++    alias_root = tmp_path / 'arm-alias'
++    alias_root.symlink_to(attempt.parent)
++    status, out, err = launch(
++        ['finalize', '--arm', 'H', '--gpu', '1', '--reviewed-commit', COMMIT,
++         '--attempt', str(alias_root / attempt.name), '--log', 'L.log',
++         '--child-exit', '0', '--dry-run'],
++        {'EXP11_PRETRAIN_ROOT': str(tmp_path), 'EXP11_TEST_ROOTS': '1'})
++    assert status == 0, err[-600:]
++    assert 'PROMOTE {}/final -> {}'.format(attempt.parent, attempt.name) in out
++
++
++def test_an_attempt_of_another_directory_is_still_refused(tmp_path):
++    """The other side of the same gate, so the fix cannot be "accept everything"."""
++    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
++    outside = tmp_path / 'outside' / attempt.name
++    outside.mkdir(parents=True)
++    (outside / 'args.json').write_text((attempt / 'args.json').read_text())
++    status, out, err = recovery(outside, 'H', tmp_path)
++    assert status == 2, out
++    assert 'PROMOTE' not in out and 'not an attempt of' in err
++
++
++def bind_mounted_spellings():
++    """Two spellings of one directory with identical dev/ino, read-only, if any exist.
++
++    Nothing is created or mounted here: this only looks for a bind mount the system
++    already has, and the test skips when there is none.
++    """
++    try:
++        mounts = Path('/proc/self/mountinfo').read_text().splitlines()
++    except OSError:
++        return None
++    seen = {}
++    for line in mounts:
++        fields = line.split(' - ')[0].split()
++        if len(fields) < 5 or 'ro' not in fields[5 if len(fields) > 5 else 4].split(','):
++            continue
++        point = fields[4]
++        try:
++            info = os.stat(point)
++        except OSError:
++            continue
++        key = (info.st_dev, info.st_ino)
++        if key in seen and seen[key] != point:
++            return seen[key], point
++        seen[key] = point
++    return None
++
++
++def test_two_spellings_of_one_read_only_mount_are_the_same(tmp_path):
++    """Where the system has such a mount, the probe says `same` and the gate accepts."""
++    pair = bind_mounted_spellings()
++    if pair is None:
++        pytest.skip('no read-only bind mount with two spellings on this system')
++    first, second = pair
++    result = lib('status=0\nsame_path {first} {second} || status=$?\n'
++                 'echo "STATUS $status"\n'.format(first=first, second=second))
++    assert 'STATUS 0' in result.stdout, (pair, result.stdout, result.stderr)
++
++
+ def pid_of(pidfile):
+     """The pid in a registration file, if it still names a living process."""
+     try:
+diff --git a/tests/test_exp11_train.py b/tests/test_exp11_train.py
+index 267d143..90b389f 100644
+--- a/tests/test_exp11_train.py
++++ b/tests/test_exp11_train.py
+@@ -480,17 +480,58 @@ def test_a_terminal_dotdot_spelling_still_finds_the_tombstone(tmp_path):
+ @pytest.mark.parametrize('spelling', ['{arm}//{name}', '{arm}/./{name}', '{arm}/{name}/',
+                                       '{arm}/{name}/sub/..'])
+ def test_an_odd_spelling_of_a_legitimate_attempt_still_registers(tmp_path, spelling):
+-    """A path is not a string to be parsed: these all name one directory."""
++    """A path is not a string to be parsed: these all name one directory.
++
++    Through the DEFAULT call -- no ``arm_root`` -- which is how the trainer is invoked
++    in production; passing one masked the rejection (close review 18).
++    """
+     arm = tmp_path / 'arm'
+     attempt = arm / 'attempt_20260927T000000'
+     (attempt / 'sub').mkdir(parents=True)
+     (attempt / 'launching').write_text('launcher 1\n')
+     path = spelling.format(arm=arm, name=attempt.name)
++    assert exp11_train.pid_record(exp11_train.register_trainer(path)) == os.getpid()
++    assert (attempt / 'train.pid').is_file()
++
++
++def test_an_arm_reached_through_its_own_alias_registers_by_default(tmp_path):
++    """The NAS layout: the ARM is a symlink, the attempt inside it is real."""
++    arm = tmp_path / 'arm'
++    attempt = arm / 'attempt_20260927T000000'
++    attempt.mkdir(parents=True)
++    (attempt / 'launching').write_text('launcher 1\n')
++    alias = tmp_path / 'arm-alias'
++    alias.symlink_to(arm)
+     assert exp11_train.pid_record(
+-        exp11_train.register_trainer(path, arm_root=str(arm))) == os.getpid()
++        exp11_train.register_trainer(str(alias / attempt.name))) == os.getpid()
+     assert (attempt / 'train.pid').is_file()
+ 
+ 
++def test_an_attempt_symlinked_into_another_arm_still_refuses_by_default(tmp_path):
++    """The containment that matters, through the default call: no lock, no sidecar."""
++    home, other = tmp_path / 'home', tmp_path / 'other'
++    attempt = home / 'attempt_20260927T000000'
++    attempt.mkdir(parents=True)
++    (attempt / 'launching').write_text('launcher 1\n')
++    other.mkdir()
++    (other / attempt.name).symlink_to(attempt)
++    with pytest.raises(SystemExit) as exit_request:
++        exp11_train.register_trainer(str(other / attempt.name))
++    assert exit_request.value.code == 3
++    assert not (attempt / 'train.pid').exists()
++    assert not (other / '.registration.lock').exists()
++
++
++def test_a_given_path_whose_lexical_parent_is_not_there_refuses(tmp_path):
++    arm = tmp_path / 'arm'
++    attempt = arm / 'attempt_20260927T000000'
++    attempt.mkdir(parents=True)
++    (attempt / 'launching').write_text('launcher 1\n')
++    with pytest.raises(SystemExit) as exit_request:
++        exp11_train.register_trainer(str(arm / 'gone' / '..' / attempt.name))
++    assert exit_request.value.code == 3
++
++
+ def test_the_trainer_keeps_no_path_grammar(tmp_path):
+     """Identity is device and inode, so there is nothing left to validate as a string."""
+     assert not hasattr(exp11_train, 'valid_path')
+
+codex
+The production diff matches the reported scope: two files, +38/−21 lines. The launcher now leaves containment to the identity gate, and the trainer checks the normalized lexical parent against the canonical arm. The independent replays and closure audit are running.
+exec
+/bin/bash -lc "sed -n '30,115p' tools/exp11_launch.sh; sed -n '138,220p' tools/exp11_launch.sh; sed -n '330,475p' tools/exp11_launch.sh; sed -n '530,595p' tools/exp11_launch.sh; sed -n '324,415p' tools/exp11_train.py; sed -n '70,155p' tools/exp11_pathprobe.py" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+# EXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh defines the functions and returns, so
+# the pipeline can reuse them without a mode.
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+EXP06_LAUNCH_LIB=1 source tools/exp06_launch.sh
+export PYTHONPATH="$PWD"
+
+# Every listing and every verdict this invocation writes lives in one directory, so the
+# EXIT trap can take all of them at once -- including on the abrupt paths, where the
+# individual `rm`s never run (close review 14, nonblocking).
+EXP11_TEMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/exp11_launch.XXXXXX")" || {
+    echo "refusing: no temporary directory could be created for this invocation" >&2
+    exit 2; }
+trap 'rm -rf -- "$EXP11_TEMPDIR"' EXIT
+
+# How long the pid reader or the path probe may take to answer ONE question. An answer
+# that never comes is not an answer; the launcher does not wait for it forever, and it
+# escalates to KILL five seconds after the TERM. The bound is per question: a scan asks
+# several in sequence, so its own worst case is a small multiple of this (the marker,
+# train.pid and train.exit of one attempt are three probes, ~60 s together at the default
+# with two of them hanging). The value is validated -- a bound that is 0, negative,
+# absurdly large or not a number is no bound at all.
+READER_TIMEOUT_S="${EXP11_READER_TIMEOUT_S-30}"   # set-but-empty is refused below
+# The DECIMAL STRING is bounded before any arithmetic: bash errors on a 36-digit
+# comparison, and an errored test is a false one -- which read as "in range" (close
+# review 16). At most three digits, no leading zero, so the `-gt` below cannot overflow.
+case "$READER_TIMEOUT_S" in
+    [1-9]|[1-9][0-9]|[1-9][0-9][0-9]) ;;
+    *)
+        echo "refusing: EXP11_READER_TIMEOUT_S must be a whole number of seconds" \
+             "between 1 and 300, written in decimal; got '$READER_TIMEOUT_S'" >&2
+        exit 2 ;;
+esac
+if [ "$READER_TIMEOUT_S" -gt 300 ]; then
+    echo "refusing: EXP11_READER_TIMEOUT_S must be at most 300 seconds; got" \
+         "'$READER_TIMEOUT_S'" >&2
+    exit 2
+fi
+
+RECORD=worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude
+APPROVED_DEFAULT="$RECORD/orientation_cue_fairness_results_assets/approved_digests.json"
+SMOKE_DIR=ckpt/exp11/_smoke
+# The pretraining roots. EXP11_PRETRAIN_ROOT exists for the dry-run tests alone: it moves
+# the attempt roots AND the roots preflight scans for live pid files, so a real launch may
+# never take it. It is honoured only with EXP11_TEST_ROOTS=1 *and* --dry-run, and is
+# refused outright otherwise (see apply_root_override below).
+PRETRAIN_ROOT=ckpt/exp11/pretrain
+SIMPOR_ROOT="$PRETRAIN_ROOT/xRIR_simpor_8_shot"          # arm H
+SIMPOR_YAW_ROOT="$PRETRAIN_ROOT/xRIR_simpor_yawaug_8_shot"   # arm I
+HEADING_DIR="${EXP06_HEADING_DIR:-ckpt/exp06/heading}"
+SMOKE_FLAGS="--epochs 1 --max-train-batches 3 --max-test-batches 2 --batch-size 4 --num-workers 4 --no-save"
+SMOKE_ALARM_S="${EXP11_SMOKE_ALARM_S:-300}"
+SMOKE_MAX_GB="${EXP11_SMOKE_MAX_GB:-6}"
+# Plan section 7 reserves 36 h per pretraining; the child runs under that hard ceiling, so
+# a stalled attempt fails and is aborted instead of holding the card indefinitely. The
+# value goes straight to GNU timeout, where 0 means "no timeout", so an override is
+# validated before anything starts and may only TIGHTEN the registered ceiling.
+FULL_CEILING_MAX=129600
+FULL_CEILING_S="${EXP11_FULL_CEILING_S-$FULL_CEILING_MAX}"
+
+# The value is validated as a BOUNDED DECIMAL STRING before any arithmetic: bash's
+# integer comparisons error out above 2**63-1, which left the `if` false and the launch
+# running with an overflowing value handed to GNU timeout. Six digits is the whole
+# contract (129600 has six), so the numeric comparison below can never be out of range;
+# leading zeros are refused with everything else that is not a plain decimal.
+check_ceiling() {
+    local why="must be a plain decimal of at most 6 digits in (0, $FULL_CEILING_MAX]"
+    case "$FULL_CEILING_S" in
+        ''|*[!0-9]*|0*|???????*)
+            echo "refusing: EXP11_FULL_CEILING_S '$FULL_CEILING_S' $why" >&2; return 1 ;;
+    esac
+    if [ "$FULL_CEILING_S" -le 0 ] || [ "$FULL_CEILING_S" -gt "$FULL_CEILING_MAX" ]; then
+        echo "refusing: EXP11_FULL_CEILING_S $FULL_CEILING_S $why;" \
+             "an override may only tighten the 36 h ceiling" >&2
+        return 1
+    fi
+}
+
+# apply_reader_override: EXP11_PYTHON lets a regression break the pid reader the way a
+# broken environment would -- a missing interpreter, an unimportable module -- so the
+# fail-closed paths can be exercised against this file rather than a copy of it. Like
+# EXP11_PRETRAIN_ROOT it is a dry-run test affordance and is refused outright otherwise:
+# a real launch decides liveness with the interpreter the pinned library names, and no
+# invocation may swap the interpreter that also finalizes, publishes and trains.
+apply_reader_override() {
+    [ -n "${EXP11_PYTHON:-}" ] || return 0
+# check_attempt <attempt> <root> <arm>: recovery may promote only this arm's own attempt.
+# The basename is linked under the root --arm selects, so an attempt of the other arm
+# would leave a dangling or wrong `final`; the directory AND the profile its recorded
+# arguments select must both be the selected arm's.
+CHECK_ATTEMPT_PY='
+import json, os, sys
+from pathlib import Path
+from tools import exp11_recipe
+attempt, root, arm = sys.argv[1:4]
+expected = {"H": "H_RECIPE", "I": "I_RECIPE"}[arm]
+try:
+    # The path that is VALIDATED must be the path that is finalized and promoted, or an
+    # alias (an existing `final`, or a link from outside) would be validated here and
+    # promoted by its own basename - a self-referencing or dangling link under the root.
+    # Containment is NOT decided here: two spellings can be one directory (a read-only
+    # bind mount gives identical st_dev/st_ino with unequal canonical strings), and the
+    # caller asks `same_parent` about this very directory (plan A2, close review 18).
+    directory = Path(os.path.realpath(attempt))
+    if not directory.name.startswith("attempt_"):
+        raise ValueError("{} is not an attempt_<UTC> directory".format(directory))
+    args = json.loads((directory / "args.json").read_text())
+    profile = exp11_recipe.select_profile(args)
+    if profile != expected:
+        raise ValueError("attempt {} recorded the profile {}, not the {} of arm {}".format(
+            directory, profile, expected, arm))
+except (OSError, ValueError, KeyError) as error:
+    raise SystemExit("refusing: " + str(error))
+print("ATTEMPT ok {} arm={} profile={}".format(attempt, arm, expected))
+print("ATTEMPT canonical {}".format(directory))
+'
+
+# check_attempt <attempt>: sets CANONICAL_ATTEMPT to the resolved directory, which is
+# what finalization and promotion then use.
+check_attempt() {
+    local output name="" status=0
+    say "ATTEMPTCHECK $1 arm=$ARM root=$ARM_ROOT"
+    output="$(CUDA_VISIBLE_DEVICES="" "$PYTHON" -c "$CHECK_ATTEMPT_PY" "$1" "$ARM_ROOT" \
+              "$ARM")" || return 1
+    printf '%s\n' "$output"
+    CANONICAL_ATTEMPT="${output##*ATTEMPT canonical }"
+    case "$CANONICAL_ATTEMPT" in
+        /*) ;;
+        *) echo "refusing: no canonical attempt was resolved for $1" >&2; return 1 ;;
+    esac
+    # The name, from the slash-stripped basename, and the containment as an IDENTITY
+    # question -- not as a prefix of two strings (plan §11 A2). The directory that was
+    # validated above is the one asked about here, and the one finalized and promoted.
+    name="${CANONICAL_ATTEMPT%/}"
+    name="${name##*/}"
+    case "$name" in
+        attempt_*) case "${name#attempt_}" in ''|*[!0-9T]*)
+            echo "refusing: $name is not an attempt_<UTC> directory of this arm" >&2
+            return 1 ;; esac ;;
+        *) echo "refusing: $name is not an attempt_<UTC> directory of this arm" >&2
+           return 1 ;;
+    esac
+    same_parent "$CANONICAL_ATTEMPT" "$ARM_ROOT" || status=$?
+    if [ "$status" -eq "$READER_UNKNOWN" ]; then
+        echo "refusing: whether $CANONICAL_ATTEMPT is an attempt of $ARM_ROOT cannot be" \
+             "established" >&2
+        return 1
+    fi
+    if [ "$status" -ne 0 ]; then
+        echo "refusing: $CANONICAL_ATTEMPT is not an attempt of $ARM_ROOT" >&2
+        return 1
+    fi
+}
+ARM=""
+ARM_BACKBONE=simple_oriented
+ARM_YAW=0
+ARM_SAVE_EVERY=500
+
+usage() {
+    echo "usage: $0 <smoke|probe|full|finalize> --arm <H|I> --gpu <g> --reviewed-commit <sha40>" >&2
+    echo "       [--attempt-root <dir>] [--approved <json>] [--exploratory]" >&2
+    echo "       [--attempt <dir> --log <path> --child-exit <n>] [--dry-run]" >&2
+    echo "       finalize also takes [--replace-final]" >&2
+    exit 2
+}
+
+# arm_of <H|I>: the attempt root, augmentation and saving cadence of one pretraining arm.
+# H is exp_01's recipe (save_every 500); I is exp_04's, whose constraints the trainer
+# re-applies (--save-every 0 and no --resume).
+# --- what the lock protects is a quiet arm -------------------------------------------
+# The lock says "one publication at a time"; it does not say "no trainer is running".
+# That is this scan's job, and it has to run UNDER the lock: a scan taken before
+# acquisition can go stale in the window between, which is exactly how a recovery could
+# promote an older attempt while a newer trainer of the same arm kept writing
+# (close review 7, blocker 1). `kill -0` asks the kernel whether a pid still exists; it
+# is a probe and sends no signal.
+UNRESOLVED_GRACE_S="${EXP11_UNRESOLVED_GRACE_S:-120}"
+SCAN_REASON=""
+NEWLINE=$'\n'   # a real newline: a verdict that is two lines is not a verdict
+CARRIAGE_RETURN=$'\r'
+
+# THREE answers, never two (close review 11). The grammar lives in
+# tools/exp11_pidrecord.py and nowhere else -- this shell does NOT read pid files, since
+# Bash command substitution drops NUL bytes (close review 10, blocker 1). But a reader
+# that cannot run -- no interpreter, an unimportable module, a crash -- used to be
+# indistinguishable from "this file holds no record": both were exit 1. Read as "no
+# record", a broken reader makes every pid file in the arm look dead, and a resolution
+# then retires the attempt of a registered, running trainer. So the reader now answers
+# `record <pid>` or `norecord` on stdout with exit 0, and everything else is UNKNOWN.
+#
+# pid_record <file>: 0 and the pid on stdout | 1 no record | 2 the reader failed.
+#
+# The verdict is checked as RAW BYTES, in a file, before anything of it passes through a
+# shell expansion: command substitution deletes trailing newlines and NUL bytes, so
+# `norecord\n\n` and `norecord\0\n` -- neither of which is the protocol -- arrived here
+# as clean verdicts and retired a live trainer's attempt (close review 12, blocker 2).
+# Only the digits of an accepted pid cross back, and digits survive intact.
+READER_UNKNOWN=2
+
+# one_line <file>: print the single line <file> holds, or fail. The line is read back
+# and reprinted, and the result must equal the file BYTE FOR BYTE -- which is what
+# refuses padding, a second line, NULs and trailing junk, none of which survive a shell
+# variable intact (close review 12's lesson, applied to every verdict).
+one_line() {
+    local line="" check="$1.line"
+    IFS= read -r line < "$1" || return 1
+    printf '%s\n' "$line" > "$check" || return 1
+    if cmp -s "$1" "$check"; then printf '%s\n' "$line"; rm -f -- "$check"; return 0; fi
+    rm -f -- "$check"
+    return 1
+}
+
+# probe_verdict <probe|link> <path>: run the path probe and print the one line it
+# answered, or fail. Failing means UNKNOWN to every caller.
+probe_verdict() {
+    local out="" line="" status=0 question="$1"
+    shift
+    out="$(mktemp "$EXP11_TEMPDIR/probe.XXXXXX")" || return 1
+    timeout --kill-after=5 "$READER_TIMEOUT_S" \
+        "$PYTHON" -m tools.exp11_pathprobe "$question" "$@" > "$out" 2>/dev/null || status=$?
+    if [ "$status" -ne 0 ]; then rm -f -- "$out"; return 1; fi
+    line="$(one_line "$out")" || { rm -f -- "$out"; return 1; }
+    rm -f -- "$out"
+    printf '%s\n' "$line"
+}
+
+# --- three states for every path this launcher asks about (close review 14) ----------
+# `[ -f x ]` answers "no" for a file that is not there AND for one nobody was allowed to
+# look at, and every lifecycle guard that used it turned the second into the first. Bash
+# cannot do better on its own: `stat` carries no errno, so ENAMETOOLONG, EIO and an ACL
+# that hides a name all come back the same way (close review 15). The classification
+# therefore comes from tools/exp11_pathprobe.py, and what crosses back is one verdict
+# line, validated here byte for byte -- exactly as the pid reader's verdicts are.
+#
+# A verdict carries a keyword and, for `present`, a mode -- and nothing else (plan §11
+# amendment A2). Three close reviews running found holes in the grammar of a path field;
+# a protocol with no paths in it has no such grammar. What used to be "compare the path
+# the probe returned with this one" is now an identity QUESTION, answered in Python by
+# device and inode.
+#
+# What this shell defends against is a MALFORMED answer -- a truncated line, extra
+# fields, a keyword that is not in the set, a mode that is not a mode. It does not
+# defend against a module that lies: that module is pinned with this launcher by the
+# `launch_sh` approvals key and health-checked before every scan and every resolution.
+#
+# valid_mode <hex>: three to six hex digits whose S_IFMT bits name a type that exists.
+valid_mode() {
+    case "$1" in ''|*[!0-9a-f]*) return 1 ;; esac
+    [ "${#1}" -ge 3 ] && [ "${#1}" -le 6 ] || return 1
+    case $(( 0x$1 & 0xF000 )) in
+        4096|8192|16384|24576|32768|40960|49152) return 0 ;;  # fifo chr dir blk reg lnk sock
+        *) return 1 ;;
+    esac
+}
+
+# probe_path <path>: 0 it is there (PROBE_MODE holds its mode in hex) | 1 it is NOT
+# there | 2 nobody could say.
+PROBE_MODE=""
+probe_path() {
+    local line=""
+    PROBE_MODE=""
+    line="$(probe_verdict probe "$1")" || return "$READER_UNKNOWN"
+    case "$line" in
+        absent) return 1 ;;
+        'present '*)
+            PROBE_MODE="${line#present }"
+            valid_mode "$PROBE_MODE" || { PROBE_MODE=""; return "$READER_UNKNOWN"; }
+            return 0 ;;
+        *) return "$READER_UNKNOWN" ;;
+    esac
+}
+
+# file_present <path>: 0 a regular file is there | 1 no regular file is there (absent, or
+# the name is something else) | 2 nobody could say.
+file_present() {
+    local status=0
+    probe_path "$1" || status=$?
+    [ "$status" -ne "$READER_UNKNOWN" ] || return "$READER_UNKNOWN"
+    [ "$status" -eq 0 ] || return 1
+    [ $(( 0x$PROBE_MODE & 0xF000 )) -eq $(( 0x8000 )) ] || return 1
+}
+
+# probe_link <path>: 0 a symlink is there | 1 there is no symlink here (no such name, or
+# a name that is not one) | 2 it is there and cannot be resolved, or nobody could look.
+# WHAT it points at is never asked: that question is `same_path`.
+probe_link() {
+    local line=""
+    line="$(probe_verdict link "$1")" || return "$READER_UNKNOWN"
+    case "$line" in
+        link) return 0 ;;
+        nolink|notlink) return 1 ;;
+        *) return "$READER_UNKNOWN" ;;
+    esac
+}
+
+# same_path <a> <b>: 0 they are one file | 1 they are two | 2 nobody could say.
+same_path() {
+    local line=""
+    line="$(probe_verdict same "$1" "$2")" || return "$READER_UNKNOWN"
+    case "$line" in
+        same) return 0 ;;
+        different) return 1 ;;
+        *) return "$READER_UNKNOWN" ;;
+    esac
+}
+
+# same_parent <path> <directory>: the same question about <path>'s parent as written.
+same_parent() {
+    local line=""
+    line="$(probe_verdict sameparent "$1" "$2")" || return "$READER_UNKNOWN"
+    case "$line" in
+        same) return 0 ;;
+        different) return 1 ;;
+        *) return "$READER_UNKNOWN" ;;
+    esac
+# trainer dead -- so only a probe catches it. The probes go through the same $PYTHON and
+# the same invocation as every real read.
+# probe_reader <file> <expected bytes> <where the answer goes>: 0 when the reader exited
+# 0 and printed EXACTLY those bytes. Byte for byte, like every real read.
+probe_reader() {
+    timeout --kill-after=5 "$READER_TIMEOUT_S" "$PYTHON" -m tools.exp11_pidrecord "$1" \
+        > "$3" 2>/dev/null || return 1
+    cmp -s "$3" "$2"
+}
+
+check_pid_reader() {
+    local dir="" bad=""
+    dir="$(mktemp -d "$EXP11_TEMPDIR/pidreader.XXXXXX")" || {
+        echo "refusing: cannot create a probe directory for the pid reader" >&2
+        return 1; }
+    printf '1\n' > "$dir/one"
+    : > "$dir/empty"
+    printf 'record 1\n' > "$dir/want_one"
+    printf 'norecord\n' > "$dir/want_empty"
+    probe_reader "$dir/one" "$dir/want_one" "$dir/got_one" || bad="a file holding 1"
+    probe_reader "$dir/empty" "$dir/want_empty" "$dir/got_empty" ||
+        bad="${bad:+$bad and }an empty file"
+    # The path probe answers three questions whose answers are known too: this file is
+    # there, that name is not, and a file is itself and not the other one (close review
+    # 15; the identity question since plan §11 A2).
+    local state=0
+    probe_path "$dir/one" || state=$?
+    [ "$state" -eq 0 ] || bad="${bad:+$bad and }a path that is there"
+    state=0
+    probe_path "$dir/absent" || state=$?
+    [ "$state" -eq 1 ] || bad="${bad:+$bad and }a path that is not there"
+    state=0
+    same_path "$dir/one" "$dir/one" || state=$?
+    [ "$state" -eq 0 ] || bad="${bad:+$bad and }a file against itself"
+    state=0
+    same_path "$dir/one" "$dir/empty" || state=$?
+    [ "$state" -eq 1 ] || bad="${bad:+$bad and }two different files"
+    rm -rf -- "$dir"
+    [ -z "$bad" ] && return 0
+    echo "refusing: reader unhealthy: the pid reader or the path probe did not answer" \
+         "byte for byte on $bad -- one verdict line each and nothing more, no padding" \
+         "and no NULs. Nothing of this arm can be decided by a reader that cannot say" \
+         "what a pid file holds or whether a path is there" >&2
+    return 1
+}
+
+# probe_live <pid file> <what is alive>: 0 nothing found, 1 alive, 2 unknown. The last
+# two set SCAN_REASON and must be propagated unchanged -- an unknown liveness is not a
+# quiet arm, it is no answer at all.
+probe_live() {
+    local status=0
+    pid_alive "$1" || status=$?
+    case "$status" in
+        0) SCAN_REASON="$2"; return 1 ;;
+        "$READER_UNKNOWN")
+            SCAN_REASON="liveness unknown: pid reader failed on $1. Nothing is scanned,"\
+" retired or published on an answer nobody gave"
+            return "$READER_UNKNOWN" ;;
+    esac
+    return 0
+}
+
+# list_attempts <arm root> <listing file>: 0 only when the root really was ENUMERATED,
+# the listing then holding its attempt_* entries NUL-separated. A directory with mode
+# 0300 is searchable and writable but NOT listable: every known pathname under it still
+# works -- both lock files open, `stat` answers, the holder starts -- while a glob over
+    # The arm this path NAMES -- the parent of the spelling, with `..` collapsed -- must
+    # be the arm the attempt IS IN. Collapsing is safe here and only here: it feeds an
+    # identity comparison, which can never accept a wrong arm, and it is what lets
+    # `arm/attempt_X/sub/..`, `//`, `/./` and a trailing slash register through the
+    # default call while an attempt symlinked into another arm still refuses (close
+    # review 18). Existence is never decided from it.
+    lexical_parent = os.path.dirname(os.path.normpath(given_abs))
+    contained, why = exp11_pathprobe.same(lexical_parent, arm)
+    if contained == exp11_pathprobe.UNKNOWN:
+        refuse('cannot establish whether {} is an attempt of {} ({})'
+               .format(given, lexical_parent, why))
+    if contained != exp11_pathprobe.SAME:
+        refuse('{} is an attempt of {}, not of the {} it is written as; the directory, '
+               'the lock and the tombstone must be of one arm'
+               .format(given, arm, lexical_parent))
+    if arm_root is not None:                  # a caller that names the arm must name THIS one
+        root = Path(arm_root)
+        if not demand_known(*directory_state(root), path=root, what='the arm root'):
+            refuse('{} does not exist; this trainer registers only in the arm whose lock '
+                   'it holds'.format(root))
+        configured, why = exp11_pathprobe.same(root, arm)
+        if configured == exp11_pathprobe.UNKNOWN:
+            refuse('cannot establish whether {} is an attempt of {} ({})'
+                   .format(given, root, why))
+        if configured != exp11_pathprobe.SAME:
+            refuse('{} is an attempt of {}, not of the {} this trainer was given; the '
+                   'directory, the lock and the tombstone must be of one arm'
+                   .format(given, arm, root))
+    with registration_lock(directory, wait_seconds):
+        # Everything below happens under the lock, so a resolution cannot rename this
+        # directory between the checks and the write. The checks are re-made here: the
+        # directory may have been retired between the canonicalisation and the lock.
+        if not demand_known(*directory_state(directory), path=directory,
+                            what='the run directory'):
+            refuse('{} does not exist; the launcher creates the attempt and this trainer '
+                   'never does'.format(directory))
+        if demand_known(*file_state(tombstone), path=tombstone, what='the tombstone'):
+            refuse('{} was resolved as an unregistered launch and retired; this trainer '
+                   'has nothing to run in'.format(directory))
+        marker = demand_known(*file_state(directory / 'launching'),
+                              path=directory / 'launching', what='the launching marker')
+        if not marker:
+            # The other half of a launch record. Its reader has the same three states,
+            # and "I could not read child.pid" is not "there is no launch here".
+            verdict, detail = exp11_pidrecord.inspect_record(directory / 'child.pid')
+            if verdict == exp11_pidrecord.UNKNOWN:
+                refuse('cannot inspect {}/child.pid ({}); this trainer does not register '
+                       'on a launch it cannot verify'.format(directory, detail))
+            if verdict != exp11_pidrecord.RECORD:
+                refuse('{} carries no launch record -- no launching marker and no '
+                       'complete child.pid -- so no launch of it is in progress'
+                       .format(directory))
+        path = directory / 'train.pid'
+        # Atomic: a reader sees the old file or the whole new one, never a partial pid.
+        temporary = directory / ('train.pid.{}.tmp'.format(os.getpid()))
+        temporary.write_text('{}\n'.format(os.getpid()))
+        os.replace(str(temporary), str(path))
+    return path
+
+
+def exit_code(exit_request):
+    """``raise SystemExit`` carries None, which is status 0, not 1."""
+    code = exit_request.code
+    if code is None:
+        return 0
+    return code if isinstance(code, int) else 1
+
+
+def record_trainer_exit(path, code):
+    """Say how this trainer left, on every path it controls."""
+    if path is None:
+        return
+    try:
+        with open(str(path.parent / 'train.exit'), 'a') as stream:
+            stream.write('train.exit {}\n'.format(code))
+    except OSError:                       # a vanished run directory is not the trainer's
+        pass                              # problem to report; the scan reads the pid file
+
+
+def main(argv=None):
+    """Register, run, and record how it ended -- whatever ends it."""
+    args = parse_args(argv)
+    registration = register_trainer(args.save_dir, no_save=args.no_save)
+    code = 0
+    try:
+        run(list(sys.argv[1:] if argv is None else argv), check_admission(args))
+    except SystemExit as exit_request:
+        code = exit_code(exit_request)
+        raise
+    except BaseException:
+        code = 'exception'
+        raise
+        return False
+    if any(character not in '0123456789abcdef' for character in text):
+        return False
+    return (int(text, 16) & 0o170000) in FILE_TYPES
+
+
+def _absolute(name):
+    """Make a path absolute WITHOUT normalizing it: `..` is the kernel's business.
+
+    ``abspath`` collapses `missing/../leaf` to `leaf`, and the parent check then
+    inspects a directory the lookup never reached (close review 16).
+    """
+    return name if name.startswith('/') else os.path.join(os.getcwd(), name)
+
+
+def _parent_is_inspectable(name):
+    """An absence may only be claimed about a directory we could look into."""
+    parent = os.path.dirname(_absolute(name)) or '/'
+    try:
+        info = os.stat(parent)
+    except OSError as error:
+        return False, 'cannot inspect the directory {}: {}'.format(parent, _why(error))
+    if not stat.S_ISDIR(info.st_mode):
+        return False, '{} is not a directory'.format(parent)
+    if not os.access(parent, os.X_OK):
+        return False, '{} cannot be searched'.format(parent)
+    return True, None
+
+
+def probe(path):
+    """``(PRESENT, stat_result)`` | ``(ABSENT, None)`` | ``(UNKNOWN, reason)``."""
+    name = str(path)
+    # A trailing slash demands that the last component be a directory. ENOTDIR and
+    # ENOENT are different news, and only a successful stat of a directory settles it.
+    trailing_slash = name.endswith('/') and name != '/'
+    try:
+        return PRESENT, os.stat(name)
+    except FileNotFoundError:
+        pass
+    except OSError as error:               # EACCES, ELOOP, EIO, ENAMETOOLONG, ENOTDIR...
+        return UNKNOWN, 'cannot inspect {}: {}'.format(name, _why(error))
+    try:
+        os.lstat(name)                     # the name itself, unfollowed
+        return UNKNOWN, ('{} is a symlink whose target cannot be resolved; the name is '
+                         'there'.format(name))
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        return UNKNOWN, 'cannot inspect {}: {}'.format(name, _why(error))
+    if trailing_slash:
+        return UNKNOWN, ('{} ends in a slash, so its last component must be a directory; '
+                         'what failed here cannot be told apart'.format(name))
+    inspectable, why = _parent_is_inspectable(name)
+    return (ABSENT, None) if inspectable else (UNKNOWN, why)
+
+
+def probe_link(path):
+    """``(LINK, target)`` | ``(NOTLINK, None)`` | ``(NOLINK, None)`` | ``(UNKNOWN, why)``."""
+    name = str(path)
+    if name.endswith('/') and name != '/':
+        return UNKNOWN, ('{} ends in a slash, so it names a directory, not the link '
+                         'itself'.format(name))
+    try:
+        info = os.lstat(name)
+    except FileNotFoundError:
+        inspectable, why = _parent_is_inspectable(name)
+        return (NOLINK, None) if inspectable else (UNKNOWN, why)
+    except OSError as error:
+        return UNKNOWN, 'cannot inspect {}: {}'.format(name, _why(error))
+    if not stat.S_ISLNK(info.st_mode):
+        return NOTLINK, None
+    try:
+        os.stat(name)                      # it must resolve to something we can see
+    except OSError as error:
+        return UNKNOWN, 'cannot resolve {}: {}'.format(name, _why(error))
+    return LINK, None
+
+
+def same(first, second):
+    """Are these two names the same file? Device and inode of the FOLLOWED stats.
+
+    A dangling link, a name that is not there, a parent nobody may enter: none of them
+    make two paths *different*, they make the question unanswerable.
+    """
+    try:
+        first_info = os.stat(str(first))
+
+exec
+/bin/bash -lc "git show --numstat --format='%h %s' 653bc1d 44656e1 f251525 6597474 79bea6b 46f0a76; sed -n '2560,2685p' tests/test_exp11_shell.py; sed -n '480,570p' tests/test_exp11_train.py; rg -n '§11|A2|identity|lexical|timeout|same_parent' worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_plan.md; rg --files worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude | rg 'plan|protocol'" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+653bc1d exp11 fix19 (RED): a string comparison still stands in front of the identity gate
+
+84	0	tests/test_exp11_shell.py
+44656e1 exp11 fix19 (RED): the default entry refuses `attempt_X/sub/..`
+
+43	2	tests/test_exp11_train.py
+f251525 exp11 fix19 (GREEN): the arm a path names, and the arm its attempt is in
+
+33	16	tools/exp11_train.py
+6597474 exp11 fix19 (GREEN): containment is decided once, by identity
+
+5	5	tools/exp11_launch.sh
+79bea6b exp_11 bookkeeping: Coder fix-19 report, close review 18 and the fix-19 prompt (record only; suite line pending)
+
+9	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/coder_prompts/round2_fix19_opus_prompt.md
+145	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_06:43:58_coder_round2_fix19_opus_report.md
+477	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close18_review.md
+3	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/codex_code_round2_close18_prompt.md
+46f0a76 exp_11 bookkeeping: fix-19 full-suite result (record only)
+
+40	1	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_06:43:58_coder_round2_fix19_opus_report.md
+208	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_06:44_suite_full_cpu_6597474.log
+            'the launcher signalled a process that was never its holder')
+    finally:
+        bystander.terminate()
+        bystander.wait(timeout=30)
+
+
+def test_a_holder_that_never_started_is_not_reported_as_someone_else(tmp_path):
+    """A refusal has to name the real obstacle.
+
+    "held by another invocation" sends a reader looking for a publication that is not
+    happening. A holder that could not start at all -- an unwritable root, a lock path
+    that is a directory, a missing interpreter -- is a different failure and says so.
+    """
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    (root / LOCKFILE).mkdir(parents=True)     # a directory where the lock file belongs
+    result = lib('ARM_ROOT={}\nDRY=0\nARM=H\nhold_arm_lock finalize\n'.format(root),
+                 {'EXP11_TEST_ROOTS': '1'})
+    assert result.returncode != 0
+    assert 'another invocation' not in result.stderr, result.stderr[-400:]
+    assert 'holder' in result.stderr.lower() and 'refusing' in result.stderr
+
+
+def test_the_lock_file_is_a_file_and_the_launcher_knows_no_stale_lock():
+    text = (REPO / 'tools/exp11_launch.sh').read_text()
+    for gone in ('break_lock', 'take_lock', 'release_lock', 'release_breaking',
+                 '--break-lock', 'BREAK_LOCK', 'EXP11_LOCK_BARRIER',
+                 'EXP11_ACQUIRE_BARRIER', 'LOCK_GRACE', '.breaking', 'BREAKLOCK',
+                 'LOCK_NONCE', 'take_lock'):
+        assert gone not in text, '{} survived the replacement'.format(gone)
+    assert 'LOCK_FD' not in text, (
+        'the launcher must not hold the lock on a descriptor of its own: the sink and '
+        'the child inherit every one of them')
+    assert 'exp11_lock_holder.py' in text
+    assert 'flock' in (REPO / 'tools/exp11_lock_holder.py').read_text()
+    assert 'inherited by the trainer or the log sink' in text
+    usage = subprocess.run(['bash', 'tools/exp11_launch.sh'], cwd=str(REPO),
+                           capture_output=True, text=True,
+                           env=dict(os.environ, CUDA_VISIBLE_DEVICES=''))
+    assert 'break-lock' not in usage.stderr
+
+
+def test_the_dry_run_announces_the_lock_and_takes_none_outside_the_test_roots():
+    status, out, _ = launch(['full', '--arm', 'H', '--gpu', '1', '--reviewed-commit',
+                             COMMIT, '--dry-run'])
+    assert status == 0
+    assert 'LOCK ckpt/exp11/pretrain/xRIR_simpor_8_shot/.publish.lock' in out
+    assert not (REPO / 'ckpt/exp11/pretrain/xRIR_simpor_8_shot/.publish.lock').exists()
+@pytest.mark.parametrize('spelling', ['{arm}//{name}', '{arm}/./{name}', '{arm}/{name}/',
+                                      '{arm}/{name}/sub/..'])
+def test_an_odd_spelling_of_a_legitimate_attempt_still_registers(tmp_path, spelling):
+    """A path is not a string to be parsed: these all name one directory.
+
+    Through the DEFAULT call -- no ``arm_root`` -- which is how the trainer is invoked
+    in production; passing one masked the rejection (close review 18).
+    """
+    arm = tmp_path / 'arm'
+    attempt = arm / 'attempt_20260927T000000'
+    (attempt / 'sub').mkdir(parents=True)
+    (attempt / 'launching').write_text('launcher 1\n')
+    path = spelling.format(arm=arm, name=attempt.name)
+    assert exp11_train.pid_record(exp11_train.register_trainer(path)) == os.getpid()
+    assert (attempt / 'train.pid').is_file()
+
+
+def test_an_arm_reached_through_its_own_alias_registers_by_default(tmp_path):
+    """The NAS layout: the ARM is a symlink, the attempt inside it is real."""
+    arm = tmp_path / 'arm'
+    attempt = arm / 'attempt_20260927T000000'
+    attempt.mkdir(parents=True)
+    (attempt / 'launching').write_text('launcher 1\n')
+    alias = tmp_path / 'arm-alias'
+    alias.symlink_to(arm)
+    assert exp11_train.pid_record(
+        exp11_train.register_trainer(str(alias / attempt.name))) == os.getpid()
+    assert (attempt / 'train.pid').is_file()
+
+
+def test_an_attempt_symlinked_into_another_arm_still_refuses_by_default(tmp_path):
+    """The containment that matters, through the default call: no lock, no sidecar."""
+    home, other = tmp_path / 'home', tmp_path / 'other'
+    attempt = home / 'attempt_20260927T000000'
+    attempt.mkdir(parents=True)
+    (attempt / 'launching').write_text('launcher 1\n')
+    other.mkdir()
+    (other / attempt.name).symlink_to(attempt)
+    with pytest.raises(SystemExit) as exit_request:
+        exp11_train.register_trainer(str(other / attempt.name))
+    assert exit_request.value.code == 3
+    assert not (attempt / 'train.pid').exists()
+    assert not (other / '.registration.lock').exists()
+
+
+def test_a_given_path_whose_lexical_parent_is_not_there_refuses(tmp_path):
+    arm = tmp_path / 'arm'
+    attempt = arm / 'attempt_20260927T000000'
+    attempt.mkdir(parents=True)
+    (attempt / 'launching').write_text('launcher 1\n')
+    with pytest.raises(SystemExit) as exit_request:
+        exp11_train.register_trainer(str(arm / 'gone' / '..' / attempt.name))
+    assert exit_request.value.code == 3
+
+
+def test_the_trainer_keeps_no_path_grammar(tmp_path):
+    """Identity is device and inode, so there is nothing left to validate as a string."""
+    assert not hasattr(exp11_train, 'valid_path')
+    source = Path(exp11_train.__file__).read_text()
+    assert 'valid_path' not in source and 'canonical(' not in source
+
+
+def test_registration_writes_atomically(tmp_path):
+    """No reader ever sees a half-written train.pid: a temp file, then one rename."""
+    attempt = registered(tmp_path)
+    source = (Path(exp11_train.__file__).read_text())
+    assert 'os.replace' in source, 'the write has to be a rename'
+    path = exp11_train.register_trainer(str(attempt))
+    assert exp11_train.pid_record(path) == os.getpid()
+    assert not list(attempt.glob('*.tmp*')), 'the temp file is gone'
+
+
+def test_registration_refuses_an_attempt_outside_its_arm(tmp_path):
+    """The lock is the arm root's, so the attempt has to belong to that arm."""
+    elsewhere = tmp_path / 'elsewhere'
+    attempt = elsewhere / 'attempt_20260927T000000'
+    attempt.mkdir(parents=True)
+    (attempt / 'launching').write_text('launcher 1\n')
+    with pytest.raises(SystemExit) as exit_request:
+        exp11_train.register_trainer(str(attempt), arm_root=str(tmp_path))
+    assert exit_request.value.code == 3
+    assert not (attempt / 'train.pid').exists()
+rg: worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_plan.md: IO error for operation on worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_plan.md: No such file or directory (os error 2)
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/plan_orientation_cue_fairness.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/plan_orientation_cue_fairness_v1_superseded.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_plan_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_17:31:52_codex_plan_review.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_17:44:43_codex_plan_round2_review.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_plan_round2_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_results_assets/planner_probes/exp11_runbook.sh
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/plan_round2_prompt.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/plan_prompt.md
+
+exec
+/bin/bash -lc "env PYTHONPATH=/home/yixunhu/codespace/xRIR_code_wt PYTHONDONTWRITEBYTECODE=1 CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 /home/yixunhu/miniconda3/envs/xRIR/bin/python -m pytest tests/test_exp11_pathprobe.py tests/test_exp11_pidrecord.py -q -p no:cacheprovider --basetemp=/tmp/codex-close19-probes" in /home/yixunhu/codespace/xRIR_code_wt
+exec
+/bin/bash -lc "rg -n 'A2|identity|timeout|freeze|200|round 2|round2' worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/plan_orientation_cue_fairness.md | tail -65; rg -n 'bind_mount|containment|canonical|symlinked_root' tests/test_exp11_shell.py | tail -22; git diff --name-only 9f98bbb HEAD -- tools/exp06_launch.sh tools/exp06_finalize.py tools/exp10\\* model/ train_xRIR_backbone.py; git branch --show-current" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+22:### 2.2 Arms (HAA protocol identical to exp_02/exp_06/exp_09: stage 1 class_room + hallway + complex_room 1000 epochs / val 10; stage 2 per room 200 / val 2; AdamW 1e-4, wd 1e-4, ×0.1 per 50 epochs; full batch; TF32; selection on the DiffRIR validation split; K = 8; `eval_seed` 0; unseeded Griffin-Lim; three fine-tuning seeds 0/1/2 + one zero-shot job per arm)
+34:| **J `control_adapter`** | xRIR + explicit cue (adapter; supplementary to H) | A's checkpoint + zero-initialised azimuth adapter (§2.3) | room | explicit adapter | **Phase 1b** (round 2; ≈ 3 GPU-h) |
+36:| **H `simple_or`** | **xRIR + orientation cue** (literal) | new `simple_oriented` (SimpleViT with the two planes, `channels = 5`), pretrained from scratch, profile H_RECIPE (= exp_01's; ≈ 28–31 h) | heading | explicit planes (pretrained) + frame | **Phase 2** (round 2) |
+39:G runs through the extended exp_06 pipeline (round 1); J, K, H, I run through the exp_11-owned pipeline (round 2); all new arms use `ckpt/exp11/sim2real/<init>/` roots and this record; each child is finalised with a completion contract identical to exp_06's (validation-based selection, init → stage 1 → stage 2 → evaluation lineage, heading binding, full test indices, job completeness). A, B, C, D, E, F are re-read from their existing completions (legacy receipt for A/B; child/job records with their original approval blobs for C/D/E/F), as exp_09 did.
+78:## 4. Code (Coder = Claude Opus 5, worktree `/home/yixunhu/codespace/xRIR_code_wt` on branch `exp11-cue`; TDD red-first; commits ≤ 200 lines; Codex code review after every round at **ultra**; SOP closure rules)
+83:1. `tools/exp06_haa_pipeline.sh`: init `yawaug_hf` (backbone `simple`, checkpoint `${EXP09_YAWAUG_CKPT}`, frame **heading**); the `exp04_aug_checkpoint` identity resolver applied to **both** `yawaug` and `yawaug_hf`; the frame reset on every init selection; bare `zeroshot` keeps its historical expansion; the approved heading records passed for G; log prefix for a record path containing `exp_11`.
+84:2. `tools/exp06_summarize_haa.py`: `ARMS['yawaug_hf']` (experiment `exp11`, root `ckpt/exp11/sim2real/yawaug_hf`, frame heading) **with `expected_inits` extended so G carries the exp_04 checkpoint identity check**; `EXPERIMENTS['exp11']` for Phase 1 (arms A–G; decisions N1, N1i, N2, N3; three screen families; R1 copied rows) — this requires extending the experiment schema to several screens, several decision kinds (category / non-inferiority direction / superiority / equivalence / interaction) and phase outputs **without changing exp06/exp09 semantics** (their statistical payloads and rendered summaries unchanged under the existing fixtures; their canonical files untouched); `--exp11-root`; `check_output_paths` for exp11.
+92:8. `tools/exp11_finalize.py`: an exp_11-owned finalizer/adapter with its own run types (`exp11_train`, `exp11_smoke`, `exp11_haa_finetune`, `exp11_haa_eval`, `exp11_haa_job`) and dispatch; registry selection, factory/state validation, entry-module identity, recipe selection by run type, job-spec validation, child roles and lineage checks, heading binding (heading frame for H/I; room frame **with** the room's heading recorded as the adapter's input for J/K), committed approvals; it **imports** exp_06's validation helpers where they fit and never monkeypatches old module globals; historical dispatch (`tools/exp06_finalize.py`) is not edited unless a one-line registration is unavoidable, in which case every affected dispatcher is enumerated and the old paths are shown to reconstruct identical evidence.
+94:10. `tools/exp11_haa_pipeline.sh`: exp_11-owned queue (inits `simple_or`, `simple_or_yaw` in the heading frame; `control_adapter`, `yawaug_adapter` in the room frame with the heading passed to the adapter), entry-point selection per init, identity gate through `tools/exp11_profiles.py`, exclusive-card census, roots under `ckpt/exp11/sim2real/`.
+104:1. Static + unit tests (`CUDA_VISIBLE_DEVICES=''`), per round. Round 1: the cases in §4.3. Round 2: encoder equalities and counts; adapter bit-exact at init and pinned state-dict loading; registry isolation (`BACKBONES_EXP06` and its digest unchanged; `tests/test_exp09_sim_eval_closures.py` green); recipe profiles accept exactly H and I and refuse mixtures; launcher golden argv; wrappers refuse exp_06 run types; per-arm identity mapping; phase-output refusal to overwrite.
+118:**Schedule (2026-09-26; owner's ETAs from session cylindrical-dinov3-0a).** Both cards are held by FLAC exp_13 tier-L trainings commissioned by Yixun to 40 k steps: the first card frees ≈ Sep 29 16:00 (40 k ≈ 12:30 + final watcher evaluations), the second ≈ Oct 3; only co-tenant work is queued behind them; the owner messages when a card frees. Rounds 1–2 (code + Codex reviews) Sep 27–29 — round 2 is a new approval/completion family, budgeted at two to three days. First card: G (≈ 3 h) → J, K (≈ 6 h) → H pretraining (→ ≈ Oct 1 08:00) → H's HAA queue (→ ≈ Oct 1 11:00). Second card (≈ Oct 3): I pretraining (→ ≈ Oct 4 07:00) → I's HAA queue (→ ≈ 10:00) → final summary. Sequential on one card if the second stays busy: I after H (→ ≈ Oct 2 16:00 + HAA). Buffered target for the final table: **Oct 4–5**. Merges into `main` only after messaging the peer session and only with a clean tree outside `worklog/`.
+132:- v3 (2026-09-26): responses to the Codex round-2 review (`orientation_cue_fairness_codex_plan_round2_review.md`, approve with changes): (1) adapter contract completed (zero weight and bias, 1 536 parameters; token-angle convention; shared-heading validation with mixed headings refused; two strict loading modes; interpretation restricted — the heading is absorbable into the projection, J/K test an added learnable circular positional representation; P1/P2 the better-matched channel comparisons; P4 bundles pretraining and frame change; 'absolute azimuth anchor' wording); (2) N1i via the frozen `paired_intervals` on `(g − e, d − a)` with a four-arm assembler, ≥ 99 % joint cohort, defined unavailable result for degenerate intervals, exp_11 screens under the universal suppression; (3) R1 replaced by a source-field map with selectors (no manufactured fields); (4) exp_11-owned faithful orchestration loop with a parity test, per-arm admission adapter in the summariser, adapter-heading admission fields, no old-finalizer registration, G noted as using the exp_06 route; (5) `launch_sh` key, producer/arm requirement matrix, enumerated diagnostic kinds with budgets and non-admissibility.
+133:- v2 (2026-09-26): responses to the Codex plan review (`orientation_cue_fairness_codex_plan_review.md`, request changes): (1) the redundancy claim withdrawn; D relabelled "SimpleViT in the heading frame (implicit conditioning)"; the literal channel arms H and I are the primary test (P3 = C − H) and the adapter arms J/K are added as the cheaper explicit control, registered as a different design; (2) G ≈ E is a hypothesis (N3 with an equivalence statement); the "refutation" reading removed; D − A no longer used as evidence about explicit conditioning; single fixed overall reading and fixed table rows; (3) decision rules corrected (non-inferiority direction, superiority separate, equivalence = 95 % containment, three declared screen families, interaction cell N1i, void/unconverged suppression, margin on C50 only, "replace D/G" removed, R1 copies named fields with source hashes); (4) Phase 2 re-designed as an exp_11-owned family (profiles, finalizer/adapter, entry points, pipeline, smoke route, per-arm identity mapping); historical pretraining replay explicitly out of scope; sim-eval routing deferred explicitly; (5) A′ as an external row (not in the legacy receipt), A as the matched baseline; separate phase outputs; "byte-identical" clarified; (6) two named recipe profiles with exp_04's saving constraints and the full completion contract; (7) cost/schedule updated (≈ 75 GPU-h; round-2 effort 2–3 days; runbook enforces the exclusive card); namespace moved to exp_11; reviews at ultra.
+138:- **A1 (2026-09-27 09:3x, Planner decision after Codex close reviews 2–5 of round 2).** The per-arm publication lock of `tools/exp11_launch.sh` (requested by Codex close review 2 to serialise recovery and promotion) is a **kernel advisory lock**: `flock -n <arm-root>/.publish.lock` held by one process for the whole protected section (recovery: alias resolution → validation → finalization → promotion; full mode: from before the child launch through promotion). A second invocation fails immediately; the lock is released by the kernel when its holder exits or dies, so **no stale lock can exist and no stale-lock breaking, grace period, owner file, generation nonce, meta-lock or file barrier is implemented**. `--break-lock` is removed. Rationale: the pathname-based `mkdir` protocol accumulated five reviewed interleaving defects (close reviews 2–5) in an operator-convenience path; the kernel primitive is the standard, provable solution and removes the surface. Signal handlers stay terminating (128+n) with the `INTERRUPTED` guard; ownership-preserving abort, idempotent already-published recovery and `--replace-final` are unchanged. Roots are local (`ckpt/exp11/` on NVMe), where `flock` is reliable.
+139:- **A2 (2026-09-28 05:1x, Planner decision after Codex close reviews 15–17).** The launcher's filesystem probe (`tools/exp11_pathprobe.py`, A1's successor design) **returns no path strings**. Verdicts carry only a mode (`present <mode-hex>` / `absent`) or a link classification (`link` / `notlink` / `nolink`); every decision that formerly compared a returned canonical path or link target with another path now asks the probe an IDENTITY question — `same <a> <b>` → `same` / `different` / unknown, decided in Python by device and inode of the followed stats (`os.path.samestat`), with a link's target resolved in-process. Log lines may print an informational `readlink` result but no decision depends on it. Rationale: three consecutive close reviews found residual gaps in the path-field grammar (relative paths, spaces, byte counts, terminal `..`, trailing slashes); a protocol that carries no paths has no such grammar. The trainer, in-process, uses the same Python identity primitives for arm containment (no string comparison of canonical fields).
+1983:    canonical.mkdir(parents=True)
+1985:    arguments = '{} L.log'.format(canonical) if guard == 'abort_recovery' else str(canonical)
+1993:        assert canonical.is_dir()
+2081:    canonical = root / 'attempt_20260927T222222'
+2082:    canonical.mkdir(parents=True)
+2083:    publish(canonical)
+2084:    arguments = '{} L.log'.format(canonical) if guard == 'abort_recovery' else str(canonical)
+2215:    canonical = root / 'attempt_20260928T020202'
+2216:    canonical.mkdir(parents=True)
+2217:    publish(canonical)
+2218:    arguments = '{} L.log'.format(canonical) if guard == 'abort_recovery' else str(canonical)
+2227:    assert canonical.is_dir() and (root / 'final').is_symlink()
+2262:    canonical = root / 'attempt_20260928T030303'
+2263:    canonical.mkdir(parents=True)
+2264:    publish(canonical)
+2269:                             path=spelling.format(root=root, name=canonical.name)),
+2274:# --- close review 18: containment is decided ONCE, by identity ----------------------
+2282:    """The containment decision is `same_parent`, and there is no second one.
+2290:    assert '.resolve()' not in text, 'no canonical string is derived to be compared'
+2295:def test_the_attempt_check_decides_containment_by_identity_alone(tmp_path):
+2320:def bind_mounted_spellings():
+2349:    pair = bind_mounted_spellings()
+model/simple_vit_oriented.py
+model/xRIR_simple_adapter.py
+model/xRIR_simple_oriented.py
+model/xrir_exp11_registry.py
+exp11-cue
+

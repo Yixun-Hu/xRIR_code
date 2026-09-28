@@ -93,26 +93,26 @@ $TRAILER" && log "committed $(git rev-parse HEAD)"; log "FILL11 OK" ;;
     tail -1 "$E/orientation_cue_fairness_${TS}_suite_full_cpu.log" | tee -a "$LOG"; grep -E "^FAILED|^ERROR" "$E/orientation_cue_fairness_${TS}_suite_full_cpu.log" | tee -a "$LOG" || true ;;
   dryrun11)
     GPU=${1:-1}; shift || true; log "DRYRUN11 $TS HEAD=$(git rev-parse HEAD) jobs=$*"
-    EXP11_HAA_RECORD=$E bash tools/exp11_haa_pipeline.sh "$GPU" "$@" --dry-run 2>&1 | tee -a "$LOG" | grep -cE "^RUN|^JOB" ;;
+    bash tools/exp11_haa_pipeline.sh "$GPU" "$@" --dry-run 2>&1 | tee -a "$LOG" | grep -cE "^RUN|^JOB" ;;
   smoke11)
     ARM=${1:?H|I}; GPU=${2:-1}; log "SMOKE11 $TS arm=$ARM GPU=$GPU HEAD=$(git rev-parse HEAD)"; clean_outside_worklog; gpu_empty "$GPU"
-    EXP11_RECORD=$E bash tools/exp11_launch.sh smoke --arm "$ARM" --gpu "$GPU" --reviewed-commit "$(git rev-parse HEAD)" 2>&1 | grep -vE "UserWarning|warnings.warn" | tee -a "$LOG"
+    bash tools/exp11_launch.sh smoke --arm "$ARM" --gpu "$GPU" --reviewed-commit "$(git rev-parse HEAD)" 2>&1 | grep -vE "UserWarning|warnings.warn" | tee -a "$LOG"
     log "SMOKE11 OK (diagnostic)" ;;
   launch11)
     GPU=${1:-1}; shift || true; [ $# -ge 1 ] || refuse "give the jobs"; log "LAUNCH11 $TS GPU=$GPU HEAD=$(git rev-parse HEAD) jobs=$*"; clean_outside_worklog; gpu_empty "$GPU"
     for j in "$@"; do init=${j%%:*}; [ ! -d "$OUT/$init/${j#*:}" ] && [ ! -d "$OUT/$init/seed${j#*:}" ] || refuse "$OUT/$init/${j#*:} exists"; done
     df -h / | tail -1 | awk '{print "free on /:", $4}' | tee -a "$LOG"
-    EXP11_HAA_RECORD=$E bash tools/exp11_haa_pipeline.sh "$GPU" "$@" --dry-run 2>&1 | grep -E "PIPELINE|^JOB|REFUS|refus" | tee -a "$LOG"
+    bash tools/exp11_haa_pipeline.sh "$GPU" "$@" --dry-run 2>&1 | grep -E "PIPELINE|^JOB|REFUS|refus" | tee -a "$LOG"
     PIDF=$E/orientation_cue_fairness_${TS}_haa11_gpu${GPU}.pid
-    EXP11_HAA_RECORD=$E nohup setsid bash tools/exp11_haa_pipeline.sh "$GPU" "$@" < /dev/null >> "$LOG" 2>&1 &
+    nohup setsid bash tools/exp11_haa_pipeline.sh "$GPU" "$@" < /dev/null >> "$LOG" 2>&1 &
     echo $! > "$PIDF"; sleep 30
     kill -0 "$(cat "$PIDF")" 2>/dev/null && log "exp11 HAA queue launched: pid $(cat "$PIDF")" || { tail -20 "$LOG"; refuse "queue exited early"; } ;;
   pretrain)
     ARM=${1:?H|I}; GPU=${2:-1}; log "PRETRAIN $TS arm=$ARM GPU=$GPU HEAD=$(git rev-parse HEAD)"; clean_outside_worklog; gpu_empty "$GPU"
     ROOT=$(arm_root "$ARM"); [ ! -e "$ROOT/final" ] || refuse "$ROOT/final exists"
-    EXP11_RECORD=$E bash tools/exp11_launch.sh full --arm "$ARM" --gpu "$GPU" --reviewed-commit "$(git rev-parse HEAD)" --dry-run 2>&1 | grep -E "REFUS|refus|attempt|timeout" | head -8 | tee -a "$LOG"
+    bash tools/exp11_launch.sh full --arm "$ARM" --gpu "$GPU" --reviewed-commit "$(git rev-parse HEAD)" --dry-run 2>&1 | grep -E "REFUS|refus|attempt|timeout" | head -8 | tee -a "$LOG"
     PIDF=$E/orientation_cue_fairness_${TS}_pretrain_${ARM}_gpu${GPU}.pid
-    EXP11_RECORD=$E nohup setsid bash tools/exp11_launch.sh full --arm "$ARM" --gpu "$GPU" --reviewed-commit "$(git rev-parse HEAD)" < /dev/null >> "$LOG" 2>&1 &
+    nohup setsid bash tools/exp11_launch.sh full --arm "$ARM" --gpu "$GPU" --reviewed-commit "$(git rev-parse HEAD)" < /dev/null >> "$LOG" 2>&1 &
     echo $! > "$PIDF"; sleep 60
     kill -0 "$(cat "$PIDF")" 2>/dev/null && log "pretraining $ARM launched: pid $(cat "$PIDF")" || { tail -30 "$LOG"; refuse "launcher exited early"; } ;;
   pin11)   # fill artifacts.<key> for one arm from its promoted final/completion.json
