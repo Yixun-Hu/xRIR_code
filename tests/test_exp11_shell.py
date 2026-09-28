@@ -2105,6 +2105,31 @@ def test_a_crafted_probe_verdict_is_not_a_verdict(tmp_path, crafted):
     assert result.returncode == 2, (crafted, result.stdout, result.stderr)
 
 
+def test_a_dangling_train_pid_link_is_not_a_dead_trainer(tmp_path):
+    """The reviewer's schedule: the record is a link, and its target has moved away.
+
+    The resolution excludes its own target from the marker checks -- the tombstone is
+    what makes that safe -- so the pid records are all that speak for the trainer. A
+    reader that calls a dangling link "no record" calls a living trainer dead.
+    """
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    try:
+        record = attempt / 'train.pid'
+        moved = tmp_path / 'moved-away'
+        record.replace(moved)
+        record.symlink_to(moved)
+        moved.unlink()                      # the name is there; its target is not
+        result = resolve_under_lock(attempt)
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert 'RESOLVED' not in result.stdout and 'TOMBSTONE' not in result.stdout
+        assert attempt.is_dir() and (attempt / 'launching').is_file()
+        assert not (old.parent / (attempt.name + '.resolved')).exists()
+        assert not (old.parent / (attempt.name + '_ABORTED_unregistered')).exists()
+    finally:
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
 def pid_of(pidfile):
     """The pid in a registration file, if it still names a living process."""
     try:
