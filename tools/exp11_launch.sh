@@ -401,18 +401,56 @@ probe_live() {
     return 0
 }
 
+# list_attempts <arm root> <listing file>: 0 only when the root really was ENUMERATED,
+# the listing then holding its attempt_* entries NUL-separated. A directory with mode
+# 0300 is searchable and writable but NOT listable: every known pathname under it still
+# works -- both lock files open, `stat` answers, the holder starts -- while a glob over
+# it silently expands to nothing. That read as "this arm has no attempts", and a
+# resolution retired the attempt of a registered, running trainer (close review 13). A
+# successful stat of a name we already knew is never evidence that we saw the directory.
+list_attempts() {
+    local root="$1" out="$2"
+    [ -d "$root" ] || return 1
+    [ -r "$root" ] && [ -x "$root" ] || return 1     # listing needs read AND search
+    find "$root" -mindepth 1 -maxdepth 1 -name 'attempt_*' -print0 > "$out" 2>/dev/null
+}
+
 # scan_arm <arm root> [<attempt being resolved>]: 0 when every attempt of the arm is
 # finished and accounted for, 1 when one is not (SCAN_REASON says which), 2 when the
 # reader failed and no answer exists. A broken reader closes the arm to every automated
 # decision; it never opens it (close review 11).
 scan_arm() {
-    local root="$1" resolving="${2:-}" attempt="" name="" here=""
+    local root="$1" resolving="${2:-}" attempt="" name="" here="" listing="" mode=""
+    local -a attempts=()
     SCAN_REASON=""
     # The attempt being resolved is excluded by canonical identity, never by spelling:
     # the caller's path and this glob's may name the same directory differently.
     [ -z "$resolving" ] || resolving="$(realpath -- "$resolving" 2>/dev/null || printf '%s' "$resolving")"
-    for attempt in "$root"/attempt_*; do
-        [ -d "$attempt" ] || continue
+    listing="$(mktemp "${TMPDIR:-/tmp}/exp11_attempts.XXXXXX")" || {
+        SCAN_REASON="liveness unknown: cannot create a listing file for $root"
+        return "$READER_UNKNOWN"; }
+    if ! list_attempts "$root" "$listing"; then
+        rm -f -- "$listing"
+        SCAN_REASON="liveness unknown: the arm root cannot be enumerated ($root); an"\
+" attempt nobody can see is not an attempt that is not there, and nothing of this arm is"\
+" scanned, retired or published on that"
+        return "$READER_UNKNOWN"
+    fi
+    # -d '' is the NUL delimiter: an attempt name may hold anything but a NUL.
+    while IFS= read -r -d '' attempt; do attempts+=("$attempt"); done < "$listing"
+    rm -f -- "$listing"
+    for attempt in ${attempts[@]+"${attempts[@]}"}; do
+        # `-d` answers "no" both for a name that is not a directory and for one nobody
+        # was allowed to look at; only a stat that SUCCEEDED classifies (close review 13).
+        mode="$(stat -L -c %f -- "$attempt" 2>/dev/null)" || {
+            SCAN_REASON="liveness unknown: $attempt is in this arm and cannot be"\
+" inspected, so what it holds cannot be known"
+            return "$READER_UNKNOWN"; }
+        case "$mode" in ''|*[!0-9a-fA-F]*)
+            SCAN_REASON="liveness unknown: $attempt has no readable file mode"
+            return "$READER_UNKNOWN" ;;
+        esac
+        [ $(( 0x$mode & 0xF000 )) -eq $(( 0x4000 )) ] || continue   # not a directory
         name="$(basename -- "$attempt")"
         here="$(realpath -- "$attempt" 2>/dev/null || printf '%s' "$attempt")"
         probe_live "$attempt/launch.pid" "$name has a live launcher (launch.pid)" || return $?
@@ -467,6 +505,13 @@ clear_launching() {  # clear_launching <attempt>: only once the TRAINER is accou
     # the attempt unresolved -- fail closed, by design: the operator answers it.
     # `|| return 0` covers BOTH "no complete child.pid" and "the reader could not say":
     # a marker is withdrawn on an answer, never on the absence of one (close review 11).
+    # And not at all while the arm it belongs to cannot even be enumerated: the marker is
+    # protection, and protection is not withdrawn on an understanding we do not have
+    # (close review 13).
+    local listing=""
+    listing="$(mktemp "${TMPDIR:-/tmp}/exp11_attempts.XXXXXX")" || return 0
+    if ! list_attempts "$(dirname -- "$1")" "$listing"; then rm -f -- "$listing"; return 0; fi
+    rm -f -- "$listing"
     registration_complete "$1" || return 0
     [ -f "$1/train.exit" ] || return 0
     rm -f -- "$1/launching"
