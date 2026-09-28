@@ -1396,6 +1396,9 @@ def test_a_trainer_that_never_reported_its_exit_keeps_the_arm_shut(tmp_path):
 # directory of a REGISTERED, RUNNING trainer. These regressions break the reader on
 # purpose and demand that nothing is decided.
 
+needs_a_non_root_user = pytest.mark.skipif(
+    os.geteuid() == 0, reason='root ignores the permission bits these cases turn off')
+
 READERS = {
     # The reader cannot run at all: this is what a missing interpreter, an unimportable
     # module and a crash all look like from the shell -- exit 1, nothing on stdout.
@@ -1431,6 +1434,36 @@ def reader(tmp_path, kind, name='python_wrapper.sh'):
                 '    exec "{}" "$@"').format(PYTHON)
     else:
         body = READERS[kind]
+    path.write_text('#!/bin/sh\ncase " $* " in\n  *" tools.exp11_pidrecord "*)\n'
+                    '    {}\n    ;;\nesac\nexec "{}" "$@"\n'.format(body, PYTHON))
+    path.chmod(0o755)
+    return path
+
+
+# --- close review 12: the bytes the reader printed, not what Bash made of them -----
+# Command substitution strips trailing newlines and NUL bytes, so a reader emitting
+# `norecord\n\n` or `norecord\0\n` -- exit 0, and healthy on both probes -- became a
+# definite verdict and retired a live trainer's attempt.
+
+RAW_ANSWERS = [b'norecord\n\n', b'norecord\x00\n', b'record 123\n\n',
+               b'record 123\x00\n', b'record 123 \n', b'\nrecord 123\n']
+RAW_IDS = [repr(payload) for payload in RAW_ANSWERS]
+
+
+def byte_reader(tmp_path, payload, only_on=None, name='byte_wrapper.sh'):
+    """A ``$PYTHON`` whose pid reader prints exactly these bytes.
+
+    With ``only_on`` it answers normally everywhere else, so the health probes pass and
+    what is on trial is the per-read validation; without it every read -- the probes
+    included -- gets the payload.
+    """
+    answer = tmp_path / (name + '.bytes')
+    answer.write_bytes(payload)
+    body = 'cat "{}"; exit 0'.format(answer)
+    if only_on is not None:
+        body = 'case "$*" in *{}*) {} ;; esac\n    exec "{}" "$@"'.format(
+            only_on, body, PYTHON)
+    path = tmp_path / name
     path.write_text('#!/bin/sh\ncase " $* " in\n  *" tools.exp11_pidrecord "*)\n'
                     '    {}\n    ;;\nesac\nexec "{}" "$@"\n'.format(body, PYTHON))
     path.chmod(0o755)
@@ -1568,6 +1601,99 @@ def test_a_broken_reader_leaves_the_marker_standing(tmp_path):
         broken=reader(tmp_path, 'cannot run'), attempt=attempt))
     assert result.returncode == 0, result.stderr[-300:]
     assert (attempt / 'launching').is_file(), 'unknown is not a reason to clear'
+
+
+@pytest.mark.parametrize('payload', RAW_ANSWERS, ids=RAW_IDS)
+def test_only_the_exact_verdict_bytes_are_a_verdict(tmp_path, payload):
+    """Anything Bash would tidy into a verdict must be unknown instead."""
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    try:
+        broken = byte_reader(tmp_path, payload, only_on='train.pid')
+        result = resolve_with_reader(attempt, broken)
+        assert result.returncode == 2, (payload, result.stdout, result.stderr)
+        assert 'unknown' in result.stderr or 'unhealthy' in result.stderr
+        assert attempt.is_dir() and (attempt / 'launching').is_file()
+        assert pid_of(attempt / 'train.pid') == stub.pid
+        assert not (old.parent / (attempt.name + '.resolved')).exists()
+        scan_result = scan_with_reader(old.parent, broken)
+        assert scan_result.returncode == 2, scan_result.stdout
+    finally:
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+@pytest.mark.parametrize('payload', RAW_ANSWERS, ids=RAW_IDS)
+def test_the_health_probes_are_byte_exact_too(tmp_path, payload):
+    """The probes read the same way the real reads do, or they prove nothing."""
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    try:
+        result = scan_with_reader(old.parent, byte_reader(tmp_path, payload))
+        assert result.returncode == 2, (payload, result.stdout, result.stderr)
+        assert 'unhealthy' in result.stderr, result.stderr
+    finally:
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+def padding_reader(tmp_path):
+    """A reader whose answers are always right and always a byte too long.
+
+    It passes both probes under a check that compares what Bash made of the output,
+    because command substitution deletes the padding -- which is the whole point.
+    """
+    path = tmp_path / 'padding_wrapper.sh'
+    path.write_text('#!/bin/sh\ncase " $* " in\n  *" tools.exp11_pidrecord "*)\n'
+                    '    answer="$("{python}" "$@")" || exit $?\n'
+                    '    printf "%s\\n\\n" "$answer"\n    exit 0\n    ;;\nesac\n'
+                    'exec "{python}" "$@"\n'.format(python=PYTHON))
+    path.chmod(0o755)
+    return path
+
+
+def test_a_reader_that_pads_every_answer_is_unhealthy(tmp_path):
+    """Both probe answers are correct *and* padded: only the raw bytes tell them apart."""
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    try:
+        result = scan_with_reader(old.parent, padding_reader(tmp_path))
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert 'unhealthy' in result.stderr, result.stderr
+    finally:
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+@needs_a_non_root_user
+@pytest.mark.parametrize('shut_the', ['file', 'parent'])
+def test_a_pid_file_the_launcher_cannot_read_is_never_dead(tmp_path, shut_the):
+    """The reviewer's second schedule: chmod 000 on a registered live trainer's record.
+
+    The file exists and may well name a living process; a reader that cannot open it has
+    not established anything, least of all that the trainer is gone.
+    """
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    shut = (attempt / 'train.pid') if shut_the == 'file' else attempt
+    shut.chmod(0o000)
+    try:
+        probe = lib('ARM_ROOT={root}\nDRY=0\nARM=H\n'
+                    'status=0\npid_record {pid} || status=$?\necho "RECORD $status"\n'
+                    'status=0\npid_alive {pid} || status=$?\necho "ALIVE $status"\n'
+                    .format(root=old.parent, pid=attempt / 'train.pid'))
+        assert 'RECORD 2' in probe.stdout and 'ALIVE 2' in probe.stdout, probe.stdout
+        result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nUNRESOLVED_GRACE_S=3600\n'
+                     'hold_arm_lock finalize || exit 9\n'
+                     'resolve_unregistered {attempt}\n'.format(
+                         root=old.parent, attempt=attempt), {'EXP11_TEST_ROOTS': '1'})
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert 'liveness unknown' in result.stderr, result.stderr
+        assert not (old.parent / (attempt.name + '.resolved')).exists(), 'no tombstone'
+        assert not (old.parent / (attempt.name + '_ABORTED_unregistered')).exists()
+        scan_result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nrequire_quiet_arm\n'.format(
+            root=old.parent), {'EXP11_TEST_ROOTS': '1'})
+        assert scan_result.returncode == 2 and 'liveness unknown' in scan_result.stderr
+    finally:
+        shut.chmod(0o700 if shut_the == 'parent' else 0o600)
+        stub.terminate()
+        stub.wait(timeout=30)
 
 
 def pid_of(pidfile):
