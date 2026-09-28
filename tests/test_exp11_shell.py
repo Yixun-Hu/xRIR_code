@@ -2014,6 +2014,97 @@ def test_a_reader_that_never_returns_is_unknown(tmp_path):
     assert 'STATUS 2' in result.stdout, (result.stdout, result.stderr)
 
 
+# --- close review 15: bash's `stat` carries no errno --------------------------------
+# ENAMETOOLONG, EIO and an injected failure all read as "no", and the shell called that a
+# confirmed absence whenever the parent looked fine. The classification now comes from
+# tools/exp11_pathprobe.py, and the shell validates its answer the way it validates the
+# pid reader's -- so a probe that fails, pads or lies is unknown, not an absence.
+
+
+def probe_breaker(tmp_path, only_on, name='probe_wrapper.sh', body='exit 1'):
+    """A ``$PYTHON`` that breaks ONE path probe and delegates everything else."""
+    path = tmp_path / name
+    path.write_text('#!/bin/sh\ncase " $* " in\n  *" tools.exp11_pathprobe "*)\n'
+                    '    case "$*" in *{only_on}*) {body} ;; esac\n    ;;\nesac\n'
+                    'exec "{python}" "$@"\n'.format(only_on=only_on, body=body,
+                                                    python=PYTHON))
+    path.chmod(0o755)
+    return path
+
+
+def probe_states(root, path, python=None):
+    """``probe_path`` and ``file_present`` on one path, through the sourced library."""
+    return lib('ARM_ROOT={root}\nDRY=0\nARM=H\n{python}'
+               'status=0\nprobe_path {path} || status=$?\necho "PROBE $status"\n'
+               'status=0\nfile_present {path} || status=$?\necho "FILE $status"\n'.format(
+                   root=root, path=path,
+                   python='PYTHON={}\n'.format(python) if python else ''),
+               {'EXP11_TEST_ROOTS': '1'})
+
+
+def test_a_name_too_long_is_unknown_not_absent(tmp_path):
+    """ENAMETOOLONG is not ENOENT, and the difference decides an arm's fate."""
+    result = probe_states(tmp_path, tmp_path / ('x' * 300))
+    assert 'PROBE 2' in result.stdout and 'FILE 2' in result.stdout, result.stdout
+
+
+def test_a_missing_name_is_still_a_definite_absence(tmp_path):
+    result = probe_states(tmp_path, tmp_path / 'nothing')
+    assert 'PROBE 1' in result.stdout and 'FILE 1' in result.stdout, result.stdout
+
+
+def test_a_broken_path_probe_closes_the_arm(tmp_path):
+    """The marker's probe, and only it, cannot answer: the scan may not proceed."""
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    attempt = old.parent / 'attempt_20260927T212121'
+    attempt.mkdir()
+    (attempt / 'launching').write_text('launcher 1\n')
+    result = scan_with_reader(old.parent, probe_breaker(tmp_path, '/launching'))
+    assert result.returncode == 2, (result.stdout, result.stderr)
+    assert 'unknown' in result.stderr, result.stderr
+
+
+def test_a_broken_receipt_probe_retires_nothing(tmp_path):
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    attempt = unresolved_attempt(old.parent)
+    result = resolve_with_reader(attempt, probe_breaker(tmp_path, '/completion.json'),
+                                 grace='0')
+    assert result.returncode == 2, (result.stdout, result.stderr)
+    assert 'RESOLVED' not in result.stdout and attempt.is_dir()
+    assert not (old.parent / (attempt.name + '.resolved')).exists()
+
+
+@pytest.mark.parametrize('guard', ['already_published', 'check_final_conflict',
+                                   'abort_recovery'])
+def test_a_broken_final_probe_publishes_nothing(tmp_path, guard):
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    canonical = root / 'attempt_20260927T222222'
+    canonical.mkdir(parents=True)
+    publish(canonical)
+    arguments = '{} L.log'.format(canonical) if guard == 'abort_recovery' else str(canonical)
+    result = lib('ARM_ROOT={root}\nDRY=1\nARM=H\nREPLACE_FINAL=0\n'
+                 'PYTHON={python}\nstatus=0\n{guard} {arguments} || status=$?\n'
+                 'echo "STATUS $status"\n'.format(
+                     root=root, python=probe_breaker(tmp_path, '/final'),
+                     guard=guard, arguments=arguments),
+                 {'EXP11_TEST_ROOTS': '1'})
+    assert 'STATUS 2' in result.stdout, (result.stdout, result.stderr)
+    assert 'ABORT' not in result.stdout and 'REPLACING' not in result.stdout
+
+
+@pytest.mark.parametrize('crafted', ['absent\\n\\n', 'present\\n', 'record 1\\n'])
+def test_a_crafted_probe_verdict_is_not_a_verdict(tmp_path, crafted):
+    """Padding, a verdict with no mode, another protocol's line: none of them decide."""
+    breaker = probe_breaker(tmp_path, '/launching',
+                            body="printf '{}'; exit 0".format(crafted))
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    attempt = old.parent / 'attempt_20260927T232323'
+    attempt.mkdir()
+    (attempt / 'launching').write_text('launcher 1\n')
+    result = scan_with_reader(old.parent, breaker)
+    assert result.returncode == 2, (crafted, result.stdout, result.stderr)
+
+
 def pid_of(pidfile):
     """The pid in a registration file, if it still names a living process."""
     try:
