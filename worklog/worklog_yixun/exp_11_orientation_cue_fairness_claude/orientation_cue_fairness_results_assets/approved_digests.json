@@ -12,21 +12,21 @@
     }
   },
   "code": {
-    "finalize": null,
-    "haa_eval": null,
-    "haa_finetune": null,
-    "haa_pipeline_sh": null,
-    "launch_sh": null,
-    "smoke": null,
-    "summarize_haa": null,
-    "train": null
+    "finalize": "6a747806cdd5a84809c4f2b2529245e4fb0ca9f777ef4b174287dae653bca574",
+    "haa_eval": "f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20",
+    "haa_finetune": "bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150",
+    "haa_pipeline_sh": "3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4",
+    "launch_sh": "a932e5bfd087394ee467700e803aa78973037be62cfa0ef9a7fd2d92efd5caac",
+    "smoke": "22f989b7541c90dfca53420bb775a6c82b6927999d0c430943dff475ced03092",
+    "summarize_haa": "3956692a6ae37d0c7bb59dcc11941f7e186b110e85937d144bf7cdd128d1de0a",
+    "train": "56004f44a2f88625882904ac622c6179c126cfef89333714eca5ff7ccc6fc0a8"
   },
   "reused": {
-    "approved_digests_exp04": null,
-    "approved_digests_exp06": null,
+    "approved_digests_exp04": "2e4521173bb230fc8114116ba0c94b4afd0ccdd3b0b034faaf54516461ee0314",
+    "approved_digests_exp06": "38fe553af63644b6b9ea79df3da7ffc09596304698cbdafed7ef0b83798c2bcb",
     "legacy_receipt": {
-      "path": null,
-      "sha256": null
+      "path": "ckpt/exp06/legacy_receipt.json",
+      "sha256": "5a12494657665d336cf5f952c6ef918abbeae44e451f28821790ac5c46232540"
     }
   },
   "schema_version": 1
