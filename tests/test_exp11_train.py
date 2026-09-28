@@ -456,21 +456,46 @@ def test_an_attempt_reached_through_its_own_arms_alias_still_registers(tmp_path)
     assert (attempt / 'train.pid').is_file(), 'written in the canonical attempt'
 
 
-@pytest.mark.parametrize('crafted', ['relative/x', '/abs/../x', '//abs', '/' + 'x' * 5000])
-def test_a_canonical_path_the_trainer_would_not_trust_refuses(tmp_path, monkeypatch,
-                                                              crafted):
-    """The trainer validates the fields it consumes, as the launcher validates its own.
+# --- plan A2: identity in process, never a string from a subprocess -----------------
 
-    Canonicalisation is where the arm containment comes from, so a canonical path that
-    is not absolute and normalized is not something to register against (close review
-    16).
+
+def test_a_terminal_dotdot_spelling_still_finds_the_tombstone(tmp_path):
+    """`arm/attempt_X/sub/..` IS `arm/attempt_X`, and its launch was retired.
+
+    Resolving the head and keeping the tail called the arm `arm/attempt_X` and looked
+    for a tombstone beside `sub` -- so the real one, on `attempt_X`, was never read
+    (close review 17). `os.path.realpath` resolves it the way the kernel does.
     """
-    attempt = registered(tmp_path)
-    monkeypatch.setattr(exp11_train.exp11_pathprobe, 'canonical', lambda path: crafted)
+    arm = tmp_path / 'arm'
+    attempt = arm / 'attempt_20260927T000000'
+    (attempt / 'sub').mkdir(parents=True)
+    (attempt / 'launching').write_text('launcher 1\n')
+    (arm / (attempt.name + '.resolved')).write_text('resolved-by 1\n')
     with pytest.raises(SystemExit) as exit_request:
-        exp11_train.register_trainer(str(attempt))
+        exp11_train.register_trainer(str(attempt / 'sub' / '..'), arm_root=str(arm))
     assert exit_request.value.code == 3
     assert not (attempt / 'train.pid').exists()
+
+
+@pytest.mark.parametrize('spelling', ['{arm}//{name}', '{arm}/./{name}', '{arm}/{name}/',
+                                      '{arm}/{name}/sub/..'])
+def test_an_odd_spelling_of_a_legitimate_attempt_still_registers(tmp_path, spelling):
+    """A path is not a string to be parsed: these all name one directory."""
+    arm = tmp_path / 'arm'
+    attempt = arm / 'attempt_20260927T000000'
+    (attempt / 'sub').mkdir(parents=True)
+    (attempt / 'launching').write_text('launcher 1\n')
+    path = spelling.format(arm=arm, name=attempt.name)
+    assert exp11_train.pid_record(
+        exp11_train.register_trainer(path, arm_root=str(arm))) == os.getpid()
+    assert (attempt / 'train.pid').is_file()
+
+
+def test_the_trainer_keeps_no_path_grammar(tmp_path):
+    """Identity is device and inode, so there is nothing left to validate as a string."""
+    assert not hasattr(exp11_train, 'valid_path')
+    source = Path(exp11_train.__file__).read_text()
+    assert 'valid_path' not in source and 'canonical(' not in source
 
 
 def test_registration_writes_atomically(tmp_path):
