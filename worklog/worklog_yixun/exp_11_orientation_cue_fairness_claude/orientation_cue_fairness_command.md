@@ -39,3 +39,4 @@
 - 2026-09-28 07:55 Re-fill: EXP06_REFILL_EXPECT=summarize_haa:3956692a bash exp11_runbook_phase2.sh refill2 → **6baa337**; exp_06 record 3190 bytes sha256 38fe553af636… (= reviewer's manifest).
 - 2026-09-28 07:55 First fill: bash exp11_runbook_phase2.sh fill11 → **6b70843**; exp_11 record 1316 bytes sha256 4efa0eae70e6… (= reviewer's manifest; 8 code keys, 3 reused identities, artifacts null).
 - 2026-09-28 07:55 Post-merge CPU suite at 6b70843 (throwaway basetemp): nohup bash exp11_runbook_phase2.sh suite (pytest pid 3906800) → orientation_cue_fairness_*_suite_full_cpu.log.
+- 2026-09-28 10:20 Codex review of the tests-only cycle 20 at ULTRA (worktree tip 4ea9ad6): codex exec -s read-only -c 'model_reasoning_effort="ultra"' -C /home/yixunhu/codespace/xRIR_code_wt --skip-git-repo-check "$(cat review_prompts/codex_code_round2_close20_prompt.md)" < /dev/null → orientation_cue_fairness_2026-09-28_10:20:22_codex_code_round2_close20_review.log (pid 137391).
