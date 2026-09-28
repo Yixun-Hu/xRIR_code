@@ -1717,6 +1717,128 @@ def test_the_file_classification_does_not_depend_on_a_translated_word(tmp_path):
     assert 'STATUS 1' in result.stdout, result.stdout   # definite, and it did not block
 
 
+# --- close review 13: a root we cannot LIST hides every attempt in it ---------------
+# A directory with mode 0300 is searchable and writable but not listable. The glob
+# `"$root"/attempt_*` over it silently expands to nothing, the unmatched pattern fails
+# `-d`, and the scan declared the arm quiet -- while both locks still acquired, because
+# a lock file is a known pathname. A resolution then retired a registered live trainer.
+
+
+def scan_under_lock(root, mode='full'):
+    """``require_quiet_arm`` where each mode runs it: under the arm lock."""
+    return lib('ARM_ROOT={root}\nDRY=0\nARM=H\n'
+               'hold_arm_lock {mode} || exit 9\nrequire_quiet_arm\n'.format(
+                   root=root, mode=mode), {'EXP11_TEST_ROOTS': '1'})
+
+
+def resolve_under_lock(attempt, grace='3600'):
+    return lib('ARM_ROOT={root}\nDRY=0\nARM=H\nUNRESOLVED_GRACE_S={grace}\n'
+               'hold_arm_lock finalize || exit 9\n'
+               'resolve_unregistered {attempt}\n'.format(
+                   root=attempt.parent, grace=grace, attempt=attempt),
+               {'EXP11_TEST_ROOTS': '1'})
+
+
+def unlistable(root, mode):
+    """Take away the right to LIST the arm, leaving the lock files reachable."""
+    (root / '.publish.lock').touch()
+    (root / '.registration.lock').touch()
+    root.chmod(mode)
+
+
+@needs_a_non_root_user
+@pytest.mark.parametrize('mode,what', [(0o300, 'search and write, no read'),
+                                       (0o100, 'search only')])
+@pytest.mark.parametrize('scan_mode', ['full', 'finalize'])
+def test_an_arm_root_that_cannot_be_listed_is_never_quiet(tmp_path, mode, what, scan_mode):
+    """An attempt we cannot see is not an attempt that is not there."""
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    root = old.parent
+    unlistable(root, mode)
+    try:
+        result = scan_under_lock(root, mode=scan_mode)
+        assert result.returncode == 2, (what, result.stdout, result.stderr)
+        assert 'cannot be enumerated' in result.stderr, result.stderr
+        assert 'PROMOTE' not in result.stdout
+    finally:
+        root.chmod(0o700)
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+@needs_a_non_root_user
+@pytest.mark.parametrize('mode', [0o300, 0o100])
+def test_a_resolution_under_an_unlistable_root_retires_nothing(tmp_path, mode):
+    """The reviewer's schedule: the live trainer's own attempt is the one at risk."""
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    root = old.parent
+    unlistable(root, mode)
+    try:
+        result = resolve_under_lock(attempt)
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert 'cannot be enumerated' in result.stderr, result.stderr
+        assert 'RESOLVED' not in result.stdout and 'TOMBSTONE' not in result.stdout
+    finally:
+        root.chmod(0o700)
+        assert attempt.is_dir() and (attempt / 'launching').is_file()
+        assert pid_of(attempt / 'train.pid') == stub.pid
+        assert not (root / (attempt.name + '.resolved')).exists()
+        assert not (root / (attempt.name + '_ABORTED_unregistered')).exists()
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+@needs_a_non_root_user
+def test_an_unlistable_root_keeps_the_marker(tmp_path):
+    """clear_launching withdraws protection on an understanding it no longer has."""
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    (attempt / 'train.exit').write_text('train.exit 0\n')
+    (attempt / 'child.pid').write_text('1\n')
+    root = old.parent
+    unlistable(root, 0o300)
+    try:
+        result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nclear_launching {attempt}\n'.format(
+            root=root, attempt=attempt))
+        assert result.returncode == 0, result.stderr[-300:]
+    finally:
+        root.chmod(0o700)
+        assert (attempt / 'launching').is_file(), 'the marker stands'
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+def test_an_empty_readable_root_is_quiet(tmp_path):
+    """A listing that succeeded and found nothing is an answer: the arm IS quiet."""
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
+    result = scan_under_lock(root)
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    assert 'refusing' not in result.stderr
+
+
+@needs_a_non_root_user
+def test_an_entry_the_scan_cannot_stat_is_unknown(tmp_path):
+    """The listing succeeded; one of the names in it cannot be looked at.
+
+    A name that fails `-d` used to be skipped as "not a directory", which is a verdict
+    about something nobody inspected.
+    """
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    root = old.parent
+    shut = root / 'shut'
+    (shut / 'real').mkdir(parents=True)
+    (root / 'attempt_20260927T181818').symlink_to(shut / 'real')
+    shut.chmod(0o000)
+    try:
+        result = scan_under_lock(root)
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert 'unknown' in result.stderr, result.stderr
+    finally:
+        shut.chmod(0o700)
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
 def pid_of(pidfile):
     """The pid in a registration file, if it still names a living process."""
     try:
