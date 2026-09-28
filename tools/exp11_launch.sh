@@ -410,20 +410,11 @@ probe_link_target() {
 }
 
 pid_record() {
-    local out="" pid="" kind="" size="" status=0
-    # What the path IS, decided before anything opens it: a directory, FIFO, socket or
-    # device is definitely not a pid record, and opening a FIFO would wait for a writer
-    # forever. A stat that FAILS decides nothing here -- the module tells a confirmed
-    # absence from a path it was not allowed to inspect (close review 12, blocker 1),
-    # which is why this is no longer `[ -f ]`: that reads an unreadable parent as "gone".
-    # `%f` is the mode in hex, not `%F`'s phrase: that phrase is translated, so matching
-    # it would classify an ordinary file as "not a record" under any other locale.
-    if kind="$(stat -L -c %f -- "$1" 2>/dev/null)"; then
-        case "$kind" in ''|*[!0-9a-fA-F]*) return "$READER_UNKNOWN" ;; esac
-        if [ $(( 0x$kind & 0xF000 )) -ne $(( 0x8000 )) ]; then
-            return 1                          # definite: not a regular file, unopened
-        fi
-    fi
+    local out="" pid="" size="" status=0
+    # This shell classifies nothing any more: what the path IS -- a regular file, a
+    # directory, a FIFO nobody may open, a name that is simply not there, or one nobody
+    # could look at -- is tools/exp11_pathprobe.py's question, and the reader below asks
+    # it before it opens anything (close review 15). One classification, one place.
     out="$(mktemp "$EXP11_TEMPDIR/verdict.XXXXXX")" || return "$READER_UNKNOWN"
     timeout --kill-after=5 "$READER_TIMEOUT_S" "$PYTHON" -m tools.exp11_pidrecord "$1" \
         > "$out" 2>/dev/null || status=$?
