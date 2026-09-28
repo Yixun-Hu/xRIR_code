@@ -754,16 +754,25 @@ resolve_unregistered() {
     fi
     [ "$given" -eq 0 ] && [ $(( 0x$PROBE_MODE & 0xF000 )) -eq $(( 0x4000 )) ] ||
         { echo "refusing: $1 is not a directory" >&2; return 1; }
+    # One canonical spelling is needed to RENAME the directory and to name the tombstone
+    # beside it; it is never compared with another path (plan §11 A2), and the checks
+    # below are identity questions and a name pattern.
     attempt="$(realpath -e -- "$1")" || {
         echo "refusing: liveness unknown: $1 cannot be resolved" >&2
         return "$READER_UNKNOWN"; }
-    root="$(realpath -e -- "$ARM_ROOT")" || {
-        echo "refusing: liveness unknown: $ARM_ROOT cannot be resolved" >&2
-        return "$READER_UNKNOWN"; }
+    root="$(dirname -- "$attempt")"
     name="$(basename -- "$attempt")"
-    # The lock and the scan are this arm's, so the resolution reaches no further.
-    if [ "$(dirname -- "$attempt")" != "$root" ]; then
-        echo "refusing: $attempt is not an attempt of the selected arm ($root); this" \
+    # The lock and the scan are this arm's, so the resolution reaches no further -- and
+    # "this arm" is a question about one directory's identity, not about two strings.
+    local contained=0
+    same_parent "$attempt" "$ARM_ROOT" || contained=$?
+    if [ "$contained" -eq "$READER_UNKNOWN" ]; then
+        echo "refusing: liveness unknown: whether $1 is an attempt of $ARM_ROOT cannot" \
+             "be established" >&2
+        return "$READER_UNKNOWN"
+    fi
+    if [ "$contained" -ne 0 ]; then
+        echo "refusing: $1 is not an attempt of the selected arm ($ARM_ROOT); this" \
              "invocation locked and scanned that arm and no other" >&2
         return 1
     fi
