@@ -140,7 +140,7 @@ apply_root_override() {
 # would leave a dangling or wrong `final`; the directory AND the profile its recorded
 # arguments select must both be the selected arm's.
 CHECK_ATTEMPT_PY='
-import json, sys
+import json, os, sys
 from pathlib import Path
 from tools import exp11_recipe
 attempt, root, arm = sys.argv[1:4]
@@ -149,10 +149,10 @@ try:
     # The path that is VALIDATED must be the path that is finalized and promoted, or an
     # alias (an existing `final`, or a link from outside) would be validated here and
     # promoted by its own basename - a self-referencing or dangling link under the root.
-    directory, base = Path(attempt).resolve(), Path(root).resolve()
-    if directory.parent != base:
-        raise ValueError("attempt {} is not an attempt of the arm {} root {}".format(
-            directory, arm, base))
+    # Containment is NOT decided here: two spellings can be one directory (a read-only
+    # bind mount gives identical st_dev/st_ino with unequal canonical strings), and the
+    # caller asks `same_parent` about this very directory (plan A2, close review 18).
+    directory = Path(os.path.realpath(attempt))
     if not directory.name.startswith("attempt_"):
         raise ValueError("{} is not an attempt_<UTC> directory".format(directory))
     args = json.loads((directory / "args.json").read_text())
