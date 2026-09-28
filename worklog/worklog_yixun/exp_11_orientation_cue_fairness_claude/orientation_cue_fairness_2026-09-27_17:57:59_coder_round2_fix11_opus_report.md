@@ -231,8 +231,10 @@ entered `train`, `finalize`, `smoke` and `summarize_haa` (the trainer imports it
 **not** `launch_sh`: a shell has no imports for the closure walker to follow, so the
 helpers the launcher runs as subprocesses have to be listed in its spec, which is why
 `tools/exp11_lock_holder.py` is there. The module that now decides what every pid file in
-the arm means was in no approval key at all — its grammar could change under an approved
-`launch_sh` digest. RED `275be24^` asserts that every `tools/exp11_*` module named in the
+the arm means was in no key that binds the launcher — it already belonged to the
+transitive Python closures of `train`, `finalize`, `smoke` and `summarize_haa` through
+the trainer's import, but not to `launch_sh`, so its grammar could change under an
+approved `launch_sh` digest (corrected per close review 11). RED `275be24^` asserts that every `tools/exp11_*` module named in the
 launcher's text is covered by some key, and that the two helpers with no key of their own
 are in `launch_sh`'s; GREEN `275be24` adds the file to the spec. That is what moved every
 exp_11 digest a second time, and the table above is the one that stands.
