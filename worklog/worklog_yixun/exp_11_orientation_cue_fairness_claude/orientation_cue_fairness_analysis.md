@@ -27,6 +27,7 @@ Pre-registered statements (plan §3): Phase 1 N1 (G − D), N1i (interaction (G 
 
 - A1 (kernel flock), A2 (path-free probe protocol), A3 (schedule slip: GPU 1 ≈ Oct 1 10:00, GPU 0 ≈ Oct 3 18:00; sequential on GPU 1).
 - The pre-launch/launch automation is marker-gated (`GO_GPU` → Phase-1 chain), as in exp_09.
+- Post-merge suite on main (2026-09-28 08:00): 24 failures, none a production defect — nine exp_06 launcher preflight tests hit the real GPU census while a peer job held GPU 1 (pass in isolation), twelve of the peer's exp_10 record-tool tests are timing-sensitive under load (pass in isolation), and three exp_11 tests assumed an unfilled approvals record or a shell that can register an INT trap (a shell started under `nohup`/`setsid` has SIGINT ignored on entry and cannot trap it — in production the launchers are started that way, so TERM is the operative signal and its trap registers). Fixed by a tests-only cycle (fix 20); no approvals key moved.
 - Codex close review 19's nonblocking wording items in `tools/exp11_launch.sh` (an old ≈ 60 s example at ≈ 49; the health-check count at ≈ 552) are left as they are: editing the launcher would move the `launch_sh` closure after the fill.
 
 ## 6. Open items
