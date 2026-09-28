@@ -50,14 +50,18 @@ trap 'rm -rf -- "$EXP11_TEMPDIR"' EXIT
 # with two of them hanging). The value is validated -- a bound that is 0, negative,
 # absurdly large or not a number is no bound at all.
 READER_TIMEOUT_S="${EXP11_READER_TIMEOUT_S-30}"   # set-but-empty is refused below
+# The DECIMAL STRING is bounded before any arithmetic: bash errors on a 36-digit
+# comparison, and an errored test is a false one -- which read as "in range" (close
+# review 16). At most three digits, no leading zero, so the `-gt` below cannot overflow.
 case "$READER_TIMEOUT_S" in
-    ''|*[!0-9]*|0|0*[!0-9]*)
-        echo "refusing: EXP11_READER_TIMEOUT_S must be a positive whole number of" \
-             "seconds, at most 300; got '$READER_TIMEOUT_S'" >&2
+    [1-9]|[1-9][0-9]|[1-9][0-9][0-9]) ;;
+    *)
+        echo "refusing: EXP11_READER_TIMEOUT_S must be a whole number of seconds" \
+             "between 1 and 300, written in decimal; got '$READER_TIMEOUT_S'" >&2
         exit 2 ;;
 esac
-if [ "$READER_TIMEOUT_S" -lt 1 ] || [ "$READER_TIMEOUT_S" -gt 300 ]; then
-    echo "refusing: EXP11_READER_TIMEOUT_S must be between 1 and 300 seconds; got" \
+if [ "$READER_TIMEOUT_S" -gt 300 ]; then
+    echo "refusing: EXP11_READER_TIMEOUT_S must be at most 300 seconds; got" \
          "'$READER_TIMEOUT_S'" >&2
     exit 2
 fi
@@ -311,6 +315,7 @@ drop_arm_lock() {
 UNRESOLVED_GRACE_S="${EXP11_UNRESOLVED_GRACE_S:-120}"
 SCAN_REASON=""
 NEWLINE=$'\n'   # a real newline: a verdict that is two lines is not a verdict
+CARRIAGE_RETURN=$'\r'
 
 # THREE answers, never two (close review 11). The grammar lives in
 # tools/exp11_pidrecord.py and nowhere else -- this shell does NOT read pid files, since
@@ -364,6 +369,35 @@ probe_verdict() {
 # therefore comes from tools/exp11_pathprobe.py, and what crosses back is one verdict
 # line, validated here byte for byte -- exactly as the pid reader's verdicts are.
 #
+# A verdict LINE is not a verdict until its FIELDS are (close review 16): `link garbage`
+# was accepted as the published target, and a resolution then retired the attempt
+# `final` really pointed at.
+#
+# valid_mode <hex>: three to six hex digits whose S_IFMT bits name a type that exists.
+valid_mode() {
+    case "$1" in ''|*[!0-9a-f]*) return 1 ;; esac
+    [ "${#1}" -ge 3 ] && [ "${#1}" -le 6 ] || return 1
+    case $(( 0x$1 & 0xF000 )) in
+        4096|8192|16384|24576|32768|40960|49152) return 0 ;;  # fifo chr dir blk reg lnk sock
+        *) return 1 ;;
+    esac
+}
+
+# valid_path <path>: absolute, normalized, printable, and no longer than PATH_MAX.
+valid_path() {
+    [ "${#1}" -le 4096 ] || return 1
+    [ "$1" = / ] && return 0
+    case "$1" in
+        /*) ;;
+        *) return 1 ;;
+    esac
+    case "$1" in
+        */|*//*|*/./*|*/.|*/../*|*/..) return 1 ;;
+        *"$CARRIAGE_RETURN"*) return 1 ;;
+    esac
+    return 0
+}
+
 # probe_path <path>: 0 it is there (PROBE_MODE holds its mode in hex) | 1 it is NOT
 # there | 2 nobody could say.
 PROBE_MODE=""
@@ -374,14 +408,21 @@ probe_path() {
     case "$line" in
         absent) return 1 ;;
         'present '*)
-            PROBE_MODE="${line#present }"
-            PROBE_MODE="${PROBE_MODE%% *}"
-            case "$PROBE_MODE" in ''|*[!0-9a-f]*) PROBE_MODE=""; return "$READER_UNKNOWN" ;; esac
-            [ "${#PROBE_MODE}" -le 8 ] || { PROBE_MODE=""; return "$READER_UNKNOWN"; }
-            # ... and a canonical path must follow the mode, or this is not the verdict.
-            case "$line" in "present $PROBE_MODE "?*) return 0 ;; esac
-            PROBE_MODE=""
-            return "$READER_UNKNOWN" ;;
+            local rest="${line#present }" where=""
+            PROBE_MODE="${rest%% *}"
+            where="${rest#* }"
+            # Three fields, each checked: the mode, the canonical path, and -- unless the
+            # name we probed is itself a symlink, whose target of course has another name
+            # -- that the answer is about the very name we asked about.
+            valid_mode "$PROBE_MODE" || { PROBE_MODE=""; return "$READER_UNKNOWN"; }
+            case "$rest" in "$PROBE_MODE "?*) ;; *) PROBE_MODE=""; return "$READER_UNKNOWN" ;; esac
+            valid_path "$where" || { PROBE_MODE=""; return "$READER_UNKNOWN"; }
+            case "${1%/}" in
+                */.|*/..|'') ;;                      # no name of our own to compare
+                *) [ "${where##*/}" = "${1%/}" ] || [ "${where##*/}" = "${1##*/}" ] ||
+                       { PROBE_MODE=""; return "$READER_UNKNOWN"; } ;;
+            esac
+            return 0 ;;
         *) return "$READER_UNKNOWN" ;;
     esac
 }
@@ -404,7 +445,11 @@ probe_link_target() {
     line="$(probe_verdict link "$1")" || return "$READER_UNKNOWN"
     case "$line" in
         nolink|notlink) return 1 ;;
-        'link '?*) printf '%s\n' "${line#link }"; return 0 ;;
+        'link '?*)
+            local target="${line#link }"
+            valid_path "$target" || return "$READER_UNKNOWN"
+            printf '%s\n' "$target"
+            return 0 ;;
         *) return "$READER_UNKNOWN" ;;
     esac
 }
