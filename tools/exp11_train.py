@@ -306,12 +306,10 @@ def register_trainer(save_dir, no_save=False, arm_root=None,
     given = Path(save_dir)
     # `realpath` resolves what it can and leaves the rest: a --no-save diagnostic has no
     # run directory at all, and asking for one would refuse every diagnostic.
-    directory = Path(exp11_pathprobe.canonical(given))
-    # The containment below is derived from this path, so it is checked the way the
-    # launcher checks every path field it is handed (close review 16).
-    if not exp11_pathprobe.valid_path(str(directory)):
-        refuse('{} does not canonicalise to an absolute, normalized path ({}); this '
-               'trainer registers against nothing it cannot name'.format(given, directory))
+    # In process, with the filesystem's own meaning of `..` and of every symlink on the
+    # way -- never a string handed over by a subprocess, and never a grammar to validate
+    # (plan §11 A2). `Path` is built from this result and from nothing else.
+    directory = Path(os.path.realpath(str(given)))
     arm = directory.parent
     tombstone = arm / (directory.name + '.resolved')
     if no_save:                       # a diagnostic no scan reads: only a tombstone speaks
@@ -326,11 +324,11 @@ def register_trainer(save_dir, no_save=False, arm_root=None,
     if not demand_known(*directory_state(root), path=root, what='the arm root'):
         refuse('{} does not exist; this trainer registers only in the arm whose lock '
                'it holds'.format(root))
-    canonical_root = exp11_pathprobe.canonical(root)
-    if not exp11_pathprobe.valid_path(canonical_root):
-        refuse('{} does not canonicalise to an absolute, normalized path ({})'
-               .format(root, canonical_root))
-    if str(arm) != canonical_root:
+    # Identity, not spelling: device and inode of the two directories (plan §11 A2).
+    contained, why = exp11_pathprobe.same(arm, root)
+    if contained == exp11_pathprobe.UNKNOWN:
+        refuse('cannot establish whether {} is an attempt of {} ({})'.format(given, root, why))
+    if contained != exp11_pathprobe.SAME:
         refuse('{} is an attempt of {}, not of the {} this trainer was given; the '
                'directory, the lock and the tombstone must be of one arm'
                .format(given, arm, root))
