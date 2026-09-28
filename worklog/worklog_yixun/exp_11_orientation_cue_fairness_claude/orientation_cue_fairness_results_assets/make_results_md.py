@@ -18,14 +18,19 @@ OUT = os.path.join(HERE, '..', 'orientation_cue_fairness_results.md')
 ROOMS = ('class_room', 'dampened_room', 'hallway', 'complex_room')
 ROOM_LABEL = {'class_room': 'Classroom', 'dampened_room': 'Dampened', 'hallway': 'Hallway',
               'complex_room': 'Complex'}
-ARM_ORDER = ('control', 'control_hf', 'yawaug', 'yawaug_hf', 'cyl', 'cyl_hf', 'cyl_or')
+ARM_ORDER = ('control', 'control_hf', 'yawaug', 'yawaug_hf', 'cyl', 'cyl_hf', 'cyl_or',
+             'control_adapter', 'yawaug_adapter', 'simple_or', 'simple_or_yaw')
 ARM_LABEL = {'control': 'A xRIR control (SimpleViT, room frame, exp_02)',
              'control_hf': 'D SimpleViT in the heading frame — implicit conditioning (exp_06)',
              'yawaug': 'E yaw-augmented SimpleViT (room frame, exp_09)',
              'yawaug_hf': 'G yaw-augmented SimpleViT in the heading frame (exp_11)',
              'cyl': 'B CylindricalViT (room frame, exp_02)',
              'cyl_hf': 'F CylindricalViT in the heading frame (exp_06)',
-             'cyl_or': 'C oriented CylindricalViT + cue (heading frame, exp_06)'}
+             'cyl_or': 'C oriented CylindricalViT + cue (heading frame, exp_06)',
+             'control_adapter': 'J xRIR + explicit azimuth adapter (room frame, exp_11)',
+             'yawaug_adapter': 'K yaw-augmented xRIR + explicit azimuth adapter (room frame, exp_11)',
+             'simple_or': 'H xRIR + orientation cue, literal simple_oriented pretraining (heading frame, exp_11)',
+             'simple_or_yaw': 'I yaw-augmented xRIR + orientation cue, literal simple_oriented pretraining (heading frame, exp_11)'}
 METRIC_ORDER = ('edt', 'c50', 't60')
 PRECISION = {'edt': 4, 'c50': 3, 't60': 2}
 
@@ -81,9 +86,11 @@ def arm_table(stats):
     rows = stats['rows']
     lines = ['| Arm | ' + ' | '.join('{} EDT/C50/T60'.format(ROOM_LABEL[r]) for r in ROOMS) + ' |',
              '|---|' + '---|' * len(ROOMS)]
-    for arm in ARM_ORDER:
-        if arm not in stats['arms']:
-            refuse('arm {} missing from stats.json'.format(arm))
+    present = [arm for arm in ARM_ORDER if arm in stats['arms']]
+    present += sorted(arm for arm in stats['arms'] if arm not in ARM_ORDER)
+    if not present:
+        refuse('no arms in stats.json')
+    for arm in present:
         for kind in ('zero-shot', 'fine-tuned'):
             cells = []
             for room in ROOMS:
@@ -97,7 +104,7 @@ def arm_table(stats):
                         refuse('no row for {} {} {} {}'.format(arm, kind, room, metric))
                     parts.append(per_run_text(row, metric))
                 cells.append(' / '.join(parts))
-            lines.append('| {} {} | {} |'.format(ARM_LABEL[arm], kind, ' | '.join(cells)))
+            lines.append('| {} {} | {} |'.format(ARM_LABEL.get(arm, arm), kind, ' | '.join(cells)))
     return '\n'.join(lines)
 
 
@@ -171,6 +178,33 @@ def historical_table(stats):
     return '\n'.join(lines)
 
 
+def external_table(stats):
+    """The external reference rows (A', copied from exp_02's canonical JSON; never paired)."""
+    rows = stats.get('external')
+    if not rows:
+        return None
+    lines = []
+    for row in rows:
+        cells = row['cells']
+        parts = []
+        for room in ROOMS:
+            vals = []
+            for metric in METRIC_ORDER:
+                key = next((k for k in cells if k.split('|')[0] == room and metric_key(k.split('|')[1]) == metric), None)
+                if key is None:
+                    vals.append('–' if (metric == 't60' and room == 'dampened_room') else 'n/a')
+                    continue
+                vals.append(per_run_text(cells[key], metric))
+            parts.append(' / '.join(vals))
+        lines.append('| {} — {} ({}) | {} |'.format(row['label'], row['description'], row['job_kind'], ' | '.join(parts)))
+        lines.append('')
+        lines.append('Source `{}` (sha256 {}); paired: {}; inference: {}.'.format(
+            row['source'], row['source_sha256'][:16], 'yes' if row.get('paired') else 'no', row['inference']))
+    header = ['| External row | ' + ' | '.join('{} EDT/C50/T60'.format(ROOM_LABEL[r]) for r in ROOMS) + ' |',
+              '|---|' + '---|' * len(ROOMS)]
+    return '\n'.join(header + lines)
+
+
 def side_table(stats):
     split = stats.get('side_split')
     if not isinstance(split, dict) or not split.get('cells'):
@@ -230,7 +264,11 @@ def main(argv=None):
         '',
         historical_table(stats),
         '',
-        '## 5. Room-frame side split (zero-shot job)',
+        '## 5. External reference rows (not paired; copied from exp_02)',
+        '',
+        external_table(stats) or '(none in this phase)',
+        '',
+        '## 6. Room-frame side split (zero-shot job)',
         '',
         side_table(stats),
         '',
