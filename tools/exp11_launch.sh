@@ -169,16 +169,38 @@ print("ATTEMPT canonical {}".format(directory))
 # check_attempt <attempt>: sets CANONICAL_ATTEMPT to the resolved directory, which is
 # what finalization and promotion then use.
 check_attempt() {
-    local output
+    local output name="" status=0
     say "ATTEMPTCHECK $1 arm=$ARM root=$ARM_ROOT"
     output="$(CUDA_VISIBLE_DEVICES="" "$PYTHON" -c "$CHECK_ATTEMPT_PY" "$1" "$ARM_ROOT" \
               "$ARM")" || return 1
     printf '%s\n' "$output"
     CANONICAL_ATTEMPT="${output##*ATTEMPT canonical }"
     case "$CANONICAL_ATTEMPT" in
-        "$ARM_ROOT"/attempt_*|/*) ;;
+        /*) ;;
         *) echo "refusing: no canonical attempt was resolved for $1" >&2; return 1 ;;
     esac
+    # The name, from the slash-stripped basename, and the containment as an IDENTITY
+    # question -- not as a prefix of two strings (plan §11 A2). The directory that was
+    # validated above is the one asked about here, and the one finalized and promoted.
+    name="${CANONICAL_ATTEMPT%/}"
+    name="${name##*/}"
+    case "$name" in
+        attempt_*) case "${name#attempt_}" in ''|*[!0-9T]*)
+            echo "refusing: $name is not an attempt_<UTC> directory of this arm" >&2
+            return 1 ;; esac ;;
+        *) echo "refusing: $name is not an attempt_<UTC> directory of this arm" >&2
+           return 1 ;;
+    esac
+    same_parent "$CANONICAL_ATTEMPT" "$ARM_ROOT" || status=$?
+    if [ "$status" -eq "$READER_UNKNOWN" ]; then
+        echo "refusing: whether $CANONICAL_ATTEMPT is an attempt of $ARM_ROOT cannot be" \
+             "established" >&2
+        return 1
+    fi
+    if [ "$status" -ne 0 ]; then
+        echo "refusing: $CANONICAL_ATTEMPT is not an attempt of $ARM_ROOT" >&2
+        return 1
+    fi
 }
 ARM=""
 ARM_BACKBONE=simple_oriented
@@ -351,10 +373,11 @@ one_line() {
 # probe_verdict <probe|link> <path>: run the path probe and print the one line it
 # answered, or fail. Failing means UNKNOWN to every caller.
 probe_verdict() {
-    local out="" line="" status=0
+    local out="" line="" status=0 question="$1"
+    shift
     out="$(mktemp "$EXP11_TEMPDIR/probe.XXXXXX")" || return 1
     timeout --kill-after=5 "$READER_TIMEOUT_S" \
-        "$PYTHON" -m tools.exp11_pathprobe "$1" "$2" > "$out" 2>/dev/null || status=$?
+        "$PYTHON" -m tools.exp11_pathprobe "$question" "$@" > "$out" 2>/dev/null || status=$?
     if [ "$status" -ne 0 ]; then rm -f -- "$out"; return 1; fi
     line="$(one_line "$out")" || { rm -f -- "$out"; return 1; }
     rm -f -- "$out"
@@ -369,9 +392,16 @@ probe_verdict() {
 # therefore comes from tools/exp11_pathprobe.py, and what crosses back is one verdict
 # line, validated here byte for byte -- exactly as the pid reader's verdicts are.
 #
-# A verdict LINE is not a verdict until its FIELDS are (close review 16): `link garbage`
-# was accepted as the published target, and a resolution then retired the attempt
-# `final` really pointed at.
+# A verdict carries a keyword and, for `present`, a mode -- and nothing else (plan §11
+# amendment A2). Three close reviews running found holes in the grammar of a path field;
+# a protocol with no paths in it has no such grammar. What used to be "compare the path
+# the probe returned with this one" is now an identity QUESTION, answered in Python by
+# device and inode.
+#
+# What this shell defends against is a MALFORMED answer -- a truncated line, extra
+# fields, a keyword that is not in the set, a mode that is not a mode. It does not
+# defend against a module that lies: that module is pinned with this launcher by the
+# `launch_sh` approvals key and health-checked before every scan and every resolution.
 #
 # valid_mode <hex>: three to six hex digits whose S_IFMT bits name a type that exists.
 valid_mode() {
@@ -381,21 +411,6 @@ valid_mode() {
         4096|8192|16384|24576|32768|40960|49152) return 0 ;;  # fifo chr dir blk reg lnk sock
         *) return 1 ;;
     esac
-}
-
-# valid_path <path>: absolute, normalized, printable, and no longer than PATH_MAX.
-valid_path() {
-    [ "${#1}" -le 4096 ] || return 1
-    [ "$1" = / ] && return 0
-    case "$1" in
-        /*) ;;
-        *) return 1 ;;
-    esac
-    case "$1" in
-        */|*//*|*/./*|*/.|*/../*|*/..) return 1 ;;
-        *"$CARRIAGE_RETURN"*) return 1 ;;
-    esac
-    return 0
 }
 
 # probe_path <path>: 0 it is there (PROBE_MODE holds its mode in hex) | 1 it is NOT
@@ -408,20 +423,8 @@ probe_path() {
     case "$line" in
         absent) return 1 ;;
         'present '*)
-            local rest="${line#present }" where=""
-            PROBE_MODE="${rest%% *}"
-            where="${rest#* }"
-            # Three fields, each checked: the mode, the canonical path, and -- unless the
-            # name we probed is itself a symlink, whose target of course has another name
-            # -- that the answer is about the very name we asked about.
+            PROBE_MODE="${line#present }"
             valid_mode "$PROBE_MODE" || { PROBE_MODE=""; return "$READER_UNKNOWN"; }
-            case "$rest" in "$PROBE_MODE "?*) ;; *) PROBE_MODE=""; return "$READER_UNKNOWN" ;; esac
-            valid_path "$where" || { PROBE_MODE=""; return "$READER_UNKNOWN"; }
-            case "${1%/}" in
-                */.|*/..|'') ;;                      # no name of our own to compare
-                *) [ "${where##*/}" = "${1%/}" ] || [ "${where##*/}" = "${1##*/}" ] ||
-                       { PROBE_MODE=""; return "$READER_UNKNOWN"; } ;;
-            esac
             return 0 ;;
         *) return "$READER_UNKNOWN" ;;
     esac
@@ -437,19 +440,37 @@ file_present() {
     [ $(( 0x$PROBE_MODE & 0xF000 )) -eq $(( 0x8000 )) ] || return 1
 }
 
-# probe_link_target <path>: 0 and the canonical target on stdout | 1 there is no such
-# link (no name, or a name that is not one) | 2 it is there and cannot be resolved, or
-# nobody could look. `readlink -f` answered "nothing" for the last two alike.
-probe_link_target() {
+# probe_link <path>: 0 a symlink is there | 1 there is no symlink here (no such name, or
+# a name that is not one) | 2 it is there and cannot be resolved, or nobody could look.
+# WHAT it points at is never asked: that question is `same_path`.
+probe_link() {
     local line=""
     line="$(probe_verdict link "$1")" || return "$READER_UNKNOWN"
     case "$line" in
+        link) return 0 ;;
         nolink|notlink) return 1 ;;
-        'link '?*)
-            local target="${line#link }"
-            valid_path "$target" || return "$READER_UNKNOWN"
-            printf '%s\n' "$target"
-            return 0 ;;
+        *) return "$READER_UNKNOWN" ;;
+    esac
+}
+
+# same_path <a> <b>: 0 they are one file | 1 they are two | 2 nobody could say.
+same_path() {
+    local line=""
+    line="$(probe_verdict same "$1" "$2")" || return "$READER_UNKNOWN"
+    case "$line" in
+        same) return 0 ;;
+        different) return 1 ;;
+        *) return "$READER_UNKNOWN" ;;
+    esac
+}
+
+# same_parent <path> <directory>: the same question about <path>'s parent as written.
+same_parent() {
+    local line=""
+    line="$(probe_verdict sameparent "$1" "$2")" || return "$READER_UNKNOWN"
+    case "$line" in
+        same) return 0 ;;
+        different) return 1 ;;
         *) return "$READER_UNKNOWN" ;;
     esac
 }
@@ -528,14 +549,21 @@ check_pid_reader() {
     probe_reader "$dir/one" "$dir/want_one" "$dir/got_one" || bad="a file holding 1"
     probe_reader "$dir/empty" "$dir/want_empty" "$dir/got_empty" ||
         bad="${bad:+$bad and }an empty file"
-    # The path probe answers two questions whose answers are known too: this file is
-    # there, that name is not (close review 15).
+    # The path probe answers three questions whose answers are known too: this file is
+    # there, that name is not, and a file is itself and not the other one (close review
+    # 15; the identity question since plan §11 A2).
     local state=0
     probe_path "$dir/one" || state=$?
     [ "$state" -eq 0 ] || bad="${bad:+$bad and }a path that is there"
     state=0
     probe_path "$dir/absent" || state=$?
     [ "$state" -eq 1 ] || bad="${bad:+$bad and }a path that is not there"
+    state=0
+    same_path "$dir/one" "$dir/one" || state=$?
+    [ "$state" -eq 0 ] || bad="${bad:+$bad and }a file against itself"
+    state=0
+    same_path "$dir/one" "$dir/empty" || state=$?
+    [ "$state" -eq 1 ] || bad="${bad:+$bad and }two different files"
     rm -rf -- "$dir"
     [ -z "$bad" ] && return 0
     echo "refusing: reader unhealthy: the pid reader or the path probe did not answer" \
@@ -586,12 +614,9 @@ list_attempts() {
 # reader failed and no answer exists. A broken reader closes the arm to every automated
 # decision; it never opens it (close review 11).
 scan_arm() {
-    local root="$1" resolving="${2:-}" attempt="" name="" here="" listing="" mode=""
+    local root="$1" resolving="${2:-}" attempt="" name="" listing="" mode="" excluded=0
     local -a attempts=()
     SCAN_REASON=""
-    # The attempt being resolved is excluded by canonical identity, never by spelling:
-    # the caller's path and this glob's may name the same directory differently.
-    [ -z "$resolving" ] || resolving="$(realpath -- "$resolving" 2>/dev/null || printf '%s' "$resolving")"
     listing="$(mktemp "$EXP11_TEMPDIR/attempts.XXXXXX")" || {
         SCAN_REASON="liveness unknown: cannot create a listing file for $root"
         return "$READER_UNKNOWN"; }
@@ -618,11 +643,23 @@ scan_arm() {
         esac
         [ $(( 0x$mode & 0xF000 )) -eq $(( 0x4000 )) ] || continue   # not a directory
         name="$(basename -- "$attempt")"
-        here="$(realpath -- "$attempt" 2>/dev/null || printf '%s' "$attempt")"
+
         probe_live "$attempt/launch.pid" "$name has a live launcher (launch.pid)" || return $?
         probe_live "$attempt/child.pid" "$name has a live trainer (child.pid)" || return $?
         probe_live "$attempt/train.pid" "$name has a live trainer (train.pid)" || return $?
-        [ "$here" != "$resolving" ] || continue
+        # The attempt being resolved is excluded by IDENTITY, never by spelling: the
+        # caller's path and this listing's may name one directory differently, and an
+        # identity nobody can establish excludes nothing (plan §11 A2).
+        if [ -n "$resolving" ]; then
+            excluded=0
+            same_path "$attempt" "$resolving" || excluded=$?
+            if [ "$excluded" -eq "$READER_UNKNOWN" ]; then
+                SCAN_REASON="liveness unknown: whether $attempt is the attempt being"\
+" resolved cannot be established"
+                return "$READER_UNKNOWN"
+            fi
+            [ "$excluded" -ne 0 ] || continue
+        fi
         # `child.pid` is the WRAPPER's (GNU timeout), not the trainer's, so a complete
         # and dead one accounts for nothing: only train.pid names the trainer and only
         # train.exit says it finished (close review 10, blocker 2). Each of the three is
@@ -763,7 +800,7 @@ resolve_unregistered() {
     # never be retired this way is a run that actually finished: a completion receipt,
     # or the published `final`. Everything else is decided by the quiet scan below --
     # nothing of the arm alive -- and by the marker's age.
-    local receipt=0 published=0 target=""
+    local receipt=0 published=0
     file_present "$attempt/completion.json" || receipt=$?
     if [ "$receipt" -eq "$READER_UNKNOWN" ]; then
         echo "refusing: liveness unknown: $attempt/completion.json cannot be inspected," \
@@ -775,13 +812,14 @@ resolve_unregistered() {
              "unresolved launch" >&2
         return 1
     fi
-    target="$(probe_link_target "$ARM_ROOT/final")" || published=$?
+    published=0
+    publishes "$attempt" || published=$?
     if [ "$published" -eq "$READER_UNKNOWN" ]; then
         echo "refusing: liveness unknown: $ARM_ROOT/final cannot be resolved, so whether" \
              "this attempt is the published one cannot be known" >&2
         return "$READER_UNKNOWN"
     fi
-    if [ "$published" -eq 0 ] && [ "$target" = "$attempt" ]; then
+    if [ "$published" -eq 0 ]; then
         echo "refusing: $attempt is published as $ARM_ROOT/final; a published attempt is" \
              "never retired as an unresolved launch" >&2
         return 1
@@ -878,42 +916,55 @@ not_interrupted() {
     return 1
 }
 
-# published_target: what `final` resolves to under this arm root | 1 there is no
-# `final` | 2 there is one and nobody can say what it publishes. `readlink -f` answered
-# "nothing" for the last two alike (close review 14).
-published_target() {
-    probe_link_target "$ARM_ROOT/final"
+# publishes <attempt>: does this arm's `final` publish THAT attempt? 0 yes | 1 no (there
+# is no `final`, or it publishes something else) | 2 nobody could say. The question is
+# never "what does final point at" any more -- no path crosses the boundary -- it is
+# whether two names are one file, which device and inode settle (plan §11 A2).
+publishes() {
+    local status=0
+    probe_link "$ARM_ROOT/final" || status=$?
+    [ "$status" -ne "$READER_UNKNOWN" ] || return "$READER_UNKNOWN"
+    [ "$status" -eq 0 ] || return 1                  # no link: nothing is published
+    same_path "$ARM_ROOT/final" "$1"
 }
 
 # already_published <canonical>: this attempt is the published one and it completed.
 # 0 yes | 1 no | 2 unknown -- and unknown is never "no".
 already_published() {
-    local target="" status=0
-    target="$(published_target)" || status=$?
+    local status=0
+    publishes "$1" || status=$?
     [ "$status" -ne "$READER_UNKNOWN" ] || return "$READER_UNKNOWN"
     [ "$status" -eq 0 ] || return 1
-    [ "$target" = "$1" ] || return 1
     file_present "$1/completion.json"
 }
 
 # check_final_conflict <canonical>: a DIFFERENT existing `final` is never replaced by a
 # recovery unless the operator asks for it, and the replaced target is logged first.
 check_final_conflict() {
-    local target="" status=0
-    target="$(published_target)" || status=$?
-    if [ "$status" -eq "$READER_UNKNOWN" ]; then
+    local status=0 linked=0
+    probe_link "$ARM_ROOT/final" || linked=$?
+    if [ "$linked" -eq "$READER_UNKNOWN" ]; then
         echo "refusing: $ARM_ROOT/final exists and cannot be resolved, so what it" \
              "publishes is unknown; nothing replaces a publication nobody can read" >&2
         return "$READER_UNKNOWN"
     fi
-    [ "$status" -eq 0 ] || return 0
-    [ "$target" != "$1" ] || return 0
+    [ "$linked" -eq 0 ] || return 0                  # there is no `final` to conflict with
+    same_path "$ARM_ROOT/final" "$1" || status=$?
+    if [ "$status" -eq "$READER_UNKNOWN" ]; then
+        echo "refusing: whether $ARM_ROOT/final publishes $1 cannot be established;" \
+             "nothing replaces a publication nobody can read" >&2
+        return "$READER_UNKNOWN"
+    fi
+    [ "$status" -ne 0 ] || return 0                  # it already publishes this attempt
     if [ "$REPLACE_FINAL" -eq 0 ]; then
-        echo "refusing: $ARM_ROOT/final already publishes $target, not $1; pass" \
+        echo "refusing: $ARM_ROOT/final already publishes another attempt, not $1; pass" \
              "--replace-final to replace it" >&2
         return 1
     fi
-    say "REPLACING $ARM_ROOT/final -> $(basename -- "$target") with $(basename -- "$1")"
+    # Informational only: `readlink` names what is about to be replaced for the operator
+    # reading the log. No decision above or below reads it.
+    say "REPLACING $ARM_ROOT/final -> $(readlink -- "$ARM_ROOT/final" 2>/dev/null || printf '?')" \
+        "with $(basename -- "$1")"
 }
 
 # abort_recovery <canonical> <log>: the abort path of a REFUSED recovery. A malformed
@@ -922,16 +973,16 @@ check_final_conflict() {
 # completion and `final` untouched -- and the finalizer's own cause stands on stderr.
 # Full mode keeps aborting unconditionally: it launched the attempt it is aborting.
 abort_recovery() {
-    local canonical="$1" log="$2" why="" target="" receipt=0 status=0
+    local canonical="$1" log="$2" why="" receipt=0 status=0
     file_present "$canonical/completion.json" || receipt=$?
-    target="$(published_target)" || status=$?
+    publishes "$canonical" || status=$?
     if [ "$receipt" -eq "$READER_UNKNOWN" ] || [ "$status" -eq "$READER_UNKNOWN" ]; then
         echo "refusing: whether $canonical completed or is published cannot be" \
              "inspected; an attempt nobody can read is not an attempt to abort" >&2
         return "$READER_UNKNOWN"
     fi
     [ "$receipt" -ne 0 ] || why="it has completed"
-    [ "$status" -ne 0 ] || [ "$target" != "$canonical" ] || why="it is published as final"
+    [ "$status" -ne 0 ] || why="it is published as final"
     if [ -n "$why" ]; then
         say "PRESERVED $canonical ($why); the refusal is this invocation's, not the run's"
         return 0

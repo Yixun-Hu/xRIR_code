@@ -2150,19 +2150,19 @@ def test_an_impossible_reader_timeout_is_refused(tmp_path, value):
 # `present` verdict must be about the very name that was probed.
 
 CRAFTED_VERDICTS = [
-    'link garbage',                      # a target that is not even a path
-    'link relative/target',
-    'present 41ed relative',
-    'present zzzz /abs',                 # not hex
-    'present f000 /abs',                 # hex, but no known file type
-    'present ffffffff /abs',             # eight digits
-    'present 41ed /abs/../x',            # not normalized
-    'present 41ed //abs',
-    'present 41ed /' + 'x' * 5000,       # longer than PATH_MAX
-    'present 41ed /trailing/',
+    'present',                           # a keyword with no mode
+    'present 81a4 /forged/path',         # a field the protocol no longer has
+    'present zzzz',                      # not hex
+    'present f000',                      # hex, but no known file type
+    'present ffffffff',                  # eight digits
+    'present 81a4 ',                     # a trailing space is an extra field
+    'absent yes',                        # an answer with something appended
+    'link /forged/target',               # what `link` used to carry
+    'same different',                    # two keywords
+    'yes',                               # a word of another protocol
 ]
 CRAFTED_IDS = [v[:28] for v in CRAFTED_VERDICTS]
-SOME_CRAFTED = CRAFTED_VERDICTS[:1] + CRAFTED_VERDICTS[2:3] + CRAFTED_VERDICTS[6:7]
+SOME_CRAFTED = [CRAFTED_VERDICTS[1], CRAFTED_VERDICTS[3], CRAFTED_VERDICTS[8]]
 
 
 def crafted_reader(tmp_path, only_on, verdict, name='crafted_wrapper.sh'):
@@ -2236,6 +2236,39 @@ def test_an_overflowing_reader_timeout_is_refused(tmp_path):
          'EXP11_PRETRAIN_ROOT': str(tmp_path)})
     assert status == 2, out
     assert 'EXP11_READER_TIMEOUT_S' in err, err
+
+
+def test_an_odd_spelling_of_an_attempt_resolves_normally(tmp_path):
+    """A path is not a string to be parsed: `//`, `/./` and a trailing slash are spellings."""
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    attempt = unresolved_attempt(old.parent)
+    stale = time.time() - 10_000
+    os.utime(str(attempt / 'launching'), (stale, stale))
+    spelling = '{}//{}/'.format(old.parent, attempt.name)
+    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nUNRESOLVED_GRACE_S=0\n'
+                 'hold_arm_lock finalize || exit 9\n'
+                 'resolve_unregistered {spelling}\n'.format(root=old.parent,
+                                                             spelling=spelling),
+                 {'EXP11_TEST_ROOTS': '1'})
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    assert not attempt.exists()
+    assert (old.parent / (attempt.name + '_ABORTED_unregistered')).is_dir()
+    assert (old.parent / (attempt.name + '.resolved')).is_file()
+
+
+def test_a_published_final_is_recognised_through_any_spelling(tmp_path):
+    """`already_published` asks an identity question, so the spelling cannot matter."""
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    canonical = root / 'attempt_20260928T030303'
+    canonical.mkdir(parents=True)
+    publish(canonical)
+    for spelling in ('{root}//{name}', '{root}/./{name}', '{root}/{name}/'):
+        result = lib('ARM_ROOT={root}\nDRY=1\nARM=H\nstatus=0\n'
+                     'already_published {path} || status=$?\necho "STATUS $status"\n'
+                     .format(root=root,
+                             path=spelling.format(root=root, name=canonical.name)),
+                     {'EXP11_TEST_ROOTS': '1'})
+        assert 'STATUS 0' in result.stdout, (spelling, result.stdout, result.stderr)
 
 
 def pid_of(pidfile):
