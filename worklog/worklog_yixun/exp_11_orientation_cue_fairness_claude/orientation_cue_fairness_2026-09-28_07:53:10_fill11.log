@@ -1,0 +1,37 @@
+07:53:10 FILL11 2026-09-28_07:53:10 HEAD=f98bdbff14b6a19a3e75aa5833b2ef007b682b5b
+A  model/simple_vit_oriented.py
+A  model/xRIR_simple_adapter.py
+A  model/xRIR_simple_oriented.py
+A  model/xrir_exp11_registry.py
+M  tests/test_exp06_summarize_haa.py
+A  tests/test_exp11_adapter.py
+A  tests/test_exp11_admission.py
+A  tests/test_exp11_approval_enforcement.py
+A  tests/test_exp11_finalize.py
+A  tests/test_exp11_haa_parity.py
+A  tests/test_exp11_lock_holder.py
+A  tests/test_exp11_models.py
+A  tests/test_exp11_pathprobe.py
+A  tests/test_exp11_pidrecord.py
+A  tests/test_exp11_profiles.py
+A  tests/test_exp11_recipe.py
+A  tests/test_exp11_registry.py
+A  tests/test_exp11_shell.py
+M  tests/test_exp11_summarize_haa.py
+A  tests/test_exp11_train.py
+A  tests/test_exp11_zeroshot_adapter.py
+M  tools/exp06_summarize_haa.py
+A  tools/exp11_approved_digests_template.json
+A  tools/exp11_finalize.py
+A  tools/exp11_haa_eval.py
+A  tools/exp11_haa_finetune.py
+A  tools/exp11_haa_pipeline.sh
+A  tools/exp11_launch.sh
+A  tools/exp11_lock_holder.py
+A  tools/exp11_pathprobe.py
+A  tools/exp11_pidrecord.py
+A  tools/exp11_profiles.py
+A  tools/exp11_recipe.py
+A  tools/exp11_smoke.py
+A  tools/exp11_train.py
+07:53:10 REFUSE: tree dirty outside worklog/
