@@ -590,6 +590,7 @@ echo "stub chain for $1 exiting $rc"
 exit "$rc"
 '''
 
+
 def safe_bin_dir(prefix):
     """An absolute, ``os.pathsep``-free directory to prepend to a child process's ``PATH``.
 
