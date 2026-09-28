@@ -415,10 +415,16 @@ probe_live() {
 # resolution retired the attempt of a registered, running trainer (close review 13). A
 # successful stat of a name we already knew is never evidence that we saw the directory.
 list_attempts() {
-    local root="$1" out="$2"
-    [ -d "$root" ] || return 1
-    [ -r "$root" ] && [ -x "$root" ] || return 1     # listing needs read AND search
-    find "$root" -mindepth 1 -maxdepth 1 -name 'attempt_*' -print0 > "$out" 2>/dev/null
+    local root="$1" out="$2" canonical=""
+    # The DIRECTORY the root denotes, not the name it was given by: `-d`, `-r` and `-x`
+    # all follow a symlink, but `find -P` does not descend one handed to it as a
+    # starting point -- it returned an empty listing and success for an arm with a live
+    # trainer in it (close review 14, blocker 1). `realpath -e` is checked: a root that
+    # cannot be resolved is not an empty arm.
+    canonical="$(realpath -e -- "$root" 2>/dev/null)" || return 1
+    [ -d "$canonical" ] || return 1
+    [ -r "$canonical" ] && [ -x "$canonical" ] || return 1   # listing needs read AND search
+    find "$canonical" -mindepth 1 -maxdepth 1 -name 'attempt_*' -print0 > "$out" 2>/dev/null
 }
 
 # scan_arm <arm root> [<attempt being resolved>]: 0 when every attempt of the arm is
