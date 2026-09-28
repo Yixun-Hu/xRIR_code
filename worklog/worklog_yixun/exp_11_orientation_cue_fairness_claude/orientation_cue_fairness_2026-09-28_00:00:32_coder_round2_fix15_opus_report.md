@@ -208,3 +208,48 @@ The familiar five: `launch_sh` through its own shell bytes, and `train`, `finali
 prompt predicted, both the launcher and the trainer moved this cycle. The three HAA keys
 are untouched. exp_11's approvals record remains all-null and every producer refuses
 today.
+
+## Test results
+
+Every run CPU-only (`CUDA_VISIBLE_DEVICES=''`), in the `xRIR` env.
+
+| run | result |
+|---|---|
+| every targeted file in one pass — `test_exp11_shell.py` (163 collected), `test_exp11_pidrecord.py`, `test_exp11_train.py` (54), `test_exp11_lock_holder.py`, the other ten exp_11 files, `test_exp06_summarize_haa.py`, `test_exp09_sim_eval_closures.py` | **590 passed** (807 s) |
+| full CPU suite, detached, at **`7a2ff48324c5a0ab39f9ffca7ab2cc54d6988c3b`** | **1 failed, 3920 passed, 55 skipped** (3537 s) |
+
+The suite was started only after `7a2ff48`, the cycle's last production commit, and its
+exact HEAD is recorded above and in the log's filename.
+
+The log is `orientation_cue_fairness_2026-09-28_00:01_suite_full_cpu_7a2ff48.log` in
+this record. The **one** failure is the standing, expected one:
+
+```
+FAILED tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes
+  {'summarize_haa': '22a9858b067e…'} != {'summarize_haa': '645e74c03e20…'}
+```
+
+— exp_06's approvals record still holds the digest re-filled at `9f98bbb`; that
+summariser's closure moves with every exp_11 change because it imports `exp11_finalize`
+and `exp11_profiles`. The re-fill belongs at the reviewed merge, as round 1's `9f98bbb`
+did, not on this branch. Every other test in the repository passes.
+
+## Notes for the reviewer
+
+* **What "the family" means here.** The rule is now one sentence, stated in both
+  languages and enforced by the audit above: *nothing concludes "not there" from "could
+  not look"*. Four questions are separated — can the root be **enumerated**, can an entry
+  be **classified**, is a pid file's content a **verdict**, is that pid **alive** — and a
+  fifth, added this cycle: does a named path **exist**. Each has its own unknown, and an
+  unknown never opens an arm, never retires an attempt, never replaces a publication and
+  never lets a trainer register.
+* **A stricter `final`.** `probe_link_target` resolves with `realpath -e`, so a `final`
+  whose target no longer exists is now *unknown* rather than *no publication*. That is a
+  deliberate change of behaviour on a state the old code silently ignored; an operator
+  clears it by removing the dangling link.
+* **`scan_arm` still stops at the first live or unresolved attempt** (close review 12's
+  qualification, unchanged): an unknown in a later entry may not be reached, the result
+  is still a refusal, and both CLI callers normalise either status to exit 2.
+* **Cost.** Each guard is now one or two `stat` calls where it was one `test`; a scan
+  adds one `find`, one `mktemp` and one `stat` per entry. The reader keeps its two
+  health probes and its per-read comparison, now under a 30 s timeout.
