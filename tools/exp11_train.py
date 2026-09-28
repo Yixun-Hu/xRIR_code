@@ -25,7 +25,6 @@ import contextlib
 import fcntl
 import os
 from pathlib import Path
-import stat
 import sys
 import time
 
@@ -36,8 +35,8 @@ from torch.utils.data import DataLoader, Subset
 
 import train_xRIR_backbone as trainer
 from model.xrir_exp11_registry import BACKBONES_EXP11, build_xrir_exp11, registry_sha256
-from tools import (exp06_train, exp11_pidrecord, exp11_profiles, exp11_recipe,
-                   provenance)
+from tools import (exp06_train, exp11_pathprobe, exp11_pidrecord, exp11_profiles,
+                   exp11_recipe, provenance)
 from tools.exp05_params import TIERS, count_parameters, tier_of
 from treble_multi_room_dataset.treble_xRIR_dataset import xRIR_Dataset
 from utils.lr_scheduler import ExponentialLR
@@ -194,56 +193,18 @@ def provenance_fields(argv, run_type, identity=None, repo=REPO, approved=None,
 pid_record = exp11_pidrecord.pid_record
 
 
-# --- three states for every path this trainer asks about (close review 14) -----------
+# --- three states for every path this trainer asks about (close reviews 14, 15) ------
 # ``Path.is_file()`` answers False both for a path that is not there and for one it
 # could not inspect: a self-referential ``<attempt>.resolved`` raises ELOOP inside it and
 # comes back "no tombstone", so a trainer whose launch had been retired registered
-# anyway. Nothing here decides on ``is_file``.
-PRESENT, ABSENT, UNSURE = 'present', 'absent', 'unsure'
-
-
-def probe_path(path):
-    """``(state, detail)``: it is there (with its ``stat``), it is NOT there, or unknown.
-
-    An absence is a claim, and it is made only about a directory that could itself be
-    inspected. A name that exists as a symlink we cannot follow -- dangling, looping,
-    behind a door -- is not an absence at all.
-    """
-    name = str(path)
-    try:
-        return PRESENT, os.stat(name)
-    except FileNotFoundError:
-        pass
-    except OSError as error:                       # EACCES, ELOOP, EIO, ENOTDIR, ...
-        return UNSURE, error
-    try:
-        os.lstat(name)                             # the link itself, unfollowed
-        return UNSURE, 'a symlink that cannot be resolved'
-    except FileNotFoundError:
-        pass
-    except OSError as error:
-        return UNSURE, error
-    parent = os.path.dirname(os.path.abspath(name)) or '.'
-    try:
-        os.stat(parent)
-    except OSError as error:
-        return UNSURE, error
-    return ABSENT, None
-
-
-def file_state(path):
-    """PRESENT only for a regular file; ABSENT for no such name or another kind."""
-    state, detail = probe_path(path)
-    if state == PRESENT and not stat.S_ISREG(detail.st_mode):
-        return ABSENT, detail
-    return state, detail
-
-
-def directory_state(path):
-    state, detail = probe_path(path)
-    if state == PRESENT and not stat.S_ISDIR(detail.st_mode):
-        return ABSENT, detail
-    return state, detail
+# anyway. Nothing here decides on ``is_file``. The classification is the launcher's --
+# literally: the same tools/exp11_pathprobe.py, where the errno is available.
+PRESENT = exp11_pathprobe.PRESENT
+ABSENT = exp11_pathprobe.ABSENT
+UNSURE = exp11_pathprobe.UNKNOWN
+probe_path = exp11_pathprobe.probe
+file_state = exp11_pathprobe.file_state
+directory_state = exp11_pathprobe.directory_state
 
 
 def demand_known(state, detail, path, what):
