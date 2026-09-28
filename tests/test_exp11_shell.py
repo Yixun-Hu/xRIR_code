@@ -1700,6 +1700,23 @@ def test_a_pid_file_the_launcher_cannot_read_is_never_dead(tmp_path, shut_the):
         stub.wait(timeout=30)
 
 
+def test_the_file_classification_does_not_depend_on_a_translated_word(tmp_path):
+    """`stat -c %F` prints a phrase in the caller's language.
+
+    "regular file" is `fichier régulier` under a French locale and something else again
+    elsewhere, so a classification that matches that text calls a perfectly ordinary
+    train.pid a directory -- and a live trainer's record then reads as no record. The
+    mode bits are the same in every language.
+    """
+    text = (REPO / 'tools/exp11_launch.sh').read_text()
+    assert '-c %F' not in text, 'the file type must be read from the mode, not a phrase'
+    fifo = tmp_path / 'child.pid'
+    os.mkfifo(str(fifo))
+    result = lib('status=0\npid_record {fifo} || status=$?\necho "STATUS $status"\n'
+                 .format(fifo=fifo))
+    assert 'STATUS 1' in result.stdout, result.stdout   # definite, and it did not block
+
+
 def pid_of(pidfile):
     """The pid in a registration file, if it still names a living process."""
     try:
