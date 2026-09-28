@@ -1701,6 +1701,33 @@ def test_finish_fault_injection_fires_from_a_scratch_path_with_a_colon(tmp_path,
     assert_generated_untouched(built)
 
 
+def test_finish_fault_injection_fires_when_tmpdir_is_relative(tmp_path, request, monkeypatch):
+    """Round-9 review, finding 1: a relative ``TMPDIR`` must not move the shims out of reach.
+
+    Python 3.8's ``mkdtemp(dir=...)`` keeps a relative directory relative, and ``run_finish``
+    runs the finish script with ``cwd`` set to the scratch repository.  A ``PATH`` entry taken
+    straight from a relative ``$TMPDIR`` therefore names a directory that does not exist from
+    the script's point of view: the real ``mv`` runs, the script publishes, and the
+    fault-injection tests fail for a reason that has nothing to do with the script -- the same
+    silent failure the colon regression above guards against.  ``shim_bin`` makes the base
+    absolute *before* it inspects it, so the ``PATH`` entry survives the change of directory.
+    """
+    relative_tmpdir = str(tmp_path / "reltmp")
+    os.makedirs(relative_tmpdir)
+    relative = os.path.relpath(relative_tmpdir, os.getcwd())
+    assert not os.path.isabs(relative)
+    monkeypatch.setenv("TMPDIR", relative)
+    built = build_scratch(str(tmp_path / "repo"), request)
+    done = run_finish(built, env=failing_mv(built, "*/.finish_tmp.*/yaw_pilot_results.md"))
+    assert done.returncode != 0, out(done)             # the shim fired ...
+    assert "simulated mv I/O error" in out(done)       # ... and it was ours, not a real mv
+    assert "FINISH DONE" not in out(done)
+    assert "restored" in out(done)
+    assert staging_dirs(built) == []
+    assert_generated_untouched(built)
+    assert os.path.isabs(built["shim_bin"])            # ... and not "<relative TMPDIR>/exp10-shim-*"
+
+
 # --------------------------------------------------------------------------------------
 # Findings 7-10 -- the arm chain: ok-gates, the predecessor table, atomic reservation, pins.
 # --------------------------------------------------------------------------------------
