@@ -16,7 +16,6 @@ import shlex
 import shutil
 import subprocess
 import sys
-import tempfile
 
 import pytest
 
@@ -1207,19 +1206,13 @@ def shim_bin(request):
     The shims live in ``/tmp`` (or ``$TMPDIR`` when that is itself usable as a ``PATH``
     entry) instead, and the test is failed loudly rather than silently if even that is not.
 
-    Round-10: ``$TMPDIR`` is made absolute *before* it is inspected.  A ``PATH`` entry has to
-    survive ``run_finish``'s change of directory, and Python 3.8's ``mkdtemp(dir=...)`` keeps
-    a relative directory relative -- so a relative ``$TMPDIR`` passed the separator check and
-    still produced a shim the finish script could not see.
+    Round-10: the placement rule — ``$TMPDIR`` made absolute *before* it is inspected, because
+    a ``PATH`` entry also has to survive ``run_finish``'s change of directory — now lives in
+    ``fx.safe_bin_dir``, shared with the queue fixture's fake ``nvidia-smi``, which had the
+    same defect.
     """
-    base = os.path.abspath(os.environ.get("TMPDIR") or "/tmp")
-    if os.pathsep in base or any(ch.isspace() for ch in base):
-        base = "/tmp"
-    bin_dir = tempfile.mkdtemp(prefix="exp10-shim-", dir=base)
+    bin_dir = fx.safe_bin_dir("exp10-shim-")
     request.addfinalizer(lambda: shutil.rmtree(bin_dir, ignore_errors=True))
-    if os.pathsep in bin_dir or any(ch.isspace() for ch in bin_dir):
-        pytest.fail("the PATH shims need a directory free of %r and of whitespace, not %r"
-                    % (os.pathsep, bin_dir))
     return bin_dir
 
 
