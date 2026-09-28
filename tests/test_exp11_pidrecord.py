@@ -119,14 +119,64 @@ def test_the_two_callers_never_disagree(tmp_path, content, valid):
     assert shell_says == python_says == valid, (content, shell.stdout)
 
 
-def test_an_unreadable_file_is_a_definite_norecord(tmp_path):
-    """Missing, a directory, unreadable: all of them are answers, not failures."""
+# --- close review 12 blocker 1: not being able to look is not an answer -------------
+# Every OSError used to become `norecord`, so a `chmod 000` train.pid -- a file that
+# exists and may well hold a living pid -- read as a definite absence, and a resolution
+# retired the attempt of a registered, running trainer. Only two things are definite: a
+# confirmed absence, and bytes we read and found malformed.
+
+needs_a_non_root_user = pytest.mark.skipif(
+    os.geteuid() == 0, reason='root ignores the permission bits these cases turn off')
+
+
+def test_an_absent_file_and_a_directory_are_definite(tmp_path):
+    """The two things that really are answers about a path we could inspect."""
     assert exp11_pidrecord.pid_record(tmp_path / 'absent') is None
     assert exp11_pidrecord.pid_record(tmp_path) is None        # a directory
     for path in (tmp_path / 'absent', tmp_path):
         result = cli(path)
         assert result.returncode == 0 and result.stdout == 'norecord\n'
         assert 'Traceback' not in result.stderr
+
+
+def test_a_fifo_is_definite_and_is_never_opened(tmp_path):
+    """Opening a FIFO blocks forever; classifying one does not."""
+    fifo = tmp_path / 'child.pid'
+    os.mkfifo(str(fifo))
+    result = subprocess.run([PYTHON, '-m', 'tools.exp11_pidrecord', str(fifo)],
+                            cwd=str(REPO), capture_output=True, text=True, timeout=30,
+                            env=dict(os.environ, PYTHONPATH=str(REPO)))
+    assert result.returncode == 0 and result.stdout == 'norecord\n'
+
+
+@needs_a_non_root_user
+def test_a_file_we_cannot_read_is_not_an_absent_file(tmp_path):
+    """The reviewer's case: chmod 000 on a train.pid that names a living trainer."""
+    path = write(tmp_path, b'1457170\n')
+    path.chmod(0o000)
+    try:
+        result = cli(path)
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert result.stdout == '', 'no verdict line at all'
+        assert result.stderr.strip() and 'Traceback' not in result.stderr
+    finally:
+        path.chmod(0o600)
+
+
+@needs_a_non_root_user
+def test_a_parent_we_cannot_inspect_is_not_an_absent_file(tmp_path):
+    """An unreadable directory says nothing about what is or is not inside it."""
+    shut = tmp_path / 'shut'
+    shut.mkdir()
+    (shut / 'child.pid').write_bytes(b'1457170\n')
+    shut.chmod(0o000)
+    try:
+        for name in ('child.pid', 'absent.pid'):
+            result = cli(shut / name)
+            assert result.returncode == 2, (name, result.stdout, result.stderr)
+            assert result.stdout == ''
+    finally:
+        shut.chmod(0o700)
 
 
 def test_the_launcher_reads_no_file_content_itself():
