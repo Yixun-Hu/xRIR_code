@@ -1,0 +1,192 @@
+07:55:54 DRYRUN11 2026-09-28_07:55:54 HEAD=fcf7413efb90691409ab29fa2a2b96187b7fe871 jobs=control_adapter:0 control_adapter:zeroshot yawaug_adapter:0 yawaug_adapter:zeroshot
+EXP11_HAA_PIPELINE gpu=1 jobs=control_adapter:0 control_adapter:zeroshot yawaug_adapter:0 yawaug_adapter:zeroshot stamp=<UTC> dry_run=1 heading=ckpt/exp06/heading out=ckpt/exp11/sim2real
+ENV CUDA_VISIBLE_DEVICES=1 PYTHONHASHSEED=0 OMP_NUM_THREADS=8 HAA_XRIR_ROOT=/home/yixunhu/data_cache/HAA_xrir
+JOB control_adapter seed0 backbone=simple_adapter init=ckpt/xRIR_simple_8_shot/epoch_12.pth expect=finetune frame=room
+CENSUS gpu=1
+APPROVALS control_adapter checkpoint=ckpt/xRIR_simple_8_shot/epoch_12.pth heading=ckpt/exp06/heading
+MKDIR ckpt/exp11/sim2real/control_adapter/seed0
+PIDFILE ckpt/exp11/sim2real/control_adapter/seed0/launch.pid
+JOBSPEC ckpt/exp11/sim2real/control_adapter/seed0/job_spec.json init=control_adapter checkpoint=ckpt/xRIR_simple_8_shot/epoch_12.pth seed=0 expect=finetune backbone=simple_adapter frame=room heading=ckpt/exp06/heading
+CHECKSPEC ckpt/exp11/sim2real/control_adapter/seed0/job_spec.json expect=finetune
+MKDIR ckpt/exp11/sim2real/control_adapter/seed0/stage1
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_stage1.log
+PIDFILE ckpt/exp11/sim2real/control_adapter/seed0/stage1/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_finetune.py --backbone simple_adapter --init ckpt/xRIR_simple_8_shot/epoch_12.pth --rooms class_room hallway complex_room --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/control_adapter/seed0/stage1 --seed 0 --job-spec ckpt/exp11/sim2real/control_adapter/seed0/job_spec.json --epochs 1000 --val-every 10 --tf32
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_stage1.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/control_adapter/seed0/stage1 --run-type exp11_haa_finetune --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_stage1.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/control_adapter/seed0/stage2_class_room
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_stage2_class_room.log
+PIDFILE ckpt/exp11/sim2real/control_adapter/seed0/stage2_class_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_finetune.py --backbone simple_adapter --init ckpt/exp11/sim2real/control_adapter/seed0/stage1/best.pth --rooms class_room --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/control_adapter/seed0/stage2_class_room --seed 0 --job-spec ckpt/exp11/sim2real/control_adapter/seed0/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_stage2_class_room.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/control_adapter/seed0/stage2_class_room --run-type exp11_haa_finetune --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_stage2_class_room.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/control_adapter/seed0/eval/class_room
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_eval_class_room.log
+PIDFILE ckpt/exp11/sim2real/control_adapter/seed0/eval/class_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_eval.py --backbone simple_adapter --checkpoint ckpt/exp11/sim2real/control_adapter/seed0/stage2_class_room/best.pth --rooms class_room --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/control_adapter/seed0/eval/class_room --seed 0 --job-spec ckpt/exp11/sim2real/control_adapter/seed0/job_spec.json
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_eval_class_room.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/control_adapter/seed0/eval/class_room --run-type exp11_haa_eval --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_eval_class_room.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/control_adapter/seed0/stage2_dampened_room
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_stage2_dampened_room.log
+PIDFILE ckpt/exp11/sim2real/control_adapter/seed0/stage2_dampened_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_finetune.py --backbone simple_adapter --init ckpt/exp11/sim2real/control_adapter/seed0/stage1/best.pth --rooms dampened_room --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/control_adapter/seed0/stage2_dampened_room --seed 0 --job-spec ckpt/exp11/sim2real/control_adapter/seed0/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_stage2_dampened_room.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/control_adapter/seed0/stage2_dampened_room --run-type exp11_haa_finetune --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_stage2_dampened_room.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/control_adapter/seed0/eval/dampened_room
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_eval_dampened_room.log
+PIDFILE ckpt/exp11/sim2real/control_adapter/seed0/eval/dampened_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_eval.py --backbone simple_adapter --checkpoint ckpt/exp11/sim2real/control_adapter/seed0/stage2_dampened_room/best.pth --rooms dampened_room --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/control_adapter/seed0/eval/dampened_room --seed 0 --job-spec ckpt/exp11/sim2real/control_adapter/seed0/job_spec.json
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_eval_dampened_room.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/control_adapter/seed0/eval/dampened_room --run-type exp11_haa_eval --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_eval_dampened_room.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/control_adapter/seed0/stage2_hallway
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_stage2_hallway.log
+PIDFILE ckpt/exp11/sim2real/control_adapter/seed0/stage2_hallway/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_finetune.py --backbone simple_adapter --init ckpt/exp11/sim2real/control_adapter/seed0/stage1/best.pth --rooms hallway --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/control_adapter/seed0/stage2_hallway --seed 0 --job-spec ckpt/exp11/sim2real/control_adapter/seed0/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_stage2_hallway.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/control_adapter/seed0/stage2_hallway --run-type exp11_haa_finetune --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_stage2_hallway.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/control_adapter/seed0/eval/hallway
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_eval_hallway.log
+PIDFILE ckpt/exp11/sim2real/control_adapter/seed0/eval/hallway/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_eval.py --backbone simple_adapter --checkpoint ckpt/exp11/sim2real/control_adapter/seed0/stage2_hallway/best.pth --rooms hallway --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/control_adapter/seed0/eval/hallway --seed 0 --job-spec ckpt/exp11/sim2real/control_adapter/seed0/job_spec.json
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_eval_hallway.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/control_adapter/seed0/eval/hallway --run-type exp11_haa_eval --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_eval_hallway.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/control_adapter/seed0/stage2_complex_room
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_stage2_complex_room.log
+PIDFILE ckpt/exp11/sim2real/control_adapter/seed0/stage2_complex_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_finetune.py --backbone simple_adapter --init ckpt/exp11/sim2real/control_adapter/seed0/stage1/best.pth --rooms complex_room --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/control_adapter/seed0/stage2_complex_room --seed 0 --job-spec ckpt/exp11/sim2real/control_adapter/seed0/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_stage2_complex_room.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/control_adapter/seed0/stage2_complex_room --run-type exp11_haa_finetune --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_stage2_complex_room.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/control_adapter/seed0/eval/complex_room
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_eval_complex_room.log
+PIDFILE ckpt/exp11/sim2real/control_adapter/seed0/eval/complex_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_eval.py --backbone simple_adapter --checkpoint ckpt/exp11/sim2real/control_adapter/seed0/stage2_complex_room/best.pth --rooms complex_room --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/control_adapter/seed0/eval/complex_room --seed 0 --job-spec ckpt/exp11/sim2real/control_adapter/seed0/job_spec.json
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_eval_complex_room.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/control_adapter/seed0/eval/complex_room --run-type exp11_haa_eval --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_eval_complex_room.log --child-exit <code>
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/control_adapter/seed0 --run-type exp11_haa_job --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_seed0_job.log --child-exit 0 --owner-pid <pid> --children ckpt/exp11/sim2real/control_adapter/seed0/stage1 ckpt/exp11/sim2real/control_adapter/seed0/stage2_class_room ckpt/exp11/sim2real/control_adapter/seed0/eval/class_room ckpt/exp11/sim2real/control_adapter/seed0/stage2_dampened_room ckpt/exp11/sim2real/control_adapter/seed0/eval/dampened_room ckpt/exp11/sim2real/control_adapter/seed0/stage2_hallway ckpt/exp11/sim2real/control_adapter/seed0/eval/hallway ckpt/exp11/sim2real/control_adapter/seed0/stage2_complex_room ckpt/exp11/sim2real/control_adapter/seed0/eval/complex_room --expect finetune --job-spec ckpt/exp11/sim2real/control_adapter/seed0/job_spec.json
+JOB control_adapter zeroshot backbone=simple_adapter init=ckpt/xRIR_simple_8_shot/epoch_12.pth expect=zeroshot frame=room
+CENSUS gpu=1
+APPROVALS control_adapter checkpoint=ckpt/xRIR_simple_8_shot/epoch_12.pth heading=ckpt/exp06/heading
+MKDIR ckpt/exp11/sim2real/control_adapter/zeroshot
+PIDFILE ckpt/exp11/sim2real/control_adapter/zeroshot/launch.pid
+JOBSPEC ckpt/exp11/sim2real/control_adapter/zeroshot/job_spec.json init=control_adapter checkpoint=ckpt/xRIR_simple_8_shot/epoch_12.pth seed=0 expect=zeroshot backbone=simple_adapter frame=room heading=ckpt/exp06/heading
+CHECKSPEC ckpt/exp11/sim2real/control_adapter/zeroshot/job_spec.json expect=zeroshot
+MKDIR ckpt/exp11/sim2real/control_adapter/zeroshot/eval/class_room
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_zeroshot_eval_class_room.log
+PIDFILE ckpt/exp11/sim2real/control_adapter/zeroshot/eval/class_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_eval.py --backbone simple_adapter --checkpoint ckpt/xRIR_simple_8_shot/epoch_12.pth --rooms class_room --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/control_adapter/zeroshot/eval/class_room --seed 0 --job-spec ckpt/exp11/sim2real/control_adapter/zeroshot/job_spec.json
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_zeroshot_eval_class_room.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/control_adapter/zeroshot/eval/class_room --run-type exp11_haa_eval --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_zeroshot_eval_class_room.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/control_adapter/zeroshot/eval/dampened_room
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_zeroshot_eval_dampened_room.log
+PIDFILE ckpt/exp11/sim2real/control_adapter/zeroshot/eval/dampened_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_eval.py --backbone simple_adapter --checkpoint ckpt/xRIR_simple_8_shot/epoch_12.pth --rooms dampened_room --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/control_adapter/zeroshot/eval/dampened_room --seed 0 --job-spec ckpt/exp11/sim2real/control_adapter/zeroshot/job_spec.json
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_zeroshot_eval_dampened_room.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/control_adapter/zeroshot/eval/dampened_room --run-type exp11_haa_eval --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_zeroshot_eval_dampened_room.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/control_adapter/zeroshot/eval/hallway
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_zeroshot_eval_hallway.log
+PIDFILE ckpt/exp11/sim2real/control_adapter/zeroshot/eval/hallway/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_eval.py --backbone simple_adapter --checkpoint ckpt/xRIR_simple_8_shot/epoch_12.pth --rooms hallway --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/control_adapter/zeroshot/eval/hallway --seed 0 --job-spec ckpt/exp11/sim2real/control_adapter/zeroshot/job_spec.json
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_zeroshot_eval_hallway.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/control_adapter/zeroshot/eval/hallway --run-type exp11_haa_eval --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_zeroshot_eval_hallway.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/control_adapter/zeroshot/eval/complex_room
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_zeroshot_eval_complex_room.log
+PIDFILE ckpt/exp11/sim2real/control_adapter/zeroshot/eval/complex_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_eval.py --backbone simple_adapter --checkpoint ckpt/xRIR_simple_8_shot/epoch_12.pth --rooms complex_room --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/control_adapter/zeroshot/eval/complex_room --seed 0 --job-spec ckpt/exp11/sim2real/control_adapter/zeroshot/job_spec.json
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_zeroshot_eval_complex_room.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/control_adapter/zeroshot/eval/complex_room --run-type exp11_haa_eval --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_zeroshot_eval_complex_room.log --child-exit <code>
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/control_adapter/zeroshot --run-type exp11_haa_job --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_control_adapter_zeroshot_job.log --child-exit 0 --owner-pid <pid> --children ckpt/exp11/sim2real/control_adapter/zeroshot/eval/class_room ckpt/exp11/sim2real/control_adapter/zeroshot/eval/dampened_room ckpt/exp11/sim2real/control_adapter/zeroshot/eval/hallway ckpt/exp11/sim2real/control_adapter/zeroshot/eval/complex_room --expect zeroshot --job-spec ckpt/exp11/sim2real/control_adapter/zeroshot/job_spec.json
+JOB yawaug_adapter seed0 backbone=simple_adapter init=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth expect=finetune frame=room
+CENSUS gpu=1
+APPROVALS yawaug_adapter checkpoint=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth heading=ckpt/exp06/heading
+MKDIR ckpt/exp11/sim2real/yawaug_adapter/seed0
+PIDFILE ckpt/exp11/sim2real/yawaug_adapter/seed0/launch.pid
+JOBSPEC ckpt/exp11/sim2real/yawaug_adapter/seed0/job_spec.json init=yawaug_adapter checkpoint=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth seed=0 expect=finetune backbone=simple_adapter frame=room heading=ckpt/exp06/heading
+CHECKSPEC ckpt/exp11/sim2real/yawaug_adapter/seed0/job_spec.json expect=finetune
+MKDIR ckpt/exp11/sim2real/yawaug_adapter/seed0/stage1
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_stage1.log
+PIDFILE ckpt/exp11/sim2real/yawaug_adapter/seed0/stage1/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_finetune.py --backbone simple_adapter --init ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth --rooms class_room hallway complex_room --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/yawaug_adapter/seed0/stage1 --seed 0 --job-spec ckpt/exp11/sim2real/yawaug_adapter/seed0/job_spec.json --epochs 1000 --val-every 10 --tf32
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_stage1.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/yawaug_adapter/seed0/stage1 --run-type exp11_haa_finetune --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_stage1.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_class_room
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_stage2_class_room.log
+PIDFILE ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_class_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_finetune.py --backbone simple_adapter --init ckpt/exp11/sim2real/yawaug_adapter/seed0/stage1/best.pth --rooms class_room --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_class_room --seed 0 --job-spec ckpt/exp11/sim2real/yawaug_adapter/seed0/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_stage2_class_room.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_class_room --run-type exp11_haa_finetune --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_stage2_class_room.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/yawaug_adapter/seed0/eval/class_room
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_eval_class_room.log
+PIDFILE ckpt/exp11/sim2real/yawaug_adapter/seed0/eval/class_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_eval.py --backbone simple_adapter --checkpoint ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_class_room/best.pth --rooms class_room --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/yawaug_adapter/seed0/eval/class_room --seed 0 --job-spec ckpt/exp11/sim2real/yawaug_adapter/seed0/job_spec.json
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_eval_class_room.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/yawaug_adapter/seed0/eval/class_room --run-type exp11_haa_eval --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_eval_class_room.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_dampened_room
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_stage2_dampened_room.log
+PIDFILE ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_dampened_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_finetune.py --backbone simple_adapter --init ckpt/exp11/sim2real/yawaug_adapter/seed0/stage1/best.pth --rooms dampened_room --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_dampened_room --seed 0 --job-spec ckpt/exp11/sim2real/yawaug_adapter/seed0/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_stage2_dampened_room.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_dampened_room --run-type exp11_haa_finetune --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_stage2_dampened_room.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/yawaug_adapter/seed0/eval/dampened_room
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_eval_dampened_room.log
+PIDFILE ckpt/exp11/sim2real/yawaug_adapter/seed0/eval/dampened_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_eval.py --backbone simple_adapter --checkpoint ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_dampened_room/best.pth --rooms dampened_room --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/yawaug_adapter/seed0/eval/dampened_room --seed 0 --job-spec ckpt/exp11/sim2real/yawaug_adapter/seed0/job_spec.json
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_eval_dampened_room.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/yawaug_adapter/seed0/eval/dampened_room --run-type exp11_haa_eval --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_eval_dampened_room.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_hallway
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_stage2_hallway.log
+PIDFILE ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_hallway/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_finetune.py --backbone simple_adapter --init ckpt/exp11/sim2real/yawaug_adapter/seed0/stage1/best.pth --rooms hallway --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_hallway --seed 0 --job-spec ckpt/exp11/sim2real/yawaug_adapter/seed0/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_stage2_hallway.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_hallway --run-type exp11_haa_finetune --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_stage2_hallway.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/yawaug_adapter/seed0/eval/hallway
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_eval_hallway.log
+PIDFILE ckpt/exp11/sim2real/yawaug_adapter/seed0/eval/hallway/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_eval.py --backbone simple_adapter --checkpoint ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_hallway/best.pth --rooms hallway --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/yawaug_adapter/seed0/eval/hallway --seed 0 --job-spec ckpt/exp11/sim2real/yawaug_adapter/seed0/job_spec.json
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_eval_hallway.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/yawaug_adapter/seed0/eval/hallway --run-type exp11_haa_eval --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_eval_hallway.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_complex_room
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_stage2_complex_room.log
+PIDFILE ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_complex_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_finetune.py --backbone simple_adapter --init ckpt/exp11/sim2real/yawaug_adapter/seed0/stage1/best.pth --rooms complex_room --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_complex_room --seed 0 --job-spec ckpt/exp11/sim2real/yawaug_adapter/seed0/job_spec.json --epochs 200 --val-every 2 --tf32
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_stage2_complex_room.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_complex_room --run-type exp11_haa_finetune --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_stage2_complex_room.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/yawaug_adapter/seed0/eval/complex_room
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_eval_complex_room.log
+PIDFILE ckpt/exp11/sim2real/yawaug_adapter/seed0/eval/complex_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_eval.py --backbone simple_adapter --checkpoint ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_complex_room/best.pth --rooms complex_room --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/yawaug_adapter/seed0/eval/complex_room --seed 0 --job-spec ckpt/exp11/sim2real/yawaug_adapter/seed0/job_spec.json
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_eval_complex_room.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/yawaug_adapter/seed0/eval/complex_room --run-type exp11_haa_eval --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_eval_complex_room.log --child-exit <code>
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/yawaug_adapter/seed0 --run-type exp11_haa_job --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_seed0_job.log --child-exit 0 --owner-pid <pid> --children ckpt/exp11/sim2real/yawaug_adapter/seed0/stage1 ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_class_room ckpt/exp11/sim2real/yawaug_adapter/seed0/eval/class_room ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_dampened_room ckpt/exp11/sim2real/yawaug_adapter/seed0/eval/dampened_room ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_hallway ckpt/exp11/sim2real/yawaug_adapter/seed0/eval/hallway ckpt/exp11/sim2real/yawaug_adapter/seed0/stage2_complex_room ckpt/exp11/sim2real/yawaug_adapter/seed0/eval/complex_room --expect finetune --job-spec ckpt/exp11/sim2real/yawaug_adapter/seed0/job_spec.json
+JOB yawaug_adapter zeroshot backbone=simple_adapter init=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth expect=zeroshot frame=room
+CENSUS gpu=1
+APPROVALS yawaug_adapter checkpoint=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth heading=ckpt/exp06/heading
+MKDIR ckpt/exp11/sim2real/yawaug_adapter/zeroshot
+PIDFILE ckpt/exp11/sim2real/yawaug_adapter/zeroshot/launch.pid
+JOBSPEC ckpt/exp11/sim2real/yawaug_adapter/zeroshot/job_spec.json init=yawaug_adapter checkpoint=ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth seed=0 expect=zeroshot backbone=simple_adapter frame=room heading=ckpt/exp06/heading
+CHECKSPEC ckpt/exp11/sim2real/yawaug_adapter/zeroshot/job_spec.json expect=zeroshot
+MKDIR ckpt/exp11/sim2real/yawaug_adapter/zeroshot/eval/class_room
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_zeroshot_eval_class_room.log
+PIDFILE ckpt/exp11/sim2real/yawaug_adapter/zeroshot/eval/class_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_eval.py --backbone simple_adapter --checkpoint ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth --rooms class_room --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/yawaug_adapter/zeroshot/eval/class_room --seed 0 --job-spec ckpt/exp11/sim2real/yawaug_adapter/zeroshot/job_spec.json
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_zeroshot_eval_class_room.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/yawaug_adapter/zeroshot/eval/class_room --run-type exp11_haa_eval --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_zeroshot_eval_class_room.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/yawaug_adapter/zeroshot/eval/dampened_room
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_zeroshot_eval_dampened_room.log
+PIDFILE ckpt/exp11/sim2real/yawaug_adapter/zeroshot/eval/dampened_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_eval.py --backbone simple_adapter --checkpoint ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth --rooms dampened_room --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/yawaug_adapter/zeroshot/eval/dampened_room --seed 0 --job-spec ckpt/exp11/sim2real/yawaug_adapter/zeroshot/job_spec.json
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_zeroshot_eval_dampened_room.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/yawaug_adapter/zeroshot/eval/dampened_room --run-type exp11_haa_eval --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_zeroshot_eval_dampened_room.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/yawaug_adapter/zeroshot/eval/hallway
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_zeroshot_eval_hallway.log
+PIDFILE ckpt/exp11/sim2real/yawaug_adapter/zeroshot/eval/hallway/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_eval.py --backbone simple_adapter --checkpoint ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth --rooms hallway --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/yawaug_adapter/zeroshot/eval/hallway --seed 0 --job-spec ckpt/exp11/sim2real/yawaug_adapter/zeroshot/job_spec.json
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_zeroshot_eval_hallway.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/yawaug_adapter/zeroshot/eval/hallway --run-type exp11_haa_eval --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_zeroshot_eval_hallway.log --child-exit <code>
+MKDIR ckpt/exp11/sim2real/yawaug_adapter/zeroshot/eval/complex_room
+SINK cat >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_zeroshot_eval_complex_room.log
+PIDFILE ckpt/exp11/sim2real/yawaug_adapter/zeroshot/eval/complex_room/child.pid
+RUN nohup setsid /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_haa_eval.py --backbone simple_adapter --checkpoint ckpt/xRIR_simple_yawaug_8_shot/final/epoch_012.pth --rooms complex_room --adapter-heading-json-dir ckpt/exp06/heading --save-dir ckpt/exp11/sim2real/yawaug_adapter/zeroshot/eval/complex_room --seed 0 --job-spec ckpt/exp11/sim2real/yawaug_adapter/zeroshot/job_spec.json
+MARKER EXP06_CHILD_EXIT <code> <iso> >> worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_zeroshot_eval_complex_room.log
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/yawaug_adapter/zeroshot/eval/complex_room --run-type exp11_haa_eval --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_zeroshot_eval_complex_room.log --child-exit <code>
+RUN /home/yixunhu/miniconda3/envs/xRIR/bin/python tools/exp11_finalize.py --run-dir ckpt/exp11/sim2real/yawaug_adapter/zeroshot --run-type exp11_haa_job --log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_haa_<UTC>_haa_yawaug_adapter_zeroshot_job.log --child-exit 0 --owner-pid <pid> --children ckpt/exp11/sim2real/yawaug_adapter/zeroshot/eval/class_room ckpt/exp11/sim2real/yawaug_adapter/zeroshot/eval/dampened_room ckpt/exp11/sim2real/yawaug_adapter/zeroshot/eval/hallway ckpt/exp11/sim2real/yawaug_adapter/zeroshot/eval/complex_room --expect zeroshot --job-spec ckpt/exp11/sim2real/yawaug_adapter/zeroshot/job_spec.json
+QUEUE_DONE gpu=1
