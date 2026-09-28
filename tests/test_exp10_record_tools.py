@@ -13,8 +13,10 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 
 import pytest
 
@@ -1194,11 +1196,34 @@ def test_md_refuses_to_link_assets_that_are_not_assembled(render_case):
 # Findings 1 + 2 -- the finish script: validated evidence, staged assembly, atomic publish.
 # --------------------------------------------------------------------------------------
 
-def build_scratch(root):
+def shim_bin(request):
+    """A directory for the PATH shims that is free of ``os.pathsep``, wherever pytest runs.
+
+    Round-9: the fault-injection helpers below prepend this directory to ``PATH``, and the
+    shell splits ``PATH`` on ``os.pathsep``.  Under a basetemp that contains a colon
+    (``--basetemp=/tmp/pytest-exp11-2026-09-28_07:55:15``) a shim inside ``tmp_path`` is
+    therefore never found: the real ``mv``/``cp`` runs, the finish script publishes, and the
+    twelve fault-injection tests fail for a reason that has nothing to do with the script.
+    The shims live in ``/tmp`` (or ``$TMPDIR`` when that is itself usable as a ``PATH``
+    entry) instead, and the test is failed loudly rather than silently if even that is not.
+    """
+    base = os.environ.get("TMPDIR") or "/tmp"
+    if os.pathsep in base or any(ch.isspace() for ch in base):
+        base = "/tmp"
+    bin_dir = tempfile.mkdtemp(prefix="exp10-shim-", dir=base)
+    request.addfinalizer(lambda: shutil.rmtree(bin_dir, ignore_errors=True))
+    if os.pathsep in bin_dir or any(ch.isspace() for ch in bin_dir):
+        pytest.fail("the PATH shims need a directory free of %r and of whitespace, not %r"
+                    % (os.pathsep, bin_dir))
+    return bin_dir
+
+
+def build_scratch(root, request):
     """The scratch repository the finish-script tests run on, built at an explicit ``root``.
 
     The root is a parameter only so that the round-9 regression test below can put one at a
     path that contains a colon; every other test takes it from the ``scratch`` fixture.
+    ``request`` is what the shim directory registers its cleanup on.
     """
     os.makedirs(root)
     built = fx.make_scratch_repo(root, ASSETS, n_queries=32)
@@ -1211,13 +1236,14 @@ def build_scratch(root):
     with open(os.path.join(built["record"], "yaw_pilot_01_results.html"), "w") as fout:
         fout.write("PREVIOUS PAGE\n")
     built["generated"] = generated
+    built["shim_bin"] = shim_bin(request)
     return built
 
 
 @pytest.fixture
-def scratch(tmp_path):
+def scratch(tmp_path, request):
     """A scratch repository with the real record tooling, a stub summariser and a full tree."""
-    return build_scratch(str(tmp_path / "repo"))
+    return build_scratch(str(tmp_path / "repo"), request)
 
 
 def run_finish(scratch, env=None):
@@ -1355,9 +1381,7 @@ def shim(scratch, command, subject, cases):
     review's rollback injection needs a failing rename *and* a signal from inside the
     rollback that follows it.  A body that does not exit falls through to the real command.
     """
-    bin_dir = os.path.join(scratch["root"], "test_bin")
-    if not os.path.isdir(bin_dir):
-        os.makedirs(bin_dir)
+    bin_dir = scratch["shim_bin"]          # never under tmp_path: see ``shim_bin`` above
     path = os.path.join(bin_dir, command)
     arms = "".join("  %s)\n    %s\n    ;;\n" % (pattern, body) for pattern, body in cases)
     with open(path, "w") as fout:
@@ -1656,7 +1680,7 @@ def test_finish_publishes_regenerated_figures_not_the_summarisers_files(scratch)
     assert check.returncode == 0, check.stdout.decode()
 
 
-def test_finish_fault_injection_fires_from_a_scratch_path_with_a_colon(tmp_path):
+def test_finish_fault_injection_fires_from_a_scratch_path_with_a_colon(tmp_path, request):
     """Round-9 regression: the fault injection itself must not depend on the scratch path.
 
     ``PATH`` is split on ``os.pathsep``, so a shim directory under a basetemp that contains a
@@ -1666,7 +1690,7 @@ def test_finish_fault_injection_fires_from_a_scratch_path_with_a_colon(tmp_path)
     Here the whole scratch repository deliberately lives under a colon, and the shim must
     still fire.
     """
-    built = build_scratch(str(tmp_path / "with:colon" / "repo"))
+    built = build_scratch(str(tmp_path / "with:colon" / "repo"), request)
     assert os.pathsep in built["root"]
     done = run_finish(built, env=failing_mv(built, "*/.finish_tmp.*/yaw_pilot_results.md"))
     assert done.returncode != 0, out(done)             # the shim fired ...
