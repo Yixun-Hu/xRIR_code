@@ -1,0 +1,33 @@
+{
+  "artifacts": {
+    "simpor_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    },
+    "simpor_yaw_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    }
+  },
+  "code": {
+    "finalize": null,
+    "haa_eval": null,
+    "haa_finetune": null,
+    "haa_pipeline_sh": null,
+    "launch_sh": null,
+    "smoke": null,
+    "summarize_haa": null,
+    "train": null
+  },
+  "reused": {
+    "approved_digests_exp04": null,
+    "approved_digests_exp06": null,
+    "legacy_receipt": {
+      "path": null,
+      "sha256": null
+    }
+  },
+  "schema_version": 1
+}

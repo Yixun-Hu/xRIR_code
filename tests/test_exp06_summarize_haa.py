@@ -319,7 +319,8 @@ def test_a_job_whose_bound_evidence_changed_is_refused(real_job, cache, monkeypa
 
 
 NEW_OFFSETS = {'cyl_or': 0.02, 'control_hf': 0.04, 'cyl_hf': 0.06, 'yawaug': 0.08,
-               'yawaug_hf': 0.10}
+               'yawaug_hf': 0.10, 'simple_or': 0.12, 'simple_or_yaw': 0.14,
+               'control_adapter': 0.16, 'yawaug_adapter': 0.18}
 
 
 @pytest.fixture
@@ -327,7 +328,7 @@ def stub_new_arms(monkeypatch):
     """The CLI's own tests: admission has its own, over children the finalizer wrote."""
     monkeypatch.setattr(subject, 'load_new_arm',
                         lambda roots, arm, init_sha256=None, repo=subject.REPO,
-                        approved=None, sensitivity=False:
+                        approved=None, sensitivity=False, **kwargs:
                         synthetic_arm(arm, NEW_OFFSETS[arm]))
 
 
@@ -441,13 +442,17 @@ def synthetic_arm(arm, offset, invalid=(), invalid_job='seed1'):
                               invalid if job == invalid_job else ())
             item['meta'].update(frame=cfg['frame'], room=room,
                                 heading=HEADING if cfg['frame'] == 'heading' else None)
+            if cfg.get('cue') == 'adapter':   # exp_11's J/K: the room frame with a cue
+                item['meta'].update(adapter_heading=HEADING, adapter_phi_deg=-90.0)
             item['side_label'] = [1 if index % 2 else -1 for index in item['index']]
             rooms[room] = item
         per[job] = rooms
     return {'arm': arm, 'branch': 'new', 'per': per, 'jobs': {}, 'inputs': {},
             'root': 'ckpt/exp06/sim2real/' + arm,
             'closure': {'haa_train': TRAIN_CLOSURE, 'haa_eval': EVAL_CLOSURE},
-            'heading': {room: HEADING[room]['sha256'] for room in ROOMS}}
+            'heading': {room: HEADING[room]['sha256'] for room in ROOMS},
+            'adapter_heading': ({room: HEADING[room]['sha256'] for room in ROOMS}
+                                if cfg.get('cue') == 'adapter' else {})}
 
 
 @pytest.fixture
@@ -1217,13 +1222,14 @@ def test_a_dependency_that_contradicts_an_earlier_binding_is_refused(real_job, c
 
 
 def test_the_arm_registry_carries_arm_e_and_the_experiment_that_produced_it():
-    assert tuple(subject.ARMS) == ('control', 'cyl', 'cyl_or', 'control_hf', 'cyl_hf',
-                                   'yawaug', 'yawaug_hf')
-    assert subject.NEW_ARMS == ('cyl_or', 'control_hf', 'cyl_hf', 'yawaug', 'yawaug_hf')
+    """The historical registry, in order and unchanged; exp_11's round-2 arms follow it."""
+    historical = ('control', 'cyl', 'cyl_or', 'control_hf', 'cyl_hf', 'yawaug', 'yawaug_hf')
+    assert tuple(subject.ARMS)[:len(historical)] == historical
+    assert subject.NEW_ARMS[:5] == ('cyl_or', 'control_hf', 'cyl_hf', 'yawaug', 'yawaug_hf')
     arm = subject.ARMS['yawaug']
     assert (arm['label'], arm['backbone'], arm['frame']) == ('E', 'simple', 'room')
     assert arm['root'] == 'ckpt/exp09/sim2real/yawaug' and arm['init_sha256'] is None
-    assert [subject.ARMS[name]['experiment'] for name in subject.NEW_ARMS] == [
+    assert [subject.ARMS[name]['experiment'] for name in subject.NEW_ARMS[:5]] == [
         'exp06', 'exp06', 'exp06', 'exp09', 'exp11']
 
 

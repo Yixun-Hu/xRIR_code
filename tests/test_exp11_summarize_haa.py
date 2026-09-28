@@ -33,7 +33,7 @@ def test_the_registry_carries_arm_g_under_exp11s_own_root():
     assert arm['experiment'] == 'exp11' and arm['branch'] == 'new'
     assert arm['root'] == 'ckpt/exp11/sim2real/yawaug_hf'
     assert arm['init_sha256'] is None
-    assert subject.NEW_ARMS[-1] == G and G in subject.ARMS
+    assert G in subject.NEW_ARMS and G in subject.ARMS
     assert subject.EXP11_ROOT == 'ckpt/exp11/sim2real'
 
 
