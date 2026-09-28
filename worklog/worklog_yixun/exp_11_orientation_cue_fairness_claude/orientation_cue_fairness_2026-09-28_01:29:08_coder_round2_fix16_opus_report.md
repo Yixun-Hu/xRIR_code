@@ -204,3 +204,51 @@ because its spec now lists it (`e5acfcf`, caught by the coverage test written in
 the trainer's and the pid reader's imports; verified with `closure_of` for each. The
 three HAA keys are untouched. exp_11's approvals record remains all-null and every
 producer refuses today.
+
+## Test results
+
+Every run CPU-only (`CUDA_VISIBLE_DEVICES=''`), in the `xRIR` env.
+
+| run | result |
+|---|---|
+| every targeted file in one pass — `test_exp11_shell.py` (180), the new `test_exp11_pathprobe.py` (12), `test_exp11_pidrecord.py`, `test_exp11_train.py` (56), `test_exp11_lock_holder.py`, the other ten exp_11 files, `test_exp06_summarize_haa.py`, `test_exp09_sim_eval_closures.py` | **621 passed** (821 s) |
+| full CPU suite, detached, at **`b9315aac7e6a5d8f3481433ecc3ad88668ad732c`** | **1 failed, 3951 passed, 55 skipped** (3670 s) |
+
+The suite was started only after `b9315aa`, the cycle's last production commit, and its
+exact HEAD is recorded above and in the log's filename.
+
+The log is `orientation_cue_fairness_2026-09-28_01:33_suite_full_cpu_b9315aa.log` in
+this record. The **one** failure is the standing, expected one:
+
+```
+FAILED tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes
+  {'summarize_haa': '720862918e13…'} != {'summarize_haa': '645e74c03e20…'}
+```
+
+— exp_06's approvals record still holds the digest re-filled at `9f98bbb`; that
+summariser imports `exp11_finalize` and `exp11_profiles`, so its closure moves with every
+exp_11 change. The re-fill belongs at the reviewed merge, as round 1's `9f98bbb` did, not
+on this branch. Every other test in the repository passes.
+
+## Notes for the reviewer
+
+* **One question, one answerer.** After this cycle bash asks the filesystem nothing that
+  decides anything: it enumerates (checked `find` on a canonical root), it compares
+  identities (`realpath`, whose failure only makes the scan stricter), and it reads the
+  size of its own temp files. Everything else — does this path exist, what is it, what
+  does this link point at, what does this pid file say — is one of two Python modules,
+  answering on one protocol, validated byte for byte, under one timeout.
+* **An absence is the strongest claim in the system**, and it now costs the most to
+  make: ENOENT from `os.stat` *and* `os.lstat`, plus a parent that is a directory, can
+  be stat'ed and can be searched. Everything else is unknown, and unknown never opens an
+  arm, retires an attempt, replaces a publication or lets a trainer register.
+* **The cost** is one subprocess per path question. A scan of an arm with N attempts asks
+  roughly 6N of them (three pid files, three sidecars). On the production arms (a handful
+  of attempts) that is a second or two per scan, on a path that runs a handful of times
+  per launch — and the bound is stated in the header.
+* **`scan_arm` still stops at the first live or unresolved attempt** (close review 12's
+  qualification, unchanged): an unknown in a later entry may not be reached; the result
+  is still a refusal and no retirement or publication follows.
+* **The trainer's containment now names the arm it is in.** An attempt reached through
+  its own arm's symlink still registers — that is the NAS layout — while an alias into
+  another arm refuses. The refusal message names both arms.
