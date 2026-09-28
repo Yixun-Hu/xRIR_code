@@ -208,4 +208,42 @@ three HAA keys are untouched. exp_11's approvals record remains all-null.
 |---|---|
 | `test_exp11_shell.py` (209), `test_exp11_pathprobe.py` (23), `test_exp11_pidrecord.py`, `test_exp11_train.py` (62), `test_exp11_lock_holder.py` | **376 passed** (191 s) |
 | the other ten exp_11 files + `test_exp06_summarize_haa.py` + `test_exp09_sim_eval_closures.py` | **291 passed** (559 s) |
-| full CPU suite, detached, HEAD in the log's first line | _(below)_ |
+| full CPU suite, detached, at **`d420ddb4443cf3212899b01534608b3f39491165`** | **1 failed, 3997 passed, 55 skipped** (3455 s) |
+
+The log is `orientation_cue_fairness_2026-09-28_05:29_suite_full_cpu_d420ddb.log`, whose
+**first line** is `HEAD d420ddb4443cf3212899b01534608b3f39491165` — written by
+`git rev-parse HEAD` at launch, so the run and the commit can never drift apart in the
+record again. An earlier run of this cycle, started at `87f4e4d`, was superseded by the
+resolver commit `d420ddb`; it was ended through its own pid (identified by the log file
+it held open) and its partial log removed.
+
+The **one** failure is the standing, expected one:
+
+```
+FAILED tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes
+  {'summarize_haa': '85caf08ce7cb…'} != {'summarize_haa': '645e74c03e20…'}
+```
+
+— exp_06's approvals record still holds the digest re-filled at `9f98bbb`, and that
+summariser imports `exp11_finalize` and `exp11_profiles`, so its closure moves with every
+exp_11 change. The re-fill belongs at the reviewed merge, as round 1's `9f98bbb` did. The
+exp_04 threading flake of fix 17 did not recur.
+
+## Notes for the reviewer
+
+* **What A2 buys.** The questions the guards ask are now the questions the kernel can
+  answer exactly: *is this path there, and what kind of thing is it* (a mode), *is there
+  a link here*, and *are these two names one file* (device and inode). None of them has a
+  textual answer, so none of them has a grammar, and the three classes of defect the last
+  three reviews found — relative paths, spaces and byte counts, terminal `..` and
+  trailing slashes — cannot be expressed in the protocol.
+* **What the shell still trusts.** The module itself: a lying `exp11_pathprobe` could say
+  `same` where the truth is `different`. That is not defended against, and is stated in
+  both headers: the module is pinned with the launcher by the `launch_sh` approvals key,
+  and health-checked (four questions now, including the identity one) before every scan
+  and every resolution.
+* **Unchanged from close review 12:** `scan_arm` stops at the first live or unresolved
+  attempt, so an unknown in a later entry may not be reached; it is still a refusal.
+* **One canonical spelling remains in the shell**, in `resolve_unregistered`, because the
+  directory has to be *renamed* and a tombstone named beside it. It is produced by a
+  checked `realpath -e` and compared with nothing.
