@@ -139,7 +139,46 @@ Every run CPU-only, with a throwaway `--basetemp` removed afterwards.
 | run | result |
 |---|---|
 | every targeted file in one pass — `test_exp11_shell.py` (213), `test_exp11_pathprobe.py`, `test_exp11_pidrecord.py`, `test_exp11_train.py` (65), `test_exp11_lock_holder.py`, the other ten exp_11 files, `test_exp06_summarize_haa.py`, `test_exp09_sim_eval_closures.py` | **673 passed, 1 skipped** (845 s) |
-| full CPU suite, detached, HEAD in the log's first line | _(below)_ |
+| full CPU suite, detached, at **`659747480963eb103f43650a4d15dfd24c6d440e`** | **1 failed, 4003 passed, 56 skipped** (3595 s) |
 
 The one skip is the bind-mount check, which runs only where the system already has a
 read-only mount with two spellings of one inode.
+
+The log is `orientation_cue_fairness_2026-09-28_06:44_suite_full_cpu_6597474.log`, whose
+first line is `HEAD 659747480963eb103f43650a4d15dfd24c6d440e` — written by
+`git rev-parse HEAD` at launch. It ran with `--basetemp=/tmp/pytest-exp11-1790592247`,
+which held 5.1 GB and was removed as soon as the run finished; the root filesystem is
+back at 35 GB free. The 56th skip is the new bind-mount check.
+
+The **one** failure is the standing, expected one:
+
+```
+FAILED tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes
+  {'summarize_haa': '3956692a6ae3…'} != {'summarize_haa': '645e74c03e20…'}
+```
+
+— exp_06's approvals record still holds the digest re-filled at `9f98bbb`, and that
+summariser imports `exp11_finalize` and `exp11_profiles`, so its closure moves with every
+exp_11 change. The re-fill belongs at the reviewed merge, as round 1's `9f98bbb` did.
+Neither the exp_04 threading flake of fix 17 nor any other failure appeared.
+
+## Notes for the reviewer
+
+* **Both fixes loosen a gate, so both are shown from both sides.** The attempt check now
+  accepts an arm reached through a symlinked root *and still refuses* an attempt of
+  another directory; the trainer accepts four odd spellings and the NAS alias layout *and
+  still refuses* an attempt symlinked into another arm, with no lock of the wrong arm and
+  no sidecar written.
+* **Where lexical collapsing is now allowed, and why.** Exactly one place: the trainer's
+  `lexical_parent`, which feeds an identity comparison. It can never *accept* a wrong arm
+  — the comparison is `samestat` against the canonical attempt's real parent — and no
+  existence decision is taken from it. Everywhere else, `..` is still the kernel's
+  business.
+* **The bind-mount regression is honest about its limits.** It reads
+  `/proc/self/mountinfo`, mounts and creates nothing, and skips when the system has no
+  read-only mount with two spellings of one inode — which is the case here. The property
+  it would check is instead asserted white-box: no canonical string is derived to be
+  compared.
+* **Unchanged:** `scan_arm` stops at the first live or unresolved attempt; the shell
+  trusts the pinned, health-checked probe module and defends only against a malformed
+  answer.
