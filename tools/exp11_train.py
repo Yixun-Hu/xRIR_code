@@ -336,27 +336,42 @@ def register_trainer(save_dir, no_save=False, arm_root=None,
     ``--no-save`` runs are diagnostics that no scan reads; they write no sidecars, take
     no lock, and only the tombstone can refuse them.
     """
-    directory = Path(save_dir)
-    tombstone = directory.parent / (directory.name + '.resolved')
+    # The ATTEMPT is canonicalised first, and its arm is its canonical parent: the
+    # validated directory, the registration lock and the tombstone must all be of ONE
+    # arm. Reached through `arm_alias/attempt_X -> arm_canonical/attempt_X`, the alias's
+    # parent had no tombstone and its own lock, while every write landed in the
+    # canonical attempt -- whose tombstone said it had been retired (close review 15,
+    # blocker 3).
+    given = Path(save_dir)
+    # `realpath` resolves what it can and leaves the rest: a --no-save diagnostic has no
+    # run directory at all, and asking for one would refuse every diagnostic.
+    directory = Path(os.path.realpath(str(given)))
+    arm = directory.parent
+    tombstone = arm / (directory.name + '.resolved')
     if no_save:                       # a diagnostic no scan reads: only a tombstone speaks
         if demand_known(*file_state(tombstone), path=tombstone, what='the tombstone'):
             refuse('{} was resolved as an unregistered launch and retired; this trainer '
                    'has nothing to run in'.format(directory))
         return None
-    root = Path(arm_root) if arm_root is not None else directory.parent
+    if not demand_known(*directory_state(given), path=given, what='the run directory'):
+        refuse('{} does not exist; the launcher creates the attempt and this trainer '
+               'never does'.format(given))
+    root = Path(arm_root) if arm_root is not None else given.parent
+    if not demand_known(*directory_state(root), path=root, what='the arm root'):
+        refuse('{} does not exist; this trainer registers only in the arm whose lock '
+               'it holds'.format(root))
+    if str(arm) != os.path.realpath(str(root)):
+        refuse('{} is an attempt of {}, not of the {} this trainer was given; the '
+               'directory, the lock and the tombstone must be of one arm'
+               .format(given, arm, root))
     with registration_lock(directory, wait_seconds):
         # Everything below happens under the lock, so a resolution cannot rename this
-        # directory between the checks and the write.
+        # directory between the checks and the write. The checks are re-made here: the
+        # directory may have been retired between the canonicalisation and the lock.
         if not demand_known(*directory_state(directory), path=directory,
                             what='the run directory'):
             refuse('{} does not exist; the launcher creates the attempt and this trainer '
                    'never does'.format(directory))
-        if not demand_known(*directory_state(root), path=root, what='the arm root'):
-            refuse('{} does not exist; this trainer registers only in the arm whose lock '
-                   'it holds'.format(root))
-        if os.path.realpath(str(directory.parent)) != os.path.realpath(str(root)):
-            refuse('{} is not an attempt of {}; this trainer registers only in the arm '
-                   'whose lock it holds'.format(directory, root))
         if demand_known(*file_state(tombstone), path=tombstone, what='the tombstone'):
             refuse('{} was resolved as an unregistered launch and retired; this trainer '
                    'has nothing to run in'.format(directory))
