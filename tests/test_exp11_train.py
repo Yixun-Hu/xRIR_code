@@ -420,6 +420,42 @@ def test_a_run_directory_that_cannot_be_inspected_refuses_registration(tmp_path)
         shut.chmod(0o700)
 
 
+def test_registration_refuses_an_alias_into_another_arm(tmp_path):
+    """The validated attempt, the lock and the tombstone must be of ONE arm.
+
+    `arm_alias/attempt_X -> arm_canonical/attempt_X`: the alias's parent has no
+    tombstone and its own registration lock, while every write lands in the canonical
+    attempt -- whose tombstone says it was retired and whose lock nobody is holding
+    (close review 15, blocker 3).
+    """
+    canonical_arm = tmp_path / 'canonical'
+    attempt = canonical_arm / 'attempt_20260927T000000'
+    attempt.mkdir(parents=True)
+    (attempt / 'launching').write_text('launcher 1\n')
+    (canonical_arm / (attempt.name + '.resolved')).write_text('resolved-by 1\n')
+    alias_arm = tmp_path / 'alias'
+    alias_arm.mkdir()
+    (alias_arm / attempt.name).symlink_to(attempt)
+    with pytest.raises(SystemExit) as exit_request:
+        exp11_train.register_trainer(str(alias_arm / attempt.name))   # the default call
+    assert exit_request.value.code == 3
+    assert not (attempt / 'train.pid').exists(), 'nothing was written'
+    assert not (alias_arm / '.registration.lock').exists(), 'no lock of the wrong arm'
+
+
+def test_an_attempt_reached_through_its_own_arms_alias_still_registers(tmp_path):
+    """The containment is about the ARM, not about the spelling of the path."""
+    arm = tmp_path / 'canonical'
+    attempt = arm / 'attempt_20260927T000000'
+    attempt.mkdir(parents=True)
+    (attempt / 'launching').write_text('launcher 1\n')
+    alias = tmp_path / 'arm-link'
+    alias.symlink_to(arm)
+    path = exp11_train.register_trainer(str(alias / attempt.name))
+    assert exp11_train.pid_record(path) == os.getpid()
+    assert (attempt / 'train.pid').is_file(), 'written in the canonical attempt'
+
+
 def test_registration_writes_atomically(tmp_path):
     """No reader ever sees a half-written train.pid: a temp file, then one rename."""
     attempt = registered(tmp_path)
