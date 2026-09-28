@@ -1860,6 +1860,47 @@ def test_a_flood_of_verdict_bytes_is_unknown_and_never_materialised(tmp_path):
         stub.wait(timeout=30)
 
 
+# --- close review 14: a root reached through a symlink, and guards that read a failed
+# inspection as an absence. One family: nothing may conclude "not there" from "could not
+# look".
+
+
+def test_a_symlinked_arm_root_is_still_enumerated(tmp_path):
+    """`find -P` does not descend a symlink given as its starting point.
+
+    The `-d`, `-r` and `-x` checks all follow it, so the root looked fine and the
+    listing came back empty and successful -- an arm with a live registered trainer in
+    it, read as an arm with nothing in it.
+    """
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    link = tmp_path / 'arm-link'
+    link.symlink_to(old.parent)
+    try:
+        for mode in ('full', 'finalize'):
+            result = scan_under_lock(link, mode=mode)
+            assert result.returncode == 1, (mode, result.stdout, result.stderr)
+            assert 'live trainer (train.pid)' in result.stderr, result.stderr
+        result = resolve_under_lock(link / attempt.name)
+        assert result.returncode != 0, (result.stdout, result.stderr)
+        assert 'RESOLVED' not in result.stdout and 'TOMBSTONE' not in result.stdout
+        assert attempt.is_dir() and (attempt / 'launching').is_file()
+        assert pid_of(attempt / 'train.pid') == stub.pid
+        assert not (old.parent / (attempt.name + '.resolved')).exists()
+        assert not (old.parent / (attempt.name + '_ABORTED_unregistered')).exists()
+    finally:
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+def test_a_dangling_symlink_root_is_unknown(tmp_path):
+    link = tmp_path / 'arm-link'
+    link.symlink_to(tmp_path / 'nothing-here')
+    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nrequire_quiet_arm\n'.format(root=link),
+                 {'EXP11_TEST_ROOTS': '1'})
+    assert result.returncode == 2, (result.stdout, result.stderr)
+    assert 'cannot be enumerated' in result.stderr
+
+
 def pid_of(pidfile):
     """The pid in a registration file, if it still names a living process."""
     try:
