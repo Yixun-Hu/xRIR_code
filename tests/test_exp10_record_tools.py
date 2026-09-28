@@ -1937,11 +1937,23 @@ def test_a_rejected_concurrent_chain_cannot_replace_an_active_chains_pins(chain)
 # Finding 13 -- the queue wrappers must not hide a child's failure.
 # --------------------------------------------------------------------------------------
 
-@pytest.fixture
-def queue(tmp_path):
-    root = str(tmp_path / "repo")
+def build_queue(root, request):
+    """The queue-script scratch repository, built at an explicit ``root``.
+
+    The root is a parameter only so that the colon regression below can put one at a path that
+    contains ``os.pathsep``; every other test takes it from the ``queue`` fixture.  ``request``
+    is what the fake ``nvidia-smi``'s directory registers its cleanup on -- it lives outside
+    the repository, for the reason the regression describes.
+    """
     os.makedirs(root)
-    return fx.make_queue_repo(root, ASSETS)
+    built = fx.make_queue_repo(root, ASSETS)
+    request.addfinalizer(lambda: shutil.rmtree(built["bin"], ignore_errors=True))
+    return built
+
+
+@pytest.fixture
+def queue(tmp_path, request):
+    return build_queue(str(tmp_path / "repo"), request)
 
 
 def run_script(queue, name, args=(), env=None):
@@ -1952,6 +1964,25 @@ def run_script(queue, name, args=(), env=None):
     e.update(env or {})
     return subprocess.run(["bash", os.path.join(queue["scripts"], name)] + [str(a) for a in args],
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=e, cwd=queue["root"])
+
+
+def test_queue_resource_guard_reads_the_fake_nvidia_smi_under_a_colon(tmp_path, request):
+    """Round-9 review, finding 2: the fake ``nvidia-smi`` must not depend on the scratch path.
+
+    ``run_script`` prepends the fixture's bin directory to ``PATH`` and the shell splits
+    ``PATH`` on ``os.pathsep``, so under a root that contains a colon the fake is invisible and
+    the machine's *real* ``nvidia-smi`` answers the queue's resource guard.  That is silent:
+    the guard passes or refuses according to whatever the host GPU happens to have free, and
+    the reviewer turned two of these tests red simply by answering zero.  The fake records its
+    calls next to itself, so this test can insist the fake -- and not the host -- replied.
+    """
+    q = build_queue(str(tmp_path / "with:colon" / "repo"), request)
+    assert os.pathsep in q["root"]
+    done = run_script(q, "exp10_gpu_queue.sh", ["1"])
+    assert os.path.isfile(os.path.join(q["bin"], "nvidia-smi.calls")), out(done)
+    assert "free memory 40000 MiB" in out(done)        # the fake's figure, not the host GPU's
+    assert done.returncode == 0, out(done)
+    assert "QUEUE DONE" in out(done)
 
 
 def test_queue_exits_zero_when_every_arm_succeeds(queue):

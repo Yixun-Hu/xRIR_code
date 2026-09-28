@@ -592,6 +592,10 @@ exit "$rc"
 
 FAKE_NVIDIA_SMI = '''#!/bin/bash
 # A GPU with plenty of free memory, so the queue's resource guard is not what a test measures.
+# Every call is recorded next to this script.  A test that has to prove the *fake* answered --
+# and not the machine's real nvidia-smi, which a PATH entry lost to os.pathsep lets through --
+# looks for that file; the queue's own log only ever shows a number.
+echo "$*" >> "$(dirname "$0")/nvidia-smi.calls"
 echo 40000
 '''
 
