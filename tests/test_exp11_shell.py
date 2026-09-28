@@ -2271,6 +2271,90 @@ def test_a_published_final_is_recognised_through_any_spelling(tmp_path):
         assert 'STATUS 0' in result.stdout, (spelling, result.stdout, result.stderr)
 
 
+# --- close review 18: containment is decided ONCE, by identity ----------------------
+# The embedded Python of the attempt check compared `Path(attempt).resolve().parent`
+# with `Path(root).resolve()` -- two strings -- before the `same_parent` gate ever ran,
+# so two spellings that ARE one directory (a read-only bind mount; the reviewer's case)
+# were rejected by the string comparison first.
+
+
+def test_no_two_names_are_compared_as_strings(tmp_path):
+    """The containment decision is `same_parent`, and there is no second one.
+
+    Two spellings can be one directory -- a read-only bind mount gives identical
+    st_dev/st_ino with unequal `Path.resolve()` strings -- so a string comparison in
+    front of the identity gate can only ever reject something the gate accepts. This is
+    a white-box check because the case itself cannot be built without mounting anything.
+    """
+    text = (REPO / 'tools/exp11_launch.sh').read_text()
+    assert '.resolve()' not in text, 'no canonical string is derived to be compared'
+    assert 'directory.parent != base' not in text
+    assert 'same_parent' in text
+
+
+def test_the_attempt_check_decides_containment_by_identity_alone(tmp_path):
+    """A root reached by another name is the same root: only dev/ino may decide."""
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    alias_root = tmp_path / 'arm-alias'
+    alias_root.symlink_to(attempt.parent)
+    status, out, err = launch(
+        ['finalize', '--arm', 'H', '--gpu', '1', '--reviewed-commit', COMMIT,
+         '--attempt', str(alias_root / attempt.name), '--log', 'L.log',
+         '--child-exit', '0', '--dry-run'],
+        {'EXP11_PRETRAIN_ROOT': str(tmp_path), 'EXP11_TEST_ROOTS': '1'})
+    assert status == 0, err[-600:]
+    assert 'PROMOTE {}/final -> {}'.format(attempt.parent, attempt.name) in out
+
+
+def test_an_attempt_of_another_directory_is_still_refused(tmp_path):
+    """The other side of the same gate, so the fix cannot be "accept everything"."""
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    outside = tmp_path / 'outside' / attempt.name
+    outside.mkdir(parents=True)
+    (outside / 'args.json').write_text((attempt / 'args.json').read_text())
+    status, out, err = recovery(outside, 'H', tmp_path)
+    assert status == 2, out
+    assert 'PROMOTE' not in out and 'not an attempt of' in err
+
+
+def bind_mounted_spellings():
+    """Two spellings of one directory with identical dev/ino, read-only, if any exist.
+
+    Nothing is created or mounted here: this only looks for a bind mount the system
+    already has, and the test skips when there is none.
+    """
+    try:
+        mounts = Path('/proc/self/mountinfo').read_text().splitlines()
+    except OSError:
+        return None
+    seen = {}
+    for line in mounts:
+        fields = line.split(' - ')[0].split()
+        if len(fields) < 5 or 'ro' not in fields[5 if len(fields) > 5 else 4].split(','):
+            continue
+        point = fields[4]
+        try:
+            info = os.stat(point)
+        except OSError:
+            continue
+        key = (info.st_dev, info.st_ino)
+        if key in seen and seen[key] != point:
+            return seen[key], point
+        seen[key] = point
+    return None
+
+
+def test_two_spellings_of_one_read_only_mount_are_the_same(tmp_path):
+    """Where the system has such a mount, the probe says `same` and the gate accepts."""
+    pair = bind_mounted_spellings()
+    if pair is None:
+        pytest.skip('no read-only bind mount with two spellings on this system')
+    first, second = pair
+    result = lib('status=0\nsame_path {first} {second} || status=$?\n'
+                 'echo "STATUS $status"\n'.format(first=first, second=second))
+    assert 'STATUS 0' in result.stdout, (pair, result.stdout, result.stderr)
+
+
 def pid_of(pidfile):
     """The pid in a registration file, if it still names a living process."""
     try:
