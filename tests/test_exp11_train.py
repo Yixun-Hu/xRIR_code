@@ -480,15 +480,56 @@ def test_a_terminal_dotdot_spelling_still_finds_the_tombstone(tmp_path):
 @pytest.mark.parametrize('spelling', ['{arm}//{name}', '{arm}/./{name}', '{arm}/{name}/',
                                       '{arm}/{name}/sub/..'])
 def test_an_odd_spelling_of_a_legitimate_attempt_still_registers(tmp_path, spelling):
-    """A path is not a string to be parsed: these all name one directory."""
+    """A path is not a string to be parsed: these all name one directory.
+
+    Through the DEFAULT call -- no ``arm_root`` -- which is how the trainer is invoked
+    in production; passing one masked the rejection (close review 18).
+    """
     arm = tmp_path / 'arm'
     attempt = arm / 'attempt_20260927T000000'
     (attempt / 'sub').mkdir(parents=True)
     (attempt / 'launching').write_text('launcher 1\n')
     path = spelling.format(arm=arm, name=attempt.name)
-    assert exp11_train.pid_record(
-        exp11_train.register_trainer(path, arm_root=str(arm))) == os.getpid()
+    assert exp11_train.pid_record(exp11_train.register_trainer(path)) == os.getpid()
     assert (attempt / 'train.pid').is_file()
+
+
+def test_an_arm_reached_through_its_own_alias_registers_by_default(tmp_path):
+    """The NAS layout: the ARM is a symlink, the attempt inside it is real."""
+    arm = tmp_path / 'arm'
+    attempt = arm / 'attempt_20260927T000000'
+    attempt.mkdir(parents=True)
+    (attempt / 'launching').write_text('launcher 1\n')
+    alias = tmp_path / 'arm-alias'
+    alias.symlink_to(arm)
+    assert exp11_train.pid_record(
+        exp11_train.register_trainer(str(alias / attempt.name))) == os.getpid()
+    assert (attempt / 'train.pid').is_file()
+
+
+def test_an_attempt_symlinked_into_another_arm_still_refuses_by_default(tmp_path):
+    """The containment that matters, through the default call: no lock, no sidecar."""
+    home, other = tmp_path / 'home', tmp_path / 'other'
+    attempt = home / 'attempt_20260927T000000'
+    attempt.mkdir(parents=True)
+    (attempt / 'launching').write_text('launcher 1\n')
+    other.mkdir()
+    (other / attempt.name).symlink_to(attempt)
+    with pytest.raises(SystemExit) as exit_request:
+        exp11_train.register_trainer(str(other / attempt.name))
+    assert exit_request.value.code == 3
+    assert not (attempt / 'train.pid').exists()
+    assert not (other / '.registration.lock').exists()
+
+
+def test_a_given_path_whose_lexical_parent_is_not_there_refuses(tmp_path):
+    arm = tmp_path / 'arm'
+    attempt = arm / 'attempt_20260927T000000'
+    attempt.mkdir(parents=True)
+    (attempt / 'launching').write_text('launcher 1\n')
+    with pytest.raises(SystemExit) as exit_request:
+        exp11_train.register_trainer(str(arm / 'gone' / '..' / attempt.name))
+    assert exit_request.value.code == 3
 
 
 def test_the_trainer_keeps_no_path_grammar(tmp_path):
