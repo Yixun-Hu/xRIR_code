@@ -177,3 +177,60 @@ The familiar five, for the familiar reasons: `launch_sh` through its own shell b
 and the four Python keys because `tools/exp11_pathprobe.py` and `tools/exp11_train.py`
 are in their closures. The three HAA keys are untouched. exp_11's approvals record
 remains all-null and every producer refuses today.
+
+## Test results
+
+Every run CPU-only (`CUDA_VISIBLE_DEVICES=''`), in the `xRIR` env.
+
+| run | result |
+|---|---|
+| every targeted file in one pass — `test_exp11_shell.py` (207), `test_exp11_pathprobe.py` (18), `test_exp11_pidrecord.py`, `test_exp11_train.py` (60), `test_exp11_lock_holder.py`, the other ten exp_11 files, `test_exp06_summarize_haa.py`, `test_exp09_sim_eval_closures.py` | **658 passed** (842 s) |
+| full CPU suite, detached, at **`e918f4b7b0d57a601806c0940db83ae322b831ba`** | **1 failed, 3988 passed, 55 skipped** (3555 s) |
+
+The suite was started only after `e918f4b`, the cycle's last production commit, and its
+exact HEAD is recorded above and in the log's filename.
+
+Two logs are in this record, both at the production bytes of `e918f4b`:
+
+* `orientation_cue_fairness_2026-09-28_02:52_suite_full_cpu_e918f4b.log` — the first run,
+  **2 failed, 3987 passed, 55 skipped**. Besides the standing exp_06 guard it caught
+  `tests/test_exp04_launcher.py::test_completion_transaction_and_failed_promotion[True-promote]`,
+  whose `capsys` held only the first of the expected lines
+  (`assert 'CERTIFIED …' in ['Revalidating training inputs after log close...']`). That
+  case runs a completion transaction on a **background thread** and reads the capture
+  from the main one; the run was sharing the machine with this cycle's 658-test targeted
+  pass for its first quarter of an hour. It passes on its own (14 passed) and its whole
+  file passes (111 passed), and this cycle touched no exp_04 file — `git diff
+  f966461..HEAD -- tools/` lists only `exp11_launch.sh`, `exp11_pathprobe.py` and
+  `exp11_train.py`. Recorded rather than hidden.
+* `orientation_cue_fairness_2026-09-28_03:53_suite_full_cpu_e918f4b_rerun.log` — the same
+  suite re-run alone: **1 failed, 3988 passed, 55 skipped**, the one failure being the
+  standing, expected one:
+
+```
+FAILED tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes
+  {'summarize_haa': '0f5fdeab9c57…'} != {'summarize_haa': '645e74c03e20…'}
+```
+
+exp_06's approvals record still holds the digest re-filled at `9f98bbb`; that summariser
+imports `exp11_finalize` and `exp11_profiles`, so its closure moves with every exp_11
+change, and the re-fill belongs at the reviewed merge as round 1's `9f98bbb` did.
+
+## Notes for the reviewer
+
+* **Where the three checks sit.** A verdict now passes three gates in order: it is one
+  line (the byte-exact reprint), its fields are well formed (this cycle), and it is
+  about the path that was asked for (the basename rule). The first is what refuses
+  padding and NULs; the second is what refuses `link garbage` and `present f000 /abs`;
+  the third is what refuses an answer about something else entirely.
+* **The basename rule's one exception** is stated in the code: a probed name that is
+  itself a symlink resolves to a target with a different name, so `present` about it is
+  unknown. exp_11 never creates symlinked sidecars, and the closed direction is the right
+  one for a layout it does not produce.
+* **Still unchanged from close review 12:** `scan_arm` stops at the first live or
+  unresolved attempt, so an unknown in a later entry may not be reached; the result is
+  still a refusal and nothing is retired or published.
+* **The `..` rule is about lookups, not syntax.** `sub/../leaf` is answered normally when
+  `sub` exists; it is unknown only when the traversal would actually fail. A *canonical*
+  path with a `..` component, on the other hand, is never valid — that is a malformed
+  field, not a lookup.
