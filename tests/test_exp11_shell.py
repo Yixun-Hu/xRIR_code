@@ -2130,6 +2130,17 @@ def test_a_dangling_train_pid_link_is_not_a_dead_trainer(tmp_path):
         stub.wait(timeout=30)
 
 
+@pytest.mark.parametrize('value', ['0', '-1', '400', 'abc', '3s', ''])
+def test_an_impossible_reader_timeout_is_refused(tmp_path, value):
+    """It bounds every liveness question; it may not be turned off or stretched."""
+    status, out, err = launch(
+        ['finalize', '--arm', 'H', '--gpu', '1', '--reviewed-commit', COMMIT,
+         '--attempt', str(tmp_path), '--log', 'L.log', '--child-exit', '0', '--dry-run'],
+        {'EXP11_READER_TIMEOUT_S': value, 'EXP11_TEST_ROOTS': '1'})
+    assert status == 2, out
+    assert 'EXP11_READER_TIMEOUT_S' in err, err
+
+
 def pid_of(pidfile):
     """The pid in a registration file, if it still names a living process."""
     try:
