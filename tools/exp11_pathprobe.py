@@ -41,9 +41,48 @@ def _why(error):
     return '{}: {}'.format(name, error)
 
 
+# --- what a verdict field may look like (close review 16) ---------------------------
+# Every field is validated before it is printed AND after it is read, so a probe that
+# answers `link garbage` or `present 41ed relative` grants nothing: `garbage` as the
+# published target let a resolution retire the attempt that `final` really pointed at.
+PATH_MAX = 4096
+FILE_TYPES = (0o010000, 0o020000, 0o040000, 0o060000, 0o100000, 0o120000, 0o140000)
+
+
+def valid_mode(text):
+    """A file mode in hex, three to six digits, whose type bits name a known type."""
+    if not isinstance(text, str) or not 3 <= len(text) <= 6:
+        return False
+    if any(character not in '0123456789abcdef' for character in text):
+        return False
+    return (int(text, 16) & 0o170000) in FILE_TYPES
+
+
+def valid_path(text):
+    """An absolute, normalized, printable path of a length the kernel would accept."""
+    if not isinstance(text, str) or not text.startswith('/') or len(text) > PATH_MAX:
+        return False
+    if any(character in text for character in ('\n', '\r', '\0')):
+        return False
+    if text == '/':
+        return True
+    if text.endswith('/') or '//' in text:
+        return False
+    return not any(part in ('', '.', '..') for part in text.split('/')[1:])
+
+
+def _absolute(name):
+    """Make a path absolute WITHOUT normalizing it: `..` is the kernel's business.
+
+    ``abspath`` collapses `missing/../leaf` to `leaf`, and the parent check then
+    inspects a directory the lookup never reached (close review 16).
+    """
+    return name if name.startswith('/') else os.path.join(os.getcwd(), name)
+
+
 def _parent_is_inspectable(name):
     """An absence may only be claimed about a directory we could look into."""
-    parent = os.path.dirname(os.path.abspath(name)) or '.'
+    parent = os.path.dirname(_absolute(name)) or '/'
     try:
         info = os.stat(parent)
     except OSError as error:
@@ -58,6 +97,9 @@ def _parent_is_inspectable(name):
 def probe(path):
     """``(PRESENT, stat_result)`` | ``(ABSENT, None)`` | ``(UNKNOWN, reason)``."""
     name = str(path)
+    # A trailing slash demands that the last component be a directory. ENOTDIR and
+    # ENOENT are different news, and only a successful stat of a directory settles it.
+    trailing_slash = name.endswith('/') and name != '/'
     try:
         return PRESENT, os.stat(name)
     except FileNotFoundError:
@@ -72,13 +114,37 @@ def probe(path):
         pass
     except OSError as error:
         return UNKNOWN, 'cannot inspect {}: {}'.format(name, _why(error))
+    if trailing_slash:
+        return UNKNOWN, ('{} ends in a slash, so its last component must be a directory; '
+                         'what failed here cannot be told apart'.format(name))
     inspectable, why = _parent_is_inspectable(name)
     return (ABSENT, None) if inspectable else (UNKNOWN, why)
+
+
+def canonical(name):
+    """The canonical path of ``name``, keeping the name itself when it is not a symlink.
+
+    Only the directory is resolved for an ordinary name, so the basename a caller probed
+    is the basename it gets back -- which is what lets every reader check that the
+    answer is about the path it asked for.
+    """
+    absolute = _absolute(str(name))
+    try:
+        if not stat.S_ISLNK(os.lstat(absolute).st_mode):
+            head, _, tail = absolute.rpartition('/')
+            resolved = os.path.realpath(head or '/')
+            return resolved if tail in ('', '.', '..') else os.path.join(resolved, tail)
+    except OSError:
+        pass
+    return os.path.realpath(absolute)
 
 
 def probe_link(path):
     """``(LINK, target)`` | ``(NOTLINK, None)`` | ``(NOLINK, None)`` | ``(UNKNOWN, why)``."""
     name = str(path)
+    if name.endswith('/') and name != '/':
+        return UNKNOWN, ('{} ends in a slash, so it names a directory, not the link '
+                         'itself'.format(name))
     try:
         info = os.lstat(name)
     except FileNotFoundError:
@@ -92,7 +158,7 @@ def probe_link(path):
         os.stat(name)                      # it must resolve to something we can see
     except OSError as error:
         return UNKNOWN, 'cannot resolve {}: {}'.format(name, _why(error))
-    return LINK, os.path.realpath(name)
+    return LINK, os.path.realpath(_absolute(name))
 
 
 def file_state(path):
@@ -122,14 +188,26 @@ def main(argv):
             return UNKNOWN_EXIT
         if state == ABSENT:
             print(ABSENT)
-        else:
-            print('present {:x} {}'.format(detail.st_mode, os.path.realpath(argv[2])))
+            return 0
+        mode, where = '{:x}'.format(detail.st_mode), canonical(argv[2])
+        if not valid_mode(mode) or not valid_path(where):
+            print('refusing to answer about {}: the verdict fields are not valid '
+                  '({} {})'.format(argv[2], mode, where), file=sys.stderr)
+            return UNKNOWN_EXIT
+        print('present {} {}'.format(mode, where))
         return 0
     state, detail = probe_link(argv[2])
     if state == UNKNOWN:
         print('cannot decide {}: {}'.format(argv[2], detail), file=sys.stderr)
         return UNKNOWN_EXIT
-    print('link {}'.format(detail) if state == LINK else state)
+    if state != LINK:
+        print(state)
+        return 0
+    if not valid_path(detail):
+        print('refusing to answer about {}: {} is not a valid target'.format(argv[2], detail),
+              file=sys.stderr)
+        return UNKNOWN_EXIT
+    print('link {}'.format(detail))
     return 0
 
 
