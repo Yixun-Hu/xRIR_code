@@ -353,6 +353,73 @@ def test_the_bounded_wait_is_measured_on_the_monotonic_clock(tmp_path, monkeypat
         holder.wait(timeout=30)
 
 
+# --- close review 14: `is_file()` answers False for a path it could not inspect ------
+# A self-referential `<attempt>.resolved` symlink raises ELOOP; `Path.is_file()` swallows
+# it and returns False, so a trainer whose launch had been retired registered anyway.
+
+needs_a_non_root_user = pytest.mark.skipif(
+    os.geteuid() == 0, reason='root ignores the permission bits these cases turn off')
+
+
+def looping_tombstone(attempt):
+    """A `<attempt>.resolved` that exists and cannot be resolved."""
+    loop = attempt.parent / (attempt.name + '.resolved')
+    loop.symlink_to(loop)
+    return loop
+
+
+def test_a_tombstone_that_cannot_be_inspected_refuses_registration(tmp_path):
+    attempt = registered(tmp_path)
+    looping_tombstone(attempt)
+    with pytest.raises(SystemExit) as exit_request:
+        exp11_train.register_trainer(str(attempt))
+    assert exit_request.value.code == 3
+    assert not (attempt / 'train.pid').exists(), 'it registered nothing'
+
+
+def test_the_diagnostic_tombstone_check_is_three_state_too(tmp_path):
+    """--no-save takes no lock and reads only the tombstone: the same question."""
+    attempt = registered(tmp_path)
+    looping_tombstone(attempt)
+    with pytest.raises(SystemExit) as exit_request:
+        exp11_train.register_trainer(str(attempt), no_save=True)
+    assert exit_request.value.code == 3
+
+
+@needs_a_non_root_user
+def test_a_launch_record_that_cannot_be_inspected_refuses_registration(tmp_path):
+    """The marker is there, behind a door this trainer may not open."""
+    attempt = registered(tmp_path, launching=False)
+    shut = tmp_path / 'shut'
+    shut.mkdir()
+    (shut / 'launching').write_text('launcher 1\n')
+    (attempt / 'launching').symlink_to(shut / 'launching')
+    shut.chmod(0o000)
+    try:
+        with pytest.raises(SystemExit) as exit_request:
+            exp11_train.register_trainer(str(attempt))
+        assert exit_request.value.code == 3
+        assert not (attempt / 'train.pid').exists()
+    finally:
+        shut.chmod(0o700)
+
+
+@needs_a_non_root_user
+def test_a_run_directory_that_cannot_be_inspected_refuses_registration(tmp_path):
+    """`is_dir()` says False for a directory nobody may look at; that is not "gone"."""
+    shut = tmp_path / 'shut'
+    (shut / 'attempt_20260927T000000').mkdir(parents=True)
+    (shut / 'attempt_20260927T000000' / 'launching').write_text('launcher 1\n')
+    shut.chmod(0o000)
+    try:
+        with pytest.raises(SystemExit) as exit_request:
+            exp11_train.register_trainer(str(shut / 'attempt_20260927T000000'),
+                                         arm_root=str(shut))
+        assert exit_request.value.code == 3
+    finally:
+        shut.chmod(0o700)
+
+
 def test_registration_writes_atomically(tmp_path):
     """No reader ever sees a half-written train.pid: a temp file, then one rename."""
     attempt = registered(tmp_path)
