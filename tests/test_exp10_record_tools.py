@@ -13,6 +13,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 
@@ -1194,10 +1195,34 @@ def test_md_refuses_to_link_assets_that_are_not_assembled(render_case):
 # Findings 1 + 2 -- the finish script: validated evidence, staged assembly, atomic publish.
 # --------------------------------------------------------------------------------------
 
-@pytest.fixture
-def scratch(tmp_path):
-    """A scratch repository with the real record tooling, a stub summariser and a full tree."""
-    root = str(tmp_path / "repo")
+def shim_bin(request):
+    """A directory for the PATH shims that is free of ``os.pathsep``, wherever pytest runs.
+
+    Round-9: the fault-injection helpers below prepend this directory to ``PATH``, and the
+    shell splits ``PATH`` on ``os.pathsep``.  Under a basetemp that contains a colon
+    (``--basetemp=/tmp/pytest-exp11-2026-09-28_07:55:15``) a shim inside ``tmp_path`` is
+    therefore never found: the real ``mv``/``cp`` runs, the finish script publishes, and the
+    twelve fault-injection tests fail for a reason that has nothing to do with the script.
+    The shims live in ``/tmp`` (or ``$TMPDIR`` when that is itself usable as a ``PATH``
+    entry) instead, and the test is failed loudly rather than silently if even that is not.
+
+    Round-10: the placement rule — ``$TMPDIR`` made absolute *before* it is inspected, because
+    a ``PATH`` entry also has to survive ``run_finish``'s change of directory — now lives in
+    ``fx.safe_bin_dir``, shared with the queue fixture's fake ``nvidia-smi``, which had the
+    same defect.
+    """
+    bin_dir = fx.safe_bin_dir("exp10-shim-")
+    request.addfinalizer(lambda: shutil.rmtree(bin_dir, ignore_errors=True))
+    return bin_dir
+
+
+def build_scratch(root, request):
+    """The scratch repository the finish-script tests run on, built at an explicit ``root``.
+
+    The root is a parameter only so that the round-9 regression test below can put one at a
+    path that contains a colon; every other test takes it from the ``scratch`` fixture.
+    ``request`` is what the shim directory registers its cleanup on.
+    """
     os.makedirs(root)
     built = fx.make_scratch_repo(root, ASSETS, n_queries=32)
     generated = os.path.join(built["assets"], "generated")
@@ -1209,7 +1234,14 @@ def scratch(tmp_path):
     with open(os.path.join(built["record"], "yaw_pilot_01_results.html"), "w") as fout:
         fout.write("PREVIOUS PAGE\n")
     built["generated"] = generated
+    built["shim_bin"] = shim_bin(request)
     return built
+
+
+@pytest.fixture
+def scratch(tmp_path, request):
+    """A scratch repository with the real record tooling, a stub summariser and a full tree."""
+    return build_scratch(str(tmp_path / "repo"), request)
 
 
 def run_finish(scratch, env=None):
@@ -1347,9 +1379,7 @@ def shim(scratch, command, subject, cases):
     review's rollback injection needs a failing rename *and* a signal from inside the
     rollback that follows it.  A body that does not exit falls through to the real command.
     """
-    bin_dir = os.path.join(scratch["root"], "test_bin")
-    if not os.path.isdir(bin_dir):
-        os.makedirs(bin_dir)
+    bin_dir = scratch["shim_bin"]          # never under tmp_path: see ``shim_bin`` above
     path = os.path.join(bin_dir, command)
     arms = "".join("  %s)\n    %s\n    ;;\n" % (pattern, body) for pattern, body in cases)
     with open(path, "w") as fout:
@@ -1648,6 +1678,54 @@ def test_finish_publishes_regenerated_figures_not_the_summarisers_files(scratch)
     assert check.returncode == 0, check.stdout.decode()
 
 
+def test_finish_fault_injection_fires_from_a_scratch_path_with_a_colon(tmp_path, request):
+    """Round-9 regression: the fault injection itself must not depend on the scratch path.
+
+    ``PATH`` is split on ``os.pathsep``, so a shim directory under a basetemp that contains a
+    colon (another session ran this suite with ``--basetemp=/tmp/pytest-...2026-09-28_07:55:15``)
+    is invisible to the shell: the real ``mv`` runs, the finish script publishes successfully
+    and twelve fault-injection tests fail for a reason that has nothing to do with the script.
+    Here the whole scratch repository deliberately lives under a colon, and the shim must
+    still fire.
+    """
+    built = build_scratch(str(tmp_path / "with:colon" / "repo"), request)
+    assert os.pathsep in built["root"]
+    done = run_finish(built, env=failing_mv(built, "*/.finish_tmp.*/yaw_pilot_results.md"))
+    assert done.returncode != 0, out(done)             # the shim fired ...
+    assert "simulated mv I/O error" in out(done)       # ... and it was ours, not a real mv
+    assert "FINISH DONE" not in out(done)
+    assert "restored" in out(done)
+    assert staging_dirs(built) == []
+    assert_generated_untouched(built)
+
+
+def test_finish_fault_injection_fires_when_tmpdir_is_relative(tmp_path, request, monkeypatch):
+    """Round-9 review, finding 1: a relative ``TMPDIR`` must not move the shims out of reach.
+
+    Python 3.8's ``mkdtemp(dir=...)`` keeps a relative directory relative, and ``run_finish``
+    runs the finish script with ``cwd`` set to the scratch repository.  A ``PATH`` entry taken
+    straight from a relative ``$TMPDIR`` therefore names a directory that does not exist from
+    the script's point of view: the real ``mv`` runs, the script publishes, and the
+    fault-injection tests fail for a reason that has nothing to do with the script -- the same
+    silent failure the colon regression above guards against.  ``shim_bin`` makes the base
+    absolute *before* it inspects it, so the ``PATH`` entry survives the change of directory.
+    """
+    relative_tmpdir = str(tmp_path / "reltmp")
+    os.makedirs(relative_tmpdir)
+    relative = os.path.relpath(relative_tmpdir, os.getcwd())
+    assert not os.path.isabs(relative)
+    monkeypatch.setenv("TMPDIR", relative)
+    built = build_scratch(str(tmp_path / "repo"), request)
+    done = run_finish(built, env=failing_mv(built, "*/.finish_tmp.*/yaw_pilot_results.md"))
+    assert done.returncode != 0, out(done)             # the shim fired ...
+    assert "simulated mv I/O error" in out(done)       # ... and it was ours, not a real mv
+    assert "FINISH DONE" not in out(done)
+    assert "restored" in out(done)
+    assert staging_dirs(built) == []
+    assert_generated_untouched(built)
+    assert os.path.isabs(built["shim_bin"])            # ... and not "<relative TMPDIR>/exp10-shim-*"
+
+
 # --------------------------------------------------------------------------------------
 # Findings 7-10 -- the arm chain: ok-gates, the predecessor table, atomic reservation, pins.
 # --------------------------------------------------------------------------------------
@@ -1852,11 +1930,23 @@ def test_a_rejected_concurrent_chain_cannot_replace_an_active_chains_pins(chain)
 # Finding 13 -- the queue wrappers must not hide a child's failure.
 # --------------------------------------------------------------------------------------
 
-@pytest.fixture
-def queue(tmp_path):
-    root = str(tmp_path / "repo")
+def build_queue(root, request):
+    """The queue-script scratch repository, built at an explicit ``root``.
+
+    The root is a parameter only so that the colon regression below can put one at a path that
+    contains ``os.pathsep``; every other test takes it from the ``queue`` fixture.  ``request``
+    is what the fake ``nvidia-smi``'s directory registers its cleanup on -- it lives outside
+    the repository, for the reason the regression describes.
+    """
     os.makedirs(root)
-    return fx.make_queue_repo(root, ASSETS)
+    built = fx.make_queue_repo(root, ASSETS)
+    request.addfinalizer(lambda: shutil.rmtree(built["bin"], ignore_errors=True))
+    return built
+
+
+@pytest.fixture
+def queue(tmp_path, request):
+    return build_queue(str(tmp_path / "repo"), request)
 
 
 def run_script(queue, name, args=(), env=None):
@@ -1867,6 +1957,25 @@ def run_script(queue, name, args=(), env=None):
     e.update(env or {})
     return subprocess.run(["bash", os.path.join(queue["scripts"], name)] + [str(a) for a in args],
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=e, cwd=queue["root"])
+
+
+def test_queue_resource_guard_reads_the_fake_nvidia_smi_under_a_colon(tmp_path, request):
+    """Round-9 review, finding 2: the fake ``nvidia-smi`` must not depend on the scratch path.
+
+    ``run_script`` prepends the fixture's bin directory to ``PATH`` and the shell splits
+    ``PATH`` on ``os.pathsep``, so under a root that contains a colon the fake is invisible and
+    the machine's *real* ``nvidia-smi`` answers the queue's resource guard.  That is silent:
+    the guard passes or refuses according to whatever the host GPU happens to have free, and
+    the reviewer turned two of these tests red simply by answering zero.  The fake records its
+    calls next to itself, so this test can insist the fake -- and not the host -- replied.
+    """
+    q = build_queue(str(tmp_path / "with:colon" / "repo"), request)
+    assert os.pathsep in q["root"]
+    done = run_script(q, "exp10_gpu_queue.sh", ["1"])
+    assert os.path.isfile(os.path.join(q["bin"], "nvidia-smi.calls")), out(done)
+    assert "free memory 40000 MiB" in out(done)        # the fake's figure, not the host GPU's
+    assert done.returncode == 0, out(done)
+    assert "QUEUE DONE" in out(done)
 
 
 def test_queue_exits_zero_when_every_arm_succeeds(queue):

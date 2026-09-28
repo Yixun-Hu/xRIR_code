@@ -590,8 +590,50 @@ echo "stub chain for $1 exiting $rc"
 exit "$rc"
 '''
 
+
+def safe_bin_dir(prefix):
+    """An absolute, ``os.pathsep``-free directory to prepend to a child process's ``PATH``.
+
+    The shell splits ``PATH`` on ``os.pathsep``, and a ``PATH`` entry has to keep naming the
+    same directory after the child changes its working directory.  A directory under pytest's
+    ``tmp_path`` guarantees neither: a basetemp carrying a colon
+    (``--basetemp=/tmp/pytest-exp11-2026-09-28_07:55:15``) hides it from the shell outright,
+    and a relative ``$TMPDIR`` makes the entry move with the cwd — Python 3.8's
+    ``mkdtemp(dir=...)`` keeps a relative directory relative.  Either way the stand-in binary
+    inside is never found and the real one answers, which is silent: the test then fails, or
+    worse passes, for a reason that has nothing to do with the code under test.
+
+    The base is ``$TMPDIR`` **made absolute first**, or ``/tmp`` when the absolute form is
+    itself unusable as a ``PATH`` entry.  The caller owns the directory and removes it; the
+    tests register a finalizer for that.
+
+    Args:
+        prefix: ``mkdtemp`` prefix, so a leaked directory names the fixture that made it.
+
+    Raises:
+        RuntimeError: if even the fallback yields an unusable path.  The directory is removed
+            first and the message names it: failing loudly beats a stand-in silently skipped.
+    """
+    import shutil
+    import tempfile
+
+    base = os.path.abspath(os.environ.get("TMPDIR") or "/tmp")
+    if os.pathsep in base or any(ch.isspace() for ch in base):
+        base = "/tmp"
+    bin_dir = tempfile.mkdtemp(prefix=prefix, dir=base)
+    if os.pathsep in bin_dir or any(ch.isspace() for ch in bin_dir):
+        shutil.rmtree(bin_dir, ignore_errors=True)
+        raise RuntimeError("a PATH entry needs a directory free of %r and of whitespace, "
+                           "not %r" % (os.pathsep, bin_dir))
+    return bin_dir
+
+
 FAKE_NVIDIA_SMI = '''#!/bin/bash
 # A GPU with plenty of free memory, so the queue's resource guard is not what a test measures.
+# Every call is recorded next to this script.  A test that has to prove the *fake* answered --
+# and not the machine's real nvidia-smi, which a PATH entry lost to os.pathsep lets through --
+# looks for that file; the queue's own log only ever shows a number.
+echo "$*" >> "$(dirname "$0")/nvidia-smi.calls"
 echo 40000
 '''
 
@@ -600,14 +642,15 @@ def make_queue_repo(root, assets_src):
     """A scratch repository for the queue wrappers: the real queues, a stub arm chain.
 
     Returns:
-        ``{"root", "assets", "scripts", "record", "bin"}`` — ``bin`` holds a fake ``nvidia-smi``.
+        ``{"root", "assets", "scripts", "record", "bin"}`` — ``bin`` holds a fake
+        ``nvidia-smi``.  It sits *outside* ``root`` (see ``safe_bin_dir``), so the caller has
+        to remove it: ``tmp_path`` does not take it away.
     """
     built = make_scratch_repo(root, assets_src, arms=(), cpu=False)
     with open(os.path.join(built["scripts"], "exp10_arm_chain.sh"), "w") as fout:
         fout.write(STUB_ARM_CHAIN)
     os.chmod(os.path.join(built["scripts"], "exp10_arm_chain.sh"), 0o755)
-    bin_dir = os.path.join(root, "fakebin")
-    os.makedirs(bin_dir)
+    bin_dir = safe_bin_dir("exp10-queue-bin-")   # never under `root`: see ``safe_bin_dir``
     with open(os.path.join(bin_dir, "nvidia-smi"), "w") as fout:
         fout.write(FAKE_NVIDIA_SMI)
     os.chmod(os.path.join(bin_dir, "nvidia-smi"), 0o755)
