@@ -208,8 +208,45 @@ Every run CPU-only (`CUDA_VISIBLE_DEVICES=''`), in the `xRIR` env.
 |---|---|
 | `tests/test_exp11_shell.py`, `test_exp11_pidrecord.py`, `test_exp11_train.py`, `test_exp11_lock_holder.py` | **255 passed** (128 s), and **200 passed** for the two files again after the last GREEN |
 | the other exp_11 files + `tests/test_exp06_summarize_haa.py` + `tests/test_exp09_sim_eval_closures.py` | **291 passed** (729 s) |
-| full CPU suite at the tip `2fc5300`, detached | _(below)_ |
+| full CPU suite at the tip `2fc5300`, detached | **1 failed, 3878 passed, 55 skipped** (3365 s) |
 
 One older fixture changed with the wording: `test_the_resolution_writes_a_tombstone_...`
 asserted the word "unregistered" in the tombstone, and now asserts the substance the
 rewritten reason carries (`05bff3e`).
+
+The full suite ran detached at the tip into
+`orientation_cue_fairness_2026-09-27_20:01_suite_full_cpu_2fc5300.log` in this record.
+The **one** failure is the standing, expected one:
+
+```
+FAILED tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes
+  {'summarize_haa': '650a5a6d97cb…'} != {'summarize_haa': '645e74c03e20…'}
+```
+
+— exp_06's approvals record still holds the digest re-filled at `9f98bbb`, and
+`tools/exp06_summarize_haa.py`'s closure moves with every exp_11 change because that
+summariser imports `exp11_finalize` and `exp11_profiles`. The re-fill belongs at the
+reviewed merge, as round 1's `9f98bbb` did, not on this branch. Every other test in the
+repository passes.
+
+Two earlier full-suite runs of this cycle were started before the last two production
+commits (`80df5d6`, `2fc5300`). Both were ended through their own pids — each identified
+by the log file it held open, which this session had created for it — and their partial
+logs were removed from the record, so the only recorded suite is the one at the tip.
+
+## Notes for the reviewer
+
+* **What the health check can and cannot prove.** Two probes prove the reader can tell a
+  record from a non-record *at that moment*. They do not prove it will answer the next
+  question, which is why the unknown state exists as well: the health check is the cheap
+  catch for a reader that never fails but always lies, and the per-read unknown is the
+  catch for everything else. A regression exercises each separately (`always record` /
+  `always norecord` for the first, `fails on the trainer` for the second).
+* **Cost.** The health check adds two interpreter starts per scan and per resolution, on
+  a path that runs a handful of times per launch.
+* **`EXP11_PYTHON`** is the only new affordance, and it is inert outside
+  `EXP11_TEST_ROOTS=1` with `--dry-run`: any other invocation that sets it is refused
+  outright, which is itself regressed.
+* **A verdict that is not digits** is treated as unknown too (`2fc5300`): `kill -0 <word>`
+  fails, and a failed probe would otherwise read as "not alive". That case is healthy on
+  the probes, so only the per-read check catches it.
