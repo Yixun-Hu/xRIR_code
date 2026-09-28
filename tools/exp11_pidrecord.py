@@ -44,6 +44,8 @@ import re
 import stat
 import sys
 
+from tools import exp11_pathprobe
+
 PID_RECORD = re.compile(rb'[0-9]{1,10}\n?')
 RECORD, NORECORD, UNKNOWN = 'record', 'norecord', 'unknown'
 USAGE_EXIT = 2          # not 1: a misuse is not a verdict about any file
@@ -51,21 +53,21 @@ UNKNOWN_EXIT = 2        # neither is "I could not look"
 
 
 def inspect_record(path):
-    """``(verdict, detail)``: ``(RECORD, pid)``, ``(NORECORD, why)``, ``(UNKNOWN, why)``."""
+    """``(verdict, detail)``: ``(RECORD, pid)``, ``(NORECORD, why)``, ``(UNKNOWN, why)``.
+
+    Whether the path is there at all is the path probe's question, and it is asked
+    there: this reader used to answer "no record" for a followed-stat ENOENT whenever
+    the parent looked inspectable, without ever asking whether the NAME was there as a
+    symlink it could not follow -- and a dangling ``train.pid`` then read as a dead
+    trainer (close review 15, blocker 1).
+    """
     name = str(path)
-    try:
-        info = os.stat(name)                # follows symlinks, like open() below
-    except FileNotFoundError:
-        # Absent -- but only if the directory it would be in could be inspected. An
-        # unreadable parent raises here too, and says nothing about what is inside it.
-        parent = os.path.dirname(os.path.abspath(name)) or '.'
-        try:
-            os.stat(parent)
-        except OSError as error:
-            return UNKNOWN, 'cannot inspect the directory {}: {}'.format(parent, error)
+    state, detail = exp11_pathprobe.probe(name)
+    if state == exp11_pathprobe.UNKNOWN:
+        return UNKNOWN, detail
+    if state == exp11_pathprobe.ABSENT:
         return NORECORD, 'no such file'
-    except OSError as error:                # EACCES, ELOOP, EIO, ENOTDIR, ...
-        return UNKNOWN, 'cannot inspect {}: {}'.format(name, error)
+    info = detail
     if not stat.S_ISREG(info.st_mode):
         # A directory, FIFO, socket or device is definitely not a pid record, and this
         # is decided WITHOUT opening it: opening a FIFO waits for a writer forever.
