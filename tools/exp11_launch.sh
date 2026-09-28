@@ -308,11 +308,13 @@ pid_record() {
     # forever. A stat that FAILS decides nothing here -- the module tells a confirmed
     # absence from a path it was not allowed to inspect (close review 12, blocker 1),
     # which is why this is no longer `[ -f ]`: that reads an unreadable parent as "gone".
-    if kind="$(stat -L -c %F -- "$1" 2>/dev/null)"; then
-        case "$kind" in
-            regular*) ;;                      # the module reads it
-            *) return 1 ;;                    # definite: not a pid record, unopened
-        esac
+    # `%f` is the mode in hex, not `%F`'s phrase: that phrase is translated, so matching
+    # it would classify an ordinary file as "not a record" under any other locale.
+    if kind="$(stat -L -c %f -- "$1" 2>/dev/null)"; then
+        case "$kind" in ''|*[!0-9a-fA-F]*) return "$READER_UNKNOWN" ;; esac
+        if [ $(( 0x$kind & 0xF000 )) -ne $(( 0x8000 )) ]; then
+            return 1                          # definite: not a regular file, unopened
+        fi
     fi
     out="$(mktemp "${TMPDIR:-/tmp}/exp11_verdict.XXXXXX")" || return "$READER_UNKNOWN"
     "$PYTHON" -m tools.exp11_pidrecord "$1" > "$out" 2>/dev/null || status=$?
@@ -502,7 +504,7 @@ resolve_unregistered() {
     # A directory we cannot look INTO says nothing about what is in it -- least of all
     # that there is no marker and no live pid file. Not being able to look is never an
     # answer (close review 12, blocker 1).
-    if ! stat -L -c %F -- "$attempt/." >/dev/null 2>&1; then
+    if ! stat -L -c %f -- "$attempt/." >/dev/null 2>&1; then
         echo "refusing: liveness unknown: $attempt cannot be inspected, so neither its" \
              "launching marker nor its pid files nor its receipts can be read; nothing" \
              "of this arm is retired on that" >&2
