@@ -14,3 +14,2285 @@ user
 You are the code REVIEWER (OpenAI Codex) for experiment exp_11 `orientation_cue_fairness` of the xRIR repository. CLOSE review 18 of ROUND 2, in the git worktree /home/yixunhu/codespace/xRIR_code_wt on branch `exp11-cue` (read-only; CPU ≤ 4 threads; CUDA_VISIBLE_DEVICES=''; never signal processes you did not start — your own helper subprocesses may be ended through their handles; pytest on selected files with `-p no:cacheprovider`, PYTHONPATH = the worktree, writes only under /tmp). Your close review 17 (`orientation_cue_fairness_codex_code_round2_close17_review.md`, worktree record) found four gaps in the probe's PATH-FIELD grammar. The Planner amended the plan (§11 A2 in `worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/plan_orientation_cue_fairness.md`): the probe returns NO path strings; identity questions replace every path comparison. The Coder implemented it in 8 commits on `2e109d0` → `f2f6943` (`git log --oneline 2e109d0..f2f6943`, `git diff 2e109d0 f2f6943`; report `orientation_cue_fairness_2026-09-28_05:30:00_coder_round2_fix18_opus_report.md` with the updated audit table; last production commit `d420ddb`). Production changes: `tools/exp11_pathprobe.py` (`probe` → `present <mode-hex>`/`absent`; `link` → `link`/`notlink`/`nolink`; `same <a> <b>` and `sameparent <path> <dir>` → `same`/`different` via `os.path.samestat` on followed stats; unknown for dangling/absent/inaccessible; canonical-path output, link target and the path validator deleted), `tools/exp11_launch.sh` (`publishes <attempt>` = link present AND `same_path final attempt`; `already_published`/`check_final_conflict`/`abort_recovery`/the resolution's published guard through it; the scan excludes its target by `same_path` per entry; `check_attempt` and `resolve_unregistered` contain by `same_parent` + the `attempt_<UTC>` name pattern; `REPLACING` prints `readlink` informationally; the health check asks four questions; headers state the threat model — malformed answers, not a lying pinned module), `tools/exp11_train.py` (in-process `os.path.realpath`, `Path` from it only, `samestat` for arm containment; `valid_path` deleted). `tools/exp06_launch.sh` and `tools/exp06_finalize.py` byte-identical.
 
 Verify by reading the code, re-checking the audit table (no path-field site may remain; every decision that compares two names goes through `same`/`sameparent` or an in-process `samestat`), and replaying with the real sourced lifecycle, real locks and a registered live stub trainer: (1) the identity semantics — `same` across a symlinked arm root, `//`, `/./`, trailing slash, `sub/..` spellings; hard links (same inode: is "same" correct for `final` publishing an attempt? attempts are directories, so fine — state it); a bind mount or a file replaced by a copy (different inode → `different`: acceptable?); dangling `final` → unknown → refuse; (2) your close-17 injections are impossible by construction — confirm no verdict line can carry a path, and that malformed answers (`present` without mode, extra fields, trailing space, `absent yes`, `link /x`, `same different`, `yes`) are unknown everywhere; (3) the scan's per-entry `same_path` exclusion — cost (one probe per entry per scan) and correctness when the resolution target is reached by a different spelling; the `attempt_<UTC>` name pattern applied to the basename of the slash-stripped input — is a legitimate attempt name with the real launcher's timestamp format always matched, and is `final` (a symlink) never mistaken for an attempt; (4) the trainer — `arm/attempt_X/sub/..` finds the tombstone; the alias layout refuses; odd spellings register; `--no-save` unchanged; does `os.path.realpath` here ever differ in identity from what the launcher's `sameparent` decides (a case where the trainer registers into an arm the launcher would not lock)?; (5) `publishes`'s two-step (link present, then `same`) — TOCTOU between the two probes: can `final` be retargeted between them by anything other than a holder of the publication lock (which the caller holds)?; (6) the health check's four questions; the threat-model statement; the report corrections (fix-17 suite HEAD `fef89ba`; six timeout calls, ≈ 105 s sidecar group, ≈ 180 s per attempt, no universal bound; the exp_04 flake as timing-sensitive; oversized record-only commits named); the superseded partial suite log (removed) and the final suite at `d420ddb` with `HEAD <sha>` first line; (7) RED evidence (replay one RED of this cycle) and the report (+211/−151 production; 23 pathprobe / 209 shell / 62 trainer); (8) closure hygiene at `d420ddb`/`f2f6943`: vs 9f98bbb only exp_06 `summarize_haa` moved (report the digest); the eight exp_11 keys (five moved; report all); sim-eval closures unchanged; frozen files untouched; `BACKBONES_EXP06` unchanged; `tests/test_exp09_sim_eval_closures.py` green; pinned oracles byte-identical; the production tree under `ckpt/exp11/` clean; (9) anything new. State whether round 2 can be CLOSED and `f2f6943` merged (verdict "approve", "approve with changes" listed with file:line, or "request changes" with blockers numbered), and give the exact fill manifest at the merge commit (exp_06 `code.summarize_haa`; the re-filled exp_06 record digest with only that key replaced; exp_11's eight `code.*`, `reused.*`; `artifacts.*` null). Identity header (model, reasoning effort as the invocation metadata states it, sandbox, tree, HEAD, date/time); print the review in full; save nothing.
+codex
+I’ll read the code and audit record, replay the identity and lifecycle cases within the resource limits, and verify the closure manifest. I’ll print the full review without saving a file.
+exec
+/bin/bash -lc "pwd && git status --short && git rev-parse HEAD && git branch --show-current && rg --files -g 'AGENTS.md' -g '*close17*' -g '*fix18*' -g '*orientation_cue_fairness*' -g '*closure*' -g '*pathprobe*' | head -100" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+/home/yixunhu/codespace/xRIR_code_wt
+?? worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/codex_code_round2_close18_prompt.md
+f2f69433884c33642c6fd9ed98af67908e0d2c5f
+exp11-cue
+tools/exp11_pathprobe.py
+tests/test_exp09_sim_eval_closures.py
+tests/test_exp11_pathprobe.py
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_18:26:47_coder_round1_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close17_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_16:14:30_coder_round2_fix10_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close16_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/plan_orientation_cue_fairness.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_20:01_suite_full_cpu_2fc5300.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:14:38_suite_full_cpu_91fbd8b_captured.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_14:35:23_coder_round2_fix9_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/plan_orientation_cue_fairness_v1_superseded.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close10_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_21:21_suite_full_cpu_5593d69.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_18:09_suite_full_cpu_6d7363b.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_17:57:59_coder_round2_fix11_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close3_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:14:01_codex_code_round1_close2_review.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_05:29_suite_full_cpu_d420ddb.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_02:35:15_coder_round2_fix_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close2_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_plan_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_17:31:52_codex_plan_review.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close6_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close12_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_14:50_suite_full_cpu_616fb6a.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_00:01_suite_full_cpu_7a2ff48.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_params_set_up.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_16:30_suite_full_cpu_9f22647.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_command.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_21:22:04_coder_round2_fix13_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close14_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_11:45_suite_full_cpu_ad50998.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/commits_orientation_cue_fairness.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close8_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_worklog.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_04:10:40_coder_round2_fix2_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:19:35_refill.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_yixun_query.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:21:56_suite_full_cpu.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close4_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_22:35_suite_full_cpu_a2b006a.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_02:52_suite_full_cpu_e918f4b.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close11_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:14:24_suite_full_cpu_91fbd8b_captured.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_17:44:43_codex_plan_round2_review.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close15_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_plan_round2_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close5_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_05:30:00_coder_round2_fix18_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_12:59:14_coder_round2_fix8_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_08:10:41_coder_round2_fix5_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_19:39:21_coder_round2_fix12_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round1_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_00:00:32_coder_round2_fix15_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_20:24:52_codex_code_round1_review.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/codex_code_round2_close17_prompt.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_12:05_suite_full_cpu_814fbec.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round1_close2_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_20:50_suite_full_cpu_af052c0.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:21:56_suite_launcher.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close7_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close9_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_10:59_suite_full_cpu_94efbc2.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_09:27:14_coder_round2_fix6_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_22:35:35_coder_round2_fix14_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:35:21_coder_round2_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/coder_prompts/round2_fix18_opus_prompt.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_06:52:49_coder_round2_fix4_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_22:21:54_codex_code_round1_close_review.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_13:15_suite_full_cpu_5fcb17c.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_03:53_suite_full_cpu_e918f4b_rerun.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_20:47:07_coder_round1_fix_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_05:35:56_coder_round2_fix3_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close13_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round1_close_review.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:21:56_suite.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_23:19:34_merge.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-26_19:20_suite_full_cpu_5db0c82.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_01:29:08_coder_round2_fix16_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_02:52:12_coder_round2_fix17_opus_report.md
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_01:33_suite_full_cpu_b9315aa.log
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_11:27:01_coder_round2_fix7_opus_report.md
+
+exec
+/bin/bash -lc 'for p in /AGENTS.md /home/AGENTS.md /home/yixunhu/AGENTS.md /home/yixunhu/codespace/AGENTS.md /home/yixunhu/codespace/xRIR_code_wt/AGENTS.md; do if [ -f "$p" ]; then cat "$p"; fi; done; rg --files -g AGENTS.md tools tests worklog; git log --oneline 2e109d0..f2f6943; git diff --stat 2e109d0 f2f6943; cat worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_05:30:00_coder_round2_fix18_opus_report.md' in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+f2f6943 exp_11 bookkeeping: fix-18 full-suite result (record only)
+98c82b3 exp_11 bookkeeping: Coder fix-18 report, close review 17, the fix-18 prompt and plan A2 (record only; suite line pending)
+d420ddb exp11 fix18 (GREEN): the resolution's containment is an identity question too
+87f4e4d exp11 fix18 (GREEN): the launcher asks identity questions, and carries no paths
+30cd986 exp11 fix18 (GREEN): the trainer resolves in process and compares identity
+622529f exp11 fix18 (RED): the trainer still parses canonical strings
+8cf5810 exp11 fix18 (GREEN): the probe answers identity, and hands out no paths
+2e76a95 exp11 fix18 (RED): the verdicts still carry paths, and identity is still a string
+ tests/test_exp11_pathprobe.py                      | 110 +++++-
+ tests/test_exp11_shell.py                          |  55 ++-
+ tests/test_exp11_train.py                          |  47 ++-
+ tools/exp11_launch.sh                              | 218 +++++++----
+ tools/exp11_pathprobe.py                           | 124 +++---
+ tools/exp11_train.py                               |  20 +-
+ .../coder_prompts/round2_fix18_opus_prompt.md      |  10 +
+ ...ess_2026-09-28_05:29_suite_full_cpu_d420ddb.log | 208 ++++++++++
+ ...9-28_05:30:00_coder_round2_fix18_opus_report.md | 249 ++++++++++++
+ ...ue_fairness_codex_code_round2_close17_review.md | 429 +++++++++++++++++++++
+ .../plan_orientation_cue_fairness.md               |   1 +
+ .../codex_code_round2_close17_prompt.md            |   3 +
+ 12 files changed, 1280 insertions(+), 194 deletions(-)
+# Coder report — exp_11 `orientation_cue_fairness`, ROUND 2 **FIX CYCLE 18**
+### Planner design change — plan §11 amendment A2
+
+**Coder:** Claude Opus 5 (1M context), Claude Code
+**Worktree:** `/home/yixunhu/codespace/xRIR_code_wt`, branch `exp11-cue`, from the reviewed tip `2e109d0`
+**Interpreter:** `/home/yixunhu/miniconda3/envs/xRIR/bin/python`, `PYTHONPATH=<worktree>`, `CUDA_VISIBLE_DEVICES=''` throughout — no GPU
+**Started:** 2026-09-28 04:5x EDT
+**Input:** `orientation_cue_fairness_codex_code_round2_close17_review.md` and plan §11 A2, via `coder_prompts/round2_fix18_opus_prompt.md`
+
+**Signals:** the only processes signalled are helpers these tests started — `sleep` stubs
+and `flock` holders — through their own `Popen` handles, and this cycle's own superseded
+suite run, identified by the log file it held open. `kill -0` remains a probe.
+
+Close review 17 found four more gaps, all in the **grammar of a path field**: space-bearing
+and overlong fields, a terminal `..` canonicalised wrongly, a `Path()` normalisation before
+validation, a trailing-slash attempt refused by the basename rule. The Planner's answer is
+to remove the grammar: **the probe returns no path strings at all.**
+
+## Commits
+
+| SHA | Subject |
+|---|---|
+| `2e76a95` | exp11 fix18 (RED): the verdicts still carry paths, and identity is still a string |
+| `8cf5810` | exp11 fix18 (GREEN): the probe answers identity, and hands out no paths |
+| `622529f` | exp11 fix18 (RED): the trainer still parses canonical strings |
+| `30cd986` | exp11 fix18 (GREEN): the trainer resolves in process and compares identity |
+| `87f4e4d` | exp11 fix18 (GREEN): the launcher asks identity questions, and carries no paths |
+| `d420ddb` | exp11 fix18 (GREEN): the resolution's containment is an identity question too |
+
+## The protocol, after A2
+
+```
+probe <path>          present <mode-hex>   |  absent
+link  <path>          link | notlink | nolink
+same <a> <b>          same | different
+sameparent <p> <d>    same | different
+```
+
+— one line, exit 0, and nothing else ever crosses; anything else is unknown. `same` and
+`sameparent` are decided by `os.path.samestat` on the **followed** stats: device and
+inode, which settle "is this the attempt `final` publishes?" and "is this attempt in this
+arm?" exactly, where a string comparison needed a grammar that three reviews in a row
+found holes in. A dangling link, an absent name or a parent nobody may enter make the
+question *unanswerable*, never "different".
+
+The header of both files now states what the shell defends against: **a malformed
+answer, not a lying module.** `tools/exp11_pathprobe.py` is bound with the launcher by
+the `launch_sh` approvals key and health-checked before every scan and every resolution;
+what the shell validates is the keyword set and, for `present`, the mode.
+
+## Every decision that used to compare paths
+
+| site | now |
+|---|---|
+| `published_target` | **gone**. `publishes <attempt>` = `probe_link` says a link is there **and** `same_path "$ARM_ROOT/final" "<attempt>"` |
+| `already_published` | `publishes` + the completion receipt |
+| `check_final_conflict` | `probe_link`, then `same_path`: `different` is the conflict, unknown refuses |
+| `abort_recovery` | `publishes` + the receipt; unknown refuses to abort |
+| `resolve_unregistered`'s published guard | `publishes` |
+| `resolve_unregistered`'s arm containment | `same_parent "$attempt" "$ARM_ROOT"` (it canonicalised both sides and compared strings) |
+| the scan's exclusion of the resolution target | `same_path` per entry; unknown → the scan refuses |
+| `check_attempt`'s containment | `same_parent`, plus the `attempt_<UTC>` pattern on the slash-stripped basename |
+| the trainer's arm containment | in-process `os.path.realpath` + `exp11_pathprobe.same` |
+
+The only canonical spelling still produced in the shell is the one `resolve_unregistered`
+needs to **rename** the directory and name the tombstone beside it, and the `realpath -e`
+`list_attempts` uses as `find`'s starting point. Neither is compared with another path.
+The `REPLACING` log line prints `readlink` for the operator, with a comment saying no
+decision reads it.
+
+## The trainer
+
+`os.path.realpath` in process — the filesystem's own meaning of `..` and of every symlink
+on the way — then `Path` built from that result and nothing else, and containment by
+`samestat`. So `arm/attempt_X/sub/..` **is** `arm/attempt_X` and finds the tombstone on it
+(close review 17's case), while `//`, `/./`, a trailing slash and `sub/..` spellings of a
+legitimate attempt register normally. `valid_path` is deleted from the module and from
+the shell; there is no path grammar left to get wrong.
+
+## The regressions
+
+`tests/test_exp11_pathprobe.py` (23): no verdict carries a path (asserted on every
+question), the mode is still validated before printing, `valid_path` and `canonical` are
+**gone**; the same file by two names — through a symlink, a `//`, a `/./`, a trailing
+slash and a `..` — is `same`; two directories are `different`; a dangling link, an absent
+name and a shut door are unknown; `sameparent` takes the dirname as written; misuse is
+never a verdict.
+
+`tests/test_exp11_shell.py` (209): the crafted-verdict suites are now **malformed
+answers** — `present` with no mode, `present 81a4 /forged/path` (a field the protocol no
+longer has), `present zzzz`, `present f000`, `present ffffffff`, a trailing space,
+`absent yes`, `link /forged/target`, `same different`, `yes` — each on `launching`,
+`completion.json` and `final`, against the scan, the resolution, `already_published`,
+`check_final_conflict` (± `REPLACE_FINAL`) and `abort_recovery`: all refuse with exit 2,
+the attempt and the publication preserved. Two new spelling regressions show `//` and a
+trailing slash resolving normally and a published `final` recognised through three
+spellings. A forged path cannot be expressed at all any more, which is why the fix-17
+injections are replaced rather than kept.
+
+`tests/test_exp11_train.py` (62): the alias layout still refuses (exit 3, no lock of the
+wrong arm); `arm/attempt_X/sub/..` with a tombstone on `attempt_X` refuses; `//`, `/./`,
+a trailing slash and `sub/..` spellings of a legitimate attempt register normally; and
+the trainer holds no path grammar (`valid_path` absent, `canonical(` unused).
+
+The health check now asks the identity question too: a file against itself must be
+`same`, and against another file `different`.
+
+## Report corrections asked for by close review 17
+
+* **The suite HEAD.** Fix 17's two suite logs ran at **`fef89ba`** — a record-only commit
+  above `e918f4b`, with identical production bytes — not at `e918f4b` as the report said.
+  This cycle's log records `git rev-parse HEAD` in its **first line**, so the two can
+  never drift again.
+* **The timeout accounting.** There is no universal bound; each *question* is bounded by
+  `timeout --kill-after=5 $READER_TIMEOUT_S` (30 s by default). A fully scanned attempt
+  makes **six** outer timeout calls — three pid records and three sidecar probes
+  (`launching`, `train.pid`, `train.exit`) — so the sidecar group alone is ≈ 105 s at the
+  default with every call hanging, and the whole attempt ≈ 180 s; a resolution adds the
+  receipt, the link and the identity questions. The earlier "≈ 60 s" figure understated
+  it.
+* **The exp_04 flake.** `test_completion_transaction_and_failed_promotion[True-promote]`
+  reads `capsys` while a completion transaction runs on a background thread: it is
+  **timing-sensitive**, and no exp_04 file has changed since `9f98bbb`. Attributing it to
+  co-tenancy was a guess; the honest statement is that it is a timing-sensitive test
+  unrelated to exp_11, which passes on its own and in its own file.
+* **Bookkeeping commit sizes.** The record-only commits `a700a24` (624 lines) and
+  `cad6018` (538 lines) exceed 200 changed lines. They carry a close review, a prompt and
+  a report; the ≤ 200 rule is recorded here as applying to production and test commits,
+  with these two named.
+
+## Line counts
+
+| commit | production | tests |
+|---|---:|---:|
+| `2e76a95` (RED) | — | +89/−21 |
+| `8cf5810` (GREEN) | `exp11_pathprobe.py` +63/−61 | — |
+| `622529f` (RED) | — | +36/−11 |
+| `30cd986` (GREEN) | `exp11_train.py` +9/−11 | — |
+| `87f4e4d` (GREEN) | `exp11_launch.sh` +124/−73 | +44/−11 |
+| `d420ddb` (GREEN) | `exp11_launch.sh` +15/−6 | — |
+| range `2e109d0..HEAD` | **+211 / −151 = 362 changed** | +169/−43 |
+
+Every production/test commit is under 200 changed lines; no exception this cycle. (The
+two oversized record-only commits of earlier cycles are named under the report
+corrections above.)
+
+## Frozen files
+
+`tools/exp06_launch.sh` and `tools/exp06_finalize.py` are byte-identical to `9f98bbb`.
+No `model/*.py`, no `tools/exp06_*` file, no `tools/exp10_*`, no exp_03-pinned file was
+touched. `bash -n` passes on both shells, `py_compile` on every exp_11 module, and
+`git diff --check 2e109d0..HEAD` is silent.
+
+## The audit, updated — no path-field sites remain
+
+| site | disposition |
+|---|---|
+| `probe_path`, `file_present`, `probe_link`, `same_path`, `same_parent` | **the probe**: a keyword from a fixed set, and a validated mode. No path crosses |
+| `publishes`, `already_published`, `check_final_conflict`, `abort_recovery` | **identity questions**; unknown refuses, and no target string is read |
+| `scan_arm`: the marker, `train.pid`, `train.exit` | **routed** (`file_present`); unknown closes the arm |
+| `scan_arm`: the exclusion of the resolution target | **identity question**; unknown refuses |
+| `scan_arm`: per-entry `stat -L -c %f` (≈ 636) | justified: a `stat` that **fails** is unknown; only a successful one classifies, from locale-independent mode bits |
+| `resolve_unregistered`: target type, marker, receipt, published `final`, containment | **routed / identity**; each unknown refuses |
+| `resolve_unregistered`: `realpath -e` (≈ 757) | justified: the one canonical spelling needed to **rename** the directory and name the tombstone; never compared with another path |
+| `resolve_unregistered`: `stat -L` of `<attempt>/.` (≈ 780) | justified: a failure is unknown |
+| `resolve_unregistered`: the marker's timestamp (≈ 850) | justified: `date -u -r … || now` — a failure makes the marker look zero seconds old, so the grace has *not* elapsed and the resolution refuses. The one substituted value, and it is the conservative one |
+| `check_attempt` | **identity question** + the `attempt_<UTC>` name pattern; the inline Python still validates the profile and resolves the directory that is then asked about, finalized and promoted |
+| `list_attempts`: `realpath -e`, `-d`, `-r`, `-x`, `find` (≈ 606) | justified: every failure → the caller's unknown ("cannot be enumerated"); the canonical path is `find`'s starting point, compared with nothing |
+| `pid_record`: `stat -c %s` of the verdict file (≈ 491) | justified: a temp file this process just created; a failure is unknown |
+| `scan_barrier` `[ -e ]` (≈ 898) | justified: test-roots-only; a failed test releases a barrier, which grants nothing |
+| `check_final_conflict`'s `readlink` (≈ 966) | justified: informational log text; no decision reads it |
+| `[ ! -d "$DATA_ROOT" ]` (≈ 1079) | justified: a failure refuses the invocation |
+| trainer: run directory, arm root, tombstone, marker, `child.pid` | **routed** through the probe; unknown refuses with exit 3 |
+| trainer: canonicalisation and containment | **in process**: `os.path.realpath` then `os.path.samestat`; no string is parsed or compared |
+| `promote`, `preflight`, the locks | justified: `promote` tests nothing (atomic rename); the others refuse on any error |
+
+## Digests
+
+Taken at `d420ddb`, the cycle's last production commit.
+
+**exp_06** — one key differs from the record re-filled at `9f98bbb`, the only one allowed
+to move:
+
+| key | approved at `9f98bbb` | fix 17 | now |
+|---|---|---|---|
+| `summarize_haa` | `645e74c03e20…` | `0f5fdeab9c57…` | `85caf08ce7cb…` |
+
+**exp_11** — all eight keys, against fix 17's tip `2e109d0`:
+
+| key | digest | vs `2e109d0` |
+|---|---|---|
+| `train` | `d712fa89fc7b35f7785f970cb1562d432c5120cfdab55848e32318ddc5c0dc30` | **moved** |
+| `finalize` | `197f5bdeb6753e48cad1075299f2cd4bd86fd4ba1a7cfe7639ee95a39142c213` | **moved** |
+| `haa_finetune` | `bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150` | unchanged |
+| `haa_eval` | `f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20` | unchanged |
+| `haa_pipeline_sh` | `3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4` | unchanged |
+| `launch_sh` | `d4dab1e4a51fcac65b5ea6f307c66f43e601939f9670361219000d24b1202d19` | **moved** |
+| `smoke` | `c8710213e7eadf16193e8f664e7dd7c60ecee13fd34ad6ffd01f307eac2a83ff` | **moved** |
+| `summarize_haa` | `85caf08ce7cbf2d479349fbf67825c8cb0feff9be8822d41ef76f08d2f4716d7` | **moved** |
+
+The familiar five: `launch_sh` through its own bytes and the probe its spec binds, and
+the four Python keys through `tools/exp11_pathprobe.py` and `tools/exp11_train.py`. The
+three HAA keys are untouched. exp_11's approvals record remains all-null.
+
+## Test results
+
+| run | result |
+|---|---|
+| `test_exp11_shell.py` (209), `test_exp11_pathprobe.py` (23), `test_exp11_pidrecord.py`, `test_exp11_train.py` (62), `test_exp11_lock_holder.py` | **376 passed** (191 s) |
+| the other ten exp_11 files + `test_exp06_summarize_haa.py` + `test_exp09_sim_eval_closures.py` | **291 passed** (559 s) |
+| full CPU suite, detached, at **`d420ddb4443cf3212899b01534608b3f39491165`** | **1 failed, 3997 passed, 55 skipped** (3455 s) |
+
+The log is `orientation_cue_fairness_2026-09-28_05:29_suite_full_cpu_d420ddb.log`, whose
+**first line** is `HEAD d420ddb4443cf3212899b01534608b3f39491165` — written by
+`git rev-parse HEAD` at launch, so the run and the commit can never drift apart in the
+record again. An earlier run of this cycle, started at `87f4e4d`, was superseded by the
+resolver commit `d420ddb`; it was ended through its own pid (identified by the log file
+it held open) and its partial log removed.
+
+The **one** failure is the standing, expected one:
+
+```
+FAILED tests/test_exp06_profiles.py::test_every_filled_record_digest_is_the_one_this_checkout_computes
+  {'summarize_haa': '85caf08ce7cb…'} != {'summarize_haa': '645e74c03e20…'}
+```
+
+— exp_06's approvals record still holds the digest re-filled at `9f98bbb`, and that
+summariser imports `exp11_finalize` and `exp11_profiles`, so its closure moves with every
+exp_11 change. The re-fill belongs at the reviewed merge, as round 1's `9f98bbb` did. The
+exp_04 threading flake of fix 17 did not recur.
+
+## Notes for the reviewer
+
+* **What A2 buys.** The questions the guards ask are now the questions the kernel can
+  answer exactly: *is this path there, and what kind of thing is it* (a mode), *is there
+  a link here*, and *are these two names one file* (device and inode). None of them has a
+  textual answer, so none of them has a grammar, and the three classes of defect the last
+  three reviews found — relative paths, spaces and byte counts, terminal `..` and
+  trailing slashes — cannot be expressed in the protocol.
+* **What the shell still trusts.** The module itself: a lying `exp11_pathprobe` could say
+  `same` where the truth is `different`. That is not defended against, and is stated in
+  both headers: the module is pinned with the launcher by the `launch_sh` approvals key,
+  and health-checked (four questions now, including the identity one) before every scan
+  and every resolution.
+* **Unchanged from close review 12:** `scan_arm` stops at the first live or unresolved
+  attempt, so an unknown in a later entry may not be reached; it is still a refusal.
+* **One canonical spelling remains in the shell**, in `resolve_unregistered`, because the
+  directory has to be *renamed* and a tombstone named beside it. It is produced by a
+  checked `realpath -e` and compared with nothing.
+
+exec
+/bin/bash -lc 'git diff 2e109d0 f2f6943 -- tools/exp11_launch.sh tools/exp11_pathprobe.py tools/exp11_train.py' in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+diff --git a/tools/exp11_launch.sh b/tools/exp11_launch.sh
+index 04db5fb..e863dc1 100755
+--- a/tools/exp11_launch.sh
++++ b/tools/exp11_launch.sh
+@@ -169,16 +169,38 @@ print("ATTEMPT canonical {}".format(directory))
+ # check_attempt <attempt>: sets CANONICAL_ATTEMPT to the resolved directory, which is
+ # what finalization and promotion then use.
+ check_attempt() {
+-    local output
++    local output name="" status=0
+     say "ATTEMPTCHECK $1 arm=$ARM root=$ARM_ROOT"
+     output="$(CUDA_VISIBLE_DEVICES="" "$PYTHON" -c "$CHECK_ATTEMPT_PY" "$1" "$ARM_ROOT" \
+               "$ARM")" || return 1
+     printf '%s\n' "$output"
+     CANONICAL_ATTEMPT="${output##*ATTEMPT canonical }"
+     case "$CANONICAL_ATTEMPT" in
+-        "$ARM_ROOT"/attempt_*|/*) ;;
++        /*) ;;
+         *) echo "refusing: no canonical attempt was resolved for $1" >&2; return 1 ;;
+     esac
++    # The name, from the slash-stripped basename, and the containment as an IDENTITY
++    # question -- not as a prefix of two strings (plan §11 A2). The directory that was
++    # validated above is the one asked about here, and the one finalized and promoted.
++    name="${CANONICAL_ATTEMPT%/}"
++    name="${name##*/}"
++    case "$name" in
++        attempt_*) case "${name#attempt_}" in ''|*[!0-9T]*)
++            echo "refusing: $name is not an attempt_<UTC> directory of this arm" >&2
++            return 1 ;; esac ;;
++        *) echo "refusing: $name is not an attempt_<UTC> directory of this arm" >&2
++           return 1 ;;
++    esac
++    same_parent "$CANONICAL_ATTEMPT" "$ARM_ROOT" || status=$?
++    if [ "$status" -eq "$READER_UNKNOWN" ]; then
++        echo "refusing: whether $CANONICAL_ATTEMPT is an attempt of $ARM_ROOT cannot be" \
++             "established" >&2
++        return 1
++    fi
++    if [ "$status" -ne 0 ]; then
++        echo "refusing: $CANONICAL_ATTEMPT is not an attempt of $ARM_ROOT" >&2
++        return 1
++    fi
+ }
+ ARM=""
+ ARM_BACKBONE=simple_oriented
+@@ -351,10 +373,11 @@ one_line() {
+ # probe_verdict <probe|link> <path>: run the path probe and print the one line it
+ # answered, or fail. Failing means UNKNOWN to every caller.
+ probe_verdict() {
+-    local out="" line="" status=0
++    local out="" line="" status=0 question="$1"
++    shift
+     out="$(mktemp "$EXP11_TEMPDIR/probe.XXXXXX")" || return 1
+     timeout --kill-after=5 "$READER_TIMEOUT_S" \
+-        "$PYTHON" -m tools.exp11_pathprobe "$1" "$2" > "$out" 2>/dev/null || status=$?
++        "$PYTHON" -m tools.exp11_pathprobe "$question" "$@" > "$out" 2>/dev/null || status=$?
+     if [ "$status" -ne 0 ]; then rm -f -- "$out"; return 1; fi
+     line="$(one_line "$out")" || { rm -f -- "$out"; return 1; }
+     rm -f -- "$out"
+@@ -369,9 +392,16 @@ probe_verdict() {
+ # therefore comes from tools/exp11_pathprobe.py, and what crosses back is one verdict
+ # line, validated here byte for byte -- exactly as the pid reader's verdicts are.
+ #
+-# A verdict LINE is not a verdict until its FIELDS are (close review 16): `link garbage`
+-# was accepted as the published target, and a resolution then retired the attempt
+-# `final` really pointed at.
++# A verdict carries a keyword and, for `present`, a mode -- and nothing else (plan §11
++# amendment A2). Three close reviews running found holes in the grammar of a path field;
++# a protocol with no paths in it has no such grammar. What used to be "compare the path
++# the probe returned with this one" is now an identity QUESTION, answered in Python by
++# device and inode.
++#
++# What this shell defends against is a MALFORMED answer -- a truncated line, extra
++# fields, a keyword that is not in the set, a mode that is not a mode. It does not
++# defend against a module that lies: that module is pinned with this launcher by the
++# `launch_sh` approvals key and health-checked before every scan and every resolution.
+ #
+ # valid_mode <hex>: three to six hex digits whose S_IFMT bits name a type that exists.
+ valid_mode() {
+@@ -383,21 +413,6 @@ valid_mode() {
+     esac
+ }
+ 
+-# valid_path <path>: absolute, normalized, printable, and no longer than PATH_MAX.
+-valid_path() {
+-    [ "${#1}" -le 4096 ] || return 1
+-    [ "$1" = / ] && return 0
+-    case "$1" in
+-        /*) ;;
+-        *) return 1 ;;
+-    esac
+-    case "$1" in
+-        */|*//*|*/./*|*/.|*/../*|*/..) return 1 ;;
+-        *"$CARRIAGE_RETURN"*) return 1 ;;
+-    esac
+-    return 0
+-}
+-
+ # probe_path <path>: 0 it is there (PROBE_MODE holds its mode in hex) | 1 it is NOT
+ # there | 2 nobody could say.
+ PROBE_MODE=""
+@@ -408,20 +423,8 @@ probe_path() {
+     case "$line" in
+         absent) return 1 ;;
+         'present '*)
+-            local rest="${line#present }" where=""
+-            PROBE_MODE="${rest%% *}"
+-            where="${rest#* }"
+-            # Three fields, each checked: the mode, the canonical path, and -- unless the
+-            # name we probed is itself a symlink, whose target of course has another name
+-            # -- that the answer is about the very name we asked about.
++            PROBE_MODE="${line#present }"
+             valid_mode "$PROBE_MODE" || { PROBE_MODE=""; return "$READER_UNKNOWN"; }
+-            case "$rest" in "$PROBE_MODE "?*) ;; *) PROBE_MODE=""; return "$READER_UNKNOWN" ;; esac
+-            valid_path "$where" || { PROBE_MODE=""; return "$READER_UNKNOWN"; }
+-            case "${1%/}" in
+-                */.|*/..|'') ;;                      # no name of our own to compare
+-                *) [ "${where##*/}" = "${1%/}" ] || [ "${where##*/}" = "${1##*/}" ] ||
+-                       { PROBE_MODE=""; return "$READER_UNKNOWN"; } ;;
+-            esac
+             return 0 ;;
+         *) return "$READER_UNKNOWN" ;;
+     esac
+@@ -437,19 +440,37 @@ file_present() {
+     [ $(( 0x$PROBE_MODE & 0xF000 )) -eq $(( 0x8000 )) ] || return 1
+ }
+ 
+-# probe_link_target <path>: 0 and the canonical target on stdout | 1 there is no such
+-# link (no name, or a name that is not one) | 2 it is there and cannot be resolved, or
+-# nobody could look. `readlink -f` answered "nothing" for the last two alike.
+-probe_link_target() {
++# probe_link <path>: 0 a symlink is there | 1 there is no symlink here (no such name, or
++# a name that is not one) | 2 it is there and cannot be resolved, or nobody could look.
++# WHAT it points at is never asked: that question is `same_path`.
++probe_link() {
+     local line=""
+     line="$(probe_verdict link "$1")" || return "$READER_UNKNOWN"
+     case "$line" in
++        link) return 0 ;;
+         nolink|notlink) return 1 ;;
+-        'link '?*)
+-            local target="${line#link }"
+-            valid_path "$target" || return "$READER_UNKNOWN"
+-            printf '%s\n' "$target"
+-            return 0 ;;
++        *) return "$READER_UNKNOWN" ;;
++    esac
++}
++
++# same_path <a> <b>: 0 they are one file | 1 they are two | 2 nobody could say.
++same_path() {
++    local line=""
++    line="$(probe_verdict same "$1" "$2")" || return "$READER_UNKNOWN"
++    case "$line" in
++        same) return 0 ;;
++        different) return 1 ;;
++        *) return "$READER_UNKNOWN" ;;
++    esac
++}
++
++# same_parent <path> <directory>: the same question about <path>'s parent as written.
++same_parent() {
++    local line=""
++    line="$(probe_verdict sameparent "$1" "$2")" || return "$READER_UNKNOWN"
++    case "$line" in
++        same) return 0 ;;
++        different) return 1 ;;
+         *) return "$READER_UNKNOWN" ;;
+     esac
+ }
+@@ -528,14 +549,21 @@ check_pid_reader() {
+     probe_reader "$dir/one" "$dir/want_one" "$dir/got_one" || bad="a file holding 1"
+     probe_reader "$dir/empty" "$dir/want_empty" "$dir/got_empty" ||
+         bad="${bad:+$bad and }an empty file"
+-    # The path probe answers two questions whose answers are known too: this file is
+-    # there, that name is not (close review 15).
++    # The path probe answers three questions whose answers are known too: this file is
++    # there, that name is not, and a file is itself and not the other one (close review
++    # 15; the identity question since plan §11 A2).
+     local state=0
+     probe_path "$dir/one" || state=$?
+     [ "$state" -eq 0 ] || bad="${bad:+$bad and }a path that is there"
+     state=0
+     probe_path "$dir/absent" || state=$?
+     [ "$state" -eq 1 ] || bad="${bad:+$bad and }a path that is not there"
++    state=0
++    same_path "$dir/one" "$dir/one" || state=$?
++    [ "$state" -eq 0 ] || bad="${bad:+$bad and }a file against itself"
++    state=0
++    same_path "$dir/one" "$dir/empty" || state=$?
++    [ "$state" -eq 1 ] || bad="${bad:+$bad and }two different files"
+     rm -rf -- "$dir"
+     [ -z "$bad" ] && return 0
+     echo "refusing: reader unhealthy: the pid reader or the path probe did not answer" \
+@@ -586,12 +614,9 @@ list_attempts() {
+ # reader failed and no answer exists. A broken reader closes the arm to every automated
+ # decision; it never opens it (close review 11).
+ scan_arm() {
+-    local root="$1" resolving="${2:-}" attempt="" name="" here="" listing="" mode=""
++    local root="$1" resolving="${2:-}" attempt="" name="" listing="" mode="" excluded=0
+     local -a attempts=()
+     SCAN_REASON=""
+-    # The attempt being resolved is excluded by canonical identity, never by spelling:
+-    # the caller's path and this glob's may name the same directory differently.
+-    [ -z "$resolving" ] || resolving="$(realpath -- "$resolving" 2>/dev/null || printf '%s' "$resolving")"
+     listing="$(mktemp "$EXP11_TEMPDIR/attempts.XXXXXX")" || {
+         SCAN_REASON="liveness unknown: cannot create a listing file for $root"
+         return "$READER_UNKNOWN"; }
+@@ -618,11 +643,23 @@ scan_arm() {
+         esac
+         [ $(( 0x$mode & 0xF000 )) -eq $(( 0x4000 )) ] || continue   # not a directory
+         name="$(basename -- "$attempt")"
+-        here="$(realpath -- "$attempt" 2>/dev/null || printf '%s' "$attempt")"
++
+         probe_live "$attempt/launch.pid" "$name has a live launcher (launch.pid)" || return $?
+         probe_live "$attempt/child.pid" "$name has a live trainer (child.pid)" || return $?
+         probe_live "$attempt/train.pid" "$name has a live trainer (train.pid)" || return $?
+-        [ "$here" != "$resolving" ] || continue
++        # The attempt being resolved is excluded by IDENTITY, never by spelling: the
++        # caller's path and this listing's may name one directory differently, and an
++        # identity nobody can establish excludes nothing (plan §11 A2).
++        if [ -n "$resolving" ]; then
++            excluded=0
++            same_path "$attempt" "$resolving" || excluded=$?
++            if [ "$excluded" -eq "$READER_UNKNOWN" ]; then
++                SCAN_REASON="liveness unknown: whether $attempt is the attempt being"\
++" resolved cannot be established"
++                return "$READER_UNKNOWN"
++            fi
++            [ "$excluded" -ne 0 ] || continue
++        fi
+         # `child.pid` is the WRAPPER's (GNU timeout), not the trainer's, so a complete
+         # and dead one accounts for nothing: only train.pid names the trainer and only
+         # train.exit says it finished (close review 10, blocker 2). Each of the three is
+@@ -717,16 +754,25 @@ resolve_unregistered() {
+     fi
+     [ "$given" -eq 0 ] && [ $(( 0x$PROBE_MODE & 0xF000 )) -eq $(( 0x4000 )) ] ||
+         { echo "refusing: $1 is not a directory" >&2; return 1; }
++    # One canonical spelling is needed to RENAME the directory and to name the tombstone
++    # beside it; it is never compared with another path (plan §11 A2), and the checks
++    # below are identity questions and a name pattern.
+     attempt="$(realpath -e -- "$1")" || {
+         echo "refusing: liveness unknown: $1 cannot be resolved" >&2
+         return "$READER_UNKNOWN"; }
+-    root="$(realpath -e -- "$ARM_ROOT")" || {
+-        echo "refusing: liveness unknown: $ARM_ROOT cannot be resolved" >&2
+-        return "$READER_UNKNOWN"; }
++    root="$(dirname -- "$attempt")"
+     name="$(basename -- "$attempt")"
+-    # The lock and the scan are this arm's, so the resolution reaches no further.
+-    if [ "$(dirname -- "$attempt")" != "$root" ]; then
+-        echo "refusing: $attempt is not an attempt of the selected arm ($root); this" \
++    # The lock and the scan are this arm's, so the resolution reaches no further -- and
++    # "this arm" is a question about one directory's identity, not about two strings.
++    local contained=0
++    same_parent "$attempt" "$ARM_ROOT" || contained=$?
++    if [ "$contained" -eq "$READER_UNKNOWN" ]; then
++        echo "refusing: liveness unknown: whether $1 is an attempt of $ARM_ROOT cannot" \
++             "be established" >&2
++        return "$READER_UNKNOWN"
++    fi
++    if [ "$contained" -ne 0 ]; then
++        echo "refusing: $1 is not an attempt of the selected arm ($ARM_ROOT); this" \
+              "invocation locked and scanned that arm and no other" >&2
+         return 1
+     fi
+@@ -763,7 +809,7 @@ resolve_unregistered() {
+     # never be retired this way is a run that actually finished: a completion receipt,
+     # or the published `final`. Everything else is decided by the quiet scan below --
+     # nothing of the arm alive -- and by the marker's age.
+-    local receipt=0 published=0 target=""
++    local receipt=0 published=0
+     file_present "$attempt/completion.json" || receipt=$?
+     if [ "$receipt" -eq "$READER_UNKNOWN" ]; then
+         echo "refusing: liveness unknown: $attempt/completion.json cannot be inspected," \
+@@ -775,13 +821,14 @@ resolve_unregistered() {
+              "unresolved launch" >&2
+         return 1
+     fi
+-    target="$(probe_link_target "$ARM_ROOT/final")" || published=$?
++    published=0
++    publishes "$attempt" || published=$?
+     if [ "$published" -eq "$READER_UNKNOWN" ]; then
+         echo "refusing: liveness unknown: $ARM_ROOT/final cannot be resolved, so whether" \
+              "this attempt is the published one cannot be known" >&2
+         return "$READER_UNKNOWN"
+     fi
+-    if [ "$published" -eq 0 ] && [ "$target" = "$attempt" ]; then
++    if [ "$published" -eq 0 ]; then
+         echo "refusing: $attempt is published as $ARM_ROOT/final; a published attempt is" \
+              "never retired as an unresolved launch" >&2
+         return 1
+@@ -878,42 +925,55 @@ not_interrupted() {
+     return 1
+ }
+ 
+-# published_target: what `final` resolves to under this arm root | 1 there is no
+-# `final` | 2 there is one and nobody can say what it publishes. `readlink -f` answered
+-# "nothing" for the last two alike (close review 14).
+-published_target() {
+-    probe_link_target "$ARM_ROOT/final"
++# publishes <attempt>: does this arm's `final` publish THAT attempt? 0 yes | 1 no (there
++# is no `final`, or it publishes something else) | 2 nobody could say. The question is
++# never "what does final point at" any more -- no path crosses the boundary -- it is
++# whether two names are one file, which device and inode settle (plan §11 A2).
++publishes() {
++    local status=0
++    probe_link "$ARM_ROOT/final" || status=$?
++    [ "$status" -ne "$READER_UNKNOWN" ] || return "$READER_UNKNOWN"
++    [ "$status" -eq 0 ] || return 1                  # no link: nothing is published
++    same_path "$ARM_ROOT/final" "$1"
+ }
+ 
+ # already_published <canonical>: this attempt is the published one and it completed.
+ # 0 yes | 1 no | 2 unknown -- and unknown is never "no".
+ already_published() {
+-    local target="" status=0
+-    target="$(published_target)" || status=$?
++    local status=0
++    publishes "$1" || status=$?
+     [ "$status" -ne "$READER_UNKNOWN" ] || return "$READER_UNKNOWN"
+     [ "$status" -eq 0 ] || return 1
+-    [ "$target" = "$1" ] || return 1
+     file_present "$1/completion.json"
+ }
+ 
+ # check_final_conflict <canonical>: a DIFFERENT existing `final` is never replaced by a
+ # recovery unless the operator asks for it, and the replaced target is logged first.
+ check_final_conflict() {
+-    local target="" status=0
+-    target="$(published_target)" || status=$?
+-    if [ "$status" -eq "$READER_UNKNOWN" ]; then
++    local status=0 linked=0
++    probe_link "$ARM_ROOT/final" || linked=$?
++    if [ "$linked" -eq "$READER_UNKNOWN" ]; then
+         echo "refusing: $ARM_ROOT/final exists and cannot be resolved, so what it" \
+              "publishes is unknown; nothing replaces a publication nobody can read" >&2
+         return "$READER_UNKNOWN"
+     fi
+-    [ "$status" -eq 0 ] || return 0
+-    [ "$target" != "$1" ] || return 0
++    [ "$linked" -eq 0 ] || return 0                  # there is no `final` to conflict with
++    same_path "$ARM_ROOT/final" "$1" || status=$?
++    if [ "$status" -eq "$READER_UNKNOWN" ]; then
++        echo "refusing: whether $ARM_ROOT/final publishes $1 cannot be established;" \
++             "nothing replaces a publication nobody can read" >&2
++        return "$READER_UNKNOWN"
++    fi
++    [ "$status" -ne 0 ] || return 0                  # it already publishes this attempt
+     if [ "$REPLACE_FINAL" -eq 0 ]; then
+-        echo "refusing: $ARM_ROOT/final already publishes $target, not $1; pass" \
++        echo "refusing: $ARM_ROOT/final already publishes another attempt, not $1; pass" \
+              "--replace-final to replace it" >&2
+         return 1
+     fi
+-    say "REPLACING $ARM_ROOT/final -> $(basename -- "$target") with $(basename -- "$1")"
++    # Informational only: `readlink` names what is about to be replaced for the operator
++    # reading the log. No decision above or below reads it.
++    say "REPLACING $ARM_ROOT/final -> $(readlink -- "$ARM_ROOT/final" 2>/dev/null || printf '?')" \
++        "with $(basename -- "$1")"
+ }
+ 
+ # abort_recovery <canonical> <log>: the abort path of a REFUSED recovery. A malformed
+@@ -922,16 +982,16 @@ check_final_conflict() {
+ # completion and `final` untouched -- and the finalizer's own cause stands on stderr.
+ # Full mode keeps aborting unconditionally: it launched the attempt it is aborting.
+ abort_recovery() {
+-    local canonical="$1" log="$2" why="" target="" receipt=0 status=0
++    local canonical="$1" log="$2" why="" receipt=0 status=0
+     file_present "$canonical/completion.json" || receipt=$?
+-    target="$(published_target)" || status=$?
++    publishes "$canonical" || status=$?
+     if [ "$receipt" -eq "$READER_UNKNOWN" ] || [ "$status" -eq "$READER_UNKNOWN" ]; then
+         echo "refusing: whether $canonical completed or is published cannot be" \
+              "inspected; an attempt nobody can read is not an attempt to abort" >&2
+         return "$READER_UNKNOWN"
+     fi
+     [ "$receipt" -ne 0 ] || why="it has completed"
+-    [ "$status" -ne 0 ] || [ "$target" != "$canonical" ] || why="it is published as final"
++    [ "$status" -ne 0 ] || why="it is published as final"
+     if [ -n "$why" ]; then
+         say "PRESERVED $canonical ($why); the refusal is this invocation's, not the run's"
+         return 0
+diff --git a/tools/exp11_pathprobe.py b/tools/exp11_pathprobe.py
+index 3f5d6d0..ffb6841 100644
+--- a/tools/exp11_pathprobe.py
++++ b/tools/exp11_pathprobe.py
+@@ -7,17 +7,31 @@ absent marker leaves an arm quiet, an absent receipt retires a finished run, an
+ `final` is replaced. So the classification lives here, in the one language where the
+ errno is available, and the shell asks this module the way it asks the pid reader.
+ 
+-**The CLI answers, or it does not answer at all.** One line on stdout, exit 0:
+-
+-    probe <path>    present <mode-hex> <canonical-path>   it is there
+-                    absent                                it is NOT there
+-    link <path>     link <canonical-target>               a symlink that resolves
+-                    notlink                               the name is there, not a link
+-                    nolink                                there is no such name
++**The CLI answers, or it does not answer at all.** One line on stdout, exit 0, and
++**no path ever crosses** (plan §11 amendment A2):
++
++    probe <path>          present <mode-hex>   it is there, and this is its mode
++                          absent               it is NOT there
++    link <path>           link                 the name is there and is a symlink
++                          notlink              the name is there and is not one
++                          nolink               there is no such name
++    same <a> <b>          same | different     device and inode of the FOLLOWED stats
++    sameparent <p> <d>    same | different     the same, for p's parent as written
++
++Three close reviews in a row found holes in the grammar of a path field -- relative
++paths, spaces, byte counts against character counts, a terminal `..`, a trailing slash.
++A protocol that carries no paths has no such grammar, and the questions that needed one
++-- "is this the attempt `final` publishes?", "is this attempt in this arm?" -- are
++answered here, where two `os.stat`s and `os.path.samestat` settle them exactly.
+ 
+ Anything else -- a non-zero exit, no line, another first word, a misuse (exit 2) -- is
+ **unknown**: the caller must refuse to decide rather than read it as an absence.
+ 
++The shell defends against a MALFORMED answer, not against a lying module: the module is
++part of the `launch_sh` approvals key, pinned with the launcher it serves, and
++health-checked before every scan and every resolution. What crosses the boundary is a
++keyword from a fixed set and, for `present`, a validated mode.
++
+ An absence is the strongest claim here, so it is the most guarded: it needs
+ ``FileNotFoundError`` from ``os.stat`` **and** from ``os.lstat`` (a name that lstats but
+ does not stat is a dangling or looping symlink -- the name IS there), and a parent
+@@ -32,6 +46,7 @@ import sys
+ 
+ PRESENT, ABSENT, UNKNOWN = 'present', 'absent', 'unknown'
+ LINK, NOTLINK, NOLINK = 'link', 'notlink', 'nolink'
++SAME, DIFFERENT = 'same', 'different'
+ USAGE_EXIT = 2          # a misuse is not a verdict about any path
+ UNKNOWN_EXIT = 2
+ 
+@@ -58,19 +73,6 @@ def valid_mode(text):
+     return (int(text, 16) & 0o170000) in FILE_TYPES
+ 
+ 
+-def valid_path(text):
+-    """An absolute, normalized, printable path of a length the kernel would accept."""
+-    if not isinstance(text, str) or not text.startswith('/') or len(text) > PATH_MAX:
+-        return False
+-    if any(character in text for character in ('\n', '\r', '\0')):
+-        return False
+-    if text == '/':
+-        return True
+-    if text.endswith('/') or '//' in text:
+-        return False
+-    return not any(part in ('', '.', '..') for part in text.split('/')[1:])
+-
+-
+ def _absolute(name):
+     """Make a path absolute WITHOUT normalizing it: `..` is the kernel's business.
+ 
+@@ -121,24 +123,6 @@ def probe(path):
+     return (ABSENT, None) if inspectable else (UNKNOWN, why)
+ 
+ 
+-def canonical(name):
+-    """The canonical path of ``name``, keeping the name itself when it is not a symlink.
+-
+-    Only the directory is resolved for an ordinary name, so the basename a caller probed
+-    is the basename it gets back -- which is what lets every reader check that the
+-    answer is about the path it asked for.
+-    """
+-    absolute = _absolute(str(name))
+-    try:
+-        if not stat.S_ISLNK(os.lstat(absolute).st_mode):
+-            head, _, tail = absolute.rpartition('/')
+-            resolved = os.path.realpath(head or '/')
+-            return resolved if tail in ('', '.', '..') else os.path.join(resolved, tail)
+-    except OSError:
+-        pass
+-    return os.path.realpath(absolute)
+-
+-
+ def probe_link(path):
+     """``(LINK, target)`` | ``(NOTLINK, None)`` | ``(NOLINK, None)`` | ``(UNKNOWN, why)``."""
+     name = str(path)
+@@ -158,7 +142,29 @@ def probe_link(path):
+         os.stat(name)                      # it must resolve to something we can see
+     except OSError as error:
+         return UNKNOWN, 'cannot resolve {}: {}'.format(name, _why(error))
+-    return LINK, os.path.realpath(_absolute(name))
++    return LINK, None
++
++
++def same(first, second):
++    """Are these two names the same file? Device and inode of the FOLLOWED stats.
++
++    A dangling link, a name that is not there, a parent nobody may enter: none of them
++    make two paths *different*, they make the question unanswerable.
++    """
++    try:
++        first_info = os.stat(str(first))
++    except OSError as error:
++        return UNKNOWN, 'cannot inspect {}: {}'.format(first, _why(error))
++    try:
++        second_info = os.stat(str(second))
++    except OSError as error:
++        return UNKNOWN, 'cannot inspect {}: {}'.format(second, _why(error))
++    return (SAME if os.path.samestat(first_info, second_info) else DIFFERENT), None
++
++
++def same_parent(path, directory):
++    """Is ``path``'s parent -- the dirname of the name AS WRITTEN -- that directory?"""
++    return same(os.path.dirname(_absolute(str(path))) or '/', directory)
+ 
+ 
+ def file_state(path):
+@@ -177,37 +183,33 @@ def directory_state(path):
+ 
+ 
+ def main(argv):
+-    if len(argv) != 3 or argv[1] not in ('probe', 'link'):
+-        print('usage: python -m tools.exp11_pathprobe <probe|link> <path>',
++    questions = {'probe': 1, 'link': 1, 'same': 2, 'sameparent': 2}
++    if len(argv) < 2 or argv[1] not in questions or len(argv) != questions[argv[1]] + 2:
++        print('usage: python -m tools.exp11_pathprobe <probe|link> <path>\n'
++              '       python -m tools.exp11_pathprobe <same|sameparent> <path> <path>',
+               file=sys.stderr)
+         return USAGE_EXIT
+-    if argv[1] == 'probe':
++    question = argv[1]
++    if question == 'probe':
+         state, detail = probe(argv[2])
+-        if state == UNKNOWN:
+-            print('cannot decide {}: {}'.format(argv[2], detail), file=sys.stderr)
+-            return UNKNOWN_EXIT
+-        if state == ABSENT:
+-            print(ABSENT)
+-            return 0
+-        mode, where = '{:x}'.format(detail.st_mode), canonical(argv[2])
+-        if not valid_mode(mode) or not valid_path(where):
+-            print('refusing to answer about {}: the verdict fields are not valid '
+-                  '({} {})'.format(argv[2], mode, where), file=sys.stderr)
+-            return UNKNOWN_EXIT
+-        print('present {} {}'.format(mode, where))
+-        return 0
+-    state, detail = probe_link(argv[2])
++    elif question == 'link':
++        state, detail = probe_link(argv[2])
++    elif question == 'same':
++        state, detail = same(argv[2], argv[3])
++    else:
++        state, detail = same_parent(argv[2], argv[3])
+     if state == UNKNOWN:
+-        print('cannot decide {}: {}'.format(argv[2], detail), file=sys.stderr)
++        print('cannot decide {}: {}'.format(' '.join(argv[2:]), detail), file=sys.stderr)
+         return UNKNOWN_EXIT
+-    if state != LINK:
++    if state != PRESENT:
+         print(state)
+         return 0
+-    if not valid_path(detail):
+-        print('refusing to answer about {}: {} is not a valid target'.format(argv[2], detail),
++    mode = '{:x}'.format(detail.st_mode)
++    if not valid_mode(mode):                  # a mode nobody could act on is no verdict
++        print('refusing to answer about {}: {} is not a file mode'.format(argv[2], mode),
+               file=sys.stderr)
+         return UNKNOWN_EXIT
+-    print('link {}'.format(detail))
++    print('present {}'.format(mode))
+     return 0
+ 
+ 
+diff --git a/tools/exp11_train.py b/tools/exp11_train.py
+index 66274b6..7639eb8 100644
+--- a/tools/exp11_train.py
++++ b/tools/exp11_train.py
+@@ -306,12 +306,10 @@ def register_trainer(save_dir, no_save=False, arm_root=None,
+     given = Path(save_dir)
+     # `realpath` resolves what it can and leaves the rest: a --no-save diagnostic has no
+     # run directory at all, and asking for one would refuse every diagnostic.
+-    directory = Path(exp11_pathprobe.canonical(given))
+-    # The containment below is derived from this path, so it is checked the way the
+-    # launcher checks every path field it is handed (close review 16).
+-    if not exp11_pathprobe.valid_path(str(directory)):
+-        refuse('{} does not canonicalise to an absolute, normalized path ({}); this '
+-               'trainer registers against nothing it cannot name'.format(given, directory))
++    # In process, with the filesystem's own meaning of `..` and of every symlink on the
++    # way -- never a string handed over by a subprocess, and never a grammar to validate
++    # (plan §11 A2). `Path` is built from this result and from nothing else.
++    directory = Path(os.path.realpath(str(given)))
+     arm = directory.parent
+     tombstone = arm / (directory.name + '.resolved')
+     if no_save:                       # a diagnostic no scan reads: only a tombstone speaks
+@@ -326,11 +324,11 @@ def register_trainer(save_dir, no_save=False, arm_root=None,
+     if not demand_known(*directory_state(root), path=root, what='the arm root'):
+         refuse('{} does not exist; this trainer registers only in the arm whose lock '
+                'it holds'.format(root))
+-    canonical_root = exp11_pathprobe.canonical(root)
+-    if not exp11_pathprobe.valid_path(canonical_root):
+-        refuse('{} does not canonicalise to an absolute, normalized path ({})'
+-               .format(root, canonical_root))
+-    if str(arm) != canonical_root:
++    # Identity, not spelling: device and inode of the two directories (plan §11 A2).
++    contained, why = exp11_pathprobe.same(arm, root)
++    if contained == exp11_pathprobe.UNKNOWN:
++        refuse('cannot establish whether {} is an attempt of {} ({})'.format(given, root, why))
++    if contained != exp11_pathprobe.SAME:
+         refuse('{} is an attempt of {}, not of the {} this trainer was given; the '
+                'directory, the lock and the tombstone must be of one arm'
+                .format(given, arm, root))
+
+exec
+/bin/bash -lc "sed -n '1,260p' tests/test_exp11_shell.py; rg -n 'malformed|identity|spell|verdict|registered|source|stub|health|trailing|same_parent|same_path|publishes' tests/test_exp11_shell.py" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+"""Golden dry runs of exp_11's launcher and HAA pipeline (plan v3 items 10 and 12).
+
+Every argv the two shells would issue is frozen in
+``orientation_cue_fairness_results_assets/golden/``. A deliberate change regenerates the
+files in the same commit; an accidental one -- a flag, a path, a run type, a cue -- fails
+here. The refusals (unknown init, malformed job, unknown arm) are checked directly.
+"""
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import time
+
+import pytest
+
+REPO = Path(__file__).resolve().parents[1]
+GOLD = (REPO / 'worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude'
+        / 'orientation_cue_fairness_results_assets/golden')
+PYTHON = '/home/yixunhu/miniconda3/envs/xRIR/bin/python'
+COMMIT = 'c' * 40
+LAUNCH = ['bash', 'tools/exp11_launch.sh']
+PIPELINE = ['bash', 'tools/exp11_haa_pipeline.sh']
+CASES = {
+    'launch_full_H': LAUNCH + ['full', '--arm', 'H', '--gpu', '1',
+                               '--reviewed-commit', COMMIT, '--dry-run'],
+    'launch_full_I': LAUNCH + ['full', '--arm', 'I', '--gpu', '1',
+                               '--reviewed-commit', COMMIT, '--dry-run'],
+    'launch_probe_H': LAUNCH + ['probe', '--arm', 'H', '--gpu', '1',
+                                '--reviewed-commit', COMMIT, '--dry-run'],
+    'launch_smoke_H': LAUNCH + ['smoke', '--arm', 'H', '--gpu', '1',
+                                '--reviewed-commit', COMMIT, '--dry-run'],
+    'pipeline_simple_or_seed0': PIPELINE + ['1', 'simple_or:0', '--dry-run'],
+    'pipeline_simple_or_yaw_seed1': PIPELINE + ['1', 'simple_or_yaw:1', '--dry-run'],
+    'pipeline_control_adapter_seed2': PIPELINE + ['1', 'control_adapter:2', '--dry-run'],
+    'pipeline_yawaug_adapter_zeroshot': PIPELINE + ['1', 'yawaug_adapter:zeroshot',
+                                                    '--dry-run'],
+    'pipeline_mixed_queue': PIPELINE + ['0', 'simple_or:0', 'control_adapter:zeroshot',
+                                        'simple_or_yaw:2', '--dry-run'],
+}
+
+
+def shell(command):
+    """Run one shell with no GPU and normalise the machine-specific paths."""
+    result = subprocess.run(command, cwd=str(REPO), capture_output=True, text=True,
+                            env=dict(os.environ, CUDA_VISIBLE_DEVICES=''))
+    text = (result.stdout.replace(PYTHON, '<PYTHON>')
+            .replace(str(Path.home()), '<HOME>').replace(str(REPO), '<REPO>'))
+    return result.returncode, text, result.stderr
+
+
+@pytest.mark.parametrize('name', sorted(CASES))
+def test_golden_dry_run(name):
+    status, text, stderr = shell(CASES[name])
+    assert status == 0, stderr[-800:]
+    golden = GOLD / (name + '.txt')
+    assert golden.is_file(), 'missing golden {}'.format(golden)
+    assert text == golden.read_text(), (
+        'the {} dry run changed; regenerate {} in the same commit if deliberate'.format(
+            name, golden.name))
+
+
+def test_static_syntax():
+    for script in ('tools/exp11_launch.sh', 'tools/exp11_haa_pipeline.sh'):
+        assert subprocess.run(['bash', '-n', script], cwd=str(REPO)).returncode == 0
+
+
+def test_the_pipeline_refuses_the_whole_queue_before_anything_runs():
+    for job, message in (('cyl_or:0', 'unknown init'),          # an exp_06 arm
+                         ('yawaug:0', 'unknown init'),          # an exp_09 arm
+                         ('simple_or:x', 'is not a seed'),
+                         ('simple_or:0:1', 'is not a seed'),
+                         ('zeroshot', 'unknown job')):
+        result = subprocess.run(PIPELINE + ['1', job, '--dry-run'], cwd=str(REPO),
+                                capture_output=True, text=True,
+                                env=dict(os.environ, CUDA_VISIBLE_DEVICES=''))
+        assert result.returncode == 2, job
+        assert message in result.stderr, (job, result.stderr)
+        assert 'MKDIR' not in result.stdout
+
+
+def test_the_launcher_refuses_an_unknown_arm_and_an_incomplete_recovery():
+    for extra, status in ((['--arm', 'Z'], 2), ([], 2)):
+        result = subprocess.run(
+            LAUNCH + ['full', '--gpu', '1', '--reviewed-commit', COMMIT, '--dry-run'] + extra,
+            cwd=str(REPO), capture_output=True, text=True,
+            env=dict(os.environ, CUDA_VISIBLE_DEVICES=''))
+        if extra:
+            assert result.returncode == status and 'unknown arm' in result.stderr
+    result = subprocess.run(LAUNCH + ['finalize', '--arm', 'H', '--gpu', '1',
+                                      '--reviewed-commit', COMMIT, '--dry-run'],
+                            cwd=str(REPO), capture_output=True, text=True,
+                            env=dict(os.environ, CUDA_VISIBLE_DEVICES=''))
+    assert result.returncode == 2 and 'usage' in result.stderr
+
+
+def test_every_init_and_every_cue_appears_in_the_golden_queues():
+    """Each arm's frame, cue flag and entry points are what plan section 2.2 registers."""
+    heading = (GOLD / 'pipeline_simple_or_seed0.txt').read_text()
+    assert 'frame=heading' in heading and '--heading-json-dir ckpt/exp06/heading' in heading
+    assert '--adapter-heading-json-dir' not in heading
+    adapter = (GOLD / 'pipeline_control_adapter_seed2.txt').read_text()
+    assert 'frame=room' in adapter
+    assert '--adapter-heading-json-dir ckpt/exp06/heading' in adapter
+    assert '--heading-json-dir' not in adapter.replace('--adapter-heading-json-dir', '')
+    for text in (heading, adapter):
+        assert 'tools/exp11_haa_finetune.py' in text and 'tools/exp11_haa_eval.py' in text
+        assert '--run-type exp11_haa_finetune' in text or 'exp11_haa_finetune' in text
+        assert 'tools/exp06_haa_finetune.py' not in text
+        assert 'CENSUS gpu=' in text          # the explicit exclusive-card census
+        assert 'exp11_haa_job' in text
+    mixed = (GOLD / 'pipeline_mixed_queue.txt').read_text()
+    for init in ('simple_or', 'control_adapter', 'simple_or_yaw'):
+        assert 'JOB {} '.format(init) in mixed
+    assert mixed.count('CENSUS gpu=0') == 3   # one census per job, never inherited
+    assert 'QUEUE_DONE gpu=0' in mixed
+
+
+# --- blocker 4: the 36 h ceiling may only be tightened ------------------------------
+
+CEILING = 129600
+
+
+def launch(args, env=None):
+    result = subprocess.run(LAUNCH + args, cwd=str(REPO), capture_output=True, text=True,
+                            env=dict(os.environ, CUDA_VISIBLE_DEVICES='', **(env or {})))
+    return result.returncode, result.stdout, result.stderr
+
+
+@pytest.mark.parametrize('value', ['0', '-1', '36h', '', '129601', '1000000'])
+def test_an_override_that_disables_or_loosens_the_ceiling_is_refused(value):
+    """GNU timeout treats 0 as 'no timeout', and anything above 36 h exceeds the plan."""
+    status, out, err = launch(['full', '--arm', 'H', '--gpu', '1', '--reviewed-commit',
+                               COMMIT, '--dry-run'], {'EXP11_FULL_CEILING_S': value})
+    assert status == 2, (value, out)
+    assert 'EXP11_FULL_CEILING_S' in err and 'refusing' in err
+    assert 'nohup setsid' not in out
+
+
+@pytest.mark.parametrize('value', ['1', '3600', str(CEILING)])
+def test_an_override_that_tightens_the_ceiling_is_accepted(value):
+    status, out, err = launch(['full', '--arm', 'H', '--gpu', '1', '--reviewed-commit',
+                               COMMIT, '--dry-run'], {'EXP11_FULL_CEILING_S': value})
+    assert status == 0, err[-500:]
+    assert 'CEILING {}s'.format(value) in out
+    assert 'timeout --kill-after=60 {} '.format(value) in out
+
+
+def test_the_default_ceiling_is_the_registered_thirty_six_hours():
+    status, out, _ = launch(['full', '--arm', 'I', '--gpu', '1', '--reviewed-commit',
+                             COMMIT, '--dry-run'])
+    assert status == 0 and 'CEILING {}s'.format(CEILING) in out
+
+
+# --- blocker 5: recovery may not promote an attempt of another arm ------------------
+
+
+def attempt_with(root, arm, profile, tmp_path, name='attempt_20260927T000000'):
+    """One attempt directory under a pretraining root, with the args a profile selects."""
+    from tools import exp11_recipe
+    spec = exp11_recipe.PROFILES[profile]
+    args = dict(spec['recipe'], yaw_aug_seed=0, yaw_aug_width=512)
+    args.update(spec['production'])
+    args.update(backbone=spec['backbone'], save_dir='x', num_workers=12, log_interval=50,
+                save_every=spec['save_every'], epoch_ckpt_every=spec['epoch_ckpt_every'],
+                env={}, train_batches_per_epoch=exp11_recipe.TRAIN_BATCHES_PER_EPOCH,
+                tier='M', param_counts={}, exp11_run_type='full', exp11_profile=profile,
+                exp11_registry_sha256='a' * 64, exp11_source_closure_sha256='b' * 64,
+                exp11_git_head='c' * 40, exp11_provenance_path='p')
+    directory = tmp_path / root / name
+    directory.mkdir(parents=True)
+    (directory / 'args.json').write_text(json.dumps(args))
+    return directory
+
+
+def recovery(attempt, arm, tmp_path, extra=(), log='L.log'):
+    return launch(['finalize', '--arm', arm, '--gpu', '1', '--reviewed-commit', COMMIT,
+                   '--attempt', str(attempt), '--log', log, '--child-exit', '0',
+                   '--dry-run'] + list(extra),
+                  {'EXP11_PRETRAIN_ROOT': str(tmp_path), 'EXP11_TEST_ROOTS': '1'})
+
+
+def publish(attempt, target=None, completed=True):
+    """Make ``final`` point at an attempt, as a finished run leaves the root."""
+    if completed:
+        (attempt / 'completion.json').write_text('{"run_type": "exp11_train"}')
+    link = attempt.parent / 'final'
+    if link.is_symlink() or link.exists():
+        link.unlink()
+    link.symlink_to((target or attempt).name)
+    return link
+
+
+def test_recovery_refuses_an_attempt_of_another_arm(tmp_path):
+    """A valid H attempt may not be promoted under I's root."""
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    status, out, err = recovery(attempt, 'I', tmp_path)
+    assert status == 2, out
+    assert 'refusing' in err
+    assert 'PROMOTE' not in out and 'EXP11_FINALIZE' not in out
+
+
+def test_recovery_refuses_an_attempt_whose_profile_is_not_the_arms(tmp_path):
+    """The directory can be right and the recipe still be the other arm's."""
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'I_RECIPE', tmp_path)
+    status, out, err = recovery(attempt, 'H', tmp_path)
+    assert status == 2, out
+    assert 'refusing' in err and 'PROMOTE' not in out
+
+
+def test_recovery_accepts_the_arms_own_attempt(tmp_path):
+    """The accepted path also pins the recovery argv the golden set no longer carries.
+
+    ``launch_finalize_I`` left the golden set when this check began running in dry-run:
+    a golden of a *nonexistent* attempt would now be a golden of a refusal. The argv it
+    used to pin is asserted here instead, on an attempt that really is arm I's.
+    """
+    attempt = attempt_with('xRIR_simpor_yawaug_8_shot', 'I', 'I_RECIPE', tmp_path)
+    status, out, err = recovery(attempt, 'I', tmp_path)
+    assert status == 0, err[-600:]
+    assert 'ATTEMPT ok {} arm=I profile=I_RECIPE'.format(attempt) in out
+    assert ('tools/exp11_finalize.py --run-dir {} --run-type exp11_train --log L.log '
+            '--child-exit 0'.format(attempt)) in out
+    assert 'preflight --mode finalize' in out
+    assert 'PROMOTE {}/final -> {}'.format(attempt.parent, attempt.name) in out
+
+
+# --- process item 6: the bundled smoke covers the adapter route too -----------------
+
+
+def test_the_smoke_mode_carries_adapter_training_and_evaluation_commands():
+    """J/K must have a reviewed smoke before their queue, not only a fixture.
+
+    The oriented route's smokes prove nothing about ``simple_adapter``: a different
+    backbone, a different cue flag, and the contextual loading mode the round-2 fix
+    added. Both adapter rungs are therefore in the bundled smoke, the evaluation one
+    gated on the fine-tuning one having passed.
+    """
+    golden = (GOLD / 'launch_smoke_H.txt').read_text()
+    assert '--make-fixture ckpt/exp11/_smoke/fixture_simpadapter.pth' in golden
+    assert golden.count('--kind haa_train_smoke') == 2      # oriented, then adapter
+    assert golden.count('--kind haa_eval_smoke') == 2
+    adapter_train = [line for line in golden.splitlines()
+                     if '--kind haa_train_smoke' in line and 'simple_adapter' in line]
+    adapter_eval = [line for line in golden.splitlines()
+                    if '--kind haa_eval_smoke' in line and 'simple_adapter' in line]
+    assert len(adapter_train) == len(adapter_eval) == 1
+    assert '--adapter-heading-json-dir ckpt/exp06/heading' in adapter_train[0]
+    assert '--init ckpt/exp11/_smoke/fixture_simpadapter.pth' in adapter_train[0]
+    assert '--adapter-heading-json-dir ckpt/exp06/heading' in adapter_eval[0]
+    assert '--heading-json-dir' not in adapter_train[0].replace(
+        '--adapter-heading-json-dir', '')
+    # Each rung that hands the next one a checkpoint is gated on its own completion.
+    assert golden.count('passed --run-dir') == 2
+    assert golden.index('haa_adapter_finetune') < golden.index('haa_adapter_eval')
+
+
+# --- close review blocker 2: the ceiling check must not fail open on overflow -------
+
+
+6:here. The refusals (unknown init, malformed job, unknown arm) are checked directly.
+149:def test_the_default_ceiling_is_the_registered_thirty_six_hours():
+168:                exp11_registry_sha256='a' * 64, exp11_source_closure_sha256='b' * 64,
+376:    """A malformed recovery does not establish that a finished run failed.
+396:    """Run a snippet with the launcher sourced as a library (no mode, no preflight)."""
+398:            'EXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh\n' + script)
+596:    """Take the real lock, then replay the registered handler body. No signal is sent."""
+607:    The registered body is replayed directly -- no signal is ever sent -- and execution
+652:def live_stub(pidfile, seconds=30):
+653:    """A process this test starts, registered the way the trainer registers itself."""
+654:    stub = subprocess.Popen(['sleep', str(seconds)])
+656:    pidfile.write_text('{}\n'.format(stub.pid))   # one pid, the grammar
+657:    return stub
+669:    stub = live_stub(running / 'train.pid')
+676:        stub.terminate()
+677:        stub.wait(timeout=30)
+701:        stub = None
+713:            stub = live_stub(running / 'train.pid')   # its launcher is already gone
+719:            if stub is not None:
+720:                stub.terminate()
+721:                stub.wait(timeout=30)
+734:def unregistered_launch(root, tmp_path, gate, register_child=False):
+737:    The stub stands in for the trainer and registers itself the way the trainer does --
+744:    stub = ('while [ ! -e "$2" ]; do sleep 0.05; done; '
+755:              'nohup setsid bash -c \'{stub}\' _ "$attempt" "{gate}" > "$pipe" 2>&1 &\n'
+759:                  root=root, attempt=attempt, stub=stub, gate=gate,
+776:    gate = tmp_path / 'let-the-stub-register'
+777:    attempt = unregistered_launch(old.parent, tmp_path, gate)
+793:    gate = tmp_path / 'let-the-stub-register'
+794:    gate.touch()                                   # this stub registers immediately
+795:    attempt = unregistered_launch(old.parent, tmp_path, gate, register_child=True)
+876:                 'resolve_unregistered {target}\n'.format(root=mine, target=theirs))
+884:                                  'attempt_20260927T000000_ABORTED_unregistered'])
+891:                 'resolve_unregistered {target}\n'.format(root=root, target=target))
+899:    ``resolve_unregistered`` is handed paths by an operator, so identity has to be the
+900:    canonical directory, never the spelling.
+906:                 'resolve_unregistered {target}\n'.format(root=relative, target=attempt))
+909:    assert (root / (attempt.name + '_ABORTED_unregistered')).is_dir()
+918:                 'resolve_unregistered {target}\n'.format(root=root, target=attempt))
+934:                 'resolve_unregistered {target}\n'.format(root=root, target=attempt))
+945:    assert 'no completion receipt' in written and 'never registered' in written
+948:    assert (root / (attempt.name + '_ABORTED_unregistered')).is_dir()
+961:    """The whole path, end to end, with the trainer's own registration in the stub.
+972:    # Double quotes inside: the whole stub travels through a single-quoted shell word.
+973:    stub = ('import os, sys, time; sys.path.insert(0, "{repo}");'
+985:              'nohup setsid {python} -c \'{stub}\' > "$pipe" 2>&1 &\n'
+988:                                           python=PYTHON, stub=stub)
+1001:    log = root / (attempt.name + '_ABORTED_unregistered/child.log')
+1010:    assert not (root / (attempt.name + '_ABORTED_unregistered/train.pid')).exists()
+1023:    ('1457170', True),                    # no trailing newline: a pid all the same
+1030:    ('1457170\n\n', False),               # one trailing newline at most
+1111:    assert attempt.is_dir(), 'the directory it registered in is the one it checked'
+1123:    assert not (attempt.parent / (attempt.name + '_ABORTED_unregistered/train.pid')).exists()
+1168:    running and has not registered. Nothing here is alive, and the old rule called that
+1181:    """It registered, then vanished: registering is not finishing."""
+1212:# The three schedules below run the real thing: the sourced library, the real FIFO sink,
+1213:# a real GNU `timeout` wrapper, the real publication and registration locks, and a stub
+1231:def stub_trainer(tmp_path):
+1232:    path = tmp_path / 'stub_trainer.py'
+1239:    """``run_child``'s shape around a stub trainer, under a real `timeout` wrapper.
+1257:              'nohup setsid timeout 120 {python} {stub} "$attempt" {gate} {exit_gate}'
+1261:                       stub=stub_trainer(tmp_path), gate=gate, exit_gate=exit_gate,
+1269:    """Wait for a real process to get somewhere -- generously: the stub imports torch."""
+1278:    """The one scan both modes run, through the sourced library."""
+1283:def kill_our_wrapper(pidfile, stub):
+1293:    assert b'timeout' in cmdline and str(stub).encode() in cmdline, cmdline
+1313:        kill_our_wrapper(attempt / 'child.pid', stub_trainer(tmp_path))
+1335:        assert (root / (attempt.name + '_ABORTED_unregistered')).is_dir()
+1343:                     root / (attempt.name + '_ABORTED_unregistered/child.pipe')):
+1412:    # A verdict line whose pid is not a pid: the shell must not hand `kill -0` a word
+1434:    elif kind == 'fails on the trainer':       # healthy on the probes, blind to train.pid
+1436:    elif kind == 'nonsense on the trainer':    # healthy on the probes, a verdict of gibberish
+1448:# Command substitution strips trailing newlines and NUL bytes, so a reader emitting
+1449:# `norecord\n\n` or `norecord\0\n` -- exit 0, and healthy on both probes -- became a
+1450:# definite verdict and retired a live trainer's attempt.
+1460:    With ``only_on`` it answers normally everywhere else, so the health probes pass and
+1477:def registered_live_attempt(tmp_path, name='attempt_20260927T161616'):
+1484:    stub = live_stub(attempt / 'train.pid')           # the trainer, alive and registered
+1487:    return old, attempt, stub
+1495:               'resolve_unregistered {attempt}\n'.format(
+1512:    """The reviewer's schedule: registered, running, and the reader breaks under the lock.
+1519:    old, attempt, stub = registered_live_attempt(tmp_path)
+1523:        assert 'unknown' in result.stderr or 'unhealthy' in result.stderr, result.stderr
+1526:        assert pid_of(attempt / 'train.pid') == stub.pid, 'and its registration'
+1528:        assert not (old.parent / (attempt.name + '_ABORTED_unregistered')).exists()
+1531:        stub.terminate()
+1532:        stub.wait(timeout=30)
+1537:    old, attempt, stub = registered_live_attempt(tmp_path)
+1545:        stub.terminate()
+1546:        stub.wait(timeout=30)
+1551:    old, attempt, stub = registered_live_attempt(tmp_path)
+1560:        assert 'unhealthy' in err or 'liveness unknown' in err, err
+1563:        stub.terminate()
+1564:        stub.wait(timeout=30)
+1578:def test_the_health_check_catches_a_reader_that_answers_everything_the_same(
+1586:    old, attempt, stub = registered_live_attempt(tmp_path)
+1590:        assert 'unhealthy' in result.stderr, result.stderr
+1593:        stub.terminate()
+1594:        stub.wait(timeout=30)
+1611:def test_only_the_exact_verdict_bytes_are_a_verdict(tmp_path, payload):
+1612:    """Anything Bash would tidy into a verdict must be unknown instead."""
+1613:    old, attempt, stub = registered_live_attempt(tmp_path)
+1618:        assert 'unknown' in result.stderr or 'unhealthy' in result.stderr
+1620:        assert pid_of(attempt / 'train.pid') == stub.pid
+1625:        stub.terminate()
+1626:        stub.wait(timeout=30)
+1630:def test_the_health_probes_are_byte_exact_too(tmp_path, payload):
+1632:    old, attempt, stub = registered_live_attempt(tmp_path)
+1636:        assert 'unhealthy' in result.stderr, result.stderr
+1638:        stub.terminate()
+1639:        stub.wait(timeout=30)
+1657:def test_a_reader_that_pads_every_answer_is_unhealthy(tmp_path):
+1659:    old, attempt, stub = registered_live_attempt(tmp_path)
+1663:        assert 'unhealthy' in result.stderr, result.stderr
+1665:        stub.terminate()
+1666:        stub.wait(timeout=30)
+1672:    """The reviewer's second schedule: chmod 000 on a registered live trainer's record.
+1677:    old, attempt, stub = registered_live_attempt(tmp_path)
+1688:                     'resolve_unregistered {attempt}\n'.format(
+1693:        assert not (old.parent / (attempt.name + '_ABORTED_unregistered')).exists()
+1699:        stub.terminate()
+1700:        stub.wait(timeout=30)
+1724:# a lock file is a known pathname. A resolution then retired a registered live trainer.
+1737:               'resolve_unregistered {attempt}\n'.format(
+1755:    old, attempt, stub = registered_live_attempt(tmp_path)
+1765:        stub.terminate()
+1766:        stub.wait(timeout=30)
+1773:    old, attempt, stub = registered_live_attempt(tmp_path)
+1784:        assert pid_of(attempt / 'train.pid') == stub.pid
+1786:        assert not (root / (attempt.name + '_ABORTED_unregistered')).exists()
+1787:        stub.terminate()
+1788:        stub.wait(timeout=30)
+1794:    old, attempt, stub = registered_live_attempt(tmp_path)
+1806:        stub.terminate()
+1807:        stub.wait(timeout=30)
+1823:    A name that fails `-d` used to be skipped as "not a directory", which is a verdict
+1841:def test_a_flood_of_verdict_bytes_is_unknown_and_never_materialised(tmp_path):
+1844:    A verdict is at most eighteen bytes; anything longer cannot match. The shell must
+1850:    old, attempt, stub = registered_live_attempt(tmp_path)
+1858:        stub.terminate()
+1859:        stub.wait(timeout=30)
+1871:    listing came back empty and successful -- an arm with a live registered trainer in
+1874:    old, attempt, stub = registered_live_attempt(tmp_path)
+1886:        assert pid_of(attempt / 'train.pid') == stub.pid
+1888:        assert not (old.parent / (attempt.name + '_ABORTED_unregistered')).exists()
+1890:        stub.terminate()
+1891:        stub.wait(timeout=30)
+2007:            'EXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh\n'
+2036:    """``probe_path`` and ``file_present`` on one path, through the sourced library."""
+2079:def test_a_broken_final_probe_publishes_nothing(tmp_path, guard):
+2096:def test_a_crafted_probe_verdict_is_not_a_verdict(tmp_path, crafted):
+2097:    """Padding, a verdict with no mode, another protocol's line: none of them decide."""
+2115:    old, attempt, stub = registered_live_attempt(tmp_path)
+2127:        assert not (old.parent / (attempt.name + '_ABORTED_unregistered')).exists()
+2129:        stub.terminate()
+2130:        stub.wait(timeout=30)
+2145:# --- close review 16: a verdict line is not a verdict until its FIELDS are ----------
+2147:# `final` really pointed at; `present 41ed relative` passed as a marker's verdict and
+2150:# `present` verdict must be about the very name that was probed.
+2158:    'present 81a4 ',                     # a trailing space is an extra field
+2168:def crafted_reader(tmp_path, only_on, verdict, name='crafted_wrapper.sh'):
+2170:                         body="printf '%s\\n' '{}'; exit 0".format(verdict))
+2173:@pytest.mark.parametrize('verdict', CRAFTED_VERDICTS, ids=CRAFTED_IDS)
+2174:def test_a_crafted_marker_verdict_leaves_the_arm_closed(tmp_path, verdict):
+2179:    result = scan_with_reader(old.parent, crafted_reader(tmp_path, '/launching', verdict))
+2180:    assert result.returncode == 2, (verdict, result.stdout, result.stderr)
+2184:@pytest.mark.parametrize('verdict', SOME_CRAFTED)
+2185:def test_a_crafted_receipt_verdict_retires_nothing(tmp_path, verdict):
+2189:                                                         verdict), grace='0')
+2190:    assert result.returncode == 2, (verdict, result.stdout, result.stderr)
+2195:def test_a_crafted_final_verdict_never_retires_the_published_attempt(tmp_path):
+2196:    """The reviewer's schedule: `final` really publishes the attempt being resolved."""
+2204:    assert os.path.realpath(str(link)) == str(attempt), 'and final still publishes it'
+2208:@pytest.mark.parametrize('verdict', SOME_CRAFTED)
+2213:def test_a_crafted_final_verdict_publishes_nothing(tmp_path, verdict, guard, replace):
+2223:                     python=crafted_reader(tmp_path, '/final', verdict)),
+2225:    assert 'STATUS 2' in result.stdout, (verdict, guard, result.stdout, result.stderr)
+2241:def test_an_odd_spelling_of_an_attempt_resolves_normally(tmp_path):
+2242:    """A path is not a string to be parsed: `//`, `/./` and a trailing slash are spellings."""
+2247:    spelling = '{}//{}/'.format(old.parent, attempt.name)
+2250:                 'resolve_unregistered {spelling}\n'.format(root=old.parent,
+2251:                                                             spelling=spelling),
+2255:    assert (old.parent / (attempt.name + '_ABORTED_unregistered')).is_dir()
+2259:def test_a_published_final_is_recognised_through_any_spelling(tmp_path):
+2260:    """`already_published` asks an identity question, so the spelling cannot matter."""
+2265:    for spelling in ('{root}//{name}', '{root}/./{name}', '{root}/{name}/'):
+2269:                             path=spelling.format(root=root, name=canonical.name)),
+2271:        assert 'STATUS 0' in result.stdout, (spelling, result.stdout, result.stderr)
+2288:    """``resolve_unregistered`` through the sourced library, as the mutation tests do.
+2294:               'resolve_unregistered {attempt}\n'.format(
+2302:    younger than the grace, a trainer that has not registered yet is still possible.
+2307:    gate = tmp_path / 'let-the-stub-register'
+2308:    attempt = unregistered_launch(old.parent, tmp_path, gate)
+2310:        gate.touch()                                   # the stub registers and runs on
+2320:    for _ in range(600):                               # let the stub finish on its own
+2330:    assert (attempt.parent / (attempt.name + '_ABORTED_unregistered')).is_dir()
+2340:    wrapper lost while its trainer was unregistered is exactly the state the operator
+2366:         '--resolve-unregistered', str(attempt), '--dry-run'],
+2370:    assert 'ABORT {} -> {}_ABORTED_unregistered'.format(attempt, attempt) in out
+2383:    """Replay the frozen ``run_child`` prologue and then take the registered TERM body.
+2431:            'EXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh\n' + script)
+
+exec
+/bin/bash -lc "sed -n '1,150p' worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close17_review.md; rg -n 'A2|pinned|frozen|oracle' worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/plan_orientation_cue_fairness.md; command -v python; ls -ld /tmp /home/yixunhu/miniconda3/envs/xRIR/bin/python" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+**Close review 17 — exp_11 `orientation_cue_fairness`, round 2**
+
+| Identity | Value |
+|---|---|
+| Model | GPT-6 / OpenAI Codex |
+| Reasoning effort | Not exposed in the supplied invocation metadata |
+| Sandbox | Managed read-only; authorized execution for `/tmp` fixtures and owned helpers |
+| Worktree | `/home/yixunhu/codespace/xRIR_code_wt` |
+| Branch | `exp11-cue` |
+| HEAD | `2e109d037ebe93aff98ed3afdc92fb88a2d77c41` |
+| Last production commit | `e918f4b7b0d57a601806c0940db83ae322b831ba` |
+| Review completed | 2026-09-28 09:00:28 UTC / 05:00:28 EDT |
+| Execution | UID 1013; CUDA disabled; one CPU thread per worker, at most four workers; pytest cache disabled; temporary writes under `/tmp` |
+
+**Verdict: request changes. Round 2 cannot be CLOSED, and `2e109d0` should not be merged.**
+
+The three original injections now refuse correctly. Independent replays found a remaining P1 in path-field validation and three P2 regressions.
+
+1. **[P1] Space-bearing and overlong encoded path fields still authorize lifecycle decisions.**
+
+   [tools/exp11_launch.sh:387](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:387) and [tools/exp11_pathprobe.py:61](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_pathprobe.py:61) accept embedded spaces. Both also count characters instead of filesystem-encoded bytes.
+
+   Using the real sourced launcher, real locks, and wrappers changing only the selected probe:
+
+   | Injection | Operation | Observed result |
+   |---|---|---|
+   | `link /forged parent/x` for `final`, which actually publishes the target | `resolve_unregistered` | Exit **0**; tombstone written; attempt retired; `final` left dangling |
+   | Same | Isolated `abort_recovery`, with a live stub registered through `register_trainer` | Exit **0**; attempt and log renamed; `final` dangling; stub still alive |
+   | `present 41ed /forged parent/launching` for the actual marker | `require_quiet_arm` | Exit **0**, despite the unresolved marker |
+   | `present 41ed <path>/launching`, with a 2,434-character / 4,834-byte UTF-8 path | `require_quiet_arm` | Exit **0**, despite exceeding the claimed 4,096-byte limit |
+
+   The isolated abort replay does **not** establish a bypass of the complete recovery entry point’s preceding live-process scan. The resolution replay reaches the actual scan, registration lock, tombstone and rename.
+
+   **Required:** enforce the specified path-field grammar, including rejection of embedded spaces, and measure the length in bytes. Add regressions that preserve the actual publication and attempt under these injections.
+
+2. **[P2] Terminal `..` canonicalizes to the wrong directory and bypasses a diagnostic tombstone check.**
+
+   [tools/exp11_pathprobe.py:136](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_pathprobe.py:136) treats terminal `..` like an empty or `.` component:
+
+   ```text
+   canonical("/base/sub/..") → "/base/sub"
+   actual resolved path     → "/base"
+   ```
+
+   Consequently, the CLI can print the mode of one directory alongside another directory’s canonical path.
+
+   The trainer consequence is reproducible without injecting a verdict: with `arm/attempt_X.resolved` present, `register_trainer("arm/attempt_X", no_save=True)` exits **3**, but the equivalent `arm/attempt_X/sub/..` succeeds. It checks `arm/attempt_X/sub.resolved` instead.
+
+   **Required:** resolve terminal `..` with its filesystem meaning. Add the equivalent-path tombstone regression.
+
+3. **[P2] The trainer normalizes malformed canonical fields before validating them.**
+
+   At [tools/exp11_train.py:309](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_train.py:309), `Path(...)` precedes `valid_path(...)`.
+
+   Injecting any of these canonical results for an otherwise valid attempt makes registration succeed and write `train.pid`:
+
+   ```text
+   /valid-arm//attempt_X
+   /valid-arm/./attempt_X
+   /valid-arm/attempt_X/
+   ```
+
+   `valid_path(raw_result)` returns false for each, but `Path` removes the offending spelling before validation.
+
+   **Required:** validate the raw canonical string before constructing `Path`, as the arm-root branch already does.
+
+4. **[P2] The basename check rejects an existing attempt supplied with a trailing slash.**
+
+   [tools/exp11_launch.sh:422](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:422) compares the returned basename with either the entire slash-stripped input or the basename of the unstripped input. For `/arm/attempt_X/`, neither comparison matches.
+
+   Through the real locked lifecycle, an ordinary unresolved attempt resolves successfully with its normal spelling, while the equivalent trailing-slash spelling returns **2**, claiming the directory cannot be inspected.
+
+   **Required:** derive the comparison basename from the appropriately slash-stripped input, retaining the explicit handling of root and special components. This is separate from correctly rejecting a dangling link with a trailing slash.
+
+The requested replay results were:
+
+| Check | Result |
+|---|---|
+| `link garbage` on the actual published `final`: resolution and isolated abort | **2**, attempt/publication/log preserved; registered stub remains alive |
+| `present 41ed relative` on `launching` | **2**, scan refuses |
+| Relative targets, `//abs`, `/abs/../x`, 5,000-character paths, CR-containing paths | Unknown; tested attempts and publications preserved |
+| Modes `f000`, `ffffffff`, and valid type bits with excessive length (`0000041ed`) | Unknown |
+| Embedded spaces | **Fails**, as finding 1 records |
+| `missing/../leaf`, `dangling/../leaf`, dangling link plus trailing slash | Unknown |
+| Resolvable `sub/../leaf` and `sub/../gone` | Correctly present and absent |
+| Terminal `..` | **Fails**, as finding 2 records |
+| Timeout values `1`, `30`, `300` | Accepted |
+| Timeout values `0`, `301`, `3s`, and 36 digits | Refused with exit **2** |
+
+The basename rule accepts an ordinary attempt reached through its arm’s symlink: `arm_alias/attempt_X` produces the canonical arm directory plus `attempt_X`, and the shell accepts it. The probe also correctly follows a final-component symlink to either a directory or a regular file and reports the target’s mode.
+
+The production publication guards inspect `final` through `link`. Production creates ordinary `launching`, `train.pid`, `train.exit` and `completion.json` files; I found no generated lifecycle layout requiring those sidecars to be symlinks. Resolution additionally probes its caller-supplied attempt pathname.
+
+However, “a probed name that is itself a symlink becomes unknown” is too broad. The shell checks **basename equality**, not symlink identity. Different-basename targets return unknown; a sidecar symlink pointing to another `launching` file passes. I replayed both cases.
+
+**Validation completed: 297 passed.**
+
+| Selected checks | Result |
+|---|---:|
+| `tests/test_exp11_shell.py` | 207 passed |
+| `tests/test_exp11_pathprobe.py` | 18 passed |
+| `tests/test_exp11_train.py` | 60 passed |
+| `tests/test_exp09_sim_eval_closures.py` | 3 passed |
+| Exact exp_04 `[True-promote]` case from the first suite log | 1 passed |
+| Pinned summarizer/admission output comparisons and registry checks | 8 passed |
+
+The existing tests therefore pass while missing the independently reproduced defects above. Shell syntax and `git diff --check f966461 2e109d0` also pass.
+
+For RED evidence, the exact `009836d` pathprobe and test versions were replayed under `/tmp`. `test_a_missing_component_before_a_dotdot_is_not_an_absence` failed as expected: it returned `absent` instead of `unknown`.
+
+The report’s canonicalization-order and identity-fallback corrections are accurate: canonicalization precedes the directory probes, literal identity fallbacks can compare equal, and all three PID checks precede the exclusion. The marker timestamp fallback at [tools/exp11_launch.sh:816](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:816) substitutes `now`, producing age zero and refusal at a positive grace period. With grace zero, that fallback does not itself refuse.
+
+Several report corrections remain necessary:
+
+- The claim that field validation handles embedded spaces is contradicted by finding 1. The “4,096 bytes” claim also exceeds the implementation.
+- The [timeout accounting](/home/yixunhu/codespace/xRIR_code_wt/worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_02:52:12_coder_round2_fix17_opus_report.md:120) is incorrect. A fully scanned attempt has **six outer timeout calls**: three PID readers and three sidecar probes. The reader’s internal Python path probe shares its existing deadline. Three TERM-ignoring sidecar probes took **18.21 seconds** with timeout 1 plus kill grace 5, returning unknown and preserving the fixture. At the default, that sidecar group can take approximately **105 seconds**, not 70. Resolution adds self-tests and other probes; 140 seconds is not a universal bound.
+- Both retained full-suite logs expose HEAD **`fef89bad716fac8a039c2a4774fcac36a562d850`**, rather than the report’s claimed exact HEAD `e918f4b`. Their production bytes are identical.
+- The exp_04 transaction runs on the main thread; only its SIGTERM sender runs on a background thread, at [tests/test_exp04_launcher.py:381](/home/yixunhu/codespace/xRIR_code_wt/tests/test_exp04_launcher.py:381). Unchanged source, the isolated pass and the successful rerun support an unrelated timing-sensitive flake. The logs do not establish co-tenancy as its cause.
+- “Every commit is under 200 changed lines” applies to the six implementation/test commits. The two bookkeeping commits add **624** and **538** lines.
+
+The retained full-suite results are accurately reported as:
+
+| Log | Result |
+|---|---|
+| First run | **2 failed, 3987 passed, 55 skipped** |
+| Rerun | **1 failed, 3988 passed, 55 skipped** |
+
+The additional first-run failure is the exp_04 capture assertion. No exp_04 source or test file changed since `9f98bbb`. The rerun’s sole failure is the expected stale exp_06 `summarize_haa` approval digest. I reviewed those logs and replayed the isolated failure; I did not repeat the full CPU suite.
+
+Production changes total **+153/−21**; tests total **+179/−0**. The eight-commit history and record-only changes after `e918f4b` match the stated scope.
+
+Closure hygiene passes:
+
+- All **28 exp_06/exp_11 code digests** agree between `e918f4b` and `2e109d0`.
+- Against exp_06’s approval record at `9f98bbb`, only `code.summarize_haa` moves; the other **19 keys** match.
+- Five exp_11 keys move versus `f966461`: `train`, `finalize`, `launch_sh`, `smoke`, `summarize_haa`. The three HAA keys remain unchanged.
+- Sim-eval closures remain unchanged; all three closure tests pass.
+- Existing frozen sources and all 12 exp_03 pinned source records match their reviewed bytes. Pinned oracle comparisons pass.
+- `ckpt/exp11` is entirely absent after testing.
+- Git status remains unchanged, containing only the pre-existing untracked close17 prompt.
+
+The frozen identities are:
+
+```text
+tools/exp06_launch.sh
+d20ca47a0baabeb9ab799688aa61b16ca1b2bb8837d57e46611b28761e9f8a09
+
+tools/exp06_finalize.py
+9237ed6d4529d6af21127b6d54d1b27d7e339782dfd7781557901dbcd3078479
+
+13:1. **Heading frame (data level).** The whole scene (depth panorama, query and reference source coordinates) is rotated by `k = 128` so that the loudspeaker's inferred acoustic axis (−y in all four rooms, `ckpt/exp06/heading/*.json`, `confirmatory`) points along +x (`tools/exp06_heading.py::HeadingFrameDataset` → pinned `tools/yaw_rotation.py::rotate_scene_yaw`). This is **implicit orientation conditioning**: the heading is delivered by canonicalising the input frame. For a model pretrained at rotation 0 it is also a coordinate-frame change relative to pretraining.
+18:Yaw augmentation (exp_04/exp_09's E) trains the SimpleViT to be insensitive to the scene's roll relative to its pinned position code during *pretraining*; HAA fine-tuning applies no augmentation, so orientation dependence can be re-learned. "G ≈ E" is therefore a prospective hypothesis (N3), not a consequence of the code; G is described precisely as "the yaw-pretrained SimpleViT fine-tuned and evaluated in the heading frame".
+41:### 2.3 New models (all in new files; every existing `model/*.py` is frozen)
+44:- `SimpleViTAdapter` (`model/xRIR_simple_adapter.py`): wraps the **pinned** SimpleViT unchanged; a `Linear(2 → dim)` with **zero weight and zero bias** (1 536 parameters at dim 512) of the heading-relative azimuth `(cos(θ_j − φ), sin(θ_j − φ))` of each of the 16 token columns, **token-angle convention `θ_j = 2π(j + ½)/16 − π`**, φ = the bound `phi_deg` converted to radians, is **added after the patch embedding's final LayerNorm**, next to the positional code (tokens of one column share the value). Heading routing: the unchanged dataset/loss interface carries no room identifier, so the exp_11 entry points validate that every participating room's bound heading record supplies the **same** heading (all four records: `phi_deg −90`, `k 128`, confirmatory), install that shared cue, and **refuse mixed headings**; per-room conditioning is out of scope. Two loading modes, both strict: (i) initialisation from A/E — every inherited key validated strictly, only the adapter weight/bias initialised to zero (function bit-exact to the base checkpoint, tested); (ii) later stage/evaluation checkpoints — the complete adapter state required strictly (never `strict=False`, never a silently re-zeroed adapter). **Interpretation (fixed):** with one heading for all rooms, `W·a_j(φ) + b = W·R(−φ)·a_j(0) + b`, so the heading is absorbable into the learned projection; J/K test *an added learnable circular positional representation during fine-tuning*, a fair supplementary explicit-conditioning control; Q1/Q3 cannot attribute a gain to measured heading information. Registered as a different design from CERPA's five-channel pretraining.
+46:- Registry `BACKBONES_EXP11 = {**BACKBONES_EXP06, 'simple_oriented': …, 'simple_adapter': …}` and `build_xrir_exp11`; the inherited routes return the pinned classes (`is`), bit-identical outputs on a fixed batch; `BACKBONES_EXP06` is never mutated (its digest is part of every completed exp_06/exp_09 child).
+56:- **N1i** — interaction (G − E) − (D − A): computed with the frozen bootstrap as `paired_intervals(g − e, d − a, query_clusters, seeds)` (jointly resampled; never a subtraction of two independently bootstrapped intervals) by an exp_11 **four-arm assembler** that checks query index, IR path, protocol metadata and seed alignment across A/D/E/G, uses one query mask finite across all four arms and all three seeds, reports each arm's original exclusions, requires the joint cohort to cover ≥ 99 % of the room's test queries, and keeps the component invalidity checks of G − E and D − A. Field: category, read as "a positive interaction = a larger heading-frame penalty after yaw pretraining" (not as harm by any single arm). A degenerate (zero-width) interval — possible by cancellation; the frozen convergence helper raises on it — yields a defined **unavailable** result in the exp_11 wrapper without aborting the summary and without touching the historical helper. Disclosure: D − A was observed in exp_06 (hallway C50 +0.63 dB) before this plan; G − E was not.
+80:**Frozen (never edited).** Every *existing* `model/*.py`; `sim_to_real/haa_dataset.py`; `tools/exp06_heading.py`; `tools/yaw_rotation.py`; `tools/yaw_aug.py`; `tools/provenance.py`; `tools/exp04_profiles.py`; `tools/exp06_approvals_api.py`; `tools/exp06_profiles.py`; `tools/exp06_{eval,eval_launch,compare,mirror_probe,probe_align,bootstrap,haa_finetune,haa_eval,train,recipe,smoke}.py`; `tools/exp06_launch.sh`; `train_xRIR_backbone.py`; the exp_03-pinned evaluators and dataset module; and the complete dependency closures behind the `eval`/`eval_launch`/`compare`/`mirror_probe` keys (`tests/test_exp09_sim_eval_closures.py` stays green). New modules may be added freely. `BACKBONES_EXP06` is never mutated.
+100:**Explicitly deferred.** Simulated k = 0 evaluations of H/I (the frozen exp_06 route recognises only `BACKBONES_EXP06`; an exp_11 route would be a further round; Yixun decision (e)). Historical *pretraining* replay of arm C's record (Codex found pre-existing drift in the full-pretraining validator's current-bytes check; exp_11 preserves current HAA/sim admission only and does not rewrite or weaken anything).
+104:1. Static + unit tests (`CUDA_VISIBLE_DEVICES=''`), per round. Round 1: the cases in §4.3. Round 2: encoder equalities and counts; adapter bit-exact at init and pinned state-dict loading; registry isolation (`BACKBONES_EXP06` and its digest unchanged; `tests/test_exp09_sim_eval_closures.py` green); recipe profiles accept exactly H and I and refuse mixtures; launcher golden argv; wrappers refuse exp_06 run types; per-arm identity mapping; phase-output refusal to overwrite.
+112:`ckpt/exp11/{sim2real/**, pretrain/**, phase1/, phase1b/, stats.json, summary.txt}`; record `worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/` (plan, query log, worklog, command record, commit index, params set-up, Codex reviews, Coder reports, logs, `orientation_cue_fairness_results.md`, `orientation_cue_fairness_analysis.md`, `orientation_cue_fairness_01_results.html` + generators); a paper-ready LaTeX block with the fixed four rows and the supplementary block, sourced from the final canonical JSON; supporting descriptive analyses: fine-tuned side splits (−y / +y) from the retained per-query outputs for every arm, and, if Yixun wants them, within-checkpoint orientation-sensitivity diagnostics through a reviewed exp_11 driver around the frozen mirror-probe helpers (the frozen CLI hard-codes the room frame for its SimpleViT slot), labelled exploratory.
+132:- v3 (2026-09-26): responses to the Codex round-2 review (`orientation_cue_fairness_codex_plan_round2_review.md`, approve with changes): (1) adapter contract completed (zero weight and bias, 1 536 parameters; token-angle convention; shared-heading validation with mixed headings refused; two strict loading modes; interpretation restricted — the heading is absorbable into the projection, J/K test an added learnable circular positional representation; P1/P2 the better-matched channel comparisons; P4 bundles pretraining and frame change; 'absolute azimuth anchor' wording); (2) N1i via the frozen `paired_intervals` on `(g − e, d − a)` with a four-arm assembler, ≥ 99 % joint cohort, defined unavailable result for degenerate intervals, exp_11 screens under the universal suppression; (3) R1 replaced by a source-field map with selectors (no manufactured fields); (4) exp_11-owned faithful orchestration loop with a parity test, per-arm admission adapter in the summariser, adapter-heading admission fields, no old-finalizer registration, G noted as using the exp_06 route; (5) `launch_sh` key, producer/arm requirement matrix, enumerated diagnostic kinds with budgets and non-admissibility.
+139:- **A2 (2026-09-28 05:1x, Planner decision after Codex close reviews 15–17).** The launcher's filesystem probe (`tools/exp11_pathprobe.py`, A1's successor design) **returns no path strings**. Verdicts carry only a mode (`present <mode-hex>` / `absent`) or a link classification (`link` / `notlink` / `nolink`); every decision that formerly compared a returned canonical path or link target with another path now asks the probe an IDENTITY question — `same <a> <b>` → `same` / `different` / unknown, decided in Python by device and inode of the followed stats (`os.path.samestat`), with a link's target resolved in-process. Log lines may print an informational `readlink` result but no decision depends on it. Rationale: three consecutive close reviews found residual gaps in the path-field grammar (relative paths, spaces, byte counts, terminal `..`, trailing slashes); a protocol that carries no paths has no such grammar. The trainer, in-process, uses the same Python identity primitives for arm containment (no string comparison of canonical fields).
+/home/yixunhu/miniconda3/bin/python
+lrwxrwxrwx    1 yixunhu yixunhu       9 Apr 25 17:07 /home/yixunhu/miniconda3/envs/xRIR/bin/python -> python3.8
+drwxrwxrwt 1143 nobody  nogroup 1208320 Sep 28 06:30 /tmp
+
+exec
+/bin/bash -lc "sed -n '1,200p' tests/test_exp11_shell.py; sed -n '1560,1960p' tests/test_exp11_shell.py" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+"""Golden dry runs of exp_11's launcher and HAA pipeline (plan v3 items 10 and 12).
+
+Every argv the two shells would issue is frozen in
+``orientation_cue_fairness_results_assets/golden/``. A deliberate change regenerates the
+files in the same commit; an accidental one -- a flag, a path, a run type, a cue -- fails
+here. The refusals (unknown init, malformed job, unknown arm) are checked directly.
+"""
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import time
+
+import pytest
+
+REPO = Path(__file__).resolve().parents[1]
+GOLD = (REPO / 'worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude'
+        / 'orientation_cue_fairness_results_assets/golden')
+PYTHON = '/home/yixunhu/miniconda3/envs/xRIR/bin/python'
+COMMIT = 'c' * 40
+LAUNCH = ['bash', 'tools/exp11_launch.sh']
+PIPELINE = ['bash', 'tools/exp11_haa_pipeline.sh']
+CASES = {
+    'launch_full_H': LAUNCH + ['full', '--arm', 'H', '--gpu', '1',
+                               '--reviewed-commit', COMMIT, '--dry-run'],
+    'launch_full_I': LAUNCH + ['full', '--arm', 'I', '--gpu', '1',
+                               '--reviewed-commit', COMMIT, '--dry-run'],
+    'launch_probe_H': LAUNCH + ['probe', '--arm', 'H', '--gpu', '1',
+                                '--reviewed-commit', COMMIT, '--dry-run'],
+    'launch_smoke_H': LAUNCH + ['smoke', '--arm', 'H', '--gpu', '1',
+                                '--reviewed-commit', COMMIT, '--dry-run'],
+    'pipeline_simple_or_seed0': PIPELINE + ['1', 'simple_or:0', '--dry-run'],
+    'pipeline_simple_or_yaw_seed1': PIPELINE + ['1', 'simple_or_yaw:1', '--dry-run'],
+    'pipeline_control_adapter_seed2': PIPELINE + ['1', 'control_adapter:2', '--dry-run'],
+    'pipeline_yawaug_adapter_zeroshot': PIPELINE + ['1', 'yawaug_adapter:zeroshot',
+                                                    '--dry-run'],
+    'pipeline_mixed_queue': PIPELINE + ['0', 'simple_or:0', 'control_adapter:zeroshot',
+                                        'simple_or_yaw:2', '--dry-run'],
+}
+
+
+def shell(command):
+    """Run one shell with no GPU and normalise the machine-specific paths."""
+    result = subprocess.run(command, cwd=str(REPO), capture_output=True, text=True,
+                            env=dict(os.environ, CUDA_VISIBLE_DEVICES=''))
+    text = (result.stdout.replace(PYTHON, '<PYTHON>')
+            .replace(str(Path.home()), '<HOME>').replace(str(REPO), '<REPO>'))
+    return result.returncode, text, result.stderr
+
+
+@pytest.mark.parametrize('name', sorted(CASES))
+def test_golden_dry_run(name):
+    status, text, stderr = shell(CASES[name])
+    assert status == 0, stderr[-800:]
+    golden = GOLD / (name + '.txt')
+    assert golden.is_file(), 'missing golden {}'.format(golden)
+    assert text == golden.read_text(), (
+        'the {} dry run changed; regenerate {} in the same commit if deliberate'.format(
+            name, golden.name))
+
+
+def test_static_syntax():
+    for script in ('tools/exp11_launch.sh', 'tools/exp11_haa_pipeline.sh'):
+        assert subprocess.run(['bash', '-n', script], cwd=str(REPO)).returncode == 0
+
+
+def test_the_pipeline_refuses_the_whole_queue_before_anything_runs():
+    for job, message in (('cyl_or:0', 'unknown init'),          # an exp_06 arm
+                         ('yawaug:0', 'unknown init'),          # an exp_09 arm
+                         ('simple_or:x', 'is not a seed'),
+                         ('simple_or:0:1', 'is not a seed'),
+                         ('zeroshot', 'unknown job')):
+        result = subprocess.run(PIPELINE + ['1', job, '--dry-run'], cwd=str(REPO),
+                                capture_output=True, text=True,
+                                env=dict(os.environ, CUDA_VISIBLE_DEVICES=''))
+        assert result.returncode == 2, job
+        assert message in result.stderr, (job, result.stderr)
+        assert 'MKDIR' not in result.stdout
+
+
+def test_the_launcher_refuses_an_unknown_arm_and_an_incomplete_recovery():
+    for extra, status in ((['--arm', 'Z'], 2), ([], 2)):
+        result = subprocess.run(
+            LAUNCH + ['full', '--gpu', '1', '--reviewed-commit', COMMIT, '--dry-run'] + extra,
+            cwd=str(REPO), capture_output=True, text=True,
+            env=dict(os.environ, CUDA_VISIBLE_DEVICES=''))
+        if extra:
+            assert result.returncode == status and 'unknown arm' in result.stderr
+    result = subprocess.run(LAUNCH + ['finalize', '--arm', 'H', '--gpu', '1',
+                                      '--reviewed-commit', COMMIT, '--dry-run'],
+                            cwd=str(REPO), capture_output=True, text=True,
+                            env=dict(os.environ, CUDA_VISIBLE_DEVICES=''))
+    assert result.returncode == 2 and 'usage' in result.stderr
+
+
+def test_every_init_and_every_cue_appears_in_the_golden_queues():
+    """Each arm's frame, cue flag and entry points are what plan section 2.2 registers."""
+    heading = (GOLD / 'pipeline_simple_or_seed0.txt').read_text()
+    assert 'frame=heading' in heading and '--heading-json-dir ckpt/exp06/heading' in heading
+    assert '--adapter-heading-json-dir' not in heading
+    adapter = (GOLD / 'pipeline_control_adapter_seed2.txt').read_text()
+    assert 'frame=room' in adapter
+    assert '--adapter-heading-json-dir ckpt/exp06/heading' in adapter
+    assert '--heading-json-dir' not in adapter.replace('--adapter-heading-json-dir', '')
+    for text in (heading, adapter):
+        assert 'tools/exp11_haa_finetune.py' in text and 'tools/exp11_haa_eval.py' in text
+        assert '--run-type exp11_haa_finetune' in text or 'exp11_haa_finetune' in text
+        assert 'tools/exp06_haa_finetune.py' not in text
+        assert 'CENSUS gpu=' in text          # the explicit exclusive-card census
+        assert 'exp11_haa_job' in text
+    mixed = (GOLD / 'pipeline_mixed_queue.txt').read_text()
+    for init in ('simple_or', 'control_adapter', 'simple_or_yaw'):
+        assert 'JOB {} '.format(init) in mixed
+    assert mixed.count('CENSUS gpu=0') == 3   # one census per job, never inherited
+    assert 'QUEUE_DONE gpu=0' in mixed
+
+
+# --- blocker 4: the 36 h ceiling may only be tightened ------------------------------
+
+CEILING = 129600
+
+
+def launch(args, env=None):
+    result = subprocess.run(LAUNCH + args, cwd=str(REPO), capture_output=True, text=True,
+                            env=dict(os.environ, CUDA_VISIBLE_DEVICES='', **(env or {})))
+    return result.returncode, result.stdout, result.stderr
+
+
+@pytest.mark.parametrize('value', ['0', '-1', '36h', '', '129601', '1000000'])
+def test_an_override_that_disables_or_loosens_the_ceiling_is_refused(value):
+    """GNU timeout treats 0 as 'no timeout', and anything above 36 h exceeds the plan."""
+    status, out, err = launch(['full', '--arm', 'H', '--gpu', '1', '--reviewed-commit',
+                               COMMIT, '--dry-run'], {'EXP11_FULL_CEILING_S': value})
+    assert status == 2, (value, out)
+    assert 'EXP11_FULL_CEILING_S' in err and 'refusing' in err
+    assert 'nohup setsid' not in out
+
+
+@pytest.mark.parametrize('value', ['1', '3600', str(CEILING)])
+def test_an_override_that_tightens_the_ceiling_is_accepted(value):
+    status, out, err = launch(['full', '--arm', 'H', '--gpu', '1', '--reviewed-commit',
+                               COMMIT, '--dry-run'], {'EXP11_FULL_CEILING_S': value})
+    assert status == 0, err[-500:]
+    assert 'CEILING {}s'.format(value) in out
+    assert 'timeout --kill-after=60 {} '.format(value) in out
+
+
+def test_the_default_ceiling_is_the_registered_thirty_six_hours():
+    status, out, _ = launch(['full', '--arm', 'I', '--gpu', '1', '--reviewed-commit',
+                             COMMIT, '--dry-run'])
+    assert status == 0 and 'CEILING {}s'.format(CEILING) in out
+
+
+# --- blocker 5: recovery may not promote an attempt of another arm ------------------
+
+
+def attempt_with(root, arm, profile, tmp_path, name='attempt_20260927T000000'):
+    """One attempt directory under a pretraining root, with the args a profile selects."""
+    from tools import exp11_recipe
+    spec = exp11_recipe.PROFILES[profile]
+    args = dict(spec['recipe'], yaw_aug_seed=0, yaw_aug_width=512)
+    args.update(spec['production'])
+    args.update(backbone=spec['backbone'], save_dir='x', num_workers=12, log_interval=50,
+                save_every=spec['save_every'], epoch_ckpt_every=spec['epoch_ckpt_every'],
+                env={}, train_batches_per_epoch=exp11_recipe.TRAIN_BATCHES_PER_EPOCH,
+                tier='M', param_counts={}, exp11_run_type='full', exp11_profile=profile,
+                exp11_registry_sha256='a' * 64, exp11_source_closure_sha256='b' * 64,
+                exp11_git_head='c' * 40, exp11_provenance_path='p')
+    directory = tmp_path / root / name
+    directory.mkdir(parents=True)
+    (directory / 'args.json').write_text(json.dumps(args))
+    return directory
+
+
+def recovery(attempt, arm, tmp_path, extra=(), log='L.log'):
+    return launch(['finalize', '--arm', arm, '--gpu', '1', '--reviewed-commit', COMMIT,
+                   '--attempt', str(attempt), '--log', log, '--child-exit', '0',
+                   '--dry-run'] + list(extra),
+                  {'EXP11_PRETRAIN_ROOT': str(tmp_path), 'EXP11_TEST_ROOTS': '1'})
+
+
+def publish(attempt, target=None, completed=True):
+    """Make ``final`` point at an attempt, as a finished run leaves the root."""
+    if completed:
+        (attempt / 'completion.json').write_text('{"run_type": "exp11_train"}')
+    link = attempt.parent / 'final'
+    if link.is_symlink() or link.exists():
+        link.unlink()
+    link.symlink_to((target or attempt).name)
+    return link
+
+
+def test_recovery_refuses_an_attempt_of_another_arm(tmp_path):
+    """A valid H attempt may not be promoted under I's root."""
+    attempt = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    status, out, err = recovery(attempt, 'I', tmp_path)
+    assert status == 2, out
+    assert 'refusing' in err
+    assert 'PROMOTE' not in out and 'EXP11_FINALIZE' not in out
+        assert 'unhealthy' in err or 'liveness unknown' in err, err
+        assert attempt.is_dir() and (attempt / 'launching').is_file()
+    finally:
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+def test_the_interpreter_override_is_refused_outside_the_test_roots(tmp_path):
+    """It exists for these regressions alone, and says so when anyone else tries it."""
+    status, out, err = launch(
+        ['finalize', '--arm', 'H', '--gpu', '1', '--reviewed-commit', COMMIT,
+         '--attempt', str(tmp_path), '--log', 'L.log', '--child-exit', '0', '--dry-run'],
+        {'EXP11_PYTHON': '/bin/false'})
+    assert status == 2 and 'EXP11_PYTHON' in err
+
+
+@pytest.mark.parametrize('kind,caught_by', [('always record', 'an empty file'),
+                                            ('always norecord', 'a file holding 1')])
+def test_the_health_check_catches_a_reader_that_answers_everything_the_same(
+        tmp_path, kind, caught_by):
+    """Two probes, because one answer is not a working reader.
+
+    A reader stuck on `record 1` calls every pid file a registration; one stuck on
+    `norecord` calls every trainer dead. Neither fails, so only asking it something
+    whose answer is known catches them.
+    """
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    try:
+        result = scan_with_reader(old.parent, reader(tmp_path, kind))
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert 'unhealthy' in result.stderr, result.stderr
+        assert caught_by in result.stderr, result.stderr
+    finally:
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+def test_a_broken_reader_leaves_the_marker_standing(tmp_path):
+    """clear_launching cannot withdraw a marker it cannot justify withdrawing."""
+    attempt = tmp_path / 'xRIR_simpor_8_shot' / 'attempt_20260927T171717'
+    attempt.mkdir(parents=True)
+    (attempt / 'launching').write_text('launcher 1\n')
+    (attempt / 'child.pid').write_text(DEAD)
+    (attempt / 'train.exit').write_text('train.exit 0\n')
+    result = lib('PYTHON={broken}\nclear_launching {attempt}\n'.format(
+        broken=reader(tmp_path, 'cannot run'), attempt=attempt))
+    assert result.returncode == 0, result.stderr[-300:]
+    assert (attempt / 'launching').is_file(), 'unknown is not a reason to clear'
+
+
+@pytest.mark.parametrize('payload', RAW_ANSWERS, ids=RAW_IDS)
+def test_only_the_exact_verdict_bytes_are_a_verdict(tmp_path, payload):
+    """Anything Bash would tidy into a verdict must be unknown instead."""
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    try:
+        broken = byte_reader(tmp_path, payload, only_on='train.pid')
+        result = resolve_with_reader(attempt, broken)
+        assert result.returncode == 2, (payload, result.stdout, result.stderr)
+        assert 'unknown' in result.stderr or 'unhealthy' in result.stderr
+        assert attempt.is_dir() and (attempt / 'launching').is_file()
+        assert pid_of(attempt / 'train.pid') == stub.pid
+        assert not (old.parent / (attempt.name + '.resolved')).exists()
+        scan_result = scan_with_reader(old.parent, broken)
+        assert scan_result.returncode == 2, scan_result.stdout
+    finally:
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+@pytest.mark.parametrize('payload', RAW_ANSWERS, ids=RAW_IDS)
+def test_the_health_probes_are_byte_exact_too(tmp_path, payload):
+    """The probes read the same way the real reads do, or they prove nothing."""
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    try:
+        result = scan_with_reader(old.parent, byte_reader(tmp_path, payload))
+        assert result.returncode == 2, (payload, result.stdout, result.stderr)
+        assert 'unhealthy' in result.stderr, result.stderr
+    finally:
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+def padding_reader(tmp_path):
+    """A reader whose answers are always right and always a byte too long.
+
+    It passes both probes under a check that compares what Bash made of the output,
+    because command substitution deletes the padding -- which is the whole point.
+    """
+    path = tmp_path / 'padding_wrapper.sh'
+    path.write_text('#!/bin/sh\ncase " $* " in\n  *" tools.exp11_pidrecord "*)\n'
+                    '    answer="$("{python}" "$@")" || exit $?\n'
+                    '    printf "%s\\n\\n" "$answer"\n    exit 0\n    ;;\nesac\n'
+                    'exec "{python}" "$@"\n'.format(python=PYTHON))
+    path.chmod(0o755)
+    return path
+
+
+def test_a_reader_that_pads_every_answer_is_unhealthy(tmp_path):
+    """Both probe answers are correct *and* padded: only the raw bytes tell them apart."""
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    try:
+        result = scan_with_reader(old.parent, padding_reader(tmp_path))
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert 'unhealthy' in result.stderr, result.stderr
+    finally:
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+@needs_a_non_root_user
+@pytest.mark.parametrize('shut_the', ['file', 'parent'])
+def test_a_pid_file_the_launcher_cannot_read_is_never_dead(tmp_path, shut_the):
+    """The reviewer's second schedule: chmod 000 on a registered live trainer's record.
+
+    The file exists and may well name a living process; a reader that cannot open it has
+    not established anything, least of all that the trainer is gone.
+    """
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    shut = (attempt / 'train.pid') if shut_the == 'file' else attempt
+    shut.chmod(0o000)
+    try:
+        probe = lib('ARM_ROOT={root}\nDRY=0\nARM=H\n'
+                    'status=0\npid_record {pid} || status=$?\necho "RECORD $status"\n'
+                    'status=0\npid_alive {pid} || status=$?\necho "ALIVE $status"\n'
+                    .format(root=old.parent, pid=attempt / 'train.pid'))
+        assert 'RECORD 2' in probe.stdout and 'ALIVE 2' in probe.stdout, probe.stdout
+        result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nUNRESOLVED_GRACE_S=3600\n'
+                     'hold_arm_lock finalize || exit 9\n'
+                     'resolve_unregistered {attempt}\n'.format(
+                         root=old.parent, attempt=attempt), {'EXP11_TEST_ROOTS': '1'})
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert 'liveness unknown' in result.stderr, result.stderr
+        assert not (old.parent / (attempt.name + '.resolved')).exists(), 'no tombstone'
+        assert not (old.parent / (attempt.name + '_ABORTED_unregistered')).exists()
+        scan_result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nrequire_quiet_arm\n'.format(
+            root=old.parent), {'EXP11_TEST_ROOTS': '1'})
+        assert scan_result.returncode == 2 and 'liveness unknown' in scan_result.stderr
+    finally:
+        shut.chmod(0o700 if shut_the == 'parent' else 0o600)
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+def test_the_file_classification_does_not_depend_on_a_translated_word(tmp_path):
+    """`stat -c %F` prints a phrase in the caller's language.
+
+    "regular file" is `fichier régulier` under a French locale and something else again
+    elsewhere, so a classification that matches that text calls a perfectly ordinary
+    train.pid a directory -- and a live trainer's record then reads as no record. The
+    mode bits are the same in every language.
+    """
+    text = (REPO / 'tools/exp11_launch.sh').read_text()
+    assert '-c %F' not in text, 'the file type must be read from the mode, not a phrase'
+    fifo = tmp_path / 'child.pid'
+    os.mkfifo(str(fifo))
+    result = lib('status=0\npid_record {fifo} || status=$?\necho "STATUS $status"\n'
+                 .format(fifo=fifo))
+    assert 'STATUS 1' in result.stdout, result.stdout   # definite, and it did not block
+
+
+# --- close review 13: a root we cannot LIST hides every attempt in it ---------------
+# A directory with mode 0300 is searchable and writable but not listable. The glob
+# `"$root"/attempt_*` over it silently expands to nothing, the unmatched pattern fails
+# `-d`, and the scan declared the arm quiet -- while both locks still acquired, because
+# a lock file is a known pathname. A resolution then retired a registered live trainer.
+
+
+def scan_under_lock(root, mode='full'):
+    """``require_quiet_arm`` where each mode runs it: under the arm lock."""
+    return lib('ARM_ROOT={root}\nDRY=0\nARM=H\n'
+               'hold_arm_lock {mode} || exit 9\nrequire_quiet_arm\n'.format(
+                   root=root, mode=mode), {'EXP11_TEST_ROOTS': '1'})
+
+
+def resolve_under_lock(attempt, grace='3600'):
+    return lib('ARM_ROOT={root}\nDRY=0\nARM=H\nUNRESOLVED_GRACE_S={grace}\n'
+               'hold_arm_lock finalize || exit 9\n'
+               'resolve_unregistered {attempt}\n'.format(
+                   root=attempt.parent, grace=grace, attempt=attempt),
+               {'EXP11_TEST_ROOTS': '1'})
+
+
+def unlistable(root, mode):
+    """Take away the right to LIST the arm, leaving the lock files reachable."""
+    (root / '.publish.lock').touch()
+    (root / '.registration.lock').touch()
+    root.chmod(mode)
+
+
+@needs_a_non_root_user
+@pytest.mark.parametrize('mode,what', [(0o300, 'search and write, no read'),
+                                       (0o100, 'search only')])
+@pytest.mark.parametrize('scan_mode', ['full', 'finalize'])
+def test_an_arm_root_that_cannot_be_listed_is_never_quiet(tmp_path, mode, what, scan_mode):
+    """An attempt we cannot see is not an attempt that is not there."""
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    root = old.parent
+    unlistable(root, mode)
+    try:
+        result = scan_under_lock(root, mode=scan_mode)
+        assert result.returncode == 2, (what, result.stdout, result.stderr)
+        assert 'cannot be enumerated' in result.stderr, result.stderr
+        assert 'PROMOTE' not in result.stdout
+    finally:
+        root.chmod(0o700)
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+@needs_a_non_root_user
+@pytest.mark.parametrize('mode', [0o300, 0o100])
+def test_a_resolution_under_an_unlistable_root_retires_nothing(tmp_path, mode):
+    """The reviewer's schedule: the live trainer's own attempt is the one at risk."""
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    root = old.parent
+    unlistable(root, mode)
+    try:
+        result = resolve_under_lock(attempt)
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert 'cannot be enumerated' in result.stderr, result.stderr
+        assert 'RESOLVED' not in result.stdout and 'TOMBSTONE' not in result.stdout
+    finally:
+        root.chmod(0o700)
+        assert attempt.is_dir() and (attempt / 'launching').is_file()
+        assert pid_of(attempt / 'train.pid') == stub.pid
+        assert not (root / (attempt.name + '.resolved')).exists()
+        assert not (root / (attempt.name + '_ABORTED_unregistered')).exists()
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+@needs_a_non_root_user
+def test_an_unlistable_root_keeps_the_marker(tmp_path):
+    """clear_launching withdraws protection on an understanding it no longer has."""
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    (attempt / 'train.exit').write_text('train.exit 0\n')
+    (attempt / 'child.pid').write_text('1\n')
+    root = old.parent
+    unlistable(root, 0o300)
+    try:
+        result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nclear_launching {attempt}\n'.format(
+            root=root, attempt=attempt))
+        assert result.returncode == 0, result.stderr[-300:]
+    finally:
+        root.chmod(0o700)
+        assert (attempt / 'launching').is_file(), 'the marker stands'
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+def test_an_empty_readable_root_is_quiet(tmp_path):
+    """A listing that succeeded and found nothing is an answer: the arm IS quiet."""
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
+    result = scan_under_lock(root)
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    assert 'refusing' not in result.stderr
+
+
+@needs_a_non_root_user
+def test_an_entry_the_scan_cannot_stat_is_unknown(tmp_path):
+    """The listing succeeded; one of the names in it cannot be looked at.
+
+    A name that fails `-d` used to be skipped as "not a directory", which is a verdict
+    about something nobody inspected. The arm holds nothing else, so the answer cannot
+    come from another entry whichever order the listing arrives in.
+    """
+    root = tmp_path / 'xRIR_simpor_8_shot'
+    root.mkdir(parents=True)
+    shut = root / 'shut'
+    (shut / 'real').mkdir(parents=True)
+    (root / 'attempt_20260927T181818').symlink_to(shut / 'real')
+    shut.chmod(0o000)
+    try:
+        result = scan_under_lock(root)
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert 'unknown' in result.stderr and 'attempt_20260927T181818' in result.stderr
+    finally:
+        shut.chmod(0o700)
+
+
+def test_a_flood_of_verdict_bytes_is_unknown_and_never_materialised(tmp_path):
+    """A rogue reader's output must never become a shell variable.
+
+    A verdict is at most eighteen bytes; anything longer cannot match. The shell must
+    therefore refuse it on the file's size and read at most a bounded prefix, rather
+    than pulling megabytes through a command substitution to find that out.
+    """
+    text = (REPO / 'tools/exp11_launch.sh').read_text()
+    assert 'head -c 64' in text, 'the digit extraction must read a bounded prefix'
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    try:
+        flood = b'record ' + b'1' * (2 * 1024 * 1024) + b'\n'
+        result = resolve_with_reader(attempt, byte_reader(tmp_path, flood,
+                                                         only_on='train.pid'))
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert attempt.is_dir() and (attempt / 'launching').is_file()
+    finally:
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+# --- close review 14: a root reached through a symlink, and guards that read a failed
+# inspection as an absence. One family: nothing may conclude "not there" from "could not
+# look".
+
+
+def test_a_symlinked_arm_root_is_still_enumerated(tmp_path):
+    """`find -P` does not descend a symlink given as its starting point.
+
+    The `-d`, `-r` and `-x` checks all follow it, so the root looked fine and the
+    listing came back empty and successful -- an arm with a live registered trainer in
+    it, read as an arm with nothing in it.
+    """
+    old, attempt, stub = registered_live_attempt(tmp_path)
+    link = tmp_path / 'arm-link'
+    link.symlink_to(old.parent)
+    try:
+        for mode in ('full', 'finalize'):
+            result = scan_under_lock(link, mode=mode)
+            assert result.returncode == 1, (mode, result.stdout, result.stderr)
+            assert 'live trainer (train.pid)' in result.stderr, result.stderr
+        result = resolve_under_lock(link / attempt.name)
+        assert result.returncode != 0, (result.stdout, result.stderr)
+        assert 'RESOLVED' not in result.stdout and 'TOMBSTONE' not in result.stdout
+        assert attempt.is_dir() and (attempt / 'launching').is_file()
+        assert pid_of(attempt / 'train.pid') == stub.pid
+        assert not (old.parent / (attempt.name + '.resolved')).exists()
+        assert not (old.parent / (attempt.name + '_ABORTED_unregistered')).exists()
+    finally:
+        stub.terminate()
+        stub.wait(timeout=30)
+
+
+def test_a_dangling_symlink_root_is_unknown(tmp_path):
+    link = tmp_path / 'arm-link'
+    link.symlink_to(tmp_path / 'nothing-here')
+    result = lib('ARM_ROOT={root}\nDRY=0\nARM=H\nrequire_quiet_arm\n'.format(root=link),
+                 {'EXP11_TEST_ROOTS': '1'})
+    assert result.returncode == 2, (result.stdout, result.stderr)
+    assert 'cannot be enumerated' in result.stderr
+
+
+def behind_a_shut_door(tmp_path, name, content='x'):
+    """A path that EXISTS and cannot be inspected: a symlink into a mode-000 directory."""
+    shut = tmp_path / ('shut_' + name.replace('/', '_'))
+    shut.mkdir()
+    (shut / 'target').write_text(content)
+    return shut, shut / 'target'
+
+
+@needs_a_non_root_user
+def test_a_marker_we_cannot_inspect_closes_the_arm(tmp_path):
+    """`-f` says "no" for a marker that is there and cannot be reached.
+
+    Every pid record of the attempt is definitely absent, so nothing else refuses: the
+    marker is the only thing standing between this arm and a promotion, and it was read
+    as missing because the test that looks for it failed.
+    """
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    attempt = old.parent / 'attempt_20260927T191919'
+    attempt.mkdir()
+    shut, target = behind_a_shut_door(tmp_path, 'launching', 'launcher 1\n')
+    (attempt / 'launching').symlink_to(target)
+    shut.chmod(0o000)
+    try:
+        result = scan_under_lock(old.parent)
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert 'unknown' in result.stderr and 'launching' in result.stderr
+    finally:
+        shut.chmod(0o700)
+
+
+@needs_a_non_root_user
+def test_a_receipt_we_cannot_inspect_is_never_retired(tmp_path):
+    """The resolution asserts "no completion receipt"; it may only assert what it saw."""
+    old = attempt_with('xRIR_simpor_8_shot', 'H', 'H_RECIPE', tmp_path)
+    attempt = unresolved_attempt(old.parent)
+    shut, target = behind_a_shut_door(tmp_path, 'completion', '{"run_type": "exp11_train"}')
+    (attempt / 'completion.json').symlink_to(target)
+    shut.chmod(0o000)
+    try:
+        result = resolve_under_lock(attempt, grace='0')
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert 'unknown' in result.stderr, result.stderr
+        assert 'RESOLVED' not in result.stdout and 'TOMBSTONE' not in result.stdout
+        assert attempt.is_dir() and (attempt / 'launching').is_file()
+        assert not (old.parent / (attempt.name + '.resolved')).exists()
+    finally:
+        shut.chmod(0o700)
+
+
+def unreachable_final(root, name='attempt_20260101T000000'):
+    """`final` reaching an old attempt through a directory nobody may enter."""
+    shut = root / 'shut'
+    (shut / name).mkdir(parents=True)
+    link = root / 'final'
+    link.symlink_to(shut / name)
+    shut.chmod(0o000)
+    return shut
+
+
+exec
+/bin/bash -lc "env CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/home/yixunhu/codespace/xRIR_code_wt /home/yixunhu/miniconda3/envs/xRIR/bin/python -m pytest -q -p no:cacheprovider --basetemp=/tmp/codex-close18-shell-1029 tests/test_exp11_shell.py" in /home/yixunhu/codespace/xRIR_code_wt
+ exited 1 in 60ms:
+Traceback (most recent call last):
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/runpy.py", line 194, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/runpy.py", line 87, in _run_code
+    exec(code, run_globals)
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pytest/__main__.py", line 9, in <module>
+    raise SystemExit(pytest.console_main())
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/_pytest/config/__init__.py", line 201, in console_main
+    code = main()
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/_pytest/config/__init__.py", line 156, in main
+    config = _prepareconfig(args, plugins)
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/_pytest/config/__init__.py", line 341, in _prepareconfig
+    config = pluginmanager.hook.pytest_cmdline_parse(
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pluggy/_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pluggy/_callers.py", line 139, in _multicall
+    raise exception.with_traceback(exception.__traceback__)
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pluggy/_callers.py", line 122, in _multicall
+    teardown.throw(exception)  # type: ignore[union-attr]
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/_pytest/helpconfig.py", line 105, in pytest_cmdline_parse
+    config = yield
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pluggy/_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/_pytest/config/__init__.py", line 1140, in pytest_cmdline_parse
+    self.parse(args)
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/_pytest/config/__init__.py", line 1494, in parse
+    self._preparse(args, addopts=addopts)
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/_pytest/config/__init__.py", line 1398, in _preparse
+    self.hook.pytest_load_initial_conftests(
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pluggy/_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pluggy/_callers.py", line 139, in _multicall
+    raise exception.with_traceback(exception.__traceback__)
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pluggy/_callers.py", line 122, in _multicall
+    teardown.throw(exception)  # type: ignore[union-attr]
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/_pytest/warnings.py", line 151, in pytest_load_initial_conftests
+    return (yield)
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pluggy/_callers.py", line 98, in _multicall
+    next(function_gen)  # first yield
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/_pytest/capture.py", line 169, in pytest_load_initial_conftests
+    capman.start_global_capturing()
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/_pytest/capture.py", line 771, in start_global_capturing
+    self._global_capturing = _get_multicapture(self._method)
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/_pytest/capture.py", line 712, in _get_multicapture
+    return MultiCapture(in_=FDCapture(0), out=FDCapture(1), err=FDCapture(2))
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/_pytest/capture.py", line 491, in __init__
+    TemporaryFile(buffering=0),
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/tempfile.py", line 596, in TemporaryFile
+    prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/tempfile.py", line 117, in _sanitize_params
+    dir = gettempdir()
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/tempfile.py", line 302, in gettempdir
+    tempdir = _get_default_tempdir()
+  File "/home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/tempfile.py", line 218, in _get_default_tempdir
+    raise FileNotFoundError(_errno.ENOENT,
+FileNotFoundError: [Errno 2] No usable temporary directory found in ['/tmp', '/var/tmp', '/usr/tmp', '/home/yixunhu/codespace/xRIR_code_wt']
+
+exec
+/bin/bash -lc "env CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/home/yixunhu/codespace/xRIR_code_wt /home/yixunhu/miniconda3/envs/xRIR/bin/python -m pytest -q -p no:cacheprovider --basetemp=/tmp/codex-close18-shell-1029 tests/test_exp11_shell.py" in /home/yixunhu/codespace/xRIR_code_wt

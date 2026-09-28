@@ -57,7 +57,7 @@ Keys recomputed at HEAD after the reviewed merge of exp11-cue; the other keys un
 $TRAILER" && log "committed $(git rev-parse HEAD)"; log "REFILL OK" ;;
   suite)   # CPU-only, to a log
     log "SUITE $TS HEAD=$(git rev-parse HEAD)"
-    CUDA_VISIBLE_DEVICES='' $PY -m pytest tests -q -p no:cacheprovider -rf --durations=5 > "$E/orientation_cue_fairness_${TS}_suite_full_cpu.log" 2>&1 || true
+    BT=/tmp/pytest-exp11-${TS}; CUDA_VISIBLE_DEVICES='' $PY -m pytest tests -q -p no:cacheprovider -rf --durations=5 --basetemp="$BT" > "$E/orientation_cue_fairness_${TS}_suite_full_cpu.log" 2>&1 || true; rm -rf "$BT"
     tail -1 "$E/orientation_cue_fairness_${TS}_suite_full_cpu.log" | tee -a "$LOG"; grep -E "^FAILED|^ERROR" "$E/orientation_cue_fairness_${TS}_suite_full_cpu.log" | tee -a "$LOG" || true ;;
   dryrun)
     log "DRYRUN $TS HEAD=$(git rev-parse HEAD)"
