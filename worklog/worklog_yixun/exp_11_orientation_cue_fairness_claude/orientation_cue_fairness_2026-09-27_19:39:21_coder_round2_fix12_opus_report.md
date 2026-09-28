@@ -17,6 +17,11 @@ and `flock` holders — through their own `Popen` handles. `kill -0` remains a p
 | `1ecd1f9` | exp11 fix12 (GREEN): the reader answers, or it does not answer at all |
 | `f3e5504` | exp11 fix12 (RED): a broken reader retires a registered, running trainer |
 | `9d742ad` | exp11 fix12 (GREEN): nothing is decided on an answer nobody gave |
+| `05bff3e` | exp11 fix12 (tests): the tombstone says what was established |
+| `80df5d6` | exp11 fix12 (docs): the rule in the launcher's own header |
+| `a954fe0` | exp11 fix12 (RED): a verdict line whose pid is not a pid is still trusted |
+| `2fc5300` | exp11 fix12 (GREEN): a verdict that is not digits is not a verdict |
+| `a700a24`, `f29e429`, `9ea21f5` | exp_11 bookkeeping: this report, close review 11, the fix-12 prompt, and two superseded suite logs dropped (record only) |
 
 ## The blocker [P1] — a failed reader was read as "not alive"
 
@@ -146,9 +151,13 @@ disagree. A misuse of the CLI exits 2 with no verdict line.
 | `f3e5504` (RED) | — | +174 | — |
 | `9d742ad` (GREEN) | `exp11_launch.sh` +91/−15 | — | fix-11 report +4/−2 |
 | `05bff3e` (tests) | — | +5/−1 | — |
-| range `fdb74fc..HEAD` | **+139 / −32 = 171 changed** | +226/−18 | +4/−2 |
+| `80df5d6` (docs) | `exp11_launch.sh` +6 | — | — |
+| `a954fe0` (RED) | — | +8/−1 | — |
+| `2fc5300` (GREEN) | `exp11_launch.sh` +7/−1 | — | — |
+| range `fdb74fc..HEAD` | **+151 / −32 = 183 changed** | +233/−18 | +4/−2 |
 
-Every commit is under 200 changed lines; no exception this cycle.
+Every commit is under 200 changed lines; no exception this cycle (the three record-only
+bookkeeping commits are larger, as they always are).
 
 ## Frozen files
 
@@ -160,7 +169,7 @@ silent.
 
 ## Digests
 
-Taken at `05bff3e`, the cycle's tip.
+Taken at `2fc5300`, the cycle's last production commit.
 
 **exp_06** — exactly **one** key differs from the record re-filled at `9f98bbb`, and it is
 the only one allowed to move (`tools/exp06_summarize_haa.py` imports `exp11_finalize` and
@@ -181,7 +190,7 @@ The other 19 exp_06 keys are identical to the approved record.
 | `haa_finetune` | `bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150` | unchanged |
 | `haa_eval` | `f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20` | unchanged |
 | `haa_pipeline_sh` | `3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4` | unchanged |
-| `launch_sh` | `358a7aaa6d1de5b895314abd24778ca13ccebee13c1cf36b6ee68b735cbc5032` | **moved** |
+| `launch_sh` | `4153a2c749be5df4f092374d139dbcc73a8118e2966a3ce2be208c244fbfe2e0` | **moved** |
 | `smoke` | `60571786e0acb996d847d15d747a819c3b8e6616cdb54247b347e3a8d00749f9` | **moved** |
 | `summarize_haa` | `650a5a6d97cbc8a3c4c54d647a3c75a993d9f79eb22b2c9b10034d357950a660` | **moved** |
 
@@ -197,9 +206,9 @@ Every run CPU-only (`CUDA_VISIBLE_DEVICES=''`), in the `xRIR` env.
 
 | run | result |
 |---|---|
-| `tests/test_exp11_shell.py`, `test_exp11_pidrecord.py`, `test_exp11_train.py`, `test_exp11_lock_holder.py` | **255 passed** (128 s) |
+| `tests/test_exp11_shell.py`, `test_exp11_pidrecord.py`, `test_exp11_train.py`, `test_exp11_lock_holder.py` | **255 passed** (128 s), and **200 passed** for the two files again after the last GREEN |
 | the other exp_11 files + `tests/test_exp06_summarize_haa.py` + `tests/test_exp09_sim_eval_closures.py` | **291 passed** (729 s) |
-| full CPU suite at the tip `80df5d6`, detached | _(below)_ |
+| full CPU suite at the tip `2fc5300`, detached | _(below)_ |
 
 One older fixture changed with the wording: `test_the_resolution_writes_a_tombstone_...`
 asserted the word "unregistered" in the tombstone, and now asserts the substance the
