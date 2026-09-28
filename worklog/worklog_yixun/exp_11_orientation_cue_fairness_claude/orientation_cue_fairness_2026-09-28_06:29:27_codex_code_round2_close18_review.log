@@ -4184,3 +4184,1000 @@ worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fai
 
 codex
 The 23 pathprobe tests and 62 trainer tests pass. Replaying the cycle’s first RED commit fails as expected because it still emits a pathname. The remaining string comparison is a real A2 audit gap: existing bind-mount aliases can have the same device/inode while `Path.resolve()` leaves different strings. It fails closed, but rejects identity-equivalent containment.
+exec
+/bin/bash -lc "env CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/home/yixunhu/codespace/xRIR_code_wt /home/yixunhu/miniconda3/envs/xRIR/bin/python - <<'PY'
+import os, sys, time, tempfile, subprocess, shlex, importlib.util
+from pathlib import Path
+repo=Path.cwd(); py=sys.executable
+spec=importlib.util.spec_from_file_location('shell_test', repo/'tests/test_exp11_shell.py')
+m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+q=lambda v: shlex.quote(str(v))
+answers=['present','present 81a4 /forged parent/x','present 81a4 ','absent yes','link /x','same different','yes']
+with tempfile.TemporaryDirectory(prefix='codex-close18-live-', dir='/tmp') as temp:
+    tmp=Path(temp); root=tmp/'live_arm'; attempt=root/'attempt_20260928T053000'; attempt.mkdir(parents=True)
+    (attempt/'launching').write_text('launcher 1\\n'); log=tmp/'child.log'; log.write_text('stub\\n')
+    final=root/'final'; final.symlink_to(attempt.name)
+    stub=subprocess.Popen([py,'-c','from tools.exp11_train import register_trainer; import sys,time; register_trainer(sys.argv[1]); time.sleep(300)',str(attempt)],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+    try:
+        deadline=time.monotonic()+20
+        while not (attempt/'train.pid').exists() and stub.poll() is None and time.monotonic()<deadline: time.sleep(.02)
+        assert (attempt/'train.pid').read_text().strip()==str(stub.pid)
+        wrapper=tmp/'probe-wrapper'
+        wrapper.write_text('#"'!/bin/sh'"\\nif [ \""'$1" = -m ] && [ "$2" = tools.exp11_pathprobe ] && { [ "$BREAK_QUESTION" = "*" ] || [ "$3" = "$BREAK_QUESTION" ]; } && { [ -z "$BREAK_PATH" ] || [ "$4" = "$BREAK_PATH" ]; }; then printf "%s'"\\\\n\" \""'$BAD_ANSWER"; exit 0; fi'"\\nexec '+q(py)+' \""'$@"'"\\n'); wrapper.chmod(0o700)
+        setup='ARM_ROOT='+q(root)+'\\nARM=H\\nDRY=0\\nUNRESOLVED_GRACE_S=0\\nhold_arm_lock finalize || exit 90\\nPYTHON='+q(wrapper)+'\\n'
+        env={'EXP11_TEST_ROOTS':'1','BREAK_QUESTION':'*','BREAK_PATH':'','BAD_ANSWER':''}
+        calls=['probe_path '+q(attempt),'file_present '+q(attempt/'launching'),'probe_link '+q(final),'same_path '+q(final)+' '+q(attempt),'same_parent '+q(attempt)+' '+q(root)]
+        body=setup+'for BAD_ANSWER in '+' '.join(q(x) for x in answers)+'; do\\nexport BAD_ANSWER\\n'
+        for call in calls: body+='s=0; '+call+' || s="'$?; [ "$s" -eq 2 ] || { echo BAD '"'+q(call)+' \""'$BAD_ANSWER" "$s"; exit 91; }'"\\n'
+        body+='done\\necho DIRECT_UNKNOWN_35_OK\\n'
+        r=m.lib(body,env); assert r.returncode==0,(r.stdout,r.stderr); print(r.stdout.splitlines()[-1])
+        for question in ['link','same']:
+            env.update(BREAK_QUESTION=question,BREAK_PATH=str(final))
+            body=setup+'for BAD_ANSWER in '+' '.join(q(x) for x in answers)+'; do\\nexport BAD_ANSWER\\n'
+            for call in ['publishes '+q(attempt),'already_published '+q(attempt),'REPLACE_FINAL=0 check_final_conflict '+q(attempt),'REPLACE_FINAL=1 check_final_conflict '+q(attempt),'abort_recovery '+q(attempt)+' '+q(log),'resolve_unregistered '+q(attempt)]:
+                body+='s=0; '+call+' || s="'$?; [ "$s" -eq 2 ] || { echo BAD '"'+q(call)+' \""'$BAD_ANSWER" "$s"; exit 92; }'"\\n'
+            body+='done\\necho GUARDS_UNKNOWN_42_OK\\n'
+            r=m.lib(body,env); assert r.returncode==0,(question,r.stdout,r.stderr); print(question+': '+r.stdout.splitlines()[-1])
+        env.update(BREAK_QUESTION='sameparent',BREAK_PATH=str(attempt))
+        body=setup+'for BAD_ANSWER in '+' '.join(q(x) for x in answers)+'; do\\nexport BAD_ANSWER\\ns=0; resolve_unregistered '+q(attempt)+' || s="'$?; [ "$s" -eq 2 ] || exit 93'"\\ndone\\necho CONTAINMENT_UNKNOWN_7_OK\\n'
+        r=m.lib(body,env); assert r.returncode==0,(r.stdout,r.stderr); print(r.stdout.splitlines()[-1])
+        assert stub.poll() is None and attempt.is_dir() and final.resolve()==attempt and log.is_file()
+        assert not (root/(attempt.name+'.resolved')).exists()
+        final.unlink(); final.symlink_to('missing')
+        body='ARM_ROOT='+q(root)+'\\nARM=H\\nDRY=0\\nhold_arm_lock finalize || exit 90\\n'
+        for call in ['publishes '+q(attempt),'already_published '+q(attempt),'check_final_conflict '+q(attempt),'abort_recovery '+q(attempt)+' '+q(log),'resolve_unregistered '+q(attempt)]:
+            body+='s=0; '+call+' || s="'$?; [ "$s" -eq 2 ] || exit 94'"\\n'
+        r=m.lib(body,{'EXP11_TEST_ROOTS':'1'}); assert r.returncode==0,(r.stdout,r.stderr); print('DANGLING_FINAL_5_UNKNOWN_OK')
+        final.unlink()
+        alias=tmp/'arm_alias'; alias.symlink_to(root)
+        body='ARM_ROOT='+q(alias)+'\\nARM=H\\nDRY=0\\nhold_arm_lock finalize || exit 90\\ns=0; require_quiet_arm '+q(str(alias)+'//'+attempt.name+'/')+' || s="'$?; [ "$s" -eq 1 ] || exit 95'"\\n'
+        r=m.lib(body,{'EXP11_TEST_ROOTS':'1'}); assert r.returncode==0 and 'live trainer' in r.stderr,(r.stdout,r.stderr); print('LIVE_TRAINER_BEFORE_ALIAS_EXCLUSION_OK')
+        assert stub.poll() is None and (attempt/'train.pid').read_text().strip()==str(stub.pid)
+    finally:
+        stub.terminate(); stub.communicate(timeout=20)
+    quiet=tmp/'quiet'; quiet.mkdir(); target=quiet/'attempt_20260928T054000'; target.mkdir(); (target/'launching').touch(); (target/'sub').mkdir()
+    alias=tmp/'quiet_alias'; alias.symlink_to(quiet)
+    body='ARM_ROOT='+q(alias)+'\\nARM=H\\nDRY=0\\nhold_arm_lock finalize || exit 90\\nrequire_quiet_arm '+q(str(alias)+'//./'+target.name+'/sub/..')+'\\n'
+    r=m.lib(body,{'EXP11_TEST_ROOTS':'1'}); assert r.returncode==0,(r.stdout,r.stderr); print('QUIET_TARGET_ALIAS_EXCLUSION_OK')
+    env.update(BREAK_QUESTION='same',BREAK_PATH=str(target))
+    body='ARM_ROOT='+q(quiet)+'\\nARM=H\\nDRY=0\\nhold_arm_lock finalize || exit 90\\nPYTHON='+q(wrapper)+'\\nfor BAD_ANSWER in '+' '.join(q(x) for x in answers)+'; do\\nexport BAD_ANSWER\\ns=0; require_quiet_arm '+q(str(alias)+'/'+target.name) +' || s="'$?; [ "$s" -eq 2 ] || exit 96'"\\ndone\\n'
+    r=m.lib(body,env); assert r.returncode==0,(r.stdout,r.stderr); print('SCAN_EXCLUSION_UNKNOWN_7_OK')
+    print('REGISTERED_LIVE_STUB_AND_PUBLICATION_PRESERVED; ONLY_OWN_STUB_TERMINATED')
+PY" in /home/yixunhu/codespace/xRIR_code_wt
+exec
+/bin/bash -lc "git diff --name-status d420ddb f2f6943; git status --short; git diff --name-only 9f98bbb HEAD -- 'tools/exp04*' 'tests/test_exp04*'; nl -ba worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_05:30:00_coder_round2_fix18_opus_report.md | sed -n '107,147p'; nl -ba tests/test_exp04_launcher.py | sed -n '372,407p'" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+A	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/coder_prompts/round2_fix18_opus_prompt.md
+A	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_05:29_suite_full_cpu_d420ddb.log
+A	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_05:30:00_coder_round2_fix18_opus_report.md
+A	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close17_review.md
+M	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/plan_orientation_cue_fairness.md
+A	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/codex_code_round2_close17_prompt.md
+?? worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/codex_code_round2_close18_prompt.md
+   107	
+   108	## Report corrections asked for by close review 17
+   109	
+   110	* **The suite HEAD.** Fix 17's two suite logs ran at **`fef89ba`** — a record-only commit
+   111	  above `e918f4b`, with identical production bytes — not at `e918f4b` as the report said.
+   112	  This cycle's log records `git rev-parse HEAD` in its **first line**, so the two can
+   113	  never drift again.
+   114	* **The timeout accounting.** There is no universal bound; each *question* is bounded by
+   115	  `timeout --kill-after=5 $READER_TIMEOUT_S` (30 s by default). A fully scanned attempt
+   116	  makes **six** outer timeout calls — three pid records and three sidecar probes
+   117	  (`launching`, `train.pid`, `train.exit`) — so the sidecar group alone is ≈ 105 s at the
+   118	  default with every call hanging, and the whole attempt ≈ 180 s; a resolution adds the
+   119	  receipt, the link and the identity questions. The earlier "≈ 60 s" figure understated
+   120	  it.
+   121	* **The exp_04 flake.** `test_completion_transaction_and_failed_promotion[True-promote]`
+   122	  reads `capsys` while a completion transaction runs on a background thread: it is
+   123	  **timing-sensitive**, and no exp_04 file has changed since `9f98bbb`. Attributing it to
+   124	  co-tenancy was a guess; the honest statement is that it is a timing-sensitive test
+   125	  unrelated to exp_11, which passes on its own and in its own file.
+   126	* **Bookkeeping commit sizes.** The record-only commits `a700a24` (624 lines) and
+   127	  `cad6018` (538 lines) exceed 200 changed lines. They carry a close review, a prompt and
+   128	  a report; the ≤ 200 rule is recorded here as applying to production and test commits,
+   129	  with these two named.
+   130	
+   131	## Line counts
+   132	
+   133	| commit | production | tests |
+   134	|---|---:|---:|
+   135	| `2e76a95` (RED) | — | +89/−21 |
+   136	| `8cf5810` (GREEN) | `exp11_pathprobe.py` +63/−61 | — |
+   137	| `622529f` (RED) | — | +36/−11 |
+   138	| `30cd986` (GREEN) | `exp11_train.py` +9/−11 | — |
+   139	| `87f4e4d` (GREEN) | `exp11_launch.sh` +124/−73 | +44/−11 |
+   140	| `d420ddb` (GREEN) | `exp11_launch.sh` +15/−6 | — |
+   141	| range `2e109d0..HEAD` | **+211 / −151 = 362 changed** | +169/−43 |
+   142	
+   143	Every production/test commit is under 200 changed lines; no exception this cycle. (The
+   144	two oversized record-only commits of earlier cycles are named under the report
+   145	corrections above.)
+   146	
+   147	## Frozen files
+   372	        assert (path / 'completion.json').is_file()
+   373	        raise OSError('promotion failed')
+   374	    if boundary:
+   375	        owner = launch.p if boundary in ('revalidate', 'write_completion') else launch
+   376	        original = getattr(owner, boundary)
+   377	        def terminate(*args, **kwargs):
+   378	            result = original(*args, **kwargs)
+   379	            if boundary != 'write_completion' or Path(args[0]).name == 'completion.json':
+   380	                def send():
+   381	                    if threaded:
+   382	                        launch.signal.pthread_sigmask(launch.signal.SIG_UNBLOCK, {launch.signal.SIGTERM})
+   383	                    os.kill(os.getpid(), launch.signal.SIGTERM)
+   384	                if threaded:
+   385	                    worker = threading.Thread(target=send)
+   386	                    worker.start()
+   387	                    worker.join()
+   388	                else:
+   389	                    send()
+   390	                assert launch.signal.SIGTERM in launch.signal.pthread_sigmask(launch.signal.SIG_BLOCK, [])
+   391	            return result
+   392	        monkeypatch.setattr(owner, boundary, terminate)
+   393	    else:
+   394	        monkeypatch.setattr(launch, 'promote', fail_promotion)
+   395	    with pytest.raises(launch.LauncherTerminated if boundary else OSError):
+   396	        launch.execute_attempt(attempt, 'full', '1', log, lambda: fields, runner=runner)
+   397	    assert launch.signal.pthread_sigmask(launch.signal.SIG_BLOCK, []) == mask
+   398	    if boundary:
+   399	        assert 'CERTIFIED ' + str(attempt) in capsys.readouterr().out.splitlines()
+   400	        assert (attempt / 'completion.json').is_file() and log.is_file()
+   401	        assert (attempt.parent / 'final').resolve() == attempt
+   402	        assert not list(tmp_path.glob('*_ABORTED_*'))
+   403	        assert launch.hours_record(tmp_path)['attempts'] == [dict(attempt=attempt.name, hours=1, mode='full')]
+   404	        return
+   405	    aborted, = tmp_path.glob('attempt_t_ABORTED_*')
+   406	    assert aborted.name.endswith('_ABORTED_output_invalid')
+   407	    assert not attempt.exists() and not (aborted / 'completion.json').exists()
+
+ succeeded in 17045ms:
+DIRECT_UNKNOWN_35_OK
+link: GUARDS_UNKNOWN_42_OK
+same: GUARDS_UNKNOWN_42_OK
+CONTAINMENT_UNKNOWN_7_OK
+DANGLING_FINAL_5_UNKNOWN_OK
+LIVE_TRAINER_BEFORE_ALIAS_EXCLUSION_OK
+QUIET_TARGET_ALIAS_EXCLUSION_OK
+SCAN_EXCLUSION_UNKNOWN_7_OK
+REGISTERED_LIVE_STUB_AND_PUBLICATION_PRESERVED; ONLY_OWN_STUB_TERMINATED
+
+exec
+/bin/bash -lc "rg -n ' /tmp | /home/yixunhu| /var/snap/firefox|hunspell' /proc/self/mountinfo; sed -n '1212,1255p' tools/exp11_launch.sh; rg -n '"'^def test_'"' tests/test_exp11_train.py | tail -16; git log --format='%h %s' --numstat 2e109d0..f2f6943" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+48:10322 10275 259:2 /usr/share/hunspell /var/snap/firefox/common/host-hunspell ro,nosuid,nodev,noexec,noatime master:1 - ext4 /dev/nvme0n1p2 rw,errors=remount-ro
+        "$RECORD/orientation_cue_fairness_${STAMP}_smoke_haa_adapter_eval.log" \
+        "$SMOKE_DIR/receipt_haa_adapter_eval_$STAMP.json" \
+        --alarm-seconds "$SMOKE_ALARM_S" --max-gb "$SMOKE_MAX_GB" -- \
+        --backbone simple_adapter --checkpoint "$a1/run/best.pth" \
+        --adapter-heading-json-dir "$HEADING_DIR" --rooms hallway --max-samples 4 \
+        --save-dir "$a2/run" --seed 0
+    ;;
+finalize)
+    scan_barrier
+    hold_arm_lock finalize || exit 2   # alias resolution, validation and publication
+    if [ -n "$RESOLVE_UNREGISTERED" ]; then
+        resolve_unregistered "$RESOLVE_UNREGISTERED" || exit 2
+        exit 0
+    fi
+    require_quiet_arm || exit 2        # arm-wide, under the lock: nothing may be running
+    preflight   # recovery is gated by the same reviewed commit, clean tree and pid checks
+    check_attempt "$ATTEMPT" || exit 2
+    # Everything below uses the canonical directory, never the path as it was typed.
+    PUBLISHED=0
+    already_published "$CANONICAL_ATTEMPT" || PUBLISHED=$?
+    if [ "$PUBLISHED" -eq "$READER_UNKNOWN" ]; then
+        echo "refusing: whether $CANONICAL_ATTEMPT is already published cannot be" \
+             "inspected; this recovery decides nothing" >&2
+        exit 2
+    fi
+    if [ "$PUBLISHED" -eq 0 ]; then
+        say "SKIP $CANONICAL_ATTEMPT is already published as final and has completed"
+        say "ALREADY PUBLISHED $ARM_ROOT/final -> $(basename -- "$CANONICAL_ATTEMPT")"
+        exit 0
+    fi
+    check_final_conflict "$CANONICAL_ATTEMPT" || exit 2
+    if [ "$DRY" -eq 1 ]; then abort_recovery "$CANONICAL_ATTEMPT" "$LOG" || exit 2; fi
+    not_interrupted || exit 2
+    if ! finalize "$CANONICAL_ATTEMPT" "$LOG" "$CHILD_EXIT" exp11_train; then
+        abort_recovery "$CANONICAL_ATTEMPT" "$LOG"
+        exit 2
+    fi
+    not_interrupted || exit 2
+    promote "$(basename -- "$CANONICAL_ATTEMPT")"
+    ;;
+esac
+277:def test_registration_completeness_follows_that_grammar(tmp_path, content, valid):
+282:def test_a_missing_pid_file_is_simply_not_a_record(tmp_path):
+293:def test_the_registration_lock_is_the_arm_roots(tmp_path):
+298:def test_registration_takes_the_lock_before_it_looks_at_anything(tmp_path):
+320:def test_the_bounded_wait_is_measured_on_the_monotonic_clock(tmp_path, monkeypatch):
+371:def test_a_tombstone_that_cannot_be_inspected_refuses_registration(tmp_path):
+380:def test_the_diagnostic_tombstone_check_is_three_state_too(tmp_path):
+390:def test_a_launch_record_that_cannot_be_inspected_refuses_registration(tmp_path):
+408:def test_a_run_directory_that_cannot_be_inspected_refuses_registration(tmp_path):
+423:def test_registration_refuses_an_alias_into_another_arm(tmp_path):
+446:def test_an_attempt_reached_through_its_own_arms_alias_still_registers(tmp_path):
+462:def test_a_terminal_dotdot_spelling_still_finds_the_tombstone(tmp_path):
+482:def test_an_odd_spelling_of_a_legitimate_attempt_still_registers(tmp_path, spelling):
+494:def test_the_trainer_keeps_no_path_grammar(tmp_path):
+501:def test_registration_writes_atomically(tmp_path):
+511:def test_registration_refuses_an_attempt_outside_its_arm(tmp_path):
+f2f6943 exp_11 bookkeeping: fix-18 full-suite result (record only)
+
+208	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_05:29_suite_full_cpu_d420ddb.log
+39	1	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_05:30:00_coder_round2_fix18_opus_report.md
+98c82b3 exp_11 bookkeeping: Coder fix-18 report, close review 17, the fix-18 prompt and plan A2 (record only; suite line pending)
+
+10	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/coder_prompts/round2_fix18_opus_prompt.md
+211	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_05:30:00_coder_round2_fix18_opus_report.md
+429	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close17_review.md
+1	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/plan_orientation_cue_fairness.md
+3	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/codex_code_round2_close17_prompt.md
+d420ddb exp11 fix18 (GREEN): the resolution's containment is an identity question too
+
+15	6	tools/exp11_launch.sh
+87f4e4d exp11 fix18 (GREEN): the launcher asks identity questions, and carries no paths
+
+44	11	tests/test_exp11_shell.py
+124	73	tools/exp11_launch.sh
+30cd986 exp11 fix18 (GREEN): the trainer resolves in process and compares identity
+
+9	11	tools/exp11_train.py
+622529f exp11 fix18 (RED): the trainer still parses canonical strings
+
+36	11	tests/test_exp11_train.py
+8cf5810 exp11 fix18 (GREEN): the probe answers identity, and hands out no paths
+
+63	61	tools/exp11_pathprobe.py
+2e76a95 exp11 fix18 (RED): the verdicts still carry paths, and identity is still a string
+
+89	21	tests/test_exp11_pathprobe.py
+
+exec
+/bin/bash -lc "sed -n '1,18p' worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close17_review.md; sed -n '470,498p' tests/test_exp11_train.py; git status --short" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+**Close review 17 — exp_11 `orientation_cue_fairness`, round 2**
+
+| Identity | Value |
+|---|---|
+| Model | GPT-6 / OpenAI Codex |
+| Reasoning effort | Not exposed in the supplied invocation metadata |
+| Sandbox | Managed read-only; authorized execution for `/tmp` fixtures and owned helpers |
+| Worktree | `/home/yixunhu/codespace/xRIR_code_wt` |
+| Branch | `exp11-cue` |
+| HEAD | `2e109d037ebe93aff98ed3afdc92fb88a2d77c41` |
+| Last production commit | `e918f4b7b0d57a601806c0940db83ae322b831ba` |
+| Review completed | 2026-09-28 09:00:28 UTC / 05:00:28 EDT |
+| Execution | UID 1013; CUDA disabled; one CPU thread per worker, at most four workers; pytest cache disabled; temporary writes under `/tmp` |
+
+**Verdict: request changes. Round 2 cannot be CLOSED, and `2e109d0` should not be merged.**
+
+The three original injections now refuse correctly. Independent replays found a remaining P1 in path-field validation and three P2 regressions.
+
+    attempt = arm / 'attempt_20260927T000000'
+    (attempt / 'sub').mkdir(parents=True)
+    (attempt / 'launching').write_text('launcher 1\n')
+    (arm / (attempt.name + '.resolved')).write_text('resolved-by 1\n')
+    with pytest.raises(SystemExit) as exit_request:
+        exp11_train.register_trainer(str(attempt / 'sub' / '..'), arm_root=str(arm))
+    assert exit_request.value.code == 3
+    assert not (attempt / 'train.pid').exists()
+
+
+@pytest.mark.parametrize('spelling', ['{arm}//{name}', '{arm}/./{name}', '{arm}/{name}/',
+                                      '{arm}/{name}/sub/..'])
+def test_an_odd_spelling_of_a_legitimate_attempt_still_registers(tmp_path, spelling):
+    """A path is not a string to be parsed: these all name one directory."""
+    arm = tmp_path / 'arm'
+    attempt = arm / 'attempt_20260927T000000'
+    (attempt / 'sub').mkdir(parents=True)
+    (attempt / 'launching').write_text('launcher 1\n')
+    path = spelling.format(arm=arm, name=attempt.name)
+    assert exp11_train.pid_record(
+        exp11_train.register_trainer(path, arm_root=str(arm))) == os.getpid()
+    assert (attempt / 'train.pid').is_file()
+
+
+def test_the_trainer_keeps_no_path_grammar(tmp_path):
+    """Identity is device and inode, so there is nothing left to validate as a string."""
+    assert not hasattr(exp11_train, 'valid_path')
+    source = Path(exp11_train.__file__).read_text()
+    assert 'valid_path' not in source and 'canonical(' not in source
+?? worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/codex_code_round2_close18_prompt.md
+
+ succeeded in 183155ms:
+........................................................................ [ 34%]
+........................................................................ [ 68%]
+.................................................................        [100%]
+=============================== warnings summary ===============================
+tests/test_exp11_shell.py::test_recovery_refuses_an_attempt_of_another_arm
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+    from pkg_resources import resource_filename
+
+tests/test_exp11_shell.py::test_recovery_refuses_an_attempt_of_another_arm
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154: DeprecationWarning: Deprecated call to `pkg_resources.declare_namespace('mpl_toolkits')`.
+  Implementing implicit namespace packages (as specified in PEP 420) is preferred to `pkg_resources.declare_namespace`. See https://setuptools.pypa.io/en/latest/references/keywords.html#keyword-namespace-packages
+    declare_namespace(pkg)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+209 passed, 2 warnings in 182.66s (0:03:02)
+
+codex
+All 209 shell tests pass. The independent replay with real locks and a live trainer registered through `register_trainer` also passes: malformed answers return unknown, dangling `final` refuses, and the attempt, publication, log and stub remain intact. A second edge case needs attention: the trainer test accepts `sub/..` with an explicit `arm_root`, but the normal entry point does not supply that argument and refuses the same spelling.
+exec
+/bin/bash -lc "env CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/home/yixunhu/codespace/xRIR_code_wt /home/yixunhu/miniconda3/envs/xRIR/bin/python -m pytest -q -p no:cacheprovider --basetemp=/tmp/codex-close18-exp04-1034 'tests/test_exp04_launcher.py::test_completion_transaction_and_failed_promotion[True-promote]'" in /home/yixunhu/codespace/xRIR_code_wt
+exec
+/bin/bash -lc "git show 9f98bbb:worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_results_assets/approved_digests.json; rg -n 'HEAD|fef89ba|failed, .*passed' worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_02:52_suite_full_cpu_e918f4b.log worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_03:53_suite_full_cpu_e918f4b_rerun.log; rg -n '200|commit' worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/plan_orientation_cue_fairness.md | head -10" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+fatal: path 'worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_results_assets/approved_digests.json' exists on disk, but not in '9f98bbb'
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_03:53_suite_full_cpu_e918f4b_rerun.log:65:head = 'fef89bad716fac8a039c2a4774fcac36a562d850'
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_03:53_suite_full_cpu_e918f4b_rerun.log:207:1 failed, 3988 passed, 55 skipped, 307 warnings in 3554.80s (0:59:14)
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_02:52_suite_full_cpu_e918f4b.log:131:head = 'fef89bad716fac8a039c2a4774fcac36a562d850'
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_02:52_suite_full_cpu_e918f4b.log:274:2 failed, 3987 passed, 55 skipped, 307 warnings in 3544.87s (0:59:04)
+22:### 2.2 Arms (HAA protocol identical to exp_02/exp_06/exp_09: stage 1 class_room + hallway + complex_room 1000 epochs / val 10; stage 2 per room 200 / val 2; AdamW 1e-4, wd 1e-4, ×0.1 per 50 epochs; full batch; TF32; selection on the DiffRIR validation split; K = 8; `eval_seed` 0; unseeded Griffin-Lim; three fine-tuning seeds 0/1/2 + one zero-shot job per arm)
+78:## 4. Code (Coder = Claude Opus 5, worktree `/home/yixunhu/codespace/xRIR_code_wt` on branch `exp11-cue`; TDD red-first; commits ≤ 200 lines; Codex code review after every round at **ultra**; SOP closure rules)
+91:7. `tools/exp11_profiles.py`: exp_11's code keys (`train`, `finalize`, `haa_finetune`, `haa_eval`, `haa_pipeline_sh`, `launch_sh` — shell launchers are outside Python import closures and get an explicit key checked at start-up and finalisation —, `smoke`, `summarize_haa`; the exp_11 modules and their closures), a **producer/arm requirement matrix** that consumes only available inputs (pretraining never requires its own output pin; J/K and Phase 1b work while both H/I pins are null; H works while I's pin is unavailable; final publication requires every planned arm), artifact keys (`simpor_epoch_012`, `simpor_yaw_epoch_012`), reused keys (exp_04's approvals record sha256 for E/G/K's init; exp_06's for C/D/F; the exp_02 legacy receipt), and the loader/validator of exp_11's own approvals record `orientation_cue_fairness_results_assets/approved_digests.json` (all-null until the reviewed commit; committed-blob binding at the child's reviewed commit as `haa_approvals` does). The exp_06 approvals API and profiles stay byte-identical.
+92:8. `tools/exp11_finalize.py`: an exp_11-owned finalizer/adapter with its own run types (`exp11_train`, `exp11_smoke`, `exp11_haa_finetune`, `exp11_haa_eval`, `exp11_haa_job`) and dispatch; registry selection, factory/state validation, entry-module identity, recipe selection by run type, job-spec validation, child roles and lineage checks, heading binding (heading frame for H/I; room frame **with** the room's heading recorded as the adapter's input for J/K), committed approvals; it **imports** exp_06's validation helpers where they fit and never monkeypatches old module globals; historical dispatch (`tools/exp06_finalize.py`) is not edited unless a one-line registration is unavoidable, in which case every affected dispatcher is enumerated and the old paths are shown to reconstruct identical evidence.
+95:11. `tools/exp11_train.py` (the exp_06 loop on `BACKBONES_EXP11`; `--yaw-aug 0|1` with exp_04's constraints — `save_every 0`, `resume None`, `epochs × batches_per_epoch < 2**20`), `tools/exp11_recipe.py` with **two named profiles**: `H_RECIPE` = exp_01's numerical recipe (`num_shot 8, max_len 9600, lr 1e-3, weight_decay 1e-4, decay_epochs 3, lr_gamma 0.1, epochs 12, batch_size 32, accum_steps 2, seed 0, tf32 true`, M dims `512/12/8/512`, `yaw_aug 0`, loader length 9 261) with declared operational differences (`epoch_ckpt_every 1`, `save_every 500` as exp_06, exclusive attempt dir, recorded `env`/`param_counts`), `I_RECIPE` = exp_04's (`yaw_aug 1, yaw_aug_seed 0, yaw_aug_width 512, save_every 0, no_save false, resume None, epoch_ckpt_every 1`, same numerical recipe and loader length; counter constraints); parameter counts from the new factory (encoder increment 526 336); missing historical fields are documented normalisations. Completion contract carried over in full: agreeing startup/retained/checkpoint arguments, strict field types, no truncation or resume, epochs 1–12 exactly once with finite history, final epoch/batch metadata, `epoch_012.pth` tensors (keys, shapes, dtypes, values) equal to `last.pth["model"]`, input and closure revalidation, committed approvals, child exit 0, closed log and receipt, external completion before promotion.
+112:`ckpt/exp11/{sim2real/**, pretrain/**, phase1/, phase1b/, stats.json, summary.txt}`; record `worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/` (plan, query log, worklog, command record, commit index, params set-up, Codex reviews, Coder reports, logs, `orientation_cue_fairness_results.md`, `orientation_cue_fairness_analysis.md`, `orientation_cue_fairness_01_results.html` + generators); a paper-ready LaTeX block with the fixed four rows and the supplementary block, sourced from the final canonical JSON; supporting descriptive analyses: fine-tuned side splits (−y / +y) from the retained per-query outputs for every arm, and, if Yixun wants them, within-checkpoint orientation-sensitivity diagnostics through a reviewed exp_11 driver around the frozen mirror-probe helpers (the frozen CLI hard-codes the room frame for its SimpleViT slot), labelled exploratory.
+
+ succeeded in 3196ms:
+.                                                                        [100%]
+=============================== warnings summary ===============================
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+    from pkg_resources import resource_filename
+
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154: DeprecationWarning: Deprecated call to `pkg_resources.declare_namespace('mpl_toolkits')`.
+  Implementing implicit namespace packages (as specified in PEP 420) is preferred to `pkg_resources.declare_namespace`. See https://setuptools.pypa.io/en/latest/references/keywords.html#keyword-namespace-packages
+    declare_namespace(pkg)
+
+tests/test_exp04_launcher.py::test_completion_transaction_and_failed_promotion[True-promote]
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+    warnings.warn(
+
+tests/test_exp04_launcher.py::test_completion_transaction_and_failed_promotion[True-promote]
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+    warnings.warn(msg)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 4 warnings in 2.69s
+
+exec
+/bin/bash -lc 'git status --short; test ! -e ckpt/exp11 && echo '"'ckpt/exp11 absent'; git diff --check 2e109d0 f2f6943; git rev-parse HEAD; id -u" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+?? worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/codex_code_round2_close18_prompt.md
+ckpt/exp11 absent
+f2f69433884c33642c6fd9ed98af67908e0d2c5f
+1013
+
+exec
+/bin/bash -lc "git show --format='%h %s' --numstat a700a24 cad6018; rg -n 'samestat|"'!=|==|realpath|canonical|readlink'"' tools/exp11_launch.sh tools/exp11_train.py tools/exp11_pathprobe.py | head -65; sed -n '1,80p' worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_results_assets/approved_digests.json" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+a700a24 exp_11 bookkeeping: Coder fix-12 report, close review 11 and the fix-12 prompt (record only; suite line pending)
+
+12	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/coder_prompts/round2_fix12_opus_prompt.md
+206	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_19:39:21_coder_round2_fix12_opus_report.md
+11	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_19:43_suite_full_cpu_05bff3e.log
+11	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-27_19:45_suite_full_cpu_80df5d6.log
+429	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close11_review.md
+3	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/codex_code_round2_close11_prompt.md
+cad6018 exp_11 bookkeeping: Coder fix-16 report with the updated audit, close review 15 and the fix-16 prompt (record only; suite line pending)
+
+11	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/coder_prompts/round2_fix16_opus_prompt.md
+206	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_01:29:08_coder_round2_fix16_opus_report.md
+487	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close15_review.md
+3	0	worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/codex_code_round2_close15_prompt.md
+tools/exp11_pathprobe.py:25:answered here, where two `os.stat`s and `os.path.samestat` settle them exactly.
+tools/exp11_pathprobe.py:104:    trailing_slash = name.endswith('/') and name != '/'
+tools/exp11_pathprobe.py:129:    if name.endswith('/') and name != '/':
+tools/exp11_pathprobe.py:162:    return (SAME if os.path.samestat(first_info, second_info) else DIFFERENT), None
+tools/exp11_pathprobe.py:173:    if state == PRESENT and not stat.S_ISREG(detail.st_mode):
+tools/exp11_pathprobe.py:180:    if state == PRESENT and not stat.S_ISDIR(detail.st_mode):
+tools/exp11_pathprobe.py:187:    if len(argv) < 2 or argv[1] not in questions or len(argv) != questions[argv[1]] + 2:
+tools/exp11_pathprobe.py:193:    if question == 'probe':
+tools/exp11_pathprobe.py:195:    elif question == 'link':
+tools/exp11_pathprobe.py:197:    elif question == 'same':
+tools/exp11_pathprobe.py:201:    if state == UNKNOWN:
+tools/exp11_pathprobe.py:204:    if state != PRESENT:
+tools/exp11_pathprobe.py:216:if __name__ == '__main__':
+tools/exp11_launch.sh:116:    if [ "${EXP11_TEST_ROOTS:-0}" != 1 ] || [ "$DRY" -ne 1 ]; then
+tools/exp11_launch.sh:127:    if [ "${EXP11_TEST_ROOTS:-0}" != 1 ] || [ "$DRY" -ne 1 ]; then
+tools/exp11_launch.sh:153:    if directory.parent != base:
+tools/exp11_launch.sh:160:    if profile != expected:
+tools/exp11_launch.sh:166:print("ATTEMPT canonical {}".format(directory))
+tools/exp11_launch.sh:177:    CANONICAL_ATTEMPT="${output##*ATTEMPT canonical }"
+tools/exp11_launch.sh:180:        *) echo "refusing: no canonical attempt was resolved for $1" >&2; return 1 ;;
+tools/exp11_launch.sh:234:    [ "$MODE" != smoke ] || extra+=(--min-free-gb "$SMOKE_MAX_GB")
+tools/exp11_launch.sh:286:    if [ "$DRY" -eq 1 ] && [ "${EXP11_TEST_ROOTS:-0}" != 1 ]; then return 0; fi
+tools/exp11_launch.sh:301:    if [ "$verdict" != acquired ] || [ -z "$pid" ]; then
+tools/exp11_launch.sh:600:    local root="$1" out="$2" canonical=""
+tools/exp11_launch.sh:604:    # trainer in it (close review 14, blocker 1). `realpath -e` is checked: a root that
+tools/exp11_launch.sh:606:    canonical="$(realpath -e -- "$root" 2>/dev/null)" || return 1
+tools/exp11_launch.sh:607:    [ -d "$canonical" ] || return 1
+tools/exp11_launch.sh:608:    [ -r "$canonical" ] && [ -x "$canonical" ] || return 1   # listing needs read AND search
+tools/exp11_launch.sh:609:    find "$canonical" -mindepth 1 -maxdepth 1 -name 'attempt_*' -print0 > "$out" 2>/dev/null
+tools/exp11_launch.sh:695:    if [ "$DRY" -eq 1 ] && [ "${EXP11_TEST_ROOTS:-0}" != 1 ]; then return 0; fi
+tools/exp11_launch.sh:746:    # Identity is the canonical directory, never the spelling: an operator's path may be
+tools/exp11_launch.sh:757:    # One canonical spelling is needed to RENAME the directory and to name the tombstone
+tools/exp11_launch.sh:760:    attempt="$(realpath -e -- "$1")" || {
+tools/exp11_launch.sh:940:# already_published <canonical>: this attempt is the published one and it completed.
+tools/exp11_launch.sh:950:# check_final_conflict <canonical>: a DIFFERENT existing `final` is never replaced by a
+tools/exp11_launch.sh:973:    # Informational only: `readlink` names what is about to be replaced for the operator
+tools/exp11_launch.sh:975:    say "REPLACING $ARM_ROOT/final -> $(readlink -- "$ARM_ROOT/final" 2>/dev/null || printf '?')" \
+tools/exp11_launch.sh:979:# abort_recovery <canonical> <log>: the abort path of a REFUSED recovery. A malformed
+tools/exp11_launch.sh:985:    local canonical="$1" log="$2" why="" receipt=0 status=0
+tools/exp11_launch.sh:986:    file_present "$canonical/completion.json" || receipt=$?
+tools/exp11_launch.sh:987:    publishes "$canonical" || status=$?
+tools/exp11_launch.sh:989:        echo "refusing: whether $canonical completed or is published cannot be" \
+tools/exp11_launch.sh:996:        say "PRESERVED $canonical ($why); the refusal is this invocation's, not the run's"
+tools/exp11_launch.sh:999:    abort "$canonical" "$log" finalize_refused
+tools/exp11_launch.sh:1078:[ "$MODE" != finalize ] || [ -n "$RESOLVE_UNREGISTERED" ] \
+tools/exp11_launch.sh:1229:    # Everything below uses the canonical directory, never the path as it was typed.
+tools/exp11_train.py:98:    if args.yaw_aug and (args.resume is not None or args.save_every != 0):
+tools/exp11_train.py:102:    if args.exploratory and args.run_type == 'full':
+tools/exp11_train.py:136:    if tier != exp11_recipe.TIER:
+tools/exp11_train.py:212:    if state == UNSURE:
+tools/exp11_train.py:215:    return state == PRESENT
+tools/exp11_train.py:300:    # The ATTEMPT is canonicalised first, and its arm is its canonical parent: the
+tools/exp11_train.py:302:    # arm. Reached through `arm_alias/attempt_X -> arm_canonical/attempt_X`, the alias's
+tools/exp11_train.py:304:    # canonical attempt -- whose tombstone said it had been retired (close review 15,
+tools/exp11_train.py:307:    # `realpath` resolves what it can and leaves the rest: a --no-save diagnostic has no
+tools/exp11_train.py:312:    directory = Path(os.path.realpath(str(given)))
+tools/exp11_train.py:329:    if contained == exp11_pathprobe.UNKNOWN:
+tools/exp11_train.py:331:    if contained != exp11_pathprobe.SAME:
+tools/exp11_train.py:338:        # directory may have been retired between the canonicalisation and the lock.
+tools/exp11_train.py:352:            if verdict == exp11_pidrecord.UNKNOWN:
+tools/exp11_train.py:355:            if verdict != exp11_pidrecord.RECORD:
+tools/exp11_train.py:480:        if args.epoch_ckpt_every and epoch % args.epoch_ckpt_every == 0:
+tools/exp11_train.py:494:if __name__ == '__main__':
+{
+  "artifacts": {
+    "simpor_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    },
+    "simpor_yaw_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    }
+  },
+  "code": {
+    "finalize": null,
+    "haa_eval": null,
+    "haa_finetune": null,
+    "haa_pipeline_sh": null,
+    "launch_sh": null,
+    "smoke": null,
+    "summarize_haa": null,
+    "train": null
+  },
+  "reused": {
+    "approved_digests_exp04": null,
+    "approved_digests_exp06": null,
+    "legacy_receipt": {
+      "path": null,
+      "sha256": null
+    }
+  },
+  "schema_version": 1
+}
+
+exec
+/bin/bash -lc "git show --numstat --format= a700a24 | awk '{a+="'$1; d+=$2} END {print "a700a24", a, d, a+d}'"'; git show --numstat --format= cad6018 | awk '{a+="'$1; d+=$2} END {print "cad6018", a, d, a+d}'"'; git show --numstat --format= 98c82b3 | awk '{a+="'$1; d+=$2} END {print "98c82b3", a, d, a+d}'"'; git show --numstat --format= f2f6943 | awk '{a+="'$1; d+=$2} END {print "f2f6943", a, d, a+d}'"'" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+a700a24 672 0 672
+cad6018 707 0 707
+98c82b3 654 0 654
+f2f6943 247 1 248
+
+exec
+/bin/bash -lc "rg -n 'approved_digests_exp04|approved_digests_exp06|legacy_receipt|simpor_epoch|record_sha' worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_codex_code_round2_close17_review.md; rg --files worklog | rg 'legacy.*receipt|approved_digests.json"'$'"'" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+174:    "simpor_epoch_012": {
+196:    "approved_digests_exp04": "2e4521173bb230fc8114116ba0c94b4afd0ccdd3b0b034faaf54516461ee0314",
+197:    "approved_digests_exp06": "c79538299609ebb78b0d79cb82fbb2fdfe9c2959dcedb89b1a8bd432faf24e2d",
+198:    "legacy_receipt": {
+199:      "path": "ckpt/exp06/legacy_receipt.json",
+389:    "simpor_epoch_012": {
+411:    "approved_digests_exp04": "2e4521173bb230fc8114116ba0c94b4afd0ccdd3b0b034faaf54516461ee0314",
+412:    "approved_digests_exp06": "c79538299609ebb78b0d79cb82fbb2fdfe9c2959dcedb89b1a8bd432faf24e2d",
+413:    "legacy_receipt": {
+414:      "path": "ckpt/exp06/legacy_receipt.json",
+worklog/worklog_yixun/exp_07_seen_protocol_claude/seen_protocol_results_assets/approved_digests.json
+worklog/worklog_yixun/exp_04_yaw_aug_xrir_claude/yaw_aug_xrir_results_assets/approved_digests.json
+worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_results_assets/approved_digests.json
+worklog/worklog_yixun/exp_05_param_efficiency_claude/param_efficiency_results_assets/approved_digests.json
+worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_results_assets/approved_digests.json
+
+codex
+The closure hashes and frozen-file checks pass, and 304 selected tests passed. My verdict is request changes for two P2 issues: the retained string-based containment check and the default trainer’s `sub/..` refusal. I’ll include the exact candidate fill manifest, plus corrections to the report’s thread description and commit-size accounting.
+exec
+/bin/bash -lc 'git status --short; git rev-parse HEAD; test ! -e ckpt/exp11 && echo '"'ckpt/exp11 absent'" in /home/yixunhu/codespace/xRIR_code_wt
+ succeeded in 0ms:
+?? worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/review_prompts/codex_code_round2_close18_prompt.md
+f2f69433884c33642c6fd9ed98af67908e0d2c5f
+ckpt/exp11 absent
+
+codex
+**Close review 18 — exp_11 `orientation_cue_fairness`, round 2**
+
+| Identity | Value |
+|---|---|
+| Model | GPT-6 / OpenAI Codex |
+| Reasoning effort | Not exposed in the supplied invocation metadata |
+| Sandbox | Managed read-only; authorized `/tmp` fixtures and owned helper processes |
+| Worktree | `/home/yixunhu/codespace/xRIR_code_wt` |
+| Branch | `exp11-cue` |
+| HEAD | `f2f69433884c33642c6fd9ed98af67908e0d2c5f` |
+| Last production commit | `d420ddb4443cf3212899b01534608b3f39491165` |
+| Completed | 2026-09-28 10:35:03 UTC / 06:35:03 EDT |
+| Execution | UID 1013; CUDA disabled; numeric worker threads limited to one; at most four concurrent workers; pytest cache disabled; temporary fixtures under `/tmp` |
+
+**Verdict: request changes. Round 2 cannot be CLOSED, and `f2f6943` should not be merged yet.**
+
+The close-17 path-payload vulnerabilities are eliminated from the probe protocol. Two P2 gaps remain.
+
+1. **[P2] Recovery still makes an earlier string-based containment decision.**
+
+   [tools/exp11_launch.sh:152](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:152) retains:
+
+   ```python
+   directory, base = Path(attempt).resolve(), Path(root).resolve()
+   if directory.parent != base:
+   ```
+
+   This runs before the new `same_parent` gate. Therefore the audit’s claim that every pathname comparison uses identity is false, and an identity-equivalent bind alias can be rejected.
+
+   Read-only verification against an existing bind mount showed:
+
+   ```text
+   /usr/share/hunspell
+   /var/snap/firefox/common/host-hunspell
+
+   Both: st_dev=66306, st_ino=8257996
+   exp11_pathprobe.same: same
+   Path.resolve() equality: False
+   ```
+
+   `sameparent` for an attempt pathname beneath the second spelling and the first arm root returns `same`; the inline comparison necessarily rejects that layout before reaching the identity gate. I did not create a mount or an attempt in these protected directories.
+
+   **Required:** replace this comparison with an in-process `samestat`, or remove the redundant comparison and retain the later identity gate. Add a regression covering identity-equivalent parents with different resolved spellings. This is a conservative rejection, not a demonstrated unsafe publication.
+
+2. **[P2] The normal trainer entry point rejects the promised terminal `sub/..` spelling.**
+
+   [tools/exp11_train.py:323](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_train.py:323) derives the default arm root from `given.parent`. For:
+
+   ```text
+   arm/attempt_20260928T010203/sub/..
+   ```
+
+   that parent is `arm/attempt_20260928T010203/sub`, although the canonical attempt’s parent is `arm`.
+
+   Independent replay established:
+
+   ```text
+   same(input, canonical attempt): same
+   sameparent(canonical attempt, actual arm): same
+   register_trainer(input): exit 3
+   register_trainer(input, arm_root=actual_arm): succeeds
+   ```
+
+   The default call creates neither `train.pid` nor a lock. Its diagnostic says the attempt belongs to `arm`, rather than the supplied `…/attempt_…/sub`.
+
+   [main:389](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_train.py:389) supplies no `arm_root`. The new [regression:491](/home/yixunhu/codespace/xRIR_code_wt/tests/test_exp11_train.py:491) supplies it explicitly, masking the runtime refusal.
+
+   **Required:** support this spelling through the default entry point and test without that override, while preserving rejection of an attempt symlink into another arm. Simply trusting the canonical parent would remove that existing protection.
+
+The remaining requested checks produced the following results.
+
+| Check | Finding |
+|---|---|
+| Probe verdict grammar | No pathname or link target appears in a successful verdict. `valid_path` and probe canonical-path output are gone. |
+| Identity spellings | Symlinked arm roots, `//`, `/./`, trailing slash and existing `sub/..` resolve to the same identity. Trainer default-entry qualification is blocker 2. |
+| Hard links | Regular-file hard links return `same`. Correct: this asks inode identity. Ordinary attempt directories cannot be hard-linked this way. |
+| Bind mounts | A bind alias normally retains device/inode identity; the existing mount above returns `same`. Different resolved strings do not imply different identity. |
+| Copies | An independent identical-content copy returns `different`. Appropriate: content equality does not establish attempt identity. |
+| Dangling `final` | Unknown; publication, conflict, abort and resolution guards refuse. |
+| Scan exclusion | Uses `same_path` after all three PID checks. A live registered trainer still refuses even when its directory is the resolution target under another spelling. |
+| Scan cost | One additional probe per reached directory when a resolution target is supplied. Ordinary scans without an exclusion target incur no such identity probes. |
+| Attempt naming | Real `%Y%m%dT%H%M%S` timestamps always match the digits/`T` pattern. The pattern is permissive rather than a calendar validator. |
+| `final` as input | The scan never enumerates literal `final`. Recovery canonicalizes it to its attempt target; resolution recognizes that target as published and refuses before mutation. |
+| Trainer tombstone | `arm/attempt/sub/..` finds the tombstone and exits 3 in both save and `--no-save` modes. |
+| Cross-arm alias | Refuses before creating the wrong arm’s registration lock. |
+| `--no-save` | Remains sidecar-free and lock-free; an absent diagnostic directory is allowed when its tombstone check is answerable. |
+| Trainer/launcher lock identity | No case was found where an accepted registration uses a different arm lock from the launcher’s identity decision. A whole-arm bind alias exposes the same lock inode. |
+| Health check | Four path questions: present, absent, same file, different files; plus the two existing PID-reader questions. |
+| Threat model | Both implementations explicitly defend against malformed answers and trust the pinned module’s truthful answers. |
+
+The probe’s `sameparent` means the parent **as written**. Lifecycle callers canonicalize the attempt before asking that question. The trainer’s default-root discrepancy is why blocker 2 matters.
+
+I independently replayed the real sourced lifecycle with real publication locks and a live helper registered through `register_trainer`. The malformed-answer matrix included:
+
+```text
+present
+present 81a4 /forged parent/x
+present 81a4␠
+absent yes
+link /x
+same different
+yes
+```
+
+All seven returned unknown through each of `probe_path`, `file_present`, `probe_link`, `same_path` and `same_parent`. Injecting them separately into `link` and `same` made `publishes`, `already_published`, both replacement settings of `check_final_conflict`, `abort_recovery` and `resolve_unregistered` refuse with status 2. Malformed containment and scan-exclusion answers also refused.
+
+The attempt, publication, log and registered live helper remained intact; no tombstone was written. Only my own helper was terminated through its subprocess handle. Separate dangling-`final` replays returned unknown across all five publication/recovery checks. A quiet resolution target reached through a symlinked root and `//./…/sub/..` was correctly excluded.
+
+Thus close-17’s space-bearing and overlong path payloads cannot authorize decisions through this protocol: there is no path field to accept. Raw-byte checking still rejects extra lines and NUL padding. This does not imply protection against a pinned module deliberately returning a false but grammatically valid `same`.
+
+`publishes` performs two probes, but all production publication mutations occur under the arm’s publication lock, which the caller holds. The trainer never retargets `final`. Cooperative lifecycle participants therefore cannot change `final` between those probes. An unrelated manual filesystem mutation or mount change can bypass advisory locking; that is outside the stated coordination model.
+
+The audit table is otherwise consistent with the implementation: sidecar decisions use the probe; scan exclusion and publication checks use identity; resolution containment uses `same_parent`; `readlink` is informational. Checked enumeration, classification and rename-path operations remain justified. **The inline comparison in blocker 1 prevents accepting the audit as complete.**
+
+**Validation completed: 304 distinct selected tests passed.**
+
+| Selected checks | Result |
+|---|---:|
+| `tests/test_exp11_shell.py` | 209 passed |
+| `tests/test_exp11_pathprobe.py` | 23 passed |
+| `tests/test_exp11_train.py` | 62 passed |
+| `tests/test_exp09_sim_eval_closures.py` | 3 passed |
+| Registry isolation and pinned-output comparisons | 6 passed |
+| Exact exp_04 `[True-promote]` case | 1 passed |
+
+Shell syntax and `git diff --check 2e109d0 f2f6943` also pass. Passing tests do not cover the two findings above.
+
+For RED evidence, I replayed `test_no_verdict_carries_a_path` using the actual module and test from **`2e76a95`**, extracted under `/tmp`. It failed as expected because stdout still contained:
+
+```text
+present 81b4 /tmp/.../launching
+```
+
+The eight-commit history matches the requested range. Production changes total **+211/−151**; test changes total **+169/−43**. The reported file counts—23 pathprobe, 209 shell and 62 trainer tests—are correct.
+
+The retained full-suite log begins exactly:
+
+```text
+HEAD d420ddb4443cf3212899b01534608b3f39491165
+```
+
+It records **1 failed, 3997 passed, 55 skipped**, in 3454.56 seconds. The sole failure is the stale exp_06 `summarize_haa` approval digest. No superseded `87f4e4d` partial suite log remains in the worktree. I inspected the retained full-suite evidence; I did not rerun the entire suite.
+
+Several record corrections are still needed:
+
+- Fix-17’s actual suite HEAD is correctly amended to `fef89ba`; both retained logs expose that SHA.
+- The revised timeout accounting correctly identifies six ordinary per-attempt calls and approximately 105 seconds for three TERM-ignoring sidecar probes. Approximately 180 seconds is six base 30-second budgets, **not a universal bound**: kill grace, health checks, identity probes, additional entries and early refusal affect actual duration. [Launcher:45](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:45) still contains the obsolete approximately-60-second explanation.
+- The [report:122](/home/yixunhu/codespace/xRIR_code_wt/worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_05:30:00_coder_round2_fix18_opus_report.md:122) still puts the exp_04 completion transaction on a background thread. Only the SIGTERM sender runs there; `execute_attempt` runs on the main thread. “Timing-sensitive” is supported; co-tenancy is unproven. The isolated case passes, and exp_04 files are unchanged since `9f98bbb`.
+- The [report:143](/home/yixunhu/codespace/xRIR_code_wt/worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_05:30:00_coder_round2_fix18_opus_report.md:143) incorrectly says every production/test commit is below 200 changed lines. `87f4e4d` totals **252**: 197 production plus 55 test lines.
+- The earlier oversized record-only commits are named, but their quoted counts are wrong in this checkout. `git show --numstat` totals **672** for `a700a24` and **707** for `cad6018`, rather than 624 and 538. This cycle’s record-only commits are **654** lines for `98c82b3` and **248** for `f2f6943`.
+- [Launcher:552](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:552) says “three questions” although the path health check asks four.
+
+Closure hygiene passes for the reviewed candidate:
+
+- All **28 exp_06/exp_11 code digests** agree between `d420ddb` and `f2f6943`.
+- Against the exp_06 record at `9f98bbb`, only `code.summarize_haa` moves; the other 19 keys match.
+- Five exp_11 keys move versus `2e109d0`: `train`, `finalize`, `launch_sh`, `smoke`, `summarize_haa`. The three HAA keys remain unchanged. All eight exact values appear below.
+- Sim-eval closures remain unchanged; all three closure tests pass.
+- The 28 checked existing frozen files match `9f98bbb`; all 12 exp_03 pinned source records match their reviewed hashes.
+- `BACKBONES_EXP06` is unchanged. Pinned exp_06/exp_09 and exp_11 phase-1 output comparisons are byte-identical.
+- `ckpt/exp11` is entirely absent.
+- Git status is unchanged: only the pre-existing untracked close18 prompt. No review or approval record was saved.
+
+The frozen identities are:
+
+```text
+tools/exp06_launch.sh
+d20ca47a0baabeb9ab799688aa61b16ca1b2bb8837d57e46611b28761e9f8a09
+
+tools/exp06_finalize.py
+9237ed6d4529d6af21127b6d54d1b27d7e339782dfd7781557901dbcd3078479
+
+BACKBONES_EXP06
+f9852f8568fb62aad5ec39a955b8e254dad6b5f53bbde71c69b048efa8b3e169
+```
+
+The exact fill manifest below applies to a merge retaining **the reviewed `f2f6943` production bytes**. It is not authorization to fill or merge this rejected candidate; recompute it after correcting the blockers.
+
+In exp_06’s existing approvals record, replace only `code.summarize_haa`:
+
+```text
+old:
+645e74c03e20425e361c2efcab564f2f2b2557c98574df538cd7dd439f8b3619
+
+new:
+85caf08ce7cbf2d479349fbf67825c8cb0feff9be8822d41ef76f08d2f4716d7
+```
+
+Preserving every other byte produces a **3,190-byte** exp_06 record with SHA256:
+
+```text
+c33e2475da5dbf3ad6d2144d9faac28d140a42f20ba8bfae2d8c514b12c870ac
+```
+
+The corresponding complete exp_11 fill is:
+
+```json
+{
+  "artifacts": {
+    "simpor_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    },
+    "simpor_yaw_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    }
+  },
+  "code": {
+    "finalize": "197f5bdeb6753e48cad1075299f2cd4bd86fd4ba1a7cfe7639ee95a39142c213",
+    "haa_eval": "f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20",
+    "haa_finetune": "bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150",
+    "haa_pipeline_sh": "3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4",
+    "launch_sh": "d4dab1e4a51fcac65b5ea6f307c66f43e601939f9670361219000d24b1202d19",
+    "smoke": "c8710213e7eadf16193e8f664e7dd7c60ecee13fd34ad6ffd01f307eac2a83ff",
+    "summarize_haa": "85caf08ce7cbf2d479349fbf67825c8cb0feff9be8822d41ef76f08d2f4716d7",
+    "train": "d712fa89fc7b35f7785f970cb1562d432c5120cfdab55848e32318ddc5c0dc30"
+  },
+  "reused": {
+    "approved_digests_exp04": "2e4521173bb230fc8114116ba0c94b4afd0ccdd3b0b034faaf54516461ee0314",
+    "approved_digests_exp06": "c33e2475da5dbf3ad6d2144d9faac28d140a42f20ba8bfae2d8c514b12c870ac",
+    "legacy_receipt": {
+      "path": "ckpt/exp06/legacy_receipt.json",
+      "sha256": "5a12494657665d336cf5f952c6ef918abbeae44e451f28821790ac5c46232540"
+    }
+  },
+  "schema_version": 1
+}
+```
+
+With sorted keys, two-space indentation and one final newline, that exp_11 record is **1,316 bytes**, SHA256:
+
+```text
+7459520df0d736bb18882da223f7e57df90a7fbc1c58458e4d1100de3804467e
+```
+tokens used
+104,526
+**Close review 18 — exp_11 `orientation_cue_fairness`, round 2**
+
+| Identity | Value |
+|---|---|
+| Model | GPT-6 / OpenAI Codex |
+| Reasoning effort | Not exposed in the supplied invocation metadata |
+| Sandbox | Managed read-only; authorized `/tmp` fixtures and owned helper processes |
+| Worktree | `/home/yixunhu/codespace/xRIR_code_wt` |
+| Branch | `exp11-cue` |
+| HEAD | `f2f69433884c33642c6fd9ed98af67908e0d2c5f` |
+| Last production commit | `d420ddb4443cf3212899b01534608b3f39491165` |
+| Completed | 2026-09-28 10:35:03 UTC / 06:35:03 EDT |
+| Execution | UID 1013; CUDA disabled; numeric worker threads limited to one; at most four concurrent workers; pytest cache disabled; temporary fixtures under `/tmp` |
+
+**Verdict: request changes. Round 2 cannot be CLOSED, and `f2f6943` should not be merged yet.**
+
+The close-17 path-payload vulnerabilities are eliminated from the probe protocol. Two P2 gaps remain.
+
+1. **[P2] Recovery still makes an earlier string-based containment decision.**
+
+   [tools/exp11_launch.sh:152](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:152) retains:
+
+   ```python
+   directory, base = Path(attempt).resolve(), Path(root).resolve()
+   if directory.parent != base:
+   ```
+
+   This runs before the new `same_parent` gate. Therefore the audit’s claim that every pathname comparison uses identity is false, and an identity-equivalent bind alias can be rejected.
+
+   Read-only verification against an existing bind mount showed:
+
+   ```text
+   /usr/share/hunspell
+   /var/snap/firefox/common/host-hunspell
+
+   Both: st_dev=66306, st_ino=8257996
+   exp11_pathprobe.same: same
+   Path.resolve() equality: False
+   ```
+
+   `sameparent` for an attempt pathname beneath the second spelling and the first arm root returns `same`; the inline comparison necessarily rejects that layout before reaching the identity gate. I did not create a mount or an attempt in these protected directories.
+
+   **Required:** replace this comparison with an in-process `samestat`, or remove the redundant comparison and retain the later identity gate. Add a regression covering identity-equivalent parents with different resolved spellings. This is a conservative rejection, not a demonstrated unsafe publication.
+
+2. **[P2] The normal trainer entry point rejects the promised terminal `sub/..` spelling.**
+
+   [tools/exp11_train.py:323](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_train.py:323) derives the default arm root from `given.parent`. For:
+
+   ```text
+   arm/attempt_20260928T010203/sub/..
+   ```
+
+   that parent is `arm/attempt_20260928T010203/sub`, although the canonical attempt’s parent is `arm`.
+
+   Independent replay established:
+
+   ```text
+   same(input, canonical attempt): same
+   sameparent(canonical attempt, actual arm): same
+   register_trainer(input): exit 3
+   register_trainer(input, arm_root=actual_arm): succeeds
+   ```
+
+   The default call creates neither `train.pid` nor a lock. Its diagnostic says the attempt belongs to `arm`, rather than the supplied `…/attempt_…/sub`.
+
+   [main:389](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_train.py:389) supplies no `arm_root`. The new [regression:491](/home/yixunhu/codespace/xRIR_code_wt/tests/test_exp11_train.py:491) supplies it explicitly, masking the runtime refusal.
+
+   **Required:** support this spelling through the default entry point and test without that override, while preserving rejection of an attempt symlink into another arm. Simply trusting the canonical parent would remove that existing protection.
+
+The remaining requested checks produced the following results.
+
+| Check | Finding |
+|---|---|
+| Probe verdict grammar | No pathname or link target appears in a successful verdict. `valid_path` and probe canonical-path output are gone. |
+| Identity spellings | Symlinked arm roots, `//`, `/./`, trailing slash and existing `sub/..` resolve to the same identity. Trainer default-entry qualification is blocker 2. |
+| Hard links | Regular-file hard links return `same`. Correct: this asks inode identity. Ordinary attempt directories cannot be hard-linked this way. |
+| Bind mounts | A bind alias normally retains device/inode identity; the existing mount above returns `same`. Different resolved strings do not imply different identity. |
+| Copies | An independent identical-content copy returns `different`. Appropriate: content equality does not establish attempt identity. |
+| Dangling `final` | Unknown; publication, conflict, abort and resolution guards refuse. |
+| Scan exclusion | Uses `same_path` after all three PID checks. A live registered trainer still refuses even when its directory is the resolution target under another spelling. |
+| Scan cost | One additional probe per reached directory when a resolution target is supplied. Ordinary scans without an exclusion target incur no such identity probes. |
+| Attempt naming | Real `%Y%m%dT%H%M%S` timestamps always match the digits/`T` pattern. The pattern is permissive rather than a calendar validator. |
+| `final` as input | The scan never enumerates literal `final`. Recovery canonicalizes it to its attempt target; resolution recognizes that target as published and refuses before mutation. |
+| Trainer tombstone | `arm/attempt/sub/..` finds the tombstone and exits 3 in both save and `--no-save` modes. |
+| Cross-arm alias | Refuses before creating the wrong arm’s registration lock. |
+| `--no-save` | Remains sidecar-free and lock-free; an absent diagnostic directory is allowed when its tombstone check is answerable. |
+| Trainer/launcher lock identity | No case was found where an accepted registration uses a different arm lock from the launcher’s identity decision. A whole-arm bind alias exposes the same lock inode. |
+| Health check | Four path questions: present, absent, same file, different files; plus the two existing PID-reader questions. |
+| Threat model | Both implementations explicitly defend against malformed answers and trust the pinned module’s truthful answers. |
+
+The probe’s `sameparent` means the parent **as written**. Lifecycle callers canonicalize the attempt before asking that question. The trainer’s default-root discrepancy is why blocker 2 matters.
+
+I independently replayed the real sourced lifecycle with real publication locks and a live helper registered through `register_trainer`. The malformed-answer matrix included:
+
+```text
+present
+present 81a4 /forged parent/x
+present 81a4␠
+absent yes
+link /x
+same different
+yes
+```
+
+All seven returned unknown through each of `probe_path`, `file_present`, `probe_link`, `same_path` and `same_parent`. Injecting them separately into `link` and `same` made `publishes`, `already_published`, both replacement settings of `check_final_conflict`, `abort_recovery` and `resolve_unregistered` refuse with status 2. Malformed containment and scan-exclusion answers also refused.
+
+The attempt, publication, log and registered live helper remained intact; no tombstone was written. Only my own helper was terminated through its subprocess handle. Separate dangling-`final` replays returned unknown across all five publication/recovery checks. A quiet resolution target reached through a symlinked root and `//./…/sub/..` was correctly excluded.
+
+Thus close-17’s space-bearing and overlong path payloads cannot authorize decisions through this protocol: there is no path field to accept. Raw-byte checking still rejects extra lines and NUL padding. This does not imply protection against a pinned module deliberately returning a false but grammatically valid `same`.
+
+`publishes` performs two probes, but all production publication mutations occur under the arm’s publication lock, which the caller holds. The trainer never retargets `final`. Cooperative lifecycle participants therefore cannot change `final` between those probes. An unrelated manual filesystem mutation or mount change can bypass advisory locking; that is outside the stated coordination model.
+
+The audit table is otherwise consistent with the implementation: sidecar decisions use the probe; scan exclusion and publication checks use identity; resolution containment uses `same_parent`; `readlink` is informational. Checked enumeration, classification and rename-path operations remain justified. **The inline comparison in blocker 1 prevents accepting the audit as complete.**
+
+**Validation completed: 304 distinct selected tests passed.**
+
+| Selected checks | Result |
+|---|---:|
+| `tests/test_exp11_shell.py` | 209 passed |
+| `tests/test_exp11_pathprobe.py` | 23 passed |
+| `tests/test_exp11_train.py` | 62 passed |
+| `tests/test_exp09_sim_eval_closures.py` | 3 passed |
+| Registry isolation and pinned-output comparisons | 6 passed |
+| Exact exp_04 `[True-promote]` case | 1 passed |
+
+Shell syntax and `git diff --check 2e109d0 f2f6943` also pass. Passing tests do not cover the two findings above.
+
+For RED evidence, I replayed `test_no_verdict_carries_a_path` using the actual module and test from **`2e76a95`**, extracted under `/tmp`. It failed as expected because stdout still contained:
+
+```text
+present 81b4 /tmp/.../launching
+```
+
+The eight-commit history matches the requested range. Production changes total **+211/−151**; test changes total **+169/−43**. The reported file counts—23 pathprobe, 209 shell and 62 trainer tests—are correct.
+
+The retained full-suite log begins exactly:
+
+```text
+HEAD d420ddb4443cf3212899b01534608b3f39491165
+```
+
+It records **1 failed, 3997 passed, 55 skipped**, in 3454.56 seconds. The sole failure is the stale exp_06 `summarize_haa` approval digest. No superseded `87f4e4d` partial suite log remains in the worktree. I inspected the retained full-suite evidence; I did not rerun the entire suite.
+
+Several record corrections are still needed:
+
+- Fix-17’s actual suite HEAD is correctly amended to `fef89ba`; both retained logs expose that SHA.
+- The revised timeout accounting correctly identifies six ordinary per-attempt calls and approximately 105 seconds for three TERM-ignoring sidecar probes. Approximately 180 seconds is six base 30-second budgets, **not a universal bound**: kill grace, health checks, identity probes, additional entries and early refusal affect actual duration. [Launcher:45](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:45) still contains the obsolete approximately-60-second explanation.
+- The [report:122](/home/yixunhu/codespace/xRIR_code_wt/worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_05:30:00_coder_round2_fix18_opus_report.md:122) still puts the exp_04 completion transaction on a background thread. Only the SIGTERM sender runs there; `execute_attempt` runs on the main thread. “Timing-sensitive” is supported; co-tenancy is unproven. The isolated case passes, and exp_04 files are unchanged since `9f98bbb`.
+- The [report:143](/home/yixunhu/codespace/xRIR_code_wt/worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude/orientation_cue_fairness_2026-09-28_05:30:00_coder_round2_fix18_opus_report.md:143) incorrectly says every production/test commit is below 200 changed lines. `87f4e4d` totals **252**: 197 production plus 55 test lines.
+- The earlier oversized record-only commits are named, but their quoted counts are wrong in this checkout. `git show --numstat` totals **672** for `a700a24` and **707** for `cad6018`, rather than 624 and 538. This cycle’s record-only commits are **654** lines for `98c82b3` and **248** for `f2f6943`.
+- [Launcher:552](/home/yixunhu/codespace/xRIR_code_wt/tools/exp11_launch.sh:552) says “three questions” although the path health check asks four.
+
+Closure hygiene passes for the reviewed candidate:
+
+- All **28 exp_06/exp_11 code digests** agree between `d420ddb` and `f2f6943`.
+- Against the exp_06 record at `9f98bbb`, only `code.summarize_haa` moves; the other 19 keys match.
+- Five exp_11 keys move versus `2e109d0`: `train`, `finalize`, `launch_sh`, `smoke`, `summarize_haa`. The three HAA keys remain unchanged. All eight exact values appear below.
+- Sim-eval closures remain unchanged; all three closure tests pass.
+- The 28 checked existing frozen files match `9f98bbb`; all 12 exp_03 pinned source records match their reviewed hashes.
+- `BACKBONES_EXP06` is unchanged. Pinned exp_06/exp_09 and exp_11 phase-1 output comparisons are byte-identical.
+- `ckpt/exp11` is entirely absent.
+- Git status is unchanged: only the pre-existing untracked close18 prompt. No review or approval record was saved.
+
+The frozen identities are:
+
+```text
+tools/exp06_launch.sh
+d20ca47a0baabeb9ab799688aa61b16ca1b2bb8837d57e46611b28761e9f8a09
+
+tools/exp06_finalize.py
+9237ed6d4529d6af21127b6d54d1b27d7e339782dfd7781557901dbcd3078479
+
+BACKBONES_EXP06
+f9852f8568fb62aad5ec39a955b8e254dad6b5f53bbde71c69b048efa8b3e169
+```
+
+The exact fill manifest below applies to a merge retaining **the reviewed `f2f6943` production bytes**. It is not authorization to fill or merge this rejected candidate; recompute it after correcting the blockers.
+
+In exp_06’s existing approvals record, replace only `code.summarize_haa`:
+
+```text
+old:
+645e74c03e20425e361c2efcab564f2f2b2557c98574df538cd7dd439f8b3619
+
+new:
+85caf08ce7cbf2d479349fbf67825c8cb0feff9be8822d41ef76f08d2f4716d7
+```
+
+Preserving every other byte produces a **3,190-byte** exp_06 record with SHA256:
+
+```text
+c33e2475da5dbf3ad6d2144d9faac28d140a42f20ba8bfae2d8c514b12c870ac
+```
+
+The corresponding complete exp_11 fill is:
+
+```json
+{
+  "artifacts": {
+    "simpor_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    },
+    "simpor_yaw_epoch_012": {
+      "epoch": null,
+      "path": null,
+      "sha256": null
+    }
+  },
+  "code": {
+    "finalize": "197f5bdeb6753e48cad1075299f2cd4bd86fd4ba1a7cfe7639ee95a39142c213",
+    "haa_eval": "f822365cb0c8d80efb9d4105b743824cb2b66bc19c1822346b0d8c75b994fe20",
+    "haa_finetune": "bd8074e71e54600bacc79c907df1ad61ab57e655df2169119193758cca1f5150",
+    "haa_pipeline_sh": "3ebc8e156177796c1ab99808273cda1c88004e5292fb23e6192fb123705d65a4",
+    "launch_sh": "d4dab1e4a51fcac65b5ea6f307c66f43e601939f9670361219000d24b1202d19",
+    "smoke": "c8710213e7eadf16193e8f664e7dd7c60ecee13fd34ad6ffd01f307eac2a83ff",
+    "summarize_haa": "85caf08ce7cbf2d479349fbf67825c8cb0feff9be8822d41ef76f08d2f4716d7",
+    "train": "d712fa89fc7b35f7785f970cb1562d432c5120cfdab55848e32318ddc5c0dc30"
+  },
+  "reused": {
+    "approved_digests_exp04": "2e4521173bb230fc8114116ba0c94b4afd0ccdd3b0b034faaf54516461ee0314",
+    "approved_digests_exp06": "c33e2475da5dbf3ad6d2144d9faac28d140a42f20ba8bfae2d8c514b12c870ac",
+    "legacy_receipt": {
+      "path": "ckpt/exp06/legacy_receipt.json",
+      "sha256": "5a12494657665d336cf5f952c6ef918abbeae44e451f28821790ac5c46232540"
+    }
+  },
+  "schema_version": 1
+}
+```
+
+With sorted keys, two-space indentation and one final newline, that exp_11 record is **1,316 bytes**, SHA256:
+
+```text
+7459520df0d736bb18882da223f7e57df90a7fbc1c58458e4d1100de3804467e
+```
