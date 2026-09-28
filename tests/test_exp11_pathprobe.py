@@ -131,3 +131,69 @@ def test_a_misuse_is_not_a_verdict(tmp_path):
     for argv in ([], ['probe'], ['fly', str(tmp_path)], ['probe', 'a', 'b']):
         result = cli(*argv)
         assert result.returncode == 2 and result.stdout == ''
+
+
+# --- close review 16: the probe must not answer about a path it did not look up -------
+
+
+def test_a_missing_component_before_a_dotdot_is_not_an_absence(tmp_path):
+    """`base/missing/../leaf` does not resolve to `base/leaf`: the lookup FAILS.
+
+    `abspath` collapses the `..` lexically and the parent check then inspects `base`,
+    which is there -- so the probe called a path absent that the kernel never reached.
+    """
+    state, _ = probe.probe(tmp_path / 'missing' / '..' / 'leaf')
+    assert state == probe.UNKNOWN
+    assert cli('probe', tmp_path / 'missing' / '..' / 'leaf').returncode == 2
+
+
+def test_a_dangling_component_before_a_dotdot_is_not_an_absence(tmp_path):
+    dangling = tmp_path / 'dangling'
+    dangling.symlink_to(tmp_path / 'not-there')
+    state, _ = probe.probe(tmp_path / 'dangling' / '..' / 'leaf')
+    assert state == probe.UNKNOWN
+    assert cli('probe', tmp_path / 'dangling' / '..' / 'leaf').returncode == 2
+
+
+def test_a_dotdot_path_that_really_resolves_is_still_answered(tmp_path):
+    """The rule is "look it up", not "refuse every ..": a real path still answers."""
+    (tmp_path / 'sub').mkdir()
+    (tmp_path / 'leaf').write_text('x')
+    assert probe.probe(tmp_path / 'sub' / '..' / 'leaf')[0] == probe.PRESENT
+    assert probe.probe(tmp_path / 'sub' / '..' / 'gone')[0] == probe.ABSENT
+
+
+def test_a_trailing_slash_on_a_dangling_link_is_not_an_absence(tmp_path):
+    """A trailing slash demands a directory; ENOTDIR and ENOENT are not the same news."""
+    link = tmp_path / 'final'
+    link.symlink_to(tmp_path / 'not-there')
+    state, _ = probe.probe(str(link) + '/')
+    assert state == probe.UNKNOWN
+    assert cli('probe', str(link) + '/').returncode == 2
+    result = cli('link', str(link) + '/')
+    assert result.returncode == 2, result.stdout
+
+
+def test_every_printed_field_is_validated(tmp_path):
+    """A healthy module can never print a field its own readers would refuse."""
+    path = tmp_path / 'launching'
+    path.write_text('x')
+    assert probe.valid_mode('{:x}'.format(path.stat().st_mode))
+    assert probe.valid_path(os.path.realpath(str(path)))
+    for bad in ('relative/x', '/abs/../x', '//abs', '/trailing/', '/dot/./x', '/' + 'x' * 5000,
+                '/carriage\rreturn'):
+        assert not probe.valid_path(bad), bad
+    for bad in ('zzzz', '', 'ffffffff', '1', '81a4x'):
+        assert not probe.valid_mode(bad), bad
+
+
+def test_the_canonical_path_keeps_the_probed_name(tmp_path):
+    """Only the DIRECTORY is canonicalised for a name that is not itself a symlink."""
+    real = tmp_path / 'real'
+    real.mkdir()
+    (real / 'launching').write_text('x')
+    alias = tmp_path / 'alias'
+    alias.symlink_to(real)
+    result = cli('probe', alias / 'launching')
+    assert result.returncode == 0
+    assert result.stdout.rstrip('\n').endswith('/real/launching'), result.stdout
