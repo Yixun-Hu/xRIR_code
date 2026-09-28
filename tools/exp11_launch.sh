@@ -34,6 +34,18 @@ cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 EXP06_LAUNCH_LIB=1 source tools/exp06_launch.sh
 export PYTHONPATH="$PWD"
 
+# Every listing and every verdict this invocation writes lives in one directory, so the
+# EXIT trap can take all of them at once -- including on the abrupt paths, where the
+# individual `rm`s never run (close review 14, nonblocking).
+EXP11_TEMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/exp11_launch.XXXXXX")" || {
+    echo "refusing: no temporary directory could be created for this invocation" >&2
+    exit 2; }
+trap 'rm -rf -- "$EXP11_TEMPDIR"' EXIT
+
+# How long the pid reader may take to answer one question. An answer that never comes is
+# not an answer; the launcher does not wait for it forever.
+READER_TIMEOUT_S="${EXP11_READER_TIMEOUT_S:-30}"
+
 RECORD=worklog/worklog_yixun/exp_11_orientation_cue_fairness_claude
 APPROVED_DEFAULT="$RECORD/orientation_cue_fairness_results_assets/approved_digests.json"
 SMOKE_DIR=ckpt/exp11/_smoke
@@ -253,7 +265,7 @@ hold_arm_lock() {  # hold_arm_lock <mode>
     HOLDER_PID="$pid"
     trap 'on_signal INT 2' INT
     trap 'on_signal TERM 15' TERM
-    trap 'drop_arm_lock' EXIT
+    trap 'drop_arm_lock; rm -rf -- "$EXP11_TEMPDIR"' EXIT
     say "LOCKED $LOCK_FILE mode=$1"
 }
 
@@ -372,8 +384,9 @@ pid_record() {
             return 1                          # definite: not a regular file, unopened
         fi
     fi
-    out="$(mktemp "${TMPDIR:-/tmp}/exp11_verdict.XXXXXX")" || return "$READER_UNKNOWN"
-    "$PYTHON" -m tools.exp11_pidrecord "$1" > "$out" 2>/dev/null || status=$?
+    out="$(mktemp "$EXP11_TEMPDIR/verdict.XXXXXX")" || return "$READER_UNKNOWN"
+    timeout "$READER_TIMEOUT_S" "$PYTHON" -m tools.exp11_pidrecord "$1" \
+        > "$out" 2>/dev/null || status=$?
     if [ "$status" -ne 0 ]; then rm -f -- "$out"; return "$READER_UNKNOWN"; fi
     # A verdict is eighteen bytes at most ('record ' + ten digits + a newline), so the
     # size answers first and no rogue reader's output is ever read, compared or -- worst
@@ -422,13 +435,14 @@ registration_complete() {
 # probe_reader <file> <expected bytes> <where the answer goes>: 0 when the reader exited
 # 0 and printed EXACTLY those bytes. Byte for byte, like every real read.
 probe_reader() {
-    "$PYTHON" -m tools.exp11_pidrecord "$1" > "$3" 2>/dev/null || return 1
+    timeout "$READER_TIMEOUT_S" "$PYTHON" -m tools.exp11_pidrecord "$1" \
+        > "$3" 2>/dev/null || return 1
     cmp -s "$3" "$2"
 }
 
 check_pid_reader() {
     local dir="" bad=""
-    dir="$(mktemp -d "${TMPDIR:-/tmp}/exp11_pidreader.XXXXXX")" || {
+    dir="$(mktemp -d "$EXP11_TEMPDIR/pidreader.XXXXXX")" || {
         echo "refusing: cannot create a probe directory for the pid reader" >&2
         return 1; }
     printf '1\n' > "$dir/one"
@@ -494,7 +508,7 @@ scan_arm() {
     # The attempt being resolved is excluded by canonical identity, never by spelling:
     # the caller's path and this glob's may name the same directory differently.
     [ -z "$resolving" ] || resolving="$(realpath -- "$resolving" 2>/dev/null || printf '%s' "$resolving")"
-    listing="$(mktemp "${TMPDIR:-/tmp}/exp11_attempts.XXXXXX")" || {
+    listing="$(mktemp "$EXP11_TEMPDIR/attempts.XXXXXX")" || {
         SCAN_REASON="liveness unknown: cannot create a listing file for $root"
         return "$READER_UNKNOWN"; }
     if ! list_attempts "$root" "$listing"; then
@@ -590,7 +604,7 @@ clear_launching() {  # clear_launching <attempt>: only once the TRAINER is accou
     # protection, and protection is not withdrawn on an understanding we do not have
     # (close review 13).
     local listing=""
-    listing="$(mktemp "${TMPDIR:-/tmp}/exp11_attempts.XXXXXX")" || return 0
+    listing="$(mktemp "$EXP11_TEMPDIR/attempts.XXXXXX")" || return 0
     if ! list_attempts "$(dirname -- "$1")" "$listing"; then rm -f -- "$listing"; return 0; fi
     rm -f -- "$listing"
     registration_complete "$1" || return 0
@@ -610,9 +624,21 @@ resolve_unregistered() {
     check_pid_reader || return "$READER_UNKNOWN"
     # Identity is the canonical directory, never the spelling: an operator's path may be
     # absolute where the root is relative, or reach the arm through a symlink.
-    [ -d "$1" ] || { echo "refusing: $1 is not a directory" >&2; return 1; }
-    attempt="$(realpath -- "$1")" || return 1
-    root="$(realpath -- "$ARM_ROOT")" || return 1
+    local given=0
+    probe_path "$1" || given=$?
+    if [ "$given" -eq "$READER_UNKNOWN" ]; then
+        echo "refusing: liveness unknown: $1 cannot be inspected; nothing is retired on" \
+             "a path nobody could look at" >&2
+        return "$READER_UNKNOWN"
+    fi
+    [ "$given" -eq 0 ] && [ $(( 0x$PROBE_MODE & 0xF000 )) -eq $(( 0x4000 )) ] ||
+        { echo "refusing: $1 is not a directory" >&2; return 1; }
+    attempt="$(realpath -e -- "$1")" || {
+        echo "refusing: liveness unknown: $1 cannot be resolved" >&2
+        return "$READER_UNKNOWN"; }
+    root="$(realpath -e -- "$ARM_ROOT")" || {
+        echo "refusing: liveness unknown: $ARM_ROOT cannot be resolved" >&2
+        return "$READER_UNKNOWN"; }
     name="$(basename -- "$attempt")"
     # The lock and the scan are this arm's, so the resolution reaches no further.
     if [ "$(dirname -- "$attempt")" != "$root" ]; then
