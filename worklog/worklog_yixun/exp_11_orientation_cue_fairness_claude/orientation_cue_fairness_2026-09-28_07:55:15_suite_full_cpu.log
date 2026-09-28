@@ -8,4 +8,856 @@
 ........................................................................ [ 13%]
 ........................................................................ [ 15%]
 ........................................................................ [ 16%]
-....
+.............................................................ssssss..... [ 18%]
+........................................................................ [ 20%]
+........................................................................ [ 22%]
+........................................................................ [ 23%]
+........................................................................ [ 25%]
+...............................sss...................................... [ 27%]
+........................................................................ [ 28%]
+........................................................................ [ 30%]
+........................................................................ [ 32%]
+........................................................................ [ 33%]
+........................................................................ [ 35%]
+........................................................................ [ 37%]
+........................................................................ [ 38%]
+......................F.FFF........FFF..............FF.................. [ 40%]
+.................................................s...................... [ 42%]
+...................s.................................s.................. [ 44%]
+........................................................................ [ 45%]
+........................................................................ [ 47%]
+........................................................................ [ 49%]
+........................................................................ [ 50%]
+..............................................................sssss..... [ 52%]
+........................................................................ [ 54%]
+........................................................................ [ 55%]
+........................................................................ [ 57%]
+........................................................................ [ 59%]
+........................................................................ [ 60%]
+........................................................................ [ 62%]
+...........ssss......................................................... [ 64%]
+........................................................................ [ 66%]
+................................................................FFFFFFFF [ 67%]
+FFFF.................................................................... [ 69%]
+........................................................................ [ 71%]
+........................................................................ [ 72%]
+.....F.................................................................. [ 74%]
+..............................................................F......... [ 76%]
+........................................................................ [ 77%]
+......F................................................................. [ 79%]
+........................................................................ [ 81%]
+.........s.............................................................. [ 82%]
+........................................................................ [ 84%]
+........................................................................ [ 86%]
+........................................................................ [ 88%]
+........................................................................ [ 89%]
+........................................................................ [ 91%]
+........................................................................ [ 93%]
+........
+[T9c] 6337 queries, manifest built in 2.98s; queries with < 8 distinct candidates: 520 (8.2058%); manifest_hash = 47637a55ccc594a32c35362f970e25296e352ccc81778f9523ce882ff930153d
+................................................................ [ 94%]
+........................................................................ [ 96%]
+..................................................................ss..ss [ 98%]
+..................................................................s..s.s [ 99%]
+...                                                                      [100%]
+=================================== FAILURES ===================================
+__________ test_preflight_accepts_a_clean_tree_at_the_reviewed_commit __________
+
+repo = (PosixPath('/tmp/pytest-exp11-2026-09-28_07:55:15/test_preflight_accepts_a_clean0/repo'), 'b4eb1c264cc6cb04c9e6c9c5ae64bb04035eea0c')
+fake_nvidia_smi = <function fake_nvidia_smi.<locals>.apps at 0x7a01496f4280>
+
+    def test_preflight_accepts_a_clean_tree_at_the_reviewed_commit(repo, fake_nvidia_smi):
+        root, head = repo
+>       record = exp06_finalize.preflight('full', 1, head, attempt_root=root.parent / 'a', repo=root)
+
+tests/test_exp06_launch.py:88: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/exp06_finalize.py:1981: in preflight
+    _require(not apps, 'GPU {} is busy with compute apps {}'.format(gpu, apps))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+ok = False, cause = "GPU 1 is busy with compute apps ['1047560']"
+
+    def _require(ok, cause):
+        if not ok:
+>           raise ValueError(cause)
+E           ValueError: GPU 1 is busy with compute apps ['1047560']
+
+tools/exp06_finalize.py:180: ValueError
+___________ test_preflight_refuses_a_busy_gpu_only_where_it_matters ____________
+
+repo = (PosixPath('/tmp/pytest-exp11-2026-09-28_07:55:15/test_preflight_refuses_a_busy_0/repo'), 'ea54b150670296fcce8eecf846ead9c34f19c08d')
+fake_nvidia_smi = <function fake_nvidia_smi.<locals>.apps at 0x7a01322750d0>
+
+    def test_preflight_refuses_a_busy_gpu_only_where_it_matters(repo, fake_nvidia_smi):
+        root, head = repo
+        fake_nvidia_smi('3141\n')
+        for mode in ('full', 'probe'):
+            with pytest.raises(ValueError, match='GPU'):
+                exp06_finalize.preflight(mode, 1, head, repo=root)
+        assert exp06_finalize.preflight('smoke', 1, head, repo=root)['gpu_compute_apps'] is None
+        fake_nvidia_smi('')
+>       assert exp06_finalize.preflight('full', 1, head, repo=root)['gpu_compute_apps'] == []
+
+tests/test_exp06_launch.py:115: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/exp06_finalize.py:1981: in preflight
+    _require(not apps, 'GPU {} is busy with compute apps {}'.format(gpu, apps))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+ok = False, cause = "GPU 1 is busy with compute apps ['1047560']"
+
+    def _require(ok, cause):
+        if not ok:
+>           raise ValueError(cause)
+E           ValueError: GPU 1 is busy with compute apps ['1047560']
+
+tools/exp06_finalize.py:180: ValueError
+____________ test_preflight_refuses_a_live_or_unreadable_launch_pid ____________
+
+repo = (PosixPath('/tmp/pytest-exp11-2026-09-28_07:55:15/test_preflight_refuses_a_live_0/repo'), 'ea54b150670296fcce8eecf846ead9c34f19c08d')
+fake_nvidia_smi = <function fake_nvidia_smi.<locals>.apps at 0x7a0132275ca0>
+
+    def test_preflight_refuses_a_live_or_unreadable_launch_pid(repo, fake_nvidia_smi):
+        root, head = repo
+        attempts = root.parent / 'attempts'  # ckpt/ lives outside the tracked tree
+        (attempts / 'attempt_20260916T130000').mkdir(parents=True)
+        (attempts / 'attempt_20260916T130000/launch.pid').write_text(str(os.getpid()) + '\n')
+        with pytest.raises(ValueError, match='launch'):
+            exp06_finalize.preflight('full', 1, head, attempt_root=attempts, repo=root)
+        (attempts / 'attempt_20260916T130000/launch.pid').write_text('not-a-pid\n')
+        with pytest.raises(ValueError, match='launch.pid'):
+            exp06_finalize.preflight('full', 1, head, attempt_root=attempts, repo=root)
+        (attempts / 'attempt_20260916T130000/launch.pid').write_text('999999999\n')
+>       assert exp06_finalize.preflight('full', 1, head, attempt_root=attempts, repo=root)
+
+tests/test_exp06_launch.py:129: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/exp06_finalize.py:1981: in preflight
+    _require(not apps, 'GPU {} is busy with compute apps {}'.format(gpu, apps))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+ok = False, cause = "GPU 1 is busy with compute apps ['1047560']"
+
+    def _require(ok, cause):
+        if not ok:
+>           raise ValueError(cause)
+E           ValueError: GPU 1 is busy with compute apps ['1047560']
+
+tools/exp06_finalize.py:180: ValueError
+__________________ test_preflight_scans_every_launch_location __________________
+
+repo = (PosixPath('/tmp/pytest-exp11-2026-09-28_07:55:15/test_preflight_scans_every_lau0/repo'), '91291b76b827f8a5a0bf306fa421e5683771ad0b')
+fake_nvidia_smi = <function fake_nvidia_smi.<locals>.apps at 0x7a011d3039d0>
+tmp_path = PosixPath('/tmp/pytest-exp11-2026-09-28_07:55:15/test_preflight_scans_every_lau0')
+
+    def test_preflight_scans_every_launch_location(repo, fake_nvidia_smi, tmp_path):
+        """Should-fix 5: smoke pid files live outside the attempt root and count too."""
+        root, head = repo
+        attempts, smoke = tmp_path / 'attempts', tmp_path / '_smoke'
+        (attempts / 'attempt_x').mkdir(parents=True)
+        (smoke / 'exp06_train_t1_x').mkdir(parents=True)
+        (smoke / 'exp06_train_t1_x/launch.pid').write_text(str(os.getpid()) + '\n')
+>       assert exp06_finalize.preflight('full', 1, head, attempt_root=attempts, repo=root)
+
+tests/test_exp06_launch.py:139: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/exp06_finalize.py:1981: in preflight
+    _require(not apps, 'GPU {} is busy with compute apps {}'.format(gpu, apps))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+ok = False, cause = "GPU 1 is busy with compute apps ['1047560']"
+
+    def _require(ok, cause):
+        if not ok:
+>           raise ValueError(cause)
+E           ValueError: GPU 1 is busy with compute apps ['1047560']
+
+tools/exp06_finalize.py:180: ValueError
+_______ test_preflight_refuses_a_card_that_cannot_hold_the_smoke_budget ________
+
+repo = (PosixPath('/tmp/pytest-exp11-2026-09-28_07:55:15/test_preflight_refuses_a_card_0/repo'), 'eea9ecace4c64688bc5b484572fcb9ab1258b283')
+fake_nvidia_smi = <function fake_nvidia_smi.<locals>.apps at 0x7a01322753a0>
+
+    def test_preflight_refuses_a_card_that_cannot_hold_the_smoke_budget(repo, fake_nvidia_smi):
+        """The measured peak is 3.63 GB; a card with less free than the budget is refused."""
+        root, head = repo
+        fake_nvidia_smi.free(2048)
+        with pytest.raises(ValueError, match='free'):
+>           exp06_finalize.preflight('smoke', 0, head, repo=root, min_free_gb=6)
+E           Failed: DID NOT RAISE <class 'ValueError'>
+
+tests/test_exp06_launch.py:294: Failed
+____________ test_an_unreadable_free_memory_query_refuses_the_smoke ____________
+
+repo = (PosixPath('/tmp/pytest-exp11-2026-09-28_07:55:15/test_an_unreadable_free_memory0/repo'), 'eea9ecace4c64688bc5b484572fcb9ab1258b283')
+fake_nvidia_smi = <function fake_nvidia_smi.<locals>.apps at 0x7a0148ad4a60>
+
+    def test_an_unreadable_free_memory_query_refuses_the_smoke(repo, fake_nvidia_smi):
+        """Fail-closed: a card whose free memory cannot be read is not a card to share."""
+        root, head = repo
+        for reply in ('', 'N/A'):
+            fake_nvidia_smi.free(reply)
+            with pytest.raises(ValueError, match='GPU'):
+>               exp06_finalize.preflight('smoke', 0, head, repo=root, min_free_gb=6)
+E               Failed: DID NOT RAISE <class 'ValueError'>
+
+tests/test_exp06_launch.py:308: Failed
+________________ test_the_preflight_cli_takes_the_memory_floor _________________
+
+repo = (PosixPath('/tmp/pytest-exp11-2026-09-28_07:55:15/test_the_preflight_cli_takes_t0/repo'), 'eea9ecace4c64688bc5b484572fcb9ab1258b283')
+fake_nvidia_smi = <function fake_nvidia_smi.<locals>.apps at 0x7a0132275430>
+capsys = <_pytest.capture.CaptureFixture object at 0x7a0131934940>
+
+    def test_the_preflight_cli_takes_the_memory_floor(repo, fake_nvidia_smi, capsys):
+        """The launcher passes the floor as a flag, so the CLI must carry it to the gate."""
+        root, head = repo
+        argv = ['--mode', 'smoke', '--gpu', '0', '--reviewed-commit', head, '--repo', str(root),
+                '--min-free-gb', '6']
+        fake_nvidia_smi.free(1024)
+>       assert exp06_finalize.preflight_main(argv) == 2
+E       AssertionError: assert 0 == 2
+E        +  where 0 = <function preflight_main at 0x7a0111993b80>(['--mode', 'smoke', '--gpu', '0', '--reviewed-commit', 'eea9ecace4c64688bc5b484572fcb9ab1258b283', ...])
+E        +    where <function preflight_main at 0x7a0111993b80> = exp06_finalize.preflight_main
+
+tests/test_exp06_launch.py:317: AssertionError
+----------------------------- Captured stdout call -----------------------------
+EXP06_PREFLIGHT_OK {"approval_deviations": [], "approved": {"committed_at": "eea9ecace4c64688bc5b484572fcb9ab1258b283", "path": "/tmp/pytest-exp11-2026-09-28_07:55:15/test_the_preflight_cli_takes_t0/repo/worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_results_assets/approved_digests.json", "repo_relative": "worklog/worklog_yixun/exp_06_oriented_cyl_claude/oriented_cyl_results_assets/approved_digests.json", "sha256": "4f43f30406d1a75107e25ed7288a50ead3b28af521f421084dcc7ab9d1672ebe"}, "attempt_root": [], "exploratory": false, "git_state": {"HEAD": "eea9ecace4c64688bc5b484572fcb9ab1258b283", "diff_sha256": null, "dirty": false, "dirty_outside_worklog": false, "untracked": []}, "gpu": 0, "gpu_compute_apps": null, "gpu_free_gib": 23.6162109375, "live_launches": [], "min_free_gb": 6.0, "mode": "smoke", "reviewed_commit": "eea9ecace4c64688bc5b484572fcb9ab1258b283"}
+___________ test_preflight_admits_a_full_launch_whose_digests_match ____________
+
+repo = (PosixPath('/tmp/pytest-exp11-2026-09-28_07:55:15/test_preflight_admits_a_full_l0/repo'), '204c28d52a7ef8d7e63ad8e33a8124615d2eddba')
+fake_nvidia_smi = <function fake_nvidia_smi.<locals>.apps at 0x7a0132275d30>
+approved_code = {'encoder': '0000000000000000000000000000000000000000000000000000000000000004', 'factory': '00000000000000000000000000...0000000000000000000000000000001', 'launch_sh': '0000000000000000000000000000000000000000000000000000000000000006', ...}
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7a0131934af0>
+
+    def test_preflight_admits_a_full_launch_whose_digests_match(repo, fake_nvidia_smi,
+                                                                approved_code, monkeypatch):
+        root, head = repo
+        approvals = root / exp06_profiles.APPROVED_RELATIVE
+>       record = exp06_finalize.preflight('full', 1, head, repo=root, approved=approvals)
+
+tests/test_exp06_launch.py:575: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/exp06_finalize.py:1981: in preflight
+    _require(not apps, 'GPU {} is busy with compute apps {}'.format(gpu, apps))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+ok = False, cause = "GPU 1 is busy with compute apps ['1047560']"
+
+    def _require(ok, cause):
+        if not ok:
+>           raise ValueError(cause)
+E           ValueError: GPU 1 is busy with compute apps ['1047560']
+
+tools/exp06_finalize.py:180: ValueError
+_____ test_confirmatory_approvals_must_be_committed_at_the_reviewed_commit _____
+
+repo = (PosixPath('/tmp/pytest-exp11-2026-09-28_07:55:15/test_confirmatory_approvals_mu0/repo'), '204c28d52a7ef8d7e63ad8e33a8124615d2eddba')
+fake_nvidia_smi = <function fake_nvidia_smi.<locals>.apps at 0x7a0148622670>
+tmp_path = PosixPath('/tmp/pytest-exp11-2026-09-28_07:55:15/test_confirmatory_approvals_mu0')
+
+    def test_confirmatory_approvals_must_be_committed_at_the_reviewed_commit(repo, fake_nvidia_smi,
+                                                                            tmp_path):
+        """Finding 2: hashing an arbitrary file at spawn proves consistency, not review."""
+        root, head = repo
+        tracked = root / exp06_profiles.APPROVED_RELATIVE
+        outside = tmp_path / 'approved_digests.json'
+        outside.write_bytes(tracked.read_bytes())
+        with pytest.raises(ValueError, match='outside'):
+            exp06_finalize.preflight('full', 1, head, repo=root, approved=outside)
+        uncommitted = root / 'worklog/approved_digests_variant.json'
+        uncommitted.write_bytes(tracked.read_bytes())
+        with pytest.raises(ValueError, match='not tracked'):
+            exp06_finalize.preflight('full', 1, head, repo=root, approved=uncommitted)
+        original = tracked.read_bytes()
+        tracked.write_bytes(original + b'\n')
+        with pytest.raises(ValueError, match='committed'):
+            exp06_finalize.preflight('full', 1, head, repo=root, approved=tracked)
+        tracked.write_bytes(original)
+>       assert exp06_finalize.preflight('full', 1, head, repo=root, approved=tracked)
+
+tests/test_exp06_launch.py:605: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/exp06_finalize.py:1981: in preflight
+    _require(not apps, 'GPU {} is busy with compute apps {}'.format(gpu, apps))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+ok = False, cause = "GPU 1 is busy with compute apps ['1047560']"
+
+    def _require(ok, cause):
+        if not ok:
+>           raise ValueError(cause)
+E           ValueError: GPU 1 is busy with compute apps ['1047560']
+
+tools/exp06_finalize.py:180: ValueError
+_ test_finish_restores_all_three_artefacts_when_a_publication_fails[*/.finish_tmp.*/yaw_pilot_results.md-the Markdown report] _
+
+scratch = {'assets': '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_restores_all_three0/repo/worklog/worklog_yixun/exp_10_ya...est-exp11-2026-09-28_07:55:15/test_finish_restores_all_three0/repo/worklog/worklog_yixun/exp_10_yaw_pilot_claude', ...}
+pattern = '*/.finish_tmp.*/yaw_pilot_results.md', stage = 'the Markdown report'
+
+    @pytest.mark.parametrize("pattern,stage", [
+        ("*/.finish_tmp.*/yaw_pilot_results.md", "the Markdown report"),
+        ("*/.finish_tmp.*/yaw_pilot_01_results.html", "the HTML page")])
+    def test_finish_restores_all_three_artefacts_when_a_publication_fails(scratch, pattern, stage):
+        """Round-4 finding 2: the previous asset set was deleted before both reports were
+        published, so a failing final rename left new assets, a new HTML page and the *old*
+        Markdown -- three generations mixed -- while the cleanup claimed nothing had changed."""
+        assert run_finish(scratch).returncode == 0          # a real published set to roll back to
+        before = publication_snapshot(scratch)
+        # regenerate from the same evidence: the publication must fail at `stage` this time
+        done = run_finish(scratch, env=failing_mv(scratch, pattern))
+>       assert done.returncode != 0
+E       AssertionError: assert 0 != 0
+E        +  where 0 = CompletedProcess(args=['bash', '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_restores_all_three0/repo/worklog/wor...exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude\n').returncode
+
+tests/test_exp10_record_tools.py:1425: AssertionError
+_ test_finish_restores_all_three_artefacts_when_a_publication_fails[*/.finish_tmp.*/yaw_pilot_01_results.html-the HTML page] _
+
+scratch = {'assets': '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_restores_all_three1/repo/worklog/worklog_yixun/exp_10_ya...est-exp11-2026-09-28_07:55:15/test_finish_restores_all_three1/repo/worklog/worklog_yixun/exp_10_yaw_pilot_claude', ...}
+pattern = '*/.finish_tmp.*/yaw_pilot_01_results.html', stage = 'the HTML page'
+
+    @pytest.mark.parametrize("pattern,stage", [
+        ("*/.finish_tmp.*/yaw_pilot_results.md", "the Markdown report"),
+        ("*/.finish_tmp.*/yaw_pilot_01_results.html", "the HTML page")])
+    def test_finish_restores_all_three_artefacts_when_a_publication_fails(scratch, pattern, stage):
+        """Round-4 finding 2: the previous asset set was deleted before both reports were
+        published, so a failing final rename left new assets, a new HTML page and the *old*
+        Markdown -- three generations mixed -- while the cleanup claimed nothing had changed."""
+        assert run_finish(scratch).returncode == 0          # a real published set to roll back to
+        before = publication_snapshot(scratch)
+        # regenerate from the same evidence: the publication must fail at `stage` this time
+        done = run_finish(scratch, env=failing_mv(scratch, pattern))
+>       assert done.returncode != 0
+E       AssertionError: assert 0 != 0
+E        +  where 0 = CompletedProcess(args=['bash', '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_restores_all_three1/repo/worklog/wor...exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude\n').returncode
+
+tests/test_exp10_record_tools.py:1425: AssertionError
+_____ test_finish_removes_a_publication_it_created_when_the_next_one_fails _____
+
+scratch = {'assets': '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_removes_a_publicat0/repo/worklog/worklog_yixun/exp_10_ya...est-exp11-2026-09-28_07:55:15/test_finish_removes_a_publicat0/repo/worklog/worklog_yixun/exp_10_yaw_pilot_claude', ...}
+
+    def test_finish_removes_a_publication_it_created_when_the_next_one_fails(scratch):
+        """The same rollback when there was nothing published before: the artefacts this run
+        created are removed, so no half-published generation is left certified."""
+        import shutil
+        shutil.rmtree(scratch["generated"])
+        for name in ("yaw_pilot_01_results.html", "yaw_pilot_results.md"):
+            os.remove(os.path.join(scratch["record"], name))
+        done = run_finish(scratch, env=failing_mv(scratch, "*/.finish_tmp.*/yaw_pilot_results.md"))
+>       assert done.returncode != 0
+E       AssertionError: assert 0 != 0
+E        +  where 0 = CompletedProcess(args=['bash', '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_removes_a_publicat0/repo/worklog/wor...exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude\n').returncode
+
+tests/test_exp10_record_tools.py:1440: AssertionError
+_______ test_finish_rolls_back_all_three_artefacts_when_it_is_terminated _______
+
+scratch = {'assets': '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_rolls_back_all_thr0/repo/worklog/worklog_yixun/exp_10_ya...est-exp11-2026-09-28_07:55:15/test_finish_rolls_back_all_thr0/repo/worklog/worklog_yixun/exp_10_yaw_pilot_claude', ...}
+
+    def test_finish_rolls_back_all_three_artefacts_when_it_is_terminated(scratch):
+        """Round-5 finding 1, the blocker: SIGTERM immediately before the final rename left new
+        assets, a new HTML page and the *old* Markdown -- and the EXIT cleanup then deleted both
+        backups, because it only restored what the destination no longer had.  The previous
+        publication was gone for good.  A terminated publication has to roll all three back."""
+        assert run_finish(scratch).returncode == 0          # a real published set to roll back to
+        before = publication_snapshot(scratch)
+        done = run_finish(scratch,
+                          env=terminating_mv(scratch, "*/.finish_tmp.*/yaw_pilot_results.md"))
+>       assert done.returncode == 143, out(done)     # the TERM trap ran; the shell was not killed
+E       AssertionError: [08:41:27] HEAD unknown; repo /tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_rolls_back_all_thr0/repo; expect n=32
+E         validate_runs: 4 arms + the CPU record validated and bound under /tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_rolls_back_all_thr0/repo/ckpt/exp10
+E         [08:41:28] preflight passed: four GPU arms + the CPU record validated and bound
+E         wrote ckpt/exp10/summary/yaw_pilot_summary.json 4 arms
+E         wrote ckpt/exp10/cpu_protocol/summary/yaw_pilot_summary.json 1 arms
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated.staging.3986386/backend_sensitivity_released_k8.md worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated.staging.3986386/backend_sensitivity_released_k8.json 20 rows
+E         not copied (regenerated from the summary, or not named by it): yaw_pilot_gaps_all_arms.pdf, yaw_pilot_gaps_all_arms.png, yaw_pilot_gaps_control_k8.pdf, yaw_pilot_gaps_control_k8.png, yaw_pilot_gaps_cyl_k8.pdf, yaw_pilot_gaps_cyl_k8.png, yaw_pilot_gaps_released_k1.pdf, yaw_pilot_gaps_released_k1.png, yaw_pilot_gaps_released_k8.pdf, yaw_pilot_gaps_released_k8.png
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/.finish_tmp.3986386/yaw_pilot_01_results.html assets 13
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/.finish_tmp.3986386/yaw_pilot_results.md
+E         [08:41:39] staged 46 assets; SHA256SUMS verifies
+E         [08:41:39] rollback copies of what this run replaces: complete, verified and marked; publishing now
+E         [08:41:39] FINISH DONE: 46 assets published in worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude
+E         
+E       assert 0 == 143
+E        +  where 0 = CompletedProcess(args=['bash', '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_rolls_back_all_thr0/repo/worklog/wor...exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude\n').returncode
+
+tests/test_exp10_record_tools.py:1456: AssertionError
+_________ test_finish_keeps_an_artefacts_absence_when_it_is_terminated _________
+
+scratch = {'assets': '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_keeps_an_artefacts0/repo/worklog/worklog_yixun/exp_10_ya...est-exp11-2026-09-28_07:55:15/test_finish_keeps_an_artefacts0/repo/worklog/worklog_yixun/exp_10_yaw_pilot_claude', ...}
+
+    def test_finish_keeps_an_artefacts_absence_when_it_is_terminated(scratch):
+        """The rollback has to preserve original *absence* too: a report that did not exist
+        before the run must not exist after a terminated one.  Here the shim lets the Markdown
+        rename through and terminates the script immediately afterwards, so the rollback has to
+        remove an artefact this run created rather than put an earlier one back."""
+        os.remove(os.path.join(scratch["record"], "yaw_pilot_results.md"))
+        before = publication_snapshot(scratch)
+        done = run_finish(scratch,
+                          env=terminating_mv(scratch, "*/.finish_tmp.*/yaw_pilot_results.md",
+                                             after='exec /usr/bin/mv "$@"'))
+>       assert done.returncode == 143, out(done)
+E       AssertionError: [08:41:40] HEAD unknown; repo /tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_keeps_an_artefacts0/repo; expect n=32
+E         validate_runs: 4 arms + the CPU record validated and bound under /tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_keeps_an_artefacts0/repo/ckpt/exp10
+E         [08:41:40] preflight passed: four GPU arms + the CPU record validated and bound
+E         wrote ckpt/exp10/summary/yaw_pilot_summary.json 4 arms
+E         wrote ckpt/exp10/cpu_protocol/summary/yaw_pilot_summary.json 1 arms
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated.staging.3986619/backend_sensitivity_released_k8.md worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated.staging.3986619/backend_sensitivity_released_k8.json 20 rows
+E         not copied (regenerated from the summary, or not named by it): yaw_pilot_gaps_all_arms.pdf, yaw_pilot_gaps_all_arms.png, yaw_pilot_gaps_control_k8.pdf, yaw_pilot_gaps_control_k8.png, yaw_pilot_gaps_cyl_k8.pdf, yaw_pilot_gaps_cyl_k8.png, yaw_pilot_gaps_released_k1.pdf, yaw_pilot_gaps_released_k1.png, yaw_pilot_gaps_released_k8.pdf, yaw_pilot_gaps_released_k8.png
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/.finish_tmp.3986619/yaw_pilot_01_results.html assets 13
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/.finish_tmp.3986619/yaw_pilot_results.md
+E         [08:41:51] staged 46 assets; SHA256SUMS verifies
+E         [08:41:51] rollback copies of what this run replaces: complete, verified and marked; publishing now
+E         [08:41:51] FINISH DONE: 46 assets published in worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude
+E         
+E       assert 0 == 143
+E        +  where 0 = CompletedProcess(args=['bash', '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_keeps_an_artefacts0/repo/worklog/wor...exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude\n').returncode
+
+tests/test_exp10_record_tools.py:1473: AssertionError
+_________ test_finish_keeps_the_backups_when_the_rollback_itself_fails _________
+
+scratch = {'assets': '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_keeps_the_backups_0/repo/worklog/worklog_yixun/exp_10_ya...est-exp11-2026-09-28_07:55:15/test_finish_keeps_the_backups_0/repo/worklog/worklog_yixun/exp_10_yaw_pilot_claude', ...}
+
+    def test_finish_keeps_the_backups_when_the_rollback_itself_fails(scratch):
+        """If restoration cannot put an artefact back, the backup is the only copy of the
+        previous publication left: it is kept and named, never deleted by the EXIT cleanup."""
+        assert run_finish(scratch).returncode == 0
+        record = scratch["record"]
+        env = mv_shim(scratch, "*/.finish_tmp.*/yaw_pilot_results.md",
+                      'chmod a-w %s\n    echo "simulated mv I/O error on $1" >&2\n    exit 43'
+                      % shlex.quote(record))
+        try:
+            done = run_finish(scratch, env=env)
+>           assert done.returncode != 0
+E           AssertionError: assert 0 != 0
+E            +  where 0 = CompletedProcess(args=['bash', '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_keeps_the_backups_0/repo/worklog/wor...exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude\n').returncode
+
+tests/test_exp10_record_tools.py:1489: AssertionError
+_ test_finish_refuses_an_incomplete_rollback_copy[exit 44-the copy fails after writing part of the file] _
+
+scratch = {'assets': '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_refuses_an_incompl1/repo/worklog/worklog_yixun/exp_10_ya...est-exp11-2026-09-28_07:55:15/test_finish_refuses_an_incompl1/repo/worklog/worklog_yixun/exp_10_yaw_pilot_claude', ...}
+tail = 'exit 44', how = 'the copy fails after writing part of the file'
+
+    @pytest.mark.parametrize("tail,how", [
+        ("exit 44", "the copy fails after writing part of the file"),
+        ("exit 0", "the copy writes part of the file and reports success")])
+    def test_finish_refuses_an_incomplete_rollback_copy(scratch, tail, how):
+        """Round-6 finding 1, the blocker: ``PUB_STATE=started`` preceded the report backups, so a
+        ``cp`` that failed half-way left a truncated backup -- and restore() took its existence
+        for proof of completeness, deleted the *intact* published HTML page and installed the
+        truncation (``OLD HTML`` became ``OLD ``), with no backup left anywhere afterwards.  The
+        backups are now made, verified and marked complete while nothing has been published yet."""
+        before = publication_snapshot(scratch)              # the publication to protect
+        done = run_finish(scratch, env=truncating_cp(
+            scratch, "*/.finish_prev.*/yaw_pilot_01_results.html", tail=tail))
+>       assert done.returncode != 0, out(done)
+E       AssertionError: [08:42:16] HEAD unknown; repo /tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_refuses_an_incompl1/repo; expect n=32
+E         validate_runs: 4 arms + the CPU record validated and bound under /tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_refuses_an_incompl1/repo/ckpt/exp10
+E         [08:42:16] preflight passed: four GPU arms + the CPU record validated and bound
+E         wrote ckpt/exp10/summary/yaw_pilot_summary.json 4 arms
+E         wrote ckpt/exp10/cpu_protocol/summary/yaw_pilot_summary.json 1 arms
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated.staging.3987271/backend_sensitivity_released_k8.md worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated.staging.3987271/backend_sensitivity_released_k8.json 20 rows
+E         not copied (regenerated from the summary, or not named by it): yaw_pilot_gaps_all_arms.pdf, yaw_pilot_gaps_all_arms.png, yaw_pilot_gaps_control_k8.pdf, yaw_pilot_gaps_control_k8.png, yaw_pilot_gaps_cyl_k8.pdf, yaw_pilot_gaps_cyl_k8.png, yaw_pilot_gaps_released_k1.pdf, yaw_pilot_gaps_released_k1.png, yaw_pilot_gaps_released_k8.pdf, yaw_pilot_gaps_released_k8.png
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/.finish_tmp.3987271/yaw_pilot_01_results.html assets 13
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/.finish_tmp.3987271/yaw_pilot_results.md
+E         [08:42:27] staged 46 assets; SHA256SUMS verifies
+E         [08:42:27] rollback copies of what this run replaces: complete, verified and marked; publishing now
+E         [08:42:27] FINISH DONE: 46 assets published in worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude
+E         
+E       assert 0 != 0
+E        +  where 0 = CompletedProcess(args=['bash', '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_refuses_an_incompl1/repo/worklog/wor...exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude\n').returncode
+
+tests/test_exp10_record_tools.py:1515: AssertionError
+_ test_finish_refuses_an_incomplete_rollback_copy[exit 0-the copy writes part of the file and reports success] _
+
+scratch = {'assets': '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_refuses_an_incompl2/repo/worklog/worklog_yixun/exp_10_ya...est-exp11-2026-09-28_07:55:15/test_finish_refuses_an_incompl2/repo/worklog/worklog_yixun/exp_10_yaw_pilot_claude', ...}
+tail = 'exit 0', how = 'the copy writes part of the file and reports success'
+
+    @pytest.mark.parametrize("tail,how", [
+        ("exit 44", "the copy fails after writing part of the file"),
+        ("exit 0", "the copy writes part of the file and reports success")])
+    def test_finish_refuses_an_incomplete_rollback_copy(scratch, tail, how):
+        """Round-6 finding 1, the blocker: ``PUB_STATE=started`` preceded the report backups, so a
+        ``cp`` that failed half-way left a truncated backup -- and restore() took its existence
+        for proof of completeness, deleted the *intact* published HTML page and installed the
+        truncation (``OLD HTML`` became ``OLD ``), with no backup left anywhere afterwards.  The
+        backups are now made, verified and marked complete while nothing has been published yet."""
+        before = publication_snapshot(scratch)              # the publication to protect
+        done = run_finish(scratch, env=truncating_cp(
+            scratch, "*/.finish_prev.*/yaw_pilot_01_results.html", tail=tail))
+>       assert done.returncode != 0, out(done)
+E       AssertionError: [08:42:28] HEAD unknown; repo /tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_refuses_an_incompl2/repo; expect n=32
+E         validate_runs: 4 arms + the CPU record validated and bound under /tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_refuses_an_incompl2/repo/ckpt/exp10
+E         [08:42:28] preflight passed: four GPU arms + the CPU record validated and bound
+E         wrote ckpt/exp10/summary/yaw_pilot_summary.json 4 arms
+E         wrote ckpt/exp10/cpu_protocol/summary/yaw_pilot_summary.json 1 arms
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated.staging.3987557/backend_sensitivity_released_k8.md worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated.staging.3987557/backend_sensitivity_released_k8.json 20 rows
+E         not copied (regenerated from the summary, or not named by it): yaw_pilot_gaps_all_arms.pdf, yaw_pilot_gaps_all_arms.png, yaw_pilot_gaps_control_k8.pdf, yaw_pilot_gaps_control_k8.png, yaw_pilot_gaps_cyl_k8.pdf, yaw_pilot_gaps_cyl_k8.png, yaw_pilot_gaps_released_k1.pdf, yaw_pilot_gaps_released_k1.png, yaw_pilot_gaps_released_k8.pdf, yaw_pilot_gaps_released_k8.png
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/.finish_tmp.3987557/yaw_pilot_01_results.html assets 13
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/.finish_tmp.3987557/yaw_pilot_results.md
+E         [08:42:39] staged 46 assets; SHA256SUMS verifies
+E         [08:42:39] rollback copies of what this run replaces: complete, verified and marked; publishing now
+E         [08:42:39] FINISH DONE: 46 assets published in worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude
+E         
+E       assert 0 != 0
+E        +  where 0 = CompletedProcess(args=['bash', '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_refuses_an_incompl2/repo/worklog/wor...exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude\n').returncode
+
+tests/test_exp10_record_tools.py:1515: AssertionError
+_ test_finish_keeps_the_publication_when_it_is_terminated_while_backing_it_up[kill -TERM "$PPID"\n    /usr/bin/head -c 4 "${@: -2:1}" > "${@: -1}"\n    exit 44-the copy is cut in half, as the round-6 review injected it] _
+
+scratch = {'assets': '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_keeps_the_publicat0/repo/worklog/worklog_yixun/exp_10_ya...est-exp11-2026-09-28_07:55:15/test_finish_keeps_the_publicat0/repo/worklog/worklog_yixun/exp_10_yaw_pilot_claude', ...}
+body = 'kill -TERM "$PPID"\n    /usr/bin/head -c 4 "${@: -2:1}" > "${@: -1}"\n    exit 44'
+how = 'the copy is cut in half, as the round-6 review injected it'
+
+    @pytest.mark.parametrize("body,how", [
+        ('kill -TERM "$PPID"\n    ' + TRUNCATE_COPY + '\n    exit 44',
+         "the copy is cut in half, as the round-6 review injected it"),
+        ('kill -TERM "$PPID"\n    exec /usr/bin/cp "$@"',
+         "the copy itself completes and the signal ends the run")])
+    def test_finish_keeps_the_publication_when_it_is_terminated_while_backing_it_up(scratch, body,
+                                                                                   how):
+        """Round-6 finding 1, the interruption half: the same truncated backup was installed over
+        the intact HTML page when SIGTERM arrived during backup creation, because the publication
+        was already ``started``.  Every backup is now made while it is still ``idle``, so a signal
+        there can only end the run -- there is nothing published for it to leave half-replaced."""
+        before = publication_snapshot(scratch)
+        done = run_finish(scratch, env=cp_shim(
+            scratch, "*/.finish_prev.*/yaw_pilot_01_results.html",
+            'echo "the test is terminating the script while it copies ${@: -1}" >&2\n    ' + body))
+>       assert done.returncode == 143, out(done)            # the TERM trap ran; nothing was killed
+E       AssertionError: [08:42:40] HEAD unknown; repo /tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_keeps_the_publicat0/repo; expect n=32
+E         validate_runs: 4 arms + the CPU record validated and bound under /tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_keeps_the_publicat0/repo/ckpt/exp10
+E         [08:42:40] preflight passed: four GPU arms + the CPU record validated and bound
+E         wrote ckpt/exp10/summary/yaw_pilot_summary.json 4 arms
+E         wrote ckpt/exp10/cpu_protocol/summary/yaw_pilot_summary.json 1 arms
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated.staging.3987770/backend_sensitivity_released_k8.md worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated.staging.3987770/backend_sensitivity_released_k8.json 20 rows
+E         not copied (regenerated from the summary, or not named by it): yaw_pilot_gaps_all_arms.pdf, yaw_pilot_gaps_all_arms.png, yaw_pilot_gaps_control_k8.pdf, yaw_pilot_gaps_control_k8.png, yaw_pilot_gaps_cyl_k8.pdf, yaw_pilot_gaps_cyl_k8.png, yaw_pilot_gaps_released_k1.pdf, yaw_pilot_gaps_released_k1.png, yaw_pilot_gaps_released_k8.pdf, yaw_pilot_gaps_released_k8.png
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/.finish_tmp.3987770/yaw_pilot_01_results.html assets 13
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/.finish_tmp.3987770/yaw_pilot_results.md
+E         [08:42:51] staged 46 assets; SHA256SUMS verifies
+E         [08:42:51] rollback copies of what this run replaces: complete, verified and marked; publishing now
+E         [08:42:51] FINISH DONE: 46 assets published in worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude
+E         
+E       assert 0 == 143
+E        +  where 0 = CompletedProcess(args=['bash', '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_keeps_the_publicat0/repo/worklog/wor...exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude\n').returncode
+
+tests/test_exp10_record_tools.py:1538: AssertionError
+_ test_finish_keeps_the_publication_when_it_is_terminated_while_backing_it_up[kill -TERM "$PPID"\n    exec /usr/bin/cp "$@"-the copy itself completes and the signal ends the run] _
+
+scratch = {'assets': '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_keeps_the_publicat1/repo/worklog/worklog_yixun/exp_10_ya...est-exp11-2026-09-28_07:55:15/test_finish_keeps_the_publicat1/repo/worklog/worklog_yixun/exp_10_yaw_pilot_claude', ...}
+body = 'kill -TERM "$PPID"\n    exec /usr/bin/cp "$@"'
+how = 'the copy itself completes and the signal ends the run'
+
+    @pytest.mark.parametrize("body,how", [
+        ('kill -TERM "$PPID"\n    ' + TRUNCATE_COPY + '\n    exit 44',
+         "the copy is cut in half, as the round-6 review injected it"),
+        ('kill -TERM "$PPID"\n    exec /usr/bin/cp "$@"',
+         "the copy itself completes and the signal ends the run")])
+    def test_finish_keeps_the_publication_when_it_is_terminated_while_backing_it_up(scratch, body,
+                                                                                   how):
+        """Round-6 finding 1, the interruption half: the same truncated backup was installed over
+        the intact HTML page when SIGTERM arrived during backup creation, because the publication
+        was already ``started``.  Every backup is now made while it is still ``idle``, so a signal
+        there can only end the run -- there is nothing published for it to leave half-replaced."""
+        before = publication_snapshot(scratch)
+        done = run_finish(scratch, env=cp_shim(
+            scratch, "*/.finish_prev.*/yaw_pilot_01_results.html",
+            'echo "the test is terminating the script while it copies ${@: -1}" >&2\n    ' + body))
+>       assert done.returncode == 143, out(done)            # the TERM trap ran; nothing was killed
+E       AssertionError: [08:42:52] HEAD unknown; repo /tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_keeps_the_publicat1/repo; expect n=32
+E         validate_runs: 4 arms + the CPU record validated and bound under /tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_keeps_the_publicat1/repo/ckpt/exp10
+E         [08:42:52] preflight passed: four GPU arms + the CPU record validated and bound
+E         wrote ckpt/exp10/summary/yaw_pilot_summary.json 4 arms
+E         wrote ckpt/exp10/cpu_protocol/summary/yaw_pilot_summary.json 1 arms
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated.staging.3987994/backend_sensitivity_released_k8.md worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated.staging.3987994/backend_sensitivity_released_k8.json 20 rows
+E         not copied (regenerated from the summary, or not named by it): yaw_pilot_gaps_all_arms.pdf, yaw_pilot_gaps_all_arms.png, yaw_pilot_gaps_control_k8.pdf, yaw_pilot_gaps_control_k8.png, yaw_pilot_gaps_cyl_k8.pdf, yaw_pilot_gaps_cyl_k8.png, yaw_pilot_gaps_released_k1.pdf, yaw_pilot_gaps_released_k1.png, yaw_pilot_gaps_released_k8.pdf, yaw_pilot_gaps_released_k8.png
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/.finish_tmp.3987994/yaw_pilot_01_results.html assets 13
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/.finish_tmp.3987994/yaw_pilot_results.md
+E         [08:43:04] staged 46 assets; SHA256SUMS verifies
+E         [08:43:04] rollback copies of what this run replaces: complete, verified and marked; publishing now
+E         [08:43:04] FINISH DONE: 46 assets published in worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude
+E         
+E       assert 0 == 143
+E        +  where 0 = CompletedProcess(args=['bash', '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_keeps_the_publicat1/repo/worklog/wor...exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude\n').returncode
+
+tests/test_exp10_record_tools.py:1538: AssertionError
+_______ test_finish_never_installs_a_rollback_copy_that_lost_its_marker ________
+
+scratch = {'assets': '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_never_installs_a_r0/repo/worklog/worklog_yixun/exp_10_ya...est-exp11-2026-09-28_07:55:15/test_finish_never_installs_a_r0/repo/worklog/worklog_yixun/exp_10_yaw_pilot_claude', ...}
+
+    def test_finish_never_installs_a_rollback_copy_that_lost_its_marker(scratch):
+        """Round-6 finding 1, the other half: a copy is installed only while it is *known* whole.
+    
+        The HTML page has already been published when its rollback copy is truncated behind the
+        script's back and its completion marker removed, so the rollback may not put those bytes
+        anywhere: it leaves the published page as it is, keeps the copy, names it as INCOMPLETE
+        and says the publication could not be put back in full -- while the two artefacts whose
+        copies are still marked complete do go back.
+        """
+        before = publication_snapshot(scratch)
+        env = shim(scratch, "mv", '"$1"', [
+            ("*/.finish_tmp.*/yaw_pilot_results.md",
+             'A=$(dirname "$(dirname "$1")")\n'
+             '    for b in "$A"/.finish_prev.*/yaw_pilot_01_results.html; do\n'
+             '      /usr/bin/head -c 4 "$b" > "$b.part"; /usr/bin/mv "$b.part" "$b"\n'
+             '      /usr/bin/rm -f "$b%s"\n'
+             '    done\n'
+             '    echo "the test truncated the HTML rollback copy and unmarked it" >&2\n'
+             '    exit 43' % BACKUP_MARKER)])
+        done = run_finish(scratch, env=env)
+>       assert done.returncode == 9, out(done)
+E       AssertionError: [08:43:04] HEAD unknown; repo /tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_never_installs_a_r0/repo; expect n=32
+E         validate_runs: 4 arms + the CPU record validated and bound under /tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_never_installs_a_r0/repo/ckpt/exp10
+E         [08:43:04] preflight passed: four GPU arms + the CPU record validated and bound
+E         wrote ckpt/exp10/summary/yaw_pilot_summary.json 4 arms
+E         wrote ckpt/exp10/cpu_protocol/summary/yaw_pilot_summary.json 1 arms
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated.staging.3988203/backend_sensitivity_released_k8.md worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated.staging.3988203/backend_sensitivity_released_k8.json 20 rows
+E         not copied (regenerated from the summary, or not named by it): yaw_pilot_gaps_all_arms.pdf, yaw_pilot_gaps_all_arms.png, yaw_pilot_gaps_control_k8.pdf, yaw_pilot_gaps_control_k8.png, yaw_pilot_gaps_cyl_k8.pdf, yaw_pilot_gaps_cyl_k8.png, yaw_pilot_gaps_released_k1.pdf, yaw_pilot_gaps_released_k1.png, yaw_pilot_gaps_released_k8.pdf, yaw_pilot_gaps_released_k8.png
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/.finish_tmp.3988203/yaw_pilot_01_results.html assets 13
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/.finish_tmp.3988203/yaw_pilot_results.md
+E         [08:43:16] staged 46 assets; SHA256SUMS verifies
+E         [08:43:16] rollback copies of what this run replaces: complete, verified and marked; publishing now
+E         [08:43:16] FINISH DONE: 46 assets published in worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude
+E         
+E       assert 0 == 9
+E        +  where 0 = CompletedProcess(args=['bash', '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_never_installs_a_r0/repo/worklog/wor...exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude\n').returncode
+
+tests/test_exp10_record_tools.py:1569: AssertionError
+______ test_finish_completes_the_rollback_when_it_is_terminated_during_it ______
+
+scratch = {'assets': '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_completes_the_roll0/repo/worklog/worklog_yixun/exp_10_ya...est-exp11-2026-09-28_07:55:15/test_finish_completes_the_roll0/repo/worklog/worklog_yixun/exp_10_yaw_pilot_claude', ...}
+
+    def test_finish_completes_the_rollback_when_it_is_terminated_during_it(scratch):
+        """Round-6 finding 2: the explicit rollback marked itself ``rolled_back`` before it had put
+        anything back and left TERM / INT / HUP armed, so SIGTERM during the asset restoration
+        exited 143 with the old assets, the *new* HTML page and the old Markdown -- three
+        generations mixed -- while the EXIT trap, seeing ``rolled_back``, did no more."""
+        before = publication_snapshot(scratch)
+        env = shim(scratch, "mv", '"$1"', [
+            ("*/.finish_tmp.*/yaw_pilot_results.md",        # the last publication fails ...
+             'echo "simulated mv I/O error on $1" >&2\n    exit 43'),
+            ("*/generated.previous.*",                      # ... and a signal arrives inside the
+             'echo "the test terminates the script inside the rollback" >&2\n'
+             '    kill -TERM "$PPID"')])                    # rollback; the rename still happens
+        done = run_finish(scratch, env=env)
+        # A failure triggered this rollback, so the failure's status is what is reported: TERM was
+        # ignored (SIG_IGN) for the whole rollback, so the signal is discarded rather than queued.
+>       assert done.returncode == 9, out(done)
+E       AssertionError: [08:43:16] HEAD unknown; repo /tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_completes_the_roll0/repo; expect n=32
+E         validate_runs: 4 arms + the CPU record validated and bound under /tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_completes_the_roll0/repo/ckpt/exp10
+E         [08:43:16] preflight passed: four GPU arms + the CPU record validated and bound
+E         wrote ckpt/exp10/summary/yaw_pilot_summary.json 4 arms
+E         wrote ckpt/exp10/cpu_protocol/summary/yaw_pilot_summary.json 1 arms
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated.staging.3988445/backend_sensitivity_released_k8.md worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated.staging.3988445/backend_sensitivity_released_k8.json 20 rows
+E         not copied (regenerated from the summary, or not named by it): yaw_pilot_gaps_all_arms.pdf, yaw_pilot_gaps_all_arms.png, yaw_pilot_gaps_control_k8.pdf, yaw_pilot_gaps_control_k8.png, yaw_pilot_gaps_cyl_k8.pdf, yaw_pilot_gaps_cyl_k8.png, yaw_pilot_gaps_released_k1.pdf, yaw_pilot_gaps_released_k1.png, yaw_pilot_gaps_released_k8.pdf, yaw_pilot_gaps_released_k8.png
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/.finish_tmp.3988445/yaw_pilot_01_results.html assets 13
+E         wrote worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/.finish_tmp.3988445/yaw_pilot_results.md
+E         [08:43:28] staged 46 assets; SHA256SUMS verifies
+E         [08:43:28] rollback copies of what this run replaces: complete, verified and marked; publishing now
+E         [08:43:28] FINISH DONE: 46 assets published in worklog/worklog_yixun/exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude
+E         
+E       assert 0 == 9
+E        +  where 0 = CompletedProcess(args=['bash', '/tmp/pytest-exp11-2026-09-28_07:55:15/test_finish_completes_the_roll0/repo/worklog/wor...exp_10_yaw_pilot_claude/yaw_pilot_results_assets/generated; report in worklog/worklog_yixun/exp_10_yaw_pilot_claude\n').returncode
+
+tests/test_exp10_record_tools.py:1601: AssertionError
+______________ test_the_approval_gate_refuses_the_all_null_record ______________
+
+    def test_the_approval_gate_refuses_the_all_null_record():
+        import subprocess
+        head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(REPO),
+                                       text=True).strip()
+        with pytest.raises(ValueError, match='do not admit this run|not approved'):
+>           final.approval_gate('full', head, str(exp11_profiles.APPROVED_DIGESTS_PATH),
+                                False, REPO)
+E           Failed: DID NOT RAISE <class 'ValueError'>
+
+tests/test_exp11_finalize.py:235: Failed
+_________________________ test_committed_blob_binding __________________________
+
+tmp_path = PosixPath('/tmp/pytest-exp11-2026-09-28_07:55:15/test_committed_blob_binding0')
+
+    def test_committed_blob_binding(tmp_path):
+        """Only the bytes a reviewer committed at that commit admit a confirmatory run."""
+        head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(REPO),
+                                       text=True).strip()
+        approved, identity = profiles.load_approved_digests(profiles.APPROVED_DIGESTS_PATH,
+                                                            repo=REPO, commit=head)
+        assert identity['committed_at'] == head
+        assert identity['repo_relative'] == profiles.APPROVED_RELATIVE
+        with pytest.raises(ValueError, match='outside the repository'):
+            profiles.load_approved_digests(write(tmp_path, template()), repo=REPO, commit=head)
+        with pytest.raises(ValueError, match='both the repository and the commit'):
+            profiles.load_approved_digests(profiles.APPROVED_DIGESTS_PATH, repo=REPO)
+        blob, at_commit = profiles.approvals_at_commit(profiles.APPROVED_DIGESTS_PATH, REPO, head)
+>       assert blob['code']['train'] is None and at_commit['committed_at'] == head
+E       AssertionError: assert ('56004f44a2f88625882904ac622c6179c126cfef89333714eca5ff7ccc6fc0a8' is None)
+
+tests/test_exp11_profiles.py:133: AssertionError
+_____________________ test_the_int_handler_terminates_too ______________________
+
+tmp_path = PosixPath('/tmp/pytest-exp11-2026-09-28_07:55:15/test_the_int_handler_terminate0')
+
+    def test_the_int_handler_terminates_too(tmp_path):
+        root = tmp_path / 'xRIR_simpor_8_shot'
+        root.mkdir(parents=True)
+        result = lib(handler_replay(root, 'INT'), {'EXP11_TEST_ROOTS': '1'})
+        assert 'CONTINUED_AFTER_HANDLER' not in result.stdout
+>       assert result.returncode == 130, result.stdout[-400:]
+E       AssertionError: LOCK /tmp/pytest-exp11-2026-09-28_07:55:15/test_the_int_handler_terminate0/xRIR_simpor_8_shot/.publish.lock
+E         LOCKED /tmp/pytest-exp11-2026-09-28_07:55:15/test_the_int_handler_terminate0/xRIR_simpor_8_shot/.publish.lock mode=finalize
+E         NO_INT_TRAP
+E         
+E       assert 9 == 130
+E        +  where 9 = CompletedProcess(args=['bash', '-c', 'set -euo pipefail\nEXP11_LAUNCH_LIB=1 source tools/exp11_launch.sh\nARM_ROOT=/tm...-28_07:55:15/test_the_int_handler_terminate0/xRIR_simpor_8_shot/.publish.lock mode=finalize\nNO_INT_TRAP\n', stderr='').returncode
+
+tests/test_exp11_shell.py:625: AssertionError
+=============================== warnings summary ===============================
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/librosa/core/intervals.py:8: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+    from pkg_resources import resource_filename
+
+../../miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/pkg_resources/__init__.py:3154: DeprecationWarning: Deprecated call to `pkg_resources.declare_namespace('mpl_toolkits')`.
+  Implementing implicit namespace packages (as specified in PEP 420) is preferred to `pkg_resources.declare_namespace`. See https://setuptools.pypa.io/en/latest/references/keywords.html#keyword-namespace-packages
+    declare_namespace(pkg)
+
+tests/test_exp04_launcher.py: 1 warning
+tests/test_exp05_eval.py: 17 warnings
+tests/test_exp05_eval_launch.py: 11 warnings
+tests/test_exp05_full.py: 4 warnings
+tests/test_exp05_params.py: 10 warnings
+tests/test_exp05_profiles.py: 6 warnings
+tests/test_exp05_record_tools.py: 2 warnings
+tests/test_exp05_trainer.py: 5 warnings
+tests/test_exp06_eval.py: 3 warnings
+tests/test_exp06_factory.py: 4 warnings
+tests/test_exp06_finalize.py: 6 warnings
+tests/test_exp06_haa.py: 18 warnings
+tests/test_exp06_haa_pipeline.py: 9 warnings
+tests/test_exp06_mirror_probe.py: 5 warnings
+tests/test_exp06_recipe.py: 3 warnings
+tests/test_exp06_smoke.py: 3 warnings
+tests/test_exp06_summarize_haa.py: 9 warnings
+tests/test_exp06_train.py: 1 warning
+tests/test_exp07_launcher.py: 1 warning
+tests/test_exp10_yaw_pilot.py: 5 warnings
+tests/test_exp11_adapter.py: 7 warnings
+tests/test_exp11_finalize.py: 2 warnings
+tests/test_exp11_models.py: 2 warnings
+tests/test_exp11_recipe.py: 3 warnings
+tests/test_exp11_registry.py: 4 warnings
+tests/test_exp11_train.py: 1 warning
+tests/test_exp11_zeroshot_adapter.py: 2 warnings
+tests/test_train_yaw_aug.py: 1 warning
+tests/test_yaw_rotation.py: 1 warning
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+    warnings.warn(
+
+tests/test_exp04_launcher.py: 1 warning
+tests/test_exp05_eval.py: 17 warnings
+tests/test_exp05_eval_launch.py: 11 warnings
+tests/test_exp05_full.py: 4 warnings
+tests/test_exp05_params.py: 10 warnings
+tests/test_exp05_profiles.py: 6 warnings
+tests/test_exp05_record_tools.py: 2 warnings
+tests/test_exp05_trainer.py: 5 warnings
+tests/test_exp06_eval.py: 3 warnings
+tests/test_exp06_factory.py: 4 warnings
+tests/test_exp06_finalize.py: 6 warnings
+tests/test_exp06_haa.py: 18 warnings
+tests/test_exp06_haa_pipeline.py: 9 warnings
+tests/test_exp06_mirror_probe.py: 5 warnings
+tests/test_exp06_recipe.py: 3 warnings
+tests/test_exp06_smoke.py: 3 warnings
+tests/test_exp06_summarize_haa.py: 9 warnings
+tests/test_exp06_train.py: 1 warning
+tests/test_exp07_launcher.py: 1 warning
+tests/test_exp10_yaw_pilot.py: 5 warnings
+tests/test_exp11_adapter.py: 7 warnings
+tests/test_exp11_finalize.py: 2 warnings
+tests/test_exp11_models.py: 2 warnings
+tests/test_exp11_recipe.py: 3 warnings
+tests/test_exp11_registry.py: 4 warnings
+tests/test_exp11_train.py: 1 warning
+tests/test_exp11_zeroshot_adapter.py: 2 warnings
+tests/test_train_yaw_aug.py: 1 warning
+tests/test_yaw_rotation.py: 1 warning
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+    warnings.warn(msg)
+
+tests/test_exp06_encoder.py::test_shape_buffers_camera_and_signature
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+    return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+
+tests/test_exp06_mirror_probe.py::test_the_recomposed_forward_mixes_the_reference_log_spectrograms
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/torch/functional.py:641: UserWarning: stft with return_complex=False is deprecated. In a future pytorch release, stft will return complex tensors for all inputs, and return_complex=False will raise an error.
+  Note: you can still call torch.view_as_real on the complex output to recover the old return format. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:862.)
+    return _VF.stft(input, n_fft, hop_length, win_length, window,  # type: ignore[attr-defined]
+
+tests/test_exp11_summarize_haa.py::test_a_numerically_broken_interval_is_not_an_unavailable_statement
+tests/test_exp11_summarize_haa.py::test_a_refusal_raised_for_another_bootstrap_seed_is_not_unavailable
+tests/test_exp11_summarize_haa.py::test_an_unrelated_failure_with_finite_equal_seed_zero_endpoints_propagates
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/numpy/lib/function_base.py:550: RuntimeWarning: overflow encountered in multiply
+    avg = np.multiply(a, wgt,
+
+tests/test_exp11_summarize_haa.py::test_a_numerically_broken_interval_is_not_an_unavailable_statement
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/numpy/core/_methods.py:48: RuntimeWarning: overflow encountered in reduce
+    return umr_sum(a, axis, dtype, out, keepdims, initial, where)
+
+tests/test_exp11_summarize_haa.py::test_a_numerically_broken_interval_is_not_an_unavailable_statement
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/numpy/core/_methods.py:180: RuntimeWarning: overflow encountered in reduce
+    ret = umr_sum(arr, axis, dtype, out, keepdims, where=where)
+
+tests/test_exp11_summarize_haa.py::test_a_numerically_broken_interval_is_not_an_unavailable_statement
+tests/test_exp11_summarize_haa.py::test_a_refusal_raised_for_another_bootstrap_seed_is_not_unavailable
+tests/test_exp11_summarize_haa.py::test_an_unrelated_failure_with_finite_equal_seed_zero_endpoints_propagates
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/numpy/lib/function_base.py:4527: RuntimeWarning: invalid value encountered in subtract
+    diff_b_a = subtract(b, a)
+
+tests/test_exp11_summarize_haa.py::test_a_numerically_broken_interval_is_not_an_unavailable_statement
+tests/test_exp11_summarize_haa.py::test_a_refusal_raised_for_another_bootstrap_seed_is_not_unavailable
+tests/test_exp11_summarize_haa.py::test_an_unrelated_failure_with_finite_equal_seed_zero_endpoints_propagates
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/site-packages/numpy/lib/nanfunctions.py:1740: RuntimeWarning: invalid value encountered in subtract
+    np.subtract(arr, avg, out=arr, casting='unsafe', where=where)
+
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[paired_compare-RuntimeError]
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[paired_compare-KeyError]
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/runpy.py:127: RuntimeWarning: 'tools.paired_compare' found in sys.modules after import of package 'tools', but prior to execution of 'tools.paired_compare'; this may result in unpredictable behaviour
+    warn(RuntimeWarning(msg))
+
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[results_table-RuntimeError]
+tests/test_paired_compare.py::test_cli_runtime_error_is_concise[results_table-KeyError]
+  /home/yixunhu/miniconda3/envs/xRIR/lib/python3.8/runpy.py:127: RuntimeWarning: 'tools.results_table' found in sys.modules after import of package 'tools', but prior to execution of 'tools.results_table'; this may result in unpredictable behaviour
+    warn(RuntimeWarning(msg))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================= slowest 5 durations ==============================
+109.71s call     tests/test_exp07_provenance.py::test_train_data_identity_counts_the_real_protocol_splits
+75.48s setup    tests/test_exp06_summarize_haa.py::test_the_job_completion_schema_is_the_merged_finalizers
+55.24s setup    tests/test_exp06_haa_pipeline.py::test_a_complete_seed_is_an_admissible_arm
+52.91s setup    tests/test_exp06_profiles.py::test_every_present_key_gets_a_digest_and_absent_modules_are_noted
+52.84s call     tests/test_exp06_finalize.py::test_cli_reports_refusals_with_status_two
+=========================== short test summary info ============================
+FAILED tests/test_exp06_launch.py::test_preflight_accepts_a_clean_tree_at_the_reviewed_commit
+FAILED tests/test_exp06_launch.py::test_preflight_refuses_a_busy_gpu_only_where_it_matters
+FAILED tests/test_exp06_launch.py::test_preflight_refuses_a_live_or_unreadable_launch_pid
+FAILED tests/test_exp06_launch.py::test_preflight_scans_every_launch_location
+FAILED tests/test_exp06_launch.py::test_preflight_refuses_a_card_that_cannot_hold_the_smoke_budget
+FAILED tests/test_exp06_launch.py::test_an_unreadable_free_memory_query_refuses_the_smoke
+FAILED tests/test_exp06_launch.py::test_the_preflight_cli_takes_the_memory_floor
+FAILED tests/test_exp06_launch.py::test_preflight_admits_a_full_launch_whose_digests_match
+FAILED tests/test_exp06_launch.py::test_confirmatory_approvals_must_be_committed_at_the_reviewed_commit
+FAILED tests/test_exp10_record_tools.py::test_finish_restores_all_three_artefacts_when_a_publication_fails[*/.finish_tmp.*/yaw_pilot_results.md-the Markdown report]
+FAILED tests/test_exp10_record_tools.py::test_finish_restores_all_three_artefacts_when_a_publication_fails[*/.finish_tmp.*/yaw_pilot_01_results.html-the HTML page]
+FAILED tests/test_exp10_record_tools.py::test_finish_removes_a_publication_it_created_when_the_next_one_fails
+FAILED tests/test_exp10_record_tools.py::test_finish_rolls_back_all_three_artefacts_when_it_is_terminated
+FAILED tests/test_exp10_record_tools.py::test_finish_keeps_an_artefacts_absence_when_it_is_terminated
+FAILED tests/test_exp10_record_tools.py::test_finish_keeps_the_backups_when_the_rollback_itself_fails
+FAILED tests/test_exp10_record_tools.py::test_finish_refuses_an_incomplete_rollback_copy[exit 44-the copy fails after writing part of the file]
+FAILED tests/test_exp10_record_tools.py::test_finish_refuses_an_incomplete_rollback_copy[exit 0-the copy writes part of the file and reports success]
+FAILED tests/test_exp10_record_tools.py::test_finish_keeps_the_publication_when_it_is_terminated_while_backing_it_up[kill -TERM "$PPID"\n    /usr/bin/head -c 4 "${@: -2:1}" > "${@: -1}"\n    exit 44-the copy is cut in half, as the round-6 review injected it]
+FAILED tests/test_exp10_record_tools.py::test_finish_keeps_the_publication_when_it_is_terminated_while_backing_it_up[kill -TERM "$PPID"\n    exec /usr/bin/cp "$@"-the copy itself completes and the signal ends the run]
+FAILED tests/test_exp10_record_tools.py::test_finish_never_installs_a_rollback_copy_that_lost_its_marker
+FAILED tests/test_exp10_record_tools.py::test_finish_completes_the_rollback_when_it_is_terminated_during_it
+FAILED tests/test_exp11_finalize.py::test_the_approval_gate_refuses_the_all_null_record
+FAILED tests/test_exp11_profiles.py::test_committed_blob_binding - AssertionE...
+FAILED tests/test_exp11_shell.py::test_the_int_handler_terminates_too - Asser...
+24 failed, 4177 passed, 50 skipped, 311 warnings in 3618.71s (1:00:18)

@@ -1,1 +1,26 @@
 07:55:15 SUITE 2026-09-28_07:55:15 HEAD=6b70843d8453310d10dd7bc5ceabff126c416c97
+24 failed, 4177 passed, 50 skipped, 311 warnings in 3618.71s (1:00:18)
+FAILED tests/test_exp06_launch.py::test_preflight_accepts_a_clean_tree_at_the_reviewed_commit
+FAILED tests/test_exp06_launch.py::test_preflight_refuses_a_busy_gpu_only_where_it_matters
+FAILED tests/test_exp06_launch.py::test_preflight_refuses_a_live_or_unreadable_launch_pid
+FAILED tests/test_exp06_launch.py::test_preflight_scans_every_launch_location
+FAILED tests/test_exp06_launch.py::test_preflight_refuses_a_card_that_cannot_hold_the_smoke_budget
+FAILED tests/test_exp06_launch.py::test_an_unreadable_free_memory_query_refuses_the_smoke
+FAILED tests/test_exp06_launch.py::test_the_preflight_cli_takes_the_memory_floor
+FAILED tests/test_exp06_launch.py::test_preflight_admits_a_full_launch_whose_digests_match
+FAILED tests/test_exp06_launch.py::test_confirmatory_approvals_must_be_committed_at_the_reviewed_commit
+FAILED tests/test_exp10_record_tools.py::test_finish_restores_all_three_artefacts_when_a_publication_fails[*/.finish_tmp.*/yaw_pilot_results.md-the Markdown report]
+FAILED tests/test_exp10_record_tools.py::test_finish_restores_all_three_artefacts_when_a_publication_fails[*/.finish_tmp.*/yaw_pilot_01_results.html-the HTML page]
+FAILED tests/test_exp10_record_tools.py::test_finish_removes_a_publication_it_created_when_the_next_one_fails
+FAILED tests/test_exp10_record_tools.py::test_finish_rolls_back_all_three_artefacts_when_it_is_terminated
+FAILED tests/test_exp10_record_tools.py::test_finish_keeps_an_artefacts_absence_when_it_is_terminated
+FAILED tests/test_exp10_record_tools.py::test_finish_keeps_the_backups_when_the_rollback_itself_fails
+FAILED tests/test_exp10_record_tools.py::test_finish_refuses_an_incomplete_rollback_copy[exit 44-the copy fails after writing part of the file]
+FAILED tests/test_exp10_record_tools.py::test_finish_refuses_an_incomplete_rollback_copy[exit 0-the copy writes part of the file and reports success]
+FAILED tests/test_exp10_record_tools.py::test_finish_keeps_the_publication_when_it_is_terminated_while_backing_it_up[kill -TERM "$PPID"\n    /usr/bin/head -c 4 "${@: -2:1}" > "${@: -1}"\n    exit 44-the copy is cut in half, as the round-6 review injected it]
+FAILED tests/test_exp10_record_tools.py::test_finish_keeps_the_publication_when_it_is_terminated_while_backing_it_up[kill -TERM "$PPID"\n    exec /usr/bin/cp "$@"-the copy itself completes and the signal ends the run]
+FAILED tests/test_exp10_record_tools.py::test_finish_never_installs_a_rollback_copy_that_lost_its_marker
+FAILED tests/test_exp10_record_tools.py::test_finish_completes_the_rollback_when_it_is_terminated_during_it
+FAILED tests/test_exp11_finalize.py::test_the_approval_gate_refuses_the_all_null_record
+FAILED tests/test_exp11_profiles.py::test_committed_blob_binding - AssertionE...
+FAILED tests/test_exp11_shell.py::test_the_int_handler_terminates_too - Asser...
